@@ -24,8 +24,8 @@ import { serializeXml } from "@/lib/commcare/serializeXml";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupFixtureRow } from "@/lib/lookup/types";
 import { el, text } from "../elementBuilders";
-import { lookupFixtureCellText } from "./cellText";
 import type { LookupTableWireNaming, LookupWireNaming } from "./naming";
+import { workerFixtureRow } from "./row";
 
 /** Aggregate caps across every table one exported app references. */
 export const MAX_LOOKUP_FIXTURE_ROWS = 10_000;
@@ -60,22 +60,32 @@ function buildFixtureElement(
 	table: LookupTableWireNaming,
 	rows: readonly LookupFixtureRow[],
 ): Element {
-	const rowElements = rows.map((row) =>
-		el(
-			table.rowElementName,
-			{},
-			table.columns.map((column) => {
-				const value = lookupFixtureCellText(
-					column.dataType,
-					row.values[column.id],
-				);
-				return el(column.wireName, {}, value === "" ? [] : [text(value)]);
-			}),
-		),
-	);
+	const rowElements = rows.map((row) => {
+		const { name, attributes, children } = workerFixtureRow(table, row);
+		return el(
+			name,
+			attributes,
+			children.map((child) =>
+				el(
+					child.name,
+					child.attributes,
+					child.value === "" ? [] : [text(child.value)],
+				),
+			),
+		);
+	});
 	return el("fixture", { id: table.fixtureId }, [
 		el(table.listElementName, {}, rowElements),
 	]);
+}
+
+/** Count the fields actually emitted, including repeated and absent fields. */
+function rowCellCount(fixture: Element): number {
+	const list = fixture.children[0] as Element;
+	return list.children.reduce(
+		(count, row) => count + (row as Element).children.length,
+		0,
+	);
 }
 
 /**
@@ -88,6 +98,7 @@ export function buildLookupFixtures(
 	rowsByTable: ReadonlyMap<LookupTableId, readonly LookupFixtureRow[]>,
 ): CompiledLookupFixtureSet {
 	const fixtures = [...naming.tables]
+		.filter((table) => table.distribution !== "assigned")
 		.sort((left, right) =>
 			left.tag < right.tag ? -1 : left.tag > right.tag ? 1 : 0,
 		)
@@ -108,7 +119,7 @@ export function buildLookupFixtures(
 				xml,
 				bytes: Buffer.byteLength(xml, "utf8"),
 				rowCount: rows.length,
-				cellCount: rows.length * table.columns.length,
+				cellCount: rowCellCount(element),
 			};
 		});
 	return {
@@ -131,6 +142,26 @@ export interface PreparedLookupWire {
 	readonly fixtures: CompiledLookupFixtureSet;
 }
 
+/** The same counts serve a compiled fixture and a measured streamed fixture. */
+export type LookupFixtureMeasure = Pick<
+	CompiledLookupFixture,
+	"tableId" | "tag" | "rowCount" | "cellCount" | "bytes"
+>;
+export type LookupFixtureBudget = Omit<CompiledLookupFixtureSet, "fixtures"> & {
+	readonly fixtures: readonly LookupFixtureMeasure[];
+};
+
+export function lookupFixtureBudget(
+	fixtures: readonly LookupFixtureMeasure[],
+): LookupFixtureBudget {
+	return {
+		fixtures,
+		totalRows: fixtures.reduce((sum, fixture) => sum + fixture.rowCount, 0),
+		totalCells: fixtures.reduce((sum, fixture) => sum + fixture.cellCount, 0),
+		totalBytes: fixtures.reduce((sum, fixture) => sum + fixture.bytes, 0),
+	};
+}
+
 export interface LookupFixtureBudgetAxis {
 	readonly axis: "rows" | "cells" | "bytes";
 	readonly actual: number;
@@ -148,11 +179,11 @@ export interface LookupFixtureBudgetAxis {
  * tables an author would actually shrink.
  */
 export function lookupFixtureBudgetExcess(
-	set: CompiledLookupFixtureSet,
+	set: LookupFixtureBudget,
 ): readonly LookupFixtureBudgetAxis[] | null {
 	const axes: LookupFixtureBudgetAxis[] = [];
 	const contributors = (
-		amount: (fixture: CompiledLookupFixture) => number,
+		amount: (fixture: LookupFixtureMeasure) => number,
 	): LookupFixtureBudgetAxis["largestTables"] =>
 		[...set.fixtures]
 			.sort((left, right) => amount(right) - amount(left))

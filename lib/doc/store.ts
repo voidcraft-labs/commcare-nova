@@ -90,7 +90,7 @@ import type {
 	MutationResult,
 	PlacementHoldEntry,
 } from "@/lib/doc/types";
-import { recordFromEntries } from "@/lib/domain";
+import { FIELD_PROSE_SLOTS, recordFromEntries } from "@/lib/domain";
 import {
 	APP_GENESIS_FALLBACK_NAME,
 	NEW_APP_SETTINGS,
@@ -326,9 +326,9 @@ export interface HistoryStepOutcome {
  * Initial empty document state.
  *
  * Used as the starting value for freshly created stores and as a reset
- * target. All entity maps and order arrays start empty; nullable fields
- * (`connectType`, `caseTypes`) start as `null` to match the blueprint
- * schema (surveys and empty apps may omit them entirely).
+ * target. All entity maps and order arrays start empty; `connectRoles`
+ * starts empty and `caseTypes` as `null` to match the blueprint schema
+ * (surveys and empty apps may omit the catalog entirely).
  *
  * Identity-keyed records start with null prototypes, matching the post-hydrate
  * and post-mutation invariant before the first write has happened.
@@ -336,7 +336,7 @@ export interface HistoryStepOutcome {
 const EMPTY_DOC: BlueprintDoc = {
 	appId: "",
 	appName: APP_GENESIS_FALLBACK_NAME,
-	connectType: null,
+	connectRoles: [],
 	caseTypes: null,
 	appSettings: { ...NEW_APP_SETTINGS },
 	modules: recordFromEntries([]),
@@ -445,6 +445,7 @@ function affectsCaseWriteProjection(
 		case "declareCaseType":
 		case "retireCaseType":
 		case "addCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseProperty":
 		case "setCaseTypeMeta":
@@ -477,6 +478,7 @@ function affectsCaseWriteProjection(
 				Object.hasOwn(mutation.patch, "type") ||
 				Object.hasOwn(mutation.patch, "openCondition") ||
 				Object.hasOwn(mutation.patch, "closeCondition") ||
+				mutation.entryChange !== undefined ||
 				mutation.caseOperationChange !== undefined ||
 				mutation.caseOperationPatch !== undefined
 			);
@@ -485,7 +487,7 @@ function affectsCaseWriteProjection(
 		case "setAppLogo":
 		case "setAppSettings":
 		case "setAppName":
-		case "setConnectType":
+		case "setConnectRoles":
 		case "addModule":
 		case "moveModule":
 		case "renameModule":
@@ -507,6 +509,9 @@ function affectsCaseWriteProjection(
 		case "removeOption":
 		case "moveOption":
 		case "setCaseListMeta":
+		case "addCalculatedSort":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":
@@ -517,6 +522,10 @@ function affectsCaseWriteProjection(
 		case "moveSearchInput":
 		case "addLanguage":
 		case "removeLanguage":
+		case "rebindLanguageCodes":
+		case "rebaseSourceLanguage":
+		case "setProjectLanguageDirection":
+		case "moveLanguage":
 		case "setDefaultLanguage":
 		case "setTranslation":
 		case "reviewTranslation":
@@ -727,9 +736,13 @@ export function createBlueprintDocStore() {
 		/* Clearing one of these removes its translation unit and may prune an
 		 * authored target entry. A slot-only inverse could not reconstruct that
 		 * dependent entry, so keep the complete diff for this uncommon case. */
-		for (const key of ["label", "hint", "help", "validate_msg"]) {
+		for (const key of FIELD_PROSE_SLOTS) {
 			if (patch[key] === null) return undefined;
 		}
+		/* A repeat's mode decides which of its slots exist: the forward write
+		 * drops the old mode's slot without naming it, and the patch schema of
+		 * the old mode refuses the new mode's slot. Keep the complete diff. */
+		if (Object.hasOwn(patch, "repeat_mode")) return undefined;
 
 		const previous = field as unknown as Record<string, unknown>;
 		const inversePatch = Object.fromEntries(

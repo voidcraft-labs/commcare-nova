@@ -179,7 +179,7 @@ describe("the gate over a column read through a relation", () => {
 		expect(relationFindings(doc)).toEqual([]);
 	});
 
-	it("refuses each walk HQ's field cannot say, by its reason", () => {
+	it("keeps unrestricted index walks and refuses type qualifiers or the worker spelling HQ cannot preserve", () => {
 		const doc = app([
 			plainColumn(uuid(1), "address", "Above the village", {
 				via: [
@@ -199,10 +199,8 @@ describe("the gate over a column read through a relation", () => {
 			}),
 		]);
 		expect(relationFindings(doc)).toEqual([
-			["CASE_LIST_COLUMN_RELATION_INVALID", "unresolved"],
 			["CASE_LIST_COLUMN_RELATION_INVALID", "parent-type"],
 			["CASE_LIST_COLUMN_RELATION_INVALID", "worker"],
-			["CASE_LIST_COLUMN_RELATION_INVALID", "unresolved"],
 		]);
 	});
 
@@ -251,16 +249,42 @@ describe("the gate over a column read through a relation", () => {
 		}
 	});
 
-	it("refuses a related column in a menu that offers Search", () => {
+	it("publishes a native supporting-case path for a menu that offers Search", () => {
 		const doc = app(
 			[plainColumn(uuid(1), "address", "Address", { via: PARENT })],
 			{
 				search: true,
 			},
 		);
-		expect(relationFindings(doc)).toEqual([
-			["CASE_LIST_COLUMN_RELATION_INVALID", "search"],
-		]);
+		expect(relationFindings(doc)).toEqual([]);
+		expect(
+			expandDoc(doc).modules[1].case_details.short.columns.map(
+				(column) => column.field,
+			),
+		).toContain("parent/address");
+	});
+
+	it("refuses in a Search menu a related column HQ stores as an expression", () => {
+		// HQ copies an expression field verbatim into the Search results
+		// detail, so its walk would read the local case database there.
+		for (const column of [
+			linkColumn(uuid(1), "address", "Map", "Open", { via: PARENT }),
+			intervalColumn(uuid(1), "visit_date", "Due", 7, "days", "flag", "Late", {
+				via: PARENT,
+			}),
+		]) {
+			expect(relationFindings(app([column], { search: true }))).toEqual([
+				["CASE_LIST_COLUMN_RELATION_INVALID", "search"],
+			]);
+			expect(relationFindings(app([column]))).toEqual([]);
+		}
+		expect(
+			relationFindings(
+				app([plainColumn(uuid(1), "address", "Address", { via: PARENT })], {
+					search: true,
+				}),
+			),
+		).toEqual([]);
 	});
 
 	it("checks the property against the type the walk reaches", () => {
@@ -464,7 +488,7 @@ describe("Nova's export of a related column reads back as itself", () => {
 		);
 	});
 
-	it("leaves a walk to no type its finding", async () => {
+	it("keeps the wire path to a historical case without inventing a destination type", async () => {
 		const doc = app([
 			plainColumn(uuid(1), "address", "Address", { via: PARENT }),
 		]);
@@ -477,8 +501,56 @@ describe("Nova's export of a related column reads back as itself", () => {
 							column.field = "nowhere/address";
 			},
 		});
-		expect(codes(reading)).toContain(
-			"menus-and-case-lists/idx-prop-in-a-menu-that-offers-search-or-through-an-index",
+		expect(codes(reading)).toEqual([]);
+		expect(listOf(reading, 1).columns).toContainEqual(
+			expect.objectContaining({
+				field: "address",
+				via: [{ identifier: "nowhere" }],
+			}),
 		);
+	});
+
+	/** Reads the Members list after HQ's pages saved `field` over its address column. */
+	const readField = (field: string) =>
+		readLists(
+			app([plainColumn(uuid(1), "address", "Address", { via: PARENT })]),
+			{
+				edit: (json) => {
+					const pair = json.modules[1]?.case_details;
+					for (const detail of [pair?.short, pair?.long])
+						for (const column of detail?.columns ?? [])
+							if (column.field === "parent/address") column.field = field;
+				},
+			},
+		);
+
+	// HQ's page saves a property name of any length (`details/utils.js::isValidPropertyName`)
+	// and Core's lexer reads one (`Lexer.matchNCName` has no bound): the name is a read.
+	it("holds a property name past 255 characters, on the list's own case and through an index", async () => {
+		const long = "x".repeat(256);
+		for (const [field, via] of [
+			[long, undefined],
+			[`site-link/${long}`, [{ identifier: "site-link" }]],
+		] as const) {
+			const reading = await readField(field);
+			expect(codes(reading), field).toEqual([]);
+			expect(listOf(reading, 1).columns).toContainEqual(
+				expect.objectContaining({
+					field: long,
+					...(via !== undefined && { via }),
+				}),
+			);
+		}
+	});
+
+	// HQ's build rewrites `#owner_name` alone (`PropertyXpathGenerator.xpath`) and writes any
+	// other `#` word into the step, which Core's lexer refuses: the column breaks on both workers.
+	it("refuses a `#` word other than #owner_name, on the list's own case and through an index", async () => {
+		for (const field of ["#visit", "site-link/#visit"]) {
+			const reading = await readField(field);
+			expect(codes(reading), field).toContain(
+				"menus-and-case-lists/column-reading-an-unknown-hash-property",
+			);
+		}
 	});
 });

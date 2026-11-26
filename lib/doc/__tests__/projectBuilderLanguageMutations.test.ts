@@ -6,8 +6,11 @@ import { columnSnapshotMutations } from "@/lib/doc/caseListColumnMutations";
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
+import { planSearchInputGroups } from "@/lib/doc/searchInputGroupMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	caseListWordingUnitId,
+	collectLocalizedTranslationUnits,
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	isOrdinaryCaseSearchConfig,
@@ -20,7 +23,12 @@ import {
 	simpleSearchInputDef,
 	type TranslationUnit,
 } from "@/lib/domain";
-import { input, matchesPattern } from "@/lib/domain/expression/builders";
+import {
+	input,
+	literal,
+	matchesPattern,
+	term,
+} from "@/lib/domain/expression/builders";
 
 const MODULE = testUuid("localized-builder-module");
 const FORM = testUuid("localized-builder-form");
@@ -466,7 +474,7 @@ describe("projectBuilderLanguageMutations", () => {
 		});
 	});
 
-	it("requires a source-lens edit when an ID-mapping key would create a new string", () => {
+	it("requires a source-lens edit when an ID-mapping row would create a new string", () => {
 		const doc = fixture();
 		const localized = projectLocalizedModule(doc, "spa", MODULE);
 		if (localized?.caseListConfig === undefined) {
@@ -478,10 +486,7 @@ describe("projectBuilderLanguageMutations", () => {
 		}
 		const planned = columnSnapshotMutations(MODULE, current, {
 			...current,
-			mapping: [
-				{ ...current.mapping[0], value: "open_now" },
-				current.mapping[1],
-			],
+			mapping: [...current.mapping, { value: "pending", label: "Pendiente" }],
 		});
 
 		expect(projectBuilderLanguageMutations(doc, "spa", planned)).toEqual({
@@ -489,6 +494,44 @@ describe("projectBuilderLanguageMutations", () => {
 			message:
 				"Add this worker-facing content in English first, then translate it into Español.",
 		});
+	});
+
+	it("reads an ID-mapping row whose saved value changes in place as the row it was", () => {
+		// A row keyed by its saved value moves to another text unit as its value changes; the
+		// edit is structural, and its words stay the source's (the Builder's commit carries the
+		// row's translations, `mappingRowTranslationCarry`).
+		const doc = fixture();
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
+		const current = localized?.caseListConfig?.columns[0];
+		if (current?.kind !== "id-mapping") {
+			throw new Error("Expected an ID-mapping column.");
+		}
+		const planned = columnSnapshotMutations(MODULE, current, {
+			...current,
+			mapping: [
+				{ ...current.mapping[0], value: "open_now" },
+				current.mapping[1],
+			],
+		});
+
+		const projection = projectBuilderLanguageMutations(doc, "spa", planned);
+		if (!projection.ok) throw new Error(projection.message);
+		const update = projection.mutations.find(
+			(mutation) => mutation.kind === "updateColumn",
+		);
+		expect(
+			update?.kind === "updateColumn" && update.column?.kind === "id-mapping"
+				? update.column.mapping
+				: undefined,
+		).toEqual([
+			{ value: "open_now", label: "Open" },
+			{ value: "closed", label: "Closed" },
+		]);
+		expect(
+			projection.mutations.some(
+				(mutation) => mutation.kind === "setTranslation",
+			),
+		).toBe(false);
 	});
 
 	it("writes an actual column and derived Search-default edit to target overlays", () => {
@@ -530,7 +573,7 @@ describe("projectBuilderLanguageMutations", () => {
 		).toBe("Encontrar pacientes");
 	});
 
-	it("turns a search's title off and on again under another language, on the source", () => {
+	it("turns a search's title off on the source under another language, and on again in that language alone", () => {
 		const doc = fixture();
 		const localized = projectLocalizedModule(doc, "spa", MODULE);
 		const before = localized?.caseSearchConfig;
@@ -546,13 +589,14 @@ describe("projectBuilderLanguageMutations", () => {
 		expect(untitled.modules[MODULE]?.caseSearchConfig).toMatchObject({
 			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
 		});
-		// No title has no text and no translation unit, in either lens.
+		// The title unit stays, blank in the source, and this language holds no title of its own.
+		const unit = makeTranslationUnitId("module", MODULE, "search-title");
 		expect(
-			collectTranslationUnits(untitled).some(
-				(unit) =>
-					unit.id === makeTranslationUnitId("module", MODULE, "search-title"),
-			),
-		).toBe(false);
+			collectTranslationUnits(untitled).find((one) => one.id === unit)?.source,
+		).toBe("");
+		expect(
+			effectiveAppLocalization(untitled.localization).translations.spa?.[unit],
+		).toBeUndefined();
 		const shown = projectLocalizedModule(
 			untitled,
 			"spa",
@@ -562,22 +606,89 @@ describe("projectBuilderLanguageMutations", () => {
 			throw new Error("Expected a localized search.");
 		expect(shown.searchScreenTitle).toEqual(NO_SEARCH_SCREEN_TITLE);
 
-		const { searchScreenTitle: _none, ...titled } = shown;
+		// Turned on in this language, the title is this language's own text: the source keeps none.
 		const on = project(
 			untitled,
-			caseSearchConfigPatchMutations(MODULE, shown, titled),
+			caseSearchConfigPatchMutations(MODULE, shown, {
+				...shown,
+				searchScreenTitle: "Buscar",
+			}),
 		);
 		expect(on).not.toHaveLength(0);
 		const restored = apply(untitled, on);
-		expect(
-			restored.modules[MODULE]?.caseSearchConfig &&
-				"searchScreenTitle" in restored.modules[MODULE].caseSearchConfig,
-		).toBe(false);
+		expect(restored.modules[MODULE]?.caseSearchConfig).toMatchObject({
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		});
 		expect(
 			searchScreenTitleText(
 				projectLocalizedModule(restored, "spa", MODULE)?.caseSearchConfig,
 			),
-		).toBe("Search");
+		).toBe("Buscar");
+
+		// Show a title switched back on in this language clears the source's
+		// none: every language shows its title again, as before it went off.
+		const { searchScreenTitle: _none, ...withoutTitle } = shown;
+		const switchedOn = apply(
+			untitled,
+			project(
+				untitled,
+				caseSearchConfigPatchMutations(MODULE, shown, withoutTitle),
+			),
+		);
+		const source = switchedOn.modules[MODULE]?.caseSearchConfig;
+		if (!isOrdinaryCaseSearchConfig(source))
+			throw new Error("Expected a source search.");
+		expect(source.searchScreenTitle).toBeUndefined();
+		for (const language of ["eng", "spa"] as const)
+			expect(
+				searchScreenTitleText(
+					projectLocalizedModule(switchedOn, language, MODULE)
+						?.caseSearchConfig,
+				),
+			).not.toBeNull();
+	});
+
+	// A translation taken from the title the source had translates nothing once
+	// the source shows none, and nothing can bring it up to date, so turning the
+	// title off removes it: no language counts a title out of date that Translate
+	// can't repair.
+	it("drops other languages' translations of a title the source turns off", () => {
+		const doc = fixture();
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
+		const before = localized?.caseSearchConfig;
+		if (before === undefined) throw new Error("Expected a localized search.");
+		const translated = apply(
+			doc,
+			project(
+				doc,
+				caseSearchConfigPatchMutations(MODULE, before, {
+					...before,
+					searchScreenTitle: "Encontrar pacientes",
+				}),
+			),
+		);
+		const unit = makeTranslationUnitId("module", MODULE, "search-title");
+		expect(
+			effectiveAppLocalization(translated.localization).translations.spa?.[
+				unit
+			],
+		).toBeDefined();
+		const off = apply(translated, [
+			{
+				kind: "updateModule",
+				uuid: MODULE,
+				patch: {},
+				caseSearchConfigPatch: { searchScreenTitle: NO_SEARCH_SCREEN_TITLE },
+			} as Mutation,
+		]);
+		expect(
+			effectiveAppLocalization(off.localization).translations.spa?.[unit],
+		).toBeUndefined();
+		expect(
+			collectLocalizedTranslationUnits(off, "spa").find(
+				(one) => one.id === unit,
+			)?.status,
+		).toBe("ready");
 	});
 
 	it("leaves source-lens mutations canonical and refuses a removed target", () => {
@@ -595,6 +706,45 @@ describe("projectBuilderLanguageMutations", () => {
 			message:
 				"The selected worker language no longer belongs to this app. Choose another language and try again.",
 		});
+	});
+
+	it("writes a case list's own words edited under another language to that language alone", () => {
+		const doc = produce(fixture(), (draft) => {
+			const list = draft.modules[MODULE]?.caseListConfig;
+			if (list === undefined)
+				throw new Error("The fixture holds no case list.");
+			list.emptyText = "No patients yet";
+		});
+		const unit = caseListWordingUnitId(MODULE, "empty");
+		const projected = project(doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid: MODULE,
+				patch: { emptyText: "Aún no hay pacientes" },
+			},
+		]);
+		expect(projected).toEqual([
+			expect.objectContaining({
+				kind: "setTranslation",
+				language: "spa",
+				unitId: unit,
+				entry: expect.objectContaining({ value: "Aún no hay pacientes" }),
+			}),
+		]);
+		const next = apply(doc, projected);
+		expect(next.modules[MODULE]?.caseListConfig?.emptyText).toBe(
+			"No patients yet",
+		);
+		// The Continue label the source never held is the source's to add first.
+		expect(
+			projectBuilderLanguageMutations(doc, "spa", [
+				{
+					kind: "setCaseListMeta",
+					uuid: MODULE,
+					patch: { selectButtonText: "Seguir" },
+				},
+			]).ok,
+		).toBe(false);
 	});
 
 	it("requires optional worker content to be created in the source language first", () => {
@@ -615,7 +765,7 @@ describe("projectBuilderLanguageMutations", () => {
 		});
 	});
 
-	it("refuses target prose that drops a protected reference", () => {
+	it("keeps a deliberate omission of a source reference in a target label", () => {
 		const doc = fixture();
 		const protectedField = doc.fields[FIELD];
 		if (!("label" in protectedField)) {
@@ -662,14 +812,15 @@ describe("projectBuilderLanguageMutations", () => {
 					patch: { label: proseText("Estado") },
 				},
 			]),
-		).toEqual({
-			ok: false,
-			message:
-				"This translation keeps every answer, case value, worker value and calculated value its source shows. You can repair them in Languages.",
+		).toMatchObject({
+			ok: true,
+			mutations: [
+				{ kind: "setTranslation", entry: { valueMode: "independent-values" } },
+			],
 		});
 	});
 
-	it("refuses target prose that changes a calculated value's formula, and admits one that moves it", () => {
+	it("retains a target formula independently and keeps an ordinary translation of a moved value", () => {
 		const doc = fixture();
 		const protectedField = doc.fields[FIELD];
 		if (!("label" in protectedField)) {
@@ -730,10 +881,11 @@ describe("projectBuilderLanguageMutations", () => {
 
 		expect(
 			edit({ parts: [{ kind: "text", text: "Visitas: " }, count(3)] }),
-		).toEqual({
-			ok: false,
-			message:
-				"This translation keeps every answer, case value, worker value and calculated value its source shows. You can repair them in Languages.",
+		).toMatchObject({
+			ok: true,
+			mutations: [
+				{ kind: "setTranslation", entry: { valueMode: "independent-values" } },
+			],
 		});
 		expect(
 			edit({ parts: [count(2), { kind: "text", text: " visitas" }] }).ok,
@@ -756,7 +908,11 @@ describe("projectBuilderLanguageMutations", () => {
 	it("redirects a Search prompt's hint and messages to the selected target", () => {
 		const doc = fixture();
 		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
-		if (current === undefined || current.kind === "hidden") {
+		if (
+			current === undefined ||
+			current.kind === "hidden" ||
+			current.kind === "address"
+		) {
 			throw new Error("Expected a visible prompt.");
 		}
 		const { uuid: _uuid, ...content } = current;
@@ -811,10 +967,113 @@ describe("projectBuilderLanguageMutations", () => {
 		).toBe("Use mayúscula inicial");
 	});
 
+	it("keeps a physical Sort by move when the same edit translates or clears its name", () => {
+		const first = testUuid("first-calculation");
+		const second = testUuid("second-calculation");
+		const doc = apply(
+			fixture(),
+			[first, second].map((uuid, priority) => ({
+				kind: "addCalculatedSort",
+				moduleUuid: MODULE,
+				sort: {
+					uuid,
+					priority,
+					direction: "asc",
+					expression: term(literal(priority)),
+					label: priority ? "Second" : "First",
+				},
+			})),
+		);
+		const update: Mutation = {
+			kind: "updateCalculatedSort",
+			moduleUuid: MODULE,
+			uuid: second,
+			after: null,
+			patch: { label: "Segundo" },
+		};
+		const moved = apply(doc, project(doc, [update]));
+		const raw = moved.modules[MODULE]?.caseListConfig?.calculatedSorts;
+		expect(raw?.map((rule) => [rule.uuid, rule.label])).toEqual([
+			[second, "Second"],
+			[first, "First"],
+		]);
+		expect(
+			projectLocalizedModule(moved, "spa", MODULE)?.caseListConfig
+				?.calculatedSorts?.[0]?.label,
+		).toBe("Segundo");
+		const cleared = apply(
+			moved,
+			project(moved, [{ ...update, after: first, patch: { label: null } }]),
+		);
+		expect(
+			projectLocalizedModule(
+				cleared,
+				"spa",
+				MODULE,
+			)?.caseListConfig?.calculatedSorts?.map((rule) => [
+				rule.uuid,
+				rule.label,
+			]),
+		).toEqual([
+			[first, "First"],
+			[second, "Second"],
+		]);
+	});
+
+	it("keeps Search field wording when moving the field between headings in another language", () => {
+		const first = testUuid("localized-search-heading-first");
+		const second = testUuid("localized-search-heading-second");
+		const doc = produce(fixture(), (draft) => {
+			const list = draft.modules[MODULE]?.caseListConfig;
+			const field = list?.searchInputs[0];
+			if (!list || !field) throw new Error("Expected a Search field.");
+			list.searchInputGroups = [
+				{ uuid: first, label: "Identity" },
+				{ uuid: second, label: "Other information" },
+			];
+			field.group = first;
+		});
+		const canonical = doc.modules[MODULE]?.caseListConfig;
+		const localized = projectLocalizedModule(
+			doc,
+			"spa",
+			MODULE,
+		)?.caseListConfig;
+		if (!canonical || !localized?.searchInputGroups)
+			throw new Error("Expected Search headings.");
+
+		const layout = localized.searchInputGroups.map((group) => ({
+			...group,
+			inputs: group.uuid === second ? [SEARCH_INPUT] : [],
+		}));
+		const change = planSearchInputGroups(MODULE, canonical, layout);
+		if ("error" in change) throw new Error(change.error);
+		const next = apply(doc, project(doc, change.mutations));
+
+		expect(next.modules[MODULE]?.caseListConfig?.searchInputs[0]).toEqual({
+			...canonical.searchInputs[0],
+			group: second,
+		});
+		expect(
+			projectLocalizedModule(next, "spa", MODULE)?.caseListConfig
+				?.searchInputs[0],
+		).toEqual({
+			...localized.searchInputs[0],
+			group: second,
+		});
+		expect(next.localization?.translations).toEqual(
+			doc.localization?.translations,
+		);
+	});
+
 	it("clears a Search prompt's translated hint when the worker-language editor removes it, keeping the source", () => {
 		const doc = fixture();
 		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
-		if (current === undefined || current.kind === "hidden") {
+		if (
+			current === undefined ||
+			current.kind === "hidden" ||
+			current.kind === "address"
+		) {
 			throw new Error("Expected a visible prompt.");
 		}
 		const { uuid: _uuid, hint: _hint, ...content } = current;
@@ -844,7 +1103,11 @@ describe("projectBuilderLanguageMutations", () => {
 	it("requires a Search prompt's optional sentences to exist in the source language first", () => {
 		const doc = fixture();
 		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
-		if (current === undefined || current.kind === "hidden") {
+		if (
+			current === undefined ||
+			current.kind === "hidden" ||
+			current.kind === "address"
+		) {
 			throw new Error("Expected a visible prompt.");
 		}
 		const { uuid: _uuid, ...content } = current;
@@ -860,7 +1123,11 @@ describe("projectBuilderLanguageMutations", () => {
 		).toBe(true);
 		const withoutMessage = produce(doc, (draft) => {
 			const prompt = draft.modules[MODULE]?.caseListConfig?.searchInputs[0];
-			if (prompt !== undefined && prompt.kind !== "hidden") {
+			if (
+				prompt !== undefined &&
+				prompt.kind !== "hidden" &&
+				prompt.kind !== "address"
+			) {
 				prompt.required = {};
 			}
 		});

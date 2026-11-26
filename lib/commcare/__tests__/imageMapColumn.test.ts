@@ -84,10 +84,19 @@ describe("image mapping at both export boundaries", () => {
 					expect(id).toMatch(
 						/^m0\.case_(short|long).case_care_status_\d+\.alt_text\.h[0-9a-f]{8}$/,
 					);
-					for (const dir of ["default", "en"])
-						expect(
-							zip.readAsText(`${dir}/app_strings.txt`).split("\n"),
-						).toContain(`${id}=\u00a0`);
+					/* An unnamed image's text is empty: the default table holds
+					 * it, and the language's own table leaves it out, as HQ's
+					 * build does (`app_strings.py::create_custom_app_strings`,
+					 * `non_empty_only`), so a worker reads the default's. */
+					expect(
+						zip.readAsText("default/app_strings.txt").split("\n"),
+					).toContain(`${id}=\u00a0`);
+					expect(
+						zip
+							.readAsText("en/app_strings.txt")
+							.split("\n")
+							.filter((line) => line.startsWith(`${id}=`)),
+					).toEqual([]);
 				}
 			}
 			expect(fields).toHaveLength(enabled ? 2 : 0);

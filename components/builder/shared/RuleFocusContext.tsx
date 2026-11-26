@@ -127,15 +127,27 @@ export function expressionFocusTitle(value: Expression): string {
 		case "switch":
 			return "Value chosen by matching";
 		case "count":
-			return "Count of related cases";
+			return value.via.kind === "cases"
+				? "Count of cases on this device"
+				: "Count of related cases";
 		case "format-date":
 			return "Formatted date";
 		case "table-lookup":
 			return "Table value";
+		case "call":
+			if (value.fn === "position")
+				return value.args.length === 0
+					? "Source row position"
+					: "Question position";
+			return "Saved expression";
 		case "negate":
 			return "Negative value";
 		case "here":
 			return "Worker's location";
+		case "case-text":
+			return "Translated text";
+		case "case-list-lookup-count":
+			return "Companion lookup count";
 		case "case-list-search-text":
 			return "Case list search text";
 		case "value-list":
@@ -178,6 +190,8 @@ export function expressionFocusDescription(value: Expression): string {
 		case "switch":
 			return `${value.cases.length} ${value.cases.length === 1 ? "match" : "matches"}, plus a value for everything else`;
 		case "count":
+			if (value.via.kind === "cases")
+				return "Counts matching cases available on the worker’s device";
 			return value.where === undefined
 				? "Counts every case on the chosen connection"
 				: "Counts connected cases that match a condition";
@@ -185,10 +199,17 @@ export function expressionFocusDescription(value: Expression): string {
 			return "Writes a date in the chosen style";
 		case "table-lookup":
 			return "Uses a value from a Project data table";
+		case "call":
+			return value.fn === "position" && value.args.length === 0
+				? "The candidate’s place in the source before sorting"
+				: "This saved expression is preserved";
 		case "negate":
 			return "Reverses the sign of a number";
 		case "here":
 			return "Uses the value being evaluated";
+		case "case-text":
+			return "Uses the field’s wording in the worker’s language";
+		case "case-list-lookup-count":
 		case "case-list-search-text":
 			return "What the worker typed into the case list's search box";
 		case "value-list":
@@ -246,6 +267,10 @@ export function predicateFocusTitle(value: Expression): string {
 			return "Exclude every case";
 		case "if":
 			return "Depends on a condition";
+		case "call":
+			return value.fn === "boolean"
+				? "Is answered"
+				: expressionFocusTitle(value);
 		default:
 			return expressionFocusTitle(value);
 	}
@@ -303,6 +328,10 @@ export function predicateFocusDescription(
 			return "This condition always matches";
 		case "match-none":
 			return "This condition never matches";
+		case "call":
+			return value.fn === "boolean"
+				? "Checks whether the worker answered a question"
+				: expressionFocusDescription(value);
 		default:
 			return expressionFocusDescription(value);
 	}

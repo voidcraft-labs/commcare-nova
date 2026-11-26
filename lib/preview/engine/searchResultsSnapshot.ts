@@ -4,21 +4,21 @@
 // the `results:inline` instance a device's session keeps on the query step
 // (`org/commcare/session/CommCareSession.java::setQueryDatum`).
 //
-// The read is the one Results runs for that search, in the search reading
-// with HQ's population (the Project's open cases of the module's type, with
-// its owner exclusion and filters, bound by no restore), in Results' order,
-// without a page window, and limited to `SEARCH_RESULTS_CAP`, the most
-// primary cases HQ's case search sends (`case_search/const.py::CASE_SEARCH_MAX_RESULTS`).
-// HQ's 500 are the first by relevance and Preview's the first in Results'
-// order; the checker refuses every read whose answer depends on which.
+// Forms read the primary server result before an inline detail filters or
+// pages it. The store certifies the cutoff before a row reaches either
+// surface; an unresolved cutoff refuses the snapshot as well as the list.
 //
 // The snapshot is plain JSON, as every case-data Server Action's result is.
 
 import "server-only";
 import type { CaseStore } from "@/lib/case-store";
+import { CaseSearchUnavailableError } from "@/lib/case-store/searchRequest";
+import type { SearchResultInstance } from "@/lib/case-store/store";
 import { SEARCH_RESULTS_CAP } from "@/lib/commcare/session";
-import { readCases } from "./caseDataBindingHelpers";
-import type { CaseRow } from "./caseDataBindingTypes";
+import {
+	type readCases,
+	runningCaseSelectionQuery,
+} from "./caseDataBindingHelpers";
 import type { SearchResultRow, SearchResultsSnapshot } from "./xpathInstances";
 
 type SearchRead = Omit<
@@ -38,26 +38,40 @@ function instantText(value: Date | string | null): string | null {
 
 /** Run a completed search's read and keep what its forms read. */
 export async function readSearchResultsSnapshot(
-	store: Pick<
-		CaseStore,
-		"query" | "count" | "queryGrouped" | "readCaseDatabasePatch"
-	>,
+	store: Pick<CaseStore, "readSearchResultInstance">,
 	read: SearchRead,
+	readsHitScore = false,
 ): Promise<SearchResultsSnapshot> {
-	const result = await readCases(store, { ...read, cap: SEARCH_RESULTS_CAP });
-	if (result.kind !== "rows") return { rows: [], totalMatches: 0 };
-	const rows: readonly CaseRow[] = result.rows;
-	/* Each row's `index` children: its direct indices, read by id from the
-	 * same store (an App Test's reads its own namespace). */
-	const patch =
-		rows.length === 0
-			? { indices: [] }
-			: await store.readCaseDatabasePatch({
-					appId: read.appId,
-					caseIds: rows.map((row) => row.case_id),
-				});
+	const { searchPopulation, ...base } = read;
+	const instance = await store.readSearchResultInstance(
+		runningCaseSelectionQuery({
+			...base,
+			searchPopulation: {
+				...searchPopulation,
+				...(base.caseIds === undefined || searchPopulation.request !== undefined
+					? {
+							request: {
+								maximum: SEARCH_RESULTS_CAP,
+								...searchPopulation.request,
+								readsHitScore,
+							},
+						}
+					: {}),
+			},
+		}),
+	);
+	return searchResultsSnapshotFromInstance(instance, readsHitScore);
+}
+
+export function searchResultsSnapshotFromInstance(
+	{ rows, indices, primaryIds }: SearchResultInstance,
+	readsHitScore = false,
+): SearchResultsSnapshot {
+	if (readsHitScore && primaryIds.length)
+		throw new CaseSearchUnavailableError({ kind: "hit-score-unavailable" });
+	const primary = new Set(primaryIds);
 	const indicesByCase = new Map<string, SearchResultRow["indices"][number][]>();
-	for (const index of patch.indices) {
+	for (const index of indices) {
 		const list = indicesByCase.get(index.case_id) ?? [];
 		list.push({
 			identifier: index.identifier,
@@ -76,9 +90,16 @@ export async function readSearchResultsSnapshot(
 			opened_on: instantText(row.opened_on),
 			modified_on: instantText(row.modified_on),
 			external_id: row.external_id,
-			properties: row.properties,
+			properties: primary.has(row.case_id)
+				? Object.fromEntries(
+						Object.entries(row.properties).filter(
+							([name]) => name !== "commcare_search_score",
+						),
+					)
+				: { ...row.properties, commcare_is_related_case: "true" },
+			status: row.status === "closed" ? "closed" : "open",
 			indices: indicesByCase.get(row.case_id) ?? [],
 		})),
-		totalMatches: result.totalCount ?? rows.length,
+		totalMatches: primaryIds.length,
 	};
 }

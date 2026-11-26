@@ -37,6 +37,7 @@ import {
 	makeTranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { expandDoc } from "../../expander";
 import { commCareLocalization } from "../../localization";
 import { runValidation } from "../../validator/runner";
@@ -84,7 +85,8 @@ function hqShows(
 	);
 }
 
-/** Nova's build of a document's names, in each language, through the production projection. */
+/** Nova's build of a document's names, in each language, through the production projection, and
+ *  the generated outputs that word them. */
 function nameStrings(doc: BlueprintDoc): AppStringTable {
 	const local = commCareLocalization(doc);
 	const module = doc.moduleOrder[0] as Uuid;
@@ -101,6 +103,11 @@ function nameStrings(doc: BlueprintDoc): AppStringTable {
 			]),
 		),
 		units: { "modules.m0": moduleUnit, "forms.m0f0": formUnit },
+		// Each key is the menu's title or the form's menu label, which words the name.
+		wordingUnits: {
+			"modules.m0": generatedWordingId(module, "menuTitle"),
+			"forms.m0f0": generatedWordingId(form, "formTitle"),
+		},
 	};
 }
 
@@ -341,8 +348,8 @@ describe("a menu's and a form's name map", () => {
 	});
 });
 
-describe("a generated key folded over a name", () => {
-	it("in the source language leaves a language that showed its own text at that text", async () => {
+describe("a generated key over a name", () => {
+	it("in the source language is the menu title's own wording there, the name as stored, and every language shows what it showed", async () => {
 		const body = bodyWith(
 			{ menu: { en: "Patients" } },
 			{ en: { "modules.m0": "Registration" } },
@@ -353,8 +360,7 @@ describe("a generated key folded over a name", () => {
 			en: "Registration",
 		});
 		const draft = await readDoc(body);
-		expect(draft.facts.foldedTranslationKeys).toHaveLength(1);
-		expect(draft.doc.modules[MODULE]?.name).toBe("Registration");
+		expect(draft.doc.modules[MODULE]?.name).toBe("Patients");
 		const after = storedNames(republished(draft.doc)).menu;
 		expect(hqShows(after.stored, after.overrides)).toEqual({
 			es: "Patients",
@@ -362,7 +368,7 @@ describe("a generated key folded over a name", () => {
 		});
 	});
 
-	it("in the source language reaches a language whose own text is blank, as HQ's default locale does", async () => {
+	it("in the source language still reaches a language whose own text is blank, as HQ's default locale does", async () => {
 		const body = bodyWith(
 			{ menu: { es: "", en: "Patients" } },
 			{ en: { "modules.m0": "Registration" } },
@@ -380,7 +386,7 @@ describe("a generated key folded over a name", () => {
 		});
 	});
 
-	it("in another language reaches the source language where its own text is blank", async () => {
+	it("in another language still reaches the source language where its own text is blank", async () => {
 		const body = bodyWith(
 			{ menu: { es: "Pacientes", en: "" } },
 			{ es: { "modules.m0": "Clientes" } },
@@ -391,7 +397,6 @@ describe("a generated key folded over a name", () => {
 			en: "Clientes",
 		});
 		const draft = await readDoc(body);
-		expect(draft.doc.modules[MODULE]?.name).toBe("Clientes");
 		const after = storedNames(republished(draft.doc)).menu;
 		expect(hqShows(after.stored, after.overrides)).toEqual({
 			es: "Clientes",
@@ -410,35 +415,32 @@ describe("a generated key folded over a name", () => {
 			en: "Patients",
 		});
 		const draft = await readDoc(body);
-		expect(draft.facts.foldedTranslationKeys).toHaveLength(1);
 		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		expect(nameRecords(draft)).toEqual([
+		// The menu title's Spanish wording shows nothing on a device; Nova holds none, so workers
+		// read the menu's own Spanish name there, recorded at the key.
+		expect(
+			draft.facts.sameStateRewrites.filter(
+				(record) => record.register === "text-spaces-dropped",
+			),
+		).toEqual([
 			{
-				entry: "menus-and-case-lists/modulebase-name",
-				path: "/modules/0/name",
+				entry: "application-and-settings/translations-generated-wording",
+				path: "/translations/es/modules.m0",
 				register: "text-spaces-dropped",
 			},
 		]);
 		const after = storedNames(republished(draft.doc)).menu;
 		expect(onDevices(hqShows(after.stored, after.overrides))).toEqual({
-			es: "Patients",
+			es: "Pacientes",
 			en: "Patients",
 		});
 	});
 
-	it("in the first language over a form's name that would hold an instance read is that form's finding", async () => {
-		const outcome = await read(
+	it("in the first language over a form's name is the form menu label's wording, which the form's source never holds", async () => {
+		const draft = await readDoc(
 			bodyWith({}, { es: { "forms.m0f0": "Visita instance('casedb')" } }),
 		);
-		if (outcome.kind !== "account")
-			throw new Error("The folded form name should keep the app out.");
-		expect(outcome.findings).toEqual([
-			expect.objectContaining({
-				code: "forms-and-case-writes/form-name-read-as-an-instance",
-				place: expect.objectContaining({ kind: "form", menu: 0, form: 0 }),
-				detail: { name: "instance('casedb')" },
-			}),
-		]);
+		expect(draft.doc.forms[FORM]?.name).not.toContain("instance(");
 	});
 });
 
@@ -457,32 +459,20 @@ describe("a form's name read as an instance", () => {
 		]);
 	});
 
-	it("is the first language's app translation where one words the name, which the source then holds", async () => {
+	it("is the stored first-language name even where an app translation words the name otherwise", async () => {
 		const body = bodyWith(
 			{ form: { es: "Visita instance('casedb')", en: "Visit" } },
 			{ es: { "forms.m0f0": "Visita" } },
 		);
-		const before = storedNames(body).form;
-		expect(hqShows(before.stored, before.overrides)).toEqual({
-			es: "Visita",
-			en: "Visit",
-		});
-		const draft = await readDoc(body);
-		expect(draft.facts.foldedTranslationKeys).toHaveLength(1);
-		expect(draft.doc.forms[FORM]?.name).toBe("Visit");
-		expect(
-			draft.doc.localization?.translations.spa?.[
-				makeTranslationUnitId("form", FORM, "name")
-			]?.value,
-		).toBe("Visita");
-		const after = storedNames(republished(draft.doc)).form;
-		expect(hqShows(after.stored, after.overrides)).toEqual({
-			es: "Visita",
-			en: "Visit",
-		});
+		const outcome = await read(body);
+		if (outcome.kind !== "account")
+			throw new Error("The form's name should keep the app out.");
+		expect(outcome.findings.map((one) => one.code)).toContain(
+			"forms-and-case-writes/form-name-read-as-an-instance",
+		);
 	});
 
-	it("is the stored first-language name where the app translation over it does not fold, beside the finding that keeps it", async () => {
+	it("is the stored first-language name beside another finding", async () => {
 		const body = bodyWith(
 			{ form: { es: "Visita instance('casedb')", en: "Visit" } },
 			{ es: { "forms.m0f0": "Visita" } },

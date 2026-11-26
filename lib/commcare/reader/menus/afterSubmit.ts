@@ -7,6 +7,7 @@
  * link's structure, so it is taken off the stored condition before the
  * expression stage binds what is left.
  */
+
 import {
 	type BlueprintDoc,
 	defaultPostSubmitOf,
@@ -25,7 +26,11 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
-import type { FormLinkDatumName } from "@/lib/domain/expression/types";
+import {
+	type FormLinkDatumName,
+	formLinkSelectionName,
+} from "@/lib/domain/expression/types";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { emissionPlan } from "../../emissionPlan";
 import {
@@ -34,12 +39,14 @@ import {
 	type FormLinkProjectionContext,
 	formLinkActionsBuildable,
 	formLinkProjectionContext,
+	formLinkTargetDatumIds,
 	matchFrameToSource,
 	owningModuleOf,
 	projectAfterSubmit,
 	sessionDataRef,
 	targetFrameChildren,
 } from "../../formLinkProjection";
+import { formChoosesCase } from "../../hq/entryFacts";
 import { entryPlanContext, runFormRules } from "../../validator/rules/form";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
@@ -68,7 +75,6 @@ import { sameSyntax } from "../syntaxCompare";
 import {
 	draftFormByReadId,
 	draftModuleById,
-	formChoosesCase,
 	rawForms,
 	rawModuleById,
 	rawModules,
@@ -78,8 +84,12 @@ import {
 
 const F = "forms-and-case-writes";
 
-type FormClass = "Form" | "AdvancedForm";
-const FORM_CLASSES: readonly FormClass[] = ["Form", "AdvancedForm"];
+type FormClass = DraftForm["docType"];
+const FORM_CLASSES: readonly FormClass[] = [
+	"Form",
+	"AdvancedForm",
+	"ShadowForm",
+];
 
 function perClass<U extends Claim["use"]>(
 	make: (entry: string, key: string) => Claim<U>,
@@ -142,7 +152,7 @@ const AFTER_SUBMIT = {
 		"post_form_workflow",
 	),
 	previousOnFirstMenu: perClass(
-		refuse,
+		take,
 		"post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
 		"post_form_workflow",
 	),
@@ -529,10 +539,15 @@ function expectedGuards(
 		const value = text === undefined ? undefined : syntaxOf(text, undefined);
 		if (value === undefined || !value.ok) return undefined;
 		const name = datum.name;
+		const target = resolveFormLinkTarget(doc, formUuid, link.target);
 		const caseType =
 			name.kind === "selected-case"
 				? doc.modules[name.module]?.caseType
-				: undefined;
+				: target?.type === "form"
+					? doc.forms[target.formUuid]?.caseSelections?.find(
+							(row) => row.uuid === name.selection,
+						)?.caseType
+					: undefined;
 		const guard = expectedGuard(value.syntax, caseType);
 		if (guard === undefined) return undefined;
 		guards.push(guard);
@@ -645,15 +660,23 @@ function readLinkTarget(
 		const menuId =
 			folded === undefined ? named.module.uniqueId : folded.menu.uniqueId;
 		const formModuleId = value.form_module_id;
+		let route = named.module;
 		if (
 			typeof formModuleId === "string" &&
 			formModuleId !== "" &&
 			formModuleId !== menuId
 		) {
-			cursor.refuseWhole(AFTER_SUBMIT.linkChecks);
-			return undefined;
+			const candidate = draftModuleById(ctx.draft, formModuleId);
+			if (
+				!candidate?.module.formsFromMenu ||
+				!routeContainsForm(snapshot, candidate.uuid, named.form.uuid)
+			) {
+				cursor.refuseWhole(AFTER_SUBMIT.linkChecks);
+				return undefined;
+			}
+			route = candidate;
 		}
-		const self = named.form === reading.form;
+		const self = named.form === reading.form && route === named.module;
 		cursor.take(
 			"form_id",
 			self ? AFTER_SUBMIT.targetThisForm : AFTER_SUBMIT.targetForm,
@@ -665,10 +688,18 @@ function readLinkTarget(
 			? { type: "this-form" }
 			: {
 					type: "form",
-					moduleUuid: named.module.uuid,
+					moduleUuid: route.uuid,
 					formUuid: named.form.uuid,
 				};
-		key = self ? ["this-form"] : ["form", named.form.xmlns];
+		key = self
+			? ["this-form"]
+			: route === named.module
+				? ["form", named.form.entryKey ?? named.form.xmlns]
+				: [
+						"form-in-menu",
+						route.uniqueId,
+						named.form.entryKey ?? named.form.xmlns,
+					];
 	} else {
 		const named = draftModuleById(ctx.draft, moduleId);
 		if (named === undefined) {
@@ -704,7 +735,7 @@ function readLinkTarget(
 	for (const datum of stored) {
 		const name = textOf(datum.name);
 		const row = rows.find((one) => one.id === name || one.chainId === name);
-		const ref = row?.refs.find((one) => one.kind === "selected-case");
+		const ref = row && formLinkSelectionName(row.refs);
 		if (ref === undefined) {
 			cursor.refuseWhole(AFTER_SUBMIT.datumsOther);
 			return undefined;
@@ -759,16 +790,11 @@ function automaticSearchSelections(
 	);
 	if (automatic.unmatched.length > 0 || automatic.matched.length === 0)
 		return undefined;
-	const rows = entryDatumIds(
-		planned,
-		projection,
-		owningModuleOf(projection, resolved.formUuid) ?? resolved.moduleUuid,
-		resolved.formUuid,
-	);
+	const rows = formLinkTargetDatumIds(planned, projection, resolved);
 	const out: { name: FormLinkDatumName; sourceId: string }[] = [];
 	for (const { id, sourceId } of automatic.matched) {
 		const row = rows.find((one) => one.id === id || one.chainId === id);
-		const name = row?.refs.find((one) => one.kind === "selected-case");
+		const name = row && formLinkSelectionName(row.refs);
 		if (name === undefined) return undefined;
 		out.push({ name, sourceId });
 	}
@@ -940,12 +966,11 @@ export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 		lookupNaming: inputs.lookupNaming,
 	});
 	const datumIds = (moduleUuid: Uuid, formUuid: Uuid) =>
-		entryDatumIds(
-			plan.doc,
-			projection,
-			owningModuleOf(projection, formUuid) ?? moduleUuid,
+		formLinkTargetDatumIds(plan.doc, projection, {
+			type: "form",
+			moduleUuid: owningModuleOf(projection, formUuid) ?? moduleUuid,
 			formUuid,
-		);
+		});
 	for (const reading of readings) {
 		const { form } = reading;
 		const cls = form.docType;
@@ -1101,7 +1126,7 @@ function readOtherwiseAndLinks(
 		counts.set(target, n + 1);
 		return ctx.accounting.identity(
 			ctx.identities.claim(
-				externalKey.formLink(form.xmlns, link.key, n),
+				externalKey.formLink(form.entryKey ?? form.xmlns, link.key, n),
 				whereText(form.place),
 			),
 			form.place,
@@ -1168,6 +1193,18 @@ function readOtherwiseAndLinks(
 	});
 }
 
+/** Each read link's own cursor, by the link's uuid: a later stage that
+ *  refuses a link records its refusal on the link's keys. */
+const LINK_CURSORS = new WeakMap<ReadContext, Map<Uuid, JsonCursor>>();
+
+/** The cursor of the stored link the reading gave `uuid`, if it read one. */
+export function linkCursorOf(
+	ctx: ReadContext,
+	uuid: Uuid,
+): JsonCursor | undefined {
+	return LINK_CURSORS.get(ctx)?.get(uuid);
+}
+
 /** One link's guards taken off, its condition and carried values registered. */
 function registerLink(
 	ctx: ReadContext,
@@ -1177,6 +1214,13 @@ function registerLink(
 	uuid: Uuid,
 	role: "destination" | "otherwise",
 ): ReadLink {
+	ctx.facts.formLinkOwners.push({ pointer: link.cursor.pointer, uuid });
+	let cursors = LINK_CURSORS.get(ctx);
+	if (cursors === undefined) {
+		cursors = new Map();
+		LINK_CURSORS.set(ctx, cursors);
+	}
+	cursors.set(uuid, link.cursor);
 	const xpath = textOf(link.value.xpath);
 	const guards = linkGuards(
 		snapshot,
@@ -1476,14 +1520,6 @@ function settleWord(
 	const facts = postSubmitModuleFacts(doc, reading.module.uuid);
 	// Each refusal is a class of the stored word, so it stands at the word too.
 	const wordAt = `${form.json.pointer}/post_form_workflow`;
-	if (word === "previous_screen" && facts?.formsOnFirstMenu === true) {
-		ctx.accounting.findingAt(
-			AFTER_SUBMIT.previousOnFirstMenu[form.docType],
-			form.place,
-			wordAt,
-		);
-		return;
-	}
 	if (!postSubmitDestinationsOffered(doc, form.uuid).includes(destination)) {
 		ctx.accounting.findingAt(
 			AFTER_SUBMIT.wordNotOffered[form.docType],
@@ -1494,6 +1530,15 @@ function settleWord(
 			},
 		);
 		return;
+	}
+	if (word === "previous_screen" && facts?.formsOnFirstMenu === true) {
+		const claim = AFTER_SUBMIT.previousOnFirstMenu[form.docType];
+		ctx.accounting.claimEntryClass(
+			{ json: form.json, key: "post_form_workflow" },
+			claim.entry,
+			`schema:${form.docType}.post_form_workflow`,
+			form.place,
+		);
 	}
 	if (destination === defaultPostSubmitOf(doc, form.uuid)) return;
 	ctx.doc = withCandidate(doc, (draft) => {

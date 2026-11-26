@@ -44,6 +44,7 @@ export function NoMatchesAfterSubmitSection({
 		return null;
 	const model = noMatchesAfterSubmitModel({
 		firstMenu: form.postSubmit === "firstMenu",
+		afterSubmit: module.caseListRegistrationForm.afterSubmit,
 		multiple: caseSelectionCardinality(module) === "multiple",
 		hasMenuForms: menuForms.length > 0,
 	});
@@ -55,11 +56,39 @@ export function NoMatchesAfterSubmitSection({
 				items={model.options}
 				disabled={!canEdit}
 				onValueChange={(value) => {
-					if (value !== "firstMenu" && value !== "return") return;
+					if (
+						value !== "firstMenu" &&
+						value !== "return" &&
+						value !== "new-case"
+					)
+						return;
 					if (!model.options.some((option) => option.value === value)) return;
-					const outcome = inline.updateForm(formUuid, {
-						postSubmit: value === "firstMenu" ? "firstMenu" : null,
-					});
+					const slot = module.caseListRegistrationForm;
+					if (slot?.kind !== "after-empty-search" || slot.formUuid !== formUuid)
+						return;
+					const { afterSubmit: previous, ...entry } = slot;
+					const outcome = inline.commitMany([
+						...(value !== "firstMenu" &&
+						previous !== (value === "new-case" ? value : undefined)
+							? [
+									{
+										kind: "updateModule" as const,
+										uuid: moduleUuid,
+										patch: {
+											caseListRegistrationForm: {
+												...entry,
+												...(value === "new-case" && { afterSubmit: value }),
+											},
+										},
+									},
+								]
+							: []),
+						{
+							kind: "updateForm",
+							uuid: formUuid,
+							patch: { postSubmit: value === "firstMenu" ? "firstMenu" : null },
+						},
+					]);
 					setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
 				}}
 			>

@@ -185,6 +185,7 @@ function isTransientDetectionError(error: unknown): boolean {
 export function BarcodeScanner({
 	label,
 	scanLabel = "Scan",
+	openOnMount = false,
 	support,
 	onScan,
 }: {
@@ -193,10 +194,11 @@ export function BarcodeScanner({
 	/** The button's visible text: Nova's "Scan" on a Search field, the
 	 *  runtime's own word in the worker's language on a form question. */
 	readonly scanLabel?: string;
+	readonly openOnMount?: boolean;
 	readonly support: Extract<BarcodeScanSupport, { kind: "supported" }>;
 	readonly onScan: (value: string) => void;
 }) {
-	const [open, setOpen] = useState(false);
+	const [open, setOpen] = useState(openOnMount);
 	const [attempt, setAttempt] = useState(0);
 	const [status, setStatus] = useState<BarcodeScanStatus>({
 		kind: "starting",

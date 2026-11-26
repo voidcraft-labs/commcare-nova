@@ -1,3 +1,5 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { birthAdoptedApp } from "@/lib/deployment/__tests__/adoptedBirth";
 /**
  * `list_hq_apps`, `read_hq_app` and `bring_in_hq_app` through the real SDK
  * client and server, over real Postgres, with CommCare HQ answering from its
@@ -15,9 +17,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/client";
+import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import {
 	retainedBodyJson,
 	retainedBodyText,
@@ -29,6 +33,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { GenesisGateRejectedError } from "@/lib/db/appGenesis";
 import { softDeleteApp } from "@/lib/db/apps";
 import {
+	changedAnswer,
 	counterOf,
 	FIXTURE_DOMAIN,
 	FIXTURE_HOST,
@@ -38,6 +43,7 @@ import {
 	fixtureResource,
 	fixtureSource,
 	fixtureSourceWithXml,
+	navigationSource,
 	seedFixtureConnection,
 	serveAnswer,
 	serveFixtureApp,
@@ -53,13 +59,14 @@ import {
 	CREATE_ANSWER_LEADS,
 	READING_REFUSAL_COPY,
 } from "@/lib/publish/hqReadingCopy";
-import { uploadAssetBytes } from "@/lib/storage/media";
+import { copyAssetObjectIfAbsent, deleteAsset } from "@/lib/storage/media";
 import {
 	BRING_IN_TOOL_LEADS,
 	registerBringInHqApp,
 } from "../tools/bringInHqApp";
 import { registerListHqApps } from "../tools/listHqApps";
 import { registerReadHqApp } from "../tools/readHqApp";
+import type { ReadingProjection } from "../tools/readingProjection";
 import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
 
@@ -110,6 +117,19 @@ vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(),
 	deleteAsset: vi.fn(),
 	downloadAssetBytes: vi.fn(),
+	/* A create stages each held file, then copies the staged object to its content key. */
+	stageAssetBytes: vi.fn(
+		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+			gcsObjectKey,
+			generation: "1",
+			checksum: "staged",
+		}),
+	),
+	copyAssetObjectIfAbsent: vi.fn(async () => ({
+		destinationGeneration: "1",
+		replay: false,
+	})),
+	deleteAssetGeneration: vi.fn(async () => undefined),
 }));
 
 const h = setupAppStateTestDb("mcp_bring_in_", {
@@ -141,8 +161,8 @@ beforeEach(async () => {
 	observed.beforeBirth = null;
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
-	vi.mocked(uploadAssetBytes).mockReset();
-	vi.mocked(uploadAssetBytes).mockResolvedValue(undefined);
+	vi.mocked(copyAssetObjectIfAbsent).mockClear();
+	vi.mocked(deleteAsset).mockClear();
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	await seedFixtureConnection(ACTOR);
 });
@@ -150,12 +170,13 @@ beforeEach(async () => {
 type Json = Record<string, unknown>;
 
 /** The three tools, called as `userId`. */
-function withTools<T>(
+async function withTools<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
+	scopes = SCOPES,
 ): Promise<T> {
+	const ctx = await installationCredential(h.db(), userId, scopes);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes: SCOPES, authKind: "api-key" as const };
 		registerListHqApps(server, ctx);
 		registerReadHqApp(server, ctx);
 		registerBringInHqApp(server, ctx);
@@ -169,6 +190,7 @@ async function call(
 	args: Json,
 ): Promise<{ readonly isError: boolean; readonly body: Json }> {
 	const result = await client.callTool({ name, arguments: args });
+	expect(JSON.stringify(result).length).toBeLessThanOrEqual(80_000);
 	return {
 		isError: result.isError === true,
 		body: JSON.parse(resultContentText(result)) as Json,
@@ -206,6 +228,7 @@ async function readReview(client: Client) {
 			runs_only_on: preselected.runs_only_on,
 			split_datetime: preselected.split_datetime,
 			table_choices: {},
+			owner_rule_choices: {},
 		},
 	};
 }
@@ -262,6 +285,328 @@ function serveSourceHeld(
 }
 
 describe("read_hq_app", () => {
+	it.each([
+		{
+			count: 140,
+			name: "plain",
+			path: (i: number) => `jr://file/commcare/${i}-${"x".repeat(600)}.png`,
+		},
+		{
+			count: 600,
+			name: "quoted",
+			path: (i: number) => `jr://file/visits/${'"'.repeat(145)}${i}.png`,
+		},
+	])(
+		"reads one birth over $count $name physical files and lookup pages before offering approval",
+		async ({ count: fileCount, path }) => {
+			const files = Array.from(
+				{ length: fileCount },
+				(_, i) =>
+					[
+						path(i),
+						{ media_type: "CommCareImage", multimedia_id: `remote${i}` },
+					] as const,
+			);
+			const source = changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				multimedia_map: {
+					...(body.multimedia_map as object),
+					...Object.fromEntries(files),
+				},
+			}));
+			await withHttpPeer(async (peer) =>
+				withTools(async (client) => {
+					serveFixtureApp(peer);
+					const { args } = await readReview(client);
+					serveFixtureApp(peer, { source });
+					const { body: stale } = await call(client, "bring_in_hq_app", args);
+					const first = stale.reading as unknown as ReadingProjection;
+					expect(stale.status).toBe("changed");
+					expect(first.review?.review_digest).toBeNull();
+					const continuation = first.review?.next_page;
+					if (!continuation)
+						throw new Error("Expected the rest of this review.");
+					serveFixtureApp(peer, { source });
+					const attempted = await call(client, "bring_in_hq_app", {
+						...args,
+						reading_id: first.reading_id,
+						review_digest: continuation.split(":")[1],
+					});
+					expect(attempted.body.status).toBe("changed");
+					expect(
+						await h.db().selectFrom("apps").select("id").execute(),
+					).toEqual([]);
+					await sql`UPDATE auth_organization SET name = ${"New field team"} WHERE id = ${PROJECT}`.execute(
+						h.db(),
+					);
+					serveFixtureApp(peer, { source });
+					const renamedProject = await call(client, "read_hq_app", {
+						...READ_ARGS,
+						page: continuation,
+					});
+					expect(renamedProject.body).toMatchObject({
+						state: "review",
+						restarted: true,
+						review: { review_digest: null },
+					});
+					let page: string | undefined;
+					let nonce: string | undefined;
+					const paths: string[] = [];
+					const tables: string[] = [];
+					let count = 0;
+					do {
+						serveFixtureApp(peer, { source });
+						const response = await call(client, "read_hq_app", {
+							...READ_ARGS,
+							...(page && { page }),
+						});
+						expect(response.isError).toBe(false);
+						const body = response.body as unknown as ReadingProjection;
+						if (!body.review || !body.reading_id)
+							throw new Error("Expected a birth review.");
+						nonce ??= body.reading_id;
+						expect(body.reading_id).toBe(nonce);
+						expect(body.restarted).not.toBe(true);
+						paths.push(
+							...(body.review.publish_details ?? []).map((row) => row.text),
+						);
+						tables.push(...body.review.tables.map((row) => row.tag));
+						page = body.review.next_page ?? undefined;
+						expect(body.review.review_digest === null).toBe(page !== undefined);
+						if (page) expect(page.endsWith(nonce)).toBe(true);
+						count++;
+						if (count > 20)
+							throw new Error(
+								"The unchanged reading restarted instead of advancing.",
+							);
+					} while (page);
+					expect(count).toBeGreaterThan(1);
+					/* A removal names the file's path within the app. */
+					for (const [name] of files)
+						expect(
+							paths.some((line) =>
+								line.includes(name.slice("jr://file/".length)),
+							),
+						).toBe(true);
+					expect(tables).toContain("district");
+				}),
+			);
+		},
+		60_000,
+	);
+
+	it("binds the reviewed search and its menu contract to the native working save", async () => {
+		const source = changedAnswer(navigationSource(), (body) => {
+			const menu = (
+				body.modules as { search_config: Record<string, unknown> }[]
+			)[0];
+			menu.search_config.case_search_endpoint_id = 17;
+			menu.search_config.default_properties = [
+				{ property: "district", defaultValue: "'north'" },
+			];
+			return body;
+		});
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { app: "navigation", source });
+			await withTools(async (client) => {
+				const { body, args } = await readReview(client);
+				const reviewed = body.review as Json;
+				expect(reviewed.project_search_details).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ kind: "search", endpointId: 17 }),
+						expect.objectContaining({ kind: "menu", text: "Patients" }),
+						expect.objectContaining({ kind: "parameter", text: "district" }),
+						expect.objectContaining({
+							kind: "result",
+							text: "case_id",
+							type: "text",
+						}),
+					]),
+				);
+				expect(reviewed.review_digest).toMatch(/^[0-9a-f]{64}$/);
+				const nextSave = changedAnswer(
+					retainedReadingRead("application"),
+					(app) => ({
+						...app,
+						version: Number(app.version) + 1,
+					}),
+				);
+				serveFixtureApp(peer, {
+					app: "navigation",
+					resource: nextSave,
+					source,
+				});
+				const next = await call(client, "bring_in_hq_app", args);
+				expect(next.isError).toBe(false);
+				expect(next.body).toMatchObject({
+					status: "changed",
+					reading: {
+						review: { project_search_details: reviewed.project_search_details },
+					},
+				});
+				const nextReview = (next.body.reading as { review: Json }).review;
+				expect(nextReview.review_digest).toMatch(/^[0-9a-f]{64}$/);
+				expect(nextReview.review_digest).not.toBe(args.review_digest);
+				expect(await h.db().selectFrom("apps").select("id").execute()).toEqual(
+					[],
+				);
+			});
+		});
+	});
+
+	it("returns the actionable Releases repair for a physical installation key that is empty", async () => {
+		await withHttpPeer(async (peer) => {
+			const source = changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				build_profiles: { "": { name: "Visits", langs: ["en"] } },
+			}));
+			serveAnswer(peer, FIXTURE_PATHS.application, fixtureResource(source));
+			serveAnswer(peer, FIXTURE_PATHS.source, source);
+			const result = await withTools((client) =>
+				call(client, "read_hq_app", READ_ARGS),
+			);
+			expect(JSON.stringify(result.body)).toMatch(
+				/Releases.*Application Profiles/,
+			);
+			expect(
+				await h.db().selectFrom("apps").select("id").execute(),
+			).toHaveLength(0);
+		});
+	});
+	it("discloses escaped installation identities before consent through the SDK read and changed bring-in envelopes", async () => {
+		const names = ['"'.repeat(14000), "\\".repeat(14000)];
+		const source = changedAnswer(fixtureSource(), (body) => ({
+			...body,
+			build_profiles: Object.fromEntries(
+				names.map((name, i) => [`team-${i}`, { name, langs: ["en"] }]),
+			),
+		}));
+		await withHttpPeer(async (peer) => {
+			await withTools(async (client) => {
+				serveFixtureApp(peer);
+				const { args } = await readReview(client);
+				serveFixtureApp(peer, { source });
+				const changed = await call(client, "bring_in_hq_app", args);
+				expect(changed.body.status).toBe("changed");
+				const reading = changed.body.reading as {
+					review: { review_digest: string | null; next_page: string | null };
+				};
+				expect(reading.review.review_digest).toBeNull();
+				expect(reading.review.next_page).toBeTruthy();
+				let page: string | null = null;
+				const parts = new Map<number, string[]>();
+				do {
+					serveFixtureApp(peer, { source });
+					const response = await call(client, "read_hq_app", {
+						...READ_ARGS,
+						...(page && { page }),
+					});
+					expect(response.isError).toBe(false);
+					const review = response.body.review as {
+						next_page: string | null;
+						review_digest: string | null;
+						installation_parts?: { item: number; text: string }[];
+					};
+					for (const part of review.installation_parts ?? []) {
+						const pieces = parts.get(part.item) ?? [];
+						pieces.push(part.text);
+						parts.set(part.item, pieces);
+					}
+					page = review.next_page;
+					if (page) expect(review.review_digest).toBeNull();
+					else expect(review.review_digest).toMatch(/^[a-f0-9]{64}$/);
+				} while (page);
+				expect(
+					[...parts.values()].map((chunks) => JSON.parse(chunks.join("")).name),
+				).toEqual(names);
+			});
+		});
+	}, 30000);
+
+	it("continues a mixed installation and table review through real tool calls and restarts a changed disclosure", async () => {
+		const count = 360;
+		const sourceAt = (label: string) =>
+			changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				build_profiles: Object.fromEntries(
+					Array.from({ length: count }, (_, i) => [
+						`team-${i}`,
+						{
+							name: `${i === 0 ? label : "Team"} ${i} ${"visits ".repeat(30)}`,
+							langs: ["en"],
+							practice_mobile_worker_id: "regional-practice",
+						},
+					]),
+				),
+			}));
+		await withHttpPeer(async (peer) => {
+			const original = sourceAt("Original"),
+				changed = sourceAt("Changed");
+			await withTools(async (client) => {
+				const readPage = async (
+					source: ReturnType<typeof sourceAt>,
+					page?: string,
+				) => {
+					serveFixtureApp(peer, { source });
+					const response = await call(client, "read_hq_app", {
+						...READ_ARGS,
+						...(page && { page }),
+					});
+					expect(response.isError).toBe(false);
+					const review = response.body.review as {
+						installations: { profile_id: string }[];
+						tables: { tag: string }[];
+						next_page: string | null;
+						review_digest: string | null;
+					};
+					expect(review).toBeDefined();
+					return {
+						id: response.body.reading_id,
+						review,
+						restarted: response.body.restarted,
+					};
+				};
+				const first = await readPage(original);
+				const cursor = first.review.next_page;
+				if (!cursor) throw new Error("Expected multiple pages");
+				expect(first.review.review_digest).toBeNull();
+				expect(first.review.tables.length).toBeGreaterThan(0);
+				const ids = first.review.installations.map((p) => p.profile_id);
+				let page: string | null = cursor;
+				while (page) {
+					const next = await readPage(original, page);
+					expect(next.id).toBe(first.id);
+					expect(next.restarted).toBe(false);
+					ids.push(...next.review.installations.map((p) => p.profile_id));
+					page = next.review.next_page;
+					if (!page)
+						expect(next.review.review_digest).toMatch(/^[a-f0-9]{64}$/);
+				}
+				expect(new Set(ids).size).toBe(count);
+				expect(ids).toHaveLength(count);
+				const malformed = changedAnswer(original, (body) => ({
+					...body,
+					build_profiles: { visits: { name: "Visits", langs: [] } },
+				}));
+				serveFixtureApp(peer, { source: malformed });
+				const account = await call(client, "read_hq_app", {
+					...READ_ARGS,
+					page: cursor,
+				});
+				expect(account.body).toMatchObject({
+					state: "account",
+					restarted: true,
+				});
+				const moved = await readPage(changed, cursor);
+				expect(moved.restarted).toBe(true);
+				expect(moved.review.review_digest).toBeNull();
+				expect(moved.review.installations[0]?.profile_id).toBe(
+					first.review.installations[0]?.profile_id,
+				);
+			});
+		});
+	});
+
 	it("answers a review with its reading_id in one call", async () => {
 		await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer);
@@ -368,6 +713,154 @@ describe("read_hq_app", () => {
 });
 
 describe("bring_in_hq_app", () => {
+	it("requires a fresh installation adoption review if the exact HQ revision moved, even when the worker stayed", async () => {
+		const source = changedAnswer(fixtureSource(), (body) => ({
+			...body,
+			build_profiles: {
+				visits: {
+					name: "Visits",
+					langs: ["en"],
+					practice_mobile_worker_id: "worker",
+				},
+			},
+		}));
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, {
+				source,
+				resource: fixtureResource(source, { version: 3 }),
+			});
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				serveFixtureApp(peer, {
+					source,
+					resource: fixtureResource(source, { version: 4 }),
+				});
+				const answer = await call(client, "bring_in_hq_app", args);
+				expect(answer).toMatchObject({
+					isError: false,
+					body: { status: "changed" },
+				});
+				expect(
+					await h.db().selectFrom("apps").select("id").execute(),
+				).toHaveLength(0);
+			});
+		});
+	});
+	it.each([false, true])(
+		"requires both grants for installation adoption and leaves plan evidence open (practice %s)",
+		async (practice) => {
+			const source = changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				build_profiles: {
+					visits: {
+						name: "Visits",
+						langs: ["en"],
+						practice_mobile_worker_id: practice ? "training-user" : null,
+					},
+				},
+			}));
+			await withHttpPeer(async (peer) => {
+				serveFixtureApp(peer, { source, times: 3 });
+				const onlyImport = SCOPES.filter((s) => s !== "nova.hq.write");
+				const { body, args } = await withTools(
+					(client) => readReview(client),
+					ACTOR,
+					onlyImport,
+				);
+				expect((body.review as Json).installations).toEqual([
+					{
+						profile_id: "visits",
+						name: "Visits",
+						languages: [{ language: "eng" }],
+						practice_worker_id: practice ? "training-user" : null,
+					},
+				]);
+				const choices = (body.review as Json).runs_on as Json[];
+				for (const choice of choices) {
+					expect(choice.confirm_before_first_upload).toEqual(
+						practice
+							? ["Build Profiles", "Practice mode for mobile workers"]
+							: ["Build Profiles"],
+					);
+					expect(choice.recorded_features).not.toContain("Build Profiles");
+					expect(choice.recorded_features).not.toContain(
+						"Practice mode for mobile workers",
+					);
+				}
+				const take = (scopes: string[]) =>
+					withTools(
+						(client) => call(client, "bring_in_hq_app", args),
+						ACTOR,
+						scopes,
+					);
+				for (const missing of ["nova.hq.import", "nova.hq.write"]) {
+					expect(await take(SCOPES.filter((s) => s !== missing))).toMatchObject(
+						{
+							isError: true,
+							body: { error_type: "scope_missing", required_scope: missing },
+						},
+					);
+				}
+				expect(
+					await h.db().selectFrom("apps").select("id").execute(),
+				).toHaveLength(0);
+				expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
+				expect(await take(SCOPES)).toMatchObject({
+					isError: false,
+					body: { status: "created" },
+				});
+				const confirmations = await h
+					.db()
+					.selectFrom("app_deployment_confirmations")
+					.select("subject")
+					.execute();
+				expect(confirmations.map((row) => row.subject)).not.toContain(
+					"installation-profiles",
+				);
+				expect(confirmations.map((row) => row.subject)).not.toContain(
+					"practice-workers",
+				);
+				expect(await take(onlyImport)).toMatchObject({
+					isError: false,
+					body: { status: "created" },
+				});
+			});
+		},
+	);
+	it("rechecks both installation grants at the birth after locking Project edit access", async () => {
+		const source = changedAnswer(fixtureSource(), (body) => ({
+			...body,
+			build_profiles: { visits: { name: "Visits", langs: ["en"] } },
+		}));
+		const scopes = [...SCOPES];
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { source, times: 3 });
+			const { args } = await withTools((client) => readReview(client));
+			observed.beforeBirth = async () => {
+				await sql`UPDATE public.auth_apikey SET permissions=${JSON.stringify({ scope: scopes.filter((s) => s !== "nova.hq.write") })} WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+			};
+			expect(
+				await withTools(
+					(client) => call(client, "bring_in_hq_app", args),
+					ACTOR,
+					scopes,
+				),
+			).toMatchObject({
+				isError: true,
+				body: { error_type: "permission_denied" },
+			});
+			expect(
+				await h.db().selectFrom("apps").select("id").execute(),
+			).toHaveLength(0);
+			observed.beforeBirth = null;
+			expect(
+				await withTools((client) => call(client, "bring_in_hq_app", args)),
+			).toMatchObject({ isError: false, body: { status: "created" } });
+		});
+	});
+
 	it("answers created, and the same app again for the same arguments, at its builder address", async () => {
 		await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer, { times: 2 });
@@ -560,6 +1053,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 				runs_only_on: null,
 				split_datetime: false,
 				table_choices: {},
+				owner_rule_choices: {},
 			},
 		],
 	] as const)(
@@ -603,6 +1097,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 					runs_only_on: null,
 					split_datetime: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				for (const answer of [read, create])
 					expect(answer).toEqual({
@@ -617,7 +1112,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 	it("choice_missing and choice_not_offered, at bring_in_hq_app", async () => {
 		await seedProjectDistrict();
 		await withHttpPeer(async (peer) => {
-			serveFixtureApp(peer, { times: 3 });
+			serveFixtureApp(peer, { times: 4 });
 			await withTools(async (client) => {
 				const { body, args } = await readReview(client);
 				const tables = (body.review as { tables: Json[] }).tables;
@@ -637,8 +1132,20 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 					...args,
 					split_datetime: !args.split_datetime,
 					table_choices: { district: "use-project" },
+					owner_rule_choices: {},
 				});
 				expect(notOffered.body).toMatchObject({
+					error_type: "invalid_input",
+					refusal: "choice_not_offered",
+				});
+				/* An owner-rule answer reaches the create: this review asks
+				 * none, so one for a level is an answer it does not offer. */
+				const ownerNotOffered = await call(client, "bring_in_hq_app", {
+					...args,
+					table_choices: { district: "use-project" },
+					owner_rule_choices: { clinic: "worker" },
+				});
+				expect(ownerNotOffered.body).toMatchObject({
 					error_type: "invalid_input",
 					refusal: "choice_not_offered",
 				});
@@ -646,6 +1153,110 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 		});
 	});
 
+	it.each([false, true])(
+		"checks the deleted predecessor’s installation claim when the new source has no named profiles (media %s)",
+		async (media) => {
+			await h.seedProjectMember(ACTOR, PROJECT, "owner");
+			const old = await birthAdoptedApp(h, {
+				appId: testUuid("previously-deleted-profile-app"),
+				projectId: PROJECT,
+				actorUserId: ACTOR,
+				target: { server: FIXTURE_SERVER, domain: FIXTURE_DOMAIN },
+				remoteAppId: FIXTURE_REMOTE_APP_ID,
+			});
+			await sql`INSERT INTO app_deployment_installation_profiles(deployment_id,nova_profile_uuid,profile_key) VALUES (${old.deployment.deployment.id},${testUuid("previous-training")} ,'visits')`.execute(
+				h.db(),
+			);
+			await softDeleteApp(old.scope.appId, ACTOR);
+			const mappings = () =>
+				h
+					.db()
+					.selectFrom("app_deployment_resources")
+					.select(["released_at", "push_token"])
+					.where("kind", "=", "app")
+					.where("deployment_id", "=", old.deployment.deployment.id)
+					.executeTakeFirstOrThrow();
+			const assets = () =>
+				h.db().selectFrom("media_assets").select("id").orderBy("id").execute();
+			const before = await mappings(),
+				mediaBefore = await assets();
+			await withHttpPeer(async (peer) => {
+				const source = media
+					? withIcons(fixtureSource(), ["menuicon"])
+					: fixtureSource();
+				serveFixtureApp(peer, { source, times: 3 });
+				if (media) servePng(peer, 3);
+				const importOnly = SCOPES.filter((s) => s !== "nova.hq.write");
+				const { args } = await withTools(
+					(client) => readReview(client),
+					ACTOR,
+					importOnly,
+				);
+				const take = (scopes: string[]) =>
+					withTools(
+						(client) => call(client, "bring_in_hq_app", args),
+						ACTOR,
+						scopes,
+					);
+				expect(await take(importOnly)).toMatchObject({
+					isError: true,
+					body: {
+						error_type: "scope_missing",
+						required_scope: "nova.hq.write",
+					},
+				});
+				expect(await mappings()).toEqual(before);
+				expect(await assets()).toEqual(mediaBefore);
+				expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
+				expect(await take(SCOPES)).toMatchObject({
+					isError: false,
+					body: { status: "created" },
+				});
+				expect((await mappings()).released_at).not.toBeNull();
+				expect((await assets()).length).toBe(
+					mediaBefore.length + Number(media),
+				);
+			});
+		},
+	);
+
+	it("guards first birth ready media when the installation grant changes during the storage write", async () => {
+		const source = withIcons(
+			changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				build_profiles: { visits: { name: "Training", langs: ["en"] } },
+			})),
+			["menuicon"],
+		);
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { source, times: 2 });
+			servePng(peer, 2);
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				vi.mocked(copyAssetObjectIfAbsent).mockImplementationOnce(async () => {
+					await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+						h.db(),
+					);
+					return { destinationGeneration: "1", replay: false };
+				});
+				expect(await call(client, "bring_in_hq_app", args)).toMatchObject({
+					isError: true,
+					body: { error_type: "permission_denied" },
+				});
+				expect(copyAssetObjectIfAbsent).toHaveBeenCalledOnce();
+				expect(deleteAsset).toHaveBeenCalledWith(
+					vi.mocked(copyAssetObjectIfAbsent).mock.lastCall?.[0]
+						.destinationGcsObjectKey,
+				);
+				expect(
+					await h.db().selectFrom("media_assets").select("id").execute(),
+				).toEqual([]);
+				expect(await h.db().selectFrom("apps").select("id").execute()).toEqual(
+					[],
+				);
+			});
+		});
+	});
 	it("project_changed, where a published file left the Project before the birth", async () => {
 		observed.beforeBirth = async () => {
 			await h.db().deleteFrom("media_assets").execute();

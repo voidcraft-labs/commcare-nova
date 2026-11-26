@@ -31,6 +31,7 @@ import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { isBlank, prop } from "@/lib/domain/expression/builders";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import {
 	advancedFixture,
 	chosen,
@@ -170,9 +171,24 @@ describe("an advanced form's entry", () => {
 		expect(rows.map((row) => [row.id, row.refs])).toEqual([
 			[
 				"case_id_load_household0",
-				[{ kind: "selected-case", module: HOUSEHOLDS }],
+				[
+					{ kind: "selected-case", module: HOUSEHOLDS },
+					{
+						kind: "form-selection",
+						selection: implicitFormSelectionId(UNDER_TEST, HOUSEHOLDS),
+					},
+				],
 			],
-			["case_id_load_member1", [{ kind: "selected-case", module: MEMBERS }]],
+			[
+				"case_id_load_member1",
+				[
+					{ kind: "selected-case", module: MEMBERS },
+					{
+						kind: "form-selection",
+						selection: implicitFormSelectionId(UNDER_TEST, MEMBERS),
+					},
+				],
+			],
 		]);
 	});
 
@@ -228,7 +244,13 @@ describe("an advanced form's entry", () => {
 		const worker = datums[2];
 		expect(text(worker?.function)).toBe(text(USERCASE_ID_FUNCTION));
 		expect(worker?.caseType).toBe("commcare-user");
-		expect(rows[2]?.refs).toEqual([{ kind: "worker-record" }]);
+		expect(rows[2]?.refs).toEqual([
+			{ kind: "worker-record" },
+			{
+				kind: "form-selection",
+				selection: implicitFormSelectionId(UNDER_TEST, "worker-record"),
+			},
+		]);
 		const definition = deriveEntryDefinition({
 			formXmlns: "http://example.org/under-test",
 			moduleIndex: 1,

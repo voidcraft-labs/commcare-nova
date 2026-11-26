@@ -11,22 +11,26 @@
  * placement, so a publish keeps each `case_<tag>` and `case_id_<tag>` HQ's
  * forms read.
  */
+
 import {
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
 	type CaseWriteVia,
 	type Expression,
+	type FormCaseSelection,
+	type FormSelectionSource,
 	type FormType,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	ownCaseOperationId,
 	type TargetedCaseOperation,
 	type Term,
 	type Uuid,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { advancedKindBlockers } from "@/lib/domain/advancedModule";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import {
 	actingUser,
 	formField,
@@ -34,22 +38,29 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/expression/builders";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
-import { NO_ENTRIES } from "@/lib/domain/records";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	circumstanceFinding,
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import { advancedActionsWithEntry } from "../../advancedEntryValues";
 import type { PlannedLoad } from "../../advancedSelections";
 import { HQ_CASE_TAG_PATTERN } from "../../advancedTags";
 import { planFormCaseWire } from "../../casePlacementPlan";
+import {
+	entrySessionDatums,
+	formLinkProjectionContext,
+	physicalEntrySupplyProblems,
+} from "../../formLinkProjection";
 import {
 	datumIdsFromFacts,
 	type HqAppEntryFacts,
 	hqEntryFacts,
 } from "../../hq/entryFacts";
 import { planPlacements } from "../../placement";
+import { sharedFormDependencies } from "../../validator/rules/sharedForm";
 import { rethrowWorkStop } from "../../workMeter";
 import {
 	type GeneratedNodePurpose,
@@ -58,7 +69,7 @@ import {
 } from "../../xform/generatedNodes";
 import type { Admitted } from "../accounting";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
-import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
+import type { DraftForm, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { externalKey } from "../identity";
 import {
@@ -67,16 +78,19 @@ import {
 	objectMembers,
 	sameJson,
 } from "../jsonCursor";
+import { pendingPlaceholder } from "../pendingExpressions";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
+import { provisionalDocument } from "../provisional";
 import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField } from "../xform";
 import { isAllocatedName } from "../xform/generated";
 import type { DataNode } from "../xform/model";
+import { registrationOpenIndex } from "./advancedRegistration";
 import {
 	ancestorSteps,
+	BASIC_CLAIMS,
 	dropCreateNameRequired,
-	isServerDivertedWrite,
 	namesAttachment,
 	type PropertyNameClass,
 	type ProposedValue,
@@ -85,10 +99,11 @@ import {
 	repeatOfField,
 } from "./basicActions";
 import {
+	ANSWER_ALONE_CLAIMS,
 	conditionField,
 	conditionFinding,
-	conditionNotYesNo,
 	conditionQuestionPath,
+	conditionReadsAnswerAlone,
 	conditionType,
 	readActionCondition,
 	recordRespelledConditions,
@@ -96,10 +111,16 @@ import {
 	statedBack,
 } from "./conditions";
 import {
+	holdsAsOpeningAssignment,
+	holdsEarlierDefault,
+	recordLateAssignment,
+} from "./openingAssignments";
+import {
 	addPreloadCandidate,
 	fieldAt,
 	holdsDefault,
 	hqBuildRefusesProperty,
+	preloadNameRefusal,
 	preloadReadOf,
 	UNNAMED_PRELOAD,
 	writeDefault,
@@ -126,7 +147,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${M}/advancedmodule-has-schedule-true-or-schedule-phases-non-empty`,
 		"schema:AdvancedModule.schedule_phases",
 	),
-	autoSelectCase: refuse(
+	autoSelectCase: take(
 		`${M}/auto-select-case-on-an-advanced-module`,
 		"schema:AdvancedModule.auto_select_case",
 	),
@@ -148,7 +169,11 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/advancedform-schedule-with-enabled-false-on-an-advanced-form`,
 		"schema:AdvancedForm.schedule",
 	),
-	arbitraryDatums: refuse(
+	arbitraryDatumId: take(
+		`${F}/arbitrary-datums-datum-id-datum-function`,
+		"schema:ArbitraryDatum.datum_id",
+	),
+	arbitraryDatums: take(
 		`${F}/arbitrary-datums-datum-id-datum-function`,
 		"schema:AdvancedForm.arbitrary_datums",
 	),
@@ -182,7 +207,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/case-tag-of-a-non-auto-select-action-failing-actions-js`,
 		"schema:LoadUpdateAction.case_tag",
 	),
-	tagHyphen: refuse(
+	tagHyphen: take(
 		`${F}/case-tag-holding-a-hyphen`,
 		"schema:LoadUpdateAction.case_tag",
 	),
@@ -198,7 +223,15 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/details-module-naming-another-module-of-a-different-case-type-or`,
 		"schema:LoadUpdateAction.details_module",
 	),
-	notOneChain: refuse(
+	duplicateEntryKey: refuse(
+		`${F}/opening-values-sharing-a-physical-session-name`,
+		"schema:AdvancedFormActions.load_update_cases",
+	),
+	alignedConnection: refuse(
+		`${F}/automatic-connection-to-a-load-renamed-by-its-parent`,
+		"schema:LoadUpdateAction.auto_select",
+	),
+	notOneChain: take(
 		`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
 		"schema:AdvancedFormActions.load_update_cases",
 	),
@@ -208,11 +241,11 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/advanced-forms-in-a-module-whose-case-list-offers-a-registration`,
 		"schema:AdvancedFormActions.load_update_cases",
 	),
-	underivedTag: refuse(
+	underivedTag: take(
 		`${F}/load-changing-no-case-with-a-tag-nova-does-not-derive`,
 		"schema:LoadUpdateAction.case_tag",
 	),
-	usercaseWritesNothing: refuse(
+	usercaseWritesNothing: take(
 		`${F}/load-changing-no-case-with-a-tag-nova-does-not-derive`,
 		"schema:LoadUpdateAction.auto_select",
 	),
@@ -234,13 +267,13 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	),
 	/** The first chosen load's index naming the worker's record's load stored before it, which
 	 *  narrows the chosen list to the worker's record's children. */
-	caseIndexToWorkerLoad: refuse(
+	caseIndexToWorkerLoad: take(
 		`${F}/an-index-on-the-first-chosen-load-naming-the-worker-s-record-loaded-before-it`,
 		"schema:LoadUpdateAction.case_index",
 	),
 	/** The worker's record's load stored before a chosen load: HQ's entry computes its datum
 	 *  before the chosen loads' selections, and Nova writes it after them. */
-	workerLoadFirst: refuse(
+	workerLoadFirst: take(
 		`${F}/the-worker-s-record-s-auto-selected-load-stored-before-a-chosen-load`,
 		"schema:AdvancedFormActions.load_update_cases",
 	),
@@ -284,10 +317,6 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		"schema:LoadUpdateAction.case_properties",
 	),
-	loadLocationKeys: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
-		"schema:LoadUpdateAction.case_properties",
-	),
 	loadWorkerKey: refuse(
 		`${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`,
 		"schema:LoadUpdateAction.case_properties",
@@ -300,7 +329,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`,
 		"schema:LoadUpdateAction.case_properties",
 	),
-	loadViaFacet: refuse(
+	loadViaFacet: take(
 		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 		"schema:LoadUpdateAction.case_properties",
 	),
@@ -308,8 +337,12 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-preload-or-case-properties-property-with-on-a`,
 		"schema:LoadUpdateAction.preload",
 	),
-	editNotHeld: refuse(
+	editHeld: take(
 		`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		"schema:ConditionalCaseUpdate.update_mode",
+	),
+	editFacet: take(
+		`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
 	editNotApplied: drop(
@@ -328,12 +361,20 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-preload-question-property`,
 		"schema:LoadUpdateAction.preload",
 	),
-	preloadLater: refuse(
+	assignedAtOpen: take(
 		`${F}/loadupdateaction-preload-read-later-in-the-load`,
 		"schema:LoadUpdateAction.preload",
 	),
-	preloadNoDefault: refuse(
+	calculatedOpening: take(
 		`${F}/case-preload-into-a-question-that-holds-no-default`,
+		"schema:LoadUpdateAction.preload",
+	),
+	preloadLater: refuse(
+		`${F}/a-source-only-record-load-with-no-equivalent-editable-initial-value`,
+		"schema:LoadUpdateAction.preload",
+	),
+	preloadNoDefault: refuse(
+		`${F}/a-source-only-record-load-with-no-equivalent-editable-initial-value`,
 		"schema:LoadUpdateAction.preload",
 	),
 	preloadOtherCase: refuse(
@@ -352,20 +393,44 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/auto-select-mode-usercase`,
 		"schema:LoadUpdateAction.auto_select",
 	),
-	autoRaw: refuse(
+	heldRaw: take(
 		`${F}/auto-select-mode-raw-value-key`,
 		"schema:LoadUpdateAction.auto_select",
 	),
-	autoUser: refuse(
+	heldRawUnusedSource: take(
+		`${F}/auto-select-mode-raw-value-key`,
+		"schema:AutoSelectCase.value_source",
+	),
+	heldRawMode: take(
+		`${F}/auto-select-mode-raw-value-key`,
+		"schema:AutoSelectCase.mode",
+	),
+	heldUser: take(
 		`${F}/auto-select-mode-user`,
 		"schema:LoadUpdateAction.auto_select",
 	),
-	autoFixture: refuse(
+	heldFixture: take(
 		`${F}/auto-select-mode-fixture`,
 		"schema:LoadUpdateAction.auto_select",
 	),
-	autoCase: refuse(
+	heldCase: take(
 		`${F}/auto-select-mode-case-index-of-an-earlier-load`,
+		"schema:LoadUpdateAction.auto_select",
+	),
+	duplicateTag: refuse(
+		`${F}/case-actions-using-the-same-tag`,
+		"schema:LoadUpdateAction.case_tag",
+	),
+	workerModeType: refuse(
+		`${F}/worker-record-selection-with-another-case-type`,
+		"schema:LoadUpdateAction.auto_select",
+	),
+	fixtureSourceMissing: refuse(
+		`${F}/automatic-table-choice-without-its-table-or-column`,
+		"schema:LoadUpdateAction.auto_select",
+	),
+	unknownMode: refuse(
+		`${F}/automatic-choice-with-an-unknown-mode`,
 		"schema:LoadUpdateAction.auto_select",
 	),
 	autoCaseLater: refuse(
@@ -410,7 +475,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/case-tag-of-a-non-auto-select-action-failing-actions-js`,
 		"schema:AdvancedOpenCaseAction.case_tag",
 	),
-	openTagHyphen: refuse(
+	openTagHyphen: take(
 		`${F}/case-tag-holding-a-hyphen`,
 		"schema:AdvancedOpenCaseAction.case_tag",
 	),
@@ -444,10 +509,6 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	),
 	openNonAsciiKey: refuse(
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
-		"schema:AdvancedOpenCaseAction.case_properties",
-	),
-	openLocationKeys: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
 		"schema:AdvancedOpenCaseAction.case_properties",
 	),
 	openRepeat: take(
@@ -503,7 +564,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
-	openIndexAgainstSelection: refuse(
+	openIndexAgainstSelection: take(
 		`${F}/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
@@ -536,7 +597,6 @@ const LOAD_PROPERTY_CLAIMS = {
 		"non-core": ADVANCED_CLAIMS.loadNonCoreKey,
 		"non-ascii": ADVANCED_CLAIMS.loadNonAsciiKey,
 	},
-	diverted: ADVANCED_CLAIMS.loadLocationKeys,
 };
 
 /** The worker's load's: a key no worker property takes is its own row. */
@@ -550,6 +610,7 @@ const WORKER_LOAD_PROPERTY_CLAIMS = {
 type ProposedCaseRef =
 	| { readonly kind: "session" }
 	| { readonly kind: "selected"; readonly module: Uuid }
+	| { readonly kind: "selection"; readonly uuid: Uuid }
 	| { readonly kind: "op"; readonly uuid: Uuid };
 
 interface ProposedLink {
@@ -575,12 +636,17 @@ interface AdvancedProposal {
 	readonly tag: string;
 	readonly row?: true;
 	readonly name?: ProposedValue;
+	/** The own arm's rename on a load, saved only when changed. */
+	readonly nameOnlyIfChanged?: true;
 	readonly rename?: ProposedValue;
+	readonly renameOnlyIfChanged?: true;
 	readonly owner?: ProposedValue | "acting-user" | "unowned";
+	readonly ownerOnlyIfChanged?: true;
 	readonly writes: readonly {
 		readonly property: string;
 		readonly value: ProposedValue;
 		readonly via?: CaseWriteVia;
+		readonly onlyIfChanged?: true;
 	}[];
 	readonly condition?: ProposedCondition;
 	readonly forEach?: DraftField;
@@ -605,6 +671,7 @@ export interface StoredLoad {
 }
 
 interface AdvancedReading {
+	readonly choiceRelationshipQuestions?: ReadonlyMap<Uuid, DraftField>;
 	readonly type: FormType;
 	readonly operations: readonly AdvancedProposal[];
 	readonly openCondition?: ProposedCondition;
@@ -639,6 +706,13 @@ interface AdvancedMint {
 
 const READINGS = new WeakMap<DraftForm, AdvancedReading>();
 
+/** Each advanced form's stored actions and loads as the first pass read them:
+ *  the sites a refusal of the whole form's opening values covers. */
+const OPENING_SITES = new WeakMap<
+	DraftForm,
+	{ readonly actions: JsonCursor; readonly loads: readonly JsonCursor[] }
+>();
+
 /** The first pass's reading of an advanced form. */
 export function advancedCaseReading(
 	form: DraftForm,
@@ -663,7 +737,6 @@ function tagFinding(tag: unknown, open: boolean): Claim<"refuse"> | undefined {
 	if (tag.includes("/")) return open ? C.openTagSlash : C.tagSlash;
 	if (!HQ_CASE_TAG_PATTERN.test(tag))
 		return open ? C.openTagFailsPage : C.tagFailsPage;
-	if (tag.includes("-")) return open ? C.openTagHyphen : C.tagHyphen;
 	return undefined;
 }
 
@@ -711,8 +784,18 @@ export function readAdvancedMenu(ctx: ReadContext, module: DraftModule): void {
 	const phases = json.peek("schedule_phases");
 	if (Array.isArray(phases) && phases.length > 0)
 		json.refuse("schedule_phases", ADVANCED_CLAIMS.schedulePhases);
-	if (json.peek("auto_select_case") === true)
-		json.refuse("auto_select_case", ADVANCED_CLAIMS.autoSelectCase);
+	if (json.peek("auto_select_case") === true) {
+		consume(
+			json.take(
+				"auto_select_case",
+				ADVANCED_CLAIMS.autoSelectCase,
+				(value) => value,
+			),
+		);
+		ctx.writeDraft(() => {
+			module.module.autoSelectSingle = true;
+		});
+	}
 }
 
 // ── The chain ───────────────────────────────────────────────────────────
@@ -774,7 +857,9 @@ function loadDatumRenamed(
 		facts = hqEntryFacts(raw);
 		SOURCE_FACTS.set(raw, facts);
 	}
-	const own = facts.forms.get(form.xmlns);
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	const own = readId === undefined ? undefined : facts.forms.get(readId);
 	if (own === undefined) return false;
 	let ids: readonly string[];
 	try {
@@ -833,9 +918,6 @@ function readProperties(
 		readonly names: Readonly<
 			Record<Exclude<PropertyNameClass, "too-long">, Claim<"refuse">>
 		>;
-		/** The row of a key HQ's server stores apart from the case's properties
-		 *  (`basicActions.ts::isServerDivertedWrite`). */
-		readonly diverted: Claim<"refuse">;
 		/** The worker's load's row of a key the worker's record takes no write to
 		 *  (`worldEntities.ts::holdsWorkerRecordWrite`), `name` and `owner_id`
 		 *  among them; absent on every other action. */
@@ -846,9 +928,16 @@ function readProperties(
 	 *  settles once its operation has an id. */
 	opens = false,
 ): {
-	writes: { property: string; value: ProposedValue; via?: CaseWriteVia }[];
+	writes: {
+		property: string;
+		value: ProposedValue;
+		via?: CaseWriteVia;
+		onlyIfChanged?: true;
+	}[];
 	name?: ProposedValue;
+	nameOnlyIfChanged?: true;
 	owner?: ProposedValue | "acting-user" | "unowned";
+	ownerOnlyIfChanged?: true;
 	ownerNode?: OwnerNode;
 	/** A key of the map was refused, as its own finding. */
 	refused?: true;
@@ -896,13 +985,6 @@ function readProperties(
 				refuseKey(ADVANCED_CLAIMS.loadViaElsewhere);
 				continue;
 			}
-			// The case above's name and owner: HQ's build writes `name` as the
-			// block's `case_name` (`XFormCaseBlock.add_case_updates`), and Nova
-			// renames and gives an owner only to the operation's own case.
-			if (property === "name" || property === "owner_id") {
-				refuseKey(ADVANCED_CLAIMS.loadViaFacet);
-				continue;
-			}
 			const steps = ancestorSteps(r.ctx, slashes.caseType, indices);
 			if (steps === undefined) {
 				refuseKey(ADVANCED_CLAIMS.loadViaUnknown);
@@ -910,22 +992,16 @@ function readProperties(
 			}
 			via = steps.steps as CaseWriteVia;
 		}
-		// HQ's build writes a load's and an open action's keys into the case
-		// block's `<update>` as it writes a basic update's
-		// (`xform.py::XForm._create_casexml_advanced` → `add_case_updates`), so
-		// HQ's server stores these two apart from the case's properties there too,
-		// a case above included, unless the key's question is an upload, which
-		// names an attachment.
-		if (isServerDivertedWrite(r.form, property, cursor.peek("question_path"))) {
-			cursor.refuseMapEntry(claims.diverted, { name: key });
-			r.ok = false;
-			out.refused = true;
-			continue;
-		}
+		// The case above's name and owner: HQ's build writes `name` as the
+		// block's `case_name` (`XFormCaseBlock.add_case_updates`) and `owner_id`
+		// as its owner, which Nova holds as a write of `case_name` or `owner_id`
+		// through `via` (`CASE_FACETS_THROUGH_INDEX`).
+		const viaFacet =
+			via !== undefined && (property === "name" || property === "owner_id");
 		// `name` and `owner_id` are the case's name and owner; every other key is a
 		// property, which Nova's grammar must name.
 		const named =
-			via === undefined && (key === "name" || key === "owner_id")
+			(via === undefined && (key === "name" || key === "owner_id")) || viaFacet
 				? undefined
 				: propertyNameClass(property);
 		if (named === "too-long") {
@@ -966,11 +1042,25 @@ function readProperties(
 			out.refused = true;
 			continue;
 		}
+		// Every write is saved only when changed where HQ's build applies the
+		// mode (`XFormCaseBlock.add_case_updates`), the action's own name and
+		// owner, its facets, among them (`CaseFacetOnlyIfChanged`).
+		let onlyIfChanged: true | undefined;
 		if (cursor.peek("update_mode") === "edit") {
-			if (r.applied) {
-				cursor.refuse("update_mode", ADVANCED_CLAIMS.editNotHeld);
-				r.ok = false;
-			} else cursor.drop("update_mode", ADVANCED_CLAIMS.editNotApplied);
+			if (!r.applied)
+				cursor.drop("update_mode", ADVANCED_CLAIMS.editNotApplied);
+			else {
+				consume(
+					cursor.take(
+						"update_mode",
+						via === undefined && (key === "name" || key === "owner_id")
+							? ADVANCED_CLAIMS.editFacet
+							: ADVANCED_CLAIMS.editHeld,
+						(value) => value,
+					),
+				);
+				onlyIfChanged = true;
+			}
 		}
 		const path = consume(
 			cursor.take("question_path", claims.path, (value) => value),
@@ -983,8 +1073,9 @@ function readProperties(
 			out.refused = true;
 			continue;
 		}
-		// An open action's owner may name the owner node Nova folds beside it.
-		if (key === "owner_id" && opens) {
+		// An open action's owner may name the owner node Nova folds beside it,
+		// which Nova saves every time.
+		if (key === "owner_id" && opens && onlyIfChanged === undefined) {
 			const owner = ownerNode(r, path);
 			if (owner !== undefined) {
 				out.ownerNode = owner;
@@ -1000,11 +1091,41 @@ function readProperties(
 			out.refused = true;
 			continue;
 		}
+		// A date-and-time question's day is saved straight only to a `date`
+		// property of the action's own case, which the catalog types: the
+		// worker's record is no catalogued type, and Nova saves a date and time
+		// there as its moment.
+		if (
+			(via !== undefined || claims.worker !== undefined) &&
+			read.value.day === true
+		) {
+			r.ctx.accounting.finding(BASIC_CLAIMS.datetimeStraight, r.form.place, {
+				name: key,
+			});
+			r.ok = false;
+			out.refused = true;
+			continue;
+		}
+		if (viaFacet) cursor.holdMapEntry(ADVANCED_CLAIMS.loadViaFacet);
 		if (via !== undefined)
-			out.writes.push({ property, value: read.value, via });
-		else if (key === "name") out.name = read.value;
-		else if (key === "owner_id") out.owner = read.value;
-		else out.writes.push({ property: key, value: read.value });
+			out.writes.push({
+				property: viaFacet && property === "name" ? "case_name" : property,
+				value: read.value,
+				via,
+				...(onlyIfChanged !== undefined && { onlyIfChanged }),
+			});
+		else if (key === "name") {
+			out.name = read.value;
+			if (onlyIfChanged !== undefined) out.nameOnlyIfChanged = true;
+		} else if (key === "owner_id") {
+			out.owner = read.value;
+			if (onlyIfChanged !== undefined) out.ownerOnlyIfChanged = true;
+		} else
+			out.writes.push({
+				property: key,
+				value: read.value,
+				...(onlyIfChanged !== undefined && { onlyIfChanged }),
+			});
 	}
 	return out;
 }
@@ -1129,6 +1250,371 @@ function menusById(ctx: ReadContext): ReadonlyMap<string, DraftModule> {
 	return new Map(ctx.draft.modules.map((module) => [module.uniqueId, module]));
 }
 
+/** Resolve a blank details menu as HQ does, preferring the form's own menu
+ * of this type and then the first matching menu in app order. */
+function sourceListMenu(
+	menus: ReadonlyMap<string, DraftModule>,
+	owning: DraftModule,
+	load: Record<string, unknown>,
+): DraftModule | undefined {
+	if (typeof load.details_module === "string" && load.details_module !== "")
+		return menus.get(load.details_module);
+	const sameType = (menu: DraftModule) =>
+		(menu.module.caseType ?? menu.json.peek("case_type")) === load.case_type;
+	if (sameType(owning)) return owning;
+	return [...menus.values()].find(sameType);
+}
+
+const sharedManualSequences = new WeakMap<DraftModule, boolean>();
+
+/** A menu has an implicit sequence only if its case-loading entries agree.
+ * Compute this once per menu so independently configured forms do not acquire
+ * each other's parent selection. */
+function sharesManualSequence(
+	own: DraftModule,
+	menus: ReadonlyMap<string, DraftModule>,
+): boolean {
+	const held = sharedManualSequences.get(own);
+	if (held !== undefined) return held;
+	const distinct = new Set<string>();
+	for (const form of own.forms) {
+		const loads = object(form.json.peek("actions")).load_update_cases;
+		if (!Array.isArray(loads)) continue;
+		const chosen = loads.filter(isJsonObject).filter((row) => !row.auto_select);
+		if (!chosen.length) continue;
+		const positions = new Map<string, number>();
+		const signature = chosen.map((row, index) => {
+			const link = object(row.case_index);
+			const previous =
+				typeof link.tag === "string" && link.tag
+					? (positions.get(link.tag) ?? -1)
+					: null;
+			if (typeof row.case_tag === "string") positions.set(row.case_tag, index);
+			return [
+				sourceListMenu(menus, own, row)?.uuid,
+				previous,
+				previous === null ? null : chainIndexName(link),
+			];
+		});
+		distinct.add(JSON.stringify(signature));
+		if (distinct.size > 1) break;
+	}
+	const shared = distinct.size <= 1;
+	sharedManualSequences.set(own, shared);
+	return shared;
+}
+
+interface SourceChoice {
+	requiresExplicitWorker?: boolean;
+	indexInForm: number;
+	tag: string;
+	caseType: string;
+	menu?: DraftModule;
+	parentTag?: string;
+	index?: string;
+	relationship?: "extension";
+	relationshipQuestion?: DraftField;
+	automatic?: FormSelectionSource;
+	worker?: boolean;
+	changes: boolean;
+}
+
+type UnreadChoice = { readonly issue: Claim<"refuse">; readonly name?: string };
+type ParsedChoice = SourceChoice | UnreadChoice;
+
+/** Classify each source row independently so a malformed sibling cannot
+ * change the standing of a valid raw, worker, table or indexed choice. */
+function parseSourceChoice(
+	ctx: ReadContext,
+	form: DraftForm,
+	own: DraftModule,
+	menus: ReadonlyMap<string, DraftModule>,
+	raw: unknown,
+	i: number,
+	tags: ReadonlyMap<string, number>,
+	allTags: ReadonlySet<string>,
+	sharedTags: ReadonlySet<string>,
+): ParsedChoice {
+	const C = ADVANCED_CLAIMS;
+	const load = object(raw);
+	const tag = load.case_tag;
+	const tagIssue = tagFinding(tag, false);
+	if (tagIssue || typeof tag !== "string")
+		return { issue: tagIssue ?? C.tagBlank };
+	if (sharedTags.has(tag)) return { issue: C.duplicateTag, name: tag };
+	if (typeof load.case_type !== "string" || load.case_type === "")
+		return { issue: C.autoBlank, name: tag };
+	const changes =
+		Object.keys(object(load.case_properties)).length > 0 ||
+		activeCondition(load.close_condition);
+	const row = { indexInForm: i, tag, caseType: load.case_type, changes };
+	const before = (other: unknown) =>
+		typeof other === "string" && (tags.get(other) ?? i) < i;
+	if (load.auto_select !== null && load.auto_select !== undefined) {
+		const auto = object(load.auto_select);
+		const key = auto.value_key;
+		if (auto.mode === "usercase")
+			return load.case_type === "commcare-user"
+				? {
+						...row,
+						automatic: { kind: "worker-record" },
+						worker: true,
+						requiresExplicitWorker:
+							activeCondition(load.close_condition) ||
+							Object.keys(object(load.case_properties)).some(
+								(key) => key === "name" || key === "owner_id",
+							),
+					}
+				: { issue: C.workerModeType, name: tag };
+		if (!auto.mode) return { issue: C.autoBlank, name: tag };
+		if (typeof key !== "string" || key === "")
+			return { issue: C.autoMissingKey, name: tag };
+		switch (auto.mode) {
+			case "raw":
+				return {
+					...row,
+					automatic: { kind: "expression", value: pendingPlaceholder("value") },
+				};
+			case "user":
+				return {
+					...row,
+					automatic: {
+						kind: "worker-data",
+						property: { kind: "session-user", field: key },
+					},
+				};
+			case "fixture": {
+				const table =
+					typeof auto.value_source === "string"
+						? ctx.input.lookup.table(auto.value_source)
+						: undefined;
+				const column = table?.column(key);
+				return table && column
+					? {
+							...row,
+							automatic: { kind: "table", table: table.tableId, column },
+						}
+					: { issue: C.fixtureSourceMissing, name: tag };
+			}
+			case "case":
+				return typeof auto.value_source === "string" &&
+					before(auto.value_source)
+					? { ...row, parentTag: auto.value_source, index: key }
+					: { issue: C.autoCaseLater, name: tag };
+			default:
+				return { issue: C.unknownMode, name: tag };
+		}
+	}
+	const menu = sourceListMenu(menus, own, load);
+	if (
+		!menu ||
+		(menu.module.caseType ?? menu.json.peek("case_type")) !== load.case_type
+	)
+		return { issue: C.detailsModuleOther, name: tag };
+	const index = object(load.case_index);
+	if (typeof index.tag !== "string" || index.tag === "")
+		return { ...row, menu };
+	// HQ's editor indexes a load only to the load stored right before it
+	// (`advanced/actions.js`, `subcase.write`: `load_update_cases()[index - 1]`).
+	if (tags.get(index.tag) !== i - 1)
+		return {
+			issue:
+				i === 0
+					? C.caseIndexOnFirst
+					: allTags.has(index.tag)
+						? C.caseIndexOtherLoad
+						: C.caseIndexNoAction,
+			name: tag,
+		};
+	const relationshipQuestion =
+		index.relationship === "question" &&
+		typeof index.relationship_question === "string"
+			? fieldAt(form, index.relationship_question)
+			: undefined;
+	if (index.relationship === "question" && !relationshipQuestion)
+		return { issue: C.openIndexQuestion, name: tag };
+	return {
+		...row,
+		menu,
+		parentTag: index.tag,
+		index: chainIndexName(index),
+		...(relationshipQuestion
+			? { relationshipQuestion }
+			: index.relationship === "extension"
+				? { relationship: "extension" as const }
+				: {}),
+	};
+}
+
+/** Explicit rows are needed when the implicit menu sequence cannot reproduce
+ * the source. Keep authored labels through an HQ edit of an existing entry. */
+function explicitFormChoices(
+	ctx: ReadContext,
+	form: DraftForm,
+	own: DraftModule,
+	menus: ReadonlyMap<string, DraftModule>,
+	loads: readonly unknown[],
+	registration: boolean,
+	opens: readonly unknown[],
+	inherited?: {
+		rows: ReadonlyMap<string, FormCaseSelection>;
+		content: DraftForm;
+	},
+):
+	| {
+			choices: Map<number, FormCaseSelection>;
+			unread: Map<number, UnreadChoice>;
+			questions: Map<Uuid, DraftField>;
+	  }
+	| undefined {
+	const known = ctx.input.knownFormEntryChoices?.get(form.uuid);
+	const tags = new Map<string, number>();
+	for (const [i, raw] of loads.entries()) {
+		const tag = object(raw).case_tag;
+		if (typeof tag === "string" && !tags.has(tag)) tags.set(tag, i);
+	}
+	const allTags = new Set(tags.keys());
+	for (const raw of opens) {
+		const tag = object(raw).case_tag;
+		if (typeof tag === "string") allTags.add(tag);
+	}
+	// A tag another load or open action also holds: HQ's build resolves an
+	// action by its tag (`actions_meta_by_tag`), so each holder is refused.
+	const held = new Map<string, number>();
+	for (const raw of [...loads, ...opens]) {
+		const tag = object(raw).case_tag;
+		if (typeof tag === "string" && tag !== "")
+			held.set(tag, (held.get(tag) ?? 0) + 1);
+	}
+	const sharedTags = new Set(
+		[...held].filter(([, count]) => count > 1).map(([tag]) => tag),
+	);
+	const source: SourceChoice[] = [];
+	const unread = new Map<number, UnreadChoice>();
+	for (const [i, raw] of loads.entries()) {
+		const parsed = parseSourceChoice(
+			ctx,
+			inherited?.content ?? form,
+			own,
+			menus,
+			raw,
+			i,
+			tags,
+			allTags,
+			sharedTags,
+		);
+		if ("issue" in parsed) unread.set(i, parsed);
+		else source.push(parsed);
+	}
+	const manual = source.filter((row) => row.menu);
+	const menusSeen = new Set(manual.map((row) => row.menu?.uuid));
+	const worker = source.findIndex((row) => row.worker);
+	const needsOwnChoices =
+		unread.size > 0 ||
+		known !== undefined ||
+		(manual.length > 0 &&
+			(registration ||
+				!sharesManualSequence(own, menus) ||
+				(manual.length > 1 &&
+					manual.some((row) => row.caseType === "commcare-user")))) ||
+		source.some(
+			(row) => (!row.menu && !row.worker) || row.requiresExplicitWorker,
+		) ||
+		source.filter((row) => row.worker).length > 1 ||
+		(worker >= 0 &&
+			(worker !== source.length - 1 || !source[worker]?.changes)) ||
+		manual.some(
+			(row) =>
+				row.relationship !== undefined ||
+				row.relationshipQuestion !== undefined,
+		) ||
+		menusSeen.size !== manual.length ||
+		(manual.length > 0 && manual.at(-1)?.menu?.uuid !== own.uuid) ||
+		manual.some((row, i) => row.parentTag !== manual[i - 1]?.tag) ||
+		manual.some(
+			(row, i) =>
+				!row.changes &&
+				row.tag !== `load_${row.caseType.replaceAll("-", "_")}${i}`,
+		);
+	if (!inherited && !needsOwnChoices) return undefined;
+
+	const choices = new Map<number, FormCaseSelection>();
+	const questions = new Map<Uuid, DraftField>();
+	const byTag = new Map<string, FormCaseSelection>();
+	const groupSize = new Map<string, number>();
+	const positionInGroup = new Map<string, number>();
+	const groupKey = (row: (typeof source)[number]) =>
+		row.menu?.uuid ?? row.caseType;
+	for (const row of source) {
+		const key = groupKey(row);
+		groupSize.set(key, (groupSize.get(key) ?? 0) + 1);
+	}
+	for (const row of source) {
+		const uuid =
+			inherited?.rows.get(row.tag)?.uuid ??
+			ctx.accounting.identity(
+				ctx.identities.claim(
+					externalKey.formSelection(form.uuid, row.tag),
+					whereText(form.place),
+				),
+				form.place,
+				"schema:LoadUpdateAction.case_tag",
+			);
+		if (!uuid) return undefined;
+		const earlier = row.parentTag && byTag.get(row.parentTag);
+		if (row.parentTag && !earlier) {
+			const parentIndex = tags.get(row.parentTag);
+			unread.set(
+				row.indexInForm,
+				(parentIndex !== undefined && unread.get(parentIndex)) || {
+					issue: ADVANCED_CLAIMS.caseIndexNoAction,
+					name: row.tag,
+				},
+			);
+			continue;
+		}
+		const link =
+			earlier && row.index
+				? {
+						selection: earlier.uuid,
+						identifier: row.index,
+						...(row.relationship && { relationship: row.relationship }),
+					}
+				: undefined;
+		const selectionSource: FormSelectionSource | undefined = row.menu
+			? { kind: "choose", module: row.menu.uuid, ...(link && { under: link }) }
+			: (row.automatic ?? (link && { kind: "index", ...link }));
+		if (!selectionSource) {
+			const parentIndex = row.parentTag && tags.get(row.parentTag);
+			const parent =
+				typeof parentIndex === "number" ? unread.get(parentIndex) : undefined;
+			unread.set(
+				row.indexInForm,
+				parent ?? { issue: ADVANCED_CLAIMS.caseIndexNoAction, name: row.tag },
+			);
+			continue;
+		}
+		const listName = row.menu?.module.name ?? row.caseType;
+		const key = groupKey(row);
+		const ordinal = (positionInGroup.get(key) ?? 0) + 1;
+		positionInGroup.set(key, ordinal);
+		const name =
+			known?.get(row.tag) ??
+			(groupSize.get(key) === 1 ? listName : `${listName} ${ordinal}`);
+		const selection = {
+			uuid,
+			name,
+			caseType: row.caseType,
+			tag: row.tag,
+			source: selectionSource,
+		};
+		choices.set(row.indexInForm, selection);
+		if (row.relationshipQuestion) questions.set(uuid, row.relationshipQuestion);
+		byTag.set(row.tag, selection);
+	}
+	return { choices, unread, questions };
+}
+
 /**
  * Reads `form.actions` of an advanced form (`AdvancedFormActions`) into its
  * type and its proposed case operations, claiming every key; its chosen
@@ -1149,10 +1635,81 @@ export function readAdvancedActions(
 			json.refuse("schedule", ADVANCED_CLAIMS.scheduleMissingQuestion);
 		else json.drop("schedule", ADVANCED_CLAIMS.scheduleOff);
 	}
-	const datums = json.peek("arbitrary_datums");
-	if (Array.isArray(datums) && datums.length > 0)
-		json.refuse("arbitrary_datums", ADVANCED_CLAIMS.arbitraryDatums);
+	readEntryValues(ctx, form);
+	readOrdinaryAdvancedActions(ctx, module, form);
+}
 
+function readEntryValues(ctx: ReadContext, form: DraftForm) {
+	const json = form.json;
+	const datums = json.peek("arbitrary_datums");
+	if (Array.isArray(datums) && datums.length > 0) {
+		const sources = json.list(
+			"arbitrary_datums",
+			"ArbitraryDatum",
+			form.docType === "ShadowForm"
+				? SHARED.datums
+				: ADVANCED_CLAIMS.arbitraryDatums,
+		);
+		const values = sources.flatMap((row, index) => {
+			const raw = datums[index];
+			if (
+				!isJsonObject(raw) ||
+				typeof raw.datum_id !== "string" ||
+				typeof raw.datum_function !== "string"
+			)
+				return [];
+			const key = raw.datum_id;
+			const uuid = ctx.accounting.identity(
+				ctx.identities.claim(
+					externalKey.entryValue(form.uuid, key),
+					whereText(form.place),
+				),
+				form.place,
+				"schema:ArbitraryDatum.datum_id",
+			);
+			if (!uuid) return [];
+			consume(
+				row.take(
+					"datum_id",
+					ADVANCED_CLAIMS.arbitraryDatumId,
+					(value) => value,
+				),
+			);
+			ctx.pending.register(
+				{
+					ref: {
+						entity: "form",
+						uuid: form.uuid,
+						slot: "form_entry_value",
+						member: { supplyUuid: uuid },
+					},
+					text: raw.datum_function,
+					mode: { target: "hq-json", interpolation: "none" },
+					place: form.place,
+					key: "schema:ArbitraryDatum.datum_function",
+				},
+				{ json: row, key: "datum_function" },
+			);
+			return [{ uuid, key }];
+		});
+		if (values.length) {
+			ctx.writeDraft(() => {
+				form.form.computedDatums = values.map(({ uuid, key }) => ({
+					uuid,
+					key,
+					value: pendingPlaceholder("value"),
+				}));
+			});
+		}
+	}
+}
+
+function readOrdinaryAdvancedActions(
+	ctx: ReadContext,
+	module: DraftModule,
+	form: DraftForm,
+) {
+	const json = form.json;
 	const stored = json.peek("actions");
 	const actions = isJsonObject(stored) ? stored : NO_ENTRIES;
 	const A = json.object(
@@ -1185,10 +1742,51 @@ export function readAdvancedActions(
 	const storedOpens = Array.isArray(actions.open_cases)
 		? actions.open_cases
 		: [];
+	const ownOpenIndex = registrationOpenIndex(
+		storedOpens,
+		storedLoads,
+		menuType as string,
+	);
+	const explicit = explicitFormChoices(
+		ctx,
+		form,
+		module,
+		menus,
+		storedLoads,
+		ownOpenIndex >= 0,
+		storedOpens,
+	);
+	if (explicit)
+		ctx.writeDraft(() => {
+			form.form.caseSelections = [...explicit.choices.values()];
+		});
+	if (explicit) {
+		const choices = [...explicit.choices.values()];
+		const firstWorker = choices.findIndex(
+			(choice) => choice.source.kind === "worker-record",
+		);
+		const lastChosen = choices.findLastIndex(
+			(choice) => choice.source.kind === "choose",
+		);
+		if (firstWorker >= 0 && lastChosen > firstWorker) {
+			A.takePart(
+				"load_update_cases",
+				"worker-before-choice",
+				ADVANCED_CLAIMS.workerLoadFirst,
+			);
+		}
+		if (lastChosen >= 0)
+			A.takePart(
+				"load_update_cases",
+				"form-choices",
+				ADVANCED_CLAIMS.notOneChain,
+			);
+	}
 	const loadCursors =
 		storedLoads.length > 0
 			? A.list("load_update_cases", "LoadUpdateAction", ADVANCED_CLAIMS.loads)
 			: [];
+	OPENING_SITES.set(form, { actions: A, loads: loadCursors });
 	const openCursors =
 		storedOpens.length > 0
 			? A.list("open_cases", "AdvancedOpenCaseAction", ADVANCED_CLAIMS.opens)
@@ -1240,20 +1838,6 @@ export function readAdvancedActions(
 		if (isJsonObject(load) && typeof load.case_tag === "string")
 			loadTags.set(load.case_tag, i);
 	});
-	/** Where each tag is first stored among the loads, so the tags stored before a load are one
-	 *  lookup, never a copy of the loads before it. */
-	const firstTagAt = new Map<string, number>();
-	storedLoads.forEach((load, i) => {
-		if (
-			isJsonObject(load) &&
-			typeof load.case_tag === "string" &&
-			!firstTagAt.has(load.case_tag)
-		)
-			firstTagAt.set(load.case_tag, i);
-	});
-	const tagsBefore = (i: number): Pick<ReadonlySet<string>, "has"> => ({
-		has: (tag) => (firstTagAt.get(tag) ?? i) < i,
-	});
 	/** Each chosen load's place among the chosen loads, by its place among the loads. */
 	const chosenPosition = new Map(
 		chosenIndexes.map((index, position) => [index, position]),
@@ -1274,30 +1858,80 @@ export function readAdvancedActions(
 	// Each chosen load the reading refused, by its place among the loads, with its finding.
 	const refusedChosenLoads = new Map<number, Finding>();
 
+	const ownChoiceIndex =
+		explicit &&
+		[...explicit.choices].findLast(
+			([, row]) => row.source.kind === "choose" && row.caseType === menuType,
+		)?.[0];
 	const readLoad = (L: JsonCursor, i: number): void => {
 		const load = storedLoads[i] as Record<string, unknown>;
-		if (load.auto_select !== null && load.auto_select !== undefined) {
+		const unread = explicit?.unread.get(i);
+		if (unread) {
 			const before = ctx.accounting.findingCount();
-			const earlierTags = tagsBefore(i);
+			L.refuseWhole(
+				unread.issue,
+				unread.name ? { name: unread.name } : undefined,
+			);
+			const refusal = ctx.accounting.findingRaised(before);
+			if (refusal && typeof load?.case_tag === "string") {
+				if (load.auto_select) refusedAutoLoads.set(load.case_tag, refusal);
+				else refusedChosenLoads.set(i, refusal);
+			}
+			chainOk = false;
+			r.ok = false;
+			return;
+		}
+		if (
+			!explicit &&
+			load.auto_select !== null &&
+			load.auto_select !== undefined
+		) {
+			const before = ctx.accounting.findingCount();
 			const read = readAutoSelectLoad(
 				r,
 				L,
 				load,
-				earlierTags,
 				operations,
 				operationId,
 				ordinal,
 			);
-			if (read !== undefined) worker = read;
-			else {
+			if (read !== undefined) {
+				worker = read;
+				readLoadPreloads(r, L, load, "commcare-user", false, []);
+			} else {
 				const refusal = ctx.accounting.findingRaised(before);
 				if (refusal !== undefined && typeof load.case_tag === "string")
 					refusedAutoLoads.set(load.case_tag, refusal);
 			}
 			return;
 		}
+		const explicitChoice = explicit?.choices.get(i);
+		if (
+			explicitChoice &&
+			!Object.keys(object(load.case_properties)).length &&
+			!activeCondition(load.close_condition)
+		) {
+			const position = chosenPosition.get(i);
+			if (explicitChoice.source.kind === "worker-record")
+				L.takePart(
+					"auto_select",
+					"read-only-worker",
+					ADVANCED_CLAIMS.usercaseWritesNothing,
+				);
+			else if (
+				position !== undefined &&
+				explicitChoice.tag !==
+					`load_${explicitChoice.caseType.replaceAll("-", "_")}${position}`
+			)
+				L.takePart("case_tag", "read-only-name", ADVANCED_CLAIMS.underivedTag);
+		}
+		if (explicitChoice)
+			readExplicitAutoSource(ctx, form, L, load, explicitChoice);
+
 		const position = chosenPosition.get(i) ?? -1;
-		const last = position === chosenIndexes.length - 1;
+		const last =
+			ownOpenIndex < 0 &&
+			(explicit ? i === ownChoiceIndex : position === chosenIndexes.length - 1);
 		const tag = load.case_tag;
 		const tagClaim = tagFinding(tag, false);
 		if (tagClaim !== undefined) {
@@ -1309,13 +1943,23 @@ export function readAdvancedActions(
 			r.ok = false;
 			return;
 		}
-		consume(L.take("case_tag", ADVANCED_CLAIMS.tag, (value) => value));
+		consume(
+			L.take(
+				"case_tag",
+				typeof tag === "string" && tag.includes("-")
+					? ADVANCED_CLAIMS.tagHyphen
+					: ADVANCED_CLAIMS.tag,
+				(value) => value,
+			),
+		);
 		const caseType = load.case_type;
 		consume(L.take("case_type", ADVANCED_CLAIMS.caseType, (value) => value));
 		const detailsId =
 			typeof load.details_module === "string" ? load.details_module : "";
-		const listMenu =
-			detailsId === "" ? (last ? module : undefined) : menus.get(detailsId);
+		const automatic = explicitChoice && explicitChoice.source.kind !== "choose";
+		const listMenu = automatic
+			? undefined
+			: sourceListMenu(menus, module, load);
 		const listsAnotherType =
 			listMenu === undefined ||
 			(listMenu.module.caseType !== caseType &&
@@ -1323,30 +1967,17 @@ export function readAdvancedActions(
 		// HQ's build checks the case type of every list menu a load names but
 		// the form's own (`entries.py::EntriesHelper.get_target_module`), the last
 		// load's too.
-		const detailsRefused = last
-			? detailsId !== "" && detailsId !== module.uniqueId && listsAnotherType
-			: listsAnotherType;
+		const detailsRefused =
+			!automatic &&
+			(last
+				? detailsId !== "" && detailsId !== module.uniqueId && listsAnotherType
+				: listsAnotherType);
 		if (detailsRefused) {
 			L.refuse("details_module", ADVANCED_CLAIMS.detailsModuleOther, {
 				name: tag as string,
 			});
 			chainOk = false;
 			r.ok = false;
-		} else if (last) {
-			if (
-				caseType !== menuType ||
-				(detailsId !== "" && detailsId !== module.uniqueId)
-			) {
-				chainOk = false;
-				// A later load the reading refuses for its auto-select (every mode
-				// but the worker's record) is what leaves this one last: the chain it
-				// breaks stands under that load's finding, and this load is read on.
-				if (!refusedAutoSelectAfter(storedLoads, i)) {
-					refuseOutsideChain(ctx, module, L, tag as string);
-					r.ok = false;
-					return;
-				}
-			}
 		}
 		if (!detailsRefused && L.used("details_module"))
 			consume(
@@ -1368,69 +1999,27 @@ export function readAdvancedActions(
 			ctx.accounting.cover({ json: L, key: "case_index" }, refusedParent);
 			chainOk = false;
 			r.ok = false;
-		} else if (position === 0) {
-			// HQ's editor offers an index on every load stored after the first that
-			// does not auto-select, naming the load stored before it
-			// (`case_config_advanced.html`, `advanced/actions.js` `subcase`): the first
-			// chosen load stored after an auto-selected one may name that load.
-			const before = i > 0 ? storedLoads[i - 1] : undefined;
-			if (indexTag !== "" && i === 0) {
-				L.refuse("case_index", ADVANCED_CLAIMS.caseIndexOnFirst);
-				chainOk = false;
-				r.ok = false;
-			} else if (indexTag !== "" && !loadTags.has(indexTag)) {
-				L.refuse("case_index", ADVANCED_CLAIMS.caseIndexNoAction);
-				chainOk = false;
-				r.ok = false;
-			} else if (
-				indexTag !== "" &&
-				(!isJsonObject(before) || indexTag !== before.case_tag)
-			) {
-				L.refuse("case_index", ADVANCED_CLAIMS.caseIndexOtherLoad);
-				chainOk = false;
-				r.ok = false;
-			} else if (indexTag !== "") {
-				// The auto-selected load before it that the reading holds, the worker's
-				// record: Nova holds no chosen case narrowed to the worker's record's
-				// children, one finding at the form.
-				L.refuse("case_index", ADVANCED_CLAIMS.caseIndexToWorkerLoad, {
-					name: tag as string,
-				});
-				chainOk = false;
-				r.ok = false;
-			} else {
-				// An index with a blank tag indexes nothing: HQ's page writes one on a load that
-				// indexes no case (`advanced/actions.js`, `case_index.tag('')`).
-				consume(
-					L.take("case_index", ADVANCED_CLAIMS.caseIndex, (value) => value),
-				);
-			}
+		} else if (automatic && indexTag !== "") {
+			L.refuse("case_index", ADVANCED_CLAIMS.caseIndexOnFirst);
+			chainOk = false;
+			r.ok = false;
 		} else {
-			const previous = storedLoads[
-				chosenIndexes[position - 1] as number
-			] as Record<string, unknown>;
-			if (!loadTags.has(indexTag) && !openTags.has(indexTag)) {
-				L.refuse("case_index", ADVANCED_CLAIMS.caseIndexNoAction);
-				chainOk = false;
-				r.ok = false;
-			} else if (indexTag !== previous.case_tag) {
-				L.refuse("case_index", ADVANCED_CLAIMS.caseIndexOtherLoad);
-				chainOk = false;
-				r.ok = false;
-			} else if (
-				index.relationship !== undefined &&
-				index.relationship !== "child"
-			) {
-				refuseOutsideChain(ctx, module, L, tag as string);
-				chainOk = false;
-				r.ok = false;
-				return;
-			} else {
+			if (L.used("case_index")) {
+				const predecessor = indexTag && loadTags.get(indexTag);
+				const parent =
+					typeof predecessor === "number" && explicit?.choices.get(predecessor);
 				consume(
-					L.take("case_index", ADVANCED_CLAIMS.caseIndex, (value) => value),
+					L.take(
+						"case_index",
+						position === 0 && parent && parent.source.kind === "worker-record"
+							? ADVANCED_CLAIMS.caseIndexToWorkerLoad
+							: ADVANCED_CLAIMS.caseIndex,
+						(value) => value,
+					),
 				);
-				indexRead = { tag: indexTag, identifier: chainIndexName(index) };
 			}
+			if (indexTag !== "")
+				indexRead = { tag: indexTag, identifier: chainIndexName(index) };
 		}
 		if (
 			load.load_case_from_fixture !== null &&
@@ -1457,7 +2046,9 @@ export function readAdvancedActions(
 		const properties = readProperties(
 			r,
 			L,
-			LOAD_PROPERTY_CLAIMS,
+			caseType === "commcare-user"
+				? WORKER_LOAD_PROPERTY_CLAIMS
+				: LOAD_PROPERTY_CLAIMS,
 			indexed
 				? { kind: "indexed" }
 				: last
@@ -1488,7 +2079,9 @@ export function readAdvancedActions(
 		// is not the schema's default, so the claim is made whether or not it closes.
 		const closeClaim = last
 			? ADVANCED_CLAIMS.ownClose
-			: ADVANCED_CLAIMS.otherClose;
+			: conditionReadsAnswerAlone(form, closeStored)
+				? ANSWER_ALONE_CLAIMS.loadClose
+				: ADVANCED_CLAIMS.otherClose;
 		consume(L.take("close_condition", closeClaim, (value) => value));
 		noteBooleanAnswer(
 			ctx,
@@ -1504,15 +2097,18 @@ export function readAdvancedActions(
 		chosen.push({
 			tag: tag as string,
 			caseType: caseType as string,
-			detailsModule: detailsId === "" ? module.uniqueId : detailsId,
+			detailsModule: listMenu?.uniqueId ?? detailsId,
 			...(indexRead !== undefined && { index: indexRead }),
 			changes,
 		});
 		if (listMenu !== undefined) chain.push(listMenu.uuid);
 		const placement = tag as string;
+		const selected = explicit?.choices.get(i);
 		const ref: ProposedCaseRef = last
 			? { kind: "session" }
-			: { kind: "selected", module: (listMenu ?? module).uuid };
+			: selected
+				? { kind: "selection", uuid: selected.uuid }
+				: { kind: "selected", module: (listMenu ?? module).uuid };
 		loadUuids.set(i, ref);
 		const condition = (
 			stored: unknown,
@@ -1539,7 +2135,13 @@ export function readAdvancedActions(
 					action: "own",
 					tag: placement,
 					...(properties.name !== undefined && { name: properties.name }),
+					...(properties.nameOnlyIfChanged !== undefined && {
+						nameOnlyIfChanged: true,
+					}),
 					...(properties.owner !== undefined && { owner: properties.owner }),
+					...(properties.ownerOnlyIfChanged !== undefined && {
+						ownerOnlyIfChanged: true,
+					}),
 					writes: properties.writes,
 					links: [],
 				});
@@ -1561,7 +2163,13 @@ export function readAdvancedActions(
 					tag: placement,
 					target: ref,
 					...(properties.name !== undefined && { rename: properties.name }),
+					...(properties.nameOnlyIfChanged !== undefined && {
+						renameOnlyIfChanged: true,
+					}),
 					...(properties.owner !== undefined && { owner: properties.owner }),
+					...(properties.ownerOnlyIfChanged !== undefined && {
+						ownerOnlyIfChanged: true,
+					}),
 					writes: properties.writes,
 					links: [],
 				});
@@ -1632,16 +2240,6 @@ export function readAdvancedActions(
 	const sharesRowBlock = (context: string) =>
 		(repeatsWithOpens.get(context) ?? 0) > 1 &&
 		(repeatsWithIndices.get(context) ?? 0) < 2;
-	const ownOpenIndex =
-		chosen.length === 0
-			? storedOpens.findIndex(
-					(open) =>
-						isJsonObject(open) &&
-						open.case_type === menuType &&
-						(typeof open.repeat_context !== "string" ||
-							open.repeat_context === ""),
-				)
-			: -1;
 	openCursors.forEach((O, j) => {
 		const open = storedOpens[j] as Record<string, unknown>;
 		const own = j === ownOpenIndex;
@@ -1669,7 +2267,11 @@ export function readAdvancedActions(
 		consume(
 			O.take(
 				"case_tag",
-				own ? ADVANCED_CLAIMS.openOwn : ADVANCED_CLAIMS.openTag,
+				typeof tag === "string" && tag.includes("-")
+					? ADVANCED_CLAIMS.openTagHyphen
+					: own
+						? ADVANCED_CLAIMS.openOwn
+						: ADVANCED_CLAIMS.openTag,
 				(value) => value,
 			),
 		);
@@ -1716,7 +2318,6 @@ export function readAdvancedActions(
 					"non-core": ADVANCED_CLAIMS.openNonCoreKey,
 					"non-ascii": ADVANCED_CLAIMS.openNonAsciiKey,
 				},
-				diverted: ADVANCED_CLAIMS.openLocationKeys,
 			},
 			{ kind: "elsewhere" },
 			true,
@@ -1755,30 +2356,28 @@ export function readAdvancedActions(
 		}
 		const openStored = open.open_condition;
 		if (O.used("open_condition")) {
-			consume(
-				O.take(
-					"open_condition",
-					ADVANCED_CLAIMS.openCondition,
-					(value) => value,
-				),
-			);
+			const openClaim = conditionReadsAnswerAlone(form, openStored)
+				? ANSWER_ALONE_CLAIMS.openCondition
+				: ADVANCED_CLAIMS.openCondition;
+			consume(O.take("open_condition", openClaim, (value) => value));
 			noteBooleanAnswer(
 				ctx,
 				openStored,
-				ADVANCED_CLAIMS.openCondition.entry,
+				openClaim.entry,
 				`${O.pointer}/open_condition`,
 			);
 		}
 		const closeStored = open.close_condition;
 		const closes = activeCondition(closeStored);
 		// A close that never runs is read as no close, claimed as a load's is.
-		consume(
-			O.take("close_condition", ADVANCED_CLAIMS.openClose, (value) => value),
-		);
+		const openCloseClaim = conditionReadsAnswerAlone(form, closeStored)
+			? ANSWER_ALONE_CLAIMS.openClose
+			: ADVANCED_CLAIMS.openClose;
+		consume(O.take("close_condition", openCloseClaim, (value) => value));
 		noteBooleanAnswer(
 			ctx,
 			closeStored,
-			ADVANCED_CLAIMS.openClose.entry,
+			openCloseClaim.entry,
 			`${O.pointer}/close_condition`,
 		);
 		const condition = (
@@ -1817,7 +2416,7 @@ export function readAdvancedActions(
 				const namesOpen = openIndex !== undefined && loadIndex === undefined;
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
-				if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
+				if (!isCaseOperationLinkIdentifier(identifier)) {
 					I.refuseWhole(ADVANCED_CLAIMS.openIndexName, { name: identifier });
 					r.ok = false;
 					return;
@@ -1928,6 +2527,15 @@ export function readAdvancedActions(
 						(value) => value,
 					),
 				);
+				const read = links.at(-1);
+				if (identifier === "parent" && read !== undefined)
+					parentIndicesRead(ctx).push({
+						cursor: I,
+						place: form.place,
+						childType: caseType,
+						parentType: read.targetType,
+						relationship,
+					});
 				for (const key of ["reference_id", "relationship"])
 					if (I.used(key))
 						consume(I.take(key, ADVANCED_CLAIMS.openIndices, (value) => value));
@@ -1989,6 +2597,9 @@ export function readAdvancedActions(
 				tag: placementTag,
 				name,
 				...(owner !== undefined && { owner }),
+				...(properties.ownerOnlyIfChanged !== undefined && {
+					ownerOnlyIfChanged: true,
+				}),
 				writes: properties.writes,
 				links,
 			});
@@ -2014,6 +2625,9 @@ export function readAdvancedActions(
 			...(row !== undefined && { row }),
 			name,
 			...(owner !== undefined && { owner }),
+			...(properties.ownerOnlyIfChanged !== undefined && {
+				ownerOnlyIfChanged: true,
+			}),
 			writes: properties.writes,
 			...(openOn !== undefined && { condition: openOn }),
 			...(repeat !== undefined && { forEach: repeat }),
@@ -2058,12 +2672,17 @@ export function readAdvancedActions(
 	READINGS.set(form, {
 		type,
 		operations,
+		...(explicit?.questions.size && {
+			choiceRelationshipQuestions: explicit.questions,
+		}),
 		...(openCondition !== undefined && { openCondition }),
 		...(closeCondition !== undefined && { closeCondition }),
 		...(closesAlways ? { closesAlways: true as const } : {}),
 		chosen,
 		...(worker !== undefined && { worker }),
-		...(chainOk && chain.length === chosen.length && { chain: [...chain] }),
+		...(explicit === undefined &&
+			chainOk &&
+			chain.length === chosen.length && { chain: [...chain] }),
 		mints,
 		...(!r.ok && { refused: true as const }),
 		createNames,
@@ -2125,62 +2744,17 @@ function readAutoSelectLoad(
 	r: Reading,
 	L: JsonCursor,
 	load: Readonly<Record<string, unknown>>,
-	earlierTags: Pick<ReadonlySet<string>, "has">,
 	operations: AdvancedProposal[],
 	operationId: (type: string) => string,
 	ordinal: (tag: string, action: string) => number,
 ): StoredLoad | undefined {
 	const auto = isJsonObject(load.auto_select) ? load.auto_select : NO_ENTRIES;
-	const mode = auto.mode;
 	const C = ADVANCED_CLAIMS;
-	if (
-		typeof mode !== "string" ||
-		mode === "" ||
-		typeof load.case_type !== "string" ||
-		load.case_type === ""
-	) {
-		L.refuseWhole(C.autoBlank);
-		r.ok = false;
-		return undefined;
-	}
-	const key = auto.value_key;
-	if (mode !== "usercase" && (typeof key !== "string" || key === "")) {
-		L.refuseWhole(C.autoMissingKey);
-		r.ok = false;
-		return undefined;
-	}
-	if (mode === "raw") return refuseLoad(r, L, C.autoRaw);
-	if (mode === "user") return refuseLoad(r, L, C.autoUser);
-	if (mode === "fixture") return refuseLoad(r, L, C.autoFixture);
-	if (mode === "case") {
-		const source = auto.value_source;
-		const earlier = earlierTags.has(typeof source === "string" ? source : "");
-		return refuseLoad(r, L, earlier ? C.autoCase : C.autoCaseLater);
-	}
-	if (mode !== "usercase") return refuseLoad(r, L, C.autoBlank);
 	const tag = load.case_tag;
 	const properties = readProperties(r, L, WORKER_LOAD_PROPERTY_CLAIMS, {
 		kind: "elsewhere",
 	});
-	if (
-		// A load whose only writes were refused (a key HQ's build refuses, a key HQ's
-		// server stores apart, a value Nova cannot hold) writes something, each
-		// refusal its own finding, and the rest of the load is read on.
-		(properties.writes.length === 0 && properties.refused !== true) ||
-		activeCondition(load.close_condition) ||
-		properties.name !== undefined ||
-		properties.owner !== undefined ||
-		typeof tag !== "string" ||
-		tag === "" ||
-		tagFinding(tag, false) !== undefined
-	) {
-		L.refuseWhole(
-			C.usercaseWritesNothing,
-			typeof tag === "string" && tag !== "" ? { name: tag } : undefined,
-		);
-		r.ok = false;
-		return undefined;
-	}
+	if (typeof tag !== "string") return undefined;
 	// The worker's load Nova writes names no value and saves answers outside
 	// any repeat: a stray `value_source` or `value_key`, or a write from a
 	// repeat's question, is a load Nova does not write, never claimed unseen.
@@ -2226,7 +2800,13 @@ function readAutoSelectLoad(
 	// A close that never runs is read as no close, claimed as another selection's is.
 	consume(L.take("close_condition", C.otherClose, (value) => value));
 	consume(L.take("auto_select", C.usercase, (value) => value));
-	consume(L.take("case_tag", C.tag, (value) => value));
+	consume(
+		L.take(
+			"case_tag",
+			tag.includes("-") ? C.tagHyphen : C.tag,
+			(value) => value,
+		),
+	);
 	consume(L.take("case_type", C.caseType, (value) => value));
 	const uuid = mint(r, tag, "update", ordinal(tag, "update"));
 	if (uuid !== undefined)
@@ -2250,35 +2830,6 @@ function chainIndexName(index: Readonly<Record<string, unknown>>): string {
 	return typeof index.reference_id === "string" && index.reference_id !== ""
 		? index.reference_id
 		: "parent";
-}
-
-/** Whether a load stored after the one at `index` is auto-selected in a mode the reading
- *  refuses: any but the worker's record (`readAutoSelectLoad`). */
-function refusedAutoSelectAfter(
-	storedLoads: readonly unknown[],
-	index: number,
-): boolean {
-	return storedLoads
-		.slice(index + 1)
-		.some(
-			(load) =>
-				isJsonObject(load) &&
-				load.auto_select !== null &&
-				load.auto_select !== undefined &&
-				!(
-					isJsonObject(load.auto_select) && load.auto_select.mode === "usercase"
-				),
-		);
-}
-
-function refuseLoad(
-	r: Reading,
-	L: JsonCursor,
-	claim: Claim<"refuse">,
-): undefined {
-	L.refuseWhole(claim);
-	r.ok = false;
-	return undefined;
 }
 
 /** A load's `preload`: each into a question outside any repeat, from a
@@ -2329,11 +2880,49 @@ function readLoadPreloads(
 		r.ok = false;
 		return;
 	}
-	const entries = Object.entries(preload).map(([path, property]) => ({
+	const allEntries = Object.entries(preload).map(([path, property]) => ({
 		path,
 		property,
 		field: fieldAt(r.form, path),
 	}));
+	const source = {
+		kind: "load" as const,
+		tag: typeof load.case_tag === "string" ? load.case_tag : "",
+	};
+	const late = allEntries.flatMap(({ path, property, field }) => {
+		if (
+			!field ||
+			typeof property !== "string" ||
+			holdsEarlierDefault(r.ctx, r.form, source, path, property)
+		)
+			return [];
+		const { indices, name } = preloadReadOf(property);
+		return name &&
+			!hqBuildRefusesProperty(name === "case_name" ? "name" : name) &&
+			holdsAsOpeningAssignment(indices, name)
+			? [{ field, indices, property: name, path }]
+			: [];
+	});
+	const carried = new Set(late.map((row) => row.path));
+	for (const row of late) {
+		recordLateAssignment(r.form, { ...row, source });
+		L.takePart(
+			"preload",
+			JSON.stringify([row.path, "ready"]),
+			ADVANCED_CLAIMS.assignedAtOpen,
+		);
+		if (!holdsDefault(r.form, row.field))
+			L.takePart(
+				"preload",
+				JSON.stringify([row.path, "calculated"]),
+				ADVANCED_CLAIMS.calculatedOpening,
+			);
+	}
+	const entries = allEntries.filter((row) => !carried.has(row.path));
+	if (!entries.length) {
+		consume(L.take("preload", ADVANCED_CLAIMS.preload, (value) => value));
+		return;
+	}
 	const label = entries.find(
 		({ field }) => field?.kind === "label" || field === undefined,
 	);
@@ -2367,13 +2956,18 @@ function readLoadPreloads(
 	const unnamed = entries.find(
 		({ property }) =>
 			typeof property === "string" &&
-			preloadReadOf(property).name === undefined,
+			preloadNameRefusal(preloadReadOf(property).name) !== undefined,
 	);
 	if (unnamed !== undefined) {
-		L.refuse("preload", UNNAMED_PRELOAD, {
-			name: unnamed.property as string,
-			reason: "name:case-property",
-		});
+		L.refuse(
+			"preload",
+			preloadNameRefusal(preloadReadOf(unnamed.property as string).name) ??
+				UNNAMED_PRELOAD,
+			{
+				name: unnamed.property as string,
+				reason: "name:case-property",
+			},
+		);
 		r.ok = false;
 		return;
 	}
@@ -2445,6 +3039,14 @@ function caseTarget(
 			return { kind: "session" };
 		case "selected":
 			return { kind: "expression", expr: selectedCase(ref.module) };
+		case "selection":
+			return {
+				kind: "expression",
+				expr: term({
+					kind: "session-datum",
+					datum: { kind: "form-selection", selection: ref.uuid },
+				}),
+			};
 		case "op":
 			return { kind: "op", opUuid: ref.uuid };
 		case "worker-record":
@@ -2460,6 +3062,14 @@ function linkTarget(ref: ProposedCaseRef): CaseOperationLink["target"] {
 			return { kind: "session" };
 		case "selected":
 			return { kind: "expression", expr: selectedCase(ref.module) };
+		case "selection":
+			return {
+				kind: "expression",
+				expr: term({
+					kind: "session-datum",
+					datum: { kind: "form-selection", selection: ref.uuid },
+				}),
+			};
 		case "op":
 			return { kind: "op", opUuid: ref.uuid };
 	}
@@ -2489,6 +3099,7 @@ export function writeAdvancedOperations(
 					property: write.property,
 					value,
 					...(write.via !== undefined && { via: write.via }),
+					...(write.onlyIfChanged !== undefined && { onlyIfChanged: true }),
 				});
 		}
 		const placement = {
@@ -2530,12 +3141,23 @@ export function writeAdvancedOperations(
 			...(writes.length > 0 && { writes }),
 			...(proposal.shares === undefined && { placement }),
 		};
+		// A facet saved only when changed is read from a question, so it is
+		// never the worker or "no one".
+		const ownerFlag =
+			owner !== undefined && proposal.ownerOnlyIfChanged === true
+				? { ownerOnlyIfChanged: true as const }
+				: {};
 		if (proposal.action === "own")
 			operations.push({
 				...common,
 				action: "own",
 				...(name !== undefined && { name }),
+				...(name !== undefined &&
+					proposal.nameOnlyIfChanged === true && {
+						nameOnlyIfChanged: true,
+					}),
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 				...(links.length > 0 && { links }),
 			} as CaseOperation);
 		else if (proposal.action === "create" && name !== undefined)
@@ -2546,6 +3168,7 @@ export function writeAdvancedOperations(
 				target: { kind: "new" },
 				name,
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 				...(links.length > 0 && { links }),
 				...(condition !== undefined && { condition }),
 				...(forEach !== undefined && { forEach }),
@@ -2557,7 +3180,12 @@ export function writeAdvancedOperations(
 				caseType: proposal.caseType as string,
 				target: caseTarget(proposal.target ?? { kind: "session" }),
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 				...(rename !== undefined && { rename }),
+				...(rename !== undefined &&
+					proposal.renameOnlyIfChanged === true && {
+						renameOnlyIfChanged: true,
+					}),
 			} as CaseOperation);
 		else if (proposal.action === "close")
 			operations.push({
@@ -2576,7 +3204,45 @@ export function writeAdvancedOperations(
 		reading.closesAlways === true
 			? matchAll()
 			: conditionOf(form, reading.closeCondition);
+	// A read records each actual source tag, including a load that writes nothing.
+	const tags: Array<[Uuid, string]> =
+		form.form.caseSelections?.map((row) => [row.uuid, row.tag]) ??
+		(reading.chain ?? []).flatMap((menu, i) => {
+			const load = reading.chosen[i];
+			return load
+				? [
+						[implicitFormSelectionId(form.uuid, menu), load.tag] as [
+							Uuid,
+							string,
+						],
+					]
+				: [];
+		});
+	if (form.form.caseSelections === undefined && reading.worker)
+		tags.push([
+			implicitFormSelectionId(form.uuid, "worker-record"),
+			reading.worker.tag,
+		]);
+	// An implicit record's UUID is the form's own derivation; the map
+	// holds its key under that UUID, as `externalIdentityMap` spells it.
+	if (form.form.caseSelections === undefined)
+		for (const [uuid, tag] of tags)
+			ctx.accounting.identity(
+				ctx.identities.record(
+					externalKey.formSelection(form.uuid, tag),
+					uuid,
+					whereText(form.place),
+				),
+				form.place,
+				"schema:LoadUpdateAction.case_tag",
+			);
 	ctx.writeDraft(() => {
+		if (tags.length) form.form.heldSelectionTags = recordFromEntries(tags);
+		for (const row of form.form.caseSelections ?? []) {
+			const supplied = reading.choiceRelationshipQuestions?.get(row.uuid);
+			if (row.source.kind === "choose" && row.source.under && supplied?.uuid)
+				row.source.under.relationship = { question: supplied.uuid };
+		}
 		if (operations.length > 0) form.form.caseOperations = operations;
 		if (open !== undefined) form.form.openCondition = open;
 		if (close !== undefined) form.form.closeCondition = close;
@@ -2612,20 +3278,6 @@ export function listFormRulesPlace(
 		: undefined;
 }
 
-/** Refuses a load outside the menu's one chain, whole: at the form, or under the refusal at
- *  the menu's case list where that stands (`listFormRulesPlace`). */
-function refuseOutsideChain(
-	ctx: ReadContext,
-	module: DraftModule,
-	load: JsonCursor,
-	tag: string,
-): void {
-	const rulesAt = listFormRulesPlace(ctx, module);
-	if (rulesAt !== undefined)
-		load.refuseWhole(ADVANCED_CLAIMS.listFormRules, undefined, rulesAt);
-	else load.refuseWhole(ADVANCED_CLAIMS.notOneChain, { name: tag });
-}
-
 /** Each menu's parent selection from its forms' loads, and each
  *  form whose chain differs from the menu's one chain (its finding). */
 export function writeAdvancedChains(ctx: ReadContext): void {
@@ -2635,10 +3287,10 @@ export function writeAdvancedChains(ctx: ReadContext): void {
 		const forms = module.forms.filter((form) => READINGS.has(form));
 		const { chain, disagreeing } = readLoadChain(module, forms);
 		const rulesAt = listFormRulesPlace(ctx, module);
-		for (const { form, tag } of disagreeing) {
+		for (const { form } of disagreeing) {
 			if (rulesAt === undefined)
-				ctx.accounting.finding(ADVANCED_CLAIMS.notOneChain, form.place, {
-					name: tag,
+				ctx.accounting.circumstance("unrecognized", form.place, {
+					name: "schema:AdvancedFormActions.load_update_cases",
 				});
 			outsideTheChain.add(form);
 		}
@@ -2784,6 +3436,64 @@ export function judgeLoads(
 		: { kind: "tag", tag: tagOnly };
 }
 
+/** Compare each explicit load with the action emitted for this read, including
+ * the resolved display menu when HQ omitted its id. Raw XPath is compared by
+ * the expression reader under the actual entry ids; the remaining modes use
+ * literal HQ source names here, including the Project table/column pair. */
+function judgeExplicitLoads(
+	source: unknown,
+	emitted: unknown,
+	menus: ReadonlyMap<string, DraftModule>,
+	own: DraftModule,
+): LoadsVerdict {
+	const list = (value: unknown) => {
+		const raw = object(value).load_update_cases;
+		return Array.isArray(raw) ? raw.map(object) : [];
+	};
+	const original = list(source);
+	const planned = list(emitted);
+	const shape = (load: JsonObject) => {
+		const auto = object(load.auto_select);
+		const idx = object(load.case_index);
+		return {
+			tag: load.case_tag,
+			type: load.case_type,
+			menu: auto.mode ? null : sourceListMenu(menus, own, load)?.uuid,
+			index: idx.tag
+				? [
+						idx.tag,
+						chainIndexName(idx),
+						idx.relationship ?? "child",
+						idx.relationship === "question" ? idx.relationship_question : null,
+					]
+				: null,
+			auto: !auto.mode
+				? null
+				: [
+						auto.mode,
+						auto.mode === "user" ||
+						auto.mode === "fixture" ||
+						auto.mode === "case"
+							? auto.value_key
+							: null,
+						auto.mode === "fixture" || auto.mode === "case"
+							? auto.value_source
+							: null,
+					],
+		};
+	};
+	for (let i = 0; i < Math.max(original.length, planned.length); i++) {
+		const old = original[i];
+		const row = planned[i];
+		if (!old || !row || !sameJson(shape(old), shape(row)))
+			return {
+				kind: "chain",
+				tag: String(old?.case_tag ?? row?.case_tag ?? ""),
+			};
+	}
+	return { kind: "same" };
+}
+
 type JsonObject = Readonly<Record<string, unknown>>;
 
 function object(value: unknown): JsonObject {
@@ -2823,9 +3533,7 @@ function plannedPath(
 	const root = form.xform?.parsed.dataRoot.name ?? "data";
 	const relative = path.startsWith(`/${root}/`)
 		? path.slice(root.length + 2)
-		: path.startsWith("/data/")
-			? path.slice(6)
-			: path;
+		: path;
 	return plannedOwnerPaths.has(relative)
 		? `#owner:${relative}`
 		: (siblings.get(relative) ?? relative);
@@ -3041,16 +3749,6 @@ export function settleAdvancedForm(
 			refuseCreatesOf(proposal);
 			return;
 		}
-		// A case change's condition is a record rule; the form's own open and
-		// close conditions take Core's coercions.
-		const notYesNo = operationConditions.includes(proposal)
-			? conditionNotYesNo(doc, form.uuid, read.expression)
-			: undefined;
-		if (notYesNo !== undefined) {
-			ctx.accounting.findingAt(notYesNo, proposal.place, proposal.pointer);
-			refuseCreatesOf(proposal);
-			return;
-		}
 	}
 	const inputs = readProjectionInputs(ctx);
 	let planned: ReturnType<typeof planFormCaseWire>;
@@ -3085,22 +3783,69 @@ export function settleAdvancedForm(
 	const ownMenu = ctx.draft.modules.find((one) => one.forms.includes(form));
 	const underListFormRules =
 		ownMenu !== undefined && listFormRulesPlace(ctx, ownMenu) !== undefined;
-	const verdict = judgeLoads(
-		planned.loads,
-		reading.chosen,
-		reading.worker,
-		(uuid) => inputs.identity.moduleUniqueId(uuid),
-	);
-	if (verdict.kind === "tag") {
-		ctx.accounting.finding(ADVANCED_CLAIMS.underivedTag, form.place, {
-			name: verdict.tag,
-		});
-		return;
+	if (ownMenu) {
+		const problems = physicalEntrySupplyProblems(
+			doc,
+			formLinkProjectionContext(doc, { entryMetadataOnly: true }),
+			ownMenu.uuid,
+			form.uuid,
+		);
+		for (const issue of problems) {
+			const before = ctx.accounting.findingCount();
+			ctx.accounting.finding(
+				issue.kind === "duplicate-key"
+					? ADVANCED_CLAIMS.duplicateEntryKey
+					: ADVANCED_CLAIMS.alignedConnection,
+				form.place,
+				{ name: issue.name },
+			);
+			const raised = ctx.accounting.findingRaised(before);
+			// Two opening values sharing one session name refuse the form's
+			// opening values whole: its loads, their tags and its calculations.
+			const sites = OPENING_SITES.get(form);
+			if (issue.kind === "duplicate-key" && raised && sites) {
+				ctx.accounting.cover(
+					{ json: sites.actions, key: "load_update_cases" },
+					raised,
+				);
+				for (const load of sites.loads)
+					ctx.accounting.cover({ json: load, key: "case_tag" }, raised);
+				if (form.json.peek("arbitrary_datums") !== undefined)
+					ctx.accounting.cover(
+						{ json: form.json, key: "arbitrary_datums" },
+						raised,
+					);
+			}
+		}
+		if (problems.length) return;
 	}
-	if (verdict.kind === "chain") {
+
+	const emittedActions = advancedActionsWithEntry(
+		planned.actions,
+		ownMenu
+			? entrySessionDatums(
+					doc,
+					formLinkProjectionContext(doc, { lookupNaming: inputs.lookupNaming }),
+					ownMenu.uuid,
+					form.uuid,
+				)
+			: [],
+	);
+	const verdict =
+		doc.forms[form.uuid]?.caseSelections !== undefined && ownMenu
+			? judgeExplicitLoads(
+					form.json.peek("actions"),
+					emittedActions,
+					menusById(ctx),
+					ownMenu,
+				)
+			: judgeLoads(planned.loads, reading.chosen, reading.worker, (uuid) =>
+					inputs.identity.moduleUniqueId(uuid),
+				);
+	if (verdict.kind !== "same") {
 		if (!ctx.accounting.hasFindingAt(form.place) && !underListFormRules)
-			ctx.accounting.finding(ADVANCED_CLAIMS.notOneChain, form.place, {
-				name: verdict.tag,
+			ctx.accounting.circumstance("unrecognized", form.place, {
+				name: "schema:AdvancedFormActions.load_update_cases",
 			});
 		return;
 	}
@@ -3125,7 +3870,7 @@ export function settleAdvancedForm(
 				applied,
 			),
 			comparableActions(
-				planned.actions,
+				emittedActions,
 				(path) => plannedPath(form, path, plannedOwnerPaths, siblings),
 				true,
 			),
@@ -3191,90 +3936,70 @@ export function settleAdvancedForm(
 		});
 }
 
-/** The menus whose parent selection a refused `parent` index leaves with no parent, by reading. */
-const SELECTIONS_EXPLAINED = new WeakMap<ReadContext, Set<Uuid>>();
-
-/** The menus `refuseParentIndicesAgainstSelections` found the cause of a parent selection the
- *  final catalog no longer gives a parent for. */
-export function parentSelectionsExplained(ctx: ReadContext): ReadonlySet<Uuid> {
-	return SELECTIONS_EXPLAINED.get(ctx) ?? new Set();
+/** One `parent` index an open action's reading took, to the type it reaches. */
+interface ParentIndexRead {
+	readonly cursor: JsonCursor;
+	readonly place: DraftForm["place"];
+	readonly childType: string;
+	readonly parentType: string;
+	readonly relationship: "child" | "extension";
 }
 
-/**
- * The tag of the first index under `parent` of an open action of `childType` in an advanced
- * form's stored actions that reaches a load or an open action of another type than
- * `parentType`, or reaches one as anything but a child, else undefined.
- */
-function parentIndexAgainst(
-	actions: unknown,
-	childType: string,
-	parentType: string,
-): string | undefined {
-	if (!isJsonObject(actions)) return undefined;
-	const loads = objectMembers(actions.load_update_cases) ?? [];
-	const opens = objectMembers(actions.open_cases) ?? [];
-	const typeOfTag = new Map<unknown, unknown>(
-		[...loads, ...opens].map((action) => [action.case_tag, action.case_type]),
-	);
-	for (const open of opens) {
-		if (open.case_type !== childType) continue;
-		for (const index of objectMembers(open.case_indices) ?? []) {
-			const identifier =
-				typeof index.reference_id === "string" && index.reference_id !== ""
-					? index.reference_id
-					: "parent";
-			if (identifier !== "parent" || typeof index.tag !== "string") continue;
-			const relationship =
-				typeof index.relationship === "string" && index.relationship !== ""
-					? index.relationship
-					: "child";
-			if (typeOfTag.get(index.tag) !== parentType || relationship !== "child")
-				return index.tag;
-		}
+const PARENT_INDICES_READ = new WeakMap<ReadContext, ParentIndexRead[]>();
+
+function parentIndicesRead(ctx: ReadContext): ParentIndexRead[] {
+	let read = PARENT_INDICES_READ.get(ctx);
+	if (read === undefined) {
+		read = [];
+		PARENT_INDICES_READ.set(ctx, read);
 	}
-	return undefined;
+	return read;
 }
 
 /**
- * Over the final catalog: a menu's parent selection the catalog gives no parent for, where an
- * advanced form opens a case of the menu's type indexed under `parent` to another type, or as
- * other than a child. The catalog holds one parent and one relationship per type and reads them
- * off every `parent` link (`catalog.ts::noteParents`), so that index is the one cause: one
- * finding at each form that holds one, and the selection stands under it.
+ * Over the final document: each `parent` index an open action's reading took
+ * that reaches another case type than a parent selection of a menu of the
+ * open action's type chooses through, or reaches it as an extension, is
+ * claimed under its own entry beside the ordinary index's. Nova holds the
+ * index as the create's link and the selection as the menu's
+ * (`Module.parentCaseModuleUuid`): neither follows the catalog
+ * (`caseParentSelection.ts::caseParentSelectionVerdict`), and HQ's build
+ * writes each as it stands, the index from the open action's
+ * `case_indices` and the selection's filter from the load's own index
+ * (`entries.py::get_parent_filter_by_ref_id`). The catalog then gives the
+ * type no single parent (`catalog.ts::noteParents`), which only authoring
+ * reads.
  */
-export function refuseParentIndicesAgainstSelections(
+export function claimParentIndicesAgainstSelections(
 	ctx: ReadContext,
-	app: DraftApp,
 	doc: BlueprintDoc,
 ): void {
-	const explained = new Set<Uuid>();
-	for (const module of app.modules) {
-		const own = doc.modules[module.uuid];
-		const parentUuid = own?.parentCaseModuleUuid;
-		if (own === undefined || parentUuid === undefined) continue;
-		if (caseParentSelectionVerdict(doc, module.uuid, parentUuid).ok) continue;
-		const childType = own.caseType;
-		const parentType = doc.modules[parentUuid]?.caseType;
-		if (childType === undefined || parentType === undefined) continue;
-		for (const menu of app.modules)
-			for (const form of menu.forms) {
-				if (form.docType !== "AdvancedForm") continue;
-				const tag = parentIndexAgainst(
-					form.json.peek("actions"),
-					childType,
-					parentType,
-				);
-				if (tag === undefined) continue;
-				explained.add(module.uuid);
-				if (!ctx.accounting.hasFindingAt(form.place))
-					ctx.accounting.finding(
-						ADVANCED_CLAIMS.openIndexAgainstSelection,
-						form.place,
-						{ name: tag },
-					);
-			}
+	const read = PARENT_INDICES_READ.get(ctx) ?? [];
+	if (read.length === 0) return;
+	const selectedParents = new Map<string, Set<string>>();
+	for (const module of Object.values(doc.modules)) {
+		const parentUuid = module.parentCaseModuleUuid;
+		const parentType =
+			parentUuid === undefined ? undefined : doc.modules[parentUuid]?.caseType;
+		if (module.caseType === undefined || parentType === undefined) continue;
+		const types = selectedParents.get(module.caseType) ?? new Set<string>();
+		types.add(parentType);
+		selectedParents.set(module.caseType, types);
 	}
-	SELECTIONS_EXPLAINED.set(ctx, explained);
+	for (const index of read) {
+		const selected = selectedParents.get(index.childType);
+		if (selected === undefined) continue;
+		const against =
+			index.relationship !== "child" ||
+			[...selected].some((type) => type !== index.parentType);
+		if (!against) continue;
+		ctx.accounting.claimEntryClass(
+			{ json: index.cursor, key: "tag" },
+			ADVANCED_CLAIMS.openIndexAgainstSelection.entry,
+			"schema:CaseIndex.tag",
+			index.place,
+		);
+	}
 }
 
 /** A menu read with a held kind that Nova would write basic: one finding at the menu. */
@@ -3290,4 +4015,275 @@ export function settleAdvancedMenu(
 		return;
 	if (advancedKindBlockers(doc, module.uuid).length > 0)
 		ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, module.place);
+}
+
+function readExplicitAutoSource(
+	ctx: ReadContext,
+	form: DraftForm,
+	L: JsonCursor,
+	load: Record<string, unknown>,
+	choice: FormCaseSelection,
+) {
+	if (isJsonObject(load.auto_select)) {
+		const mode = load.auto_select.mode;
+		const claim =
+			mode === "usercase"
+				? ADVANCED_CLAIMS.usercase
+				: mode === "raw"
+					? ADVANCED_CLAIMS.heldRaw
+					: mode === "user"
+						? ADVANCED_CLAIMS.heldUser
+						: mode === "fixture"
+							? ADVANCED_CLAIMS.heldFixture
+							: ADVANCED_CLAIMS.heldCase;
+		if (mode === "raw") {
+			const auto = L.object("auto_select", "AutoSelectCase", claim);
+			consume(auto.take("mode", ADVANCED_CLAIMS.heldRawMode, (v) => v));
+			if (auto.used("value_source") && load.auto_select.value_source === "")
+				consume(
+					auto.take(
+						"value_source",
+						ADVANCED_CLAIMS.heldRawUnusedSource,
+						(value) => value,
+					),
+				);
+			if (typeof load.auto_select.value_key === "string")
+				ctx.pending.register(
+					{
+						ref: {
+							entity: "form",
+							uuid: form.uuid,
+							slot: "form_selection_source",
+							member: { supplyUuid: choice.uuid },
+						},
+						text: load.auto_select.value_key,
+						mode: { target: "hq-json", interpolation: "none" },
+						place: form.place,
+						key: "schema:AutoSelectCase.value_key",
+					},
+					{ json: auto, key: "value_key" },
+				);
+		} else consume(L.take("auto_select", claim, (value) => value));
+	}
+}
+
+const SHARED = defineClaims("caseManagement.sharedEntry", {
+	extras: take(
+		`${F}/extra-actions-load-update-cases-repeating-a-parent-tag-overrides`,
+		"schema:ShadowForm.extra_actions",
+	),
+	loads: take(
+		`${F}/extra-actions-load-update-cases-repeating-a-parent-tag-overrides`,
+		"schema:AdvancedFormActions.load_update_cases",
+	),
+	replacement: take(
+		`${F}/extra-actions-load-update-cases-repeating-a-parent-tag-overrides`,
+		"schema:LoadUpdateAction.case_tag",
+	),
+	extra: take(
+		`${F}/extra-actions-load-update-cases-with-a-tag-absent-from-the`,
+		"schema:LoadUpdateAction.case_tag",
+	),
+	opens: drop(
+		`${F}/extra-actions-open-cases-non-empty`,
+		"schema:AdvancedFormActions.open_cases",
+	),
+	writes: drop(
+		`${F}/a-shadow-s-own-extra-actions-load-update-cases-case-properties`,
+		"schema:LoadUpdateAction.case_properties",
+	),
+	preload: drop(
+		`${F}/a-shadow-s-own-extra-actions-load-update-cases-case-properties`,
+		"schema:LoadUpdateAction.preload",
+	),
+	close: drop(
+		`${F}/a-shadow-s-own-extra-actions-load-update-cases-case-properties`,
+		"schema:LoadUpdateAction.close_condition",
+	),
+	stock: refuse(
+		`${F}/extra-actions-load-update-cases-show-product-stock-true-or-a-non`,
+		"schema:LoadUpdateAction.show_product_stock",
+	),
+	program: refuse(
+		`${F}/extra-actions-load-update-cases-show-product-stock-true-or-a-non`,
+		"schema:LoadUpdateAction.product_program",
+	),
+	scheduleOff: drop(
+		`${F}/advancedform-schedule-with-enabled-false`,
+		"schema:ShadowForm.schedule",
+	),
+	scheduleOn: refuse(
+		`${F}/advancedform-schedule-with-enabled-true-visits-transition`,
+		"schema:ShadowForm.schedule",
+	),
+	datums: take(
+		`${F}/arbitrary-datums-datum-id-datum-function`,
+		"schema:ShadowForm.arbitrary_datums",
+	),
+	missingSupply: refuse(
+		`${F}/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent`,
+		"schema:ShadowForm.extra_actions",
+	),
+});
+
+/** The parent can occur later. Its reads, placements and implicit choices
+ * are available only once case management has visited every ordinary form. */
+export function readSharedEntries(ctx: ReadContext) {
+	const doc = provisionalDocument(ctx);
+	const menus = menusById(ctx);
+	const drafts = new Map(
+		ctx.draft.modules.flatMap((module) =>
+			module.forms.map((form) => [form.uuid, form] as const),
+		),
+	);
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms) {
+			const shared = form.form.shadowOf;
+			if (!shared) continue;
+			const parent = doc.forms[shared.form];
+			const content = drafts.get(shared.form);
+			if (!parent || !content) continue;
+			const schedule = form.json.peek("schedule");
+			if (isJsonObject(schedule)) {
+				if (schedule.enabled === true)
+					form.json.refuse("schedule", SHARED.scheduleOn);
+				else form.json.drop("schedule", SHARED.scheduleOff);
+			}
+			readEntryValues(ctx, form);
+			const inherited = new Map(
+				formCaseSelections(doc, parent.uuid).map((row) => [row.tag, row]),
+			);
+			const raw = object(form.json.peek("extra_actions"));
+			const extra = form.json.object(
+				"extra_actions",
+				"AdvancedFormActions",
+				SHARED.extras,
+			);
+			extra.drop("open_cases", SHARED.opens);
+			const loads = objectMembers(raw.load_update_cases) ?? [];
+			const cursors = extra.list(
+				"load_update_cases",
+				"LoadUpdateAction",
+				SHARED.loads,
+			);
+			const parsed = explicitFormChoices(
+				ctx,
+				form,
+				module,
+				menus,
+				loads,
+				false,
+				objectMembers(object(content.json.peek("actions")).open_cases) ?? [],
+				{ rows: inherited, content },
+			);
+			const choices = parsed?.choices;
+			cursors.forEach((cursor, index) => {
+				const row = loads[index];
+				if (!row) return;
+				const unread = parsed?.unread.get(index);
+				if (unread) {
+					cursor.refuseWhole(unread.issue, { name: unread.name });
+					return;
+				}
+				const tag = typeof row.case_tag === "string" ? row.case_tag : "";
+				const invalid = tagFinding(tag, false);
+				if (invalid) cursor.refuse("case_tag", invalid);
+				else
+					consume(
+						cursor.take(
+							"case_tag",
+							inherited.has(tag) ? SHARED.replacement : SHARED.extra,
+							(value) => value,
+						),
+					);
+				for (const [key, claim] of [
+					["case_properties", SHARED.writes],
+					["preload", SHARED.preload],
+					["close_condition", SHARED.close],
+				] as const)
+					cursor.drop(key, claim);
+				if (row.show_product_stock === true)
+					cursor.refuse("show_product_stock", SHARED.stock);
+				else if (cursor.used("show_product_stock"))
+					cursor.drop("show_product_stock", ADVANCED_CLAIMS.productStockOff);
+				if (
+					typeof row.product_program === "string" &&
+					row.product_program !== ""
+				)
+					cursor.refuse("product_program", SHARED.program);
+				else if (cursor.used("product_program"))
+					cursor.drop("product_program", ADVANCED_CLAIMS.productProgramOff);
+				if (row.load_case_from_fixture)
+					cursor.refuse("load_case_from_fixture", ADVANCED_CLAIMS.fromFixture);
+				const choice = choices?.get(index);
+				if (!choice) return;
+				consume(
+					cursor.take("case_type", ADVANCED_CLAIMS.caseType, (value) => value),
+				);
+				consume(
+					cursor.take(
+						"details_module",
+						ADVANCED_CLAIMS.detailsModule,
+						(value) => value,
+					),
+				);
+				consume(
+					cursor.take(
+						"case_index",
+						ADVANCED_CLAIMS.caseIndex,
+						(value) => value,
+					),
+				);
+				readExplicitAutoSource(ctx, form, cursor, row, choice);
+			});
+			for (const choice of choices?.values() ?? []) {
+				const question = parsed?.questions.get(choice.uuid)?.uuid;
+				if (question && choice.source.kind === "choose" && choice.source.under)
+					choice.source.under.relationship = { question };
+			}
+			ctx.writeDraft(() => {
+				form.form.type = parent.type;
+				// Each tag CommCare HQ keeps for this entry is held, as an ordinary
+				// advanced form's are, so a later edit that would rename one shows.
+				const held = [...(choices?.values() ?? [])].map(
+					(row) => [row.uuid, row.tag] as [Uuid, string],
+				);
+				if (held.length) form.form.heldSelectionTags = recordFromEntries(held);
+				form.form.shadowOf = {
+					form: parent.uuid,
+					selections: [...(choices?.values() ?? [])].map((row) =>
+						inherited.has(row.tag)
+							? {
+									kind: "replace",
+									selection: row.uuid,
+									caseType: row.caseType,
+									source: row.source,
+								}
+							: { kind: "add", ...row },
+					),
+				};
+			});
+		}
+}
+
+/** A shadow's own actions are not rendered. Judge the parent's bound reads
+ * against the datums that this particular command supplies. */
+export function settleSharedEntry(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	menu: Uuid,
+	form: DraftForm,
+): void {
+	const entry = doc.forms[form.uuid];
+	if (!entry?.shadowOf) return;
+	const context = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	const missing = sharedFormDependencies(doc, entry, menu, context);
+	if (missing.length)
+		ctx.accounting.findingAt(
+			SHARED.missingSupply,
+			form.place,
+			`${form.json.pointer}/extra_actions`,
+			undefined,
+			{ atDefault: !form.json.used("extra_actions") },
+		);
 }

@@ -1,3 +1,4 @@
+import { requiresLookupProjection } from "@/lib/lookup/source";
 /**
  * EngineController — per-field reactive coordination layer.
  *
@@ -61,8 +62,11 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import { declaredPlatforms, PLATFORMS } from "@/lib/domain/platforms";
 import type { ProseTemplate } from "@/lib/domain/prose";
+import type { QuestionMessage } from "../displayMessages";
 import {
 	effectivePreviewPlatform,
 	type PreviewPlatformRules,
@@ -73,6 +77,7 @@ import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import type { AndroidAppReturn } from "./androidAppReturn";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import {
@@ -90,7 +95,7 @@ import {
 	entrySessionData,
 } from "./entrySessionData";
 import type { FieldTreeNode } from "./fieldTree";
-import { buildFieldTree } from "./fieldTree";
+import { formFieldTrees } from "./fieldTree";
 import {
 	type CaseDataByType,
 	FormEngine,
@@ -111,6 +116,7 @@ import {
 	formLogicLookupsCovered,
 	type PreviewLookupData,
 } from "./lookupEvaluation";
+import { openingCaseAssignments } from "./openingCaseAssignments";
 import {
 	defaultPreviewDevice,
 	type PreviewDevice,
@@ -235,10 +241,13 @@ export interface RepeatInstanceIdentity {
 	readonly instanceKey: string;
 }
 
-export interface CaptureAnswerTarget {
+export interface QuestionAnswerTarget {
 	readonly fieldUuid: Uuid;
-	readonly kind: CaptureFieldKind;
 	readonly repeatInstances: readonly RepeatInstanceIdentity[];
+}
+
+export interface CaptureAnswerTarget extends QuestionAnswerTarget {
+	readonly kind: CaptureFieldKind;
 }
 
 export interface CaptureCommitGate {
@@ -250,6 +259,7 @@ export type CaptureAnswerCommit = (
 	value: string,
 	gate: CaptureCommitGate,
 	onAccepted: (path: string) => void,
+	originalFilename?: string,
 ) => Promise<boolean>;
 
 export type CaseDatabaseControllerState =
@@ -387,7 +397,7 @@ function findModuleForForm(
  */
 function buildPathMaps(
 	tree: FieldTreeNode[],
-	prefix = "/data",
+	prefix: string,
 ): {
 	uuidToPath: Map<string, string>;
 	pathToUuid: Map<string, string>;
@@ -476,6 +486,8 @@ function classifyChange(
 		hint?: ProseTemplate;
 		help?: ProseTemplate;
 		validate_msg?: ProseTemplate;
+		addFirstLabel?: ProseTemplate;
+		addLabel?: ProseTemplate;
 	};
 	const prev = previous as Field & {
 		calculate?: unknown;
@@ -487,6 +499,8 @@ function classifyChange(
 		hint?: ProseTemplate;
 		help?: ProseTemplate;
 		validate_msg?: ProseTemplate;
+		addFirstLabel?: ProseTemplate;
+		addLabel?: ProseTemplate;
 	};
 
 	if (
@@ -518,7 +532,13 @@ function classifyChange(
 	const labelChanged = cur.label !== prev.label;
 	const hintChanged = cur.hint !== prev.hint;
 	const helpChanged = cur.help !== prev.help;
-	if (labelChanged || hintChanged || helpChanged) {
+	if (
+		labelChanged ||
+		hintChanged ||
+		helpChanged ||
+		cur.addFirstLabel !== prev.addFirstLabel ||
+		cur.addLabel !== prev.addLabel
+	) {
 		/* A reference is a typed part, not a `#` in the text. Scanning for the
 		 * character both threw — a `ProseTemplate` has no `.includes` — and
 		 * asked the wrong question: a label reading "Ward #3" carries no
@@ -531,6 +551,10 @@ function classifyChange(
 			prev.hint,
 			cur.help,
 			prev.help,
+			cur.addFirstLabel,
+			prev.addFirstLabel,
+			cur.addLabel,
+			prev.addLabel,
 		].some(
 			(template) =>
 				template?.parts.some((part) => part.kind !== "text") ?? false,
@@ -554,7 +578,12 @@ function activeFormTopologyChanged(
 	formUuid: Uuid,
 	trackedUuids: ReadonlySet<string>,
 ): boolean {
-	if (current.fieldOrder[formUuid] !== previous.fieldOrder[formUuid]) {
+	if (
+		formRootName(current.forms[formContentUuid(current, formUuid)]) !==
+			formRootName(previous.forms[formContentUuid(previous, formUuid)]) ||
+		current.fieldOrder[formContentUuid(current, formUuid)] !==
+			previous.fieldOrder[formContentUuid(previous, formUuid)]
+	) {
 		return true;
 	}
 	for (const uuid of trackedUuids) {
@@ -565,6 +594,7 @@ function activeFormTopologyChanged(
 		if (
 			currentField === undefined ||
 			previousField === undefined ||
+			currentField.submissionPlacement !== previousField.submissionPlacement ||
 			currentField.id !== previousField.id ||
 			currentField.kind !== previousField.kind
 		) {
@@ -616,6 +646,11 @@ function activeFormRuntimeChanged(
 	if (
 		activeFormTopologyChanged(current, previous, formUuid, trackedUuids) ||
 		formRuntimeChanged(current.forms[formUuid], previous.forms[formUuid]) ||
+		(formContentUuid(current, formUuid) !== formUuid &&
+			formRuntimeChanged(
+				current.forms[formContentUuid(current, formUuid)],
+				previous.forms[formContentUuid(previous, formUuid)],
+			)) ||
 		current.caseTypes !== previous.caseTypes ||
 		current.userProperties !== previous.userProperties ||
 		(presentationLanguage !== null &&
@@ -902,6 +937,13 @@ export class EngineController {
 			: undefined;
 	}
 
+	private resumeOptions(formUuid: Uuid) {
+		const checkpoint = this.sessionFor(formUuid)?.resumedCheckpoint;
+		return checkpoint === undefined
+			? undefined
+			: { checkpoint, preserveAllValues: true };
+	}
+
 	/** Build the mounted entry's session map. Without a session input (an
 	 * entry no running app opened) no datum is valued. */
 	private mountEntrySession(
@@ -916,6 +958,7 @@ export class EngineController {
 				? undefined
 				: entrySessionData(state, formUuid, {
 						...input,
+						lookupData: input.openingLookup ?? this.lookupData,
 						entryKey,
 						caseDatabase: caseDatabase ?? null,
 						session: previewSessionValues(
@@ -933,7 +976,7 @@ export class EngineController {
 		session: EntrySessionData | undefined,
 	): Pick<
 		FormEngineRuntimeOptions,
-		"sessionData" | "selectedCases" | "searchResults" | "device"
+		"sessionData" | "selectedCases" | "searches" | "searchResults" | "device"
 	> {
 		const doc = this.docStore?.getState();
 		const device =
@@ -943,6 +986,7 @@ export class EngineController {
 			...device,
 			sessionData: session.data,
 			selectedCases: session.selectedCases,
+			...(session.searches === undefined ? {} : { searches: session.searches }),
 			...(session.searchResults === undefined
 				? {}
 				: { searchResults: session.searchResults }),
@@ -960,7 +1004,13 @@ export class EngineController {
 		resume?: LookupWaitResume,
 	): boolean {
 		if (
-			formLogicLookupsCovered(state, formUuid, this.lookupData ?? undefined)
+			formLogicLookupsCovered(
+				state,
+				formUuid,
+				this.sessionFor(formUuid)?.openingLookup ??
+					this.lookupData ??
+					undefined,
+			)
 		) {
 			if (this.lookupWait?.formUuid === formUuid) this.clearLookupWait();
 			return false;
@@ -1575,6 +1625,52 @@ export class EngineController {
 		);
 	}
 
+	/** Freeze the entry the Android save used. Context belongs to its original
+	 * restore, while a later mutation still uses current write authorization. */
+	async snapshotAndroidSave(
+		entryKey: string,
+		kind: "incomplete" | "completed",
+	) {
+		if (!(await this.awaitSettled(entryKey)) || !this.entryReady) return;
+		const engine = this.engine;
+		const formUuid = this.activeFormUuid;
+		if (!engine || !formUuid) return;
+		const freeze = async (evaluate?: FormEngineAsyncEvaluator) => {
+			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
+			if (kind === "incomplete") {
+				// Android saves the displayed widget values before writing the
+				// incomplete instance, without enforcing required answers.
+				if (evaluate) await engine.saveScreenDatesAsync(evaluate);
+				else engine.saveScreenDates();
+			}
+			const descriptor = await engine.savedFormDescriptor(evaluate);
+			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
+			const documentState = this.reconciledDocumentState;
+			if (!documentState || this.docStore?.getState() !== documentState) return;
+			if (kind === "incomplete") this.syncAllPathsSelectively();
+			return {
+				descriptor,
+				documentState,
+				checkpoint: engine.entryCheckpoint(),
+				caseDatabase: this.previewCaseDatabaseSnapshot,
+				caseData: this.activeCaseData,
+				searchAnswers: this.searchAnswersFor(formUuid),
+				entrySession: this.sessionFor(formUuid),
+			};
+		};
+		if (!this.xpathRuntime) return freeze();
+		return this.runAsyncRevision(
+			"validation",
+			formUuid,
+			(revision, generation, signal) =>
+				freeze(
+					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				),
+			undefined,
+			{ atomic: true },
+		);
+	}
+
 	/** Form-level repeat ownership subscriber. The engine stays UI-agnostic;
 	 * FormScreen binds this event to the attachment coordinator. */
 	subscribeRepeatCompaction(
@@ -1826,7 +1922,26 @@ export class EngineController {
 			this.resumeLookupWait();
 			return;
 		}
-		if (data === null) return;
+		const protectedPrevious =
+			previousData?.definitions.some(
+				(table) =>
+					table.workerAccess === "assigned" ||
+					requiresLookupProjection(table.hq),
+			) ?? false;
+		if (data === null) {
+			// A private worker projection must leave the active execution world
+			// as soon as its authority changes. Rebuilding checkpoints answers
+			// and enters the normal lookup wait before constructing a new engine.
+			if (protectedPrevious && this.engine && this.activeFormUuid) {
+				if (this.xpathRuntime)
+					this.rebuildActiveFormAsync(
+						this.activeFormUuid,
+						this.activeCaseData,
+					).catch(() => undefined);
+				else this.rebuildActiveForm(this.activeFormUuid, this.activeCaseData);
+			}
+			return;
+		}
 		/* Rows added to a table the entry found empty at open: open it again.
 		 * A new snapshot cannot give the device places, chosen cases or search
 		 * answers, so no other refusal reopens here. */
@@ -1849,7 +1964,7 @@ export class EngineController {
 		 * A covered engine keeps its capture (per-form-session choice
 		 * stability); touched values restore through the shared snapshot
 		 * contract. */
-		if (this.engine.lookupDataCoversForm()) return;
+		if (this.engine.lookupDataCoversForm() && !protectedPrevious) return;
 		if (this.xpathRuntime) {
 			this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
 				() => undefined,
@@ -2042,7 +2157,13 @@ export class EngineController {
 			return;
 		}
 		this.contain("activate", formUuid, undefined, () => {
-			this.mountForm(formUuid, caseData, uuidv4(), caseDatabase);
+			this.mountForm(
+				formUuid,
+				caseData,
+				this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
+				caseDatabase,
+				this.resumeOptions(formUuid),
+			);
 		});
 	}
 
@@ -2095,8 +2216,8 @@ export class EngineController {
 		return this.mountFormAsync(
 			formUuid,
 			caseData,
-			uuidv4(),
-			undefined,
+			this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
+			this.resumeOptions(formUuid),
 			caseDatabase,
 		);
 	}
@@ -2264,11 +2385,21 @@ export class EngineController {
 			caseDatabase,
 		);
 		const engine = new FormEngine(
-			input,
-			state.modules[moduleUuid]?.caseType,
+			caseDatabase && session
+				? {
+						...input,
+						openingAssignments: openingCaseAssignments(
+							state,
+							formUuid,
+							session.reachedCaseIds,
+							caseDatabase,
+						),
+					}
+				: input,
+			input.entryRecordType,
 			caseData,
 			this.previewIdentity,
-			this.lookupData,
+			this.sessionFor(formUuid)?.openingLookup ?? this.lookupData,
 			caseDatabase,
 			{
 				stagedAsync: true,
@@ -2295,7 +2426,7 @@ export class EngineController {
 					await engine.initializeAsync(evaluator);
 					if (entryKey !== this.currentEntryKey || engine !== this.engine)
 						return false;
-					const maps = buildPathMaps(engine.getFieldTree());
+					const maps = buildPathMaps(engine.getFieldTree(), engine.rootPath);
 					this.uuidToPath = maps.uuidToPath;
 					this.pathToUuid = maps.pathToUuid;
 					this.syncAllToStore();
@@ -2321,7 +2452,10 @@ export class EngineController {
 			this.publishEntryState();
 			return false;
 		}
-		const uuids = collectFormUuids(formUuid, state.fieldOrder);
+		const uuids = collectFormUuids(
+			formContentUuid(state, formUuid),
+			state.fieldOrder,
+		);
 		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
@@ -2337,8 +2471,14 @@ export class EngineController {
 		) {
 			const current = docStore.getState();
 			this.reconcileAuthoredTopology(formUuid, current, state);
-			const previousUuids = collectFormUuids(formUuid, state.fieldOrder);
-			const currentUuids = collectFormUuids(formUuid, current.fieldOrder);
+			const previousUuids = collectFormUuids(
+				formContentUuid(state, formUuid),
+				state.fieldOrder,
+			);
+			const currentUuids = collectFormUuids(
+				formContentUuid(current, formUuid),
+				current.fieldOrder,
+			);
 			for (const uuid of previousUuids) {
 				this.reconcileField(uuid, current.fields[uuid], state.fields[uuid]);
 			}
@@ -2529,16 +2669,25 @@ export class EngineController {
 		// `crypto.getRandomValues`, which every browsing context holds.
 		this.currentEntryKey = entryKey;
 
-		const mod = s.modules[moduleUuid];
 		const caseDatabase = caseDatabaseOverride ?? this.caseDatabaseSnapshot;
 		const searchAnswers = this.searchAnswersFor(formUuid);
 		const session = this.mountEntrySession(s, formUuid, entryKey, caseDatabase);
 		this.engine = new FormEngine(
-			input,
-			mod?.caseType,
+			caseDatabase && session
+				? {
+						...input,
+						openingAssignments: openingCaseAssignments(
+							s,
+							formUuid,
+							session.reachedCaseIds,
+							caseDatabase,
+						),
+					}
+				: input,
+			input.entryRecordType,
 			caseData,
 			this.previewIdentity,
-			this.lookupData,
+			this.sessionFor(formUuid)?.openingLookup ?? this.lookupData,
 			caseDatabase,
 			{
 				restoredEntry,
@@ -2550,7 +2699,7 @@ export class EngineController {
 
 		/* Build UUID ↔ path mapping from the engine's walked tree */
 		const tree = this.engine.getFieldTree();
-		const maps = buildPathMaps(tree);
+		const maps = buildPathMaps(tree, this.engine.rootPath);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
 
@@ -2558,7 +2707,7 @@ export class EngineController {
 		this.syncAllToStore();
 
 		/* Set up subscriptions */
-		const uuids = collectFormUuids(formUuid, s.fieldOrder);
+		const uuids = collectFormUuids(formContentUuid(s, formUuid), s.fieldOrder);
 		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
@@ -2775,7 +2924,11 @@ export class EngineController {
 	 *  the uuid map can't address. */
 	setValueAt(path: string, value: string): void {
 		if (this.rebuilding) return;
-		if (!this.engine || this.caseDatabaseWait() !== undefined) return;
+		if (
+			!this.engine?.workerRelevantPaths().has(path) ||
+			this.caseDatabaseWait() !== undefined
+		)
+			return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
 		this.contain("value-change", formUuid, undefined, () => {
@@ -2788,13 +2941,96 @@ export class EngineController {
 		});
 	}
 
+	async openAndroidApp(entryKey: string, path: string, signal: AbortSignal) {
+		const engine = this.engine;
+		if (
+			!engine ||
+			!(await this.awaitSettled(entryKey)) ||
+			signal.aborted ||
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey
+		)
+			return undefined;
+		const evaluator =
+			this.xpathRuntime &&
+			this.evaluatorFor(
+				engine,
+				entryKey,
+				this.runtimeRevision,
+				this.lifecycleGeneration,
+				signal,
+			);
+		return engine.openAndroidApp(path, evaluator);
+	}
+
+	androidAppResult(
+		entryKey: string,
+		path: string,
+		signature: string,
+		result: AndroidAppReturn,
+	) {
+		if (
+			!this.entryReady ||
+			this.rebuilding ||
+			this.atomicRevisionsPending ||
+			this.runtimeFault ||
+			entryKey !== this.currentEntryKey ||
+			this.caseDatabaseWait() !== undefined
+		)
+			return undefined;
+		return this.engine?.androidAppResult(path, signature, result);
+	}
+
+	/** All returned answers belong to one native result. Stage every destination
+	 * before asking the ordinary engine to recalculate relevance and validation. */
+	async commitAndroidAppResult(
+		entryKey: string,
+		path: string,
+		signature: string,
+		result: AndroidAppReturn,
+		captures: ReadonlyMap<string, string>,
+		accepted: () => void,
+	): Promise<boolean> {
+		const engine = this.engine;
+		const form = this.activeFormUuid;
+		if (!engine || !form) return false;
+		const writes = this.androidAppResult(entryKey, path, signature, result);
+		if (!writes) return false;
+		const changed = new Set<string>();
+		for (const write of writes) {
+			const value =
+				write.kind === "answer"
+					? write.value
+					: (captures.get(write.path) ?? "");
+			// The device writes the returned data directly to the form instance.
+			if (engine.setValue(write.path, value, "android-app")) {
+				changed.add(write.path);
+				if (this.xpathRuntime) this.pendingValuePaths.add(write.path);
+			}
+		}
+		accepted();
+		this.syncPathsToStore(
+			[...changed].flatMap((p) => [p, ...engine.getAffectedPaths(p)]),
+		);
+		return (
+			this.xpathRuntime === undefined ||
+			this.runAsyncRevision(
+				"value-change",
+				form,
+				async () => engine === this.engine && this.currentEntryKey === entryKey,
+				false,
+			)
+		);
+	}
+
 	async onValueChangeAsync(uuid: string, value: string): Promise<boolean> {
 		const path = this.uuidToPath.get(uuid);
 		return path === undefined ? false : this.setValueAtAsync(path, value);
 	}
 
 	async setValueAtAsync(path: string, value: string): Promise<boolean> {
-		if (this.rebuilding) return false;
+		if (this.rebuilding || !this.engine?.workerRelevantPaths().has(path))
+			return false;
 		if (this.caseDatabaseWait() !== undefined) return false;
 		if (this.xpathRuntime === undefined) {
 			this.setValueAt(path, value);
@@ -2842,19 +3078,63 @@ export class EngineController {
 		);
 	}
 
-	/** Read-only stable-slot lookup. Removed/shrunk rows and reused indices
-	 * cannot stand in for the repeat identity that started a capture. */
-	private captureAnswerPath(target: CaptureAnswerTarget): string | undefined {
+	/** Stage the chosen address and any channel receivers in the same input
+	 * turn. A later blur can retire evaluation without undoing this write. */
+	async commitAddressAnswer(
+		entryKey: string,
+		target: QuestionAnswerTarget,
+		value: string,
+		message?: QuestionMessage,
+	): Promise<boolean> {
+		if (
+			this.currentEntryKey !== entryKey ||
+			this.previewRules().addressQuestion !== "search"
+		)
+			return false;
+		const path = this.activeAnswerPath(
+			target,
+			(field) =>
+				(field.kind === "text" ||
+					field.kind === "secret" ||
+					field.kind === "barcode") &&
+				field.addressLookup === true,
+		);
+		if (path === undefined) return false;
+		const work = this.beginValueChangeAt(path, value);
+		if (
+			work === undefined ||
+			this.engine?.store.getState()[path]?.value !== value
+		)
+			return false;
+		await Promise.all([
+			work,
+			message === undefined
+				? undefined
+				: this.applyDisplayMessage(path, message),
+		]);
+		return this.currentEntryKey === entryKey;
+	}
+
+	/** Resolve the field and its repeat instances before staging an answer.
+	 * Removed rows cannot stand in for their former path after compaction. */
+	private activeAnswerPath(
+		target: QuestionAnswerTarget,
+		matches: (field: FieldTreeNode["field"]) => boolean,
+	): string | undefined {
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const document = this.docStore?.getState();
+		const field = document?.fields[target.fieldUuid];
 		if (
 			engine === undefined ||
 			formUuid === undefined ||
-			document?.fields[target.fieldUuid]?.kind !== target.kind ||
-			!collectFormUuids(formUuid, document.fieldOrder).includes(
-				target.fieldUuid,
-			)
+			document === undefined ||
+			field === undefined ||
+			!matches(field) ||
+			!collectFormUuids(
+				formContentUuid(document, formUuid),
+				document.fieldOrder,
+			).includes(target.fieldUuid)
 		)
 			return undefined;
 		const keys = engine.getRepeatInstanceKeySnapshot();
@@ -2867,9 +3147,9 @@ export class EngineController {
 				const path = `${prefix}/${node.field.id}`;
 				if (
 					node.field.uuid === target.fieldUuid &&
-					node.field.kind === target.kind &&
+					matches(node.field) &&
 					repeatDepth === target.repeatInstances.length &&
-					engine.attachmentPathDisposition(path) === "active"
+					engine.answerPathDisposition(path) === "active"
 				)
 					return path;
 				if (node.field.kind === "repeat") {
@@ -2891,7 +3171,7 @@ export class EngineController {
 			}
 			return undefined;
 		};
-		return walk(engine.getFieldTree(), "/data", 0);
+		return walk(engine.getFieldTree(), engine.rootPath, 0);
 	}
 
 	private async awaitCaptureEntryReady(
@@ -2918,6 +3198,25 @@ export class EngineController {
 		}
 	}
 
+	/** Apply a successful Web Apps address choice, attachment, or clear to the
+	 * receivers on its own form or repeat. Each answer takes the normal
+	 * assignment path with validation, calculation and lookup refresh. */
+	async applyDisplayMessage(
+		senderPath: string,
+		message: QuestionMessage,
+	): Promise<void> {
+		const engine = this.engine;
+		const entry = this.entryKey;
+		if (!engine || !entry || this.rebuilding) return;
+		const targets = engine.displayMessageAnswers(senderPath, message);
+		// Stage all concrete addresses before yielding. A subsequent repeat
+		// insert/remove cannot retarget a pending message to a different row.
+		const pending = targets.map(({ path, value }) =>
+			this.setValueAtAsync(path, value),
+		);
+		await Promise.all(pending);
+	}
+
 	/** Successful capture completion joins only the engine queue, then stages
 	 * against current stable identities. Ownership adoption shares that exact
 	 * synchronous acceptance boundary; it never relies on stale React paths. */
@@ -2927,11 +3226,15 @@ export class EngineController {
 		value: string,
 		gate: CaptureCommitGate,
 		onAccepted: (path: string) => void,
+		originalFilename?: string,
 	): Promise<boolean> {
 		if (!(await this.awaitCaptureEntryReady(entryKey, gate.signal)))
 			return false;
 		if (!gate.isCurrent()) return false;
-		const path = this.captureAnswerPath(target);
+		const path = this.activeAnswerPath(
+			target,
+			(field) => field.kind === target.kind,
+		);
 		if (path === undefined) return false;
 		const work = this.beginValueChangeAt(path, value);
 		if (work === undefined) return false;
@@ -2939,11 +3242,22 @@ export class EngineController {
 		if (!(await this.awaitCaptureEntryReady(entryKey, gate.signal)))
 			return false;
 		if (!gate.isCurrent()) return false;
-		const currentPath = this.captureAnswerPath(target);
-		return (
-			currentPath !== undefined &&
-			this.engine?.store.getState()[currentPath]?.value === value
+		const currentPath = this.activeAnswerPath(
+			target,
+			(field) => field.kind === target.kind,
 		);
+		if (
+			currentPath === undefined ||
+			this.engine?.store.getState()[currentPath]?.value !== value
+		)
+			return false;
+		if (value === "" || originalFilename !== undefined) {
+			await this.applyDisplayMessage(
+				currentPath,
+				originalFilename === undefined ? null : { filename: originalFilename },
+			);
+		}
+		return true;
 	}
 
 	/** Mark a field as touched (on blur). Uuid-resolved template path —
@@ -3138,7 +3452,10 @@ export class EngineController {
 					/* A submit's whole-form validation runs the platform's
 					 * request pass first (Formplayer rebuilds the session before
 					 * it validates a submission). */
-					if (within === undefined) engine.prepareSubmit();
+					if (within === undefined) {
+						engine.saveScreenDates();
+						engine.prepareSubmit();
+					}
 					return complete(
 						sectionUuid !== undefined
 							? engine.validateSection(sectionUuid)
@@ -3163,7 +3480,10 @@ export class EngineController {
 					generation,
 					signal,
 				);
-				if (within === undefined) await engine.prepareSubmitAsync(evaluate);
+				if (within === undefined) {
+					await engine.saveScreenDatesAsync(evaluate);
+					await engine.prepareSubmitAsync(evaluate);
+				}
 				const valid =
 					sectionUuid !== undefined
 						? await engine.validateSectionAsync(sectionUuid, evaluate)
@@ -3274,7 +3594,19 @@ export class EngineController {
 	/** Enter one screen of the platform's page model, as App Tests' page
 	 *  turns do: a section's screen initializes its rows, and a group's or a
 	 *  question's screen of a form without sections initializes nothing. */
-	async enterScreenAsync(path: string): Promise<boolean> {
+	enterScreenAsync(path: string): Promise<boolean> {
+		return this.changeScreen(path, "enter");
+	}
+
+	/** The worker is leaving this displayed screen via Next, Back or a jump. */
+	leaveScreenAsync(path: string): Promise<boolean> {
+		return this.changeScreen(path, "leave");
+	}
+
+	private async changeScreen(
+		path: string,
+		action: "enter" | "leave",
+	): Promise<boolean> {
 		if (this.rebuilding) return false;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
@@ -3290,9 +3622,16 @@ export class EngineController {
 			!onScreens()
 		)
 			return false;
+		if (
+			action === "leave" &&
+			(engine.currentScreenPath() !== path ||
+				engine.pendingScreenDays().length === 0)
+		)
+			return true;
 		if (this.xpathRuntime === undefined)
 			return this.contain("repeat-change", formUuid, false, () => {
-				engine.enterScreen(path);
+				if (action === "enter") engine.enterScreen(path);
+				else engine.saveScreenDates();
 				this.syncAllPathsSelectively();
 				return true;
 			});
@@ -3301,10 +3640,16 @@ export class EngineController {
 			formUuid,
 			async (revision, generation, signal) => {
 				if (!onScreens()) return false;
-				await engine.enterScreenAsync(
-					path,
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				const evaluate = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
 				);
+				if (action === "enter") await engine.enterScreenAsync(path, evaluate);
+				else if (engine.currentScreenPath() === path)
+					await engine.saveScreenDatesAsync(evaluate);
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return false;
 				this.syncAllPathsSelectively();
@@ -3379,9 +3724,9 @@ export class EngineController {
 	/** Get the repeat count for a repeat group. */
 	getRepeatCount(uuid: string): number {
 		const engine = this.retainedPresentation?.engine ?? this.engine;
-		if (!engine) return 1;
+		if (!engine) return 0;
 		const path = this.getPath(uuid);
-		if (!path) return 1;
+		if (!path) return 0;
 		return engine.getRepeatCount(path);
 	}
 
@@ -3412,7 +3757,11 @@ export class EngineController {
 		if (!this.engine) return 0;
 		if (!this.isUserControlledRepeat(uuid)) return 0;
 		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (!path) return 0;
+		if (
+			path === undefined ||
+			!this.engine?.workerCanEditRepeat(path, uuid, "add")
+		)
+			return 0;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return 0;
 		return this.contain("repeat-change", formUuid, 0, () => {
@@ -3440,17 +3789,26 @@ export class EngineController {
 			return 0;
 		}
 		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (path === undefined || this.xpathRuntime === undefined) {
+		if (path === undefined) return 0;
+		if (this.xpathRuntime === undefined) {
 			return this.addRepeat(uuid, atPath);
 		}
 		return this.runAsyncRevision(
 			"repeat-change",
 			formUuid,
 			async (revision, generation, signal) => {
-				const index = await engine.addRepeatAsync(
-					path,
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				const evaluate = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
 				);
+				if (
+					!(await engine.workerCanEditRepeatAsync(path, uuid, "add", evaluate))
+				)
+					return 0;
+				const index = await engine.addRepeatAsync(path, evaluate);
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return 0;
 				this.syncAllPathsSelectively();
@@ -3468,7 +3826,11 @@ export class EngineController {
 		if (!this.engine) return;
 		if (!this.isUserControlledRepeat(uuid)) return;
 		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (!path) return;
+		if (
+			path === undefined ||
+			!this.engine?.workerCanEditRepeat(path, uuid, "remove")
+		)
+			return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
 		this.contain("repeat-change", formUuid, undefined, () => {
@@ -3477,7 +3839,12 @@ export class EngineController {
 			this.engine?.removeRepeat(path, index);
 			// Selective sweep — see `addRepeat`.
 			this.syncAllPathsSelectively();
-			if (entryKey !== undefined && count > 1 && index >= 0 && index < count) {
+			if (
+				entryKey !== undefined &&
+				Number.isInteger(index) &&
+				index >= 0 &&
+				index < count
+			) {
 				const event: RepeatCompactionEvent = {
 					entryKey,
 					removedPrefix: `${path}[${index}]`,
@@ -3515,24 +3882,38 @@ export class EngineController {
 			return false;
 		}
 		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (path === undefined || this.xpathRuntime === undefined) {
+		if (path === undefined) return false;
+		if (this.xpathRuntime === undefined) {
+			const before = engine.getRepeatCount(path);
 			this.removeRepeat(uuid, index, atPath);
-			return true;
+			return engine.getRepeatCount(path) < before;
 		}
 		return this.runAsyncRevision(
 			"repeat-change",
 			formUuid,
 			async (revision, generation, signal) => {
-				const count = engine.getRepeatCount(path);
-				await engine.removeRepeatAsync(
-					path,
-					index,
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				const evaluate = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
 				);
+				if (
+					!(await engine.workerCanEditRepeatAsync(
+						path,
+						uuid,
+						"remove",
+						evaluate,
+					))
+				)
+					return false;
+				const count = engine.getRepeatCount(path);
+				await engine.removeRepeatAsync(path, index, evaluate);
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return false;
 				this.syncAllPathsSelectively();
-				if (count > 1 && index >= 0 && index < count) {
+				if (Number.isInteger(index) && index >= 0 && index < count) {
 					const event: RepeatCompactionEvent = {
 						entryKey,
 						removedPrefix: `${path}[${index}]`,
@@ -3565,7 +3946,22 @@ export class EngineController {
 		return field.repeat_mode === "user_controlled";
 	}
 
-	/** Get the XForm path for a UUID. */
+	/** The relevant controls belonging to the displayed runtime revision. */
+	workerRelevantPaths(): ReadonlySet<string> | undefined {
+		return (
+			this.retainedPresentation?.engine ?? this.engine
+		)?.workerRelevantPaths();
+	}
+
+	containsControl(outer: string, inner: string): boolean {
+		return (
+			(this.retainedPresentation?.engine ?? this.engine)?.containsControl(
+				outer,
+				inner,
+			) ?? false
+		);
+	}
+
 	getPath(uuid: string): string | undefined {
 		return (this.retainedPresentation?.uuidToPath ?? this.uuidToPath).get(uuid);
 	}
@@ -3797,18 +4193,22 @@ export class EngineController {
 			if (previousInput === undefined || currentInput === undefined) return;
 
 			const previousMaps = buildPathMaps(
-				buildFieldTree(
+				formFieldTrees(
 					previousInput.formUuid,
 					previousInput.fields,
 					previousInput.fieldOrder,
-				),
+					`/${formRootName(previousInput.form)}`,
+				).submitted,
+				`/${formRootName(previousInput.form)}`,
 			);
 			const currentMaps = buildPathMaps(
-				buildFieldTree(
+				formFieldTrees(
 					currentInput.formUuid,
 					currentInput.fields,
 					currentInput.fieldOrder,
-				),
+					`/${formRootName(currentInput.form)}`,
+				).submitted,
+				`/${formRootName(currentInput.form)}`,
 			);
 			const previousUuids = new Set(previousMaps.uuidToPath.keys());
 			const currentUuids = new Set(currentMaps.uuidToPath.keys());
@@ -3892,7 +4292,12 @@ export class EngineController {
 					},
 				});
 			}
-			if (pathPairs.length === 0 && captureMoves.length === 0) return;
+			if (
+				pathPairs.length === 0 &&
+				captureMoves.length === 0 &&
+				formRootName(previousInput.form) === formRootName(currentInput.form)
+			)
+				return;
 
 			engine.renamePaths(pathPairs);
 			const removedPaths = [...previousUuids]
@@ -4017,7 +4422,7 @@ export class EngineController {
 		const store = this.docStore;
 
 		const unsub = store.subscribe(
-			(s) => collectFormUuids(formUuid, s.fieldOrder),
+			(s) => collectFormUuids(formContentUuid(s, formUuid), s.fieldOrder),
 			(currentUuids, previousUuids) => {
 				this.contain("document-update", formUuid, undefined, () => {
 					const currentSet = new Set(currentUuids);
@@ -4427,12 +4832,13 @@ export class EngineController {
 		/* Rebuild path MAPS — the conversion (and any co-incident rename)
 		 * moves paths. The engine's DAG rebuild waits until AFTER the value
 		 * moves below: old paths materialize against the pre-change topology. */
-		const newTree = buildFieldTree(
+		const newTree = formFieldTrees(
 			input.formUuid,
 			input.fields,
 			input.fieldOrder,
-		);
-		const maps = buildPathMaps(newTree);
+			`/${formRootName(input.form)}`,
+		).submitted;
+		const maps = buildPathMaps(newTree, this.engine.rootPath);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
 
@@ -4560,8 +4966,13 @@ export class EngineController {
 		if (!input) return;
 
 		/* Rebuild path maps and DAG to include the new fields */
-		const tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
-		const maps = buildPathMaps(tree);
+		const tree = formFieldTrees(
+			input.formUuid,
+			input.fields,
+			input.fieldOrder,
+			`/${formRootName(input.form)}`,
+		).submitted;
+		const maps = buildPathMaps(tree, this.engine.rootPath);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
 		this.engine.rebuildDag(input);
@@ -4616,12 +5027,13 @@ export class EngineController {
 		/* Rebuild path maps and DAG without the removed fields */
 		const input = this.currentEngineInput();
 		if (input) {
-			const tree = buildFieldTree(
+			const tree = formFieldTrees(
 				input.formUuid,
 				input.fields,
 				input.fieldOrder,
-			);
-			const maps = buildPathMaps(tree);
+				`/${formRootName(input.form)}`,
+			).submitted;
+			const maps = buildPathMaps(tree, this.engine.rootPath);
 			this.uuidToPath = maps.uuidToPath;
 			this.pathToUuid = maps.pathToUuid;
 			this.engine.rebuildDag(input);
@@ -4646,16 +5058,10 @@ export class EngineController {
 		const input = this.currentEngineInput();
 		if (!input) return;
 
-		const s = this.docStore.getState();
-		const moduleUuid = this.activeFormUuid
-			? findModuleForForm(s, this.activeFormUuid)
-			: undefined;
-		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
-
 		this.engine.refreshCaseContext(
 			input,
 			this.activeCaseData ?? new Map(),
-			mod?.caseType,
+			input.entryRecordType,
 		);
 
 		/* Sync any paths that changed from the case data refresh */
@@ -4669,13 +5075,8 @@ export class EngineController {
 		if (!this.engine || !this.docStore) return;
 		const input = this.currentEngineInput();
 		if (!input) return;
-		const state = this.docStore.getState();
-		const moduleUuid = this.activeFormUuid
-			? findModuleForForm(state, this.activeFormUuid)
-			: undefined;
-		const mod = moduleUuid ? state.modules[moduleUuid] : undefined;
 
-		this.engine.updateSchema(input, mod?.caseType, this.activeCaseData);
+		this.engine.updateSchema(input, input.entryRecordType, this.activeCaseData);
 		this.syncAllPathsSelectively();
 	}
 

@@ -200,7 +200,7 @@ def sessions_record(records, name):
 # The answers of HQ's API to the reads Nova's own reading makes of an app, as the unit made them in a fork
 # (``proof.observe.unit._Unit.api_reads``): under ``apiReads`` in a part's record, one entry a label
 # (``published``, ``authored``, ``saved``), each ``{source, application, currentVersion, projectSpaces: {all,
-# flagged}, projectData?: {lookupTables, fixtureRows: {<tag>: answer}, locationTypes?, locations?}, media?: [{path,
+# flagged, caseListActions}, projectData?: {lookupTables, fixtureRows: {<tag>: answer}, locationTypes?, locations?}, media?: [{path,
 # mediaType, multimediaId, status, sha256, length}], at ``authored`` and ``saved``}``, each answer a blob of the JSON
 # ``proof.hq.operations.HqAnswer.retained()`` writes.
 API_READS = "apiReads"
@@ -241,11 +241,18 @@ def api_reads(records, name, part, label):
     found = {
         key: _answer(reads.get(key), blobs, f"{where}.{key}") for key in ("source", "application", "currentVersion")
     }
+    if reads.get("sourceFactoryReads"):
+        found["sourceFactoryReads"] = {path: _answer(answer, blobs, f"{where}.{path}") for path, answer in reads["sourceFactoryReads"].items()}
     spaces = reads.get("projectSpaces")
     if spaces is not None:
         found["projectSpaces"] = {
             key: _answer(spaces.get(key), blobs, f"{where}.projectSpaces.{key}") for key in ("all", "flagged")
         }
+        # The list action flag's answer, which records observed before it was read hold none.
+        if spaces.get("caseListActions") is not None:
+            found["projectSpaces"]["caseListActions"] = _answer(
+                spaces["caseListActions"], blobs, f"{where}.projectSpaces.caseListActions"
+            )
     data = reads.get("projectData")
     if data is not None:
         held = {
@@ -255,9 +262,16 @@ def api_reads(records, name, part, label):
                 for tag, answer in sorted((data.get("fixtureRows") or {}).items())
             },
         }
-        for key in ("locationTypes", "locations"):
+        for key in ("locationTypes", "locations", "locationsV1"):
             if data.get(key) is not None:
                 held[key] = _answer(data[key], blobs, f"{where}.projectData.{key}")
+        # The detail reads of a table a plain row list cannot carry (``proof/hq/operations.py::lookup_detail_targets``).
+        for key in ("lookupDefinitions", "fixtureDetails"):
+            if data.get(key):
+                held[key] = {
+                    remote_id: _answer(answer, blobs, f"{where}.projectData.{key}.{remote_id}")
+                    for remote_id, answer in sorted(data[key].items())
+                }
         found["projectData"] = held
     media = reads.get("media")
     found["media"] = None if media is None else list(media)

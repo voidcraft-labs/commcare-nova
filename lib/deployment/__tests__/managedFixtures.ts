@@ -9,6 +9,7 @@
  * unchanged finds nothing to refresh, as a real one would.
  */
 
+import { createHash } from "node:crypto";
 import type { MockAgent } from "undici";
 import { v7 } from "uuid";
 import {
@@ -84,10 +85,17 @@ export function hqTableOf(table: ServedTable): HqLookupTable {
 	};
 }
 
+function fixtureRowId(table: ServedTable, index: number) {
+	return createHash("sha256")
+		.update(`${table.id}-${index}`)
+		.digest("hex")
+		.slice(0, 32);
+}
+
 /** The rows as `readHqLookupTableRows` reads them. */
 export function hqRowsOf(table: ServedTable): HqFixtureRow[] {
 	return table.rows.map((row, index) => ({
-		id: `${table.id}-row-${index}`,
+		id: fixtureRowId(table, index),
 		fields: { ...row },
 	}));
 }
@@ -242,7 +250,7 @@ export function serveRows(
 							]),
 						);
 			return {
-				id: `${table.id}-row-${index}`,
+				id: fixtureRowId(table, index),
 				fixture_type: table.tag,
 				fields,
 			};
@@ -255,13 +263,106 @@ export function serveRows(
 		host,
 	);
 	if (before === undefined) {
-		interceptor.reply(200, body);
+		const response = interceptor.reply(200, body);
+		if (table.fieldProperties || table.manyValues) {
+			response.times(3);
+			serveSelectedDetails(peer, domain, table);
+		}
 		return;
 	}
 	interceptor.reply(async () => {
 		await before();
 		return { statusCode: 200, data: JSON.stringify(body) };
 	});
+}
+
+/** Raw native selected-detail and full web restore responses for a management
+ * transfer. Other tables have no interceptor. */
+export function serveTransferEvidence(
+	peer: MockAgent,
+	domain: string,
+	table: ServedTable,
+) {
+	serveTableList(peer, domain, [table]);
+	serveRows(peer, domain, table);
+	serveSelectedDetails(peer, domain, table);
+	const xml = table.rows
+		.map(
+			(row) =>
+				"<" +
+				table.tag +
+				">" +
+				table.fields
+					.map((field) => `<${field}>${row[field]}</${field}>`)
+					.join("") +
+				"</" +
+				table.tag +
+				">",
+		)
+		.join("");
+	const fixture =
+		'<fixture user_id="editor-id" id="item-list:' +
+		table.tag +
+		'"><' +
+		table.tag +
+		"_list>" +
+		xml +
+		"</" +
+		table.tag +
+		"_list></fixture>";
+	const registration =
+		'<Registration xmlns="http://openrosa.org/user/registration"><username>account</username><uuid>editor-id</uuid><user_data><data key="commcare_user_type">web</data><data key="commcare_project">' +
+		domain +
+		"</data></user_data></Registration>";
+	const restore =
+		'<OpenRosaResponse xmlns="http://openrosa.org/http/response"><message nature="ota_restore_success"/><Sync xmlns="http://commcarehq.org/sync"><restore_id>current</restore_id></Sync>' +
+		registration +
+		fixture +
+		"</OpenRosaResponse>";
+	intercept(peer, `/a/${domain}/phone/restore/?overwrite_cache=true`)
+		.reply(200, restore)
+		.persist();
+}
+
+function serveSelectedDetails(
+	peer: MockAgent,
+	domain: string,
+	table: ServedTable,
+) {
+	const def = {
+		id: table.id,
+		tag: table.tag,
+		is_global: table.isGlobal ?? true,
+		item_attributes: [],
+		fields: table.fields.map((name) => ({
+			field_name: name,
+			properties: table.fieldProperties?.[name] ?? [],
+		})),
+	};
+	intercept(peer, `/a/${domain}/api/lookup_table/v1/${table.id}/`)
+		.reply(200, def)
+		.persist();
+	for (const [i, row] of table.rows.entries()) {
+		const id = fixtureRowId(table, i);
+		intercept(peer, `/a/${domain}/api/lookup_table_item/v1/${id}/`)
+			.reply(200, {
+				id,
+				data_type_id: table.id,
+				sort_key: i,
+				item_attributes: {},
+				fields: Object.fromEntries(
+					table.fields.map((name) => [
+						name,
+						{
+							field_list: (table.manyValues?.[name] ?? [row[name]]).map(
+								(value) => ({ field_value: value, properties: {} }),
+							),
+						},
+					]),
+				),
+			})
+			.persist();
+	}
 }
 
 /** A rows read CommCare HQ refuses with `status`. */

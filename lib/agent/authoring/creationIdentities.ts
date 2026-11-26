@@ -1,5 +1,6 @@
 /** Creation slots only. References and anchors never allocate an identity. */
 export type CreationEntityKind =
+	| "form_entry_supply"
 	| "entry_point"
 	| "module"
 	| "form"
@@ -7,7 +8,9 @@ export type CreationEntityKind =
 	| "form_link"
 	| "option"
 	| "case_list_column"
+	| "case_list_sort"
 	| "search_input"
+	| "search_input_group"
 	| "case_operation"
 	| "worker_property"
 	| "user_type"
@@ -89,6 +92,7 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 > = {
 	startAppTest: [spec(["places", "*", "uuid"], "location")],
 	/* Shared structural creation tools. */
+	editFormEntry: [spec(["edit", "value", "uuid"], "form_entry_supply")],
 	addEntryPoint: [spec(["entryPointUuid"], "entry_point")],
 	createModule: [spec(["moduleUuid"], "module")],
 	createForm: [spec(["formUuid"], "form")],
@@ -103,6 +107,8 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 		spec(["columns", "*", "columnUuid"], "case_list_column"),
 	],
 	configureCaseList: [
+		spec(["searchGroups", "*", "groupUuid"], "search_input_group", true),
+		spec(["calculatedSorts", "*", "sortUuid"], "case_list_sort", true),
 		spec(["columns", "*", "columnUuid"], "case_list_column"),
 		spec(["searchInputs", "*", "searchInputUuid"], "search_input"),
 	],

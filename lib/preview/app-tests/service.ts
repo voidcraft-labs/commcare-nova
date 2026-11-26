@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import {
+	includeAppTestIdentity,
+	prepareAppTestIdentities,
+	withCurrentAppTestProof,
+} from "./lookupAccess";
 import "server-only";
 import { sql, type Transaction } from "kysely";
 import type { Database } from "@/lib/case-store/sql/database";
@@ -13,6 +18,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ownRecordValue } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
+import { previewPlatformRules } from "../platform";
 import { appTestExpectationMismatch, bindAppTestAction } from "./addresses";
 import { captureAppTestSnapshot } from "./capture";
 import {
@@ -98,7 +104,9 @@ export async function startAppTest(
 			id: "default",
 			personaUuid: null,
 			language: input.language,
+			locationFix: input.locationFix,
 			platform: input.platform,
+			installedAndroidApps: input.installedAndroidApps,
 		},
 	];
 	if (
@@ -111,8 +119,11 @@ export async function startAppTest(
 	// The source revision is inferred at execution, not part of the author's
 	// command. Recovery returns that command's original revision and receipt.
 	const requestDigest = canonicalJsonDigest(input);
+	const proofScope = await withCurrentAppTestProof(scope, {
+		requestId: args.requestId,
+	});
 	const prior = await readAppTestStartReceipt({
-		...scope,
+		...proofScope,
 		requestId: args.requestId,
 		requestDigest,
 	});
@@ -133,13 +144,17 @@ export async function startAppTest(
 		throw new AppTestActionError(
 			"The app changed. Read its current design before starting a test.",
 		);
+	const checks: import("@/lib/deployment/workerLookupProjection").WorkerProjectionGrantCheck[] =
+		[];
 	const snapshot = await captureAppTestSnapshot(
 		{ ...scope, role: authorized.role },
 		authorized.app.blueprint,
 		input,
+		checks,
 	);
 	return createAppTestSession({
-		...scope,
+		...proofScope,
+		workerGrantChecks: [...(proofScope.workerGrantChecks ?? []), ...checks],
 		requestId: args.requestId,
 		requestDigest,
 		expectedBlueprintSeq: args.expectedBlueprintSeq,
@@ -160,17 +175,48 @@ export async function startAppTest(
 			const doc = hydratePersistedBlueprint(snapshot.blueprint);
 			const sessions: Record<string, AppTestSessionState> = {};
 			let primaryObservation: Record<string, unknown> = {};
+			if (
+				input.locationFix &&
+				!sessionInputs.some(
+					(sessionInput) =>
+						previewPlatformRules(
+							appTestPlatform(
+								snapshot,
+								sessionInput.platform ?? input.platform,
+							),
+						).automaticLocation,
+				)
+			)
+				throw new AppTestActionError(
+					"Automatic location is available on Android, and this test starts no Android session. Add one or leave out the device location.",
+				);
 			for (const sessionInput of sessionInputs) {
 				const platform = appTestPlatform(
 					snapshot,
 					sessionInput.platform ?? input.platform,
 				);
+				/* A session's own fix belongs to an Android session; the test's
+				 * fix is the default every Android session takes. */
+				const automaticLocation =
+					previewPlatformRules(platform).automaticLocation;
+				if (sessionInput.locationFix && !automaticLocation)
+					throw new AppTestActionError(
+						"Automatic location is available on Android. Choose an Android session or leave out its device location.",
+					);
+				const locationFix =
+					sessionInput.locationFix ??
+					(automaticLocation ? input.locationFix : undefined);
 				const initial: AppTestSessionState = {
 					language: appTestLanguage(
 						snapshot,
 						sessionInput.language ?? input.language,
 					),
 					platform,
+					installedAndroidApps:
+						sessionInput.installedAndroidApps ??
+						input.installedAndroidApps ??
+						[],
+					...(locationFix !== undefined && { locationFix }),
 					androidDeviceId: randomUUID(),
 					personaUuid: null,
 					screen: appTestEntryScreen(platform),
@@ -266,8 +312,25 @@ export async function continueAppTest(
 			? undefined
 			: appTestActionsSchema.parse(args.actions);
 	const legacyAction = args.legacyAction;
+	const proofScope = await withCurrentAppTestProof(scope, {
+		testId: args.testId,
+	});
+	const authoredActions = action
+		? [action]
+		: (actions ?? []).map((item) => item.action);
+	const identities = await prepareAppTestIdentities(
+		scope,
+		args.testId,
+		authoredActions.flatMap((item) =>
+			item.kind === "identity" ? [item.personaUuid] : [],
+		),
+	);
 	return advanceAppTestSession({
-		...scope,
+		...proofScope,
+		workerGrantChecks: [
+			...(proofScope.workerGrantChecks ?? []),
+			...Array.from(identities.values(), (capture) => capture.check),
+		],
 		testId: args.testId,
 		requestId: args.requestId,
 		// Bind the authored bytes, not names resolved against a later screen/source.
@@ -289,7 +352,7 @@ export async function continueAppTest(
 		action,
 		actions,
 		advance: async (tx, source, item) => {
-			const snapshot = source.snapshot as unknown as AppTestSnapshot;
+			let snapshot = source.snapshot as unknown as AppTestSnapshot;
 			const doc = hydratePersistedBlueprint(snapshot.blueprint);
 			const retained = restoreAppTestState(source.state);
 			const authored = appTestActionItemSchema.parse(item);
@@ -310,6 +373,12 @@ export async function continueAppTest(
 					};
 				}
 				const bound = bindAppTestAction(doc, state, authored.action);
+				if (bound.kind === "identity")
+					snapshot = includeAppTestIdentity(
+						snapshot,
+						bound.personaUuid,
+						identities,
+					);
 				const nextState: AppTestSessionState =
 					bound.kind === "identity"
 						? {
@@ -397,6 +466,9 @@ export async function continueAppTest(
 				await sql`RELEASE SAVEPOINT app_test_action`.execute(tx);
 				return {
 					state: { ...nextRetained },
+					...((snapshot as unknown) !== source.snapshot && {
+						snapshot: { ...snapshot },
+					}),
 					observation: {
 						...observed.observation,
 						...sessionObservation(nextRetained, sessionId),

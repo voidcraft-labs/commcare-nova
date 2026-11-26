@@ -35,6 +35,10 @@ function issueReason(reason: CasePropertyRenamePlanIssue): string {
 			return "Nova-managed case properties cannot be renamed.";
 		case "source-missing":
 			return "This property is no longer in the app. Refresh the list.";
+		case "related-read-changes-meaning":
+			return `This would change ${reason.dependent}. Choose which related cases it should read, or rename the property on every case type the link can reach.`;
+		case "shared-menu-property":
+			return "A menu reads this property on several record types. Give it the same new name on each type, or change the menu field first.";
 		case "occupied-destination":
 			return `“${reason.to}” already exists. Add it as another property to rename so no data is overwritten.`;
 	}

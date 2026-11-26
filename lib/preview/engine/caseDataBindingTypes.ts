@@ -1,3 +1,7 @@
+import type {
+	ActivityFact,
+	SubmittedActivity,
+} from "@/lib/domain/connectSubmissionFacts";
 // lib/preview/engine/caseDataBindingTypes.ts
 //
 // Discriminated-union result shapes for the running-app view's
@@ -32,6 +36,7 @@ import type {
 	SubmissionRejection,
 } from "@/lib/case-store";
 import type { CasePropertyDataType } from "@/lib/domain";
+import type { DeviceLocation } from "@/lib/domain/locationCapture";
 import type { PreviewDataRefusalReason } from "./dataRefusal";
 
 // `CaseRow` re-exported as a barrel surface so consumers have one
@@ -63,6 +68,7 @@ export type {
  */
 export interface ParentCaseSelection {
 	readonly caseType: string;
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseIds: readonly string[];
 	/** The index name a menu emitted advanced follows to the parent
 	 *  (`caseSelectionNavigation.ts::parentCaseIndex`); absent, any direct
@@ -95,6 +101,9 @@ export type CaseQueryConstraintContext = CaseQueryConstraintSource;
 export type LoadCasesResult =
 	| {
 			kind: "rows";
+			/** Primary matches before the device filters or groups them. */
+			searchMatchCount?: number;
+			resultReceipt?: string;
 			rows: ReadonlyArray<CaseRowWithCalculated>;
 			/** Full ROW population matching the authored + worker query, in
 			 * both the ordinary and the grouped shape. Present for bounded
@@ -147,6 +156,8 @@ export type LoadCasesResult =
 	  }
 	| {
 			kind: "empty";
+			searchMatchCount?: number;
+			resultReceipt?: string;
 			/** When a worker Search and authored availability are both active,
 			 * this count isolates the authored-only population. Zero proves that
 			 * clearing Search cannot reveal a case; a positive value proves that
@@ -162,6 +173,7 @@ export type LoadCasesResult =
 	 * and never offer a transport-style retry button. */
 	| {
 			kind: "invalid-search";
+			reason?: import("@/lib/case-store/searchRequest").SearchUnavailableReason;
 			message: string;
 			/** Whether the worker can repair a submitted prompt or the authored
 			 * Search/session expression itself needs an editor. */
@@ -482,6 +494,8 @@ export interface SubmissionOperationAnswers {
 	readonly repeats: ReadonlyArray<{
 		readonly repeat: string;
 		readonly iterations: ReadonlyArray<ReadonlyArray<SubmissionAnswerEntry>>;
+		/** For each nested row, the zero-based live row of its enclosing repeat. */
+		readonly parentIterations?: readonly number[];
 	}>;
 }
 
@@ -511,6 +525,10 @@ export interface SubmissionAttachmentReference {
  * injection — which is also why the bytes never travel this way at all.
  */
 interface SubmissionProtocol {
+	readonly entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
+	readonly formOpening?: import("./formOpeningSnapshot").FormOpeningBinding;
+	readonly locationFix?: DeviceLocation;
+	readonly activities?: readonly SubmittedActivity[];
 	readonly formUuid: string;
 	readonly entryKey: string;
 	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
@@ -564,12 +582,15 @@ export type SubmissionWireMutation =
 export type SubmissionResult =
 	| {
 			kind: "registration";
+			receiptOutsideRun?: true;
+			submissionLocation?: DeviceLocation | null;
 			caseId: string;
 			/** Flat compatibility alias for a pre-deploy FormScreen. */
 			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only when replaying a historical flat child-id receipt whose
 			 * authored-child/parent mapping cannot be reconstructed safely. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -580,6 +601,8 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "followup";
+			receiptOutsideRun?: true;
+			submissionLocation?: DeviceLocation | null;
 			caseIds: ReadonlyArray<string>;
 			/** Present only for a singleton result. A true batch has no scalar
 			 * representative, so Nova never fabricates one. */
@@ -588,6 +611,7 @@ export type SubmissionResult =
 			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only for a historical flat child-id receipt. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -598,6 +622,8 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "close";
+			receiptOutsideRun?: true;
+			submissionLocation?: DeviceLocation | null;
 			caseIds: ReadonlyArray<string>;
 			/** Present only for a singleton result. A true batch has no scalar
 			 * representative, so Nova never fabricates one. */
@@ -606,6 +632,7 @@ export type SubmissionResult =
 			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only for a historical flat child-id receipt. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -616,6 +643,9 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "survey";
+			receiptOutsideRun?: true;
+			submissionLocation?: DeviceLocation | null;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];

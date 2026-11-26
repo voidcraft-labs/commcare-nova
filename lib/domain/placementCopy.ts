@@ -16,6 +16,8 @@ import type { CasePlacement, PlacementIneligibilityReason } from "./placements";
  * `to` as two of these.
  */
 export const PLACEMENT_LABELS = [
+	"opening-record",
+	"retired-opening-record",
 	"case-management",
 	"case-actions",
 	"save-to-case",
@@ -24,12 +26,19 @@ export const PLACEMENT_LABELS = [
 	"ordinary-menu",
 	"advanced-menu",
 ] as const;
-export type PlacementLabel = (typeof PLACEMENT_LABELS)[number];
+export type PlacementLabel =
+	| (typeof PLACEMENT_LABELS)[number]
+	| { readonly answerPath: string };
 
 /** A place's words, folded into a sentence ("from Case Management to Save
  *  to Case"). */
 export function placementLabelWords(label: PlacementLabel): string {
+	if (typeof label === "object") return label.answerPath;
 	switch (label) {
+		case "opening-record":
+			return "a saved opening record";
+		case "retired-opening-record":
+			return "a removed opening record";
 		case "case-management":
 			return "Case Management";
 		case "case-actions":
@@ -175,8 +184,12 @@ export function advancedKindBlockerSentence(
 	blocker: AdvancedKindBlocker["kind"],
 ): string {
 	switch (blocker) {
+		case "individual-grid":
+			return "This menu has its own grid layout, which CommCare HQ keeps on a basic menu.";
 		case "several-cases":
 			return "It now lets workers choose several cases, which an advanced menu can't do.";
+		case "several-record-types":
+			return "A case selection now offers several record types. CommCare HQ keeps that selection in an ordinary menu.";
 		case "forms-read-search":
 			return "Its forms now read the search, which an advanced menu can't do.";
 		case "case-list-menu-item-narrowed":

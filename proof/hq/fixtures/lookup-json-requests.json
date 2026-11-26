@@ -1,0 +1,149 @@
+{
+	"tableId": "0000000000004000800000000000ab1e",
+	"create": {
+		"tag": "types",
+		"is_global": true,
+		"fields": [
+			{
+				"field_name": "name",
+				"properties": []
+			},
+			{
+				"field_name": "alias",
+				"properties": ["lang"]
+			}
+		],
+		"item_attributes": ["code"]
+	},
+	"appends": [
+		{
+			"data_type_id": "0000000000004000800000000000ab1e",
+			"fields": {
+				"name": {
+					"field_list": [
+						{
+							"field_value": "  Clinic  ",
+							"properties": {}
+						}
+					]
+				},
+				"alias": {
+					"field_list": [
+						{
+							"field_value": "",
+							"properties": {
+								"lang": "en"
+							}
+						},
+						{
+							"field_value": "dispensaire",
+							"properties": {}
+						}
+					]
+				}
+			},
+			"item_attributes": {
+				"code": " 007 "
+			},
+			"sort_key": 0
+		},
+		{
+			"data_type_id": "0000000000004000800000000000ab1e",
+			"fields": {
+				"name": {
+					"field_list": [
+						{
+							"field_value": "Ward",
+							"properties": {}
+						}
+					]
+				},
+				"alias": {
+					"field_list": []
+				}
+			},
+			"item_attributes": {
+				"code": "2"
+			},
+			"sort_key": 1
+		},
+		{
+			"data_type_id": "0000000000004000800000000000ab1e",
+			"fields": {
+				"name": {
+					"field_list": [
+						{
+							"field_value": "Hall",
+							"properties": {}
+						}
+					]
+				}
+			},
+			"item_attributes": {
+				"code": "3"
+			},
+			"sort_key": 2
+		}
+	],
+	"change": {
+		"row": 1,
+		"body": {
+			"data_type_id": "0000000000004000800000000000ab1e",
+			"fields": {
+				"name": {
+					"field_list": [
+						{
+							"field_value": "Ward 2",
+							"properties": {}
+						}
+					]
+				},
+				"alias": {
+					"field_list": []
+				}
+			},
+			"item_attributes": {
+				"code": "2"
+			},
+			"sort_key": 1
+		}
+	},
+	"move": {
+		"row": 0,
+		"body": {
+			"data_type_id": "0000000000004000800000000000ab1e",
+			"fields": {
+				"name": {
+					"field_list": [
+						{
+							"field_value": "  Clinic  ",
+							"properties": {}
+						}
+					]
+				},
+				"alias": {
+					"field_list": [
+						{
+							"field_value": "",
+							"properties": {
+								"lang": "en"
+							}
+						},
+						{
+							"field_value": "dispensaire",
+							"properties": {}
+						}
+					]
+				}
+			},
+			"item_attributes": {
+				"code": " 007 "
+			},
+			"sort_key": 3
+		}
+	},
+	"remove": {
+		"row": 2
+	},
+	"served": "<fixture id=\"item-list:types\"><types_list><types code=\"2\"><name>Ward 2</name></types><types code=\" 007 \"><name>  Clinic  </name><alias lang=\"en\"/><alias>dispensaire</alias></types></types_list></fixture>"
+}

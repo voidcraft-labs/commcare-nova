@@ -16,13 +16,10 @@
 import tablerSignature from "@iconify-icons/tabler/signature";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
+import { checkedInputFieldBaseSchema } from "./base";
 
-export const signatureFieldSchema = fieldBaseSchema.extend({
+export const signatureFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("signature"),
-	hint: proseTemplateSchema.optional(),
-	required: formLogicSchema.optional(),
-	relevant: formLogicSchema.optional(),
 });
 
 export type SignatureField = z.infer<typeof signatureFieldSchema>;
@@ -35,7 +32,7 @@ export const signatureFieldMetadata: FieldKindMetadata<"signature"> = {
 	label: "Signature",
 	isStructural: false,
 	isContainer: false,
-	carriesValidation: false,
+	carriesValidation: true,
 	saDocs:
 		"Signature, the worker signs on a drawing pad and the app saves a PNG. The only capture kind that does not attach an existing file.",
 	convertTargets: ["image", "audio", "video", "file"],

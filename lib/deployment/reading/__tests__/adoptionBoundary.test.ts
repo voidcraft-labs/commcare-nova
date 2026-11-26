@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { lookupAppFixture } from "@/lib/commcare/__tests__/lookupAppFixtures";
 import { expandDoc } from "@/lib/commcare/expander";
+import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { readHqApp } from "@/lib/commcare/reader";
 import { hydrated } from "@/lib/commcare/reader/__tests__/publishedDocuments";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
@@ -91,6 +92,47 @@ function tableAndPictures(): {
 }
 
 describe("adoptionExportBoundary", () => {
+	it.each([
+		["two names for one picture", ["b", "b", "c"], ["commcare/b.png"]],
+		[
+			"different pictures",
+			["a", "b", "c"],
+			["commcare/b.png", "commcare/c.png"],
+		],
+		[
+			"one picture shared with the logo",
+			["a", "b", "a"],
+			["commcare/a.png", "commcare/c.png"],
+		],
+	] as const)(
+		"projects the first physical upload when the incoming app has %s",
+		(_, hashes, expected) => {
+			const source = tableAndPictures();
+			const logo = testMediaAssetId("logo-file");
+			const doc = { ...source.doc, logo };
+			const files = [...PICTURES, logo].map((assetId, i) => ({
+				assetId,
+				hqPath: `jr://file/commcare/${["b", "c", "a"][i]}.png`,
+				extension: ".png",
+				contentHash: hashes[i].repeat(64),
+			}));
+			const target = { origin: NOVA_ORIGIN, domain: NOVA_DOMAIN };
+			const boundary = adoptionExportBoundary(
+				doc,
+				source.lookup.definitions,
+				files,
+				target,
+			);
+			const uploaded = bulkUploadAssets(doc, boundary.assets);
+			expect(uploaded.has(logo)).toBe(false);
+			expect(
+				[
+					...new Set([...uploaded.values()].map((asset) => asset.wirePath)),
+				].sort(),
+			).toEqual(expected);
+		},
+	);
+
 	it("prints the body the first publish to the adopted deployment prints", async () => {
 		const { doc, lookup } = tableAndPictures();
 		const served = servedExport(doc, { lookup });

@@ -1,0 +1,50 @@
+[
+	{
+		"id": "site-chosen-by-its-original-value",
+		"entry": "expressions-and-data/tag-or-field-name-holding-a-period",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/site",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/site"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "library"
+			}
+		]
+	},
+	{
+		"id": "zone-chosen-by-its-original-value",
+		"entry": "expressions-and-data/tag-or-field-name-with-non-ascii-letters",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/zone",
+					"value": "1"
+				}
+			],
+			"expressions": ["/data/zone"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upland"
+			}
+		]
+	}
+]

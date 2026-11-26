@@ -1,12 +1,14 @@
 import { isDateFormatPreset, resolveCommCareDatePattern } from "../dateFormats";
 import { caseReferenceText } from "../hashtagSegments";
 import type { LookupColumnId, LookupTableId } from "../lookupIds";
+import type { LookupRead } from "../lookupRead";
 import type { Uuid } from "../uuid";
 import { expressionChildPath } from "./children";
 import type { FormNodeGraph, FormNodeStep } from "./formNodes";
 import { formatNumeric } from "./numberLiteral";
 import { relativePath } from "./relativePath";
 import { type ExpressionSpans, spanKey } from "./spans";
+import { quoteXPathLiteral } from "./stringLiteral";
 import {
 	type CheckPath,
 	type DatumRef,
@@ -20,25 +22,36 @@ import {
 } from "./types";
 
 export interface FormPrintContext {
+	readonly projectSearchResults?: boolean;
 	readonly graph?: FormNodeGraph;
+	readonly dataRootName?: string;
 	readonly sourceNode?: FormNodeRef;
 	readonly contextNode?: FormNodeRef;
 	readonly step?: (node: FormNodeRef) => FormNodeStep | undefined;
 	readonly fieldPathSegments?: (uuid: Uuid) => readonly string[] | undefined;
 	readonly userPropertySlug?: (uuid: Uuid) => string | undefined;
-	readonly searchInputName?: (uuid: Uuid) => string | undefined;
+	readonly searchInputName?: (
+		uuid: Uuid,
+		supplier?: Uuid,
+	) => string | undefined;
 	readonly choiceValues?: (
 		field: Uuid,
 		options: readonly Uuid[],
 	) => readonly string[] | undefined;
+	readonly namedEntrySupply?: (datum: DatumRef) => string | undefined;
 	readonly datumId?: (datum: DatumRef) => string | undefined;
+	readonly searchResultsId?: (supplier?: Uuid) => string | undefined;
 	readonly selectedCasesId?: (module: Uuid) => string | undefined;
 	readonly tableTag?: (table: LookupTableId) => string | undefined;
 	readonly tableColumnName?: (
 		table: LookupTableId,
 		column: LookupColumnId,
 	) => string | undefined;
-	readonly lookupInstancePrefix?: "" | "item-list:";
+	readonly lookupInstanceId?: (tag: string) => string;
+	readonly tableReadPath?: (
+		table: LookupTableId,
+		read: LookupRead,
+	) => string | undefined;
 	readonly locationLevelCode?: (level: Uuid) => string | undefined;
 	readonly locationPropertySlug?: (property: Uuid) => string | undefined;
 	readonly itextId?: (unit: ItextUnit) => string | undefined;
@@ -176,14 +189,11 @@ function printWith(
 			emit(formatNumeric(value));
 			return;
 		}
-		if (
-			typeof value !== "string" ||
-			(value.includes("'") && value.includes('"'))
-		) {
+		if (typeof value !== "string") {
 			missing(path, "literal");
 			return;
 		}
-		emit(value.includes("'") ? `"${value}"` : `'${value}'`);
+		emit(quoteXPathLiteral(value));
 	}
 	function child(
 		parent: Expression | Term,
@@ -284,6 +294,27 @@ function printWith(
 		const graph = ctx.graph;
 		if (spelling !== "relative" && spelling !== "current") {
 			if (target.kind !== "field" && target.kind !== "repeat-row") {
+				if (
+					spelling === "absolute" &&
+					"activity" in target &&
+					ctx.step &&
+					graph
+				) {
+					const coordinates = graph.path(target);
+					if (coordinates) {
+						emit("/data");
+						for (const node of coordinates.slice(1)) {
+							const step = ctx.step(node);
+							if (!step) {
+								missing(path, "context");
+								return;
+							}
+							emit(`/${step.attribute ? "@" : ""}${step.name}`);
+							filters(term, node, path, ctx);
+						}
+						return;
+					}
+				}
 				missing(path, "arm");
 				return;
 			}
@@ -293,7 +324,9 @@ function printWith(
 				missing(path);
 				return;
 			}
-			emit(spelling === "absolute" ? "/data" : "#form");
+			emit(
+				spelling === "absolute" ? `/${ctx.dataRootName ?? "data"}` : "#form",
+			);
 			const coordinates = graph
 				?.path(target)
 				?.filter((node) => node.kind === "field" && node.role === undefined);
@@ -390,7 +423,10 @@ function printWith(
 				emit(caseReferenceText(term.caseType, term.property));
 				break;
 			case "input": {
-				const name = named(ctx.searchInputName?.(term.searchInputUuid), path);
+				const name = named(
+					ctx.searchInputName?.(term.searchInputUuid, term.supplier),
+					path,
+				);
 				if (name !== undefined) emit(`#search/${name}`);
 				break;
 			}
@@ -415,6 +451,11 @@ function printWith(
 				emit(`instance('commcaresession')/session/context/${term.field}`);
 				break;
 			case "session-datum": {
+				const source = ctx.namedEntrySupply?.(term.datum);
+				if (source !== undefined) {
+					emit(source);
+					break;
+				}
 				const id = named(ctx.datumId?.(term.datum), path);
 				if (id !== undefined)
 					emit(`instance('commcaresession')/session/data/${id}`);
@@ -422,7 +463,9 @@ function printWith(
 			}
 			case "table-column": {
 				const name = named(
-					ctx.tableColumnName?.(term.tableId, term.columnId),
+					typeof term.columnId === "string"
+						? ctx.tableColumnName?.(term.tableId, term.columnId)
+						: ctx.tableReadPath?.(term.tableId, term.columnId),
 					path,
 				);
 				if (name !== undefined) emit(name);
@@ -437,6 +480,9 @@ function printWith(
 			case "case-type":
 				literal(term.caseType, path);
 				break;
+			case "search-result-field":
+				emit(term.name);
+				break;
 			case "case-row-type":
 				emit("@case_type");
 				break;
@@ -448,6 +494,19 @@ function printWith(
 				if (code !== undefined) literal(code, path);
 				break;
 			}
+			case "worker-group-field":
+				if (typeof term.field === "string")
+					emit(term.field === "id" ? "@id" : "name");
+				else {
+					emit("group_data/data");
+					if (term.field.key !== undefined) {
+						emit("[@key = ");
+						literal(term.field.key, path);
+						emit("]");
+					}
+					if (term.field.detail === "key") emit("/@key");
+				}
+				break;
 			case "location-field":
 				if (typeof term.field === "string")
 					emit(
@@ -475,7 +534,10 @@ function printWith(
 		bracketed(`${name}(`, ")", action);
 	}
 	function predicates(
-		node: Extract<Expression, { kind: "cases" | "table-rows" | "locations" }>,
+		node: Extract<
+			Expression,
+			{ kind: "cases" | "table-rows" | "locations" | "worker-groups" }
+		>,
 		path: CheckPath,
 		ctx: FormPrintContext,
 	): void {
@@ -501,7 +563,7 @@ function printWith(
 		const tag = named(ctx.tableTag?.(table), path);
 		if (tag === undefined) return false;
 		emit("instance(");
-		literal(`${ctx.lookupInstancePrefix ?? ""}${tag}`, path);
+		literal(ctx.lookupInstanceId?.(tag) ?? tag, path);
 		emit(`)/${tag}_list/${tag}`);
 		return true;
 	}
@@ -576,10 +638,15 @@ function printWith(
 				emit("false()");
 				break;
 			case "today":
+				emit(node.clock === "project-space" ? "project-today()" : "today()");
+				break;
 			case "now":
 			case "here":
 				emit(`${node.kind}()`);
 				break;
+			case "case-list-lookup-count":
+				emit("case-list-lookup-count()");
+				return;
 			case "case-list-search-text":
 				emit(CASE_LIST_SEARCH_TEXT_PATH);
 				break;
@@ -659,6 +726,10 @@ function printWith(
 				if (node.args.length === 0) emit(`${node.fn}()`);
 				else call(node.fn, () => list(node, "args", node.args, path, ctx));
 				break;
+			case "case-text": {
+				call("case-text", () => literal(node.textUuid, path));
+				break;
+			}
 			case "itext": {
 				const id = named(ctx.itextId?.(node.unit), path);
 				if (id !== undefined) call("jr:itext", () => literal(id, path));
@@ -675,16 +746,32 @@ function printWith(
 					});
 				break;
 			}
-			case "cases":
+			case "cases": {
+				const id =
+					node.source === "casedb"
+						? "casedb"
+						: named(
+								ctx.searchResultsId?.(node.supplier) ??
+									(node.supplier === undefined ? "results:inline" : undefined),
+								path,
+							);
+				if (id === undefined) break;
 				emit(
 					node.source === "casedb"
 						? "instance('casedb')/casedb/case"
-						: "instance('results:inline')/results/case[not(commcare_is_related_case = true())]",
+						: ctx.projectSearchResults
+							? `instance('${id}')/results/case`
+							: `instance('${id}')/results/case[not(commcare_is_related_case = true())]`,
 				);
 				predicates(node, path, ctx);
 				break;
+			}
 			case "table-rows":
 				if (tableRoot(node.tableId, path, ctx)) predicates(node, path, ctx);
+				break;
+			case "worker-groups":
+				emit("instance('groups')/groups/group");
+				predicates(node, path, ctx);
 				break;
 			case "locations":
 				emit("instance('locations')/locations/location");
@@ -711,7 +798,9 @@ function printWith(
 					);
 					emit("[1]/");
 					const name = named(
-						ctx.tableColumnName?.(node.tableId, node.resultColumnId),
+						typeof node.resultColumnId === "string"
+							? ctx.tableColumnName?.(node.tableId, node.resultColumnId)
+							: ctx.tableReadPath?.(node.tableId, node.resultColumnId),
 						path,
 					);
 					if (name !== undefined) emit(name);

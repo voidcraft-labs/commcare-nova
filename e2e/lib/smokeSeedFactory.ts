@@ -7,7 +7,12 @@ import {
 	caseChoiceSnapshot,
 	choiceUuid,
 } from "@/lib/__tests__/caseChoiceFixture";
+import { connectSectionForm } from "@/lib/__tests__/connectSectionForm";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	listIconVisits,
+	visitActionModule,
+} from "@/lib/__tests__/listIconVisits";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
@@ -77,6 +82,8 @@ import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitInteg
 import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
+import { independentChoicesBlueprint } from "../../proof/targeted/documents/independentFormChoices";
+import { sharedVisitsBlueprint } from "../../proof/targeted/documents/sharedVisitEntries";
 import { APP_NOTICES_SEED, appNoticesEntries } from "./appNoticesSeed";
 import { seedBringIn } from "./bringInSeed";
 import {
@@ -84,6 +91,7 @@ import {
 	CASE_CHANGES_SEED,
 	caseChangesRoute,
 	caseWriteFieldRoute,
+	caseWritesFollowupOperationsRoute,
 	identityProjectionRoute,
 } from "./caseChangesSeed";
 import {
@@ -140,6 +148,8 @@ import {
 	menuHeldCaseRoute,
 } from "./menuHeldCaseSeed";
 import {
+	ANDROID_DEEP_LINK_VISIT_SEED,
+	buildAndroidDeepLinkVisitBlueprint,
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildPreviewAndroidMediaBlueprint,
@@ -185,9 +195,10 @@ import {
 	SEARCH_STANDING_SEED,
 } from "./searchStandingSeed";
 import { buildSessionStorageState } from "./session";
-
 import { SMOKE_TEXT } from "./smokeText";
 import { buildSortByBlueprint, SORT_BY_SEED, sortByRoute } from "./sortBySeed";
+import { seedSourceInventory } from "./sourceInventorySeed";
+import { buildVisitReport, visitReport } from "./visitReportSeed";
 
 /** One context per seed process, one actor/Project universe per scenario. */
 /** One form taking part in Connect Learn, in an app that runs on Android
@@ -198,42 +209,10 @@ export const IDENTITY_MOVES_SEED = {
 } as const;
 
 export const CONNECT_LEARN_SEED = {
-	appName: "Smoke — Connect Learn",
+	appName: "Community learning",
 	moduleName: "Training",
 	formName: "Lesson one",
 } as const;
-
-function buildConnectLearnBlueprint(appId: string): BlueprintDoc {
-	const seed = CONNECT_LEARN_SEED;
-	return buildDoc({
-		appId,
-		appName: seed.appName,
-		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
-		connectType: "learn",
-		modules: [
-			{
-				name: seed.moduleName,
-				forms: [
-					{
-						name: seed.formName,
-						type: "survey",
-						fields: [
-							f({ kind: "text", id: "reflection", label: "Reflection" }),
-						],
-						connect: {
-							learn_module: {
-								id: "lesson_one",
-								name: seed.formName,
-								description: "The first lesson",
-								time_estimate: 5,
-							},
-						},
-					},
-				],
-			},
-		],
-	});
-}
 
 export async function smokeSeedEnvironment(secret: string, baseUrl: string) {
 	if (!process.env.NOVA_DB_LOCAL_URL)
@@ -700,7 +679,8 @@ export async function createSmokeBuilders(
 					dataType: "time",
 				},
 				{
-					wireName: "last_verified",
+					// Valid Project data with an export name worker expressions cannot read.
+					wireName: "最近确认",
 					label: CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel,
 					dataType: "datetime",
 				},
@@ -879,6 +859,13 @@ export async function createSmokeBuilders(
 		return { openAppId };
 	}
 	const builders = {
+		"source-inventory": async () => ({
+			sourceInventory: await seedSourceInventory(
+				seedProjectId,
+				SEED.userId,
+				token,
+			),
+		}),
 		auth: async () => {
 			return {};
 		},
@@ -1077,6 +1064,61 @@ export async function createSmokeBuilders(
 		workspace: async () => {
 			return { caseWorkspace: await seedCaseWorkspace(seedProjectId) };
 		},
+		"automatic-case-selection": async () => {
+			const name = "Batch case selection";
+			const menus = [
+				{ name: "All batch cases", maximum: 51, type: "member" },
+				{ name: "Too many batch cases", maximum: 50, type: "member" },
+				{ name: "No batch cases", maximum: 50, type: "vacancy" },
+			];
+			const appId = await seedRuntimeApp(name, (appId) =>
+				buildDoc({
+					appId,
+					appName: name,
+					appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+					caseTypes: [
+						{ name: "member", properties: [] },
+						{ name: "vacancy", properties: [] },
+					],
+					modules: menus.map(({ name, maximum, type }) => ({
+						name,
+						caseType: type,
+						caseListConfig: {
+							...caseListConfig([{ field: "case_name", header: "Name" }]),
+							selection: { kind: "multiple", maximum, autoSelect: true },
+						},
+						forms: [
+							{
+								name: "Review group",
+								type: "followup",
+								fields: [f({ kind: "text", id: "review", label: "Review" })],
+							},
+							{
+								name: "Close group",
+								type: "close",
+								fields: [
+									f({ kind: "hidden", id: "ready", calculate: "'yes'" }),
+								],
+							},
+						],
+					})),
+				}),
+			);
+			const caseIds: string[] = [];
+			for (let index = 0; index < 51; index++) {
+				const saved = await caseStore.insert({
+					appId,
+					row: {
+						case_type: "member",
+						case_name: `Member ${51 - index}`,
+						status: "open",
+						properties: {},
+					},
+				});
+				caseIds.push(saved.caseId);
+			}
+			return { automaticCaseSelection: { appId, caseIds } };
+		},
 		"case-changes": async () => {
 			const { appId: caseChangesAppId, baseSeq: caseChangesGenesisSeq } =
 				await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
@@ -1137,6 +1179,8 @@ export async function createSmokeBuilders(
 					route: caseChangesRoute(caseChangesAppId),
 					identityProjectionRoute: identityProjectionRoute(caseChangesAppId),
 					followupWriteRoute: caseWriteFieldRoute(caseChangesAppId, "followup"),
+					followupOperationsRoute:
+						caseWritesFollowupOperationsRoute(caseChangesAppId),
 					registrationWriteRoute: caseWriteFieldRoute(
 						caseChangesAppId,
 						"registration",
@@ -1277,6 +1321,49 @@ export async function createSmokeBuilders(
 				});
 			return { previousTask: { appId, routes: previousTaskRoutes(appId) } };
 		},
+		"list-icon-action": async () => {
+			const bytes = Buffer.from(
+				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWNQDmz5DwADiwH4gz7gMgAAAABJRU5ErkJggg==",
+				"base64",
+			);
+			const contentHash = createHash("sha256").update(bytes).digest("hex");
+			const { assetId } = await createReadyAsset({
+				owner: SEED.userId,
+				project_id: seedProjectId,
+				contentHash,
+				mimeType: "image/png",
+				kind: "image",
+				extension: ".png",
+				sizeBytes: bytes.length,
+				gcsObjectKey: gcsObjectKeyFor(seedProjectId, contentHash, ".png"),
+				originalFilename: "record-visit.png",
+				mediaFormat: "png",
+			});
+			const appId = await seedRuntimeApp("Visit actions", (id) =>
+				listIconVisits(id, assetId),
+			);
+			for (const name of ["First visit", "Second visit"])
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: "visit",
+						case_name: name,
+						status: "open",
+						properties: { visit_state: "ready" },
+					},
+				});
+			return {
+				listIconAction: {
+					appId,
+					assetId,
+					bytes: bytes.toString("base64"),
+					route: buildUrl(`/build/${appId}`, {
+						kind: "cases",
+						moduleUuid: visitActionModule,
+					}),
+				},
+			};
+		},
 		"deep-links": async () => {
 			const { appId, baseSeq } = await createExplicitBlankApp(
 				SEED.userId,
@@ -1391,6 +1478,62 @@ export async function createSmokeBuilders(
 					opensCaseId: opens.caseId,
 				},
 			};
+		},
+		"shared-form-entries": async () => {
+			const appId = await seedRuntimeApp(
+				"Shared visits",
+				sharedVisitsBlueprint,
+			);
+			const people = ["Ada", "Bea", "Chen"] as const;
+			for (const name of people) {
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: "person",
+						case_name: name,
+						status: "open",
+						properties: {},
+					},
+				});
+			}
+			const doc = sharedVisitsBlueprint(appId);
+			const entry = Object.values(doc.forms).find(
+				(form) => form.name === "Follow a referral",
+			);
+			if (!entry?.shadowOf)
+				throw new Error("The referral must open the shared visit.");
+			return {
+				appId,
+				people,
+				entryUuid: entry.uuid,
+				parentUuid: entry.shadowOf.form,
+			};
+		},
+		"independent-form-choices": async () => {
+			const appId = await seedRuntimeApp(
+				"Visit two people",
+				independentChoicesBlueprint,
+			);
+			const people = [
+				"Ada",
+				"Bea",
+				"Chen",
+				"Dara",
+				"Standalone list only",
+			] as const;
+			for (const [position, name] of people.entries()) {
+				await caseStore.insert({
+					appId,
+					row: {
+						case_id: `${appId}-person-${position + 1}`,
+						case_type: "person",
+						case_name: name,
+						status: "open",
+						properties: {},
+					},
+				});
+			}
+			return { appId, people };
 		},
 		"menu-held-case": async () => {
 			const seed = MENU_HELD_CASE_SEED;
@@ -1604,6 +1747,29 @@ export async function createSmokeBuilders(
 				},
 			};
 		},
+		"android-deep-link-visit": async () => {
+			const seed = ANDROID_DEEP_LINK_VISIT_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildAndroidDeepLinkVisitBlueprint,
+			);
+			const patient = await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.patient.caseName,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				androidDeepLinkVisit: {
+					appId,
+					route: searchStartRefusedRoute(appId),
+					caseId: patient.caseId,
+				},
+			};
+		},
 		"search-choices-refused": async () => {
 			const seed = SEARCH_CHOICES_REFUSED_SEED;
 			/* The Project table the Region field reads its choices from, with
@@ -1760,6 +1926,9 @@ export async function createSmokeBuilders(
 			});
 			return { localizationAppId: appId };
 		},
+		"visit-report": async () => ({
+			appId: await seedRuntimeApp(visitReport.appName, buildVisitReport),
+		}),
 		sections: async () => {
 			const { appId: formSectionsAppId, baseSeq: formSectionsGenesisSeq } =
 				await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
@@ -2378,7 +2547,7 @@ export async function createSmokeBuilders(
 		"connect-learn": async () => {
 			const appId = await seedRuntimeApp(
 				CONNECT_LEARN_SEED.appName,
-				buildConnectLearnBlueprint,
+				connectSectionForm,
 			);
 			return { connectLearn: { appId } };
 		},

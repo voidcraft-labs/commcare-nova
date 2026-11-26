@@ -1,3 +1,4 @@
+import type { Uuid } from "@/lib/domain/uuid";
 // lib/preview/engine/caseListOrder.ts
 //
 // Preview's copy of a case list's order plan
@@ -31,6 +32,7 @@ import {
 	resolveTranslationUnitValue,
 	type TranslationUnitId,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import type { CaseListSortChoice } from "../caseListSortMenu";
 import type { CaseStoreOrder } from "./caseDataBindingHelpers";
 
@@ -62,6 +64,14 @@ export function previewCaseListOrderPlan(
  * committed) reads its stored text.
  */
 export interface CaseListOrderLocale {
+	calculationText(
+		column: Extract<Column, { kind: "calculated" }>,
+		piece: { uuid: Uuid; label: string },
+	): string;
+	mappingLabel(
+		column: Extract<Column, { kind: "id-mapping" }>,
+		index: number,
+	): string;
 	/** `caseType` is the type whose catalog holds the property, the list's own
 	 *  where absent. */
 	optionLabel(property: CaseProperty, index: number, caseType?: string): string;
@@ -83,6 +93,25 @@ export function previewCaseListOrderLocale(
 		}
 	};
 	return {
+		calculationText: (column, piece) =>
+			translated(
+				makeTranslationUnitId(
+					"column",
+					column.uuid,
+					"calculation-text",
+					piece.uuid,
+				),
+				piece.label,
+			),
+		mappingLabel: (column, index) => {
+			const row = column.mapping[index];
+			return row
+				? translated(
+						caseMappingTextUnit(column.uuid, row, "mapping"),
+						row.label,
+					)
+				: "";
+		},
 		optionLabel: (property, index, optionType = caseType) => {
 			const options = property.options ?? [];
 			const option = options[index];

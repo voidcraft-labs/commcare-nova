@@ -48,6 +48,7 @@ import {
 	expressionReadsCaseData,
 	valueSchema,
 } from "@/lib/domain/expression";
+import { searchRequestOrderSchema } from "@/lib/domain/modules";
 
 const predicateInputSchema = conditionSchema as z.ZodType<Expression>;
 const valueExpressionInputSchema = valueSchema as z.ZodType<Expression>;
@@ -66,20 +67,31 @@ export const DISPLAY_SLOT_NAMES = [
  * two are stored under their own names (`ADVANCED_CONFIG_KEYS`).
  */
 export const ADVANCED_SLOT_NAMES = [
+	"requestOrder",
+	"relatedRecordIdProperty",
+	"relatedRecords",
 	"excludedOwnerIds",
 	"searchWorkflow",
 	"formsReadSearch",
+	"searchOnClear",
 ] as const;
 
 /** The stored `caseSearchConfig` keys the advanced cluster owns. */
 export const ADVANCED_CONFIG_KEYS = [
+	"requestOrder",
+	"relatedRecordIdProperty",
+	"relatedRecords",
 	"excludedOwnerIds",
 	"workflow",
 	"formsReadSearch",
+	"searchOnClear",
 ] as const;
 
-/** Nova-only provenance; intentionally absent from both SA-authored clusters. */
-export const INTERNAL_SLOT_NAMES = ["searchActionEnabled"] as const;
+/** Edited through their own operations, independently of display and worker settings. */
+export const INTERNAL_SLOT_NAMES = [
+	"searchActionEnabled",
+	"projectSearch",
+] as const;
 
 export type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
 export type AdvancedSlotName = (typeof ADVANCED_SLOT_NAMES)[number];
@@ -248,7 +260,7 @@ const globallyResolvedDisplayConditionSchema = predicateInputSchema.superRefine(
 		ctx.addIssue({
 			code: "custom",
 			message:
-				"The search-button display condition is evaluated before a case is selected, so it cannot read case properties or relationships. Compose it from fixed values and current-user/session values; to filter which cases appear, use the case list filter or a search input instead.",
+				"The search-button display condition is evaluated before a case is selected, so it cannot read case properties or relationships. Compose it from fixed values and today's date, or from current-user, session or lookup-table values the case list already reads (its filter or owner rule reads them, or every form that shows the list returns to it after submit); to filter which cases appear, use the case list filter or a search input instead.",
 		});
 	},
 );
@@ -262,7 +274,7 @@ export const searchWorkflowInputSchema = z.enum(SEARCH_WORKFLOWS);
 const SEARCH_WITH_NOTHING_TO_FILL_IN =
 	"Under searchFirst, a search with nothing to fill in shows a Search screen holding only its button.";
 
-export const SEARCH_WORKFLOW_DESCRIPTION = `What the menu opens on. searchFirst opens on Search in Web Apps, and Results then show what the search finds; Android opens the case list first, with Search from it. skipToResults opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; Android opens the case list first. listFirst opens on the case list with Search from it, and only an app that runs only on Android can use it. ${SEARCH_WITH_NOTHING_TO_FILL_IN}`;
+export const SEARCH_WORKFLOW_DESCRIPTION = `What the menu opens on. searchFirst opens on Search in Web Apps, and Results then show what the search finds; Android opens the case list first, with Search from it. skipToResults opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; Android opens the case list first. listFirst opens on the case list with Search from it, and only an app that runs only on Android can use it. listFirstWithDefaultResults also requests default results for the Search action when published. Android opens its fields and waits for the worker to submit either list-first search. ${SEARCH_WITH_NOTHING_TO_FILL_IN}`;
 
 export const formsReadSearchInputSchema = z.literal(true).nullable();
 
@@ -282,6 +294,27 @@ export function storedSearchWorkflow(
  * input boundary.
  */
 export const setCaseSearchAdvancedBodySchema = z.strictObject({
+	requestOrder: searchRequestOrderSchema
+		.nullable()
+		.optional()
+		.describe(
+			"The properties, comparisons and directions to use when the server selects the first matches. This dedicated setting needs advanced case search. Omit to keep it or use null to clear.",
+		),
+	relatedRecords: z
+		.enum(["hierarchy", "details"])
+		.nullable()
+		.optional()
+		.describe(
+			"Include the entire related hierarchy, or the related records used by details. Clearing follows the displayed information.",
+		),
+	relatedRecordIdProperty: z
+		.string()
+		.min(1)
+		.nullable()
+		.optional()
+		.describe(
+			"Property on each match holding the ID of another record its forms can read. Clearing removes the extra record.",
+		),
 	excludedOwnerIds: globallyResolvedOwnerExpressionSchema
 		.nullable()
 		.describe(
@@ -290,6 +323,13 @@ export const setCaseSearchAdvancedBodySchema = z.strictObject({
 	searchWorkflow: searchWorkflowInputSchema.describe(
 		SEARCH_WORKFLOW_DESCRIPTION,
 	),
+	searchOnClear: z
+		.literal(true)
+		.nullable()
+		.optional()
+		.describe(
+			"Set true to search again when a worker clears Search on a desktop Web Apps screen. Smaller screens and Android keep manual search. Null turns it off. Omit to keep the current setting.",
+		),
 	formsReadSearch: formsReadSearchInputSchema.describe(
 		FORMS_READ_SEARCH_DESCRIPTION,
 	),
@@ -321,7 +361,7 @@ export const setCaseSearchDisplayBodySchema = z.strictObject({
 	searchButtonDisplayCondition: globallyResolvedDisplayConditionSchema
 		.nullable()
 		.describe(
-			"Condition controlling whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it may use fixed values and current-user/session values but cannot read case properties or relationships. When absent, the button is always shown.",
+			"Condition controlling whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it cannot read case properties or relationships. It may use fixed values and today's date anywhere; a current-user, session or lookup-table value only where the case list already reads that information: its filter or owner rule reads it, or every form that shows the list returns to it after submit. When absent, the button is always shown.",
 		),
 });
 

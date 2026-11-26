@@ -5190,7 +5190,7 @@
 	{
 		"id": "d70-reserved-question-names-vellum-reserved-name-warning",
 		"defect": 70,
-		"part": "question names HQ's editors warn about",
+		"part": "question names HQ's editors warn about where workers cannot submit them: case, and registration in Web Apps",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
 		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form parsing. It is recommended to pick a different Question ID.",
@@ -5200,7 +5200,7 @@
 	{
 		"id": "d70-reserved-question-names-vellum-again-reserved-name-warning",
 		"defect": 70,
-		"part": "question names HQ's editors warn about",
+		"part": "question names HQ's editors warn about where workers cannot submit them: case, and registration in Web Apps",
 		"check": "proof4",
 		"artifact": "editor:vellum again@*",
 		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form parsing. It is recommended to pick a different Question ID.",
@@ -9556,5 +9556,124 @@
 		"artifact": "webapps@form settings@*",
 		"path": "/runs/*/screens/*/title",
 		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d78-has-own-property-tag-load",
+		"defect": 78,
+		"part": "a table tagged hasOwnProperty in the project space",
+		"check": "proof4",
+		"artifact": "editor:vellum@B@*",
+		"path": "/modules/*/forms/*/load/TypeError: t2.hasOwnProperty is not a function",
+		"kind": "refused",
+		"control": "targeted-lookup-tag-hasownproperty"
+	},
+	{
+		"id": "d78-has-own-property-tag-page-error",
+		"defect": 78,
+		"part": "a table tagged hasOwnProperty in the project space",
+		"check": "proof4",
+		"artifact": "editor:vellum@B@*",
+		"path": "/modules/*/forms/*/page_errors/TypeError: t2.hasOwnProperty is not a function",
+		"control": "targeted-lookup-tag-hasownproperty"
+	},
+	{
+		"id": "d79-proto-tag-build",
+		"defect": 79,
+		"part": "a form reading a table tagged __proto__",
+		"check": "proof4",
+		"artifact": "build@vellum@B@*",
+		"path": "/create_all_files/XFormValidationError",
+		"kind": "added",
+		"control": "targeted-lookup-tag-proto-read-by-a-form"
+	},
+	{
+		"id": "d79-proto-tag-declaration-dropped",
+		"defect": 79,
+		"part": "a form reading a table tagged __proto__",
+		"check": "proof4",
+		"artifact": "source:form:1.0@vellum@B@*",
+		"path": "/html/head[*]/model[*]/instance[@id=*]",
+		"kind": "removed",
+		"control": "targeted-lookup-tag-proto-read-by-a-form"
+	},
+	{
+		"id": "d79-proto-tag-trace-raised",
+		"defect": 79,
+		"part": "a form reading a table tagged __proto__",
+		"check": "proof4",
+		"artifact": "trace@vellum@B@*",
+		"path": "/unbuildable/raised/create_all_files/XFormValidationError",
+		"kind": "refused",
+		"control": "targeted-lookup-tag-proto-read-by-a-form"
+	},
+	{
+		"id": "d79-proto-tag-trace-validate",
+		"defect": 79,
+		"part": "a form reading a table tagged __proto__",
+		"check": "proof4",
+		"artifact": "trace@vellum@B@*",
+		"path": "/unbuildable/validate_app/modules/*/forms/*/validation error",
+		"kind": "refused",
+		"control": "targeted-lookup-tag-proto-read-by-a-form"
+	},
+	{
+		"id": "d79-proto-tag-validate",
+		"defect": 79,
+		"part": "a form reading a table tagged __proto__",
+		"check": "proof4",
+		"artifact": "validate_app@vellum@B@*",
+		"path": "/modules/*/forms/*/validation error",
+		"kind": "added",
+		"control": "targeted-lookup-tag-proto-read-by-a-form"
+	},
+	{
+		"id": "d80-non-ascii-tag-build",
+		"defect": 80,
+		"part": "a form reading a table whose tag js-xpath cannot read",
+		"check": "proof4",
+		"artifact": "build@vellum@B@*",
+		"path": "/create_all_files/XFormValidationError",
+		"kind": "added",
+		"control": "targeted-lookup-non-ascii-tag-read-by-a-form"
+	},
+	{
+		"id": "d80-non-ascii-tag-declaration-dropped",
+		"defect": 80,
+		"part": "a form reading a table whose tag js-xpath cannot read",
+		"check": "proof4",
+		"artifact": "source:form:0.0@vellum@B@*",
+		"path": "/html/head[*]/model[*]/instance[@id=*]",
+		"kind": "removed",
+		"control": "targeted-lookup-non-ascii-tag-read-by-a-form"
+	},
+	{
+		"id": "d80-non-ascii-tag-trace-raised",
+		"defect": 80,
+		"part": "a form reading a table whose tag js-xpath cannot read",
+		"check": "proof4",
+		"artifact": "trace@vellum@B@*",
+		"path": "/unbuildable/raised/create_all_files/XFormValidationError",
+		"kind": "refused",
+		"control": "targeted-lookup-non-ascii-tag-read-by-a-form"
+	},
+	{
+		"id": "d80-non-ascii-tag-trace-validate",
+		"defect": 80,
+		"part": "a form reading a table whose tag js-xpath cannot read",
+		"check": "proof4",
+		"artifact": "trace@vellum@B@*",
+		"path": "/unbuildable/validate_app/modules/*/forms/*/validation error",
+		"kind": "refused",
+		"control": "targeted-lookup-non-ascii-tag-read-by-a-form"
+	},
+	{
+		"id": "d80-non-ascii-tag-validate",
+		"defect": 80,
+		"part": "a form reading a table whose tag js-xpath cannot read",
+		"check": "proof4",
+		"artifact": "validate_app@vellum@B@*",
+		"path": "/modules/*/forms/*/validation error",
+		"kind": "added",
+		"control": "targeted-lookup-non-ascii-tag-read-by-a-form"
 	}
 ]

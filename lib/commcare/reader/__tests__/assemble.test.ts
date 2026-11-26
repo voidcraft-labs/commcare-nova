@@ -65,6 +65,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import {
 	columnSort,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -104,7 +105,6 @@ import { exactSearchModeIsAbsent } from "../search/prompts";
 import { emptySearchSettingsBesideFieldsAreAbsent } from "../search/settings";
 import type { AppStringTable } from "../types";
 import { levelsAsPublished } from "../worldEntities";
-import { connectDefaultsUnset } from "../xform/afterBinding";
 import { X } from "../xform/claims";
 import { blankOptionalTextAbsent } from "../xform/prose";
 import { exportedBody, inputFor } from "./novaExport";
@@ -386,7 +386,7 @@ function menuStrings(doc: BlueprintDoc): AppStringTable {
 }
 
 describe("a generated key in the assembly", () => {
-	it("folds into the text it overrides, once, and is counted", async () => {
+	it("refuses an override of a string no wording writes, and folds it into nothing", async () => {
 		const input = readerInput(
 			await sourceFromBody(shellWithMenu({ "modules.m0": "Patients" })),
 		);
@@ -398,57 +398,29 @@ describe("a generated key in the assembly", () => {
 			record.entry.includes("translations-generated-key"),
 		);
 		expect(records.map((record) => record.entry)).toEqual([
-			"application-and-settings/translations-generated-key-over-one-text",
+			"application-and-settings/translations-generated-key-anything-else",
 		]);
-		if (outcome.kind !== "read")
-			throw new Error(
-				JSON.stringify(outcome.findings.map((one) => one.detail.name)),
-			);
-		expect(outcome.draft.facts.foldedTranslationKeys).toHaveLength(1);
-		const menu = outcome.draft.doc.moduleOrder[0] as Uuid;
-		expect(outcome.draft.doc.modules[menu]?.name).toBe("Patients");
+		expect(outcome.kind).toBe("account");
 	});
 
-	it("writes two keys of one unit in another language as one translation, and counts both", async () => {
-		const doc = produce(caseApp(), (draft) => {
-			draft.localization = {
-				sourceLanguage: "eng",
-				defaultLanguage: "eng",
-				languageOrder: ["eng", "fra"],
-				wireCodes: { eng: "en", fra: "fra" },
-				translations: { fra: {} },
-			} as never;
-		});
-		const shell = retainedSourceBody("shell/app-source");
-		const body = exportedBody(doc, {
-			root: {
-				langs: ["en", "fra"],
-				translations: {
-					...(shell.translations as Record<string, unknown>),
-					fra: {
-						"modules.m0": "Les clients",
-						"case_lists.m0": "Les clients",
-					},
-				},
-			},
-		});
-		/* Nova's build spells the menu's name under both ids, in each language, from one unit. */
-		const strings = (read: BlueprintDoc): AppStringTable => {
-			const menu = read.moduleOrder[0] as Uuid;
-			const unit = makeTranslationUnitId("module", menu, "name");
-			const name = read.modules[menu]?.name ?? "";
-			const translated = read.localization?.translations.fra?.[unit]?.value;
-			const fra = typeof translated === "string" ? translated : name;
-			return {
-				languages: {
-					en: { "modules.m0": name, "case_lists.m0": name },
-					fra: { "modules.m0": fra, "case_lists.m0": fra },
-				},
-				units: { "modules.m0": unit, "case_lists.m0": unit },
-			};
-		};
+	it("reads an override of a menu's name as the menu title's own wording, the name as stored", async () => {
+		const input = readerInput(
+			await sourceFromBody(shellWithMenu({ "modules.m0": "Patients" })),
+		);
 		const outcome = readHqApp(
-			{ ...(await inputFor(body)), appStrings: strings },
+			{
+				...input,
+				recordDialect: () => undefined,
+				appStrings: (doc) => ({
+					...menuStrings(doc),
+					wordingUnits: {
+						"modules.m0": generatedWordingId(
+							doc.moduleOrder[0] as Uuid,
+							"menuTitle",
+						),
+					},
+				}),
+			},
 			{ claims: "full" },
 		);
 		if (outcome.kind !== "read")
@@ -456,24 +428,19 @@ describe("a generated key in the assembly", () => {
 				JSON.stringify(outcome.findings.map((one) => one.detail.name)),
 			);
 		const records = [...outcome.claims.records()].filter((record) =>
-			record.entry.includes("translations-generated-key"),
+			record.entry.includes("translations-generated"),
 		);
 		expect(records.map((record) => record.entry)).toEqual([
-			"application-and-settings/translations-generated-key-over-one-text",
-			"application-and-settings/translations-generated-key-over-one-text",
+			"application-and-settings/translations-generated-wording",
 		]);
-		expect(outcome.draft.facts.foldedTranslationKeys).toHaveLength(2);
 		const read = outcome.draft.doc;
 		const menu = read.moduleOrder[0] as Uuid;
 		expect(read.modules[menu]?.name).toBe("Clients");
 		expect(
-			read.localization?.translations.fra?.[
-				makeTranslationUnitId("module", menu, "name")
-			],
-		).toMatchObject({
-			value: "Les clients",
-			sourceFingerprint: translationSourceFingerprint("text", "Clients"),
-		});
+			read.localization?.generatedSourceWording?.[
+				generatedWordingId(menu, "menuTitle")
+			]?.value,
+		).toBe("Patients");
 	});
 });
 
@@ -1398,14 +1365,6 @@ describe("the reader's canonical choices", () => {
 		);
 	});
 
-	it("unsets a Connect slot that holds the default an unset one prints", () => {
-		// `xform/__tests__/connect.test.ts` holds the pair, its export and its
-		// reading.
-		expect(choice("connect-defaults-are-unset").apply).toBe(
-			connectDefaultsUnset,
-		);
-	});
-
 	it("drops a settings object that sets nothing beside Search fields, after the default title goes", () => {
 		// `search/__tests__/emptySettings.test.ts` holds the pair, its export and
 		// its reading.
@@ -1977,6 +1936,9 @@ describe("the reader's canonical choices", () => {
 			uuid: DISTRICT,
 			code: "district",
 			name: "District",
+			// HQ's list gives each level's administrative flag, the inverse
+			// of stock tracking; a level Nova sends is administrative.
+			tracksStock: false,
 			caseFlow: {
 				workers: "assigned",
 				ownsCases: false,

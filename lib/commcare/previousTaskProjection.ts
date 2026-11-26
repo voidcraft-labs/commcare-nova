@@ -1,6 +1,7 @@
 /** Native-neutral bridge from the wire owner's exact preceding-task frame. */
 import {
 	type BlueprintDoc,
+	moduleHasCaseListMenuItem,
 	moduleParent,
 	moduleUuidOfForm,
 	type NavigationReadFinding,
@@ -8,9 +9,12 @@ import {
 } from "@/lib/domain";
 import { emissionPlan } from "./emissionPlan";
 import {
+	commonPrefixById,
+	entryDatumIds,
 	entryFrameDatums,
 	type FormLinkProjectionContext,
 	type FrameChild,
+	type FrameDatum,
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	moduleFrameChildren,
@@ -28,6 +32,11 @@ export interface PreviousTaskSelection {
 	readonly maximum: number;
 	readonly cardinality: "one" | "multiple";
 	readonly source: "form-records" | "menu-records";
+	/** Other selectors that ask for this exact datum after Android returns to Home. */
+	readonly alsoSupplies?: readonly Uuid[];
+	/** The form's opening choices this datum supplies. A form that walks its
+	 *  own choices keeps the chosen record there, not in a menu. */
+	readonly selectionUuids?: readonly Uuid[];
 }
 
 export interface PreviousTaskProjection {
@@ -185,6 +194,100 @@ export function previousTaskFrame(
 	};
 }
 
+const formChoicesById = new WeakMap<
+	FormLinkProjectionContext,
+	Map<string, FrameDatum[]>
+>();
+
+function choicesWithId(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+): ReadonlyMap<string, FrameDatum[]> {
+	const cached = formChoicesById.get(ctx);
+	if (cached) return cached;
+	const choices = new Map<string, FrameDatum[]>();
+	for (const menu of ctx.moduleOrder) {
+		const entries: (Uuid | undefined)[] = [...(ctx.formOrder[menu] ?? [])];
+		if (moduleHasCaseListMenuItem(doc.modules[menu])) entries.push(undefined);
+		for (const form of entries) {
+			for (const datum of entryFrameDatums(doc, ctx, menu, form)) {
+				if (
+					!datum.requiresSelection ||
+					datum.query ||
+					!datum.selectionSourceModuleUuid
+				)
+					continue;
+				const list = choices.get(datum.id);
+				if (list) list.push(datum);
+				else choices.set(datum.id, [datum]);
+			}
+		}
+	}
+	formChoicesById.set(ctx, choices);
+	return choices;
+}
+
+interface HomeSelectionConsumers {
+	readonly modules: ReadonlySet<Uuid>;
+	readonly destinationModules: ReadonlySet<Uuid>;
+	readonly conflict: boolean;
+	readonly destinationConflict: boolean;
+}
+
+/** Android keeps the physical selections before the first command across
+ * Back to Home. Web Apps rebuilds only the chosen destination. A datum
+ * shared with a different case type or multiplicity cannot be carried. */
+export function homeSelectionConsumers(
+	doc: BlueprintDoc,
+	context: FormLinkProjectionContext,
+	children: readonly FrameChild[],
+): ReadonlyMap<FrameDatum, HomeSelectionConsumers> {
+	const consumers = new Map<FrameDatum, HomeSelectionConsumers>();
+	const targetCommand = children.findLast((child) => child.type === "command");
+	const target = targetCommand && context.commandTargets.get(targetCommand);
+	let destination: readonly FrameDatum[] | undefined;
+	for (const child of children) {
+		if (child.type === "command") break;
+		const root = child.datum;
+		if (!root.requiresSelection || root.query) continue;
+		destination ??= !target
+			? []
+			: target.formUuid !== undefined
+				? entryFrameDatums(doc, context, target.moduleUuid, target.formUuid)
+				: commonPrefixById(
+						(context.formOrder[target.moduleUuid] ?? []).map((form) =>
+							entryFrameDatums(doc, context, target.moduleUuid, form),
+						),
+					);
+		const owners = (choices: readonly FrameDatum[]) => {
+			const modules = new Set<Uuid>();
+			let conflict = false;
+			for (const choice of choices) {
+				if (!choice.requiresSelection || choice.query || choice.id !== root.id)
+					continue;
+				if (
+					choice.caseType !== root.caseType ||
+					choice.maximum !== root.maximum
+				)
+					conflict = true;
+				else if (
+					choice.selectionSourceModuleUuid &&
+					choice.selectionSourceModuleUuid !== root.selectionSourceModuleUuid
+				)
+					modules.add(choice.selectionSourceModuleUuid);
+			}
+			return { modules, conflict };
+		};
+		const reached = owners(destination);
+		consumers.set(root, {
+			...owners(choicesWithId(doc, context).get(root.id) ?? []),
+			destinationModules: reached.modules,
+			destinationConflict: reached.conflict,
+		});
+	}
+	return consumers;
+}
+
 /** Computed frame values count as present, but are not selected records.
  * The final command and missing selections use owner provenance, never IDs
  * reverse-engineered from a command spelling or a case type. */
@@ -207,6 +310,20 @@ export function projectPreviousTask(
 			child.type === "datum" ? [child.datum.id] : [],
 		),
 	);
+	const command = [...children]
+		.reverse()
+		.find((child) => child.type === "command");
+	const homeConsumers = command
+		? undefined
+		: homeSelectionConsumers(doc, context, children);
+	const supplied = new Map(
+		entryDatumIds(doc, context, moduleUuid, formUuid).map((row) => [
+			row.id,
+			row.refs.flatMap((ref) =>
+				ref.kind === "form-selection" ? [ref.selection] : [],
+			),
+		]),
+	);
 	const retainedSelections = children.flatMap(
 		(child): PreviousTaskSelection[] => {
 			if (
@@ -220,6 +337,7 @@ export function projectPreviousTask(
 				throw new Error(
 					"The preceding task's record selection is unavailable.",
 				);
+			const alsoSupplies = [...(homeConsumers?.get(datum)?.modules ?? [])];
 			return [
 				{
 					moduleUuid: datum.selectionSourceModuleUuid,
@@ -227,13 +345,14 @@ export function projectPreviousTask(
 					maximum: datum.maximum ?? 1,
 					cardinality: datum.maximum === undefined ? "one" : "multiple",
 					source: datum.id === ownSelectionId ? "form-records" : "menu-records",
+					...(alsoSupplies.length > 0 && { alsoSupplies }),
+					...(supplied.get(datum.id)?.length && {
+						selectionUuids: supplied.get(datum.id),
+					}),
 				},
 			];
 		},
 	);
-	const command = [...children]
-		.reverse()
-		.find((child) => child.type === "command");
 	if (!command) return { destination: { kind: "home" }, retainedSelections };
 	const target = context.commandTargets.get(command);
 	if (!target)

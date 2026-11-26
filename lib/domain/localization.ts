@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 import { type ProseTemplate, proseTemplateSchema } from "./prose";
-import { ownRecordSchema } from "./records";
+import { ownRecordSchema, recordFromEntries } from "./records";
 
 /**
  * An app language is a three-part identity: which language (ISO 639:2023
@@ -22,7 +22,7 @@ import { ownRecordSchema } from "./records";
  * living language, valid script branch, valid region) is enforced at the
  * authoring boundaries — tool schemas, the design contract, and the picker.
  */
-export const appLanguageIdentitySchema = z.strictObject({
+const registeredLanguageIdentitySchema = z.strictObject({
 	language: z
 		.string()
 		.regex(
@@ -44,7 +44,37 @@ export const appLanguageIdentitySchema = z.strictObject({
 		)
 		.optional(),
 });
-export type AppLanguageIdentity = z.infer<typeof appLanguageIdentitySchema>;
+/**
+ * CommCare HQ's language-code grammar (`models/applications.py::validate_lang`
+ * on HQ's languages page). A language's wire code is an identity the app
+ * holds from the moment the language is added: it is minted once by the
+ * producer that adds the language and never recomputed, so adding or
+ * removing another language never renames a code a deployment holds.
+ */
+export const languageWireCodeSchema = z
+	.string()
+	.regex(
+		/^[a-z]{2,3}(-[a-z]*)?$/,
+		"Use a CommCare language code: two or three lower-case letters, optionally followed by a hyphen and lower-case letters.",
+	);
+
+/** A project code is immutable and unique within an app. Keeping it in
+ * its own namespace lets two codes that happen to name the same registered
+ * language retain their separate worker text, links and language menus. */
+export const projectLanguageIdentitySchema = z.strictObject({
+	kind: z.literal("project"),
+	language: languageWireCodeSchema,
+});
+export const appLanguageIdentitySchema = z.union([
+	registeredLanguageIdentitySchema,
+	projectLanguageIdentitySchema,
+]);
+export type AppLanguageIdentity =
+	| (z.infer<typeof registeredLanguageIdentitySchema> & { kind?: never })
+	| (z.infer<typeof projectLanguageIdentitySchema> & {
+			script?: never;
+			region?: never;
+	  });
 
 /**
  * The canonical serialized spelling of an `AppLanguageIdentity` — the record
@@ -54,7 +84,7 @@ export type AppLanguageIdentity = z.infer<typeof appLanguageIdentitySchema>;
  * the identity object.
  */
 export const LANGUAGE_TAG_PATTERN =
-	/^[a-z]{3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2})?$/;
+	/^(?:[a-z]{3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2})?|project:[a-z]{2,3}(?:-[a-z]*)?)$/;
 
 export const languageTagSchema = z
 	.string()
@@ -65,6 +95,7 @@ export const languageTagSchema = z
 export type LanguageTag = z.infer<typeof languageTagSchema>;
 
 export function languageTag(identity: AppLanguageIdentity): LanguageTag {
+	if (identity.kind === "project") return `project:${identity.language}`;
 	let tag = identity.language;
 	if (identity.script !== undefined) tag += `-${identity.script}`;
 	if (identity.region !== undefined) tag += `-${identity.region}`;
@@ -77,6 +108,8 @@ export function languageTag(identity: AppLanguageIdentity): LanguageTag {
  */
 export function parseLanguageTag(tag: LanguageTag): AppLanguageIdentity {
 	const parsed = languageTagSchema.parse(tag);
+	if (parsed.startsWith("project:"))
+		return { kind: "project", language: parsed.slice("project:".length) };
 	const [language = "", ...qualifiers] = parsed.split("-");
 	const identity: AppLanguageIdentity = { language };
 	for (const qualifier of qualifiers) {
@@ -103,7 +136,18 @@ export type TranslationReview = (typeof translationReviews)[number];
 
 export const translationEntrySchema = z.strictObject({
 	value: localizedValueSchema,
+	/** This language deliberately shows its own answers or calculations. */
+	valueMode: z.literal("independent-values").optional(),
 	sourceFingerprint: z.string().min(1),
+	/** The former source's effective wording retained for workers across a genuine
+	 * source change. It expires on the next change to this unit's source. The
+	 * saved translation, its original fingerprint and its authorship stay intact. */
+	workerFallback: z
+		.strictObject({
+			value: localizedValueSchema,
+			sourceFingerprint: z.string().min(1),
+		})
+		.optional(),
 	origin: z.enum(translationOrigins),
 	review: z.enum(translationReviews),
 	/** Historical provenance may name a language later removed from the app. */
@@ -117,20 +161,6 @@ const translationMapSchema = ownRecordSchema(
 );
 
 /**
- * CommCare HQ's language-code grammar (`models/applications.py::validate_lang`
- * on HQ's languages page). A language's wire code is an identity the app
- * holds from the moment the language is added: it is minted once by the
- * producer that adds the language and never recomputed, so adding or
- * removing another language never renames a code a deployment holds.
- */
-export const languageWireCodeSchema = z
-	.string()
-	.regex(
-		/^[a-z]{2,3}(-[a-z]*)?$/,
-		"Use a CommCare language code: two or three lower-case letters, optionally followed by a hyphen and lower-case letters.",
-	);
-
-/**
  * Materialized multilingual state. The source language owns the ordinary
  * Blueprint strings and therefore never has a duplicate translation map.
  * Language records carry nothing beyond identity — names and direction are
@@ -142,7 +172,14 @@ export const appLocalizationSchema = z
 		defaultLanguage: languageTagSchema,
 		languageOrder: z.array(languageTagSchema).min(1),
 		translations: ownRecordSchema(languageTagSchema, translationMapSchema),
+		/** Wording belonging to generated units with no authored source slot.
+		 * Its language is sourceLanguage; all other languages use their regular maps. */
+		generatedSourceWording: translationMapSchema.optional(),
 		wireCodes: ownRecordSchema(languageTagSchema, languageWireCodeSchema),
+		rtlProjectLanguages: ownRecordSchema(
+			languageTagSchema,
+			z.literal(true),
+		).optional(),
 	})
 	.superRefine((localization, ctx) => {
 		const ordered = new Set<LanguageTag>();
@@ -214,6 +251,20 @@ export const appLocalizationSchema = z
 				});
 			}
 		}
+		if (localization.rtlProjectLanguages !== undefined) {
+			const tags = Object.keys(localization.rtlProjectLanguages);
+			if (
+				tags.length === 0 ||
+				tags.some((tag) => !tag.startsWith("project:") || !ordered.has(tag))
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["rtlProjectLanguages"],
+					message:
+						"Choose right-to-left writing for an existing project language.",
+				});
+			}
+		}
 		const languageByWireCode = new Map<string, LanguageTag>();
 		for (const tag of ordered) {
 			if (!Object.hasOwn(localization.wireCodes, tag)) {
@@ -226,6 +277,13 @@ export const appLocalizationSchema = z
 			}
 			const wireCode = localization.wireCodes[tag];
 			if (wireCode === undefined) continue;
+			const identity = parseLanguageTag(tag);
+			if (identity.kind === "project" && wireCode !== identity.language)
+				ctx.addIssue({
+					code: "custom",
+					path: ["wireCodes", tag],
+					message: "A project language keeps its original spelling.",
+				});
 			const holder = languageByWireCode.get(wireCode);
 			if (holder !== undefined) {
 				ctx.addIssue({
@@ -243,11 +301,15 @@ export interface EffectiveAppLocalization {
 	readonly sourceLanguage: LanguageTag;
 	readonly defaultLanguage: LanguageTag;
 	readonly languageOrder: readonly LanguageTag[];
+	readonly generatedSourceWording?: Readonly<
+		Record<TranslationUnitId, TranslationEntry>
+	>;
 	readonly translations: Readonly<
 		Record<LanguageTag, Readonly<Record<TranslationUnitId, TranslationEntry>>>
 	>;
 	/** Each language's CommCare wire code, keyed by every tag of `languageOrder`. */
 	readonly wireCodes: Readonly<Record<LanguageTag, string>>;
+	readonly rtlProjectLanguages?: Readonly<Record<LanguageTag, true>>;
 }
 
 /**
@@ -277,10 +339,34 @@ export function isEnglishOnlyLocalization(
 		localization.languageOrder.length === 1 &&
 		localization.languageOrder[0] === "eng" &&
 		Object.keys(localization.translations).length === 0 &&
+		Object.keys(localization.generatedSourceWording ?? {}).length === 0 &&
 		localization.wireCodes.eng === "en"
 	);
 }
 
+/** The exact editable entries in a language, including the source's generated wording. */
+export function languageEntries(
+	localization: EffectiveAppLocalization | undefined,
+	language: LanguageTag,
+) {
+	return language === localization?.sourceLanguage
+		? localization.generatedSourceWording
+		: localization?.translations[language];
+}
+
+/** A mutable document's map of generated source or ordinary target wording.
+ * A source map is materialized only for a stored value. */
+export function editableLanguageEntries(
+	localization: AppLocalization,
+	language: LanguageTag,
+	create: boolean,
+) {
+	if (create && language === localization.sourceLanguage)
+		localization.generatedSourceWording ??= recordFromEntries([]);
+	return language === localization.sourceLanguage
+		? localization.generatedSourceWording
+		: localization.translations[language];
+}
 export function effectiveAppLocalization(
 	localization: AppLocalization | undefined,
 ): EffectiveAppLocalization {
@@ -370,4 +456,26 @@ export function makeTranslationUnitId(
 	return translationUnitIdSchema.parse(
 		`tu1:${segments.map((segment) => `${segment.length}:${segment}`).join("")}`,
 	);
+}
+
+/** A renamed code or exchange of codes keeps the corresponding language tags and
+ * their text. Verify every previous binding before changing any of them. */
+export function reboundLanguageCodes(
+	codes: ReadonlyMap<string, string>,
+	changes: readonly { language: LanguageTag; from: string; to: string }[],
+): Map<string, string> | undefined {
+	const result = new Map(codes);
+	const changed = new Set<string>();
+	for (const { language, from, to } of changes) {
+		if (
+			language.startsWith("project:") ||
+			changed.has(language) ||
+			from === to ||
+			codes.get(language) !== from
+		)
+			return undefined;
+		changed.add(language);
+		result.set(language, to);
+	}
+	return new Set(result.values()).size === result.size ? result : undefined;
 }

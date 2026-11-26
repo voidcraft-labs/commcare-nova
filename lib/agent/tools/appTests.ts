@@ -11,6 +11,7 @@ import {
 	AppTestEvidenceInputError,
 	appTestReadWindowSchema,
 } from "@/lib/preview/app-tests/evidence";
+import { withCurrentAppTestProof } from "@/lib/preview/app-tests/lookupAccess";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import {
 	appTestActionSchema,
@@ -20,6 +21,7 @@ import {
 } from "@/lib/preview/app-tests/types";
 import { FormEvaluationInputError } from "@/lib/preview/engine/formEvaluationTypes";
 import type { ToolInvocationContext } from "../workspace/types";
+import { lookupAgentScope } from "./shared/lookupScope";
 
 async function authoringJourney<T>(run: Promise<T>): Promise<T> {
 	try {
@@ -40,6 +42,10 @@ function scope(ctx: ToolInvocationContext) {
 	return {
 		appId: ctx.appId,
 		actorUserId: ctx.userId,
+		workerGrant: ctx.dataGrant ?? {
+			kind: "architect" as const,
+			authority: lookupAgentScope(ctx),
+		},
 		projectId: ctx.projectId,
 	};
 }
@@ -106,7 +112,7 @@ const legacyContinueSchema = z.strictObject({
 
 export const continueAppTestTool = {
 	description:
-		"Take up to eight ordered worker actions in a disposable app test using actions. Each returns its own step and observation; the call stops on a refusal or unmet optional expectation, retaining its completed prefix. Choose only identities and destinations the saved app offers. Each item may name sessionId; omission uses the primary session, and other sessions retain their open forms. A home or menu screen also lists the forms and case lists of menus that show their forms there, each naming its menu; records takes that menu's moduleUuid where several case lists are listed. Selecting a record opens its Details where the list's step shows them (a parent case asked for by a basic menu goes on at once); routeContinue enters the task and routeBack returns to the previous screen (continue and back remain accepted). Form pageNext/pagePrevious turn only form pages; section also accepts an offered section. Forward turns validate earlier pages. A submission applies ordinary and additional case effects to isolated records, then opens the next task. Sync refreshes only that session's record catalog and preserves its open form entry snapshot. Receipts label current-store reads separately from retained form data; this is Preview/Postgres evidence. Finish releases all sessions and test records while retaining observations. Changed source apps require a new test.",
+		"Take up to eight ordered worker actions in a disposable app test using actions. Each returns its own step and observation; the call stops on a refusal or unmet optional expectation, retaining its completed prefix. Choose only identities and destinations the saved app offers. Each item may name sessionId; omission uses the primary session, and other sessions retain their open forms. A home or menu screen also lists the forms and case lists of menus that show their forms there, each naming its menu; records takes that menu's moduleUuid where several case lists are listed. Selecting a record opens its Details where the list's step shows them (a parent case asked for by a basic menu goes on at once); routeContinue enters the task and routeBack returns to the previous screen (continue and back remain accepted). Form pageNext/pagePrevious turn only form pages; section also accepts an offered section. Forward turns validate earlier pages. A submission applies ordinary and additional case effects to isolated records, then opens the next task. On a Web Apps search screen, clearSearch clears the fields and runs a fresh search when the app asks for one. Sync refreshes only that session's record catalog and preserves its open form entry snapshot. Receipts label current-store reads separately from retained form data; this is Preview/Postgres evidence. Finish releases all sessions and test records while retaining observations. Changed source apps require a new test.",
 	inputSchema: continueSchema,
 	async execute(
 		input: z.infer<typeof continueSchema>,
@@ -164,7 +170,9 @@ export const readAppTestTool = {
 					? await authoringJourney(listAppTests(admitted))
 					: await authoringJourney(
 							readAppTestSteps({
-								...admitted,
+								...(await withCurrentAppTestProof(admitted, {
+									testId: input.testId,
+								})),
 								...input,
 								testId: input.testId,
 							}),

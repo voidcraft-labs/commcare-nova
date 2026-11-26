@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 100, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": [{\"field_name\": \"site.id\", \"properties\": []}, {\"field_name\": \"label.1\", \"properties\": []}], \"id\": \"7bb69503f592429ba9010736c3a24d69\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"meeting.1\"}, {\"fields\": [{\"field_name\": \"code\", \"properties\": []}, {\"field_name\": \"clé\", \"properties\": []}, {\"field_name\": \"région\", \"properties\": []}, {\"field_name\": \"名前\", \"properties\": []}, {\"field_name\": \"code.1\", \"properties\": []}, {\"field_name\": \"zone.name\", \"properties\": []}], \"id\": \"f95f2e1aabb441c9a9a66607525763f7\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"zones\"}]}"
+}

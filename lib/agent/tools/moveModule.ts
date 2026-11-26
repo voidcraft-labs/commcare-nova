@@ -26,6 +26,8 @@
  */
 
 import type { z } from "zod";
+import { offerSearchNameMutations } from "@/lib/doc/searchResultsNaming";
+import { withListedMenuHierarchy } from "@/lib/doc/sharedMenuHierarchy";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	childModuleUuids,
@@ -154,6 +156,9 @@ export const moveModuleTool = {
 			}
 
 			const mutations: Mutation[] = [
+				...offerSearchNameMutations(doc, target.moduleUuid, {
+					parentModuleUuid: input.parentModuleUuid,
+				}),
 				{
 					kind: "moveModule",
 					uuid: target.moduleUuid,
@@ -163,7 +168,11 @@ export const moveModuleTool = {
 					}),
 				},
 			];
-			const commit = await guardedMutate(ctx, mutations, "modules");
+			const commit = await guardedMutate(
+				ctx,
+				withListedMenuHierarchy(doc, mutations),
+				"modules",
+			);
 			if (!commit.ok) return fail(commit.error);
 
 			// The checks above ran against THIS invocation's doc; the write lands

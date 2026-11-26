@@ -30,6 +30,7 @@ import {
 	type CaseType,
 	orderedColumns,
 	type TileCell,
+	tileCellFor,
 	type Uuid,
 } from "@/lib/domain";
 import { columnLabel } from "../canvas/ColumnInventory";
@@ -83,8 +84,21 @@ export function TileLayoutCanvas({
 	onPersistOnFormsChange,
 	onGroupingChange,
 }: TileLayoutCanvasProps) {
-	const memberCount = tileMemberUuids(config).length;
-	const { placed } = tileMembership(config);
+	const drawing = tile.namedSlots
+		? {
+				...config,
+				columns: config.columns.map((column) => {
+					const cell = tileCellFor(column, tile);
+					return {
+						...column,
+						tile: cell,
+						visibleInList: cell ? undefined : (false as const),
+					};
+				}),
+			}
+		: config;
+	const memberCount = tileMemberUuids(drawing).length;
+	const { placed } = tileMembership(drawing);
 	const current =
 		placed.length === memberCount
 			? matchingTilePreset(placed.map((entry) => entry.cell))
@@ -92,7 +106,7 @@ export function TileLayoutCanvas({
 
 	return (
 		<div className="space-y-4">
-			{canEdit && (
+			{canEdit && !tile.namedSlots && (
 				<div className="flex justify-end">
 					<PresetMenu
 						memberCount={memberCount}
@@ -103,16 +117,16 @@ export function TileLayoutCanvas({
 			)}
 
 			<TileGridEditor
-				config={config}
+				config={drawing}
 				selectedUuid={selectedUuid}
 				issues={issues}
-				canEdit={canEdit}
+				canEdit={canEdit && !tile.namedSlots}
 				onSelect={onSelect}
 				onPlace={onPlace}
 				onPlaceUnplaced={onPlaceUnplaced}
 			/>
 
-			<OffTileColumns config={config} />
+			<OffTileColumns config={drawing} />
 
 			{canEdit && (
 				<ToggleRow

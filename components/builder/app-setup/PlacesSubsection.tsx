@@ -19,6 +19,7 @@ import tablerArchiveOff from "@iconify-icons/tabler/archive-off";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import {
 	useCallback,
+	useDeferredValue,
 	useEffect,
 	useId,
 	useMemo,
@@ -54,6 +55,11 @@ import type { OrganizationRuleInputs } from "@/lib/organization/ownerTargetVerdi
 import { locationTopologyChangeIssue } from "@/lib/organization/ownerTargetVerdicts";
 import type { ArchiveImpact, StoredLocation } from "@/lib/organization/types";
 import type { useOrganization } from "@/lib/organization/useOrganization";
+import {
+	type PlacePageRow,
+	type PlaceSearch,
+	usePlacePage,
+} from "@/lib/organization/usePlacePage";
 import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
@@ -75,7 +81,9 @@ import {
 } from "./placeTree";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
-type Organization = ReturnType<typeof useOrganization>;
+type Organization = Omit<ReturnType<typeof useOrganization>, "appId"> & {
+	appId?: string;
+};
 const FIRST_POSITION = "__first__";
 const END_POSITION = "__end__";
 
@@ -100,17 +108,66 @@ export function PlacesSubsection({
 	const [conflictedId, setConflictedId] = useState<string | undefined>();
 	const [protectedId, setProtectedId] = useState<string | undefined>();
 	const pendingAddedFocusIdRef = useRef<string | undefined>(undefined);
-	const authoritative =
-		!organization.loading && organization.error === undefined;
-
-	const tree = useMemo(
-		() => buildPlaceTree(organization.locations),
-		[organization.locations],
+	const [parents, setParents] = useState<
+		readonly { id: string; name: string; siteCode: string }[]
+	>([]);
+	const [search, setSearch] = useState("");
+	const query = useDeferredValue(search.trim());
+	const paged = Boolean(organization.paged && organization.appId);
+	const remote: PlaceSearch | undefined = paged
+		? { appId: organization.appId as string, revision: organization.revision }
+		: undefined;
+	const branch = usePlacePage(
+		remote
+			? {
+					...remote,
+					parentId: query ? undefined : (parents.at(-1)?.id ?? null),
+				}
+			: undefined,
+		query,
 	);
-	const rowFocus = useRemovedRowFocus(tree.rows.length);
+	const authoritative =
+		!organization.loading &&
+		organization.error === undefined &&
+		(!paged ||
+			(!branch.loading &&
+				branch.page !== undefined &&
+				!branch.error &&
+				query === search.trim()));
+	const pagePlaces = branch.page?.locations;
+	const tree = useMemo(
+		() =>
+			buildPlaceTree(
+				paged
+					? [
+							...new Map(
+								[...organization.locations, ...(pagePlaces ?? [])].map(
+									(row) => [row.id, row],
+								),
+							).values(),
+						]
+					: organization.locations,
+			),
+		[organization.locations, pagePlaces, paged],
+	);
+	const rowFocus = useRemovedRowFocus(
+		paged ? (pagePlaces?.length ?? 0) : tree.rows.length,
+	);
 	const { page: shownPage, pageCount } = placeTreePage(tree.rows, openId, page);
-	const pageStart = shownPage * PLACE_PAGE_SIZE;
-	const pageRows = tree.rows.slice(pageStart, pageStart + PLACE_PAGE_SIZE);
+	const pageStart = paged ? 0 : shownPage * PLACE_PAGE_SIZE;
+	const pageRows = paged
+		? (pagePlaces ?? []).map((location) => ({
+				location,
+				depth: location.path.length,
+			}))
+		: tree.rows.slice(pageStart, pageStart + PLACE_PAGE_SIZE);
+	const navigatingDisabled =
+		protectedId !== undefined || conflictedId !== undefined || adding;
+	const navigate = (path: typeof parents) => {
+		setParents(path);
+		setSearch("");
+		setOpenId(undefined);
+	};
 
 	useEffect(() => {
 		setPage((current) => Math.min(current, pageCount - 1));
@@ -189,30 +246,74 @@ export function PlacesSubsection({
 			}
 			addButtonRef={rowFocus.addRef}
 		>
-			{organization.loading ? (
+			{paged && (
+				<div className="mb-2 grid gap-2">
+					<nav
+						aria-label="Place path"
+						className="flex flex-wrap items-center gap-1"
+					>
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => navigate([])}
+							disabled={navigatingDisabled}
+						>
+							All places
+						</Button>
+						{parents.map((place, index) => (
+							<Button
+								key={place.id}
+								type="button"
+								variant="ghost"
+								onClick={() => navigate(parents.slice(0, index + 1))}
+								disabled={navigatingDisabled}
+							>
+								{place.name || place.siteCode}
+							</Button>
+						))}
+					</nav>
+					<Label htmlFor="place-tree-search">Find a place</Label>
+					<Input
+						id="place-tree-search"
+						value={search}
+						placeholder="Name, site code or external ID"
+						disabled={navigatingDisabled}
+						onChange={(event) => {
+							setSearch(event.target.value);
+							setOpenId(undefined);
+						}}
+					/>
+				</div>
+			)}
+			{organization.loading || (paged && !pagePlaces && branch.loading) ? (
 				<p className="flex items-center gap-2 px-3 py-4 text-[13px] text-nova-text-muted">
 					<Spinner className="size-4" />
 					Loading places…
 				</p>
-			) : organization.error !== undefined ? (
+			) : organization.error !== undefined || branch.error ? (
 				<p
 					role="alert"
 					className="rounded-lg border border-nova-red/40 bg-nova-red/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
 				>
-					{organization.error}{" "}
+					{organization.error ?? branch.error}{" "}
 					<Button
 						type="button"
 						variant="ghost-action"
-						onClick={organization.reload}
+						onClick={() => {
+							organization.reload();
+							branch.retry();
+						}}
 					>
 						Try again
 					</Button>
 				</p>
-			) : tree.rows.length === 0 && !adding ? (
+			) : pageRows.length === 0 && !adding ? (
 				<SubsectionEmpty>
-					{managed
-						? "CommCare HQ holds no places at this app's levels yet. Once it does, you can refresh Nova's copy above."
-						: "Start with a place at the top level. Then add the places below it."}
+					{paged && (query || parents.length)
+						? "No places match here."
+						: managed
+							? "CommCare HQ holds no places at this app's levels yet. Once it does, you can refresh Nova's copy above."
+							: "Start with a place at the top level. Then add the places below it."}
 				</SubsectionEmpty>
 			) : (
 				<div className="flex flex-col gap-2">
@@ -220,10 +321,20 @@ export function PlacesSubsection({
 						{pageRows.map(({ location, depth }, rowIndex) => (
 							<li
 								key={location.id}
-								style={{ paddingInlineStart: `min(${depth * 16}px, 25%)` }}
+								style={{
+									paddingInlineStart: paged ? 0 : `min(${depth * 16}px, 25%)`,
+								}}
 								className="min-w-0"
 							>
+								{paged && query && (
+									<p className="text-xs text-nova-text-muted">
+										{(location as PlacePageRow).path
+											.map((p) => p.name || p.siteCode)
+											.join(" / ")}
+									</p>
+								)}
 								<PlaceRow
+									remote={remote}
 									location={location}
 									depth={depth}
 									levels={levels}
@@ -248,10 +359,51 @@ export function PlacesSubsection({
 									onDraftProtectionChange={handleDraftProtectionChange}
 									rowFocusRef={rowFocus.register(pageStart + rowIndex)}
 								/>
+								{paged && (location as PlacePageRow).hasChildren && (
+									<Button
+										type="button"
+										variant="ghost"
+										disabled={navigatingDisabled}
+										onClick={() =>
+											navigate([...(location as PlacePageRow).path, location])
+										}
+									>
+										Places in {location.name || location.siteCode}
+									</Button>
+								)}
 							</li>
 						))}
 					</ol>
-					{pageCount > 1 && (
+					{paged && (branch.next || branch.previous) && (
+						<div className="flex items-center justify-between gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={!branch.previous || navigatingDisabled}
+								onClick={() => {
+									setOpenId(undefined);
+									branch.previous?.();
+								}}
+							>
+								Previous
+							</Button>
+							<span className="text-xs text-nova-text-muted">
+								{branch.page?.matching} places
+							</span>
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={!branch.next || navigatingDisabled}
+								onClick={() => {
+									setOpenId(undefined);
+									branch.next?.();
+								}}
+							>
+								Next
+							</Button>
+						</div>
+					)}
+					{!paged && pageCount > 1 && (
 						<fieldset className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-nova-border px-3 py-2">
 							<legend className="sr-only">Place pages</legend>
 							<Button
@@ -287,6 +439,7 @@ export function PlacesSubsection({
 
 			{adding && (
 				<AddPlaceForm
+					remote={remote}
 					doc={doc}
 					levels={levels}
 					properties={properties}
@@ -347,6 +500,7 @@ function descendantIds(
 }
 
 function PlaceRow({
+	remote,
 	location,
 	depth,
 	doc,
@@ -361,6 +515,7 @@ function PlaceRow({
 	onDraftProtectionChange,
 	rowFocusRef,
 }: {
+	remote?: PlaceSearch;
 	location: StoredLocation;
 	depth: number;
 	doc: OrganizationRuleInputs;
@@ -452,7 +607,9 @@ function PlaceRow({
 			),
 		[levels],
 	);
-	const hasChildren = (tree.childrenOf.get(location.id)?.length ?? 0) > 0;
+	const hasChildren = remote
+		? (location as PlacePageRow).hasChildren
+		: (tree.childrenOf.get(location.id)?.length ?? 0) > 0;
 	const siblingOrder = tree.childrenOf.get(location.parentId) ?? [];
 	const siblings = siblingOrder.filter(
 		(candidate) => candidate.id !== location.id,
@@ -461,8 +618,13 @@ function PlaceRow({
 		(candidate) => candidate.id === location.id,
 	);
 	const previousSibling = ownIndex > 0 ? siblingOrder[ownIndex - 1] : undefined;
-	const positionValue =
-		ownIndex === 0
+	const positionValue = remote
+		? (location as PlacePageRow).previousId === null
+			? FIRST_POSITION
+			: !(location as PlacePageRow).hasNextSibling
+				? END_POSITION
+				: ((location as PlacePageRow).previousId ?? FIRST_POSITION)
+		: ownIndex === 0
 			? FIRST_POSITION
 			: ownIndex === siblingOrder.length - 1
 				? END_POSITION
@@ -498,6 +660,7 @@ function PlaceRow({
 			const defaultParent = currentParent ?? compatible[0];
 			if (defaultParent !== undefined)
 				defaults.set(candidateLevel.uuid, defaultParent.id);
+			else if (remote) defaults.set(candidateLevel.uuid, null);
 		}
 		return defaults;
 	}, [
@@ -508,6 +671,7 @@ function PlaceRow({
 		levels,
 		location.id,
 		location.levelUuid,
+		remote,
 		open,
 		tree.locations,
 	]);
@@ -540,7 +704,7 @@ function PlaceRow({
 		],
 	);
 	const draftPlacementIssue = useMemo(() => {
-		if (!open || !dirtyPlacement) return undefined;
+		if (!open || !dirtyPlacement || remote) return undefined;
 		return locationTopologyChangeIssue(doc, tree.locations, location.id, {
 			levelUuid: draftLevelUuid,
 			parentId: draftParentId,
@@ -551,6 +715,7 @@ function PlaceRow({
 		draftLevelUuid,
 		draftParentId,
 		location.id,
+		remote,
 		open,
 		tree.locations,
 	]);
@@ -818,13 +983,31 @@ function PlaceRow({
 							Sits in
 						</Label>
 						<LocationChoiceSelect
+							remote={
+								remote
+									? {
+											...remote,
+											levelIds: levels
+												.filter((level) =>
+													levelMayNestUnder(
+														draftLevelUuid,
+														level.uuid,
+														levelRecord,
+													),
+												)
+												.map((level) => level.uuid),
+											activeOnly: true,
+											excludeId: location.id,
+										}
+									: undefined
+							}
 							locations={parentOptions}
 							value={draftParentId ?? ""}
 							disabled={!canEdit || archived || peerChanged}
 							onValueChange={editor.stageParent}
 							ariaLabel="Sits in"
 							placeholder="Choose a place"
-							issueFor={parentIssueFor}
+							issueFor={remote ? undefined : parentIssueFor}
 						/>
 						{dirtyPlacement && (
 							<p className="text-[12px] leading-relaxed text-nova-text-muted">
@@ -834,7 +1017,7 @@ function PlaceRow({
 					</div>
 				)}
 
-				{siblings.length > 0 && (
+				{(remote || siblings.length > 0) && (
 					<div className="flex flex-col gap-1.5">
 						<Label
 							htmlFor={positionId}
@@ -843,6 +1026,15 @@ function PlaceRow({
 							Position
 						</Label>
 						<LocationChoiceSelect
+							remote={
+								remote
+									? {
+											...remote,
+											parentId: location.parentId,
+											excludeId: location.id,
+										}
+									: undefined
+							}
 							locations={siblings}
 							value={positionValue}
 							disabled={
@@ -1243,6 +1435,7 @@ interface AddPlaceDescendantInput {
 
 /** Adding a place: its level, where it sits, and its name. */
 function AddPlaceForm({
+	remote,
 	doc,
 	levels,
 	properties,
@@ -1254,6 +1447,7 @@ function AddPlaceForm({
 	doc: OrganizationRuleInputs;
 	levels: readonly OrganizationLevel[];
 	properties: readonly LocationProperty[];
+	remote?: PlaceSearch;
 	locations: readonly StoredLocation[];
 	disabled: boolean;
 	onCancel: () => void;
@@ -1495,6 +1689,19 @@ function AddPlaceForm({
 						Sits in
 					</Label>
 					<LocationChoiceSelect
+						remote={
+							remote
+								? {
+										...remote,
+										levelIds: levels
+											.filter((level) =>
+												levelMayNestUnder(levelUuid, level.uuid, levelRecord),
+											)
+											.map((level) => level.uuid),
+										activeOnly: true,
+									}
+								: undefined
+						}
 						locations={parentOptions}
 						value={parent}
 						onValueChange={(value) => {
@@ -1505,7 +1712,7 @@ function AddPlaceForm({
 						ariaLabel="Sits in"
 						placeholder="Choose a place"
 					/>
-					{parentOptions.length === 0 && (
+					{!remote && parentOptions.length === 0 && (
 						<p className="text-[12px] leading-relaxed text-nova-text-muted">
 							Nothing can hold a {levelRecord[levelUuid]?.name.toLowerCase()}{" "}
 							yet. Add a place at a level above it first.
@@ -1513,7 +1720,7 @@ function AddPlaceForm({
 					)}
 				</div>
 			)}
-			{(!needsParent || parent !== "") && siblings.length > 0 && (
+			{(!needsParent || parent !== "") && (remote || siblings.length > 0) && (
 				<div className="flex flex-col gap-1.5">
 					<Label
 						htmlFor={positionId}
@@ -1522,6 +1729,11 @@ function AddPlaceForm({
 						Position
 					</Label>
 					<LocationChoiceSelect
+						remote={
+							remote
+								? { ...remote, parentId: needsParent ? parent : null }
+								: undefined
+						}
 						locations={siblings}
 						value={
 							afterSiblingId === null

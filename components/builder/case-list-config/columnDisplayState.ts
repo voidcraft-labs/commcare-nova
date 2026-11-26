@@ -3,12 +3,18 @@ import type { Column, ColumnKind } from "@/lib/domain";
 import {
 	calculatedColumn,
 	dateColumn,
+	dateCountColumn,
+	formattedTextColumn,
 	idMappingColumn,
 	imageMapColumn,
 	intervalColumn,
 	linkColumn,
+	mapLayerColumn,
+	mapLocationColumn,
+	overdueMarkerColumn,
 	phoneColumn,
 	plainColumn,
+	workerDistanceColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
 import {
@@ -74,14 +80,26 @@ export function preservedColumnSwap(
 			currentValue.kind === "calculated"
 				? currentValue.expression
 				: term(literal(""));
-		return calculatedColumn(uuid, header, expression, slots);
+		return {
+			...calculatedColumn(uuid, header, expression, slots),
+			...(currentValue.kind === "calculated" &&
+				currentValue.texts !== undefined && { texts: currentValue.texts }),
+			...(currentValue.kind === "calculated" &&
+				currentValue.showAs && { showAs: currentValue.showAs }),
+		};
 	}
 
 	const targetSchema = columnCardSchemas[targetKind];
 	// A property column keeps the case it reads from across a kind swap.
 	const propertySlots =
-		currentValue.kind !== "calculated" && currentValue.via !== undefined
-			? { ...slots, via: currentValue.via }
+		currentValue.kind !== "calculated"
+			? {
+					...slots,
+					via: currentValue.via,
+					readFrom: currentValue.readFrom,
+					workerPropertyUuid: currentValue.workerPropertyUuid,
+					showOwner: currentValue.showOwner,
+				}
 			: slots;
 	let targetField: string | undefined;
 	if (currentValue.kind !== "calculated") {
@@ -89,6 +107,7 @@ export function preservedColumnSwap(
 			ctx,
 			currentValue.field,
 			currentValue.via,
+			currentValue.readFrom,
 		);
 		if (
 			sourceProperty === undefined ||
@@ -104,7 +123,11 @@ export function preservedColumnSwap(
 
 	switch (targetKind) {
 		case "plain":
-			return plainColumn(uuid, targetField, header, propertySlots);
+			return plainColumn(uuid, targetField, header, {
+				...propertySlots,
+				...(currentValue.kind === "plain" &&
+					currentValue.showChoice && { showChoice: currentValue.showChoice }),
+			});
 		case "phone":
 			return phoneColumn(uuid, targetField, header, propertySlots);
 		case "link": {
@@ -117,6 +140,41 @@ export function preservedColumnSwap(
 				currentValue.kind === "link" ? currentValue.linkText : seed.linkText;
 			return linkColumn(uuid, targetField, header, linkText, propertySlots);
 		}
+		case "worker-distance":
+			return workerDistanceColumn(uuid, targetField, header, propertySlots);
+		case "map-location":
+			return mapLocationColumn(uuid, targetField, header, propertySlots);
+		case "map-layer":
+			return mapLayerColumn(
+				uuid,
+				targetField,
+				header,
+				currentValue.kind === "map-layer" ? currentValue.layer : "boundary",
+				{
+					...propertySlots,
+					visibleInList: true,
+					notOnList: undefined,
+					visibleInDetail: false,
+				},
+			);
+		case "formatted-text":
+			return formattedTextColumn(uuid, targetField, header, propertySlots);
+		case "overdue-marker":
+			return overdueMarkerColumn(
+				uuid,
+				targetField,
+				header,
+				currentValue.kind === "overdue-marker" ? currentValue.afterDays : 0,
+				propertySlots,
+			);
+		case "date-count":
+			return dateCountColumn(
+				uuid,
+				targetField,
+				header,
+				currentValue.kind === "date-count" ? currentValue.period : "days-since",
+				propertySlots,
+			);
 		case "date": {
 			// Twin: source is already a date column → preserve the
 			// pattern verbatim. Otherwise fall back to the target
@@ -131,7 +189,16 @@ export function preservedColumnSwap(
 			// Twin: source is already id-mapping → preserve the table.
 			const mapping =
 				currentValue.kind === "id-mapping" ? currentValue.mapping : [];
-			return idMappingColumn(uuid, targetField, header, mapping, propertySlots);
+			const mapped = idMappingColumn(
+				uuid,
+				targetField,
+				header,
+				mapping,
+				propertySlots,
+			);
+			return currentValue.kind === "id-mapping" && currentValue.behavior
+				? { ...mapped, behavior: currentValue.behavior }
+				: mapped;
 		}
 		case "image-map": {
 			// Twin: source is already image-map → preserve the value→image
@@ -212,7 +279,12 @@ export function columnAdmittedForContext(
 			expressionEditVerdict(column.expression, context).ok
 		);
 	}
-	const property = resolveColumnProperty(ctx, column.field, column.via);
+	const property = resolveColumnProperty(
+		ctx,
+		column.field,
+		column.via,
+		column.readFrom,
+	);
 	return (
 		property !== undefined &&
 		columnCardSchemas[column.kind].applicableForProperty(property)
@@ -232,6 +304,13 @@ export function columnKindChangeConsequence(
 		return "The current information source will be replaced with a new calculation";
 	}
 	switch (current.kind) {
+		case "worker-distance":
+		case "map-location":
+		case "map-layer":
+		case "formatted-text":
+		case "overdue-marker":
+		case "date-count":
+			return null;
 		case "plain":
 		case "phone":
 			return null;

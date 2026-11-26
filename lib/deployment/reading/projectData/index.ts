@@ -1,3 +1,5 @@
+import { lookupLexicalSlots } from "@/lib/commcare/lookup/lexicalSlots";
+import { resolveLookupRead } from "@/lib/commcare/lookup/read";
 /**
  * The project data of one reading of a CommCare HQ app: the lookup tables it
  * may read, the levels and places of its project space, and what is decided
@@ -31,18 +33,17 @@ import {
 } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, orderedLocationProperties } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { hqManagedTagRefusal } from "@/lib/lookup/constants";
 import {
-	NO_ENTRIES,
-	ownRecordValue,
-	recordFromEntries,
-} from "@/lib/domain/records";
-import type { LookupRowsMeasure } from "@/lib/lookup/managedRules";
+	type LookupRowsMeasure,
+	lookupInlineCopyExcess,
+} from "@/lib/lookup/managedRules";
 import type {
 	LookupFixtureDataSnapshot,
 	LookupFixtureRow,
 	LookupReferencingAppSummary,
 	LookupRevision,
-	LookupRowValues,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import type { ManagedPlacePlan } from "@/lib/organization/managed";
@@ -51,30 +52,32 @@ import {
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import { canonicalLookupTable } from "../../hqResourceBaseline";
 import type { SiblingLookupMapping } from "../../store";
 import { manifestFinding } from "./findings";
-import { broughtInLookupColumnId } from "./lookupIds";
+
 import {
 	type BroughtInTableWrite,
 	boundAsItStands,
+	boundSourceFixture,
 	type HqLookupTableRead,
 	type LookupTableBinding,
 	type LookupTableStanding,
-	lookupFixtureBudgetFinding,
+	lookupBindingNames,
+	lookupSourceFieldDetails,
 	lookupTableFindings,
 	lookupTableStanding,
+	managedLookupContentOf,
+	NO_FORM_OPENS_TAG_ENTRY,
+	needsWorkerRows,
+	provisionalLookupBinding,
 	readerLookupCatalog,
 	readingLookupSnapshot,
 	resolveLookupBindings,
-	sameManagedColumnCapFinding,
 } from "./lookupTables";
-import {
-	documentReadsPlaces,
-	managedPlacesOwnerFindings,
-	placesOverNovaLimitFinding,
-	planManagedPlaces,
-} from "./places";
-import type { LookupTableChoice } from "./reviewTypes";
+import { managedPlacesOwnerRules } from "./ownerRules";
+import { documentReadsPlaces, planManagedPlaces } from "./places";
+import type { LookupTableChoice, ReviewOwnerRule } from "./reviewTypes";
 
 export { resolveTableChoices } from "./lookupTables";
 export {
@@ -103,9 +106,15 @@ export interface ReadingLookupTable {
 	readonly choice: LookupTableChoice | null;
 	/** The Project table the tag met, at the revisions the read saw; null where none. */
 	readonly projectTable: MetProjectTable | null;
+	/** True where CommCare HQ failed the table's rows every time it was asked:
+	 *  the definition comes in as a reference whose rows are unavailable, and a
+	 *  question that takes its choices from it says that HQ couldn't send them. */
+	readonly rowsUnreadable?: true;
 }
 
 export interface ReadingProjectData {
+	readonly suiteDetails?: import("@/lib/commcare/reader/types").ReaderInput["suiteDetails"];
+	readonly sourceProjectFactories?: import("@/lib/commcare/reader/types").ReaderInput["sourceProjectFactories"];
 	/** The reader's catalog over the bindings. */
 	readonly lookups: ReaderLookupCatalog;
 	/** CommCare HQ's levels and their codes, both empty where no place was read. */
@@ -142,8 +151,6 @@ export interface ReadingProjectData {
 			readonly apps: Readonly<
 				Record<string, readonly LookupReferencingAppSummary[]>
 			>;
-			/** The columns of each of those tables CommCare HQ's content keeps, by the table's id. */
-			readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 			readonly siblings: readonly SiblingLookupMapping[];
 			readonly mayAdminister: boolean;
 		};
@@ -153,7 +160,7 @@ export interface ReadingProjectData {
 		readonly hqPlaces: readonly HqLocation[];
 		/** Set where the place list stopped past Nova's limit: CommCare HQ's total, or null where
 		 *  the list passed its byte bound. `hqPlaces` is then empty. */
-		readonly placesPastLimit: { readonly totalCount: number | null } | null;
+		readonly inconsistent?: boolean;
 	};
 }
 
@@ -171,12 +178,6 @@ export interface ReadingProjectAnswers {
 	readonly apps: Readonly<
 		Record<string, readonly LookupReferencingAppSummary[]>
 	>;
-	/**
-	 * By table id, the ids of the columns an app's reference edge names or an
-	 * accepted design protects, which CommCare HQ's content keeps where its
-	 * fields lack them (`readKeptLookupColumnIds`); a table absent keeps none.
-	 */
-	readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 	readonly siblings: readonly SiblingLookupMapping[];
 	readonly mayAdminister: boolean;
 }
@@ -185,7 +186,7 @@ export interface ReadingProjectAnswers {
 export interface ReadingPlacesRead {
 	readonly hqLevels: readonly HqLocationType[];
 	readonly hqPlaces: readonly HqLocation[];
-	readonly placesPastLimit: { readonly totalCount: number | null } | null;
+	readonly inconsistent?: boolean;
 }
 
 /** Code-unit order: the same answer on every machine, unlike a locale's. */
@@ -203,23 +204,30 @@ function compareCodeUnits(left: string, right: string): number {
 export function rowsToMeasure(
 	read: HqLookupTableRead,
 	ids: { readonly appId: string; readonly readingId: string },
-): readonly LookupRowValues[] | null {
+): readonly LookupFixtureRow[] | null {
 	if (read.kind !== "read") return null;
-	const tag = read.table.tag;
-	const values: LookupRowValues[] = [];
-	for (const row of read.rows) {
-		const stored: LookupRowValues = {};
-		for (const field of read.table.fields) {
-			if (!Object.hasOwn(row.fields, field)) continue;
-			const value = row.fields[field];
-			if (typeof value !== "string") return null;
-			if (xmlTextIssue(value) !== undefined) return null;
-			stored[broughtInLookupColumnId(ids.appId, ids.readingId, tag, field)] =
-				value;
-		}
-		values.push(stored);
-	}
-	return values;
+	const hasInvalidText = (text: string) => xmlTextIssue(text) !== undefined;
+	if (
+		read.rows.some(
+			(row) =>
+				Object.values(row.itemAttributes ?? {}).some(hasInvalidText) ||
+				Object.values(row.fields).some((field) =>
+					typeof field === "string"
+						? hasInvalidText(field)
+						: field.some(
+								(item) =>
+									hasInvalidText(item.value) ||
+									Object.values(item.properties).some(hasInvalidText),
+							),
+				),
+		)
+	)
+		return null;
+	return boundSourceFixture(
+		read.table,
+		read.rows,
+		provisionalLookupBinding(read.table, ids),
+	).rows;
 }
 
 /** The Project table's two revisions, as the read saw them. */
@@ -251,6 +259,11 @@ function catalogOf(tables: readonly ReadingLookupTable[]): ReaderLookupCatalog {
 					binding,
 					name: standing.kind === "new" ? read.table.tag : standing.table.name,
 					fields: read.table.fields,
+					repeatedFields: new Set(
+						Object.entries(lookupSourceFieldDetails(read.table, read.rows))
+							.filter(([, detail]) => detail.repeated)
+							.map(([name]) => name),
+					),
 					...(boundAsItStands(standing, table.choice)
 						? { asItStands: standing.table }
 						: {}),
@@ -288,13 +301,33 @@ export function assembleReadingProjectData(input: {
 	const byTag = new Map(
 		project.definitions.map((definition) => [definition.tag, definition]),
 	);
-	const tables = input.tables.map((read): ReadingLookupTable => {
-		const tag = read.table.tag;
+	const tables = input.tables.map((observed): ReadingLookupTable => {
+		const tag = observed.table.tag;
+		const measured = input.measured.get(tag) ?? null;
+		const inline =
+			observed.kind === "read" &&
+			!lookupInlineCopyExcess(
+				managedLookupContentOf(observed.table, observed.rows),
+				measured ?? { dataBytes: 0, largestRowBytes: 0 },
+			).length;
+		// Retain the granted definition independently when the whole source
+		// cannot be established within one interactive inventory observation.
+		const read: Extract<HqLookupTableRead, { kind: "read" }> = inline
+			? observed
+			: {
+					kind: "read",
+					table: observed.table,
+					rows: [],
+					canonical: canonicalLookupTable(observed.table, null),
+				};
 		const existing = byTag.get(tag) ?? null;
 		const projectTable = existing === null ? null : metProjectTable(existing);
-		const measured = input.measured.get(tag) ?? null;
-		const findings = lookupTableFindings(read, measured);
-		if (findings.length > 0 || read.kind !== "read") {
+		const rowsUnreadable =
+			observed.kind === "rows-unreadable"
+				? { rowsUnreadable: true as const }
+				: {};
+		const findings = lookupTableFindings(read);
+		if (findings.length > 0) {
 			return {
 				read,
 				findings,
@@ -302,10 +335,9 @@ export function assembleReadingProjectData(input: {
 				binding: null,
 				choice: null,
 				projectTable,
+				...rowsUnreadable,
 			};
 		}
-		const keptColumnIds =
-			existing === null ? [] : keptColumnsOf(project.keptColumns, existing);
 		const standing = lookupTableStanding({
 			read,
 			origin,
@@ -327,23 +359,7 @@ export function assembleReadingProjectData(input: {
 						),
 			appReads: [],
 			mayAdminister: project.mayAdminister,
-			keptColumnIds,
 		});
-		const capFinding = sameManagedColumnCapFinding(
-			read,
-			standing,
-			keptColumnIds,
-		);
-		if (capFinding !== null) {
-			return {
-				read,
-				findings: [capFinding],
-				standing: null,
-				binding: null,
-				choice: null,
-				projectTable,
-			};
-		}
 		const [binding] = resolveLookupBindings(
 			[read],
 			recordFromEntries([[tag, standing]]),
@@ -357,6 +373,7 @@ export function assembleReadingProjectData(input: {
 			binding,
 			choice: null,
 			projectTable,
+			...rowsUnreadable,
 		};
 	});
 	const places = input.places;
@@ -379,30 +396,22 @@ export function assembleReadingProjectData(input: {
 				projectRevision: project.projectRevision,
 				rowsByTable: project.rowsByTable,
 				apps: project.apps,
-				keptColumns: project.keptColumns,
 				siblings: project.siblings,
 				mayAdminister: project.mayAdminister,
 			},
 			hqTags: input.hqTags,
 			hqLevels: places?.hqLevels ?? [],
 			hqPlaces: places?.hqPlaces ?? [],
-			placesPastLimit: places?.placesPastLimit ?? null,
+			...(places?.inconsistent ? { inconsistent: true } : {}),
 		},
 	};
-}
-
-/** The kept columns of a Project table, none where the read named none. */
-export function keptColumnsOf(
-	keptColumns: Readonly<Record<string, readonly string[]>>,
-	table: LookupTableDefinition,
-): readonly string[] {
-	return ownRecordValue(keptColumns, table.id) ?? [];
 }
 
 function rowsOf(
 	rowsByTable: Readonly<Record<string, readonly LookupFixtureRow[]>>,
 	table: LookupTableDefinition,
-): readonly LookupFixtureRow[] {
+): readonly LookupFixtureRow[] | undefined {
+	if (needsWorkerRows(table)) return undefined;
 	if (!Object.hasOwn(rowsByTable, table.id)) {
 		throw new Error(
 			`The Project's lookup table ${table.id} was read without its rows.`,
@@ -524,20 +533,27 @@ export function projectDataReadsOf(
 		const binding = bindingOf(tableId);
 		if (!fields.has(binding.tag)) fields.set(binding.tag, new Set());
 	}
-	for (const target of targets.columnTargets) {
-		const binding = bindingOf(target.tableId);
-		const field = Object.entries(binding.columns).find(
-			([, columnId]) => columnId === target.columnId,
-		)?.[0];
-		if (field === undefined) {
-			throw new Error(
-				`A reading's document reads a column of the lookup table ${target.tableId} that its binding does not name.`,
-			);
-		}
+	const idsByTable = new Map<LookupTableId, Set<string>>();
+	for (const target of [
+		...targets.columnTargets,
+		...(targets.memberTargets ?? []),
+	]) {
+		const ids = idsByTable.get(target.tableId) ?? new Set<string>();
+		ids.add("memberId" in target ? target.memberId : target.columnId);
+		idsByTable.set(target.tableId, ids);
+	}
+	for (const [tableId, ids] of idsByTable) {
+		const binding = bindingOf(tableId);
 		const set = fields.get(binding.tag) ?? new Set<string>();
-		set.add(field);
+		for (const [name, id] of lookupBindingNames(binding))
+			if (ids.delete(id)) set.add(name);
+		if (ids.size)
+			throw new Error(
+				"The app reads a data table member that its source binding does not name.",
+			);
 		fields.set(binding.tag, set);
 	}
+
 	return {
 		lookupFields: recordFromEntries(
 			[...fields.entries()]
@@ -612,14 +628,14 @@ const UNSERVED_DECLARATION_ENTRY =
  * where CommCare HQ's list lacks the tag, a read of a table that is not
  * there. For each tag a form only declares that the list lacks: a form that
  * cannot open; one the list holds raises nothing. Then, over the tables the document reads as the birth will hold
- * them (`readingLookupSnapshot`): a cell XML cannot carry, the tables
- * together over what one `.ccz` carries, and, with a document, one
+ * them (`readingLookupSnapshot`): a cell XML cannot carry and, with a document, one
  * `table-choices-unusable` a table whose rows cannot be the choices of a
  * question or search field that reads them. Where the app reads places:
- * `places-over-nova-limit` alone where the list stopped past Nova's limit;
- * otherwise the levels Nova cannot hold, the places it cannot, and, with a
- * document, an owner rule the copy would refuse. A value of a place is judged
- * only with a document, once the rest of the app can come in.
+ * `place-hierarchy-inconsistent` alone where the source still disagreed with
+ * itself when read again; otherwise the levels Nova cannot hold and the places it
+ * cannot. A value of a place is judged only with a document, once the rest of
+ * the app can come in. An owner rule the places cannot satisfy is no finding:
+ * the review asks about it (`readingOwnerRules`).
  */
 export function readingProjectDataFindingsFor(
 	data: ReadingProjectData,
@@ -658,21 +674,44 @@ export function readingProjectDataFindingsFor(
 					tag,
 				),
 			);
+	// CommCare HQ's form builder opens no form in a project space holding a
+	// table tagged hasOwnProperty, whether the app reads it or not; a table
+	// the app reads names it among its own findings.
+	for (const tag of listed)
+		if (!byTag.has(tag) && hqManagedTagRefusal(tag)?.kind === "form-builder")
+			findings.push(
+				manifestFinding(
+					NO_FORM_OPENS_TAG_ENTRY,
+					{ kind: "lookup-table", tag },
+					tag,
+				),
+			);
 
 	const snapshot = readingLookupSnapshot(data, reads);
 	const unrepresentable = unrepresentableCellFindings(snapshot);
 	findings.push(...unrepresentable);
-	// No fixture holds a cell XML cannot carry, so the tables are measured
-	// together only once every cell can be written, as the export does.
-	const budget =
-		unrepresentable.length === 0 ? lookupFixtureBudgetFinding(snapshot) : null;
-	if (budget !== null) findings.push(budget);
-	if (doc !== null) findings.push(...tableChoicesUnusable(doc, snapshot));
+	if (doc !== null)
+		findings.push(
+			...tableChoicesUnusable(
+				doc,
+				snapshot,
+				new Set(
+					data.gathered.tables
+						.filter((table) => table.rowsUnreadable)
+						.map((table) => table.read.table.tag),
+				),
+			),
+		);
 
 	if (reads.readsPlaces) {
-		const { placesPastLimit } = data.gathered;
-		if (placesPastLimit !== null) {
-			findings.push(placesOverNovaLimitFinding(placesPastLimit.totalCount));
+		if (data.gathered.inconsistent) {
+			findings.push(
+				circumstanceFinding(
+					"place-hierarchy-inconsistent",
+					{ kind: "organization" },
+					{},
+				),
+			);
 		} else {
 			const levels = levelsFromHq(
 				data.gathered.hqLevels,
@@ -685,7 +724,6 @@ export function readingProjectDataFindingsFor(
 				mode: "birth",
 			});
 			findings.push(...levels.findings, ...plan.findings);
-			if (doc !== null) findings.push(...managedPlacesOwnerFindings(doc, plan));
 		}
 	}
 	return findings;
@@ -705,9 +743,13 @@ function unrepresentableCellFindings(
 	);
 	return lookupXmlTextFindings(snapshot).map((error) => {
 		const table = byId.get(error.details?.tableId as LookupTableId);
-		const column = table?.columns.find(
-			(candidate) => candidate.id === error.details?.columnId,
-		);
+		const column =
+			table &&
+			[...lookupLexicalSlots(table)].find(
+				(slot) =>
+					slot.target.columnId === error.details?.columnId &&
+					slot.target.memberId === error.details?.memberId,
+			);
 		if (table === undefined || column === undefined) {
 			throw new Error(
 				"A lookup cell finding named a table or column its snapshot lacks.",
@@ -725,11 +767,15 @@ function unrepresentableCellFindings(
  * a question or search field that reads them, however many read it and
  * however many rules it fails, named by the column the table's first error
  * names, or, for a table with no rows, by the value column of the first
- * question or search field that takes its choices from it.
+ * question or search field that takes its choices from it. A table whose
+ * rows CommCare HQ failed every time (`unreadable`, by tag) raises
+ * `table-rows-unreadable` instead, named by its tag: its rows are not known
+ * to break any rule.
  */
 function tableChoicesUnusable(
 	doc: BlueprintDoc,
 	snapshot: LookupFixtureDataSnapshot,
+	unreadable: ReadonlySet<string>,
 ): readonly Finding[] {
 	const byId = new Map(
 		snapshot.definitions.map((definition) => [definition.id, definition]),
@@ -740,26 +786,50 @@ function tableChoicesUnusable(
 	for (const error of lookupSelectSourceRowFindings(doc, snapshot)) {
 		const tableId = error.details?.tableId as LookupTableId;
 		if (named.has(tableId)) continue;
-		named.add(tableId);
 		const table = byId.get(tableId);
 		if (table === undefined) {
 			throw new Error("A choices finding named a table its snapshot lacks.");
 		}
-		const columnId =
-			error.details?.columnId ??
-			carriers.find((carrier) => carrier.source.tableId === tableId)?.source
-				.valueColumnId;
-		const column = table.columns.find((candidate) => candidate.id === columnId);
-		if (column === undefined) {
-			throw new Error(
-				`A choices finding of the lookup table ${table.id} named no column it holds.`,
+		// Bring-in binds an assigned source without importing a worker's rows.
+		// Preview and delivery acquire and validate a scoped projection.
+		if (
+			error.code === "LOOKUP_WORKER_SOURCE_UNAVAILABLE" &&
+			table.hq?.managedBy === "commcare-hq" &&
+			table.hq.source?.distribution === "assigned"
+		)
+			continue;
+		named.add(tableId);
+		if (unreadable.has(table.tag)) {
+			findings.push(
+				circumstanceFinding(
+					"table-rows-unreadable",
+					{ kind: "lookup-table", tag: table.tag },
+					{ name: table.tag },
+				),
 			);
+			continue;
 		}
+		const reported = [...lookupLexicalSlots(table)].find(
+			(slot) =>
+				slot.target.columnId === error.details?.columnId &&
+				slot.target.memberId === error.details?.memberId,
+		);
+		const read = carriers.find((carrier) => carrier.source.tableId === tableId)
+			?.source.valueColumnId;
+		const selected = read && resolveLookupRead(table, read);
+		const wireName =
+			reported?.wireName ??
+			selected?.member?.wireName ??
+			selected?.column?.wireName;
+		if (!wireName)
+			throw new Error(
+				"The selected data detail is unavailable in the read snapshot.",
+			);
 		findings.push(
 			circumstanceFinding(
 				"table-choices-unusable",
 				{ kind: "lookup-table", tag: table.tag },
-				{ name: fieldName(table.tag, column.wireName) },
+				{ name: fieldName(table.tag, wireName) },
 			),
 		);
 	}
@@ -849,9 +919,9 @@ export function bornPlaces(
 			"The app reads places, and the reading never read CommCare HQ's.",
 		);
 	}
-	if (data.gathered.placesPastLimit !== null) {
+	if (data.gathered.inconsistent) {
 		throw new Error(
-			"The app reads places, and CommCare HQ holds more than Nova keeps.",
+			"The app reads places, and the source did not return a consistent organization.",
 		);
 	}
 	const plan = planManagedPlaces({
@@ -869,3 +939,18 @@ export function bornPlaces(
 }
 
 export { readingLookupSnapshot } from "./lookupTables";
+
+/**
+ * The owner rules of `doc` the places the reading holds cannot satisfy, as
+ * the review's questions: none where the app reads no places. Called on a
+ * read with no finding, as `bornPlaces` is.
+ */
+export function readingOwnerRules(
+	data: ReadingProjectData,
+	reads: ReaderProjectDataReads,
+	doc: BlueprintDoc,
+	resolver: IdentityResolver,
+): readonly ReviewOwnerRule[] {
+	if (!reads.readsPlaces) return [];
+	return managedPlacesOwnerRules(doc, bornPlaces(data, doc, resolver));
+}

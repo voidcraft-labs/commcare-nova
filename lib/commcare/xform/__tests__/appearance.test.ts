@@ -18,7 +18,6 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BlueprintDoc,
-	FIELD_DISPLAY_SETTINGS,
 	type Field,
 	type FieldKind,
 	fieldKinds,
@@ -27,7 +26,11 @@ import {
 import { blueprintDocArbitrary } from "../../__tests__/xformDocArbitrary";
 import { expandDoc } from "../../expander";
 import { parseXml } from "../../xmlParse";
-import { FIELD_DISPLAY_SETTING_TOKENS, fieldAppearance } from "../appearance";
+import { fieldAppearance, writeFieldAppearance } from "../appearance";
+import {
+	fieldDisplayProblem,
+	readFieldAppearance,
+} from "../readDisplaySettings";
 
 /** A field of `kind` with the slots its writer reads, and `extra` beside them. */
 function fieldOf(kind: FieldKind, extra: Record<string, unknown> = {}): Field {
@@ -66,16 +69,136 @@ describe("fieldAppearance", () => {
 		);
 	});
 
-	it("gives every value of every display setting one token", () => {
-		for (const setting of FIELD_DISPLAY_SETTINGS) {
-			const tokens: Readonly<Record<string, string>> =
-				FIELD_DISPLAY_SETTING_TOKENS[setting.key];
-			expect(Object.keys(tokens).sort()).toEqual(
-				Object.keys(setting.values).sort(),
-			);
-			for (const token of Object.values(tokens))
-				expect(token).toMatch(/^[^\s]+$/);
-		}
+	it.each([
+		[
+			"single_select",
+			"fuzzy combobox",
+			{ choiceLayout: { kind: "search", matchWords: "android-fuzzy" } },
+			"fuzzy combobox",
+		],
+		[
+			"single_select",
+			"combobox fuzzy",
+			{ choiceLayout: { kind: "search", matchWords: "fuzzy" } },
+			"combobox fuzzy",
+		],
+		[
+			"single_select",
+			"quick compact-3",
+			{ choiceLayout: { kind: "grid", columns: 3, advanceOnChoice: true } },
+			"quick compact-3",
+		],
+		[
+			"single_select",
+			"compact-3 quick",
+			{ choiceLayout: { kind: "grid", advanceOnChoice: true } },
+			"quick compact",
+		],
+		[
+			"single_select",
+			"compact-2147483648",
+			{ choiceLayout: { kind: "grid" } },
+			"compact",
+		],
+		[
+			"single_select",
+			"label list-nolabel",
+			{
+				choiceLayout: {
+					kind: "platforms",
+					web: { kind: "row-without-label" },
+					android: { kind: "ordinary" },
+				},
+			},
+			"list-nolabel list",
+		],
+		[
+			"multi_select",
+			"label list-nolabel",
+			{
+				choiceLayout: {
+					kind: "platforms",
+					web: { kind: "headings" },
+					android: { kind: "ordinary" },
+				},
+			},
+			"label list",
+		],
+		[
+			"single_select",
+			"minimal",
+			{ choiceLayout: { kind: "dropdown" } },
+			"minimal",
+		],
+		[
+			"single_select",
+			"minimal hint-as-placeholder",
+			{ choiceLayout: { kind: "dropdown" }, hintPlacement: "placeholder" },
+			"minimal hint-as-placeholder",
+		],
+		[
+			"image",
+			"signature 2-per-row",
+			{ webSignature: true, itemsPerRow: "2" },
+			"signature 2-per-row",
+		],
+		[
+			"group",
+			"group-collapse\tgroup-border",
+			{ collapse: "closed", border: true },
+			"group-collapse group-border",
+		],
+		[
+			"date",
+			"gregorian cancel",
+			{ calendar: "gregorian-with-clear" },
+			"gregorian cancel",
+		],
+		["signature", "signature", {}, "signature"],
+		["image", "face", { captureSource: "face-camera" }, "face"],
+		["date", "ethiopian", { calendar: "ethiopian" }, "ethiopian"],
+		[
+			"date",
+			"ethiopian 2-per-row",
+			{ calendar: "ethiopian", itemsPerRow: "2" },
+			"ethiopian 2-per-row",
+		],
+		[
+			"text",
+			"000123456789012345678901234567890-per-row",
+			{ itemsPerRow: "123456789012345678901234567890" },
+			"123456789012345678901234567890-per-row",
+		],
+		[
+			"audio",
+			"broadcast-abc-def broadcast-two",
+			{ sendTopics: ["abc-def", "two"] },
+			"broadcast-abc-def broadcast-two",
+		],
+		[
+			"text",
+			"receive-a-b-file",
+			{ receiveFrom: { channel: "a-b", field: "file" } },
+			"receive-a-b-file",
+		],
+	] as const)(
+		"recovers %s %s with the worker and editor readings preserved",
+		(kind, raw, expected, canonical) => {
+			const settings = readFieldAppearance(kind, raw);
+			expect(settings).toEqual(expected);
+			expect(settings && writeFieldAppearance(kind, settings)).toBe(canonical);
+		},
+	);
+});
+
+it("admits the legacy filename receiver and prints its canonical spelling", () => {
+	const field = fieldOf("text", {
+		receiveFrom: { channel: "document", field: "indexed" },
+	});
+	expect(fieldDisplayProblem(field)).toBeUndefined();
+	expect(fieldAppearance(field)).toBe("receive-document-filename");
+	expect(readFieldAppearance("text", "receive-document-indexed")).toEqual({
+		receiveFrom: { channel: "document", field: "filename" },
 	});
 });
 

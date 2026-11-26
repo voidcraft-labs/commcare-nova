@@ -123,7 +123,7 @@ export async function readBody(
 	const input = await inputFor(body, {
 		resolver: matchingResolver(
 			"app-1",
-			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY, tables?.naming),
 		),
 		knownCaseTypes: knownCaseTypesOf(doc),
 		recordDialect,

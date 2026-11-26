@@ -2,12 +2,13 @@
  * The generated translation key classifier and its owner rule, over
  * hand-built tables. Contract: a key names a form where its pattern holds
  * `m#f#`, a menu where it holds `m#`, and the app otherwise; repositioning
- * changes only those numbers; a blank value, an id the table lacks and a
- * value equal to the table's string are inert; an id fed by one unit whose
- * every other id holds the same override folds; anything else is not yet
- * held. Plausible failures: an override of a constant called inert, a key
- * read as the wrong owner, a number repositioned that is not the menu's or
- * the form's, a custom assertion read as a menu's.
+ * changes only those numbers; a blank value and an id the table lacks are
+ * inert; an id a generated wording writes is that wording, whatever its value;
+ * a value equal to the table's string is inert; anything else is not yet held,
+ * and nothing folds into another text. Plausible failures: an override of a
+ * constant called inert, a wording equal to its base dropped, a key read as
+ * the wrong owner, a number repositioned that is not the menu's or the form's,
+ * a custom assertion read as a menu's.
  */
 
 import { describe, expect, it } from "vitest";
@@ -122,26 +123,34 @@ describe("the classifier", () => {
 		).toEqual([{ kind: "inert" }]);
 	});
 
-	it("folds an override of a string one unit makes", () => {
+	it("reads an override of a string a generated wording writes as that wording, even one equal to the string", () => {
+		const MENU_TITLE = makeTranslationUnitId("generated", "menu", "menuTitle");
+		const worded: AppStringTable = {
+			...TABLE,
+			wordingUnits: { "modules.m0": MENU_TITLE },
+		};
 		expect(
-			classifyGeneratedTranslationKeys([held("modules.m0", "Patients")], TABLE),
+			classifyGeneratedTranslationKeys(
+				[held("modules.m0", "Patients"), held("modules.m0", "Clients")],
+				worded,
+			),
 		).toEqual([
-			{ kind: "fold", unit: MENU_NAME, language: "fr", value: "Patients" },
+			{ kind: "wording", unit: MENU_TITLE, value: "Patients" },
+			{ kind: "wording", unit: MENU_TITLE, value: "Clients" },
 		]);
 	});
 
-	it("folds a unit two strings share where both hold the override, each once", () => {
-		const verdicts = classifyGeneratedTranslationKeys(
-			[
-				held("m0.case_short.case_status_1.enum.k0", "Actif"),
-				held("m1.case_short.case_status_1.enum.k0", "Actif"),
-			],
-			TABLE,
-		);
-		expect(verdicts).toEqual([
-			{ kind: "fold", unit: OPTION_LABEL, language: "fr", value: "Actif" },
-			{ kind: "fold", unit: OPTION_LABEL, language: "fr", value: "Actif" },
-		]);
+	it("folds nothing: an override of a string one unit makes, where no wording writes it, is not yet held", () => {
+		expect(
+			classifyGeneratedTranslationKeys(
+				[
+					held("modules.m0", "Patients"),
+					held("m0.case_short.case_status_1.enum.k0", "Actif"),
+					held("m1.case_short.case_status_1.enum.k0", "Actif"),
+				],
+				TABLE,
+			),
+		).toEqual([{ kind: "not-yet" }, { kind: "not-yet" }, { kind: "not-yet" }]);
 	});
 
 	it("holds nothing of a unit whose strings hold different overrides", () => {
@@ -206,7 +215,7 @@ describe("the classifier", () => {
 		).toEqual({ kind: "not-yet" });
 		expect(verdicts({ kind: "read" })).toEqual([
 			{ kind: "not-yet" },
-			{ kind: "not-yet" },
+			{ kind: "inert" },
 		]);
 		// A blank override is dropped by HQ's build whatever the key reads.
 		expect(

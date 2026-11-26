@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 1}, \"objects\": [{\"fields\": {\"code\": \"one\"}, \"fixture_type\": \"selected_cases\", \"id\": \"d86809aecd4a4a6b9c20dcbe8339f50a\", \"resource_uri\": \"\"}]}"
+}

@@ -36,7 +36,9 @@ export function OrganizationSection() {
 	// commit would count: archived ones too where Nova manages the places,
 	// live ones only where CommCare HQ does (`levelOccupancy`).
 	const managed = managedPlacesContext(organization.hq);
-	const occupiedLevels = levelOccupancy(organization.locations, managed);
+	const occupiedLevels = organization.paged
+		? new Map(Object.entries(organization.paged.occupied))
+		: levelOccupancy(organization.locations, managed);
 	const status = organization.loading ? (
 		<p className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-4 text-[13px] text-nova-text-muted">
 			<Spinner className="size-4" />

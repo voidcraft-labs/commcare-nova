@@ -442,6 +442,7 @@ describe("authored rules", () => {
 				property: "site",
 				column: id("link"),
 				field: "site",
+				key: { kind: "property", property: "site" },
 				comparator: "text",
 				rule: expect.objectContaining({
 					order: 1,

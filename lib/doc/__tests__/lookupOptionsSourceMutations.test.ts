@@ -86,13 +86,13 @@ const availableContext: LookupValidationContext = {
 			definitionRevision: parseLookupRevision("6"),
 			columns: [
 				{
-					id: source.valueColumnId,
+					id: lookupColumnIdSchema.parse(source.valueColumnId),
 					wireName: "code",
 					label: "Code",
 					dataType: "text",
 				},
 				{
-					id: source.labelColumnId,
+					id: lookupColumnIdSchema.parse(source.labelColumnId),
 					wireName: "name",
 					label: "Name",
 					dataType: "text",

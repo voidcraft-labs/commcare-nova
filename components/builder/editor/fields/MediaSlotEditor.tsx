@@ -16,18 +16,26 @@
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
-import { MediaSlot } from "@/components/builder/media/MediaSlot";
+import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { FieldLanguageMedia } from "@/components/builder/media/FieldLanguageMedia";
+import { useStoredField } from "@/lib/doc/hooks/useEntity";
 import type { Field } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
-import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
+import { mediaSlotHoldsLanguageFiles } from "./mediaSlotModel";
 
 export function MediaSlotEditor<F extends Field, K extends keyof F>({
 	field,
-	value,
 	onChange,
 	label,
 	keyName,
 }: FieldEditorComponentProps<F, K>) {
+	const shared = useShowsSourceLanguage();
+	/* Removing the slot clears every language's files, so it is offered only
+	 * where no language holds files of its own, read from the stored field. */
+	const hasTranslations = mediaSlotHoldsLanguageFiles(
+		useStoredField(field.uuid),
+		keyName === "help_media" ? "help_media" : "label_media",
+	);
 	return (
 		<div data-field-id={String(keyName)}>
 			<div className="flex items-center justify-between mb-1.5">
@@ -40,19 +48,20 @@ export function MediaSlotEditor<F extends Field, K extends keyof F>({
 				    be removed the instant it's added, attached or not. Clearing
 				    the whole value returns the entry to the Add Property pill;
 				    the per-kind chip removes handle one attachment at a time. */}
-				<button
-					type="button"
-					onClick={() => onChange(undefined as F[K])}
-					aria-label={`Remove ${label}`}
-					className="shrink-0 p-0.5 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
-				>
-					<Icon icon={tablerTrash} width="12" height="12" />
-				</button>
+				{shared && !hasTranslations && (
+					<button
+						type="button"
+						onClick={() => onChange(undefined as F[K])}
+						aria-label={`Remove ${label}`}
+						className="shrink-0 p-0.5 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
+					>
+						<Icon icon={tablerTrash} width="12" height="12" />
+					</button>
+				)}
 			</div>
-			<MediaSlot
-				value={value as Media | undefined}
-				onChange={(next) => onChange(next as F[K])}
-				kinds={MEDIA_KINDS}
+			<FieldLanguageMedia
+				fieldUuid={field.uuid}
+				slot={keyName === "help_media" ? "help" : "label"}
 				// Field uuid (rename-stable) + the `<slot>_media` key: the
 				// staged-upload identity for this message slot.
 				slotKey={`field:${field.uuid}:${String(keyName)}`}

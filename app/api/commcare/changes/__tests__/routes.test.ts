@@ -1,3 +1,4 @@
+import { DeploymentSessionEndedError } from "@/lib/deployment/sessionManagementGrant";
 /**
  * The three routes of changes made in CommCare HQ as shells over their
  * services: who may call them, the bodies they accept, that every answer of
@@ -58,6 +59,7 @@ const BRING_IN = {
 	readingId: "01936a52-7c00-7000-8000-000000000001",
 	reviewDigest: "f".repeat(64),
 	tableChoices: { districts: "use-project" },
+	ownerRuleChoices: { clinic: "worker" },
 } as const;
 const SCOPE = {
 	appId: APP,
@@ -152,6 +154,7 @@ const REVIEWS: readonly [string, HqChangesReview][] = [
 			observedDigest: "a".repeat(64),
 			renamedInNova: [],
 			tables: [],
+			ownerRules: [],
 			projectName: "Field team",
 			readingId: BRING_IN.readingId,
 			reviewDigest: BRING_IN.reviewDigest,
@@ -166,7 +169,14 @@ const REVIEWS: readonly [string, HqChangesReview][] = [
 			counts: { notYet: 1, never: 0, fixInHq: 0 },
 		},
 	],
-	["held", { kind: "held", reason: "languages-reordered", runs: null }],
+	[
+		"held",
+		{
+			kind: "held",
+			reason: "runs-elsewhere",
+			runs: { app: ["android", "web-apps"], hq: ["android"] },
+		},
+	],
 	[
 		"unavailable",
 		{
@@ -212,7 +222,10 @@ const STAGES: readonly HqChangesProgress[] = [
 
 beforeEach(() => {
 	requireSessionMock.mockReset();
-	requireSessionMock.mockResolvedValue({ user: { id: USER } });
+	requireSessionMock.mockResolvedValue({
+		user: { id: USER },
+		session: { id: "browser-session" },
+	});
 	vi.mocked(resolveAppScope).mockReset();
 	vi.mocked(resolveAppScope).mockResolvedValue({
 		projectId: PROJECT,
@@ -299,7 +312,11 @@ describe("the review route", () => {
 		await lines(await post("review", req));
 		const [scope, target, options] =
 			vi.mocked(reviewHqChanges).mock.calls[0] ?? [];
-		expect(scope).toEqual(SCOPE);
+		expect(scope).toEqual({
+			...SCOPE,
+			requireOperation: expect.any(Function),
+			requireInstallationManagement: expect.any(Function),
+		});
 		expect(target).toEqual(TARGET);
 		expect(options?.cancel).toBe(req.signal);
 	});
@@ -356,12 +373,17 @@ describe("the bring-in route", () => {
 		vi.mocked(bringInHqChanges).mockResolvedValue(OUTCOMES[0][1]);
 		await lines(await post("bring-in", request("bring-in", BRING_IN)));
 		const call = vi.mocked(bringInHqChanges).mock.calls[0];
-		expect(call?.[0]).toEqual(SCOPE);
+		expect(call?.[0]).toEqual({
+			...SCOPE,
+			requireOperation: expect.any(Function),
+			requireInstallationManagement: expect.any(Function),
+		});
 		expect(call?.[1]).toEqual(TARGET);
 		expect(call?.[2]).toEqual({
 			readingId: BRING_IN.readingId,
 			reviewDigest: BRING_IN.reviewDigest,
 			tableChoices: BRING_IN.tableChoices,
+			ownerRuleChoices: BRING_IN.ownerRuleChoices,
 		});
 		expect(Object.keys(call?.[3] ?? {})).toEqual(["onEvent"]);
 	});
@@ -419,7 +441,7 @@ describe("the check route", () => {
 		await (await post("check", req)).json();
 		const [scope, options] =
 			vi.mocked(checkHqChangesForApp).mock.calls[0] ?? [];
-		expect(scope).toEqual(SCOPE);
+		expect(scope).toEqual({ ...SCOPE, requireOperation: expect.any(Function) });
 		expect(options?.cancel).toBe(req.signal);
 	});
 });
@@ -434,4 +456,13 @@ describe("the hosts", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.mcp, path)).toBe(false);
 		expect(isPathAllowedOnHost(HOSTNAMES.docs, path)).toBe(false);
 	});
+});
+
+it("returns sign-in recovery when the checked session ends during a change acceptance", async () => {
+	const expired = new DeploymentSessionEndedError();
+	vi.mocked(bringInHqChanges).mockRejectedValueOnce(expired);
+	const response = await post("bring-in", request("bring-in", BRING_IN));
+	expect(await lines(response)).toEqual([
+		{ type: "done", answer: { kind: "refused", message: expired.message } },
+	]);
 });

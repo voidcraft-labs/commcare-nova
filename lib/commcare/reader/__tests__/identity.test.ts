@@ -11,7 +11,11 @@
  * its keys taken.
  */
 import { describe, expect, it } from "vitest";
-import { BLUEPRINT_AUTHORED_IDENTITY_KINDS, uuidSchema } from "@/lib/domain";
+import {
+	asUuid,
+	BLUEPRINT_AUTHORED_IDENTITY_KINDS,
+	uuidSchema,
+} from "@/lib/domain";
 import {
 	claimsUnder,
 	EXTERNAL_ENTITY_KINDS,
@@ -26,6 +30,8 @@ import {
 } from "../identity";
 
 const APP_ID = "3f2c9a1e-5b7d-4c8e-9f10-2a3b4c5d6e7f";
+/** A form's UUID, which an opening record's and value's keys name. */
+const FORM_UUID = "8b1f6c2e-4d3a-4e5f-9a0b-1c2d3e4f5a6b";
 const XMLNS =
 	"http://openrosa.org/formdesigner/1A2B3C4D-0000-4000-8000-ABCDEF012345";
 
@@ -82,13 +88,30 @@ describe("mintEntityUuid", () => {
 			externalKey.field(XMLNS, ["q"]),
 			externalKey.selectOption(XMLNS, ["q"], "v"),
 			externalKey.caseListColumn("m", "calculated", "", 0),
+			externalKey.caseListSort("m", "priority", 0),
+			externalKey.caseDetailTab(
+				externalKey.caseListColumn("m", "calculated", "", 0),
+				[],
+			),
+			externalKey.caseMappingRow(
+				uuidSchema.parse("378c6a63-9d66-56ad-b0f2-06b79ad46109"),
+				JSON.stringify(["selected", "a"]),
+			),
 			externalKey.searchInput("m", "name"),
+			externalKey.searchFilter("m", "owner_id", 0),
 			externalKey.caseOperation(XMLNS, ["basic", "subcase", 2], "create", 1),
 			externalKey.formLink(XMLNS, ["this-form"], 0),
 			externalKey.entryPoint("module", "m", "case-list"),
 			externalKey.userProperty("slug"),
 			externalKey.organizationLevel("district"),
 			externalKey.locationProperty("slug"),
+			externalKey.formSelection(asUuid(FORM_UUID), "household"),
+			externalKey.entryValue(asUuid(FORM_UUID), "visit_day"),
+			externalKey.openingAssignment(
+				asUuid(FORM_UUID),
+				"own",
+				asUuid("5f6e7d8c-9b0a-4f1e-8d2c-3b4a59687766"),
+			),
 		];
 		expect(new Set(keys.map((key) => key.kind))).toEqual(
 			new Set(EXTERNAL_ENTITY_KINDS),
@@ -301,3 +324,27 @@ describe("matchingResolver", () => {
 		]);
 	});
 });
+
+it.each(["", "vvv", "v00000003_"])(
+	"recognizes a translated piece across native and emitted names only within its own calculated field (%s)",
+	(prefix) => {
+		const owner = mintEntityUuid(APP_ID, externalKey.module("owner"));
+		const other = mintEntityUuid(APP_ID, externalKey.module("another"));
+		const native = externalKey.caseCalculationText(owner, "greeting");
+		const uuid = mintEntityUuid(APP_ID, native);
+		const generated = `${prefix}case_text_${uuid.replaceAll("-", "")}`;
+		const printed = externalKey.caseCalculationText(owner, generated);
+		const imported = matchingResolver(APP_ID, [{ ...native, uuid }]);
+		expect(imported.uuidOf(printed)).toBe(uuid);
+		expect(
+			matchingResolver(APP_ID, [{ ...printed, uuid }]).uuidOf(native),
+		).toBe(uuid);
+		expect(
+			imported.uuidOf(externalKey.caseCalculationText(other, generated)),
+		).not.toBe(uuid);
+		expect(
+			imported.uuidOf(printed, undefined, new Set([externalKeyText(native)])),
+		).not.toBe(uuid);
+		expect(mintingResolver(APP_ID).uuidOf(printed)).not.toBe(uuid);
+	},
+);

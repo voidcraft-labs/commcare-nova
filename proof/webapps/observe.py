@@ -577,7 +577,13 @@ def plan(
                     maps[ix] = (x - offset[0], y - offset[1], zoom)
                     answering = steps.answer_place(ix, offset)
             else:
-                answering = steps.answer(ix, str(attempt["value"]), twelve_hour=_twelve_hour(question))
+                answering = steps.answer(
+                    ix,
+                    str(attempt["value"]),
+                    twelve_hour=_twelve_hour(question),
+                    held=question.get("answer"),
+                    choices=len(question.get("choices") or ()),
+                )
             if one_question:
                 bringing = steps.advance(ix, or_skip_to=end)
                 add(bringing)

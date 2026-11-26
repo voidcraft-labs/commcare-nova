@@ -1,7 +1,11 @@
+import { pendingInstallationTarget } from "@/__tests__/helpers/pendingInstallationTarget";
+import { serveWorkingInstallationInventory } from "@/__tests__/helpers/workingInstallationInventory";
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /** Publish persisted apps through the actual SDK, compiler, ledger and HTTP. */
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/client";
 import AdmZip from "adm-zip";
 import { sql } from "kysely";
@@ -13,9 +17,11 @@ import {
 	readHttpRequestBody,
 	readMultipartRequest,
 } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
 	applicationAnswer,
+	ordinaryInstallationBuild,
 	type RetainedHqAnswer,
 	replyRetained,
 	retainedBodyJson,
@@ -36,6 +42,7 @@ import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import {
 	acceptImport,
+	connect,
 	hqSaves,
 	makeManagedCopy,
 	readerOf as managedReader,
@@ -45,6 +52,7 @@ import {
 	serveTableList,
 	withManagedPeer,
 } from "@/lib/deployment/__tests__/managedFixtures";
+import { servePublishedImage } from "@/lib/deployment/__tests__/publishedImage";
 import {
 	clinicVisitsDocument as document,
 	reloadHeadFor,
@@ -57,10 +65,11 @@ import {
 } from "@/lib/deployment/errors";
 import { APP_PREVIEW_NOTE } from "@/lib/deployment/remoteChanges";
 import { activeRemoteApp } from "@/lib/deployment/resources";
-import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
+import { refreshDeployment } from "@/lib/deployment/service";
 import {
 	readDeployment,
 	readDeploymentNovaRevisions,
+	readEntryPointEvidence,
 	recordWorkerLevelConfirmations,
 } from "@/lib/deployment/store";
 import {
@@ -94,27 +103,111 @@ import {
 	planLacksWebAppsMessage,
 	webAppsChangeMessage,
 } from "@/lib/publish/webApps";
-import { downloadAssetBytes } from "@/lib/storage/media";
+import {
+	downloadAssetBytes,
+	getStoredObjectMetadata,
+	streamAsset,
+} from "@/lib/storage/media";
 import { loadAppBlueprint } from "../loadApp";
+import { registerStopPublishing } from "../tools/stopPublishing";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
+const authorityChange = vi.hoisted(() => ({
+	beforeRecord: null as null | (() => Promise<void>),
+	beforeImport: null as null | (() => Promise<void>),
+	beforeShell: null as null | (() => Promise<void>),
+	beforeFold: null as null | (() => Promise<void>),
+	beforePlacement: null as null | (() => Promise<void>),
+}));
+vi.mock("@/lib/deployment/placements", async (original) => {
+	const placements =
+		await original<typeof import("@/lib/deployment/placements")>();
+	return {
+		...placements,
+		recordPublishPlacements: async (
+			...args: Parameters<typeof placements.recordPublishPlacements>
+		) => {
+			const before = authorityChange.beforePlacement;
+			authorityChange.beforePlacement = null;
+			await before?.();
+			return placements.recordPublishPlacements(...args);
+		},
+	};
+});
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	downloadAssetBytes: vi.fn(),
+	getStoredObjectMetadata: vi.fn(),
+	streamAsset: vi.fn(),
+}));
+/** The Project's stored file at `key` holds `bytes`, at one pinned generation. */
+function storeBytes(bytes: Buffer, key?: string) {
+	vi.mocked(downloadAssetBytes).mockImplementation(async (requested) => {
+		if (key !== undefined) expect(requested).toBe(key);
+		return bytes;
+	});
+	vi.mocked(getStoredObjectMetadata).mockImplementation(async (requested) => {
+		if (key !== undefined) expect(requested).toBe(key);
+		return {
+			size: bytes.length,
+			generation: "7",
+			checksum: "stored",
+			contentType: "image/png",
+		};
+	});
+	vi.mocked(streamAsset).mockImplementation((requested) => {
+		if (key !== undefined) expect(requested).toBe(key);
+		return Readable.from([bytes]);
+	});
+}
 /* Passed through, so a test can make the read after a landed app fault. */
 vi.mock("@/lib/deployment/store", async (original) => {
 	const store = await original<typeof import("@/lib/deployment/store")>();
 	return {
 		...store,
+		recordRemoteResource: async (
+			...args: Parameters<typeof store.recordRemoteResource>
+		) => {
+			const before = authorityChange.beforeRecord;
+			authorityChange.beforeRecord = null;
+			await before?.();
+			return store.recordRemoteResource(...args);
+		},
+		foldDeploymentAttempt: async (
+			...args: Parameters<typeof store.foldDeploymentAttempt>
+		) => {
+			const before = authorityChange.beforeFold;
+			authorityChange.beforeFold = null;
+			await before?.();
+			return store.foldDeploymentAttempt(...args);
+		},
+		admitAppWrite: async (...args: Parameters<typeof store.admitAppWrite>) => {
+			const before = authorityChange.beforeImport;
+			authorityChange.beforeImport = null;
+			await before?.();
+			return store.admitAppWrite(...args);
+		},
+		admitAppCreate: async (
+			...args: Parameters<typeof store.admitAppCreate>
+		) => {
+			const before = authorityChange.beforeShell;
+			authorityChange.beforeShell = null;
+			await before?.();
+			return store.admitAppCreate(...args);
+		},
 		readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
 	};
 });
 beforeEach(() => {
+	authorityChange.beforeShell = null;
 	hqSaves.reset();
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
 	vi.mocked(downloadAssetBytes).mockReset();
+	vi.mocked(getStoredObjectMetadata).mockReset();
+	vi.mocked(streamAsset).mockReset();
 });
 const h = setupAppStateTestDb("mcp_publish_", { authSchema: "migrated" });
 const APP = "publish-app",
@@ -141,14 +234,40 @@ const SOURCE = sourcePath();
  */
 const PROJECT_SPACES_READ = `GET ${HOST}/api/user_domains/v1/?limit=100`;
 const PROJECT_SPACES = [PROJECT_SPACES_READ, PROJECT_SPACES_READ];
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
-	scopes = ["nova.read", "nova.hq.write"],
+	scopes = ["nova.read", "nova.write", "nova.hq.write"],
 ) {
+	if (scopes.includes("nova.hq.import") && scopes.includes("nova.hq.write")) {
+		const context = await installationCredential(h.db(), userId, scopes);
+		return withMcpClient(
+			(server) => registerUploadAppToHq(server, context),
+			run,
+		);
+	}
+	const clientId = "publish-fixture";
+	const issuedAt = Math.floor(Date.now() / 1000);
+	await sql`INSERT INTO auth_oauth_client(id,"clientId","redirectUris","createdAt","updatedAt") VALUES (${clientId},${clientId},'[]'::jsonb,now(),now()) ON CONFLICT DO NOTHING`.execute(
+		h.db(),
+	);
+	await sql`INSERT INTO auth_oauth_consent(id,"clientId","userId",scopes,"createdAt","updatedAt")
+ SELECT ${`${userId}-consent`},${clientId},id,${JSON.stringify(scopes)}::jsonb,now(),now() FROM auth_user WHERE id=${userId}
+ ON CONFLICT(id) DO UPDATE SET scopes=excluded.scopes`.execute(h.db());
 	return withMcpClient(
 		(server) =>
-			registerUploadAppToHq(server, { userId, scopes, authKind: "oauth" }),
+			registerUploadAppToHq(server, {
+				userId,
+				scopes,
+				authKind: "oauth",
+				grant: {
+					kind: "oauth",
+					clientId,
+					issuedAt,
+					expiresAt: issuedAt + 3600,
+					scopes,
+				},
+			}),
 		run,
 	);
 }
@@ -198,10 +317,302 @@ it.each(["parent-multiple", "same-smaller"] as const)(
 				expect(target).toBeNull();
 			});
 			expect(requests(peer)).toEqual([]);
-			expect(downloadAssetBytes).not.toHaveBeenCalled();
+			expect(streamAsset).not.toHaveBeenCalled();
 		});
 	},
 );
+it.each(["beforeFold", "beforePlacement"] as const)(
+	"keeps the first installation publish atomic when grant changes at %s",
+	async (boundary) => {
+		const doc =
+			boundary === "beforePlacement" ? heldPlacementApp().doc : document();
+		const uuid = testUuid("grant-review-test");
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Training",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+		};
+		await seed(doc);
+		let reached = false;
+		authorityChange[boundary] = async () => {
+			reached = true;
+			await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+				h.db(),
+			);
+		};
+		await withManagedPeer(async (peer) => {
+			try {
+				await asUser(
+					async (client) =>
+						expect(body(await call(client), true)).toMatchObject({
+							error_type: "permission_denied",
+						}),
+					ACTOR,
+					["nova.read", "nova.write", "nova.hq.write", "nova.hq.import"],
+				);
+				expect(reached).toBe(true);
+				expect(await state()).toBeNull();
+				expect(
+					await h
+						.db()
+						.selectFrom("app_deployment_confirmations")
+						.selectAll()
+						.execute(),
+				).toEqual([]);
+				expect(
+					await h
+						.db()
+						.selectFrom("app_changes")
+						.select("seq")
+						.where("kind", "=", "publish-placement")
+						.execute(),
+				).toEqual([]);
+				expect(
+					requests(peer).filter((line) => line.startsWith("POST ")),
+				).toEqual([]);
+			} finally {
+				authorityChange[boundary] = null;
+			}
+		});
+	},
+);
+it.each(["last-profile-removed", "new-pending-review", "ordinary"] as const)(
+	"checks the placement destination under lock for %s",
+	async (mode) => {
+		const doc = heldPlacementApp().doc;
+		const uuid = testUuid("former-practice");
+		if (mode === "last-profile-removed")
+			doc.appSettings.installationProfiles = {
+				[uuid]: {
+					uuid,
+					name: "Retired team",
+					languages: ["eng"],
+					requiresPracticeWorker: false,
+				},
+			};
+		await seed(doc);
+		if (mode === "last-profile-removed") {
+			await pendingInstallationTarget(h, SCOPE, TARGET);
+			await commitGuardedBatchProposal({
+				appId: APP,
+				expectedProjectId: PROJECT,
+				actorUserId: ACTOR,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				mutations: [
+					{
+						kind: "setAppSettings",
+						settings: { installationProfile: { operation: "remove", uuid } },
+					},
+				],
+			});
+		} else if (mode === "new-pending-review")
+			authorityChange.beforePlacement = async () => {
+				await pendingInstallationTarget(h, SCOPE, TARGET);
+				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+			};
+		try {
+			await withManagedPeer(async (peer) => {
+				await asUser(
+					async (client) => {
+						const result = await call(client);
+						if (mode !== "ordinary")
+							expect(body(result, true).error_type).toBe(
+								mode === "last-profile-removed"
+									? "scope_missing"
+									: "permission_denied",
+							);
+					},
+					ACTOR,
+					mode === "new-pending-review"
+						? ["nova.read", "nova.write", "nova.hq.write", "nova.hq.import"]
+						: ["nova.read", "nova.write", "nova.hq.write"],
+				);
+				expect(
+					await h
+						.db()
+						.selectFrom("app_changes")
+						.select("seq")
+						.where("kind", "=", "publish-placement")
+						.execute(),
+				).toHaveLength(mode === "ordinary" ? 1 : 0);
+				if (mode !== "ordinary")
+					expect(requests(peer).filter((r) => r.startsWith("POST "))).toEqual(
+						[],
+					);
+			});
+		} finally {
+			authorityChange.beforePlacement = null;
+		}
+	},
+);
+it("rechecks the installation credential at shell admission after the project space was checked", async () => {
+	const doc = document();
+	const uuid = testUuid("patrol");
+	doc.appSettings.installationProfiles = {
+		[uuid]: {
+			uuid,
+			name: "Patrol",
+			languages: ["eng"],
+			requiresPracticeWorker: false,
+		},
+	};
+	await seed(doc);
+	authorityChange.beforeShell = async () => {
+		await sql`DELETE FROM public.auth_apikey WHERE "referenceId"=${ACTOR}`.execute(
+			h.db(),
+		);
+	};
+	await withManagedPeer(async (peer) => {
+		await asUser(
+			async (client) => {
+				const result = await call(client);
+				expect(body(result, true)).toMatchObject({
+					error_type: "permission_denied",
+				});
+			},
+			ACTOR,
+			["nova.read", "nova.write", "nova.hq.write", "nova.hq.import"],
+		);
+		expect(requests(peer).filter((line) => line.startsWith("POST "))).toEqual(
+			[],
+		);
+		expect(
+			await h.db().selectFrom("hq_remote_writes").select("id").execute(),
+		).toEqual([]);
+	});
+});
+it("discloses installation plan needs for a large app within one real SDK response", async () => {
+	const doc = document();
+	const names = Array.from({ length: 13_108 }, (_, i) => ({
+		uuid: testUuid(`install-plan-${i}`),
+		name: `Field team ${i}`,
+		languages: ["eng"],
+		requiresPracticeWorker: i % 2 === 0,
+	}));
+	doc.appSettings.installationProfiles = Object.fromEntries(
+		names.map((p) => [p.uuid, p]),
+	);
+	await seed(doc);
+	await withManagedPeer(async () =>
+		asUser(
+			async (client) => {
+				const result = await call(client, { confirm_plan_features: [] });
+				expect(JSON.stringify(result).length).toBeLessThan(20_000);
+				const refusal = body(result, true);
+				expect(refusal.error_type).toBe("hq_confirmation_needed");
+				expect(refusal.confirmations_needed).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							subject: "installation-profiles",
+							reasons: ["Workers can choose from 13108 named installations."],
+						}),
+						expect.objectContaining({
+							subject: "practice-workers",
+							reasons: [
+								"6554 named installations use a practice worker from this project space.",
+							],
+						}),
+					]),
+				);
+			},
+			ACTOR,
+			["nova.read", "nova.write", "nova.hq.import", "nova.hq.write"],
+		),
+	);
+}, 60000);
+it("discloses the complete installation review across bounded SDK responses before offering a worker confirmation", async () => {
+	const doc = document();
+	const labels = [
+		`Long "${"Doorway \u{1f4cd}".repeat(12000)}" patrol`,
+		...Array.from(
+			{ length: 65 },
+			(_, n) => `Visits ${n} ${"Community ".repeat(35)}`,
+		),
+	];
+	const named = labels.map((name, n) => ({
+		uuid: testUuid(`install-${n}`),
+		name,
+		languages: ["eng"],
+		requiresPracticeWorker: true,
+	}));
+	doc.appSettings.installationProfiles = Object.fromEntries(
+		named.map((p) => [p.uuid, p]),
+	);
+	await seed(doc);
+	const keys = named.map((p) => p.uuid.replaceAll("-", ""));
+	const physical = Object.fromEntries(
+		named.map((p, n) => [
+			keys[n],
+			{ name: p.name, langs: ["en"], practice_mobile_worker_id: `worker-${n}` },
+		]),
+	);
+	await withManagedPeer(async (peer) => {
+		const id = "working-app";
+		request(peer, IMPORT, "POST").reply(() => {
+			hqSaves.create(id);
+			return {
+				statusCode: 201,
+				data: JSON.stringify({ success: true, app_id: id }),
+			};
+		});
+		const shell = {
+			...retainedBodyJson(retainedPublishRead("source-shell")),
+			build_profiles: physical,
+		};
+		request(peer, sourcePath(id)).reply(200, shell).persist();
+		await asUser(
+			async (client) => {
+				let cursor: string | undefined;
+				let pages = 0;
+				const disclosed: string[] = [];
+				for (;;) {
+					const response = await call(
+						client,
+						cursor ? { confirm_installation_profiles: cursor } : {},
+					);
+					const value = body(response, true);
+					expect(
+						resultText({ ...response, isError: undefined }).length,
+					).toBeLessThan(80_000);
+					expect(value.error_type).toBe("hq_installation_profile_review");
+					expect(value.message).toContain("Installation review");
+					disclosed.push(value.message);
+					pages++;
+					if (value.confirmation) {
+						expect(value.replacement_choices).toBeUndefined();
+						break;
+					}
+					const next = value.replacement_choices?.[0];
+					expect(next).toMatchObject({
+						label: "Read the next part",
+						confirmation: expect.stringMatching(/^page:/),
+					});
+					cursor = next.confirmation;
+					expect(pages).toBeLessThan(100);
+				}
+				const shown = disclosed.join("\n");
+				expect(shown).toContain("patrol");
+				for (const [n, key] of keys.entries()) {
+					expect(shown).toContain(key);
+					expect(shown).toContain(`worker-${n}`);
+				}
+				expect(pages).toBeGreaterThan(2);
+			},
+			ACTOR,
+			["nova.read", "nova.write", "nova.hq.write", "nova.hq.import"],
+		);
+		expect(
+			requests(peer).filter((line) => line.startsWith("POST ")),
+		).toHaveLength(1);
+	});
+}, 60_000);
+
 async function seed(doc: BlueprintDoc = document()) {
 	await h.seedAppWithBlueprint(doc, {
 		id: APP,
@@ -505,6 +916,373 @@ it("refuses an unreadable update source without replacing the last published app
 		]);
 	});
 });
+
+const reconciliationScopes = [
+	"nova.read",
+	"nova.write",
+	"nova.hq.write",
+	"nova.hq.import",
+];
+const ordinaryScopes = ["nova.read", "nova.write", "nova.hq.write"];
+const abandonedProfile = testUuid("abandoned installation");
+
+function chooseInstallation(add: boolean) {
+	return commitGuardedBatchProposal({
+		appId: APP,
+		expectedProjectId: PROJECT,
+		actorUserId: ACTOR,
+		batchId: crypto.randomUUID(),
+		kind: "autosave",
+		mutations: [
+			{
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: add
+						? {
+								operation: "add",
+								profile: {
+									uuid: abandonedProfile,
+									name: "Home visits",
+									languages: ["eng"],
+									requiresPracticeWorker: false,
+								},
+							}
+						: { operation: "remove", uuid: abandonedProfile },
+				},
+			},
+		],
+	});
+}
+
+async function reviewRows(deploymentId: string) {
+	return h
+		.db()
+		.selectFrom("app_deployment_installation_reviews")
+		.select(["actor_id", "checkpoint"])
+		.where("deployment_id", "=", deploymentId)
+		.orderBy("actor_id")
+		.execute();
+}
+
+it.each(["reconcile", "successor", "changed-on-HQ"] as const)(
+	"retires an abandoned installation review only for its verified claim (%s)",
+	async (scenario) => {
+		await seed();
+		const otherEditor = "second-profile-editor",
+			publisher = "profile-publisher";
+		for (const [id, role] of [
+			[otherEditor, "editor"],
+			[publisher, "admin"],
+		] as const) {
+			await h.seedProjectMember(id, PROJECT, role);
+			await connect(h, id, TARGET.server, [TARGET.domain]);
+		}
+		const stop = async () => {
+			const credential = await installationCredential(
+				h.db(),
+				publisher,
+				ordinaryScopes,
+			);
+			return withMcpClient(
+				(server) => registerStopPublishing(server, credential),
+				(client) =>
+					client.callTool({
+						name: "stop_publishing",
+						arguments: { app_id: APP, ...TARGET, hq_app_id: "working-app" },
+					}),
+			);
+		};
+		await withManagedPeer(async (peer) => {
+			shellCreated(peer);
+			imported(peer);
+			await asUser(async (client) => {
+				body(await call(client));
+			});
+			const published = await state();
+			if (!published)
+				throw new Error("Expected the ordinary publish to have landed");
+			const deploymentId = published.deployment.id;
+			const siblingId = await pendingInstallationTarget(h, SCOPE, {
+				...TARGET,
+				domain: "sibling",
+			});
+			const siblingBefore = await reviewRows(siblingId);
+			await chooseInstallation(true);
+			async function startReview(actor: string) {
+				source(peer);
+				await asUser(
+					async (client) => {
+						expect(body(await call(client), true).error_type).toBe(
+							"hq_installation_profile_review",
+						);
+					},
+					actor,
+					reconciliationScopes,
+				);
+			}
+			for (const editor of [ACTOR, otherEditor]) await startReview(editor);
+			const original = await reviewRows(deploymentId);
+			expect(original).toMatchObject(
+				[ACTOR, otherEditor].sort().map((actor_id) => ({
+					actor_id,
+					checkpoint: {
+						phase: "edit-profiles",
+						claim: { mapping: published.active[0].pushToken },
+						review: { requested: [{ uuid: abandonedProfile }] },
+					},
+				})),
+			);
+			await chooseInstallation(false);
+			const writes = () =>
+				requests(peer).filter((line) => line.startsWith("POST "));
+			const before = writes().length;
+			// A failed authorization needs no extra remote write.
+			await asUser(
+				async (client) => {
+					const refusal = body(await call(client), true);
+					expect(["scope_missing", "permission_denied"]).toContain(
+						refusal.error_type,
+					);
+				},
+				publisher,
+				ordinaryScopes,
+			);
+			expect((await stop()).isError).toBe(true);
+			expect(await reviewRows(deploymentId)).toEqual(original);
+			expect(writes()).toHaveLength(before);
+			if (scenario === "successor") {
+				let successorRows: Awaited<ReturnType<typeof reviewRows>> | undefined;
+				let successorToken: string | undefined;
+				authorityChange.beforeRecord = async () => {
+					source(peer);
+					imported(peer);
+					await asUser(
+						async (client) => {
+							body(await call(client));
+						},
+						otherEditor,
+						reconciliationScopes,
+					);
+					successorToken = (await state())?.active[0].pushToken;
+					await chooseInstallation(true);
+					await startReview(otherEditor);
+					successorRows = await reviewRows(deploymentId);
+				};
+				try {
+					source(peer);
+					imported(peer);
+					await asUser(
+						async (client) => {
+							expect((await call(client)).isError).toBe(true);
+						},
+						publisher,
+						reconciliationScopes,
+					);
+					expect(successorToken).toBeTruthy();
+					expect(successorToken).not.toBe(published.active[0].pushToken);
+					expect(successorRows).toMatchObject([
+						{
+							actor_id: otherEditor,
+							checkpoint: { claim: { mapping: successorToken } },
+						},
+					]);
+					expect(await reviewRows(deploymentId)).toEqual(successorRows);
+					expect((await state())?.active[0].pushToken).toBe(successorToken);
+					expect(writes()).toHaveLength(before + 2);
+				} finally {
+					authorityChange.beforeRecord = null;
+				}
+			} else if (scenario === "changed-on-HQ") {
+				source(peer);
+				request(peer, IMPORT, "POST").reply(() => ({
+					statusCode: 200,
+					data: JSON.stringify({
+						success: true,
+						app_id: "working-app",
+						version: hqSaves.save("working-app"),
+					}),
+				}));
+				const live = liveSource();
+				replyRetained(request(peer, SOURCE), {
+					...live,
+					body: {
+						...retainedBodyJson(live),
+						build_profiles: { reopened: { name: "Reopened", langs: ["en"] } },
+					},
+				});
+				await asUser(
+					async (client) => {
+						expect((await call(client)).isError).toBe(true);
+					},
+					publisher,
+					reconciliationScopes,
+				);
+				expect(await reviewRows(deploymentId)).toEqual(original);
+				expect((await state())?.active[0].pushToken).toBe(
+					published.active[0].pushToken,
+				);
+				expect(writes()).toHaveLength(before + 1);
+			} else {
+				source(peer);
+				imported(peer);
+				await asUser(
+					async (client) => {
+						expect(body(await call(client)).hq_app_action).toBe("updated");
+					},
+					publisher,
+					reconciliationScopes,
+				);
+				expect(await reviewRows(deploymentId)).toEqual([]);
+				expect(writes()).toHaveLength(before + 1);
+				const receipt = await h
+					.db()
+					.selectFrom("hq_remote_writes")
+					.select([
+						"settled_at",
+						"settled_generation",
+						"accepted_remote_revision",
+						"import_acknowledged_version",
+					])
+					.where("deployment_id", "=", deploymentId)
+					.where("import_acknowledged_at", "is not", null)
+					.execute();
+				expect(receipt).toEqual([
+					{
+						settled_at: expect.any(Date),
+						settled_generation: expect.any(String),
+						accepted_remote_revision: String(hqSaves.at("working-app")),
+						import_acknowledged_version: String(hqSaves.at("working-app")),
+					},
+				]);
+				source(peer);
+				imported(peer);
+				await asUser(
+					async (client) => {
+						expect(body(await call(client)).hq_app_action).toBe("updated");
+					},
+					publisher,
+					ordinaryScopes,
+				);
+				expect((await stop()).isError).not.toBe(true);
+				expect((await state())?.deployment.state).toBe("ended");
+				expect(writes()).toHaveLength(before + 2);
+			}
+			expect(await reviewRows(siblingId)).toEqual(siblingBefore);
+		});
+	},
+	60_000,
+);
+
+it("preserves a newer publisher's entry points when the managed attempt sent nothing", async () => {
+	await seed();
+	const scopes = ["nova.read", "nova.write", "nova.hq.write", "nova.hq.import"];
+	await withManagedPeer(async (peer) => {
+		shellCreated(peer);
+		imported(peer);
+		await asUser(async (client) => {
+			body(await call(client));
+		});
+		const first = await state();
+		if (!first) throw new Error("Expected the published mapping");
+		await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${first.deployment.id},'other-editor','{"previousKeys":[]}'::jsonb)`.execute(
+			h.db(),
+		);
+		const start = requests(peer).length;
+		let accepted:
+			| Awaited<ReturnType<typeof readEntryPointEvidence>>
+			| undefined;
+		source(peer);
+		authorityChange.beforeImport = async () => {
+			await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+				h.db(),
+			);
+			source(peer);
+			imported(peer);
+			await asUser(
+				async (client) => {
+					body(await call(client));
+				},
+				ACTOR,
+				scopes,
+			);
+			accepted = await readEntryPointEvidence(SCOPE, TARGET);
+		};
+		try {
+			await asUser(
+				async (client) => {
+					expect(body(await call(client), true).error_type).toBe(
+						"permission_denied",
+					);
+				},
+				ACTOR,
+				scopes,
+			);
+			expect(accepted?.manifest).toBeTruthy();
+			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(accepted);
+			expect(
+				requests(peer)
+					.slice(start)
+					.filter((r) => r.startsWith("POST ")),
+			).toEqual([`POST ${HOST}${IMPORT}`]);
+		} finally {
+			authorityChange.beforeImport = null;
+		}
+	});
+});
+it.each(["read", "admitted-import"] as const)(
+	"binds the managed missing-app observation to its %s authority",
+	async (origin) => {
+		await seed();
+		await withManagedPeer(async (peer) => {
+			shellCreated(peer);
+			imported(peer);
+			await asUser(async (client) => {
+				body(await call(client));
+			});
+			const before = await state();
+			if (!before) throw new Error("Expected the first publish to have landed");
+			// A separate editor's private checkpoint is target management even when the current app has no desired installations.
+			await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${before.deployment.id},'separate-editor','{"previousKeys":[]}'::jsonb)`.execute(
+				h.db(),
+			);
+			const missing = retainedPublishRead(
+				origin === "read" ? "source-missing" : "update-missing",
+			);
+			if (origin === "admitted-import") source(peer);
+			const edge =
+				origin === "read"
+					? request(peer, SOURCE)
+					: request(peer, IMPORT, "POST");
+			edge.reply(async () => {
+				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+				return {
+					statusCode: missing.status,
+					data: retainedBodyText(missing),
+					responseOptions: { headers: { ...missing.headers } },
+				};
+			});
+			await asUser(
+				async (client) => {
+					const failure = body(await call(client), true);
+					expect(failure.error_type).toBe(
+						origin === "read" ? "permission_denied" : "remote_app_missing",
+					);
+				},
+				ACTOR,
+				["nova.read", "nova.write", "nova.hq.write", "nova.hq.import"],
+			);
+			const after = await state();
+			if (origin === "read") {
+				expect(after).toEqual(before);
+			} else {
+				expect(after?.active[0].remoteMissingAt).not.toBeNull();
+				expect(after?.deployment.resumePhase).toBe("upload");
+			}
+		});
+	},
+);
 
 it.each(["source-missing", "source-deleted", "update-missing"] as const)(
 	"records HQ's %s answer as the app gone and creates a replacement only on the next publish",
@@ -1066,10 +1844,7 @@ it.each([
 				media_format: "png",
 			})
 			.execute();
-		vi.mocked(downloadAssetBytes).mockImplementation(async (requested) => {
-			expect(requested).toBe(key);
-			return png;
-		});
+		storeBytes(png, key);
 		await withManagedPeer(async (peer) => {
 			shellCreated(peer);
 			imported(peer);
@@ -1111,6 +1886,18 @@ it.each([
 						errors: [],
 					});
 			}
+			/* After a job HQ reports done, Nova reads where the file landed and
+			 * the file itself before it records it. */
+			const landed =
+				outcome === "complete"
+					? servePublishedImage(peer, {
+							source: SOURCE,
+							read: "source-live",
+							wirePath: wire,
+							id: "landed-image",
+							bytes: png,
+						})
+					: null;
 			await asUser(async (client) => {
 				const result = body(await call(client));
 				expect(result).toMatchObject({
@@ -1137,6 +1924,9 @@ it.each([
 					: outcome === "status-disconnect"
 						? [`GET ${HOST}${status}`, `GET ${HOST}${status}`]
 						: [`GET ${HOST}${status}`]),
+				...(landed === null
+					? []
+					: [`GET ${HOST}${SOURCE}`, `GET ${HOST}${landed}`]),
 			]);
 		});
 	},
@@ -1168,7 +1958,7 @@ it("offers a logo only the logo uses for upload in CommCare HQ, and sends it in 
 			media_format: "png",
 		})
 		.execute();
-	vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+	storeBytes(png);
 	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
@@ -1732,7 +2522,7 @@ it("refuses a missing media reference before creating a deployment or recording 
 		expect(await snapshot()).toEqual({ deployments: [], resources: [] });
 		expect(await h.db().selectFrom("events").selectAll().execute()).toEqual([]);
 		expect(requests(peer)).toEqual([]);
-		expect(downloadAssetBytes).not.toHaveBeenCalled();
+		expect(streamAsset).not.toHaveBeenCalled();
 	});
 });
 
@@ -1848,13 +2638,64 @@ async function place(
 		})
 	).location;
 }
+const PLACE_DETAILS = "/a/clinic/api/location/v1/?limit=1000";
+/**
+ * HQ's place inventory as Nova reads it: the levels, the v2 list, and the v1
+ * list of the same places, which alone carries each external ID
+ * (`locations/resources/v0_5.py`, `v0_6.py`). Each v1 row names its parent
+ * and level by address, as HQ's v1 resource does.
+ */
+function servePlaces(
+	peer: MockAgent,
+	objects: unknown[] | (() => unknown[]),
+	levels: readonly unknown[],
+) {
+	const read = () =>
+		(typeof objects === "function" ? objects() : objects).map(
+			(object): Record<string, unknown> => ({
+				domain: "clinic",
+				last_modified: "2026-11-01T09:00:00",
+				...(object as Record<string, unknown>),
+			}),
+		);
+	const levelId = new Map(
+		levels.map((level) => {
+			const { id, code } = level as { id: number; code: string };
+			return [code, id];
+		}),
+	);
+	const v1 = (places: ReturnType<typeof read>) =>
+		places.map((place) => ({
+			location_id: place.location_id,
+			name: place.name,
+			site_code: place.site_code,
+			domain: place.domain,
+			last_modified: place.last_modified,
+			external_id: place.external_id ?? null,
+			parent: place.parent_location_id
+				? `${HOST}/a/clinic/api/location/v1/${String(place.parent_location_id)}/`
+				: null,
+			location_type: `${HOST}/a/clinic/api/location_type/v1/${levelId.get(String(place.location_type_code))}/`,
+			latitude: place.latitude,
+			longitude: place.longitude,
+			location_data: place.location_data,
+		}));
+	request(peer, PLACES).reply(200, () => ({
+		meta: { next: null },
+		objects: read().map(({ external_id: _externalId, ...place }) => place),
+	}));
+	request(peer, PLACE_DETAILS).reply(200, () => ({
+		meta: { next: null },
+		objects: v1(read()),
+	}));
+}
 function inventory(
 	peer: MockAgent,
-	objects: unknown[] = [],
+	objects: unknown[] | (() => unknown[]) = [],
 	levels: unknown[] = remoteLevels,
 ) {
 	request(peer, LEVELS).reply(200, { meta: { next: null }, objects: levels });
-	request(peer, PLACES).reply(200, { meta: { next: null }, objects });
+	servePlaces(peer, objects, levels);
 }
 function remotePlace(
 	site: string,
@@ -1874,9 +2715,39 @@ function remotePlace(
 		location_data: metadata,
 	};
 }
-/** HQ's place inventory as a publish reads it back after its pushes. */
-function placesReadBack(peer: MockAgent, objects: unknown[]) {
-	request(peer, PLACES).reply(200, { meta: { next: null }, objects });
+/**
+ * HQ's place inventory as a publish reads it back after its pushes: `before`,
+ * with each place every accepted batch in `payloads` wrote laid over it, as
+ * HQ's v2 PATCH saves a row (`locations/resources/v0_6.py`).
+ */
+function placesReadBack(
+	peer: MockAgent,
+	before: unknown[],
+	payloads: readonly unknown[],
+): () => unknown[] {
+	const from = payloads.length;
+	const current = () => {
+		const byId = new Map(
+			before.map((place) => [
+				(place as { location_id: string }).location_id,
+				place as Record<string, unknown>,
+			]),
+		);
+		for (const payload of payloads.slice(from))
+			for (const row of (payload as { objects: Record<string, unknown>[] })
+				.objects) {
+				const id = String(row.location_id ?? `hq-${String(row.site_code)}`);
+				byId.set(id, {
+					...remotePlace(String(row.site_code), String(row.location_type_code)),
+					...byId.get(id),
+					...row,
+					location_id: id,
+				});
+			}
+		return [...byId.values()];
+	};
+	inventory(peer, current);
+	return current;
 }
 function acceptPlaces(peer: MockAgent, payloads: unknown[], ids: string[]) {
 	request(peer, PLACE_PUSH, "PATCH").reply(async (opts) => {
@@ -1946,15 +2817,7 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 					),
 				};
 			});
-		placesReadBack(peer, [
-			remotePlace("north", "region"),
-			remotePlace("south", "region"),
-			remotePlace("central", "district", "hq-north"),
-			remotePlace("south_district", "district", "hq-south"),
-			...Array.from({ length: 101 }, (_, i) =>
-				remotePlace(`clinic_${i}`, "facility", "hq-south_district"),
-			),
-		]);
+		const held = placesReadBack(peer, [], payloads);
 		shellCreated(peer);
 		shellSource(peer);
 		source(peer);
@@ -2032,14 +2895,15 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 					)
 				).archivedCount,
 			).toBe(103);
-			const kept = [
-				remotePlace("north", "region"),
-				remotePlace("central", "district", "hq-north"),
-			];
+			const kept = held().filter((place) =>
+				["hq-north", "hq-central"].includes(
+					(place as { location_id: string }).location_id,
+				),
+			);
+			/* North and central stand on CommCare HQ as Nova sent them, so the
+			 * republish patches neither, and reads them back as they stand. */
 			inventory(peer, kept);
-			acceptPlaces(peer, payloads, ["hq-north"]);
-			acceptPlaces(peer, payloads, ["hq-central"]);
-			placesReadBack(peer, kept);
+			inventory(peer, kept);
 			source(peer);
 			source(peer);
 			imported(peer, "working-app");
@@ -2060,7 +2924,7 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 		});
 		expect(
 			requests(peer).filter((value) => value.startsWith("PATCH")),
-		).toHaveLength(6);
+		).toHaveLength(4);
 	});
 });
 
@@ -2079,7 +2943,7 @@ it("requires exact adoption and preserves foreign JSON while applying and cleari
 		inventory(peer, [remote]);
 		shellCreated(peer);
 		acceptPlaces(peer, payloads, ["hq-north"]);
-		placesReadBack(peer, [remote]);
+		placesReadBack(peer, [remote], payloads);
 		shellSource(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -2115,7 +2979,6 @@ it("requires exact adoption and preserves foreign JSON while applying and cleari
 						location_id: "hq-north",
 						name: "North",
 						site_code: "north",
-						location_type_code: "region",
 						location_data: {
 							phone: "001",
 							old_note: "",
@@ -2154,7 +3017,7 @@ it.each(["refused", "lost response"] as const)(
 					? [remotePlace("central", "district", "hq-north")]
 					: []),
 			];
-			placesReadBack(peer, remotes);
+			const held = placesReadBack(peer, remotes, payloads);
 			await asUser(async (client) => {
 				const failure = body(await call(client), true);
 				expect(failure.error_type).toBe("hq_upload_failed");
@@ -2178,7 +3041,7 @@ it.each(["refused", "lost response"] as const)(
 					}),
 				]);
 				if (mode === "lost response") {
-					inventory(peer, remotes);
+					inventory(peer, held());
 					expect(body(await call(client), true)).toMatchObject({
 						error_type: "hq_resource_conflict",
 						resource_conflicts: [
@@ -2187,14 +3050,11 @@ it.each(["refused", "lost response"] as const)(
 					});
 					expect((await state())?.active).toEqual(partial?.active);
 				}
-				inventory(peer, remotes);
+				/* North stands as Nova sent it, so only central is patched. */
+				inventory(peer, held());
 				shellSource(peer);
-				acceptPlaces(peer, payloads, ["hq-north"]);
 				acceptPlaces(peer, payloads, ["hq-central"]);
-				placesReadBack(peer, [
-					remotePlace("north", "region"),
-					remotePlace("central", "district", "hq-north"),
-				]);
+				placesReadBack(peer, held(), payloads);
 				shellSource(peer);
 				imported(peer);
 				expect(
@@ -2331,6 +3191,21 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 				{ id: "released-build", version: build, is_released: true },
 			]),
 		);
+		serveWorkingInstallationInventory(peer, HOST, "working-app", build, {
+			counterAlreadyServed: true,
+		});
+		request(
+			peer,
+			"/a/clinic/api/application/v1/released-build/?extras=true",
+		).reply(
+			200,
+			ordinaryInstallationBuild(
+				"working-app",
+				"released-build",
+				"clinic",
+				build,
+			),
+		);
 		request(peer, "/a/clinic/apps/download/released-build/profile.ccpr").reply(
 			200,
 			`<profile><suite><resource id="suite"><location authority="remote">${HOST}/a/clinic/apps/download/released-build/suite.xml</location></resource></suite></profile>`,
@@ -2340,6 +3215,7 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 				.state,
 		).toBe("runnable");
 		const before = await snapshot();
+		const beforeRequests = requests(peer);
 		await h
 			.db()
 			.updateTable("user_settings")
@@ -2375,8 +3251,7 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 			);
 		});
 		expect(await snapshot()).toEqual(before);
-		/* The first publish's unanswered project-space read goes out twice. */
-		expect(requests(peer)).toHaveLength(8);
+		expect(requests(peer)).toEqual(beforeRequests);
 	});
 });
 
@@ -2500,6 +3375,48 @@ it("asks before recreating a table deleted in CommCare HQ, then records it as No
 		});
 	});
 });
+
+it.each([
+	["plain", "x".repeat(110_000)],
+	["quoted", '"'.repeat(22_500)],
+])(
+	"withholds the overwrite receipt when one %s physical HQ file exceeds the MCP response",
+	async (_kind, fileName) => {
+		await seed();
+		await withManagedPeer(async (peer) => {
+			shellCreated(peer);
+			imported(peer);
+			const live = liveSource();
+			const path = `jr://file/commcare/image/${fileName}.png`;
+			replyRetained(request(peer, SOURCE), {
+				...live,
+				body: {
+					...retainedBodyJson(live),
+					multimedia_map: {
+						[path]: {
+							media_type: "CommCareImage",
+							multimedia_id: "retained-file",
+						},
+					},
+				},
+			});
+			await asUser(async (client) => {
+				body(await call(client));
+				const result = await call(client);
+				const answer = body(result, true);
+				expect(JSON.stringify(result).length).toBeLessThanOrEqual(80_000);
+				expect(answer.error_type).toBe("hq_changed");
+				expect(
+					(answer.remote_changes ?? []).some(
+						(c: { observed_digest?: string | null }) =>
+							Boolean(c.observed_digest),
+					),
+				).toBe(false);
+			});
+		});
+	},
+	30000,
+);
 
 it("lists a change to the app in CommCare HQ, refuses a discard of a state it has since left, and lands one of the state shown with the App Preview line", async () => {
 	await seed();
@@ -2828,6 +3745,14 @@ describe("a lookup table CommCare HQ manages in the project space", () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		const copy = await makeManagedCopy(h, lookup, facilities, TARGET);
 		await seed(managedReader([copy]));
+		/* Manage in Nova, as its index check leaves the table
+		 * (`lib/lookup/managed.ts`): every field's index seen, none indexed. */
+		await h
+			.db()
+			.updateTable("lookup_columns")
+			.set({ index_status: "off" })
+			.where("table_id", "=", copy.tableId)
+			.execute();
 		await h
 			.db()
 			.updateTable("lookup_tables")

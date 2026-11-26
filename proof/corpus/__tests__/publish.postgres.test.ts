@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * The harness publishes as Nova publishes, and downloads as Nova downloads.
  *
@@ -102,12 +103,19 @@ import {
 	readHttpRequestBody,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
+import { servePublishImages } from "@/__tests__/helpers/publishImageStorage";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { POST as compileCcz } from "@/app/api/compile/route";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { decrypt } from "@/lib/commcare/encryption";
+import * as hqReading from "@/lib/commcare/hq/appReading";
 import { parseHqAppSource } from "@/lib/commcare/hq/appSource";
+import {
+	jrFileRef,
+	wirePathFor,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { profileUniqueId } from "@/lib/commcare/runtimeTarget";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
@@ -132,12 +140,16 @@ import {
 	TARGET_PROFILE_WITH_DERIVED_KEY,
 } from "@/lib/deployment/__tests__/publishFixtures";
 import { adoptedAppBaselineWrite } from "@/lib/deployment/adoption";
+import { bringInHqChanges } from "@/lib/deployment/hqChanges/bringIn";
+import { reviewHqChanges } from "@/lib/deployment/hqChanges/review";
+import { summarizeServedHqApp } from "@/lib/deployment/reading/__tests__/servedHqApp";
 import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
-import { publishAppToHq } from "@/lib/deployment/service";
+import * as deploymentStore from "@/lib/deployment/store";
 import { recordAdoptedDeploymentInTransaction } from "@/lib/deployment/store";
 import { canonicalTargetIdentity } from "@/lib/deployment/targetIdentity";
 import type {
 	DeploymentConfirmationKey,
+	DeploymentRemoteChange,
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
@@ -162,8 +174,8 @@ import {
 } from "@/lib/lookup/service";
 import { loadAppBlueprint } from "@/lib/mcp/loadApp";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
+import { USE_HQ_TABLE_OFFERED } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
-import { downloadAssetBytes } from "@/lib/storage/media";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import type { HqSideSaves } from "../documents";
 import { hqAuthoredDocuments } from "../hqAuthored";
@@ -193,6 +205,8 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({
 	downloadAssetBytes: vi.fn(),
+	getStoredObjectMetadata: vi.fn(),
+	streamAsset: vi.fn(),
 	readTextObject: () => {
 		throw new Error("Publishing must not read document requirements extracts.");
 	},
@@ -200,7 +214,7 @@ vi.mock("@/lib/storage/media", () => ({
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
-	vi.mocked(downloadAssetBytes).mockReset();
+	servePublishImages(PROJECT);
 });
 const h = setupAppStateTestDb("proof_publish_", { authSchema: "migrated" });
 
@@ -234,7 +248,7 @@ async function seed(doc: BlueprintDoc): Promise<void> {
  * sequence-one fold baseline: the baseline a deployment's revision pairs
  * with, so a publish's stop offers to bring changes made in CommCare HQ in
  * (`hqChanges/reference.ts::usablePair`), as it does for the capture's app.
- * A document whose Project data the genesis gate reads is seeded by `seed`.
+ * Project data referenced by this document must be present before its birth.
  */
 async function seedBorn(doc: BlueprintDoc): Promise<void> {
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
@@ -494,6 +508,8 @@ function ordered(sequence: readonly string[]): string[] {
 		if (method === "POST" && pathname.endsWith("/multimedia/")) {
 			return ["media"];
 		}
+		if (method === "GET" && pathname.startsWith("/hq/multimedia/file/"))
+			return ["file read"];
 		if (method === "GET" && pathname.endsWith("/api/lookup_table/v1/")) {
 			return ["table list"];
 		}
@@ -615,6 +631,7 @@ async function expectSameMedia(captured: CapturedRequest, sent: FormData) {
 		mediaUpload(await decoded(captured)),
 		mediaUpload(await fieldsOf(sent)),
 	];
+	expect(await decoded(captured)).toEqual(await fieldsOf(sent));
 	expect(mine).toEqual(nova);
 	expect(nova.map((field) => field.name)).toEqual([
 		"waf_padding",
@@ -699,11 +716,20 @@ async function seedSearchLookupMedia(): Promise<PublishDocument> {
 			{ [code.id]: "001", [name.id]: "École & Clinic" },
 		],
 	});
+	const { id, file } = await seedProjectImage();
+	await seed(searchLookupMediaDocument(table, id));
+	return storedDocument({
+		lookup: await getLookupFixtureData(scope, [table.id]),
+		media: new Map([[id, file]]),
+	});
+}
+
+/** One uploaded image with Project metadata and the same bytes in object storage. */
+async function seedProjectImage() {
 	const image = testMediaAssetId("proof-publish-image");
 	const png = readFileSync("public/nova-icons/household.png");
 	const hash = createHash("sha256").update(png).digest("hex");
 	const objectKey = `projects/${PROJECT}/${hash}.png`;
-	await seed(searchLookupMediaDocument(table, image));
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -723,20 +749,17 @@ async function seedSearchLookupMedia(): Promise<PublishDocument> {
 			media_format: "png",
 		})
 		.execute();
-	vi.mocked(downloadAssetBytes).mockImplementation(async (requested) => {
-		expect(requested).toBe(objectKey);
-		return png;
-	});
+	servePublishImages(PROJECT, png);
 
-	return storedDocument({
-		lookup: await getLookupFixtureData(scope, [table.id]),
-		media: new Map([
-			[
-				image,
-				{ kind: "image", mimeType: "image/png", extension: ".png", bytes: png },
-			],
-		]),
-	});
+	return {
+		id: image,
+		file: {
+			kind: "image" as const,
+			mimeType: "image/png",
+			extension: ".png" as const,
+			bytes: png,
+		},
+	};
 }
 
 it("captures the shell, the content and the profile-preserving update Nova sends for the shared survey app, in Nova's order, and every publish sends the same ids", async () => {
@@ -827,6 +850,193 @@ it("captures the shell, the content and the profile-preserving update Nova sends
 	expect(sentIds(await appFile(again))).toEqual(ids);
 });
 
+it("keeps the file a member took between the app import and its media upload", async () => {
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	const { id, file: image } = await seedProjectImage();
+	await seedBorn(
+		buildDoc({
+			appName: "Household visit",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								{
+									id: "note",
+									kind: "text",
+									label: "Note",
+									label_media: { image: id },
+								},
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+	const path = wirePathFor(
+		createHash("sha256").update(image.bytes).digest("hex"),
+		image.extension,
+	);
+	const model = projectSpace();
+	const target = { server: "production" as const, domain: DOMAIN };
+	const log: PeerRequest[] = [];
+	await withHttpPeer(async (peer) => {
+		const trace: { method: string; path: string; status: number | string }[] =
+			[];
+		const reads: unknown[] = [];
+		const report = () =>
+			JSON.stringify({
+				trace,
+				unexpected: model.unexpected.map(({ method, path }) => ({
+					method,
+					path,
+				})),
+				readings: reads,
+				transport: peer
+					.getCallHistory()
+					?.calls()
+					.map(({ method, fullUrl }) => ({
+						method,
+						path: new URL(fullUrl).pathname,
+					})),
+			});
+		const originalAnswer = model.answer.bind(model);
+		const transport = vi
+			.spyOn(model, "answer")
+			.mockImplementation(async (request) => {
+				try {
+					let result: Awaited<ReturnType<typeof model.answer>>;
+					if (
+						request.method === "GET" &&
+						request.path === `/a/${DOMAIN}/api/application/v1/${REMOTE_APP}/`
+					) {
+						// HQ's application API and source describe the same working app.
+						const source = await originalAnswer({
+							...request,
+							path: `/a/${DOMAIN}/apps/source/${REMOTE_APP}/`,
+						});
+						const body = JSON.parse(Buffer.from(source.body).toString());
+						const { resource } = summarizeServedHqApp(
+							{ ...body, version: model.saveCounter() },
+							REMOTE_APP,
+						);
+						result = {
+							status: resource.status,
+							contentType: "application/json",
+							body:
+								typeof resource.body === "string"
+									? resource.body
+									: JSON.stringify(resource.body),
+						};
+					} else result = await originalAnswer(request);
+					trace.push({
+						method: request.method,
+						path: request.path,
+						status: result.status,
+					});
+					return result;
+				} catch (error) {
+					trace.push({
+						method: request.method,
+						path: request.path,
+						status: String(error),
+					});
+					throw error;
+				}
+			});
+		const read = hqReading.readHqAppForReading;
+		const reading = vi
+			.spyOn(hqReading, "readHqAppForReading")
+			.mockImplementation(async (...args) => {
+				const value = await read(...args);
+				reads.push(value.kind === "failed" ? value : value.kind);
+				return value;
+			});
+		servedBy(peer, model, log);
+		const admit = deploymentStore.admitAppWrite;
+		let reviewedId: string | undefined;
+		const hook = vi
+			.spyOn(deploymentStore, "admitAppWrite")
+			.mockImplementation(async (...args) => {
+				if (args[2].writeKind === "media") {
+					expect(
+						(await deploymentStore.readAppBaseline(SCOPE, target))?.origin,
+					).toBe("push");
+					// HQ just accepted the app. Someone uploaded this Project image
+					// through HQ before Nova sent its own bundle to that same path.
+					const previousVersion = model.saveCounter();
+					if (previousVersion === null)
+						throw new Error("Expected the imported working app.");
+					model.applyHqSide({
+						republish: "proceeds",
+						mediaReplaced: {
+							path: jrFileRef(path),
+							mimeType: image.mimeType,
+							base64: Buffer.from(image.bytes).toString("base64"),
+						},
+					});
+					expect(model.saveCounter()).toBe(previousVersion + 1);
+					const remoteFile = model.mappedAt(jrFileRef(path));
+					if (!remoteFile)
+						throw new Error("Expected HQ to retain the member’s file.");
+					const review = await reviewHqChanges(SCOPE, target, {
+						onEvent: () => {},
+					});
+					if (
+						review.kind !== "nothing" ||
+						!review.readingId ||
+						!review.reviewDigest
+					)
+						throw new Error(
+							"Expected the verified matching file to be recordable: " +
+								JSON.stringify(review),
+						);
+					const taken = await bringInHqChanges(
+						SCOPE,
+						target,
+						{
+							readingId: review.readingId,
+							reviewDigest: review.reviewDigest,
+							tableChoices: {},
+						},
+						{ onEvent: () => {} },
+					);
+					expect(taken.kind, JSON.stringify(taken)).toBe("recorded");
+					reviewedId = (await deploymentStore.readAppBaseline(SCOPE, target))
+						?.mediaFiles?.[path];
+					expect(reviewedId).toBe(remoteFile.id);
+				}
+				return admit(...args);
+			});
+		try {
+			expect((await publish()).hqAppAction).toBe("created");
+		} catch (error) {
+			throw new Error(report(), { cause: error });
+		} finally {
+			hook.mockRestore();
+			transport.mockRestore();
+			reading.mockRestore();
+		}
+		expect(reviewedId).toEqual(expect.any(String));
+		expect(
+			log.filter(
+				(request) =>
+					request.method === "POST" && request.path.endsWith("/multimedia/"),
+			),
+		).toHaveLength(0);
+		expect(
+			(await deploymentStore.readAppBaseline(SCOPE, target))?.mediaFiles?.[
+				path
+			],
+		).toBe(reviewedId);
+		expect(model.unexpected).toEqual([]);
+	});
+}, 30_000);
+
 it("captures what Nova sends and downloads for Search, lookup data, media and an attachment link, with the verdict naming the flags Nova's check asks about", async () => {
 	const document = await seedSearchLookupMedia();
 	const verdict = novaPublishVerdict(
@@ -886,6 +1096,8 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 		"import",
 		"source read",
 		"media",
+		"source read",
+		"file read",
 	]);
 	expect(ordered(firstOrder ?? [])).toEqual(ordered(capture.first.sequence));
 	expect(ordered(capture.update.sequence)).toEqual([
@@ -898,7 +1110,6 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 		"source read",
 		"import",
 		"source read",
-		"media",
 	]);
 	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
 	// The capture assumed the table list and rows its peer answered, which
@@ -945,21 +1156,17 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	}
 	await expectSameWorkbook(captured.lookup, contentWorkbook);
 	await expectSameWorkbook(capture.update.lookup, updatedWorkbook);
-	// Nova uploads the media after each content import, to the app the
-	// first publish made, and none after the shell.
-	const [contentMedia, updatedMedia] = uploads;
-	if (!contentMedia || !updatedMedia || uploads.length !== 2) {
-		throw new Error(
-			`Nova sent ${uploads.length} media uploads, not one per publish.`,
-		);
-	}
-	if (!captured.media || !capture.update.media) {
-		throw new Error("The capture sent no media upload.");
-	}
-	await expectSameMedia(captured.media, contentMedia);
-	await expectSameMedia(capture.update.media, updatedMedia);
-	// The capture names its peer's app, which the HQ side replaces with A's.
-	expect(captured.media.path).toBe(
+	// The landed app and its authenticated file confirm the first POST.
+	// An unchanged republish finds the id Nova recorded still at the path,
+	// reuses that file without reading it, and sends no second POST.
+	expect(uploads).toHaveLength(1);
+	expect(captured.mediaUploads).toHaveLength(1);
+	expect(capture.update.mediaUploads).toEqual([]);
+	const [contentMedia] = uploads;
+	const [physical] = captured.mediaUploads;
+	if (!contentMedia || !physical) throw new Error("No first media upload.");
+	await expectSameMedia(physical.request, contentMedia);
+	expect(physical.request.path).toBe(
 		`/a/${DOMAIN}/apps/api/${PLACEHOLDER_APP_ID}/multimedia/`,
 	);
 	const sentShell = await expectSameImport(
@@ -1257,14 +1464,15 @@ async function editInEachKey(): Promise<void> {
  * A person's saves in HQ of values the target owns, one in each key the
  * overlays carry and one beside them: a UI translation, an add-on the app
  * does not need, a setting Nova seeds only where the target holds none, and
- * "Auto Capture Location", which an app that is not a Connect app leaves to
- * the target.
+ * secure submissions, an app setting Nova never writes. (Auto Capture Location
+ * is Nova's own now: a save of it is a change the next publish asks about, which
+ * `targeted-hq-side-owned` holds.)
  */
 const TARGETS_OWN = {
 	uiTranslations: { en: { "home.start": "Begin a visit" } },
 	addOns: { menu_mode: true },
 	profileProperties: { "cc-autoup-freq": "freq-daily" },
-	appAttributes: { auto_gps_capture: true },
+	appAttributes: { secure_submissions: true },
 } as const;
 
 /** The first import of `log` (`<what>` names it in the failure). */
@@ -1323,10 +1531,11 @@ it("captures a republish after an edit in each key, over a person's saves of the
 	expect(sent.profile).toMatchObject({
 		properties: { "cc-autoup-freq": "freq-daily", "cc-show-saved": "yes" },
 	});
-	expect(sent).not.toHaveProperty("auto_gps_capture");
+	expect(sent.auto_gps_capture).toBe(false);
+	expect(sent).not.toHaveProperty("secure_submissions");
 	expect(update.assumedSource).toMatchObject({
 		add_ons: TARGETS_OWN.addOns,
-		auto_gps_capture: true,
+		auto_gps_capture: false,
 	});
 });
 
@@ -1368,13 +1577,21 @@ it("captures the stop Nova makes over a person's save of a value Nova owns, and 
 		}),
 	);
 
-	// The capture met the stop Nova makes: the same code, the same change with
-	// the same parts and the digest Nova binds a discard to. The translation
-	// the target owns is no part of it.
-	expect(confirmed.stops).toEqual([
+	// The capture met the stop Nova makes: the same code and the same change
+	// with the same parts. The translation the target owns is no part of it.
+	// A discard's digest binds its publisher's own deployment, claim and
+	// member, so the capture's differs from Nova's, and each confirms its own.
+	const unbound = (changes: readonly DeploymentRemoteChange[]) =>
+		changes.map(({ observedDigest: _, ...change }) => change);
+	expect(
+		confirmed.stops.map((stop) => ({
+			...stop,
+			remoteChanges: unbound(stop.remoteChanges),
+		})),
+	).toEqual([
 		{
 			code: "hq_changed",
-			remoteChanges: refused.refusal.remoteChanges,
+			remoteChanges: unbound(refused.refusal.remoteChanges),
 			conflicts: [],
 			webAppsChange: null,
 		},
@@ -1383,7 +1600,7 @@ it("captures the stop Nova makes over a person's save of a value Nova owns, and 
 		["A setting this app writes"],
 	]);
 	expect(confirmed.discards).toEqual(
-		refused.refusal.remoteChanges.map((change) => ({
+		(confirmed.stops[0]?.remoteChanges ?? []).map((change) => ({
 			kind: change.kind,
 			novaResourceId: change.novaResourceId,
 			observedDigest: change.observedDigest,
@@ -1625,6 +1842,9 @@ it("puts the note on a discard that replaces a table HQ still holds, and none on
 					parts: change.parts.length,
 					baselineKnown: change.baselineKnown,
 					note: change.note,
+					/* A change to the table HQ still holds under the tag ends with
+					 * the action that takes it: the table is Nova's own. */
+					offer: change.parts.at(-1) === USE_HQ_TABLE_OFFERED,
 				}));
 		};
 		const definition = await stopWith((table) => [
@@ -1643,13 +1863,17 @@ it("puts the note on a discard that replaces a table HQ still holds, and none on
 		const unknown = await stopWith((table) => [table]);
 		return { definition, deleted, renamed, unknown };
 	});
-	expect(notes.definition).toEqual([{ parts: 1, baselineKnown: true, note }]);
-	expect(notes.unknown).toEqual([{ parts: 0, baselineKnown: false, note }]);
+	expect(notes.definition).toEqual([
+		{ parts: 2, baselineKnown: true, note, offer: true },
+	]);
+	expect(notes.unknown).toEqual([
+		{ parts: 1, baselineKnown: false, note, offer: true },
+	]);
 	expect(notes.deleted).toEqual([
-		{ parts: 1, baselineKnown: true, note: null },
+		{ parts: 1, baselineKnown: true, note: null, offer: false },
 	]);
 	expect(notes.renamed).toEqual([
-		{ parts: 1, baselineKnown: true, note: null },
+		{ parts: 1, baselineKnown: true, note: null, offer: false },
 	]);
 });
 

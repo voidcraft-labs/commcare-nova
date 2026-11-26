@@ -1,5 +1,6 @@
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
+import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
@@ -202,6 +203,7 @@ it("writes a key through an index into a block of the case that index reaches", 
 			question_path: "/data/assigned_owner",
 			update_mode: "always",
 		},
+		"user/linked_note": { question_path: "/data/done", update_mode: "always" },
 	};
 	const output = read(addCaseBlocks(host(), actions, "patient"));
 	// The own block keeps only its own key; the ancestors stand under
@@ -212,9 +214,10 @@ it("writes a key through an index into a block of the case that index reaches", 
 	]);
 	expect(names(output.data).slice(-2)).toEqual(["parents", "case"]);
 	const parents = child(output.data, "parents");
-	expect(names(parents)).toEqual(["parent", "parent"]);
-	const [direct, through] = parents.children.filter(isTag);
+	expect(names(parents)).toEqual(["parent", "parent", "user"]);
+	const [direct, through, user] = parents.children.filter(isTag);
 	expect(names(direct)).toEqual(["case"]);
+	expect(names(child(child(user, "case"), "update"))).toEqual(["linked_note"]);
 	expect(names(child(child(through, "host"), "case"))).toEqual(["update"]);
 	const session = "instance('commcaresession')/session/data/case_id";
 	const parentId = `instance('casedb')/casedb/case[@case_id = ${session}]/index/parent`;
@@ -239,9 +242,13 @@ it("writes a key through an index into a block of the case that index reaches", 
 			relevant: "count(/data/assigned_owner) > 0",
 		},
 	);
+	expect(output.bind("/data/parents/user/case/@case_id").calculate).toBe(
+		`instance('casedb')/casedb/case[@case_id = ${session}]/index/user`,
+	);
 	for (const path of [
 		"/data/parents/parent/case",
 		"/data/parents/parent/host/case",
+		"/data/parents/user/case",
 	]) {
 		expect(output.bind(`${path}/@date_modified`).calculate).toBe(
 			"/data/meta/timeEnd",
@@ -977,3 +984,108 @@ it("puts a repeat's single subcase block first in its item, before the item's Sa
 	// then meta.
 	expect(names(local.data).slice(-2)).toEqual(["case", "orx:meta"]);
 });
+
+it("exports the one-group entry and its nonrepeated and repeated owner defaults", () => {
+	const doc = patientApp("registration", [
+		f({ kind: "text", id: "name", ...write("case_name") }),
+		f({
+			kind: "repeat",
+			id: "visits",
+			repeat_mode: "user_controlled",
+			children: [
+				f({ kind: "text", id: "name_visit", ...write("case_name", "visit") }),
+			],
+		}),
+	]);
+	doc.appSettings.caseSharing = true;
+	const hq = expandDoc(doc);
+	expect(hq.case_sharing).toBe(true);
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	const suite = zip.readAsText("suite.xml");
+	expect(
+		findAll(
+			(n) => n.name === "assert",
+			parseDocument(suite, { xmlMode: true }).children,
+		).map((n) => n.attribs.test),
+	).toContain("count(instance('groups')/groups/group) = 1");
+	expect(suite).toContain('id="case_sharing.exactly_one_group"');
+	const form = read(zip.readAsText("modules-0/forms-0.xml"));
+	expect(form.seed("/data/case/create/owner_id").value).toBe(
+		"instance('groups')/groups/group/@id",
+	);
+	const repeat = form.modelNodes.filter(
+		(node) =>
+			node.name === "bind" &&
+			node.attribs.nodeset.startsWith("/data/visits") &&
+			node.attribs.nodeset.endsWith("/create/owner_id"),
+	);
+	expect(repeat.map((node) => node.attribs.calculate)).toEqual([
+		"instance('groups')/groups/group/@id",
+	]);
+	expect(
+		form.modelNodes.filter(
+			(node) =>
+				node.name === "instance" &&
+				node.attribs.src === "jr://fixture/user-groups",
+		),
+	).toHaveLength(1);
+	doc.appSettings.caseSharing = false;
+	const plain = expandDoc(doc);
+	const ordinary = new AdmZip(
+		compileCcz(plain, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	expect(ordinary.readAsText("suite.xml")).not.toContain(
+		"case_sharing.exactly_one_group",
+	);
+	expect(
+		read(ordinary.readAsText("modules-0/forms-0.xml")).bind(
+			"/data/case/create/owner_id",
+		).calculate,
+	).toBe("/data/meta/userID");
+});
+
+// HQ autosets a new case's owner to the worker only where the update does not
+// write `owner_id` (`xform.py::autoset_owner_id_for_open_case`,
+// `autoset_owner_id_for_subcase`); otherwise `add_create_block` writes `-`
+// with no bind, and the update leaf sets the owner only where it is relevant,
+// so a blank owner saved only when given leaves the case unowned as it does
+// in the case store.
+it.each(["always", "edit"] as const)(
+	"leaves a new case unowned in its create block where its update writes the owner (%s)",
+	(mode) => {
+		const owner = { question_path: "/data/assigned_owner", update_mode: mode };
+		const actions = emptyFormActions();
+		actions.open_case.condition = alwaysCondition();
+		actions.open_case.name_update.question_path = "/data/patient_name";
+		actions.update_case.condition = alwaysCondition();
+		actions.update_case.update = { owner_id: owner };
+		actions.subcases = [
+			{
+				...subcase(),
+				case_properties: { ...subcase().case_properties, owner_id: owner },
+			},
+		];
+		const output = read(addCaseBlocks(host(), actions, "patient"));
+		for (const [block, path] of [
+			[child(output.data, "case"), "/data/case"],
+			[child(child(output.data, "subcase_0"), "case"), "/data/subcase_0/case"],
+		] as const) {
+			const created = child(child(block, "create"), "owner_id");
+			expect(
+				created.children.map((node) => ("data" in node ? node.data : "")),
+			).toEqual(["-"]);
+			expect(
+				output.modelNodes.filter(
+					(e) =>
+						e.name === "bind" &&
+						e.attribs.nodeset === `${path}/create/owner_id`,
+				),
+			).toEqual([]);
+			expect(output.bind(`${path}/update/owner_id`).calculate).toBe(
+				"/data/assigned_owner",
+			);
+		}
+	},
+);

@@ -29,6 +29,7 @@ test.beforeAll(async () => {
 	const boundary = resolve("e2e/lib/preview-identity-boundary.ts");
 	peer = await componentPeer("e2e/lib/preview-identity-client.tsx", [], {
 		"@/lib/preview/engine/caseDataBinding": boundary,
+		"@/lib/preview/engine/formOpeningAction": boundary,
 		"@/lib/preview/engine/lookupDataBinding": boundary,
 		"@/lib/preview/entryPointLaunchAction": boundary,
 		"@/lib/auth/hooks/useAuth": boundary,

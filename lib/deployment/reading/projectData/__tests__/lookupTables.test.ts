@@ -16,6 +16,7 @@ import {
 	listHqLookupTables,
 	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
+import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import type { ReadOutcome } from "@/lib/commcare/reader/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -23,11 +24,16 @@ import {
 	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { columnLabelFor } from "@/lib/lookup/managedRules";
+import {
+	lookupColumnLabelSchema,
+	lookupWireNameSchema,
+} from "@/lib/lookup/schema";
 import type {
 	LookupColumn,
 	LookupFixtureRow,
@@ -39,7 +45,6 @@ import type {
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import { canonicalLookupTable } from "../../../hqResourceBaseline";
 import type { SiblingLookupMapping } from "../../../store";
-import { manifestFinding } from "../findings";
 import {
 	assembleReadingProjectData,
 	projectDataReadsOf,
@@ -50,11 +55,9 @@ import {
 } from "../index";
 import { broughtInLookupColumnId, broughtInLookupTableId } from "../lookupIds";
 import {
-	candidateLookupTags,
 	type HqLookupTableRead,
 	type LookupTableBinding,
 	type LookupTableStanding,
-	lookupFixtureBudgetFinding,
 	lookupTableFindings,
 	lookupTableStanding,
 	readerLookupCatalog,
@@ -199,8 +202,6 @@ function withCell(
 	});
 }
 
-const NO_MEASURE = null;
-
 /** A character XML 1.0 cannot carry. */
 const NOT_A_CHARACTER = String.fromCharCode(0xffff);
 
@@ -324,7 +325,6 @@ function standingOf(
 		appReads?: readonly string[];
 		mayAdminister?: boolean;
 		apps?: typeof APPS;
-		keptColumnIds?: readonly string[];
 	} = {},
 ): LookupTableStanding {
 	return lookupTableStanding({
@@ -335,7 +335,6 @@ function standingOf(
 		siblings: options.siblings ?? [],
 		appReads: options.appReads ?? ["code", "name"],
 		mayAdminister: options.mayAdminister ?? true,
-		keptColumnIds: options.keptColumnIds ?? [],
 	});
 }
 
@@ -347,34 +346,6 @@ function choiceOf(standing: LookupTableStanding) {
 
 // ---------------------------------------------------------------------------
 
-describe("candidateLookupTags", () => {
-	const tables = (tags: readonly string[]) =>
-		tags.map((tag) => ({ ...plainTable, id: `${tag}-id`, tag }));
-
-	it("names a tag a form's instance source, a suite expression or a search prompt holds, in the list's order", () => {
-		const source = [
-			'<instance id="anything" src="jr://fixture/item-list:clinics"/>',
-			'"filter": "instance(\'item-list:districts\')/districts_list/districts"',
-			'"itemset": {"instance_uri": "jr://fixture/item-list:regions"}',
-		].join("\n");
-		expect(
-			candidateLookupTags(
-				source,
-				tables(["regions", "unused", "clinics", "districts"]),
-			),
-		).toEqual(["regions", "clinics", "districts"]);
-	});
-
-	it("names a tag that begins another's beside it", () => {
-		expect(
-			candidateLookupTags(
-				"jr://fixture/item-list:clinics_old",
-				tables(["clinics", "clinics_old"]),
-			),
-		).toEqual(["clinics", "clinics_old"]);
-	});
-});
-
 describe("columnLabelFor", () => {
 	it("keeps a name of 120 characters whole and cuts one of 121 and of 255 to 120", () => {
 		const at = "a".repeat(120);
@@ -385,126 +356,57 @@ describe("columnLabelFor", () => {
 });
 
 describe("lookupTableFindings", () => {
-	it("finds nothing in a plain table within every cap", () => {
+	it("finds nothing in a plain table", () => {
+		expect(lookupTableFindings(plain())).toEqual([]);
+	});
+
+	it("keeps verified rich fields and row details", () => {
+		const rows = richRows.map((row, index) => ({
+			...row,
+			sortKey: index,
+			itemAttributes: { zone: index === 0 ? "upland" : "coastal" },
+		}));
 		expect(
-			lookupTableFindings(plain(), { dataBytes: 100, largestRowBytes: 60 }),
+			lookupTableFindings(readOf({ ...richTable, isGlobal: true }, rows)),
 		).toEqual([]);
-	});
-
-	it("reports every finding of a table with field properties, several values, row attributes and owners", () => {
 		expect(
-			names(lookupTableFindings(readOf(richTable, richRows), NO_MEASURE)),
-		).toEqual([
-			[
-				"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
-				"rich: field properties",
-			],
-			[
-				"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
-				"rich: a field with more than one value",
-			],
-			[
-				"expressions-and-data/item-attributes-and-per-row-attribute-values",
-				"rich: row attributes",
-			],
-			[
-				"expressions-and-data/is-global-false-row-owners-user-group-location",
-				"rich: rows limited to certain users",
-			],
-		]);
+			lookupTableFindings(readOf({ ...richTable, isGlobal: true }, richRows)),
+		).toHaveLength(1);
 	});
 
-	const CAPS =
-		"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";
-	const within = { dataBytes: 0, largestRowBytes: 0 };
-
-	it("judges each cap exactly at it and one over it", () => {
+	it("finds no size of a table: one past every bound of an inline copy comes in as its definition", () => {
 		const row = plainRows[0];
 		const rows = (n: number) => Array.from({ length: n }, () => row);
-		expect(lookupTableFindings(plain({ rows: rows(5_000) }), within)).toEqual(
-			[],
-		);
-		expect(
-			names(lookupTableFindings(plain({ rows: rows(5_001) }), within)),
-		).toEqual([[CAPS, "plain: 5,001 rows (Nova takes 5,000)"]]);
-
 		const fields = (n: number) =>
 			Array.from({ length: n }, (_, index) => `f${index}`);
+		expect(lookupTableFindings(plain({ rows: rows(5_001) }))).toEqual([]);
+		expect(
+			lookupTableFindings(plain({ table: { fields: fields(251) }, rows: [] })),
+		).toEqual([]);
 		expect(
 			lookupTableFindings(
-				plain({ table: { fields: fields(250) }, rows: [] }),
-				within,
+				plain({
+					rows: withCell(plainRows, 0, "name", "x".repeat(64 * 1024 + 1)),
+				}),
 			),
 		).toEqual([]);
 		expect(
-			names(
-				lookupTableFindings(
-					plain({ table: { fields: fields(251) }, rows: [] }),
-					within,
-				),
-			),
-		).toEqual([[CAPS, "plain: 251 columns (Nova takes 250)"]]);
-
-		const cell = (bytes: number) =>
-			withCell(plainRows, 0, "name", "x".repeat(bytes));
-		expect(
-			lookupTableFindings(plain({ rows: cell(64 * 1024) }), within),
-		).toEqual([]);
-		expect(
-			names(lookupTableFindings(plain({ rows: cell(64 * 1024 + 1) }), within)),
-		).toEqual([
-			[CAPS, "plain: a value of 64.1 KB (Nova takes 64 KB in one cell)"],
-		]);
-
-		expect(
-			lookupTableFindings(plain(), {
-				dataBytes: 0,
-				largestRowBytes: 256 * 1024,
+			lookupTableFindings({
+				kind: "over-row-limit",
+				table: plainTable,
+				totalCount: 12_400,
 			}),
 		).toEqual([]);
 		expect(
-			names(
-				lookupTableFindings(plain(), {
-					dataBytes: 0,
-					largestRowBytes: 256 * 1024 + 1,
-				}),
-			),
-		).toEqual([
-			[CAPS, "plain: a row of 256.1 KB (Nova takes 256 KB in one row)"],
-		]);
-
-		expect(
-			lookupTableFindings(plain(), {
-				dataBytes: 8 * 1024 * 1024,
-				largestRowBytes: 0,
-			}),
+			lookupTableFindings({ kind: "over-byte-limit", table: plainTable }),
 		).toEqual([]);
-		expect(
-			names(
-				lookupTableFindings(plain(), {
-					dataBytes: 8 * 1024 * 1024 + 1,
-					largestRowBytes: 0,
-				}),
-			),
-		).toEqual([[CAPS, "plain: 8.1 MB of rows (Nova takes 8 MB in one table)"]]);
-	});
-
-	it("gives a table over the row limit the rows cap alone, with CommCare HQ's total", () => {
-		expect(
-			names(
-				lookupTableFindings(
-					{ kind: "over-row-limit", table: plainTable, totalCount: 12_400 },
-					NO_MEASURE,
-				),
-			),
-		).toEqual([[CAPS, "plain: 12,400 rows (Nova takes 5,000)"]]);
 	});
 
 	it("says rows CommCare HQ could not send are a fact of the project space", () => {
-		const findings = lookupTableFindings(
-			{ kind: "rows-unreadable", table: plainTable },
-			NO_MEASURE,
-		);
+		const findings = lookupTableFindings({
+			kind: "rows-unreadable",
+			table: plainTable,
+		});
 		expect(findings).toEqual([
 			{
 				code: "table-rows-unreadable",
@@ -518,51 +420,31 @@ describe("lookupTableFindings", () => {
 
 	it("judges the tag", () => {
 		const tagged = (tag: string) =>
-			names(lookupTableFindings(plain({ table: { tag } }), within));
-		expect(tagged("Types")).toEqual([
-			["expressions-and-data/tag-types", "types"],
-		]);
+			names(lookupTableFindings(plain({ table: { tag } })));
+		// CommCare HQ's workbook spends the sheet name `types` on its own list,
+		// and Nova's direct publish carries such a table without a workbook.
+		expect(tagged("Types")).toEqual([]);
 		expect(tagged("my_casedb")).toEqual([
 			["expressions-and-data/tag-containing-casedb-or-ledgerdb", "my_casedb"],
 		]);
-		expect(tagged("LedgerDB")).toEqual([
-			["expressions-and-data/tag-containing-casedb-or-ledgerdb", "LedgerDB"],
-		]);
-		expect(tagged("locations")).toEqual([
+		expect(tagged("LedgerDB")).toEqual([]);
+		expect(tagged("locations")).toEqual([]);
+		expect(tagged("locations_ledgerdb")).toEqual([
 			[
-				"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
-				"locations",
+				"expressions-and-data/tag-containing-casedb-or-ledgerdb",
+				"locations_ledgerdb",
 			],
 		]);
-		expect(tagged("clínicas")).toEqual([
-			[
-				"expressions-and-data/tag-or-field-name-with-non-ascii-letters",
-				"clínicas",
-			],
-		]);
-		expect(tagged("health.sites")).toEqual([
-			[
-				"expressions-and-data/tag-or-field-name-holding-a-period",
-				"health.sites",
-			],
-		]);
+		expect(tagged("clínicas")).toEqual([]);
+		expect(tagged("health.sites")).toEqual([]);
+		expect(tagged("名前")).toEqual([]);
 		expect(tagged("xmlsites")).toEqual([["unrecognized", "xmlsites"]]);
 	});
 
 	it("judges each field name, and two fields of one name", () => {
 		const fielded = (fields: readonly string[]) =>
-			names(
-				lookupTableFindings(plain({ table: { fields }, rows: [] }), within),
-			);
-		expect(fielded(["code", "first.name"])).toEqual([
-			["expressions-and-data/tag-or-field-name-holding-a-period", "first.name"],
-		]);
-		expect(fielded(["code", "nombre_ñ"])).toEqual([
-			[
-				"expressions-and-data/tag-or-field-name-with-non-ascii-letters",
-				"nombre_ñ",
-			],
-		]);
+			names(lookupTableFindings(plain({ table: { fields }, rows: [] })));
+		expect(fielded(["code", "first.name", "nombre_ñ", "名前"])).toEqual([]);
 		expect(fielded(["code", "has space"])).toEqual([
 			["unrecognized", "has space"],
 		]);
@@ -584,7 +466,7 @@ describe("lookupTableFindings", () => {
 		const table = crafted.find((one) => one.tag === "plain");
 		if (table === undefined) throw new Error("the crafted list lost plain");
 		expect(table.fields).toEqual(["code", "name", "code", "name", "name"]);
-		const findings = lookupTableFindings(readOf(table, plainRows), within);
+		const findings = lookupTableFindings(readOf(table, plainRows));
 		expect(names(findings)).toEqual([
 			["table-field-repeated", "plain (the field code)"],
 			["table-field-repeated", "plain (the field name)"],
@@ -601,21 +483,18 @@ describe("lookupTableFindings", () => {
 		);
 		const findings = lookupTableFindings(
 			plain({ table: { tag: "Types" }, rows }),
-			NO_MEASURE,
 		);
 		expect(names(findings)).toEqual([
-			["expressions-and-data/tag-types", "types"],
 			["table-cell-unrepresentable", "Types (the field code)"],
 			["table-cell-unrepresentable", "Types (the field name)"],
 		]);
-		expect(findings[1]).toMatchObject({ standing: "fix-in-hq", subject: null });
+		expect(findings[0]).toMatchObject({ standing: "fix-in-hq", subject: null });
 	});
 
 	it("finds a table with no field, which a field added in CommCare HQ settles, with or without rows", () => {
 		for (const rows of [[], plainRows]) {
 			const findings = lookupTableFindings(
 				plain({ table: { fields: [] }, rows }),
-				within,
 			);
 			expect(names(findings)).toEqual([["table-has-no-fields", "plain"]]);
 			expect(findings[0]).toMatchObject({ standing: "fix-in-hq" });
@@ -694,6 +573,95 @@ describe("lookupTableStanding", () => {
 		}
 	});
 
+	it("compares ordered field occurrences and their details, and keeps Project member identities in either binding", () => {
+		const existing = equalPlain();
+		const [code, name] = existing.table.columns;
+		const lang = {
+			id: lookupMemberIdSchema.parse(uuidV7()),
+			wireName: "lang",
+			label: "Language",
+		};
+		const district = {
+			id: lookupMemberIdSchema.parse(uuidV7()),
+			wireName: "district",
+			label: "District",
+		};
+		const table = {
+			...existing.table,
+			attributes: [district],
+			columns: [code, { ...name, repeated: true as const, properties: [lang] }],
+		};
+		const hq = plain({
+			table: {
+				itemAttributes: ["district"],
+				fieldProperties: { name: ["lang"] },
+			},
+			rows: plainRows.map((row, i) => ({
+				...row,
+				itemAttributes: { district: `zone-${i}` },
+				fields: {
+					code: row.fields.code,
+					name: [
+						{ value: "One", properties: { lang: "en" } },
+						{ value: "Une", properties: { lang: "fr" } },
+					],
+				},
+			})),
+		});
+		const rows = existing.rows.map((row, i) => ({
+			...row,
+			values: { [code.id]: row.values[code.id] },
+			attributes: { [district.id]: `zone-${i}` },
+			occurrences: {
+				[name.id]: [
+					{ text: "One", properties: { [lang.id]: "en" } },
+					{ text: "Une", properties: { [lang.id]: "fr" } },
+				],
+			},
+		}));
+		for (const siblings of [[], [sibling(table, hq.table.id)]]) {
+			const standing = standingOf(hq, { table, rows }, { siblings });
+			expect(standing.kind).toBe(siblings.length ? "same-equal" : "choice");
+			const [bound] = resolveLookupBindings(
+				[hq],
+				{ plain: standing },
+				{ plain: "use-project" },
+				IDS,
+			);
+			expect(bound.memberIds).toEqual({
+				attributes: { district: district.id },
+				properties: { name: { lang: lang.id } },
+			});
+		}
+		const reversed = rows.map((row) => ({
+			...row,
+			occurrences: { [name.id]: [...row.occurrences[name.id]].reverse() },
+		}));
+		const reassigned = rows.map((row) => ({
+			...row,
+			attributes: { [district.id]: "changed" },
+		}));
+		const relabeled = rows.map((row) => ({
+			...row,
+			occurrences: {
+				[name.id]: row.occurrences[name.id].map((it) => ({
+					...it,
+					properties: { [lang.id]: "changed" },
+				})),
+			},
+		}));
+		for (const different of [reversed, reassigned, relabeled])
+			expect(
+				choiceOf(
+					standingOf(
+						hq,
+						{ table, rows: different },
+						{ siblings: [sibling(table, hq.table.id)] },
+					),
+				).differs,
+			).toEqual(["rows"]);
+	});
+
 	it("reads a missing cell as equal to an empty one", () => {
 		const read = plain({ rows: withCell(plainRows, 1, "name", undefined) });
 		const missing = projectTable(
@@ -767,46 +735,30 @@ describe("lookupTableStanding", () => {
 		).toEqual({ offered: true, goneColumns: [], retypedColumns: [] });
 	});
 
-	it("does not offer CommCare HQ's table where the columns apps still read would take it past 250, and offers it at 250", () => {
-		/* CommCare HQ's two fields, and columns of the Project's no field names. */
-		const wide = (extra: number) =>
-			projectTable(
-				"plain",
-				[
-					column("code"),
-					column("name"),
-					...Array.from({ length: extra }, (_, at) => column(`kept_${at}`)),
-				],
-				[],
-			);
-		const keptOf = (table: ProjectTable) =>
-			table.table.columns.map((each) => each.id);
-		const over = wide(249);
+	it("offers CommCare HQ's table however many columns apps still read beside its fields", () => {
+		/* CommCare HQ's two fields, and 249 columns of the Project's no field
+		 * names: 251 once CommCare HQ's content fills the table. CommCare HQ
+		 * caps no table's field count, and what the adoption writes is its two
+		 * fields, so no column count stops it. */
+		const over = projectTable(
+			"plain",
+			[
+				column("code"),
+				column("name"),
+				...Array.from({ length: 249 }, (_, at) => column(`kept_${at}`)),
+			],
+			[],
+		);
 		expect(
-			choiceOf(standingOf(plain(), over, { keptColumnIds: keptOf(over) }))
-				.options["use-commcare-hq"],
-		).toEqual({ offered: false, why: "too-many-columns", name: "251" });
-		// A field's own column is CommCare HQ's, counted once.
-		const at = wide(248);
-		expect(
-			choiceOf(standingOf(plain(), at, { keptColumnIds: keptOf(at) })).options[
+			choiceOf(standingOf(plain(), over, { apps: [] })).options[
 				"use-commcare-hq"
-			].offered,
-		).toBe(true);
-		// A column no app reads and no design protects is removed, not kept.
+			],
+		).toEqual({ offered: true, goneColumns: [], retypedColumns: [] });
+		// Whoever may not administer is told that.
 		expect(
-			choiceOf(standingOf(plain(), over, { keptColumnIds: [] })).options[
+			choiceOf(standingOf(plain(), over, { mayAdminister: false })).options[
 				"use-commcare-hq"
-			].offered,
-		).toBe(true);
-		// Whoever may not administer is told that first.
-		expect(
-			choiceOf(
-				standingOf(plain(), over, {
-					keptColumnIds: keptOf(over),
-					mayAdminister: false,
-				}),
-			).options["use-commcare-hq"],
+			],
 		).toEqual({ offered: false, why: "needs-admin", name: null });
 	});
 
@@ -865,6 +817,78 @@ describe("lookupTableStanding", () => {
 				siblings: [sibling(clean.table, plainTable.id)],
 			}).kind,
 		).toBe("same-equal");
+	});
+
+	it("stands a table a direct publish keeps there through the JSON resources by those resources, not a workbook's rules", () => {
+		/* Neither a trailing space nor the tag `types` stops the JSON resources,
+		 * which is how such a table reached the project space. Kept there by a
+		 * workbook, the same table fails the workbook's rules (above). */
+		const json = (table: LookupTableDefinition, tag: string) => ({
+			...sibling(table, plainTable.id),
+			pushedIdentity: tag,
+			jsonDestination: true as const,
+		});
+		const read = plain({ rows: withCell(plainRows, 0, "name", "Clinic ") });
+		const spaced = projectTable(
+			"plain",
+			[column("code"), column("name")],
+			[
+				{ code: "001", name: "Clinic " },
+				{ code: "002", name: "Hospital" },
+			],
+		);
+		expect(
+			standingOf(read, spaced, { siblings: [json(spaced.table, "plain")] }),
+		).toEqual({ kind: "same-equal", table: spaced.table });
+
+		const typesRead = plain({ table: { tag: "types" } });
+		const types = projectTable(
+			"types",
+			[column("code"), column("name")],
+			[
+				{ code: "001", name: "Clinic" },
+				{ code: "002", name: "Hospital" },
+			],
+		);
+		expect(
+			standingOf(typesRead, types, { siblings: [json(types.table, "types")] }),
+		).toEqual({ kind: "same-equal", table: types.table });
+		/* Other rows under the same tag ask, and offer the Project's table. */
+		const otherRows = choiceOf(
+			standingOf(
+				plain({ table: { tag: "types" }, rows: plainRows.slice(1) }),
+				types,
+				{ siblings: [json(types.table, "types")] },
+			),
+		);
+		expect(otherRows.options["use-project"]).toEqual({
+			offered: true,
+			goneColumns: [],
+			retypedColumns: [],
+		});
+		/* The JSON resources carry no index, so an indexed table is held to a
+		 * workbook's rules, and `types` fails them. */
+		const indexed = {
+			...types,
+			table: {
+				...types.table,
+				columns: types.table.columns.map((each) => ({
+					...each,
+					index: "indexed" as const,
+				})),
+			},
+		};
+		expect(
+			choiceOf(
+				standingOf(typesRead, indexed, {
+					siblings: [json(indexed.table, "types")],
+				}),
+			).options["use-project"],
+		).toEqual({
+			offered: false,
+			why: "fails-a-project-space-rule",
+			name: null,
+		});
 	});
 
 	it("does not offer a Project table holding a character XML cannot carry", () => {
@@ -955,6 +979,26 @@ describe("resolveLookupBindings", () => {
 });
 
 describe("readerLookupCatalog", () => {
+	it("keeps complete Unicode characters in labels offered for newly adopted columns", () => {
+		for (const field of ["a".repeat(119) + "𐐀", "𐐀".repeat(121)]) {
+			const table = plain({ table: { fields: [field] }, rows: [] });
+			const [binding] = resolveLookupBindings(
+				[table],
+				{ plain: { kind: "new" } },
+				null,
+				IDS,
+			);
+			const catalog = readerLookupCatalog([
+				{ binding, name: "plain", fields: [field] },
+			]);
+			const [column] = catalog.definitions.get(binding.tableId)?.columns ?? [];
+			expect(lookupWireNameSchema.parse(column?.wireName)).toBe(field);
+			expect(lookupColumnLabelSchema.parse(column?.label)).toBe(
+				[...field].slice(0, 120).join(""),
+			);
+		}
+	});
+
 	it("holds a text column per field in CommCare HQ's order, and a table as it stands with its own", () => {
 		const binding = resolveLookupBindings(
 			[plain()],
@@ -1140,8 +1184,6 @@ describe("resolveTableChoices", () => {
 
 const PROJECT_ID = "project-1";
 const PROJECT_REVISION = "7" as LookupRevision;
-const CAPS_ENTRY =
-	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";
 
 /** What a read gathers over `reads` and the Project's `tables`, through the production assembly. */
 function gather(
@@ -1150,7 +1192,6 @@ function gather(
 		readonly tables?: readonly ProjectTable[];
 		readonly siblings?: readonly SiblingLookupMapping[];
 		readonly mayAdminister?: boolean;
-		readonly keptColumns?: Readonly<Record<string, readonly string[]>>;
 	} = {},
 ): ReadingProjectData {
 	const tables = project.tables ?? [];
@@ -1168,7 +1209,6 @@ function gather(
 				tables.map((each) => [each.table.id, each.rows]),
 			),
 			apps: Object.fromEntries(tables.map((each) => [each.table.id, APPS])),
-			keptColumns: project.keptColumns ?? {},
 			siblings: project.siblings ?? [],
 			mayAdminister: project.mayAdminister ?? true,
 		},
@@ -1261,16 +1301,25 @@ describe("readingLookupSnapshot", () => {
 				name: "plain",
 				tag: "plain",
 				definitionRevision: "0",
+				/* Birth keeps CommCare HQ as the custodian of a source table. */
+				hq: expect.objectContaining({
+					managedBy: "commcare-hq",
+					takenOverAt: null,
+					goneColumnIds: [],
+				}),
 				columns: [
 					{
 						id: binding.columns.code,
 						wireName: "code",
 						label: "code",
+						index: "unobserved",
 						dataType: "text",
 					},
 					{
 						id: binding.columns.name,
 						wireName: "name",
+						index: "unobserved",
+						repeated: true,
 						label: "name",
 						dataType: "text",
 					},
@@ -1280,9 +1329,11 @@ describe("readingLookupSnapshot", () => {
 		expect(snapshot.rowsByTable.get(binding.tableId)).toEqual([
 			{
 				id: plainRows[0].id,
+				occurrences: {
+					[binding.columns.name]: [{ text: "Clinic", properties: {} }],
+				},
 				values: {
 					[binding.columns.code]: "001",
-					[binding.columns.name]: "Clinic",
 				},
 			},
 			{ id: plainRows[1].id, values: { [binding.columns.code]: "002" } },
@@ -1319,74 +1370,22 @@ describe("readingLookupSnapshot", () => {
 	});
 });
 
-/** A table of `rows` rows and `columns` text columns, as a snapshot holds one. */
-function bigTable(
-	tag: string,
-	rows: number,
-	columns: number,
-): {
-	readonly table: LookupTableDefinition;
-	readonly rows: LookupFixtureRow[];
-} {
-	const ids = Array.from({ length: columns }, () => columnId());
-	return {
-		table: {
-			id: tableId(),
-			name: tag,
-			tag,
-			definitionRevision: "1" as LookupRevision,
-			columns: ids.map((id, index) => ({
-				id,
-				wireName: `c${index}`,
-				label: `c${index}`,
-				dataType: "text" as const,
-			})),
-		},
-		rows: Array.from({ length: rows }, (_, row) => ({
-			id: `row-${row}` as LookupRowId,
-			values: Object.fromEntries(ids.map((id) => [id, `v${row}`])),
-		})),
-	};
-}
-
-function snapshotOf(tables: readonly ReturnType<typeof bigTable>[]) {
-	return {
-		projectId: PROJECT_ID,
-		projectRevision: PROJECT_REVISION,
-		definitions: tables.map((each) => each.table),
-		rowsByTable: new Map(tables.map((each) => [each.table.id, each.rows])),
-	};
-}
-
-describe("lookupFixtureBudgetFinding", () => {
-	it("gives the caps entry at the app for tables over one app's rows together, each within a table's cap", () => {
-		const tables = ["a", "b", "c"].map((tag) => bigTable(tag, 4_000, 1));
-		expect(lookupFixtureBudgetFinding(snapshotOf(tables))).toEqual(
-			manifestFinding(
-				CAPS_ENTRY,
-				{ kind: "app" },
-				"12,000 lookup table rows (Nova takes 10,000 in one app)",
-			),
-		);
-	});
-
-	it("gives it for two tables of 5,000 rows over one app's values, and nothing for two within it", () => {
-		expect(
-			lookupFixtureBudgetFinding(
-				snapshotOf(["a", "b"].map((tag) => bigTable(tag, 5_000, 11))),
-			),
-		).toEqual(
-			manifestFinding(
-				CAPS_ENTRY,
-				{ kind: "app" },
-				"110,000 lookup table values (Nova takes 100,000 in one app)",
-			),
+describe("readingProjectDataFindingsFor, tables together", () => {
+	it("finds nothing for tables together past what one app's lookup data held in memory", () => {
+		/* 12,000 rows over three tables: a downloadable app walks each table it
+		 * embeds a page at a time, so no total of the tables stops a reading. */
+		const rows = Array.from({ length: 4_000 }, () => plainRows[0]);
+		const tags = ["a", "b", "c"];
+		const data = gather(
+			tags.map((tag) => plain({ table: { tag, id: `${tag}-remote` }, rows })),
 		);
 		expect(
-			lookupFixtureBudgetFinding(
-				snapshotOf(["a", "b"].map((tag) => bigTable(tag, 5_000, 2))),
+			findingsFor(
+				data,
+				readsOf(Object.fromEntries(tags.map((tag) => [tag, ["code"]]))),
+				null,
 			),
-		).toBeNull();
+		).toEqual([]);
 	});
 });
 
@@ -1404,6 +1403,23 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 
 	it("finds nothing where the rows can be the choices", () => {
 		expect(judged(plainRows)).toEqual([]);
+	});
+
+	it("brings in an assigned HQ choice source without attesting to any worker's rows", () => {
+		const data = gather([plain({ table: { isGlobal: false } })]);
+		const binding = bindingOf(data, "plain");
+		const doc = selectDoc(binding);
+		const snapshot = readingLookupSnapshot(data, PLAIN_READS);
+
+		expect(snapshot.definitions[0].hq).toMatchObject({
+			managedBy: "commcare-hq",
+			source: { distribution: "assigned" },
+		});
+		expect(snapshot.rowsByTable.has(binding.tableId)).toBe(false);
+		expect(findingsFor(data, PLAIN_READS, doc)).toEqual([]);
+		expect(lookupSelectSourceRowFindings(doc, snapshot)).toMatchObject([
+			{ code: "LOOKUP_WORKER_SOURCE_UNAVAILABLE" },
+		]);
 	});
 
 	it("names the value column of a table with no rows", () => {
@@ -1467,7 +1483,7 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 				"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 				"gone",
 			],
-			...names(lookupTableFindings(readOf(richTable, richRows), NO_MEASURE)),
+			...names(lookupTableFindings(readOf(richTable, richRows))),
 		]);
 	});
 
@@ -1490,7 +1506,10 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 		expect(findings[0]?.standing).toBe("fix-in-hq");
 	});
 
-	it("finds a table managed from this project space whose refresh would keep it past 250 columns, and binds nothing", () => {
+	it("binds a table managed from this project space whose refresh keeps it past 250 columns, and finds nothing", () => {
+		/* CommCare HQ's two fields, and 249 columns of the Project's that apps
+		 * still read: 251 once the refresh fills the table, which holds any
+		 * number of columns. */
 		const managed = projectTable(
 			"plain",
 			[
@@ -1501,27 +1520,11 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 			[],
 			origin("clinic", "commcare-hq"),
 		);
-		const kept = managed.table.columns.slice(2).map((each) => each.id);
-		const over = gather([plain()], {
-			tables: [managed],
-			keptColumns: { [managed.table.id]: kept },
-		});
-		const [table] = over.gathered.tables;
-		expect(names(table.findings)).toEqual([
-			[
-				CAPS_ENTRY,
-				"plain: 251 columns with the ones apps still read (Nova takes 250)",
-			],
-		]);
-		expect(table.standing).toBeNull();
-		expect(table.binding).toBeNull();
-		expect(over.lookups.table("plain")).toBeUndefined();
-		const within = gather([plain()], {
-			tables: [managed],
-			keptColumns: { [managed.table.id]: kept.slice(1) },
-		});
-		expect(within.gathered.tables[0].standing?.kind).toBe("same-managed");
-		expect(within.gathered.tables[0].findings).toEqual([]);
+		const data = gather([plain()], { tables: [managed] });
+		const [table] = data.gathered.tables;
+		expect(table.findings).toEqual([]);
+		expect(table.standing?.kind).toBe("same-managed");
+		expect(data.lookups.table("plain")).toBeDefined();
 	});
 });
 
@@ -1594,9 +1597,11 @@ describe("projectDataReadsOf", () => {
 					unreadTables: [
 						{ tag: "gone", place: { kind: "lookup-table", tag: "gone" } },
 					],
-					foldedTranslationKeys: [],
+					unusedTranslationKeys: [],
 					forms: [],
 					sameStateRewrites: [],
+					detailColumnOwners: [],
+					formLinkOwners: [],
 					entryFactsRefused: [],
 					childCasesUnread: [],
 					rewrites: [],
@@ -1682,7 +1687,18 @@ describe("projectDataReview", () => {
 			definitionRevision: "3",
 			rowsRevision: "4",
 		});
-		expect(answer.tables[1].hqDigest).toBe(plain().canonical.digest);
+		const replacement = plain({
+			rows: plainRows.map((row, index) => ({
+				...row,
+				id: `replacement-${index}`,
+			})),
+		});
+		const replaced = review(
+			gather([replacement], { tables: [existing] }),
+			readsOf({ plain: ["code", "name"] }),
+			EMPTY_DOC,
+		);
+		expect(replaced.tables[0].hqDigest).not.toBe(answer.tables[1].hqDigest);
 		for (const table of answer.tables) {
 			expect(
 				reviewTableSchema.parse(JSON.parse(JSON.stringify(table))),
@@ -1751,7 +1767,7 @@ describe("projectDataReview", () => {
 		).toEqual({ offered: true, goneColumns: [], retypedColumns: [] });
 	});
 
-	it("offers no use-project where two choices at their larger forms pass one app's values together, and both within it", () => {
+	it("offers use-project for two choices whatever values they hold together, which a downloadable app walks a page at a time", () => {
 		const projectOf = (tag: string, columns: number) => {
 			const extra = Array.from({ length: columns - 2 }, (_, index) =>
 				column(`extra${index}`),
@@ -1779,9 +1795,10 @@ describe("projectDataReview", () => {
 				reads,
 				EMPTY_DOC,
 			).tables.map((table) => table.choice?.options["use-project"]);
+		/* 110,000 values together, past one in-memory fixture set. */
 		expect(useProject(11)).toEqual([
-			{ offered: false, why: "fails-a-project-space-rule", name: null },
-			{ offered: false, why: "fails-a-project-space-rule", name: null },
+			{ offered: true, goneColumns: [], retypedColumns: [] },
+			{ offered: true, goneColumns: [], retypedColumns: [] },
 		]);
 		expect(useProject(2)).toEqual([
 			{ offered: true, goneColumns: [], retypedColumns: [] },

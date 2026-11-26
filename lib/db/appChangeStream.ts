@@ -26,8 +26,9 @@ export async function readAppChangeStreamRowsSince(
 	db: Kysely<AppDatabase>,
 	appId: string,
 	deliveredThrough: number,
+	through?: number,
 ): Promise<readonly AppChangeStreamRow[]> {
-	return db
+	let query = db
 		.selectFrom("app_changes")
 		.leftJoin("app_change_fold_baselines as baseline", (join) =>
 			join
@@ -50,7 +51,8 @@ export async function readAppChangeStreamRowsSince(
 			),
 		)
 		.where("app_changes.app_id", "=", appId)
-		.where("app_changes.seq", ">", deliveredThrough)
-		.orderBy("app_changes.seq")
-		.execute();
+		.where("app_changes.seq", ">", deliveredThrough);
+	if (through !== undefined)
+		query = query.where("app_changes.seq", "<=", through);
+	return query.orderBy("app_changes.seq").execute();
 }

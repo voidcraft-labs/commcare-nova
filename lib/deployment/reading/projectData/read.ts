@@ -7,63 +7,68 @@ import "server-only";
  * decision is `index.ts`'s; this file only reads.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { readHqSourceFlag } from "@/lib/commcare/client";
+import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { classifyHqFailure, type HqFailure } from "@/lib/commcare/hq/failure";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
+import { readHqPlaceInventory } from "@/lib/commcare/hq/locationInventory";
 import {
-	type HqLocation,
-	type HqLocationType,
-	listHqLocations,
-	listHqLocationTypes,
-} from "@/lib/commcare/hq/locations";
+	readWorkingLocationFixture,
+	readWorkingSuiteDetails,
+	type WorkingLocationWitness,
+	type WorkingSource,
+} from "@/lib/commcare/hq/workingLocationFixture";
+import { isJsonObject } from "@/lib/commcare/reader/jsonCursor";
+import { WorkLimitReached } from "@/lib/commcare/workMeter";
+import type { ConditionalFactory } from "@/lib/commcare/xpath/instanceSources";
 import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
 import { getAppDb } from "@/lib/db/pg";
 import { projectRoleFor } from "@/lib/db/projectMembership";
+import { normalizedHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
-import {
-	measureLookupRows,
-	readKeptLookupColumnIds,
-} from "@/lib/lookup/managed";
+import { measureLookupRows } from "@/lib/lookup/managed";
 import type { LookupRowsMeasure } from "@/lib/lookup/managedRules";
 import { readAllLookupDefinitionsInTransaction } from "@/lib/lookup/service";
 import type {
 	LookupFixtureRow,
 	LookupReferencingAppSummary,
 	LookupRevision,
+	LookupRowContent,
 	LookupRowValues,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
-import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import {
 	readSiblingLookupMappings,
 	type SiblingLookupMapping,
 } from "../../store";
 import { isDeploymentServer } from "../../types";
+import { Pieces } from "../pieces";
 import {
 	assembleReadingProjectData,
 	type ReadingPlacesRead,
 	type ReadingProjectData,
 	rowsToMeasure,
 } from "./index";
+import { referencedLookupTags } from "./lookupDependencies";
 import { readHqLookupTablesForReading } from "./lookupTableStore";
 import { sourceMayReadPlaces } from "./places";
 
 /** The Project's side of the read, and Postgres's measure of candidate rows. */
 export interface ReadingProjectSide {
 	/**
-	 * The Project's tables whose tag is one of `tags`, each with its rows and
-	 * the columns CommCare HQ's content would keep (`ReadingProjectAnswers.keptColumns`),
-	 * in one snapshot.
+	 * The Project's tables whose tag is one of `tags`, each with its rows, in
+	 * one snapshot.
 	 */
 	readonly tables: (tags: readonly string[]) => Promise<{
 		readonly projectId: string;
 		readonly projectRevision: LookupRevision;
 		readonly definitions: readonly LookupTableDefinition[];
 		readonly rowsByTable: Readonly<Record<string, readonly LookupFixtureRow[]>>;
-		readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 	}>;
 	/** The apps that reference each table, by table id. */
 	readonly referencingApps: (
@@ -80,6 +85,7 @@ export interface ReadingProjectSide {
 	/** What Postgres measures of candidate rows. */
 	readonly measureRows: (
 		rows: readonly LookupRowValues[],
+		contents?: readonly LookupRowContent[],
 	) => Promise<LookupRowsMeasure>;
 }
 
@@ -118,7 +124,7 @@ export function postgresProjectSide(input: {
 	};
 	return {
 		async tables(tags) {
-			await viewerRole();
+			const role = await viewerRole();
 			const wanted = new Set(tags);
 			const db = await getAppDb();
 			return db
@@ -138,13 +144,13 @@ export function postgresProjectSide(input: {
 						tx,
 						projectId,
 						tableIds,
+						roleAllowsApp(role, "edit") ? "project-editor" : "device",
 					);
 					return {
 						projectId,
 						projectRevision: all.projectRevision,
 						definitions,
 						rowsByTable: recordFromEntries(fixture.rowsByTable),
-						keptColumns: await readKeptLookupColumnIds(tx, projectId, tableIds),
 					};
 				});
 		},
@@ -188,91 +194,233 @@ function readingSourceText(source: HqAppSource): string {
 	return parts.join("\n");
 }
 
+/** A narrow discovery trigger. The expression reader, not the spelling,
+ * decides whether these values actually read an instance. */
+function possibleInstance(value: unknown): boolean {
+	return (
+		typeof value === "string" &&
+		(value.includes("instance") || value.includes("&"))
+	);
+}
+
+function possibleNavigationInstance(
+	row: Record<string, unknown>,
+	filter: string,
+): boolean {
+	const badge = Array.isArray(row.custom_icons)
+		? row.custom_icons[0]
+		: undefined;
+	return (
+		possibleInstance(row[filter]) ||
+		(isJsonObject(badge) && possibleInstance(badge.xpath))
+	);
+}
+
+export function mayUseProjectFactory(source: string | HqAppSource): boolean {
+	const text = typeof source === "string" ? source : readingSourceText(source);
+	return (
+		(typeof source !== "string" &&
+			Array.isArray(source.raw.modules) &&
+			source.raw.modules.some((menu: unknown) => {
+				if (!isJsonObject(menu)) return false;
+				if (possibleNavigationInstance(menu, "module_filter")) return true;
+				if (
+					Array.isArray(menu.forms) &&
+					menu.forms.some(
+						(form: unknown) =>
+							isJsonObject(form) &&
+							possibleNavigationInstance(form, "form_filter"),
+					)
+				)
+					return true;
+				if (!isJsonObject(menu.case_details)) return false;
+				return [menu.case_details.short, menu.case_details.long].some(
+					(detail) =>
+						isJsonObject(detail) &&
+						Array.isArray(detail.columns) &&
+						detail.columns.some(
+							(column: unknown) =>
+								isJsonObject(column) &&
+								column.useXpathExpression === true &&
+								possibleInstance(column.field),
+						),
+				);
+			})) ||
+		text.includes("locations") ||
+		text.includes("commcare:reports") ||
+		text.includes("commcare-reports") ||
+		text.includes("&#")
+	);
+}
+
 type PlacesAnswer =
 	| { readonly kind: "read"; readonly places: ReadingPlacesRead }
 	| { readonly kind: "failed"; readonly failure: HqFailure };
 
-/** CommCare HQ's levels, then its places, stopping once past Nova's limit. */
-async function readPlacesOnce(
-	creds: CommCareCredentials,
-	domain: string,
-	cancel: AbortSignal | undefined,
-): Promise<PlacesAnswer> {
-	const levels = await listHqLocationTypes(creds, domain, { cancel });
-	if ("success" in levels) {
-		return {
-			kind: "failed",
-			failure: classifyHqFailure(levels, "location-types"),
-		};
-	}
-	const places = await listHqLocations(creds, domain, {
-		cancel,
-		stopPast: MAX_LOCATIONS_PER_APP,
-	});
-	if ("success" in places) {
-		return { kind: "failed", failure: classifyHqFailure(places, "locations") };
-	}
-	if ("kind" in places) {
-		return {
-			kind: "read",
-			places: {
-				hqLevels: levels,
-				hqPlaces: [],
-				placesPastLimit: {
-					totalCount: places.by === "rows" ? places.totalCount : null,
-				},
-			},
-		};
-	}
-	return {
-		kind: "read",
-		places: { hqLevels: levels, hqPlaces: places, placesPastLimit: null },
-	};
-}
-
-/** Whether every place stands at a level the level list holds. */
-function placesAgreeWithLevels(
-	levels: readonly HqLocationType[],
-	places: readonly HqLocation[],
-): boolean {
-	const codes = new Set(levels.map((level) => level.code));
-	return places.every((place) => codes.has(place.locationTypeCode));
-}
-
-/**
- * The levels and places. Where a place names a level the level list lacks,
- * the two reads straddled a change in CommCare HQ, and both are read once
- * more; a second pair that disagrees too is CommCare HQ not answering one
- * state.
- */
 async function readPlaces(
 	creds: CommCareCredentials,
 	domain: string,
-	cancel: AbortSignal | undefined,
+	cancel?: AbortSignal,
 ): Promise<PlacesAnswer> {
-	const first = await readPlacesOnce(creds, domain, cancel);
-	if (
-		first.kind === "failed" ||
-		placesAgreeWithLevels(first.places.hqLevels, first.places.hqPlaces)
-	) {
-		return first;
-	}
-	const second = await readPlacesOnce(creds, domain, cancel);
-	if (
-		second.kind === "failed" ||
-		placesAgreeWithLevels(second.places.hqLevels, second.places.hqPlaces)
-	) {
-		return second;
-	}
+	const read = await readHqPlaceInventory(creds, domain, cancel);
+	if (read.kind === "failed")
+		return {
+			kind: "failed",
+			failure: classifyHqFailure(read.error, read.request),
+		};
 	return {
-		kind: "failed",
-		failure: { kind: "hq-unavailable", request: "locations", status: 200 },
+		kind: "read",
+		places:
+			read.kind === "inconsistent"
+				? { hqLevels: [], hqPlaces: [], inconsistent: true }
+				: { hqLevels: read.levels, hqPlaces: read.places },
+	};
+}
+
+/**
+ * Nova holds one source-project location factory. A missing declaration or
+ * different physical layout on a reached scope cannot corroborate it.
+ */
+function commonLocations(sources: readonly (string | null | undefined)[]) {
+	if (sources.length === 0) return;
+	if (sources.every((source) => source === "jr://fixture/locations"))
+		return "flat";
+	if (sources.every((source) => source === "jr://fixture/commtrack:locations"))
+		return "hierarchical";
+}
+
+/** Project settings for factories an expression in this source actually consumes.
+ * A baseline can ask for the project setting, but only the current working
+ * app can supply its rendered form or suite. */
+export function sourceFactoryReads(input: {
+	creds: CommCareCredentials;
+	domain: string;
+	working?: WorkingSource;
+	source: HqAppSource;
+	cancel?: AbortSignal;
+}) {
+	const { creds, domain, cancel } = input;
+	const sameSuiteSource = (after: HqAppSource) => {
+		const before = normalizedHqAppSource(input.source.raw);
+		const current = normalizedHqAppSource(after.raw);
+		return (
+			"normalized" in before &&
+			"normalized" in current &&
+			isDeepStrictEqual(before.normalized, current.normalized)
+		);
+	};
+	const detailReads = new Map<string, Set<string>>();
+	let suiteDetails: Awaited<ReturnType<typeof readWorkingSuiteDetails>>;
+	const needed = new Set<ConditionalFactory>();
+	let formWitness: WorkingLocationWitness | undefined;
+	let currentSuite = false;
+	return {
+		observeDetail(source: HqAppSource, details: readonly string[], id: string) {
+			if (source !== input.source) return;
+			for (const detail of details) {
+				const ids = detailReads.get(detail) ?? new Set<string>();
+				ids.add(id);
+				detailReads.set(detail, ids);
+			}
+		},
+		async readDetails() {
+			if (
+				!suiteDetails &&
+				detailReads.size &&
+				input.working?.source === input.source
+			)
+				suiteDetails = await readWorkingSuiteDetails(
+					{ ...input, working: input.working, sameSuiteSource },
+					detailReads,
+				);
+			return suiteDetails;
+		},
+		observe(
+			source: HqAppSource,
+			kind: ConditionalFactory,
+			id: string,
+			form?: WorkingLocationWitness,
+		) {
+			needed.add(kind);
+			if (
+				kind === "locations" &&
+				id === "locations" &&
+				source === input.source
+			) {
+				if (form) formWitness ??= form;
+				else currentSuite = true;
+			}
+		},
+		async read(): Promise<
+			| {
+					kind: "read";
+					facts: NonNullable<ReadingProjectData["sourceProjectFactories"]>;
+			  }
+			| { kind: "failed"; failure: HqFailure }
+		> {
+			const sourceProjectFactories: {
+				locations?: "flat" | "hierarchical";
+				mobileReports?: boolean;
+			} = {};
+			for (const kind of needed) {
+				const flag = await readHqSourceFlag(
+					creds,
+					domain,
+					kind === "locations" ? "HIERARCHICAL_LOCATION_FIXTURE" : "MOBILE_UCR",
+					{ cancel },
+				);
+				if (flag.kind === "failed") return flag;
+				if (flag.kind === "not-a-member")
+					return {
+						kind: "failed",
+						failure: {
+							kind: "not-a-member",
+							request: "project-spaces",
+							status: 403,
+						},
+					};
+				if (kind === "mobileReports")
+					sourceProjectFactories.mobileReports = flag.kind === "applied";
+				else if (flag.kind === "not-applied")
+					sourceProjectFactories.locations = "flat";
+				else if (
+					input.working?.source === input.source &&
+					(formWitness || currentSuite)
+				) {
+					// The same source bracket already authenticated these declarations.
+					// A location inside a form attachment still needs its own witness.
+					const scopes = [...detailReads].filter(([, ids]) =>
+						ids.has("locations"),
+					);
+					const observed =
+						!formWitness && scopes.length > 0
+							? commonLocations(
+									scopes.flatMap(([key]) => {
+										const reached = suiteDetails?.get(key);
+										return reached ? [reached.get("locations")] : [];
+									}),
+								)
+							: await readWorkingLocationFixture({
+									creds,
+									domain,
+									working: input.working,
+									witness: formWitness,
+									sameSuiteSource,
+									cancel,
+								});
+					if (observed !== undefined)
+						sourceProjectFactories.locations = observed;
+				}
+			}
+
+			return { kind: "read", facts: sourceProjectFactories };
+		},
 	};
 }
 
 /**
  * Read a bring-in's project data, in order: CommCare HQ's lookup tables the
- * source's text may name, with their rows; the Project's tables of those tags
+ * source reads, with their rows; the Project's tables of those tags
  * through `project`, with the apps that read them, the columns CommCare HQ's
  * content would keep, the sibling mappings and whether the actor may
  * administer the Project; Postgres's measure of each candidate's rows that
@@ -294,12 +442,16 @@ export async function readReadingProjectData(input: {
 	readonly appId: string;
 	readonly readingId: string;
 	readonly source: HqAppSource;
+	readonly working?: WorkingSource;
 	/**
 	 * Another source whose text names tables and places for this read too:
 	 * a review of changes made in CommCare HQ reads one set of Project data
 	 * for the baseline's source and the app now, which both readings share.
 	 */
 	readonly alsoSource?: HqAppSource;
+	/** The current app's actual alignment. A stored baseline reads by its own form identities. */
+	readonly modules?: readonly HqAlignedModule[];
+	readonly pieces?: Pieces;
 	readonly project: ReadingProjectSide;
 	/** `always` reads places whatever the source's text says. */
 	readonly places: "when-source-reads" | "always";
@@ -307,6 +459,7 @@ export async function readReadingProjectData(input: {
 	readonly cancel?: AbortSignal;
 }): Promise<
 	| { readonly kind: "read"; readonly data: ReadingProjectData }
+	| { readonly kind: "too-intricate" }
 	| { readonly kind: "failed"; readonly failure: HqFailure }
 > {
 	const { creds, domain, cancel, project } = input;
@@ -318,18 +471,62 @@ export async function readReadingProjectData(input: {
 
 	/* Dated before CommCare HQ is asked, as every refresh dates its read. */
 	const tablesReadAt = new Date();
-	const lookups = await readHqLookupTablesForReading({
-		creds,
-		domain,
-		sourceText,
-		cancel,
-	});
+	let lookups: Awaited<ReturnType<typeof readHqLookupTablesForReading>>;
+	const factoryReads = sourceFactoryReads(input);
+	const pieces = input.pieces ?? new Pieces(cancel);
+	let suiteDetails: Awaited<ReturnType<typeof readWorkingSuiteDetails>>;
+	const dependencies = async (
+		listed: Parameters<typeof referencedLookupTags>[0]["listed"],
+	) => {
+		const options = {
+			...input,
+			listed,
+			pieces,
+			observeFactory: factoryReads.observe,
+		};
+		const first = await referencedLookupTags({
+			...options,
+			observeSuiteDetail: factoryReads.observeDetail,
+		});
+		suiteDetails = await factoryReads.readDetails();
+		return suiteDetails
+			? referencedLookupTags({ ...options, suiteDetails })
+			: first;
+	};
+	try {
+		let gathered = false;
+		lookups = await readHqLookupTablesForReading({
+			creds,
+			domain,
+			cancel,
+			referencedTags: (listed) => {
+				gathered = true;
+				return dependencies(listed);
+			},
+		});
+		// Even a source using no Project tables can consume a project-scoped
+		// factory. Entity-encoded words go through the actual renderer.
+		if (
+			!("success" in lookups) &&
+			!gathered &&
+			(mayUseProjectFactory(input.source) ||
+				(input.alsoSource && mayUseProjectFactory(input.alsoSource)))
+		)
+			await dependencies([]);
+	} catch (error) {
+		if (error instanceof WorkLimitReached) return { kind: "too-intricate" };
+		throw error;
+	}
 	if ("success" in lookups) {
 		return {
 			kind: "failed",
 			failure: classifyHqFailure(lookups, lookups.request),
 		};
 	}
+
+	const factories = await factoryReads.read();
+	if (factories.kind === "failed") return factories;
+	const sourceProjectFactories = factories.facts;
 
 	const tags = lookups.tables.map((read) => read.table.tag);
 	const projectTables = await project.tables(tags);
@@ -343,7 +540,15 @@ export async function readReadingProjectData(input: {
 		const rows = rowsToMeasure(read, ids);
 		measured.set(
 			read.table.tag,
-			rows === null ? null : await project.measureRows(rows),
+			rows === null
+				? null
+				: await project.measureRows(
+						rows.map((row) => row.values),
+						rows.map(({ attributes, occurrences }) => ({
+							attributes,
+							occurrences,
+						})),
+					),
 		);
 	}
 
@@ -359,26 +564,29 @@ export async function readReadingProjectData(input: {
 
 	return {
 		kind: "read",
-		data: assembleReadingProjectData({
-			origin: { server: input.server, domain },
-			appId: input.appId,
-			readingId: input.readingId,
-			tablesReadAt,
-			tables: lookups.tables,
-			hqTags: lookups.listed,
-			project: {
-				projectId: projectTables.projectId,
-				projectRevision: projectTables.projectRevision,
-				definitions: projectTables.definitions,
-				rowsByTable: projectTables.rowsByTable,
-				apps,
-				keptColumns: projectTables.keptColumns,
-				siblings,
-				mayAdminister,
-			},
-			measured,
-			places,
-			placesUnread,
-		}),
+		data: {
+			sourceProjectFactories,
+			suiteDetails,
+			...assembleReadingProjectData({
+				origin: { server: input.server, domain },
+				appId: input.appId,
+				readingId: input.readingId,
+				tablesReadAt,
+				tables: lookups.tables,
+				hqTags: lookups.listed,
+				project: {
+					projectId: projectTables.projectId,
+					projectRevision: projectTables.projectRevision,
+					definitions: projectTables.definitions,
+					rowsByTable: projectTables.rowsByTable,
+					apps,
+					siblings,
+					mayAdminister,
+				},
+				measured,
+				places,
+				placesUnread,
+			}),
+		},
 	};
 }

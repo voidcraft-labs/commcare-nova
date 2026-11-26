@@ -8,18 +8,30 @@
 
 import { CASE_TYPE_REGEX, MAX_CASE_TYPE_LENGTH } from "@/lib/commcare";
 import {
+	advancedKindBlockerSentence,
+	advancedKindBlockers,
 	type BlueprintDoc,
 	type Module,
 	menuFormUuidsOf,
 	moduleHasCaseListMenuItem,
-	moduleIsBareCaseList,
+	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import {
+	menuMediaProblemDetails,
+	navigationMediaProblem,
+	navigationMediaProblemText,
+} from "@/lib/domain/navigationMedia";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
+import { caseFormContext } from "./case-list/caseFormContext";
+import { caseListDeviceLookup } from "./case-list/caseListDeviceLookup";
+import { caseListLoadBehavior } from "./case-list/caseListLoadBehavior";
+import { caseMapLayers } from "./case-list/caseMapLayers";
 import { caseTileGrouping } from "./case-list/caseTileGrouping";
 import { caseTileHiddenCalculatedSort } from "./case-list/caseTileHiddenCalculatedSort";
 import { caseTileLayout } from "./case-list/caseTileLayout";
@@ -30,11 +42,17 @@ import { columnRelation } from "./case-list/columnRelation";
 import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
 import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
 import { dateColumnPattern } from "./case-list/dateColumnPattern";
+import { detailTabPartition } from "./case-list/detailTabPartition";
+import { detailTabTypeCheck } from "./case-list/detailTabTypeCheck";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
+import { hiddenSearchField } from "./case-list/hiddenSearchField";
 import { idMappingKeyCharacters } from "./case-list/idMappingKeyCharacters";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
+import { nativeSearchFilters } from "./case-list/nativeSearchFilters";
 import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
+import { searchAddressReceiverCompatibility } from "./case-list/searchAddressReceiverCompatibility";
+import { searchCheckMessage } from "./case-list/searchCheckMessage";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
@@ -44,10 +62,14 @@ import { searchInputReservedName } from "./case-list/searchInputReservedName";
 import { searchInputScreenPredicateTypeCheck } from "./case-list/searchInputScreenPredicateTypeCheck";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
+import { searchTitleLanguages } from "./case-list/searchTitleLanguages";
 import { sortLabel } from "./case-list/sortLabel";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { sortPropertyOwnership } from "./case-list/sortPropertyOwnership";
-import { caseListRegistrationForm } from "./case-search/caseListRegistration";
+import {
+	caseListActionVisibility,
+	caseListRegistrationForm,
+} from "./case-search/caseListRegistration";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import {
@@ -65,6 +87,33 @@ import { hiddenMenuEntryPoints } from "./hiddenFromMenu";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
 import { multiSelectTopology } from "./multiSelect";
 
+function localizedMenuMedia(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+): ValidationError[] {
+	const app = effectiveAppLocalization(doc.localization);
+	for (const carrier of [
+		mod,
+		mod.caseListMenuItem,
+		mod.caseListRegistrationForm?.kind === "always"
+			? mod.caseListRegistrationForm
+			: undefined,
+	]) {
+		const problem = navigationMediaProblem(carrier, app, doc);
+		if (problem)
+			return [
+				validationError(
+					"MENU_MEDIA_LANGUAGE",
+					"module",
+					navigationMediaProblemText(problem),
+					{ moduleUuid, moduleName: mod.name },
+					menuMediaProblemDetails(problem),
+				),
+			];
+	}
+	return [];
+}
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
 }
@@ -130,7 +179,9 @@ function noFormsOrCaseList(
 	// must NOT be gated on caseType: a typeless, formless menu is just as
 	// invalid, and Nova would emit the exact wire CommCare then refuses to
 	// build.
-	if (moduleHasCaseListMenuItem(mod) || forms.length > 0) return [];
+	// A shared menu needs a source. HQ’s ShadowModuleValidator also accepts a route with every form hidden.
+	if (mod.formsFromMenu || moduleHasCaseListMenuItem(mod) || forms.length > 0)
+		return [];
 	// One finding, two contexts: creating a module without a form, and removing
 	// a module's LAST form. So the wording can't just say "add a form" — that
 	// reads backwards when you're deleting. It states the rule, then names the
@@ -147,42 +198,6 @@ function noFormsOrCaseList(
 	];
 }
 
-/** HQ's child-module `add_parent_datums` aligns a child entry against the
- * root module's first form. A bare case list root has no such entry,
- * so a different child case type cannot receive its distinct datum identity.
- * Same-type children need no second identity and remain representable. */
-function nestedMenuCrossTypeRootRequiresForm(
-	mod: Module,
-	moduleUuid: Uuid,
-	doc: BlueprintDoc,
-): ValidationError[] {
-	const parentUuid = mod.parentModuleUuid;
-	if (parentUuid === undefined || parentUuid === null) return [];
-	const parent = doc.modules[parentUuid];
-	if (
-		parent === undefined ||
-		!moduleIsBareCaseList(doc, parentUuid) ||
-		!parent.caseType ||
-		!mod.caseType ||
-		parent.caseType === mod.caseType
-	) {
-		return [];
-	}
-	return [
-		validationError(
-			"NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
-			"module",
-			`Module "${mod.name}" cannot be a submenu under case-list-only module "${parent.name}" because they use different case types ("${mod.caseType}" and "${parent.caseType}"). CommCare needs a form in the top-level module to keep both case selections distinct. Turn "${parent.name}" into a form-bearing module and add a form, make both modules use the same case type, or make "${mod.name}" top-level.`,
-			{ moduleUuid, moduleName: mod.name },
-			{
-				parentModuleUuid: parentUuid,
-				parentCaseType: parent.caseType,
-				childCaseType: mod.caseType,
-			},
-		),
-	];
-}
-
 function invalidCaseTypeFormat(
 	mod: Module,
 	moduleUuid: Uuid,
@@ -196,6 +211,50 @@ function invalidCaseTypeFormat(
 			`Module "${mod.name}" has case_type "${mod.caseType}", which holds a character a case type can't. A case type holds only letters, digits, underscores and hyphens (for example "patient", "home_visit" or "1st-visit").`,
 			{ moduleUuid, moduleName: mod.name },
 			{ caseType: mod.caseType },
+		),
+	];
+}
+
+/**
+ * A menu whose list chooses the worker's own record, or opens a single
+ * match automatically, is one CommCare HQ holds only as an advanced menu
+ * (`lib/domain/advancedEntryDatums.ts::advancedKindTriggers`, the
+ * `list-entry` reason): HQ's menu settings page marks `commcare-user` an
+ * error on an ordinary menu, and only an advanced menu writes
+ * `auto_select_case`. Where something keeps the menu from being advanced
+ * (`advancedKindBlockers`), the menu would reach HQ as an ordinary one that
+ * Nova cannot read back, with automatic selection silently off, so the
+ * first blocker is named here. A held advanced menu's blockers are
+ * `HELD_PLACEMENT_INEXPRESSIBLE`'s.
+ */
+function listEntryNeedsAdvancedMenu(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+): ValidationError[] {
+	const workerRecord = mod.caseType === USERCASE_CASE_TYPE;
+	if (!workerRecord && !mod.autoSelectSingle) return [];
+	if (mod.heldKind === "advanced") return [];
+	const [first] = advancedKindBlockers(doc, moduleUuid);
+	if (first === undefined) return [];
+	const what = workerRecord
+		? "lists the worker’s own record"
+		: "opens a single match automatically";
+	const remedy = workerRecord
+		? "choose another record type for it"
+		: "turn off opening a single match automatically";
+	const sentence = `The menu “${mod.name}” ${what}, which only an advanced menu in CommCare HQ can do. ${advancedKindBlockerSentence(first.kind)} You can ${remedy}, or change that setting so the menu can be advanced.`;
+	return [
+		validationError(
+			"MENU_LIST_ENTRY_NEEDS_ADVANCED",
+			"module",
+			sentence,
+			{ moduleUuid, moduleName: mod.name },
+			{
+				reason: workerRecord ? "worker-record" : "auto-select-single",
+				blocker: first.kind,
+				sentence,
+			},
 		),
 	];
 }
@@ -294,16 +353,17 @@ export const CASE_LIST_ORDER_RULES: readonly ModuleRule[] = [
 ];
 
 export const MODULE_RULES: readonly ModuleRule[] = [
+	localizedMenuMedia,
 	parentCaseSelection,
 	caseFormsNoCaseType,
 	caseListMenuItemNoCaseType,
 	noFormsOrCaseList,
-	nestedMenuCrossTypeRootRequiresForm,
 	invalidCaseTypeFormat,
 	caseTypeTooLong,
 	missingCaseListColumns,
 	multiSelectTopology,
 	heldModuleKindInexpressible,
+	listEntryNeedsAdvancedMenu,
 	moduleDisplayCondition,
 	hiddenMenuEntryPoints,
 	menuAboveEntryPoints,
@@ -313,8 +373,14 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	columnRelation,
 	columnReferences,
 	columnKindPropertyType,
+	caseMapLayers,
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
+	detailTabTypeCheck,
+	detailTabPartition,
+	caseListLoadBehavior,
+	caseListDeviceLookup,
+	caseFormContext,
 	imageMapValueUnique,
 	idMappingKeyCharacters,
 	dateColumnPattern,
@@ -335,11 +401,17 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	searchInputScreenPredicateTypeCheck,
 	csqlPredicateRepresentability,
 	searchInputRefUsesWhenInputPresent,
+	nativeSearchFilters,
 	searchInputViaModeCompatibility,
+	searchAddressReceiverCompatibility,
+	hiddenSearchField,
+	searchCheckMessage,
+	searchTitleLanguages,
 	// Case-search-config rules. Slot-specific checks read authored config;
 	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
 	// markerless inputs receive the same validation as the remote request they
 	// still emit.
+	caseListActionVisibility,
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
 	searchRelatedCalculationCompatibility,

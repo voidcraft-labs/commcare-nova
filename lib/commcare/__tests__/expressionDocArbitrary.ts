@@ -8,7 +8,6 @@ import {
 	calculatedColumn,
 	type Field,
 	fieldCaseWriteViews,
-	fieldKindCarriesValidation,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -39,6 +38,40 @@ import {
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
 import { mappedAsTheCutoverMaps } from "./xformDocArbitrary";
+
+/** Whether the corpus draws a validation for the field. These are the kinds
+ * that carried one when the corpus seeds were taken: a kind that has gained a
+ * validation since (a message, a capture, a location) has its own tests, and
+ * drawing it here would move every seeded document. */
+function drawsValidation(field: Field): field is Extract<
+	Field,
+	{
+		kind:
+			| "text"
+			| "int"
+			| "decimal"
+			| "date"
+			| "datetime"
+			| "time"
+			| "barcode"
+			| "secret"
+			| "single_select"
+			| "multi_select";
+	}
+> {
+	return (
+		field.kind === "text" ||
+		field.kind === "int" ||
+		field.kind === "decimal" ||
+		field.kind === "date" ||
+		field.kind === "datetime" ||
+		field.kind === "time" ||
+		field.kind === "barcode" ||
+		field.kind === "secret" ||
+		field.kind === "single_select" ||
+		field.kind === "multi_select"
+	);
+}
 
 export const EXPRESSION_SHAPES = [
 	"reference",
@@ -160,8 +193,7 @@ function attachForm(
 	const candidates: Candidate[] = [];
 	for (const field of fields) {
 		candidates.push({ field, slot: "relevant" });
-		if (fieldKindCarriesValidation(field.kind))
-			candidates.push({ field, slot: "validate" });
+		if (drawsValidation(field)) candidates.push({ field, slot: "validate" });
 		// A question that saves to a case keeps its value: a calculation or a
 		// starting value there would change what the case holds.
 		const saves = fieldCaseWriteViews(doc, field.uuid).length > 0;
@@ -214,18 +246,7 @@ function attachForm(
 			field.default_value = value;
 			break;
 		case "validate":
-			if (
-				field.kind !== "text" &&
-				field.kind !== "int" &&
-				field.kind !== "decimal" &&
-				field.kind !== "date" &&
-				field.kind !== "datetime" &&
-				field.kind !== "time" &&
-				field.kind !== "barcode" &&
-				field.kind !== "secret" &&
-				field.kind !== "single_select" &&
-				field.kind !== "multi_select"
-			)
+			if (!drawsValidation(field))
 				throw new Error("A validation target must carry validation.");
 			field.validate = field.validate
 				? and(field.validate, condition)
@@ -233,7 +254,8 @@ function attachForm(
 			stored = condition;
 			break;
 		case "relevant":
-			if (field.kind === "section") return undefined;
+			if (field.kind === "section" || field.kind === "case_change")
+				return undefined;
 			field.relevant = field.relevant
 				? and(field.relevant, condition)
 				: condition;

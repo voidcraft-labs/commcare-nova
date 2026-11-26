@@ -1,0 +1,21 @@
+[
+	{
+		"id": "site-described",
+		"entry": "expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
+		"form": { "menu": 0, "form": 0 },
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{ "path": "/data/site_name", "value": "North gate" },
+				{ "path": "/data/site_remark", "value": "Birds at dawn" }
+			],
+			"expressions": ["/data/site_name", "/data/site_remark"]
+		},
+		"expect": [
+			{ "pointer": "/answers/0/result", "value": "ok" },
+			{ "pointer": "/answers/1/result", "value": "ok" },
+			{ "pointer": "/values/0/value", "value": "North gate" },
+			{ "pointer": "/values/1/value", "value": "Birds at dawn" }
+		]
+	}
+]

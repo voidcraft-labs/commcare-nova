@@ -51,7 +51,7 @@ export interface DraftApp {
 	/** The project space's levels (`levelsFromHq`). */
 	levels: readonly OrganizationLevel[];
 	/** The app's Connect kind, set once every form is read (`xform/connect.ts::readConnectType`). */
-	connectType: BlueprintDoc["connectType"];
+	connectRoles: BlueprintDoc["connectRoles"];
 	/** What the app reads of the worker and of places (`worldEntitiesFromReads`). */
 	userProperties: readonly UserProperty[];
 	locationProperties: readonly LocationProperty[];
@@ -61,6 +61,8 @@ export interface DraftApp {
 	 *  draft stays in `modules` so every key of it is read; it is no menu of the document, its
 	 *  one form is the host's last, and its HQ id is listed under `syntheticModuleUuid(formUuid)`. */
 	readonly foldedMenus: FoldedMenu[];
+	/** Services observed in this source only. Several menus can use one service. */
+	readonly projectSearches: Map<number, Uuid>;
 }
 
 /** A hidden registration menu read as its host's registration after an empty search. */
@@ -76,7 +78,7 @@ export interface DraftModule {
 	readonly index: number;
 	readonly uniqueId: string;
 	readonly uuid: Uuid;
-	readonly docType: "Module" | "AdvancedModule";
+	readonly docType: "Module" | "AdvancedModule" | "ShadowModule";
 	readonly json: JsonCursor;
 	readonly place: HqPlace;
 	/** The slots stages set. `assembleDocument` parses the whole with `moduleSchema`. */
@@ -89,7 +91,9 @@ export interface DraftForm {
 	readonly index: number;
 	readonly xmlns: string;
 	readonly uuid: Uuid;
-	readonly docType: "Form" | "AdvancedForm";
+	readonly docType: "Form" | "AdvancedForm" | "ShadowForm";
+	/** Distinct entry key when questions come from a parent. */
+	readonly entryKey?: import("./identity").FormIdentityKey;
 	readonly json: JsonCursor;
 	readonly place: HqPlace;
 	readonly form: Partial<Form>;
@@ -142,14 +146,23 @@ function emptyFacts(input: ReaderInput): MutableReadFacts {
 		unheldMedia: [],
 		pendingMedia: [],
 		unreadTables: [],
-		foldedTranslationKeys: [],
+		unusedTranslationKeys: [],
 		forms: [],
 		sameStateRewrites: [],
+		detailColumnOwners: [],
+		formLinkOwners: [],
 		entryFactsRefused: [],
 		childCasesUnread: [],
 		rewrites: [],
 		expressionRounds: 0,
 	};
+}
+
+export function readProjectSearchBindings(ctx: ReadContext) {
+	return Array.from(ctx.draft.projectSearches, ([endpointId, searchUuid]) => ({
+		endpointId,
+		searchUuid,
+	}));
 }
 
 /** The context a reading starts with: no draft written, the root cursor open. */
@@ -173,11 +186,12 @@ export function createReadContext(
 			logo: undefined,
 			modules: [],
 			levels: [],
-			connectType: null,
+			connectRoles: [],
 			userProperties: [],
 			locationProperties: [],
 			caseTypes: null,
 			foldedMenus: [],
+			projectSearches: new Map(),
 		},
 		translations: translationSink(),
 		pending: pendingRegistry(),

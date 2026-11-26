@@ -22,6 +22,7 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { caseWriteKeyOf, sameCaseWriteKey } from "@/lib/domain/forms";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
 	type AuthoringScope,
@@ -58,6 +59,7 @@ function formReadSite(
 		path,
 		searchValidation: false,
 	});
+	if (ref.slot === "form_badge") return site(["badge", "expression"]);
 	if (ref.slot === "form_display_condition") return site(["displayCondition"]);
 	if (!("member" in ref) || !("operationUuid" in ref.member)) return undefined;
 	const member = ref.member;
@@ -73,10 +75,16 @@ function formReadSite(
 			return site([...at, "target", "expr"]);
 		case "case_operation_condition":
 			return site([...at, "condition"]);
+		case "case_operation_close_condition":
+			return site([...at, "closeCondition"]);
 		case "case_operation_name":
 			return site([...at, "name"]);
 		case "case_operation_owner":
 			return site([...at, "owner"]);
+		case "case_operation_type_condition":
+			return site([...at, "typeChoice", "condition"]);
+		case "case_operation_owner_condition":
+			return site([...at, "ownerCondition"]);
 		case "case_operation_rename":
 			return site([...at, "rename"]);
 		case "case_operation_write_value":
@@ -126,14 +134,86 @@ function moduleReadSite(
 	const list = module.caseListConfig;
 	const search = module.caseSearchConfig;
 	switch (ref.slot) {
+		case "case_list_action_condition":
+			return site(module.caseListRegistrationForm, ["showWhen", "condition"]);
+		case "module_badge":
+			return site(module.badge, ["expression"]);
 		case "module_display_condition":
 			return site(module.displayCondition, []);
+		case "search_filter_value": {
+			const position =
+				list?.searchFilters?.findIndex(
+					(filter) => filter.uuid === ref.member.filterUuid,
+				) ?? -1;
+			return position < 0
+				? undefined
+				: site(list, ["searchFilters", position, "value"]);
+		}
+		case "case_search_filter":
+			return site(list, ["searchCondition"]);
 		case "case_list_filter":
 			return site(list, ["filter"]);
 		case "search_button_display_condition":
 			return site(search, ["searchButtonDisplayCondition"]);
+		case "project_search_parameter": {
+			const projectSearch =
+				search && "projectSearch" in search ? search.projectSearch : undefined;
+			const position =
+				projectSearch?.defaults.findIndex(
+					(parameter) => parameter.uuid === ref.member.parameterUuid,
+				) ?? -1;
+			return position < 0
+				? undefined
+				: site(search, ["projectSearch", "defaults", position, "value"]);
+		}
 		case "excluded_owner_ids":
 			return site(search, ["excludedOwnerIds"]);
+		case "case_list_sort_expression": {
+			const index =
+				list?.calculatedSorts?.findIndex(
+					(rule) => rule.uuid === ref.member.sortUuid,
+				) ?? -1;
+			return index < 0
+				? undefined
+				: site(list, ["calculatedSorts", index, "expression"]);
+		}
+		case "case_list_mapping_condition": {
+			const columnIndex =
+				list?.columns.findIndex(
+					(column) => column.uuid === ref.member.columnUuid,
+				) ?? -1;
+			const column = list?.columns[columnIndex];
+			if (column?.kind !== "id-mapping" && column?.kind !== "image-map")
+				return undefined;
+			const index = column.mapping.findIndex(
+				(row) => row.uuid === ref.member.rowUuid,
+			);
+			return index < 0
+				? undefined
+				: site(list, ["columns", columnIndex, "mapping", index, "when"]);
+		}
+		case "case_form_context_line":
+			return site(list, ["contextAboveForm", "expression"]);
+		case "case_detail_tab_filter":
+		case "case_detail_tab_rows":
+		case "case_detail_tab_condition": {
+			const tab = (list?.detailTabs ?? []).findIndex(
+				(tab) => tab.uuid === ref.member.tabUuid,
+			);
+			return tab < 0
+				? undefined
+				: site(
+						list,
+						ref.slot === "case_detail_tab_condition"
+							? ["detailTabs", tab, "displayCondition"]
+							: [
+									"detailTabs",
+									tab,
+									"rowSource",
+									ref.slot === "case_detail_tab_filter" ? "condition" : "rows",
+								],
+					);
+		}
 		case "case_list_column_expression": {
 			const column = (list?.columns ?? []).findIndex(
 				(candidate) => candidate.uuid === ref.member.columnUuid,
@@ -287,10 +367,7 @@ export const recordDialectRoundTrip: RecordDialectJudge = (
 	if (scope === undefined) return "round-trip";
 	const printer = queryPrinter(scope);
 	const types = new Map(
-		[...lookup.values()].map((table) => [
-			table.id,
-			new Map(table.columns.map((column) => [column.id, column.dataType])),
-		]),
+		[...lookup.values()].map((table) => [table.id, lookupReadTypes(table)]),
 	);
 	const condition =
 		slotContext(doc, ref, types)?.profile.expectation.kind === "condition";

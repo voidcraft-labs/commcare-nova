@@ -1,0 +1,27 @@
+{
+	"catalog": [
+		{
+			"name": "patient",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "case_type",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "owner_id",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

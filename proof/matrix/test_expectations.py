@@ -2,7 +2,8 @@
 
 Each base holds ``proof/matrix/hand/<base>/expectations.json`` and the
 ``restore.xml`` its expectations run over, written by hand from what the
-base's builder authors and never from a reading. An expectation is
+base's builder authors and never from a reading. A focused expectation can
+use a second restore file named restore-*.xml in the same directory. An expectation is
 ``proof/targeted/expected.ts::Expectation`` less ``export``, with ``form`` as
 HQ's ``{menu, form}``, and ``entry`` and ``exports`` beside it. The rules,
 each failing by base with what is missing:
@@ -82,9 +83,8 @@ def _held_entries():
 # The last step of a trace path that names a media reference Core read for a screen (a question's, a choice's or a
 # menu entry's picture, sound or video), not a value.
 MEDIA_REFERENCES = frozenset({"image", "audio", "video"})
-# The step of a trace path above a value a search sent HQ: one of its ``_xpath_query`` values, on the search's step
-# or one of its requests (``proof/checks/compare/trace.py::queries_as_multisets``).
-SEARCH_QUERY = "_xpath_query"
+# Trace paths to query and order values sent to HQ, on the Search step or its request.
+SEARCH_REQUEST_PARAMS = frozenset({"_xpath_query", "commcare_sort"})
 # The last step of a trace path that names how many cases HQ's search view answered one of a search's requests with
 # (``.../requests/*/answered``, ``ProofSessionUtils.java``'s count of HQ's answer).
 SEARCH_ANSWER = ("requests", "*", "answered")
@@ -122,7 +122,11 @@ def _native_screen_only(row):
     if steps:
         steps[-1] = steps[-1].partition(":")[0]
     if reader == "webapps":
-        return steps == ["home", "releaseListed"] or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
+        return (
+            steps == ["home", "releaseListed"]
+            or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
+            or (steps[:-1] == ["runs", "*", "screens", "*", "form", "questions", "*", "media", "*"] and steps[-1] == "src")
+        )
     if reader == "formplayer" and steps[:4] == ["runs", "*", "steps", "*"]:
         content = steps[4:]
         if content in (["response", "commands", "*", "displayText"], ["response", "headers", "*"]):
@@ -156,11 +160,17 @@ def _shows_a_value(row):
     if _native_screen_only(row):
         return False
     steps = row.get("path", "").split("/")
+    search_request_parameter = (
+        steps[1:5] == ["runs", "*", "trace", "*"]
+        and steps[5:-2] in (["params"], ["requests", "*", "params"])
+        and steps[-2] in SEARCH_REQUEST_PARAMS
+        and steps[-1] == "*"
+    )
     return (
         row.get("check") == "proof3"
         and steps[-1] not in MEDIA_REFERENCES
         and tuple(steps[-len(FORM_TITLE) :]) != FORM_TITLE
-        and SEARCH_QUERY not in steps[-2:]
+        and not search_request_parameter
         and tuple(steps[-len(SEARCH_ANSWER) :]) != SEARCH_ANSWER
         and not (steps[1:5] == ["runs", "*", "trace", "*"] and len(steps) > 5 and steps[5] in SCREEN_ONLY)
     )
@@ -344,27 +354,43 @@ def _problems(base, claim_log, held, proof3):
         return problems
     expectations = json.loads((hand / "expectations.json").read_text(encoding="utf-8"))
 
-    # 1. The restore against the expectations and the seed.
-    try:
-        cases = _restore_cases((hand / "restore.xml").read_bytes())
-    except Exception as error:  # noqa: BLE001 (any parse failure is the rule's)
-        return [f"restore.xml does not parse ({error})"]
+    # 1. Each restore against the expectations that use it and the shared seed.
     catalog = {entry["name"]: {prop["name"] for prop in entry["properties"]} for entry in seed["catalog"]}
     for case_type, loaded in _loaded_properties(app).items():
         if case_type in catalog:
             catalog[case_type] |= loaded
-    for case_id, (case_type, written) in sorted(cases.items()):
-        if case_type is not None and case_type not in catalog and case_type != "commcare-user":
-            problems.append(f"restore.xml's case {case_id} is of the type {case_type}, which seed.json's catalog lacks")
-        elif case_type in catalog and written - catalog[case_type]:
-            problems.append(
-                f"restore.xml's case {case_id} writes {sorted(written - catalog[case_type])}, which seed.json gives"
-                f" {case_type} no property of"
-            )
+    restores = {"restore.xml": None}
     for expectation in expectations:
         restore = expectation.get("restore")
-        if restore != "restore.xml":
-            problems.append(f"{expectation.get('id')} names the restore {restore!r}, and a base's is restore.xml")
+        if restore != "restore.xml" and not (
+            isinstance(restore, str)
+            and Path(restore).name == restore
+            and restore.startswith("restore-")
+            and restore.endswith(".xml")
+        ):
+            problems.append(f"{expectation.get('id')} names the restore {restore!r}; use restore.xml or restore-*.xml")
+            continue
+        restores.setdefault(restore, None)
+    for restore in restores:
+        try:
+            restored_cases = _restore_cases((hand / restore).read_bytes())
+        except Exception as error:  # noqa: BLE001 (any parse failure is the rule's)
+            problems.append(f"{restore} does not parse ({error})")
+            continue
+        restores[restore] = restored_cases
+        for case_id, (case_type, written) in sorted(restored_cases.items()):
+            if case_type is not None and case_type not in catalog and case_type != "commcare-user":
+                problems.append(f"{restore}'s case {case_id} is of the type {case_type}, which seed.json's catalog lacks")
+            elif case_type in catalog and written - catalog[case_type]:
+                problems.append(
+                    f"{restore}'s case {case_id} writes {sorted(written - catalog[case_type])}, which seed.json gives"
+                    f" {case_type} no property of"
+                )
+    for expectation in expectations:
+        restore = expectation.get("restore")
+        cases = restores.get(restore) if isinstance(restore, str) else None
+        if cases is None:
+            continue
         request = expectation.get("request") or {}
         data = (request.get("session") or {}).get("data") or {}
         form = expectation.get("form") or {}
@@ -500,6 +526,9 @@ def test_a_change_shown_only_by_what_a_trace_read_or_a_search_sent_needs_no_valu
 
     assert not _shows_a_value(row("/runs/*/trace/*/params/_xpath_query/*"))
     assert not _shows_a_value(row("/runs/*/trace/*/requests/*/params/_xpath_query/*"))
+    assert not _shows_a_value(row("/runs/*/trace/*/params/commcare_sort/*"))
+    assert not _shows_a_value(row("/runs/*/trace/*/requests/*/params/commcare_sort/*"))
+    assert _shows_a_value(row("/runs/*/trace/*/rows/*/fields/commcare_sort/*"))
     assert not _shows_a_value(row("/runs/*/trace/*/requests/*/answered"))
     # A step's own key of that name, not a request's answer, still asks one.
     assert _shows_a_value(row("/runs/*/trace/*/answered"))
@@ -537,6 +566,8 @@ def test_native_screen_differences_do_not_require_values_core_cannot_observe():
     assert not shown("webapps", "/home/tiles/incomplete")
     assert not shown("webapps", "/home/releaseListed")
     assert shown("webapps", "/runs/*/screens/*/form/label")
+    assert not shown("webapps", "/runs/*/screens/*/form/questions/*/media/*/src:renamed-file")
+    assert shown("webapps", "/runs/*/screens/*/form/questions/*/answer")
     assert not shown("formplayer", "/runs/*/steps/*/tree/*/caption_image:renamed-file")
     assert not shown("formplayer", "/runs/*/steps/*/response/commands/*/displayText:trimmed")
     assert not shown("formplayer", "/runs/*/steps/*/response/headers/*:trimmed")

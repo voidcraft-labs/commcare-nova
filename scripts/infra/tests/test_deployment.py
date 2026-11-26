@@ -86,9 +86,11 @@ class BuildCacheTests(unittest.TestCase):
 
 def media_fixture():
     return {
+        "iamConfiguration": {"uniformBucketLevelAccess":{"enabled":True},"publicAccessPrevention":"enforced"},
         "lifecycle": {"rule": [
             {"action": {"type": "Delete"}, "condition": {"age": 1, "matchesPrefix": ["pending/"]}},
             {"action": {"type": "Delete"}, "condition": {"age": 7, "matchesPrefix": ["captures-staged/"]}},
+            {"action": {"type": "Delete"}, "condition": {"age": 1, "matchesPrefix": ["private-exports/"]}},
         ]},
         "softDeletePolicy": {"retentionDurationSeconds": "0"},
         "versioning": {"enabled": False}, "defaultEventBasedHold": False,
@@ -150,7 +152,7 @@ class InfrastructureTests(unittest.TestCase):
                 self.assertEqual([request.get_method() for request in sent], ["GET", "PATCH", "GET"] if apply else ["GET"])
                 if apply:
                     self.assertEqual(sent[1].full_url, "https://storage.googleapis.com/storage/v1/b/nova-multimedia-prod?ifMetagenerationMatch=7")
-                    self.assertEqual(json.loads(sent[1].data), media_fixture())
+                    self.assertEqual(json.loads(sent[1].data), {key: value for key, value in media_fixture().items() if key != "iamConfiguration"})
 
     def test_media_refuses_operator_retention_or_missing_generation_without_any_write(self):
         for mutation in ({"retentionPolicy": {}}, {"metageneration": None}, {"metageneration": "1.5"}):
@@ -161,6 +163,22 @@ class InfrastructureTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.cli("media", "--apply")
                 self.assertEqual([request.get_method() for request in requests(http)], ["GET"])
+
+    def test_export_policy_rehearses_exact_install_and_restore(self):
+        full = media_fixture()
+        prior = {**full, "metageneration": "226", "lifecycle": {"rule": full["lifecycle"]["rule"][:-1]}}
+        installed = {**full, "metageneration": "227"}
+        restored = {**prior, "metageneration": "228"}
+        for action, before, after in (("install", prior, installed), ("restore", installed, restored)):
+            with self.subTest(action=action), patch.object(infra, "api", side_effect=[before, {}, after]) as api, redirect_stdout(io.StringIO()):
+                infra.export_lifecycle(action, before["metageneration"], True)
+                self.assertEqual([c.args[0] for c in api.call_args_list], ["GET", "PATCH", "GET"])
+                self.assertEqual(api.call_args_list[1].args[2], {"lifecycle": after["lifecycle"]})
+                self.assertIn("ifMetagenerationMatch=" + before["metageneration"], api.call_args_list[1].args[1])
+        with patch.object(infra, "api", return_value=prior) as api:
+            with self.assertRaisesRegex(ValueError, "metageneration changed"):
+                infra.export_lifecycle("install", "225", True)
+            self.assertEqual(api.call_count, 1)
 
     def test_check_reads_real_scheduler_response_and_never_repairs_drift(self):
         paused = {**scheduler_fixture(), "state": "PAUSED"}

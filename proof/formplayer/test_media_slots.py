@@ -193,3 +193,27 @@ def test_formplayer_installs_hqs_build_from_an_archive_that_holds_none_of_its_me
     # Formplayer installed that archive and ran the form: the question it opened names its label's image.
     assert opened, f"Formplayer's walk of {DOCUMENT} never opened the form holding {QUESTION}"
     assert LABEL_IMAGE in str(opened[0].get("caption_image")), opened[0]
+
+
+def test_a_worker_receives_the_question_image_in_the_selected_language(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    from proof.observe import walks
+
+    with apps.published(formplayer_documents["media-language-files"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served:
+            walked = apps.walked(formplayer_runner, served)
+    observed = {}
+    for run in walked["runs"]:
+        language = walks.language_of(run["script"]) or walked["locale"]
+        for step in run["steps"]:
+            response = step.get("response")
+            if not isinstance(response, dict):
+                continue
+            for question in _questions(response.get("tree")):
+                if question.get("binding") == QUESTION:
+                    observed.setdefault(language, set()).add(question.get("caption_image"))
+    assert set(observed) == {"en", "fra"}, observed
+    assert all(isinstance(path, str) and LABEL_IMAGE in path for path in observed["en"]), observed
+    assert all(isinstance(path, str) and HINT_IMAGE in path for path in observed["fra"]), observed
+    evidence("localized-files", {language: sorted(paths) for language, paths in observed.items()})

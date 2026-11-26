@@ -27,28 +27,49 @@ export function zipMembers(
 	members: readonly ArchiveMember[],
 	where: string,
 ): Buffer {
-	const files = new Set<string>();
-	const directories = new Set<string>();
-	for (const { path } of members) {
-		const key = memberKey(path);
-		const segments = key.split("/");
-		const ancestors = segments
-			.slice(0, -1)
-			.map((_, index) => segments.slice(0, index + 1).join("/"));
-		if (
-			files.has(key) ||
-			directories.has(key) ||
-			ancestors.some((ancestor) => files.has(ancestor))
-		) {
-			throw new Error(
-				`${where} was given two archive members that are one file to a phone: their names differ only by letter case, or one names the other's directory. ` +
-					"The compiler names its own files through lib/commcare/cczMembers.ts and a media path is never one of those shapes (isHoldableWirePath), so look at what produced the second member.",
-			);
-		}
-		files.add(key);
-		for (const ancestor of ancestors) directories.add(ancestor);
-	}
+	checkArchivePaths(members, where);
 	const zip = new AdmZip();
 	for (const { path, bytes } of members) zip.addFile(path, bytes);
 	return zip.toBuffer();
+}
+
+export function checkArchivePaths(
+	members: readonly { path: string }[],
+	where: string,
+	workspace = Number.POSITIVE_INFINITY,
+) {
+	const files = new Set<string>(),
+		directories = new Set<string>();
+	let bytes = 0;
+	const charge = (amount: number) => {
+		bytes += amount;
+		if (bytes > workspace)
+			throw new Error(
+				"The file directory exceeds the available export workspace. You can publish directly to your project space.",
+			);
+	};
+	const conflict = (): never => {
+		throw new Error(
+			`${where} was given two archive members that are one file to a phone: their names differ only by letter case, or one names the other's directory. ` +
+				"The compiler names its own files through lib/commcare/cczMembers.ts and a media path is never one of those shapes (isHoldableWirePath), so look at what produced the second member.",
+		);
+	};
+	for (const { path } of members) {
+		const key = memberKey(path);
+		if (files.has(key) || directories.has(key)) conflict();
+		// Include the lazy entry descriptor and its encoded central-directory name.
+		charge(512 + 3 * Buffer.byteLength(path));
+		files.add(key);
+		for (
+			let slash = key.indexOf("/");
+			slash >= 0;
+			slash = key.indexOf("/", slash + 1)
+		) {
+			const parent = key.slice(0, slash);
+			if (files.has(parent)) conflict();
+			if (directories.has(parent)) continue;
+			charge(96 + 2 * parent.length);
+			directories.add(parent);
+		}
+	}
 }

@@ -51,6 +51,7 @@ import type {
 	ExpressionChangeAdmission,
 } from "./editorContext";
 import type { ExpressionEditContext } from "./expressionEditorSchemas";
+import { editorLookupReads } from "./lookupTablePresentation";
 import type { EditorPath } from "./path";
 export type TermMode =
 	| "literal"
@@ -336,7 +337,7 @@ export function computeModeAdmission(
 			constraint.accepts === "any" ||
 			acceptsType(constraint, field.dataType ?? "text"),
 	);
-	const hasAcceptedTableColumn = (ctx.tableScope?.columns ?? []).some(
+	const hasAcceptedTableColumn = editorLookupReads(ctx.tableScope).some(
 		(column) =>
 			constraint.accepts === "any" || acceptsType(constraint, column.dataType),
 	);
@@ -499,7 +500,7 @@ export function buildTermDefault(
 			return input(selected.uuid);
 		}
 		case "table-column": {
-			const column = ctx.tableScope?.columns.find(
+			const column = editorLookupReads(ctx.tableScope).find(
 				(candidate) =>
 					constraint.accepts === "any" ||
 					acceptsType(constraint, candidate.dataType),

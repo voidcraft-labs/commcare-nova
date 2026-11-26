@@ -17,7 +17,9 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import type { Readable } from "node:stream";
+import { finished } from "node:stream/promises";
 import {
 	type Bucket,
 	type BucketMetadata,
@@ -26,6 +28,7 @@ import {
 } from "@google-cloud/storage";
 import mediaBucketPolicy from "@/config/media-bucket-policy.json";
 import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
+import { blockBytes, type RandomAccessBytes } from "@/lib/media/randomAccess";
 
 let _storage: Storage | null = null;
 let _bucket: Bucket | null = null;
@@ -282,8 +285,9 @@ export async function probeCaptureStorageAuthority(): Promise<void> {
  * and no default event-based hold. A bucket retention policy is an operator
  * protection, so its presence fails closed instead of silently removing it.
  *
- * Two prefixes need one:
+ * Temporary object prefixes have independent retention windows:
  *
+ *  - `private-exports/` — private download parts become eligible after one day.
  *  - `pending/` — abandoned browser upload attempts, described below.
  *  - `captures-staged/` — a worker's form attachment whose form was never
  *    submitted. This is the retention backstop: rows carry an `expires_at`
@@ -535,6 +539,177 @@ export async function uploadAssetBytes(args: {
 		});
 }
 
+/** One object a server wrote under `pending/` for a later promotion: its key,
+ *  the generation written, and that generation's CRC32C. */
+export interface StagedObject {
+	readonly gcsObjectKey: string;
+	readonly generation: string;
+	readonly checksum: string;
+}
+
+/**
+ * Write bytes the server has already judged to a temporary key under
+ * `pending/`, create-only, so no other writer's bytes can stand there, and
+ * answer the generation written with its checksum. A promotion copies exactly
+ * that generation to its content key (`copyAssetObjectIfAbsent`); the caller
+ * deletes it after, and the bucket's `pending/` lifecycle rule reaps one a
+ * request never promoted or deleted.
+ */
+export async function stageAssetBytes(args: {
+	gcsObjectKey: string;
+	bytes: Buffer;
+	contentType: string;
+}): Promise<StagedObject> {
+	const file = getBucket().file(args.gcsObjectKey);
+	await file.save(args.bytes, {
+		resumable: false,
+		contentType: args.contentType,
+		preconditionOpts: { ifGenerationMatch: 0 },
+	});
+	const [metadata] = await file.getMetadata();
+	if (
+		metadata.generation === undefined ||
+		metadata.generation === null ||
+		String(metadata.generation).length === 0 ||
+		metadata.crc32c === undefined ||
+		Number(metadata.size) !== args.bytes.byteLength
+	) {
+		throw new Error(
+			`The staged media object ${args.gcsObjectKey} did not read back as the ${args.bytes.byteLength} bytes just written. Look at the bucket's answer to the create-only write.`,
+		);
+	}
+	return {
+		gcsObjectKey: args.gcsObjectKey,
+		generation: String(metadata.generation),
+		checksum: metadata.crc32c,
+	};
+}
+
+/** One create-only object under `pending/`, written chunk by chunk as its bytes arrive. */
+export interface StagedWrite {
+	/** Write the next bytes, waiting while the upload is behind. */
+	readonly write: (chunk: Uint8Array) => Promise<void>;
+	/** End the object and answer it, once the bucket holds exactly the bytes written. */
+	readonly finish: () => Promise<StagedObject>;
+	/** Stop the write and remove anything it left. Never throws. */
+	readonly abort: () => Promise<void>;
+}
+
+/**
+ * Open a create-only write of an object under `pending/`, for bytes that
+ * arrive as a stream: `stageAssetBytes` for a file too large to hold. The
+ * upload streams (no whole-file buffer), the library checks the CRC32C of
+ * what it sent, and `finish` reads the generation back and refuses one whose
+ * size is not the bytes written.
+ */
+export function openStagedAssetWrite(args: {
+	gcsObjectKey: string;
+	contentType: string;
+	/** How long the one upload request may take, its body included: the client's
+	 *  ordinary request timeout is fitted to small objects. */
+	timeoutMs: number;
+}): StagedWrite {
+	const file = getBucket().file(args.gcsObjectKey);
+	const stream = file.createWriteStream({
+		resumable: false,
+		timeout: args.timeoutMs,
+		contentType: args.contentType,
+		validation: "crc32c",
+		preconditionOpts: { ifGenerationMatch: 0 },
+	});
+	let failure: Error | null = null;
+	const done = finished(stream).catch((error: unknown) => {
+		failure ??= error instanceof Error ? error : new Error(String(error));
+	});
+	let written = 0;
+	return {
+		async write(chunk) {
+			if (failure !== null) throw failure;
+			written += chunk.byteLength;
+			if (!stream.write(chunk))
+				await Promise.race([once(stream, "drain"), done]);
+			if (failure !== null) throw failure;
+		},
+		async finish() {
+			stream.end();
+			await done;
+			if (failure !== null) throw failure;
+			const [metadata] = await file.getMetadata();
+			if (
+				metadata.generation === undefined ||
+				metadata.generation === null ||
+				String(metadata.generation).length === 0 ||
+				metadata.crc32c === undefined ||
+				Number(metadata.size) !== written
+			) {
+				throw new Error(
+					`The staged media object ${args.gcsObjectKey} did not read back as the ${written} bytes just written. Look at the bucket's answer to the create-only write.`,
+				);
+			}
+			return {
+				gcsObjectKey: args.gcsObjectKey,
+				generation: String(metadata.generation),
+				checksum: metadata.crc32c,
+			};
+		},
+		async abort() {
+			stream.destroy();
+			await done;
+			await file.delete({ ignoreNotFound: true }).catch(() => undefined);
+		},
+	};
+}
+
+/** Set the type a staged generation is served as, once its bytes are judged. */
+export async function setStagedContentType(
+	object: StagedObject,
+	contentType: string,
+): Promise<void> {
+	await getBucket()
+		.file(object.gcsObjectKey, { generation: object.generation })
+		.setMetadata(
+			{ contentType },
+			{ ifGenerationMatch: Number(object.generation) },
+		);
+}
+
+/** The block a staged object is read by: one range request answers this much. */
+export const STAGED_READ_BLOCK_BYTES = 256 * 1024;
+/** How many blocks a staged object's reader keeps. */
+const STAGED_READ_BLOCKS_KEPT = 8;
+
+/**
+ * Read one staged generation by position, in blocks of
+ * `STAGED_READ_BLOCK_BYTES`, the last `STAGED_READ_BLOCKS_KEPT` of them kept
+ * (`blockBytes`), so a walk of a file's headers asks the bucket for a few
+ * blocks and holds two mebibytes at most, however long the file.
+ */
+export function stagedObjectBytes(
+	object: StagedObject,
+	size: number,
+): RandomAccessBytes {
+	const file = getBucket().file(object.gcsObjectKey, {
+		generation: object.generation,
+	});
+	return blockBytes({
+		size,
+		blockBytes: STAGED_READ_BLOCK_BYTES,
+		blocksKept: STAGED_READ_BLOCKS_KEPT,
+		async range(start, length) {
+			const [bytes] = await file.download({
+				start,
+				end: start + length - 1,
+				validation: false,
+			});
+			if (bytes.byteLength !== length)
+				throw new Error(
+					`A read of ${length} bytes of the staged media object ${object.gcsObjectKey} answered ${bytes.byteLength}. Look at whether its generation is still there.`,
+				);
+			return bytes;
+		},
+	});
+}
+
 /**
  * Copy an already-validated immutable object to another storage key.
  *
@@ -556,8 +731,11 @@ export async function copyAssetObject(
  * Copy one immutable source generation to a create-only destination.
  *
  * A verified existing destination is success for an idempotent retry:
- * attachment ids make the destination unique, so a pre-existing object is
- * the prior copy whose metadata update may have failed. That same independent
+ * attachment ids make a capture's destination unique, so a pre-existing
+ * object is the prior copy whose metadata update may have failed; a media
+ * file's content key names its bytes, so one already there with the same
+ * size, checksum and type holds them (a publication whose metadata never
+ * committed). That same independent
  * verification also recovers after the staging lifecycle has reaped the named
  * source generation. A missing or mismatched destination still fails closed.
  */
@@ -584,7 +762,7 @@ export async function copyAssetObjectIfAbsent(args: {
 			metadata.contentType !== args.expectedContentType
 		) {
 			throw new Error(
-				"An existing capture destination does not match the staged source generation.",
+				"An existing object at the destination does not match the staged source generation.",
 			);
 		}
 		return {
@@ -619,8 +797,13 @@ export async function copyAssetObjectIfAbsent(args: {
  * `Response.body = Readable.toWeb(stream)`. Converting both ways
  * needlessly doubles the buffer copy.
  */
-export function streamAsset(gcsObjectKey: string): Readable {
-	return getBucket().file(gcsObjectKey).createReadStream();
+export function streamAsset(
+	gcsObjectKey: string,
+	generation?: string,
+): Readable {
+	return getBucket()
+		.file(gcsObjectKey, generation === undefined ? undefined : { generation })
+		.createReadStream();
 }
 
 /**
@@ -800,5 +983,98 @@ export async function readTextObject(
 		// throw — the caller maps null to a clean not-found, a stray throw to a 500.
 		if ((err as { code?: number } | null)?.code === 404) return null;
 		throw err;
+	}
+}
+
+/** A fixed-size part of a retained private export. The service keeps the object
+ * name and immutable GCS generation in Postgres. No storage URL leaves Nova. */
+export async function storeExportPart(
+	key: string,
+	bytes: Buffer,
+	digest: string,
+): Promise<string> {
+	const file = getBucket().file(key);
+	let alreadyStored = false;
+	try {
+		await file.save(bytes, {
+			resumable: false,
+			timeout: 30_000,
+			validation: "crc32c",
+			preconditionOpts: { ifGenerationMatch: 0 },
+			metadata: {
+				contentType: "application/octet-stream",
+				cacheControl: "private, no-store",
+				metadata: { novaDigest: digest },
+			},
+		});
+	} catch (error) {
+		if (Number((error as { code?: unknown })?.code) !== 412) throw error;
+		alreadyStored = true;
+	}
+	const [meta] = await file.getMetadata();
+	if (
+		!meta.generation ||
+		Number(meta.size) !== bytes.length ||
+		meta.metadata?.novaDigest !== digest
+	)
+		throw new Error("Stored export part differs from its reserved bytes.");
+	const generation = String(meta.generation);
+	if (
+		alreadyStored &&
+		!(await fetchExportPart(key, generation, bytes.length)).equals(bytes)
+	)
+		throw new Error(
+			"The previous upload stored different bytes for this export part.",
+		);
+	return generation;
+}
+
+export async function fetchExportPart(
+	key: string,
+	generation: string,
+	expectedBytes: number,
+): Promise<Buffer> {
+	if (
+		!Number.isSafeInteger(expectedBytes) ||
+		expectedBytes < 1 ||
+		expectedBytes > 1024 * 1024
+	)
+		throw new Error("Invalid export part size.");
+	const stream = getBucket()
+		.file(key, { generation })
+		.createReadStream({ decompress: false });
+	const output = Buffer.allocUnsafe(expectedBytes);
+	let offset = 0;
+	try {
+		for await (const piece of stream) {
+			if (
+				!(piece instanceof Uint8Array) ||
+				piece.length > output.length - offset
+			)
+				throw new Error("Stored export part exceeds its reserved bytes.");
+			output.set(piece, offset);
+			offset += piece.length;
+		}
+		if (offset !== output.length)
+			throw new Error("Stored export part is incomplete.");
+		return output;
+	} finally {
+		stream.destroy();
+	}
+}
+
+/** Recovery may refund a reservation only on an authoritative 404. Incomplete
+ * metadata is an error even if the abandoned upload never returned its generation. */
+export async function exportPartGeneration(
+	key: string,
+): Promise<string | null> {
+	try {
+		const [metadata] = await getBucket().file(key).getMetadata();
+		if (!metadata.generation)
+			throw new Error("The export object has no deletion generation.");
+		return String(metadata.generation);
+	} catch (error) {
+		if (Number((error as { code?: unknown })?.code) === 404) return null;
+		throw error;
 	}
 }

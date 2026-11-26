@@ -1,0 +1,23 @@
+{
+	"id": "hq-owner-rules",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"LOCATIONS",
+			"VELLUM_SAVE_TO_CASE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"ownerRuleChoices": {
+		"clinic": "worker"
+	},
+	"exhibits": [
+		"expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
+		"questions/text-input-xsd-string"
+	]
+}

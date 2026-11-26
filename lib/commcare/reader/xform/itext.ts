@@ -13,6 +13,7 @@ import { isTag } from "domhandler";
 import type { LanguageTag } from "@/lib/domain";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import surface from "../../surface/surface.json";
+import { behaviorWireIds } from "../../xform/itextIds";
 import {
 	attributeNamespace,
 	elementNamespace,
@@ -25,6 +26,7 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import type { Accounting } from "../accounting";
 import type { HqLanguages } from "../languages";
 import { readFormSyntax } from "../syntaxRead";
+import type { ItextRecipient } from "../types";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { DraftField } from "./index";
@@ -43,8 +45,16 @@ export const PRAGMA_KEYS = [
 
 const PRAGMAS: ReadonlySet<string> = new Set(PRAGMA_KEYS);
 
+/** The pragmas Formplayer reads by presence alone, which a form holds as its
+ *  behaviors (`Form.automaticSubmissionText` and the others). */
+const PRESENCE_PRAGMAS: ReadonlySet<string> = new Set([
+	behaviorWireIds.automaticSubmissionText,
+	behaviorWireIds.skipAutomaticSyncText,
+	behaviorWireIds.validateChangedAnswersText,
+]);
+
 /** A text's slot on the field that references it. */
-export type TextSlot = "label" | "hint" | "help" | "validate_msg";
+export type TextSlot = Exclude<ItextRecipient["slot"], "option_label">;
 
 /** One slot that references a text. */
 export interface ItextOwner {
@@ -52,6 +62,27 @@ export interface ItextOwner {
 	readonly slot: TextSlot | "option_label";
 	/** For a choice's label, the option's position in the field's inline options. */
 	readonly option?: number;
+}
+
+export function itextRecipient(
+	owner: ItextOwner,
+	language: LanguageTag,
+): ItextRecipient {
+	const choices = owner.field.field.optionsSource as
+		| { options?: readonly { value: string }[] }
+		| undefined;
+	const choiceValue = choices?.options?.[owner.option ?? -1]?.value ?? null;
+	if (owner.slot === "option_label" && choiceValue === null) {
+		throw new Error(
+			"A choice's itext has no saved value in the options the form reader accepted.",
+		);
+	}
+	return {
+		fieldPath: owner.field.node.path,
+		slot: owner.slot,
+		language,
+		choiceValue,
+	};
 }
 
 export interface ItextTable {
@@ -444,15 +475,15 @@ function claimReferencedId(
 		return;
 	}
 	const claim = pragmaClaim(reading, id);
+	if (claim.use === "take") {
+		for (const element of elements)
+			cursor.take({ element, attribute: "id" }, claim).value;
+		return;
+	}
 	for (const text of elements) {
 		if (claim.use === "account")
 			cursor.account({ element: text, attribute: "id" }, claim, place);
-		else
-			cursor.refuse(
-				{ element: text, attribute: "id" },
-				claim as typeof X.pragmaKey,
-				place,
-			);
+		else cursor.refuse({ element: text, attribute: "id" }, claim, place);
 	}
 }
 
@@ -476,14 +507,15 @@ export function sameValueNodes(a: Element, b: Element): boolean {
 	});
 }
 
-function pragmaClaim(
+export function pragmaClaim(
 	reading: ItextReading,
 	id: string,
 ):
 	| typeof X.pragmaMerged
 	| typeof X.pragmaVolatilityWithoutKey
 	| typeof X.pragmaFormDescriptor
-	| typeof X.pragmaKey {
+	| typeof X.pragmaPresence
+	| typeof X.pragmaActivity {
 	const mine = reading.allValues(id);
 	const merged = reading.ids().some((other) => {
 		if (other === id || other >= id) return false;
@@ -507,11 +539,13 @@ function pragmaClaim(
 	if (
 		(id === "Pragma-Volatility-Entity-Title" ||
 			id === "Pragma-Volatility-Window") &&
-		!reading.ids().includes("Pragma-Volatility-Key")
+		(!reading.owners("Pragma-Volatility-Key").length ||
+			pragmaClaim(reading, "Pragma-Volatility-Key") === X.pragmaMerged)
 	)
 		return X.pragmaVolatilityWithoutKey;
 	if (id === "Pragma-Form-Descriptor") return X.pragmaFormDescriptor;
-	return X.pragmaKey;
+	if (PRESENCE_PRAGMAS.has(id)) return X.pragmaPresence;
+	return X.pragmaActivity;
 }
 
 /**

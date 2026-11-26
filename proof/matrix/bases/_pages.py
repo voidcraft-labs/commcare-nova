@@ -287,19 +287,21 @@ def save_form_media(authoring, app_id, menu, form, *, image=None, audio=None):
             )
 
 
-def set_languages(authoring, app_id, langs):
+def set_languages(authoring, app_id, langs, *, renames=None):
     """The app's languages saved on its Languages page (``views/apps.py::edit_app_langs``), as
     ``supported_languages.js``' save posts them: every code in order, ``rename`` naming each language the page
     loaded under its own code (a language added there has none), and ``smart_lang_display`` as the page holds it,
     which is the app's own value (``views/apps.py::get_app_view_context``: ``smart_lang_display_enabled``)."""
     from proof.hq import operations
 
-    with authoring.step("build:languages", json.dumps(list(langs)).encode()):
+    renames = renames or {}
+    key = json.dumps({"langs": list(langs), "rename": renames}).encode() if renames else json.dumps(list(langs)).encode()
+    with authoring.step("build:languages", key):
         app = operations.held_app(authoring.state, app_id)
         body, content_type = ops.json_body(
             {
                 "langs": list(langs),
-                "rename": {lang: lang for lang in app.langs if lang in langs},
+                "rename": {lang: renames.get(lang, lang) for lang in app.langs if renames.get(lang, lang) in langs},
                 "smart_lang_display": getattr(app, "smart_lang_display", None),
             }
         )
@@ -465,13 +467,13 @@ def upload_logo(authoring, app_id, slot):
     return path
 
 
-def new_form(authoring, app_id, menu, *, case_action="none"):
+def new_form(authoring, app_id, menu, *, case_action="none", form_type="form"):
     """A form added to the menu at ``menu`` as the menu's add-form button posts it (``views/forms.py::new_form``,
     ``form_type`` ``form``): ``case_action`` ``open`` adds a "Register" form opening the menu's case, ``update`` a
     "Followup" form requiring one, and ``none`` a "Survey" form with no case action."""
     from proof.hq import operations
 
-    pairs = [("form_type", "form"), ("case_action", case_action)]
+    pairs = [("form_type", form_type), ("case_action", case_action)]
     with authoring.step(f"build:new-form:{menu}", json.dumps(pairs).encode()):
         module = operations.held_app(authoring.state, app_id).get_module(menu)
         body, content_type = ops.form_body(pairs)

@@ -20,6 +20,8 @@
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { activeActions, publishedCaseBlocks } from "./publishedCaseBlocks";
 
+import { advancedFormParents, sharedFormParent } from "./sharedFormSource";
+
 export interface HqEntryFacts {
 	readonly moduleKind: "Module" | "AdvancedModule";
 	readonly caseType: string;
@@ -80,6 +82,8 @@ export interface HqEntryFacts {
 		readonly caseType: string;
 		readonly index: number;
 	}[];
+	/** An advanced form's `arbitrary_datums`, by `datum_id`, in order. */
+	readonly arbitraryDatums: readonly string[];
 }
 
 export const ENTRY_FACT_KEYS: readonly (keyof HqEntryFacts)[] = [
@@ -104,6 +108,7 @@ export const ENTRY_FACT_KEYS: readonly (keyof HqEntryFacts)[] = [
 	"usesWorkerRecord",
 	"loads",
 	"opens",
+	"arbitraryDatums",
 ];
 
 /** What HQ's entry builder reads of a menu when it builds the datums of another menu's forms: a
@@ -123,7 +128,7 @@ export interface HqMenuFacts {
 	readonly inlineSearch: boolean;
 	readonly searchInstance: string | null;
 	readonly additionalCaseTypes: readonly string[];
-	/** The `xmlns` of the menu's first form, whose datums a child menu aligns against. */
+	/** The id of the menu's first entry, whose datums a child menu aligns against. */
 	readonly firstForm: string | null;
 }
 
@@ -144,7 +149,7 @@ export const MENU_FACT_KEYS: readonly (keyof HqMenuFacts)[] = [
 ];
 
 export interface HqAppEntryFacts {
-	/** One record per form, by `xmlns`. A form `publishedCaseBlocks` leaves unread has none. */
+	/** One record per entry, by the form id in this source. Its content may be shared. */
 	readonly forms: ReadonlyMap<string, HqEntryFacts>;
 	/** One record per menu, by the menu's id, in HQ's menu order. */
 	readonly menus: ReadonlyMap<string, HqMenuFacts>;
@@ -186,6 +191,16 @@ function basicFormRequiresCase(form: JsonObject): boolean {
 	return (
 		form.doc_type !== "AdvancedForm" &&
 		(form.requires === "case" || form.requires === "referral")
+	);
+}
+
+/** The editor and suite use Form.requires_case() for case-list form choices.
+ * An advanced form requires manual choice if any load has no auto selector. */
+export function formChoosesCase(form: JsonObject): boolean {
+	if (form.doc_type !== "AdvancedForm") return basicFormRequiresCase(form);
+	const actions = isObject(form.actions) ? form.actions : NO_ENTRIES;
+	return objects(actions.load_update_cases).some(
+		(load) => !isObject(load.auto_select),
 	);
 }
 
@@ -297,8 +312,11 @@ export function advancedLoadListMenus(
 	const listed = new Set<string>();
 	for (const module of menus)
 		for (const form of objects(module.forms)) {
-			if (form.doc_type !== "AdvancedForm") continue;
-			const actions = isObject(form.actions) ? form.actions : NO_ENTRIES;
+			if (form.doc_type !== "AdvancedForm" && form.doc_type !== "ShadowForm")
+				continue;
+			const stored =
+				form.doc_type === "ShadowForm" ? form.extra_actions : form.actions;
+			const actions = isObject(stored) ? stored : NO_ENTRIES;
 			for (const load of objects(actions.load_update_cases)) {
 				const select = isObject(load.auto_select)
 					? load.auto_select
@@ -408,12 +426,27 @@ function ownMenuFacts(
 }
 
 /** The facts of one form read by `publishedCaseBlocks`, whose actions are sound. */
-function formFacts(form: JsonObject, menu: OwnMenuFacts): HqEntryFacts {
+function formFacts(
+	form: JsonObject,
+	menu: OwnMenuFacts,
+	parent?: JsonObject,
+): HqEntryFacts {
 	const actions = isObject(form.actions) ? form.actions : NO_ENTRIES;
 	const caseFacts =
-		form.doc_type === "AdvancedForm"
-			? advancedFormFacts(actions)
-			: basicFormFacts(form, actions);
+		parent !== undefined
+			? advancedFormFacts(form, {
+					// ShadowForm._merge_actions takes every selection field from the extra
+					// rows, in their order. Only the parent's open actions supply new cases.
+					// A shadow's own arbitrary datums are its own (ShadowForm is an
+					// AdvancedForm), so they come from the entry.
+					load_update_cases: isObject(form.extra_actions)
+						? form.extra_actions.load_update_cases
+						: [],
+					open_cases: isObject(parent.actions) ? parent.actions.open_cases : [],
+				})
+			: form.doc_type === "AdvancedForm"
+				? advancedFormFacts(form, actions)
+				: basicFormFacts(form, actions);
 	return {
 		moduleKind: menu.moduleKind,
 		caseType: menu.caseType,
@@ -442,6 +475,7 @@ type CaseFacts = Pick<
 	| "usesWorkerRecord"
 	| "loads"
 	| "opens"
+	| "arbitraryDatums"
 >;
 
 /** A basic form's: `Form.requires_case` (`case`, or the legacy `referral`),
@@ -481,11 +515,12 @@ function basicFormFacts(form: JsonObject, actions: JsonObject): CaseFacts {
 			mapsAny("usercase_preload", "preload"),
 		loads: [],
 		opens: [],
+		arbitraryDatums: [],
 	};
 }
 
 /** An advanced form's loads and its open actions outside any repeat. */
-function advancedFormFacts(actions: JsonObject): CaseFacts {
+function advancedFormFacts(form: JsonObject, actions: JsonObject): CaseFacts {
 	return {
 		requires: "advanced",
 		opensCase: false,
@@ -523,6 +558,9 @@ function advancedFormFacts(actions: JsonObject): CaseFacts {
 					]
 				: [],
 		),
+		arbitraryDatums: objects(form.arbitrary_datums).map((datum) =>
+			typeof datum.datum_id === "string" ? datum.datum_id : "",
+		),
 	};
 }
 
@@ -533,6 +571,7 @@ export function hqEntryFacts(source: unknown): HqAppEntryFacts {
 	if (!isObject(source) || !Array.isArray(source.modules))
 		return { forms, menus };
 	const read = publishedCaseBlocks(source).forms;
+	const parents = advancedFormParents(source.modules);
 	const listed = advancedLoadListMenus(source.modules);
 	for (const module of source.modules) {
 		if (!isObject(module)) continue;
@@ -553,13 +592,21 @@ export function hqEntryFacts(source: unknown): HqAppEntryFacts {
 			} = own;
 			menus.set(id, {
 				...menu,
-				firstForm: idOf(moduleForms[0]?.xmlns),
+				firstForm: idOf(moduleForms[0]?.unique_id),
 			});
 		}
 		for (const form of moduleForms) {
-			const xmlns = idOf(form.xmlns);
+			const entryId = idOf(form.unique_id);
+			if (entryId === null) continue;
+			const parent = sharedFormParent(form, parents);
+			if (
+				form.doc_type === "ShadowForm" &&
+				(kind !== "AdvancedModule" || parent === undefined)
+			)
+				continue;
+			const xmlns = idOf((parent ?? form).xmlns);
 			if (xmlns === null || !read.has(xmlns)) continue;
-			forms.set(xmlns, formFacts(form, own));
+			forms.set(entryId, formFacts(form, own, parent));
 		}
 	}
 	return { forms, menus };
@@ -630,6 +677,11 @@ const FACT_FIELDS: Readonly<
 	autoSelectCase: [
 		"Module.auto_select_case",
 		"AdvancedModule.auto_select_case",
+		// This setting affects a list only when a manual load uses its
+		// details. Refusing that load also removes this effective value.
+		"AdvancedFormActions.load_update_cases",
+		"LoadUpdateAction",
+		"CaseIndex",
 	],
 	caseListShown: [
 		"Module.case_list",
@@ -648,8 +700,9 @@ const FACT_FIELDS: Readonly<
 	firstForm: [
 		"Module.forms",
 		"AdvancedModule.forms",
-		"Form.xmlns",
-		"AdvancedForm.xmlns",
+		"Form.unique_id",
+		"AdvancedForm.unique_id",
+		"ShadowForm.unique_id",
 	],
 	requires: ["Form.requires"],
 	opensCase: ["FormActions.open_case", "OpenCaseAction"],
@@ -665,6 +718,7 @@ const FACT_FIELDS: Readonly<
 		"AutoSelectCase",
 	],
 	opens: ["AdvancedFormActions.open_cases", "AdvancedOpenCaseAction"],
+	arbitraryDatums: ["AdvancedForm.arbitrary_datums", "ArbitraryDatum"],
 };
 
 /**
@@ -869,8 +923,19 @@ function formDatums(
 							fromAction: true,
 						},
 		);
+		// `get_datum_meta_assertions_advanced` aligns the loads and the
+		// arbitrary datums with the root; the new cases follow.
+		const arbitrary = facts.arbitraryDatums.map(
+			(id): DatumMeta => ({
+				id,
+				caseType: null,
+				requiresSelection: false,
+				instance: false,
+				fromAction: false,
+			}),
+		);
 		return [
-			...alignWithRoot(loads, facts.rootModule, app, depth),
+			...alignWithRoot([...loads, ...arbitrary], facts.rootModule, app, depth),
 			...facts.opens.map((open) =>
 				newCase(`case_id_new_${open.caseType}_${open.index}`, open.caseType),
 			),

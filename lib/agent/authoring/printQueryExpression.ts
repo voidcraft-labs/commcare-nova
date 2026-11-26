@@ -5,6 +5,7 @@ import {
 import type { RecordQueryContext } from "@/lib/domain/expression/context";
 import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
 import {
 	type Expression,
 	isExpression,
@@ -14,20 +15,33 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { caseReferenceText } from "@/lib/domain/hashtagSegments";
+import type { LookupRead } from "@/lib/domain/lookupRead";
 import type { Uuid } from "@/lib/domain/uuid";
 import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
 
 export interface QueryPrintContext {
 	typeContext: RecordQueryContext;
 	forRelation(relation: RelationPath): QueryPrintContext;
+	forDeviceRecords(caseType?: string): QueryPrintContext;
 	forTable(tableId: string): QueryPrintContext;
+	/** The scope a condition over the open cases of one type reads them in:
+	 *  `#row/<property>` is the case the condition looks at. */
+	forRows(caseType: string): QueryPrintContext;
 	reference(term: Term): string | undefined;
 	choiceValues(
 		field: Uuid,
 		options: readonly Uuid[],
 	): readonly string[] | undefined;
+	memberName?(table: string, column: string | undefined, id: string): string;
 	name(
-		kind: "table" | "column" | "operation" | "location" | "level" | "module",
+		kind:
+			| "table"
+			| "column"
+			| "operation"
+			| "location"
+			| "level"
+			| "module"
+			| "place-property",
 		id: string,
 		owner?: string,
 	): string;
@@ -85,12 +99,63 @@ function relation(value: RelationPath): string {
 	}
 }
 
+/** The one record type a `cases` collection lists, where its first
+ *  condition is `record-type() = '<type>'`, the shape every editor stores. */
+export function rowCaseType(
+	value: Extract<Expression, { kind: "cases" }>,
+): string | undefined {
+	if (value.source !== "casedb") return undefined;
+	const first = value.where[0];
+	if (first?.kind !== "eq") return undefined;
+	const { left, right } = first;
+	return left.kind === "term" &&
+		left.term.kind === "case-row-type" &&
+		right.kind === "term" &&
+		right.term.kind === "case-type"
+		? right.term.caseType
+		: undefined;
+}
+
 export function queryPrinter(context: QueryPrintContext) {
 	const identity = (
 		kind: Parameters<QueryPrintContext["name"]>[0],
 		id: string,
 		owner?: string,
 	) => quote(context.name(kind, id, owner));
+	function selector(table: string, read: LookupRead): string {
+		const member = (column: string | undefined, id: string) =>
+			quote(context.memberName?.(table, column, id) ?? id);
+		if (typeof read === "string") return identity("column", read, table);
+		if ("attributeId" in read)
+			return call("row-detail", member(undefined, read.attributeId));
+		let base = identity("column", read.columnId, table);
+		if (read.positionBeforeFilter && read.occurrence !== undefined)
+			base = call("value-at", base, String(read.occurrence));
+		if (read.where)
+			base = call(
+				"value-with",
+				base,
+				member(read.columnId, read.where.propertyId),
+				quote(read.where.equals),
+			);
+		if (!read.positionBeforeFilter && read.occurrence !== undefined)
+			base = call("value-at", base, String(read.occurrence));
+		if (read.propertyId)
+			base = call("value-detail", base, member(read.columnId, read.propertyId));
+		return base;
+	}
+	function printerForRows(
+		rows: Extract<Expression, { kind: "cases" | "table-rows" }>,
+	) {
+		if (rows.kind === "table-rows")
+			return queryPrinter(context.forTable(rows.tableId));
+		const scope = expressionRowScope(rows, context.typeContext);
+		return queryPrinter(
+			context.forDeviceRecords(
+				scope?.kind === "case" ? scope.caseType : undefined,
+			),
+		);
+	}
 	function term(value: Term): string {
 		const reference = context.reference(value);
 		if (reference !== undefined) return reference;
@@ -102,6 +167,16 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "prop":
 				if (value.caseType === undefined)
 					throw new Error("This record property has no scoped record type.");
+				if (value.readReached && value.via?.kind === "ancestor")
+					return call(
+						"property",
+						quote(value.caseType),
+						quote(value.property),
+						call(
+							"reached",
+							...value.via.via.map(({ identifier }) => quote(identifier)),
+						),
+					);
 				return value.via === undefined
 					? call("property", quote(value.caseType), quote(value.property))
 					: call(
@@ -118,6 +193,8 @@ export function queryPrinter(context: QueryPrintContext) {
 			}
 			case "case-type":
 				return quote(value.caseType);
+			case "search-result-field":
+				return call("result-field", quote(value.name));
 			case "case-row-type":
 				return "record-type()";
 			case "input":
@@ -127,19 +204,34 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "field":
 				return call("field", quote(value.uuid));
 			case "session-user":
-				return call("external-user", quote(value.field));
+				return call(
+					value.source === "worker-record" ? "worker-record" : "external-user",
+					quote(value.field),
+				);
 			case "session-user-property":
-				return call("user", quote(value.userPropertyUuid));
+				return value.source === "worker-record"
+					? call("worker-record", call("user", quote(value.userPropertyUuid)))
+					: call("user", quote(value.userPropertyUuid));
 			case "session-context":
 				return call("session", quote(value.field));
 			case "table-column":
 				return call(
 					"table-column",
 					identity("table", value.tableId),
-					identity("column", value.columnId, value.tableId),
+					selector(value.tableId, value.columnId),
 				);
 			case "fixed-location":
 				return call("location", identity("location", value.locationUuid));
+			case "location-field":
+				// A field of the place a Details tab of places lists.
+				return typeof value.field === "string"
+					? call("place-field", quote(value.field))
+					: "level" in value.field
+						? call("place-level", identity("level", value.field.level))
+						: call(
+								"place-property",
+								identity("place-property", value.field.property),
+							);
 			case "owner-location-at-level":
 				return call(
 					"owner-location",
@@ -165,18 +257,29 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "term":
 				return term(value.term);
 			case "today":
+				return call(
+					value.clock === "project-space" ? "project-today" : "today",
+				);
 			case "now":
 			case "here":
 			case "acting-user":
 			case "unowned":
 				return call(value.kind);
+			case "call":
+				if (value.fn === "position")
+					return call(value.fn, ...value.args.map(expression));
+				throw new Error(
+					`The saved ${value.fn}() call has no record value spelling.`,
+				);
+			case "case-text":
+				return call("case-text", quote(value.textUuid));
 			case "id-of":
 				return call(value.kind, identity("operation", value.opUuid));
 			case "table-lookup":
 				return call(
 					"lookup",
 					identity("table", value.tableId),
-					identity("column", value.resultColumnId, value.tableId),
+					selector(value.tableId, value.resultColumnId),
 					queryPrinter(context.forTable(value.tableId)).predicate(value.where),
 				);
 			case "date-add":
@@ -221,7 +324,7 @@ export function queryPrinter(context: QueryPrintContext) {
 				);
 			case "count":
 				if (!isRelationPath(value.via))
-					throw new Error("A record count needs a relationship.");
+					return call("count", expression(value.via));
 				return call(
 					value.kind,
 					relation(value.via),
@@ -241,6 +344,28 @@ export function queryPrinter(context: QueryPrintContext) {
 						? quote(value.pattern)
 						: expression(value.pattern),
 				);
+			case "cases": {
+				if (value.source !== "casedb")
+					throw new Error("This expression reads the device's own records.");
+				const caseType = rowCaseType(value);
+				if (caseType === undefined)
+					return call(
+						"device-records",
+						...value.where.map(printerForRows(value).predicate),
+					);
+				const rows = queryPrinter(context.forRows(caseType));
+				return call(
+					"cases",
+					quote(caseType),
+					...value.where.slice(1).map(rows.predicate),
+				);
+			}
+			case "table-rows":
+				return call(
+					"table-rows",
+					identity("table", value.tableId),
+					...value.where.map(printerForRows(value).predicate),
+				);
 			case "project": {
 				const chosen = readChosenCaseProperty(value);
 				if (chosen !== undefined)
@@ -249,19 +374,30 @@ export function queryPrinter(context: QueryPrintContext) {
 						identity("module", chosen.module),
 						quote(chosen.property),
 					);
-				throw new Error(
-					"The saved record read has no record value spelling: only a property of the case chosen in a menu has one.",
+				const row =
+					value.of.kind === "table-rows" || value.of.kind === "cases"
+						? printerForRows(value.of)
+						: undefined;
+				return call(
+					"row-value",
+					expression(value.of),
+					row ? row.term(value.value) : term(value.value),
 				);
 			}
 			case "value-list":
 				return call("list", ...value.items.map(expression));
+			case "locations":
+				if (value.where.length > 0)
+					throw new Error(
+						"The saved places tree has no record value spelling: only every place the worker can see has one.",
+					);
+				return call("places");
 			default:
-				// The device-data reads (`cases`, `table-rows`, `locations`,
-				// `selected-cases`, a `project` that is no chosen case's property)
-				// have no record spelling. No authoring surface stores one and the
-				// reader of CommCare HQ's apps refuses the search values that hold
-				// one (`lib/commcare/reader/expressions/csqlRead.ts`), so none
-				// reaches this printer.
+				// `selected-cases` and a `project` that is no chosen case's
+				// property have no record spelling. No authoring surface stores one
+				// and the reader of CommCare HQ's apps refuses the search values
+				// that hold one (`lib/commcare/reader/expressions/csqlRead.ts`), so
+				// none reaches this printer.
 				throw new Error(
 					`The saved ${value.kind} tree has no record value spelling.`,
 				);
@@ -283,6 +419,18 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "term":
 				// A read standing as a condition: a yes or no CommCare holds.
 				return term(value.term);
+			case "call":
+				// A case change's condition on one form answer read as CommCare
+				// reads an answer alone (`typeChecker.ts::effectiveBooleanOfAnswer`).
+				if (
+					value.fn === "boolean" &&
+					value.args.length === 1 &&
+					value.args[0]?.kind === "term"
+				)
+					return call("boolean", term(value.args[0].term));
+				throw new Error(
+					`The saved ${value.fn}() call has no record condition spelling.`,
+				);
 			case "and":
 			case "or":
 				return call(

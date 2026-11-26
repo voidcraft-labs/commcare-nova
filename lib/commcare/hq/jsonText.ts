@@ -33,8 +33,16 @@ export class HqJsonTextError extends SyntaxError {
 
 /** `JSON.parse(text)`, each object of it holding no prototype. Throws a
  *  `SyntaxError` where `JSON.parse` does and where the value nests too deep. */
-export function parseHqJsonText(text: string): unknown {
-	const value: unknown = JSON.parse(text);
+export function parseHqJsonText(
+	text: string,
+	reviver?: (
+		this: object,
+		key: string,
+		value: unknown,
+		context?: { source?: string },
+	) => unknown,
+): unknown {
+	const value: unknown = JSON.parse(text, reviver);
 	withoutPrototypes(value);
 	return value;
 }

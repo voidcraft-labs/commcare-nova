@@ -1,6 +1,6 @@
 """HQ's no-match registration action, its stack and the menus equal Nova's.
 
-Contract: for each of the six no-matches scenarios, the case list's
+Contract: for each of the no-matches scenarios, the case list's
 ``<detail>/<action>``, every ``<entry>/<stack>`` and every ``<menu>`` HQ's
 suite contributors build equal Nova's, compared whole (every attribute, leaf
 text and child, in order), with known XPath carriers compared as HQ's parser's
@@ -37,7 +37,7 @@ def test_hq_registration_action_stack_and_menus_equal_novas(native):
                 record["scenario"],
                 selector,
             )
-    assert len(records) == 6, len(records)
+    assert {record["scenario"].removeprefix("no-matches-") for record in records} == {"basic", "bare", "parent", "parent-bare", "home", "multiple-home", "new-case", "second-list"}
     write_evidence(
         native.family("no-matches"),
         "no-matches-emission",

@@ -79,6 +79,21 @@ export function buildLookupCsvSelection(args: {
 	readonly file: LookupCsvFile;
 	readonly bytes: Uint8Array;
 }): LookupCsvSelectionResult {
+	if (
+		args.table.rowCount === null ||
+		args.table.hq?.managedBy === "commcare-hq" ||
+		args.table.attributes?.length ||
+		args.table.columns.some((column) => column.repeated)
+	)
+		return {
+			ok: false,
+			failure: {
+				success: false,
+				code: "invalid_csv",
+				message:
+					"This table cannot be replaced with a flat CSV file. You can return to the table to see the available changes.",
+			},
+		};
 	const failure = inspectLookupCsv(args.bytes, args.table.columns);
 	if (failure !== null) return { ok: false, failure };
 	const rowCount = countLookupCsvRows(args.bytes);

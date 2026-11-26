@@ -8,6 +8,7 @@ import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFix
 
 import { describe, expect, it } from "vitest";
 import {
+	comparisonDefault,
 	firstComparisonDefault,
 	globalPlaceholder,
 	wrapSiblingDefault,
@@ -22,7 +23,9 @@ import {
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
-import type { Expression } from "@/lib/domain/expression";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { type Expression, slotContext } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import {
@@ -116,5 +119,82 @@ describe("global placeholders hold the truth value their destination needs", () 
 		expect(
 			evalSeed(predicateCardSchemas.not.defaultValue(HOLD_FALSE_CTX)),
 		).toBe(false);
+	});
+});
+
+// The Search button's condition reads the worker or the session only where
+// its case list already loads them (`suite/case-search/buttonCondition.ts`),
+// which a plain list whose forms return home does not. Its placeholders read
+// today's date, which every list admits, and keep their truth.
+describe("the Search button's placeholders read nothing its list must load", () => {
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const context = slotContext(
+		doc,
+		{
+			entity: "module",
+			uuid: moduleUuid,
+			slot: "search_button_display_condition",
+		},
+		new Map(),
+	);
+	if (context === undefined) throw new Error("The Search button has a slot.");
+	const ctx: PredicateEditContext = {
+		...GLOBAL_CTX,
+		expressionContext: context,
+	};
+	const admitted = (seed: Expression) => {
+		const next = structuredClone(doc);
+		next.modules[moduleUuid] = {
+			...next.modules[moduleUuid],
+			caseSearchConfig: { searchButtonDisplayCondition: seed },
+		};
+		assertAdmittedDoc(next);
+	};
+	const truth = (seed: Expression) =>
+		evaluatePreviewSearchPredicate(
+			seed,
+			context,
+			{ doc, moduleUuid },
+			[],
+			SESSION,
+		);
+
+	it("seeds the first condition, each group and each comparison the list can evaluate", () => {
+		const holdFalse: PredicateEditContext = {
+			...ctx,
+			globalPlaceholderHolds: false,
+		};
+		for (const [seed, holds] of [
+			[firstComparisonDefault(ctx), true],
+			[firstComparisonDefault(holdFalse), false],
+			[wrapSiblingDefault("and", ctx), true],
+			[wrapSiblingDefault("or", ctx), false],
+			[andDefault(ctx), true],
+			[orDefault(ctx), true],
+			[notDefault(ctx), true],
+		] as const) {
+			admitted(seed);
+			expect(truth(seed)).toBe(holds);
+		}
+		admitted(comparisonDefault("lt", ctx));
 	});
 });

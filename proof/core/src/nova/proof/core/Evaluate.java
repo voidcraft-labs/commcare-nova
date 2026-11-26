@@ -10,8 +10,10 @@ import org.commcare.util.mocks.MockUserDataSandbox;
 import org.commcare.util.screen.EntityScreen;
 import org.commcare.util.screen.EntityScreenContext;
 import org.commcare.util.screen.MultiSelectEntityScreen;
+import org.javarosa.core.model.Constants;
 import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.FormIndex;
+import org.javarosa.core.model.SelectChoice;
 import org.javarosa.core.model.data.IAnswerData;
 import org.javarosa.core.model.instance.DataInstance;
 import org.javarosa.core.model.instance.ExternalDataInstance;
@@ -37,13 +39,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
 /**
  * Opens one form, or one case list, with the session and case data a request
  * gives, and reports what Core computes there: expression values, constraint
- * verdicts, instance contents, and a case list's rows in Core's order. It is how
+ * verdicts, instance contents, and a case list's rows in Core's order. A case
+ * list request can also open the detail of one visible case. It is how
  * an intent check asks Core a question with a fixed expected answer.
  *
  * The form is the one an admitted app installed for an xmlns, or a form given
@@ -245,6 +249,18 @@ final class Evaluate {
                     result.put("path", path);
                     result.put("value", value);
                     result.put("label", FormRun.text(prompt::getQuestionText));
+                    if (prompt.getControlType() == Constants.CONTROL_SELECT_ONE
+                            || prompt.getControlType() == Constants.CONTROL_SELECT_MULTI) {
+                        // The choices Core offered, as a worker reads them, before the answer picks one.
+                        JSONArray choices = new JSONArray();
+                        for (SelectChoice choice : prompt.getSelectChoices()) {
+                            JSONObject c = new JSONObject();
+                            c.put("value", choice.getValue());
+                            c.put("text", FormRun.text(() -> prompt.getSelectChoiceText(choice)));
+                            choices.put(c);
+                        }
+                        result.put("choices", choices);
+                    }
                     try {
                         IAnswerData data = Answers.answerData(prompt, value);
                         int code = controller.answerQuestion(prompt.getIndex(), data);
@@ -355,7 +371,15 @@ final class Evaluate {
         list.put("detail", FormRun.nullable(datum.getShortDetail()));
         list.put("title", FormRun.text(screen::getScreenTitle));
         list.put("autoSelect", screen.shouldBeSkipped());
-        SessionOp.rows(screen, datum, list);
+        List<String> caseIds = SessionOp.rows(screen, datum, list);
+        String detailCaseId = request.optString("detailCaseId", null);
+        if (detailCaseId != null) {
+            TreeReference reference = screen.resolveTreeReference(detailCaseId);
+            if (!caseIds.contains(detailCaseId) || reference == null) {
+                throw new RequestException("The case list does not show the requested detail case " + detailCaseId);
+            }
+            list.put("caseDetail", FormRun.nullable(SessionOp.caseDetail(screen, datum, reference, true)));
+        }
         return list;
     }
 }

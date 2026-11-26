@@ -1,3 +1,4 @@
+import { workerLocalizedValues } from "@/lib/doc/localizationWorkspace";
 import {
 	computeFieldPath,
 	findContainingForm,
@@ -5,15 +6,20 @@ import {
 import {
 	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
+	moduleFormsReadSearch,
 	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import { resolveAppLanguage } from "@/lib/domain/localization";
 import {
 	projectLocalizedForm,
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
+import { recordsReadSearch } from "../engine/serverSearchRead";
 import { previewScreenEntries } from "../menuProjection";
+import { projectWorkerModule, workerDetailTabTitle } from "../workerModule";
 import { AppTestActionError } from "./errors";
 import {
 	type AppTestAuthoredAction,
@@ -118,6 +124,19 @@ function form(
 
 /** Bind against the authorized pinned state at EACH action, after receipt lookup.
  * Earlier actions in the same request may have changed the current form. */
+export function appTestPersona(doc: BlueprintDoc, name: string | null) {
+	return name === null
+		? null
+		: one(
+				name,
+				Object.values(doc.personas ?? {}).map((item) => ({
+					uuid: item.uuid,
+					names: [item.name],
+				})),
+				"Preview identity",
+			);
+}
+
 export function bindAppTestAction(
 	doc: BlueprintDoc,
 	state: AppTestSessionState,
@@ -125,6 +144,40 @@ export function bindAppTestAction(
 ) {
 	let bound = action;
 	switch (action.kind) {
+		case "detailTab": {
+			if (state.screen.kind !== "details")
+				throw new AppTestActionError(
+					"Open case details before choosing a tab.",
+				);
+			const menu = projectWorkerModule(
+				doc,
+				state.language,
+				state.screen.moduleUuid,
+			);
+			const search =
+				menu !== undefined &&
+				!moduleFormsReadSearch(menu) &&
+				recordsReadSearch(menu, state.screen.source);
+			const localized = workerLocalizedValues(doc, state.language);
+			const tabs = (menu?.caseListConfig?.detailTabs ?? []).map((tab) => ({
+				uuid: tab.uuid,
+				ordinary: tab.title,
+				visible: workerDetailTabTitle(tab, search, localized),
+			}));
+			const visibleMatch = tabs.some((tab) => tab.visible === action.tabUuid);
+			bound = {
+				...action,
+				tabUuid: one(
+					action.tabUuid,
+					tabs.map((tab) => ({
+						uuid: tab.uuid,
+						names: [visibleMatch ? tab.visible : tab.ordinary],
+					})),
+					"Detail tab",
+				),
+			};
+			break;
+		}
 		case "section": {
 			if (state.screen.kind !== "form")
 				throw new AppTestActionError("Open a form before choosing a section.");
@@ -132,15 +185,16 @@ export function bindAppTestAction(
 			const candidates = Object.values(doc.fields).flatMap((field) => {
 				if (
 					field.kind !== "section" ||
-					findContainingForm(doc, field.uuid) !== formUuid
+					findContainingForm(doc, field.uuid) !== formContentUuid(doc, formUuid)
 				)
 					return [];
 				const path = computeFieldPath(doc, field.uuid);
 				return path === undefined ? [] : [{ uuid: field.uuid, path }];
 			});
-			const path = action.sectionUuid
-				.replace(/^#form\//, "")
-				.replace(/^\/data\//, "");
+			const root = `/${formRootName(doc.forms[formContentUuid(doc, formUuid)])}/`;
+			const path = action.sectionUuid.startsWith(root)
+				? action.sectionUuid.slice(root.length)
+				: action.sectionUuid.replace(/^#form\//, "");
 			const exact = candidates.filter(
 				(item) => item.uuid === action.sectionUuid || item.path === path,
 			);
@@ -189,17 +243,7 @@ export function bindAppTestAction(
 		case "identity":
 			bound = {
 				...action,
-				personaUuid:
-					action.personaUuid === null
-						? null
-						: one(
-								action.personaUuid,
-								Object.values(doc.personas ?? {}).map((item) => ({
-									uuid: item.uuid,
-									names: [item.name],
-								})),
-								"Preview identity",
-							),
+				personaUuid: appTestPersona(doc, action.personaUuid),
 			};
 			break;
 	}

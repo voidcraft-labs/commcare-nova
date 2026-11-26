@@ -1,0 +1,16 @@
+{
+	"catalog": [
+		{
+			"name": "patient",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": []
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

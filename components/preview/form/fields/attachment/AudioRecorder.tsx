@@ -23,6 +23,7 @@ type RecorderState =
 	| { readonly kind: "idle" }
 	| { readonly kind: "requesting" }
 	| { readonly kind: "recording" }
+	| { readonly kind: "paused" }
 	| { readonly kind: "unavailable" };
 
 /** The file a recording attaches as: the recorder's own type, and the
@@ -41,11 +42,13 @@ function stopTracks(stream: MediaStream | undefined): void {
 }
 
 export function AudioRecorder({
+	allowPause,
 	disabled,
 	labelledBy,
 	onRecorded,
 }: {
 	readonly disabled: boolean;
+	readonly allowPause?: boolean;
 	/** The question's label, which names the recorder's buttons. */
 	readonly labelledBy?: string;
 	readonly onRecorded: (file: File) => void;
@@ -161,22 +164,47 @@ export function AudioRecorder({
 
 	return (
 		<div className="space-y-2">
-			{state.kind === "recording" ? (
-				<button
-					type="button"
-					onClick={stop}
-					aria-describedby={labelledBy}
-					className={buttonCls}
-				>
-					<Icon
-						icon={tablerPlayerStop}
-						width="16"
-						height="16"
-						aria-hidden="true"
-						className="text-nova-rose"
-					/>
-					{runtimeMessage(language, "stopRecording")}
-				</button>
+			{state.kind === "recording" || state.kind === "paused" ? (
+				<>
+					{allowPause && (
+						<button
+							type="button"
+							className={buttonCls}
+							disabled={disabled}
+							aria-describedby={labelledBy}
+							onClick={() => {
+								const recorder = recorderRef.current;
+								if (recorder?.state === "recording") {
+									recorder.pause();
+									setState({ kind: "paused" });
+								} else if (recorder?.state === "paused") {
+									recorder.resume();
+									setState({ kind: "recording" });
+								}
+							}}
+						>
+							{runtimeMessage(
+								language,
+								state.kind === "paused" ? "resumeRecording" : "pauseRecording",
+							)}
+						</button>
+					)}
+					<button
+						type="button"
+						onClick={stop}
+						aria-describedby={labelledBy}
+						className={buttonCls}
+					>
+						<Icon
+							icon={tablerPlayerStop}
+							width="16"
+							height="16"
+							aria-hidden="true"
+							className="text-nova-rose"
+						/>
+						{runtimeMessage(language, "stopRecording")}
+					</button>
+				</>
 			) : (
 				<button
 					type="button"

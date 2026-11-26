@@ -19,14 +19,23 @@
 import type { DeploymentConfirmationKind } from "@/lib/deployment/types";
 
 export type PlanFeatureId =
+	| "built-in-android-apps"
+	| "external-android-apps"
 	| "web-apps"
+	| "menu-badges"
 	| "worker-records"
 	| "lookup-tables"
+	| "case-sharing-groups"
 	| "child-cases"
 	| "form-links"
 	| "advanced-case-actions"
+	| "locked-questions"
 	| "organization"
-	| "data-forwarding";
+	| "data-forwarding"
+	| "required-android-apps"
+	| "geocoder"
+	| "installation-profiles"
+	| "practice-workers";
 
 export interface PlanFeatureDefinition {
 	readonly id: PlanFeatureId;
@@ -42,12 +51,47 @@ export interface PlanFeatureDefinition {
 export const PLAN_FEATURES: Readonly<
 	Record<PlanFeatureId, PlanFeatureDefinition>
 > = {
+	"installation-profiles": {
+		id: "installation-profiles",
+		label: "Build Profiles",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"This project space needs application profiles to offer named installations and keep their language selections.",
+	},
+	"practice-workers": {
+		id: "practice-workers",
+		label: "Practice mode for mobile workers",
+		plans: "Standard, Pro, Advanced and Enterprise",
+		consequence:
+			"CommCare HQ needs practice workers on this project space to include the practice worker’s data in a profile build.",
+	},
 	"web-apps": {
 		id: "web-apps",
 		label: "Web-Based Apps (CloudCare)",
 		plans: "Advanced and Enterprise",
 		consequence:
 			"Without it, mobile workers can't open this app in Web Apps, and saving the app's settings in CommCare HQ turns its Web App setting off.",
+	},
+	"menu-badges": {
+		id: "menu-badges",
+		label: "Menu and form badges",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"Without it, people editing the app in CommCare HQ can't add, change or remove its badges.",
+	},
+	"built-in-android-apps": {
+		id: "built-in-android-apps",
+		label: "Built-in Integration",
+		plans: "Pro, Advanced and Enterprise",
+		consequence:
+			"CommCare HQ needs built-in or external integrations to build forms that open a supported Android app.",
+	},
+	"external-android-apps": {
+		id: "external-android-apps",
+		label: "External Integration Framework",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"CommCare HQ needs external integrations to build a form that opens a custom Android app.",
 	},
 	"worker-records": {
 		id: "worker-records",
@@ -62,6 +106,13 @@ export const PLAN_FEATURES: Readonly<
 		plans: "Standard, Pro, Advanced and Enterprise",
 		consequence:
 			"Without it, CommCare HQ turns away the tables Nova sends and can't build a form that reads one, and its form builder shows an error on each question whose choices come from cases.",
+	},
+	"case-sharing-groups": {
+		id: "case-sharing-groups",
+		label: "Case Sharing via Groups",
+		plans: "Pro, Advanced and Enterprise",
+		consequence:
+			"This app needs the project space to support groups that share cases.",
 	},
 	"child-cases": {
 		id: "child-cases",
@@ -84,6 +135,13 @@ export const PLAN_FEATURES: Readonly<
 		consequence:
 			"Without it, saving this form in CommCare HQ's form builder removes what ties its case changes to a case.",
 	},
+	"locked-questions": {
+		id: "locked-questions",
+		label: "Locked Admin Questions",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"Without it, CommCare HQ cannot enforce the questions you locked in this app.",
+	},
 	organization: {
 		id: "organization",
 		label: "Locations",
@@ -91,12 +149,26 @@ export const PLAN_FEATURES: Readonly<
 		consequence:
 			"Without it, forms that read your places don't open on the phone, and CommCare HQ turns away the places Nova sends.",
 	},
+	"required-android-apps": {
+		id: "required-android-apps",
+		label: "App Dependencies",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"Without it, CommCare HQ builds this app without checking which other apps workers have installed.",
+	},
 	"data-forwarding": {
 		id: "data-forwarding",
 		label: "Data Forwarding",
 		plans: "Pro, Advanced and Enterprise",
 		consequence:
 			"Without it, CommCare HQ takes this app's forms and sends none of them to CommCare Connect, so no learning or delivery is recorded there.",
+	},
+	geocoder: {
+		id: "geocoder",
+		label: "Geocoder",
+		plans: "Enterprise",
+		consequence:
+			"Without it, an address question in Web Apps can't be answered: it saves “Not Supported by Web Entry” in place of an address.",
 	},
 };
 
@@ -357,6 +429,15 @@ export function adoptionRecordedFeaturesLine(
 	return `This app already uses ${namesInWords(labels)} on “${domain}”, and publishing changes nothing about them, so Nova won't ask about them. You can withdraw any of these on the Publishing card.`;
 }
 
+/**
+ * The review's line for an app whose questions search for an address in Web
+ * Apps: what the project space needs for them, which Nova has not confirmed
+ * there, and when it asks. Bringing the app in changes neither.
+ */
+export function addressSearchReviewLine(domain: string): string {
+	return `Some questions in this app search for an address in Web Apps, which works only where “${domain}” has advanced case search and the Geocoder plan feature. Without them, Web Apps saves “Not Supported by Web Entry” in place of an address. Bringing the app in changes neither, and your first publish checks advanced case search and asks you to confirm Geocoder.`;
+}
+
 /** What a person can do where the project space's plan has no Web Apps. */
 export function webAppsWhereMissing(narrowing: PlatformNarrowing): string {
 	if (narrowing.open)
@@ -364,6 +445,20 @@ export function webAppsWhereMissing(narrowing: PlatformNarrowing): string {
 	if (narrowing.features.length > 0)
 		return `Where the plan doesn't include it, this app can run on Android only once it no longer uses ${namesInWords(narrowing.features)}, which Android can't run.`;
 	return "Where the plan doesn't include it, this app can run on Android only once it no longer uses what Android can't run. App settings names each one when you choose Android only.";
+}
+
+/**
+ * What a person can do where the project space's plan has no Geocoder: turn
+ * off Find an address on the questions named, which then take typed text,
+ * or, where the app's content allows it, run the app on Android only, where
+ * an address question takes typed text and nothing is asked of the plan.
+ */
+export function geocoderWhereMissing(narrowing: PlatformNarrowing): string {
+	const typed =
+		"Where the plan doesn't include it, you can turn off Find an address on these questions, and workers type the address as ordinary text.";
+	return narrowing.open
+		? `${typed} If this app's workers use Android alone, you can instead set it to run on Android only, in App settings, and publishing no longer asks about Geocoder.`
+		: typed;
 }
 
 /**

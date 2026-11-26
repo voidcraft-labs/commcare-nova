@@ -13,6 +13,7 @@ const BODY = {
 	readingId: "reading-1",
 	reviewDigest: "d".repeat(64),
 	tableChoices: {},
+	ownerRuleChoices: {},
 } as const;
 
 afterEach(() => {

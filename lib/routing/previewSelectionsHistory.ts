@@ -47,7 +47,12 @@ import type {
  *  the one entry of the form that launch opened, never to an address. */
 export type PreviewSelectionsTarget = Pick<
 	PreviewCaseTarget,
-	"formUuid" | "cases" | "caseListSearchText" | "formChosenAfterCase"
+	| "formUuid"
+	| "cases"
+	| "entryChoices"
+	| "opening"
+	| "caseListSearchText"
+	| "formChosenAfterCase"
 >;
 
 /** The session's case selections, as the store holds them. */
@@ -72,12 +77,20 @@ export function previewSelectionsTargetOf(
 	if (target === undefined) return undefined;
 	return {
 		formUuid: target.formUuid,
+		...(target.opening && { opening: target.opening }),
+		...(target.entryChoices && {
+			entryChoices: target.entryChoices.map((choice) => ({ ...choice })),
+		}),
 		...(target.cases !== undefined && {
-			cases: target.cases.map(({ caseId, caseName, claimable }) => ({
-				caseId,
-				...(caseName !== undefined && { caseName }),
-				...(claimable === true && { claimable }),
-			})),
+			cases: target.cases.map(
+				({ caseId, caseName, caseType, searchSource, claimable }) => ({
+					caseId,
+					...(caseName !== undefined && { caseName }),
+					...(caseType && { caseType }),
+					...(searchSource && { searchSource }),
+					...(claimable === true && { claimable }),
+				}),
+			),
 		}),
 		...(target.caseListSearchText !== undefined && {
 			caseListSearchText: target.caseListSearchText,
@@ -90,10 +103,16 @@ export function previewSelectionsTargetOf(
 
 /** Selections in one comparable form: the target as its selections. */
 function comparable(recorded: RecordedPreviewSelections): string {
+	const target = previewSelectionsTargetOf(
+		recorded.target as PreviewCaseTarget,
+	);
 	return JSON.stringify({
 		task: recorded.task,
 		menu: recorded.menu,
-		target: previewSelectionsTargetOf(recorded.target as PreviewCaseTarget),
+		target: target && {
+			...target,
+			opening: target.opening?.binding.evidence.signature,
+		},
 		selected: recorded.selected,
 	});
 }
@@ -145,8 +164,21 @@ export function previewSelectionsArrival(args: {
 	readonly current: PreviewSessionSelections;
 }): PreviewSelectionsArrival {
 	const { onEntry } = args;
-	if (args.replay !== "address" || args.atHome || onEntry === undefined)
-		return { kind: "keep" };
+	if (args.atHome || onEntry === undefined) return { kind: "keep" };
+	if (args.replay !== "address") {
+		// Android Back in a form-local entry unwinds every non-user step
+		// through the last manual choice, even when both steps show one URL.
+		const prior = onEntry.target;
+		const current = args.current.target;
+		if (
+			onEntry.task !== args.task ||
+			!prior?.entryChoices ||
+			!current?.entryChoices ||
+			prior.formUuid !== current.formUuid
+		)
+			return { kind: "keep" };
+	}
+
 	if (onEntry.task !== args.task) return { kind: "restore", recorded: onEntry };
 	return samePreviewSelections(onEntry, {
 		...args.current,

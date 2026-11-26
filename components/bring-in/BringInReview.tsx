@@ -30,6 +30,7 @@ import type { ReadingKey } from "@/lib/deployment";
 import {
 	ANOTHER_SPACE_NEW_APP_LINE,
 	BRING_IN_ACTIONS,
+	projectSearchMenuLine,
 	REVIEW_AFTER_DRIFT_LINE,
 	REVIEW_AFTER_SECTION,
 	REVIEW_APP_NAME_LABEL,
@@ -46,6 +47,7 @@ import {
 	reviewProjectLine,
 	reviewTablesProjectLine,
 } from "@/lib/publish/bringInCopy";
+import { installationDescription } from "@/lib/publish/hqChangesCopy";
 import {
 	type CircumstanceContext,
 	circumstanceBlock,
@@ -56,12 +58,14 @@ import {
 	KEPT_LABELS,
 	keptLead,
 } from "@/lib/publish/keptValues";
+import { OWNER_RULE_OTHERWISE } from "@/lib/publish/ownerRuleCopy";
 import { bringInHref } from "@/lib/routing/bringInLocation";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { BringInScreenLayout } from "./BringInScreenLayout";
 import {
 	APP_NAME_MAX_LENGTH,
+	addressSearchLine,
 	type BringInEvent,
 	type BringInModel,
 	chosenDeclaration,
@@ -78,6 +82,7 @@ import {
 	type SentencePart,
 } from "./bringInModel";
 import { FirstPublishLines } from "./FirstPublishLines";
+import { ReviewOwnerRuleChoice } from "./ReviewOwnerRuleChoice";
 import { ReviewRunsOn } from "./ReviewRunsOn";
 import { ReviewTableChoice } from "./ReviewTableChoice";
 
@@ -201,6 +206,7 @@ export function BringInReview({
 	const media = reviewMediaLines(review, project.name);
 	const chosen = chosenDeclaration(review, answers);
 	const recorded = recordedFeaturesLine(chosen, domain);
+	const addressSearch = addressSearchLine(chosen, domain);
 	const readOn = keptDateText(review.readAt, new Date());
 
 	/* A create refused for the name sends focus to the field, as a press does. */
@@ -221,6 +227,9 @@ export function BringInReview({
 				return;
 			case "choice":
 				dispatch({ type: "choice-needed", tag: press.tag });
+				return;
+			case "owner-rule":
+				dispatch({ type: "owner-rule-needed", level: press.level });
 				return;
 			case "create":
 				dispatch({ type: "create-asked", input: press.input });
@@ -297,6 +306,15 @@ export function BringInReview({
 					) : null}
 				</ReviewSection>
 
+				{!!review.installations?.length && (
+					<ReviewSection heading="Installations from this project space">
+						<ul className="space-y-2 text-sm leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]">
+							{review.installations.map((profile) => (
+								<li key={profile.key}>{installationDescription(profile)}</li>
+							))}
+						</ul>
+					</ReviewSection>
+				)}
 				<ReviewRunsOn
 					review={review}
 					answers={answers}
@@ -310,6 +328,26 @@ export function BringInReview({
 								<SentenceParts parts={tables.managed} />
 							</p>
 						) : null}
+						{review.tables
+							.filter(
+								(table) =>
+									table.source?.inventory === "unavailable" ||
+									table.source?.distribution === "assigned",
+							)
+							.map((table) => (
+								<p
+									key={table.tag}
+									className="text-sm leading-relaxed text-nova-text-secondary"
+								>
+									<strong>{table.tag}</strong>
+									{table.source?.inventory === "unavailable"
+										? " stays linked to its source. A Project editor can refresh the inventory in Project data."
+										: ""}
+									{table.source?.distribution === "assigned"
+										? " Each worker receives only their assigned rows. You can check one worker’s access in Project data."
+										: ""}
+								</p>
+							))}
 						{tables.sameEqual.map((line) => (
 							<p
 								key={line}
@@ -345,11 +383,67 @@ export function BringInReview({
 					</ReviewSection>
 				) : null}
 
-				{places !== null ? (
-					<ReviewSection heading={REVIEW_PLACES_SECTION}>
-						<p className="text-sm leading-relaxed text-nova-text-secondary">
-							{places}
+				{review.projectSearches?.length ? (
+					<ReviewSection heading="Searches supplied by this project space">
+						<p className="text-sm text-nova-text-secondary">
+							{domain} manages these searches and determines which cases workers
+							can find. Publishing to another project space needs a connection
+							there.
 						</p>
+						{review.projectSearches.map((search) => (
+							<div
+								key={search.searchUuid}
+								className="grid gap-1 text-sm [overflow-wrap:anywhere]"
+							>
+								<p className="font-medium">
+									{search.name}
+									{search.endpointId !== null &&
+										` · Search ID ${search.endpointId}`}
+								</p>
+								{search.menus.map((menu) => (
+									<p key={menu.menuUuid} className="text-nova-text-secondary">
+										{projectSearchMenuLine(menu)}
+									</p>
+								))}
+							</div>
+						))}
+					</ReviewSection>
+				) : null}
+
+				{places !== null || review.ownerRules.length > 0 ? (
+					<ReviewSection heading={REVIEW_PLACES_SECTION}>
+						{places !== null ? (
+							<p className="text-sm leading-relaxed text-nova-text-secondary">
+								{places}
+							</p>
+						) : null}
+						{review.ownerRules.map((rule) => (
+							<ReviewOwnerRuleChoice
+								key={rule.level}
+								rule={rule}
+								domain={domain}
+								value={answers.ownerRuleChoices[rule.level] ?? null}
+								onValueChange={(choice) =>
+									setAnswers({
+										...answers,
+										ownerRuleChoices: {
+											...answers.ownerRuleChoices,
+											[rule.level]: choice,
+										},
+									})
+								}
+								needsChoice={
+									model.needsOwnerRule?.level === rule.level
+										? model.needsOwnerRule
+										: null
+								}
+							/>
+						))}
+						{review.ownerRules.length > 0 ? (
+							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+								{OWNER_RULE_OTHERWISE}
+							</p>
+						) : null}
 					</ReviewSection>
 				) : null}
 
@@ -397,9 +491,21 @@ export function BringInReview({
 							{recorded}
 						</p>
 					) : null}
+					{addressSearch !== null ? (
+						<p className="text-sm leading-relaxed text-nova-text-secondary">
+							{addressSearch}
+						</p>
+					) : null}
 				</ReviewSection>
 
 				<FirstPublishLines view={chosen.firstPublish} surface="review" />
+				{chosen.removesFiles && (
+					<ul className="list-disc space-y-1 pl-5 text-sm text-nova-text-secondary">
+						{chosen.removesFiles.map((line) => (
+							<li key={line}>{line}</li>
+						))}
+					</ul>
+				)}
 			</div>
 		</BringInScreenLayout>
 	);

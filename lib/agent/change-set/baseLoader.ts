@@ -25,7 +25,11 @@
  */
 
 import { type Kysely, sql, type Transaction } from "kysely";
-import { foldCanonicalAppChangeSuffixBounded } from "@/lib/db/canonicalMutationFold";
+import {
+	type BoundedCanonicalAppChangeFoldInput,
+	foldCanonicalAppChangeSuffixBounded,
+	parseFoldBaselineSnapshot,
+} from "@/lib/db/canonicalMutationFold";
 import type { AppDatabase } from "@/lib/db/pg";
 import {
 	hydratePersistedBlueprint,
@@ -65,6 +69,30 @@ export async function loadCanonicalBlueprintAtSequence(
 		readonly expectedDigest: string | null;
 	},
 ): Promise<LoadedCanonicalBase> {
+	const folded = foldCanonicalAppChangeSuffixBounded(
+		await readCanonicalFoldInputs(db, args),
+	);
+
+	const digest = canonicalJsonDigest(folded.snapshot);
+	if (args.expectedDigest !== null && digest !== args.expectedDigest) {
+		throw new ChangeSetIntegrityError(
+			`App ${args.appId} at sequence ${args.seq} replays to digest ${digest}, but this change set recorded base digest ${args.expectedDigest}. The change set cannot be rehydrated.`,
+		);
+	}
+	return {
+		doc: hydratePersistedBlueprint(folded.snapshot),
+		snapshot: folded.snapshot,
+		digest,
+		projectId: folded.projectId,
+	};
+}
+
+/** Exact storage carriers. The deployment cutover passes these to the
+ * source revision's decoder before it converts anything to the new model. */
+export async function readCanonicalFoldInputs(
+	db: Kysely<AppDatabase>,
+	args: { readonly appId: string; readonly seq: number },
+): Promise<BoundedCanonicalAppChangeFoldInput> {
 	const baseline = await db
 		.selectFrom("app_change_fold_baselines")
 		.select(["seq", "project_id"])
@@ -111,7 +139,7 @@ export async function loadCanonicalBlueprintAtSequence(
 					.where("seq", "<=", args.seq)
 					.orderBy("seq", "asc")
 					.execute();
-	const folded = foldCanonicalAppChangeSuffixBounded({
+	return {
 		baselineSnapshotText: baseline.snapshot_text,
 		baselineSeq,
 		baselineProjectId: baseline.project_id,
@@ -126,19 +154,45 @@ export async function loadCanonicalBlueprintAtSequence(
 			from_project_id: row.from_project_id,
 			to_project_id: row.to_project_id,
 		})),
-	});
-	const digest = canonicalJsonDigest(folded.snapshot);
-	if (args.expectedDigest !== null && digest !== args.expectedDigest) {
-		throw new ChangeSetIntegrityError(
-			`App ${args.appId} at sequence ${args.seq} replays to digest ${digest}, but this change set recorded base digest ${args.expectedDigest}. The change set cannot be rehydrated.`,
-		);
-	}
-	return {
-		doc: hydratePersistedBlueprint(folded.snapshot),
-		snapshot: folded.snapshot,
-		digest,
-		projectId: folded.projectId,
 	};
+}
+
+/** An app edit that already trailed its saved head at a representation
+ * change keeps exactly that earlier base. Current edits use the new canonical
+ * horizon. Only the cutover operator can install the earlier converted base. */
+export async function loadPrivateEditBase(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	changeSetId: string,
+	args: { appId: string; seq: number; expectedDigest: string },
+): Promise<LoadedCanonicalBase> {
+	const fold = await db
+		.selectFrom("authoring_workspace_folds")
+		.select([
+			"app_id",
+			"project_id",
+			"effective_base_seq",
+			"effective_base_digest",
+		])
+		.select(sql<string>`base_snapshot::text`.as("snapshot_text"))
+		.where("change_set_id", "=", changeSetId)
+		.where("base_snapshot", "is not", null)
+		.executeTakeFirst();
+	if (!fold) return loadCanonicalBlueprintAtSequence(db, args);
+	const doc = parseFoldBaselineSnapshot(fold.snapshot_text);
+	const snapshot = toPersistableDoc(doc);
+	const digest = canonicalJsonDigest(snapshot);
+	if (
+		fold.app_id !== args.appId ||
+		doc.appId !== args.appId ||
+		fold.effective_base_seq === null ||
+		safePersistedSequence(fold.effective_base_seq) !== args.seq ||
+		digest !== args.expectedDigest ||
+		fold.effective_base_digest !== digest
+	)
+		throw new ChangeSetIntegrityError(
+			"The converted private base no longer matches the workspace that holds it.",
+		);
+	return { doc, snapshot, digest, projectId: fold.project_id };
 }
 
 /**

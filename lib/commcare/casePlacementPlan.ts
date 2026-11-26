@@ -1,4 +1,9 @@
 import { formCaseEntryPlan } from "./formCaseEntryPlan";
+import {
+	advancedAutosetsOwner,
+	basicAutosetsOwner,
+	needsSingleGroup,
+} from "./workerGroupsWire";
 /**
  * One plan per form of how its case changes reach the wire: HQ's form
  * actions (a basic form's `FormActions`, an advanced form's
@@ -18,12 +23,16 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
 	type CasePlacement,
+	type CaseWriteValueAt,
+	type CaseWriteVia,
 	caseScalarTextSiblings,
 	caseWriteValueField,
 	type DatumRef,
+	type FieldCaseWriteSlot,
 	type Form,
 	formCaseWriteViews,
 	isCaseScalarTextProperty,
+	isViewAt,
 	moduleUuidOfForm,
 	orderedCaseOperations,
 	type Uuid,
@@ -31,8 +40,13 @@ import {
 import { chainLoadOfTarget } from "@/lib/domain/advancedEntryDatums";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression } from "@/lib/domain/expression/types";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
-import type { CaseOperationLink } from "@/lib/domain/forms";
+import { fieldValueType, writesMoment } from "@/lib/domain/fieldValueType";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import { openingAssignmentsInRunOrder } from "@/lib/domain/formOpeningAssignments";
+import type {
+	CaseOperationLink,
+	FormOpeningAssignment,
+} from "@/lib/domain/forms";
 import type { PlannedLoad } from "./advancedSelections";
 import { advancedCaseBlockName } from "./advancedTags";
 import {
@@ -68,7 +82,10 @@ import {
 	type AttachmentUrlTarget,
 	captureUrlNodePath,
 } from "./xform/captureUrlNode";
-import { collectFieldLocations } from "./xform/caseOps";
+import {
+	authoredCaseChangePaths,
+	collectFieldLocations,
+} from "./xform/caseOps";
 import { datetimeCaseValuePath } from "./xform/datetimeCaseValue";
 import { FormPath } from "./xform/formPath";
 import {
@@ -76,6 +93,23 @@ import {
 	planGeneratedNodes,
 	trimmedValuePath,
 } from "./xform/generatedNodes";
+
+/** Preserve the order in which HQ appends this load's ready assignments.
+ * A dictionary can address each destination only once per physical load. */
+function openingMap(
+	assignments: readonly FormOpeningAssignment[],
+	fieldPath: (uuid: Uuid) => FormPath,
+): Record<string, string> {
+	return Object.fromEntries(
+		assignments.map((assignment) => [
+			fieldPath(assignment.field).toXPath(),
+			[
+				...(assignment.via ?? []).map((step) => step.identifier),
+				assignment.property === "case_name" ? "name" : assignment.property,
+			].join("/"),
+		]),
+	);
+}
 
 /** A Save to Case block the form's source holds. */
 export interface SaveToCaseBlock {
@@ -85,6 +119,7 @@ export interface SaveToCaseBlock {
 	/** Element names from the scope to the block. */
 	readonly path: readonly [string, ...string[]];
 	readonly held: boolean;
+	readonly authoredPath?: FormPath;
 }
 
 /** A new case HQ gives a session datum, which other forms and links read. */
@@ -125,6 +160,7 @@ export interface AdvancedGeneratedNode {
 export type FormCaseWirePlan =
 	| {
 			readonly kind: "basic";
+			readonly groupDefaultOwners: readonly Uuid[];
 			readonly actions: FormActions;
 			readonly saveToCase: readonly SaveToCaseBlock[];
 			readonly datums: readonly PlannedNewCaseDatum[];
@@ -132,6 +168,7 @@ export type FormCaseWirePlan =
 	  }
 	| {
 			readonly kind: "advanced";
+			readonly groupDefaultOwners: readonly Uuid[];
 			readonly actions: AdvancedFormActions;
 			readonly saveToCase: readonly SaveToCaseBlock[];
 			readonly datums: readonly PlannedNewCaseDatum[];
@@ -230,7 +267,7 @@ function buildPlan(
 		moduleKind === undefined ? undefined : { moduleKind },
 	);
 	const subcases = planBasicSubcases(doc, formUuid, moduleKind);
-	const locations = collectFieldLocations(doc, formUuid);
+	const locations = collectFieldLocations(doc, form.shadowOf?.form ?? formUuid);
 	const nodes = planGeneratedNodes(doc, formUuid);
 	const caseTypes = effectiveCaseTypes(doc);
 	const writeViews = formCaseWriteViews(doc, formUuid);
@@ -274,7 +311,11 @@ function buildPlan(
 	 * sibling for a case name or an external id, its date-and-time text, or
 	 * a capture's link sibling. `null` where a link has no target to point at.
 	 */
-	const questionPath = (value: Expression, property: string): string | null => {
+	const questionPath = (
+		value: Expression,
+		property: string,
+		at?: CaseWriteValueAt,
+	): string | null => {
 		const source = caseWriteValueField(value);
 		if (source === undefined)
 			throw new Error(
@@ -293,11 +334,19 @@ function buildPlan(
 		// which the first-publish register declares (`case-names-checked`).
 		if (isCaseScalarTextProperty(property) && guarded.has(source.field))
 			return trimmedValuePath(nodes, source.field, path).toXPath();
+		// A date and time's moment is read from its sibling; a date-and-time
+		// question saved to a day is read as it is (`writesMoment`).
 		const field = doc.fields[source.field];
+		const views = writeViews.get(source.field) ?? [];
+		const view =
+			at === undefined
+				? undefined
+				: views.find((one) => isViewAt(one, at, property));
 		if (
 			field !== undefined &&
-			fieldValueType(field, caseTypes, writeViews.get(source.field) ?? []) ===
-				"datetime"
+			(view === undefined
+				? fieldValueType(field, caseTypes, views) === "datetime"
+				: writesMoment(field, caseTypes, views, view))
 		)
 			return datetimeCaseValuePath(nodes, source.field, path).toXPath();
 		return path.toXPath();
@@ -324,21 +373,46 @@ function buildPlan(
 			value: Expression,
 			property: string,
 			mode: ConditionalCaseUpdate["update_mode"],
+			slot: FieldCaseWriteSlot,
+			via?: CaseWriteVia,
 		) => {
-			const path = questionPath(value, property);
+			const path = questionPath(value, property, {
+				operationUuid: operation.uuid,
+				slot,
+				...(via !== undefined && { via }),
+			});
 			if (path !== null)
 				update[key] = { question_path: path, update_mode: mode };
 		};
+		const mode = (flag: true | undefined) => (flag ? "edit" : "always");
 		if (
 			operation.action === "own" &&
 			!isRegistration(form) &&
 			operation.name !== undefined
 		)
-			put("name", operation.name, "case_name", "always");
+			put(
+				"name",
+				operation.name,
+				"case_name",
+				mode(operation.nameOnlyIfChanged),
+				"name",
+			);
 		if (operation.rename !== undefined)
-			put("name", operation.rename, "case_name", "always");
+			put(
+				"name",
+				operation.rename,
+				"case_name",
+				mode(operation.renameOnlyIfChanged),
+				"name",
+			);
 		if (options.owner && operation.owner !== undefined)
-			put("owner_id", operation.owner, "owner_id", "always");
+			put(
+				"owner_id",
+				operation.owner,
+				"owner_id",
+				mode(operation.ownerOnlyIfChanged),
+				"owner",
+			);
 		for (const write of operation.writes ?? []) {
 			// HQ maps `name` to the case's `case_name` element
 			// (`xform.py::XFormCaseBlock.add_case_updates`). An external id is
@@ -356,6 +430,8 @@ function buildPlan(
 				write.value,
 				write.property,
 				write.onlyIfChanged ? "edit" : "always",
+				"write",
+				write.via,
 			);
 		}
 		return update;
@@ -365,7 +441,7 @@ function buildPlan(
 	const saveToCase: SaveToCaseBlock[] = [];
 	const datums = formCaseEntryPlan(doc, formUuid, moduleKind).datums;
 	const appendedNames: AppendedBlockName[] = [];
-	const root = FormPath.root();
+	const root = FormPath.root(doc.forms[formUuid]?.dataRootName);
 	const scopeOf = (repeat: Uuid | undefined): FormPath =>
 		repeat === undefined
 			? root
@@ -385,11 +461,23 @@ function buildPlan(
 			advanced,
 			identity,
 			nodes,
+			fieldPath,
 			questionPath,
 			condition,
 			updateMap,
 			scopeOf,
 		});
+	}
+
+	const assignments = form.openingAssignments?.filter(
+		(row) => row.source.kind === "own",
+	);
+	if (assignments?.length) {
+		actions.case_preload.preload = openingMap(
+			openingAssignmentsInRunOrder(doc, formUuid, assignments),
+			fieldPath,
+		);
+		actions.case_preload.condition = alwaysCondition();
 	}
 
 	const own = operations.find((op) => op.action === "own");
@@ -542,7 +630,23 @@ function buildPlan(
 
 	saveToCase.push(...saveToCaseBlocks(doc, formUuid, moduleKind));
 
-	return { kind: "basic", actions, saveToCase, datums, appendedNames };
+	const groupDefaultOwners = [
+		...(opensCase && ownUuid && basicAutosetsOwner(actions) ? [ownUuid] : []),
+		...subcases.flatMap((sub, i) =>
+			actions.subcases[i].condition.type !== "never" &&
+			!Object.hasOwn(actions.subcases[i].case_properties, "owner_id")
+				? [sub.operationUuid]
+				: [],
+		),
+	];
+	return {
+		kind: "basic",
+		actions,
+		saveToCase,
+		datums,
+		appendedNames,
+		groupDefaultOwners,
+	};
 }
 
 /** What the advanced arm reads of the plan's shared readers. */
@@ -558,6 +662,7 @@ interface AdvancedPlanInput {
 	};
 	readonly identity: WireIdentity;
 	readonly nodes: ReturnType<typeof planGeneratedNodes>;
+	readonly fieldPath: (uuid: Uuid) => FormPath;
 	readonly questionPath: (value: Expression, property: string) => string | null;
 	readonly condition: (
 		expression: Expression | undefined,
@@ -595,12 +700,13 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 		advanced,
 		identity,
 		nodes,
+		fieldPath,
 		questionPath,
 		condition,
 		updateMap,
 		scopeOf,
 	} = input;
-	const root = FormPath.root();
+	const root = FormPath.root(doc.forms[formUuid]?.dataRootName);
 	const loadOfTag = new Map(advanced.loads.map((load, i) => [load.tag, i]));
 	const openOfTag = new Map(advanced.opens.map((open, i) => [open.tag, i]));
 	const openTagOf = new Map(
@@ -661,7 +767,28 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 					? null
 					: identity.moduleUniqueId(load.listModule),
 			case_properties: loadProperties[i] ?? {},
-			preload: {},
+			preload: openingMap(
+				openingAssignmentsInRunOrder(
+					doc,
+					formUuid,
+					(form.openingAssignments ?? []).filter(({ source }) => {
+						if (source.kind === "own") return load.own;
+						if (source.kind === "worker-record")
+							return (
+								i === advanced.loads.findIndex((candidate) => candidate.worker)
+							);
+						const selected =
+							load.selection?.uuid ??
+							(load.listModule
+								? implicitFormSelectionId(formUuid, load.listModule)
+								: load.worker
+									? implicitFormSelectionId(formUuid, "worker-record")
+									: undefined);
+						return source.selection === selected;
+					}),
+				),
+				fieldPath,
+			),
 			close_condition: loadClose[i] ?? neverCondition(),
 			case_index:
 				load.index === undefined
@@ -670,8 +797,14 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 							doc_type: "CaseIndex",
 							tag: load.index.tag,
 							reference_id: load.index.identifier,
-							relationship: "child",
-							relationship_question: "",
+							relationship:
+								typeof load.index.relationship === "object"
+									? "question"
+									: (load.index.relationship ?? "child"),
+							relationship_question:
+								typeof load.index.relationship === "object"
+									? fieldPath(load.index.relationship.question).toXPath()
+									: "",
 						},
 			auto_select: load.worker
 				? {
@@ -747,12 +880,12 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 			if (path !== null)
 				caseProperties.owner_id = {
 					question_path: path,
-					update_mode: "always",
+					update_mode: op.ownerOnlyIfChanged ? "edit" : "always",
 				};
 		}
 		const close = openClose.get(i);
 		if (close !== undefined) Object.assign(caseProperties, updateMap(close));
-		const caseIndices = (op.action === "create" ? (op.links ?? []) : []).map(
+		const caseIndices = (op.links ?? []).map(
 			(link): CaseIndex => ({
 				doc_type: "CaseIndex",
 				tag: indexTag(link, op),
@@ -817,6 +950,9 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 	actions.open_cases = open_cases;
 	return {
 		kind: "advanced",
+		groupDefaultOwners: advanced.opens.flatMap((o, i) =>
+			advancedAutosetsOwner(open_cases[i]) ? [o.operationUuid] : [],
+		),
 		actions,
 		saveToCase: saveToCaseBlocks(doc, formUuid),
 		datums,
@@ -839,6 +975,7 @@ export function saveToCaseBlocks(
 	moduleKind?: "basic",
 ): readonly SaveToCaseBlock[] {
 	const blocks: SaveToCaseBlock[] = [];
+	const authored = authoredCaseChangePaths(doc, formUuid);
 	const { placements } = planPlacements(
 		doc,
 		formUuid,
@@ -855,14 +992,20 @@ export function saveToCaseBlocks(
 				? { kind: "own-close" }
 				: { kind: "operation", operationUuid: key };
 		const repeat = planned.placement.repeat;
+		const authoredPath =
+			subject.kind === "operation"
+				? authored.get(subject.operationUuid)?.path
+				: undefined;
 		blocks.push({
 			subject,
 			scope:
 				repeat === undefined
-					? FormPath.root()
-					: (repeatRowPath(doc, formUuid, repeat) ?? FormPath.root()),
+					? FormPath.root(doc.forms[formUuid]?.dataRootName)
+					: (repeatRowPath(doc, formUuid, repeat) ??
+						FormPath.root(doc.forms[formUuid]?.dataRootName)),
 			path: planned.placement.path,
 			held: planned.held,
+			...(authoredPath !== undefined && { authoredPath }),
 		});
 	}
 	return blocks;
@@ -898,4 +1041,11 @@ function formActionCondition(
 		operator: stated.operator,
 		doc_type: "FormActionCondition",
 	};
+}
+
+/** The actual actions determine entry admission even if an action is conditional. */
+export function formSharingPlan(doc: BlueprintDoc, formUuid: Uuid) {
+	if (!doc.appSettings.caseSharing) return undefined;
+	const plan = planFormCaseWire(doc, formUuid);
+	return needsSingleGroup(plan.actions) ? plan : undefined;
 }

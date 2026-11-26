@@ -657,10 +657,12 @@ function checkRuntimeNode(
 			});
 			return;
 		case "call":
+		case "case-text":
 		case "itext":
 		case "choice-name":
 		case "here":
 		case "case-list-search-text":
+		case "case-list-lookup-count":
 		case "selected-cases":
 			issues.push({
 				reason: "form-context-value-not-csql",
@@ -701,6 +703,7 @@ function checkRuntimeNode(
 			return;
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations":
 		case "project":
 			// Held reads of their own rows: their filters read

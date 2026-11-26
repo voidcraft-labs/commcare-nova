@@ -5,6 +5,7 @@ import {
 	type AttachmentEntryAuthoritySnapshot,
 	type AttachmentEntryWriteAuthorityToken,
 	cancelAttachmentEntry,
+	cancelAttachmentSlotWork,
 	captureAttachmentEntryWriteAuthority,
 	clearAttachmentNotReady,
 	discardAttachmentEntry,
@@ -26,6 +27,7 @@ import {
 	rememberSignatureDraft,
 	resolveAttachmentSlotKey,
 	retryAttachmentRetarget,
+	runAttachmentTargets,
 	runAttachmentTask as runAttachmentTaskProduction,
 	runFormAttachmentBarrier,
 	runWithAttachmentEntryWriteAuthority,
@@ -754,6 +756,44 @@ describe("form attachment coordinator", () => {
 		await Promise.all([first, second]);
 
 		expect(order).toEqual(["first:start", "first:end", "second:start"]);
+	});
+
+	it("supersedes a multi-file return when another pick takes any one destination", async () => {
+		const entry = "entry-app-results";
+		ensureDefaultAuthority(entry);
+		queuedEntries.add(entry);
+		const first = "/data/receipt";
+		const second = "/data/photo";
+		const entered = Promise.withResolvers<void>();
+		const run = runAttachmentTargets(
+			entry,
+			new Map([
+				[first, undefined],
+				[second, undefined],
+			]),
+			async (task) => {
+				entered.resolve();
+				await new Promise<void>((resolve) =>
+					task.signal.addEventListener("abort", () => resolve(), {
+						once: true,
+					}),
+				);
+				return task.isCurrent();
+			},
+		);
+		try {
+			await entered.promise;
+			const pick = runAttachmentTask({
+				entryKey: entry,
+				slotKey: second,
+				task: async (task) => task.isCurrent(),
+			});
+			await expect(run).resolves.toBe(false);
+			await expect(pick).resolves.toBe(true);
+		} finally {
+			cancelAttachmentSlotWork(entry, first);
+			await run;
+		}
 	});
 
 	it("aborts and generation-fences a superseded path", async () => {

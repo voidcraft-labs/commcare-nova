@@ -32,6 +32,7 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
@@ -41,8 +42,11 @@ import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
 import { MediaPublishPermissionError } from "@/lib/media/publishReadyMedia";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
+import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import {
 	HQ_CHANGES_FILES_NOT_PERMITTED,
+	HQ_CHANGES_OWNER_RULE_MISSING,
+	HQ_CHANGES_OWNER_RULE_NOT_OFFERED,
 	HQ_CHANGES_TABLE_CHOICE_MISSING,
 	HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED,
 	hqChangesPublishingStoppedLine,
@@ -58,13 +62,17 @@ import {
 } from "../errors";
 import {
 	hqMediaRecordFromSource,
-	hqMediaRecordMoves,
 	nextHqMediaRecord,
 	publishedMediaFiles,
 } from "../hqMedia";
+import { removalLedgerPaths } from "../hqSourceBaseline";
 import { hqImportApplicationSteps } from "../importApplication";
+import { observedMenuLayoutOwnership } from "../legacyMenuLayouts";
 import { movedBindingCount } from "../reading/create";
-import { firstPublishListToStore } from "../reading/firstPublishChanges";
+import {
+	firstPublishListToStore,
+	withAnsweredChanges,
+} from "../reading/firstPublishChanges";
 import { Pieces } from "../reading/gather";
 import { resolveTableChoices, underTableChoices } from "../reading/projectData";
 import {
@@ -73,8 +81,16 @@ import {
 } from "../reading/projectData/lookupTableStore";
 import type { BroughtInTableWrite } from "../reading/projectData/lookupTables";
 import { adoptedMediaFiles } from "../reading/projectData/media";
-import { publishKeptReadingMedia } from "../reading/projectData/mediaStore";
-import type { ReviewTable } from "../reading/projectData/reviewTypes";
+import {
+	type MediaStaging,
+	projectMediaStaging,
+	publishStagedReadingMedia,
+} from "../reading/projectData/mediaStore";
+import { workerOwnerMutations } from "../reading/projectData/ownerRules";
+import {
+	type ReviewTable,
+	resolveOwnerRuleChoices,
+} from "../reading/projectData/reviewTypes";
 import {
 	type BringInRoom,
 	holdChangesReadings,
@@ -91,7 +107,9 @@ import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	HqChangesBaselineMovedError,
+	type HqChangesFirstPublish,
 	type HqChangesTaken,
+	HqReviewWriteInFlightError,
 	readDeployment,
 	readFirstPublishStates,
 	readMemberNames,
@@ -99,9 +117,11 @@ import {
 	recordRefreshedAppBaseline,
 	withDeploymentReadSnapshot,
 } from "../store";
-import { exportIdentityOf, sameTargetIdentity } from "../targetIdentity";
+import { exportIdentityOf } from "../targetIdentity";
+import type { AppBaseline } from "../types";
 import { hqChangesBatchId } from "./batchId";
 import { hqChangesGateRefusal } from "./gate";
+import { stillOmitsHiddenStartingAnswer } from "./plan";
 import {
 	type CheckedHqChanges,
 	checkHqChanges,
@@ -125,6 +145,8 @@ export interface HqChangesBringInInput {
 	readonly readingId: string;
 	readonly reviewDigest: string;
 	readonly tableChoices: Readonly<Record<string, string>>;
+	/** The answer for each owner rule the review asks about, by level code. Absent is none. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	/**
 	 * Whether the person agreed to lose the changes made in Nova that the
 	 * review listed. A person presses a button under the list they read and
@@ -168,7 +190,9 @@ const MEMBER_KINDS: ReadonlySet<string> = new Set([
  * changes in, the work runs to its end whether or not the tab is there.
  * Where the process has no room for what it reads (`reading/room.ts`), it
  * stops reading, takes nothing, and answers `nova-busy`. Every write comes
- * after `beginWrites`, after which nothing stops it.
+ * after `beginWrites`, after which nothing stops it, but the staging of each
+ * held media file as it is judged: temporary objects no surface lists, which
+ * the publish promotes and the bring-in deletes however it ends.
  */
 export function bringInHqChanges(
 	scope: DeploymentScope,
@@ -178,7 +202,21 @@ export function bringInHqChanges(
 ): Promise<HqChangesOutcome> {
 	return withBringInRoom(
 		"changes-bring-in",
-		(room) => bringInInRoom(scope, target, input, options, room),
+		async (room) => {
+			const staging = projectMediaStaging(scope.projectId);
+			try {
+				return await bringInInRoom(
+					scope,
+					target,
+					input,
+					options,
+					room,
+					staging,
+				);
+			} finally {
+				await staging.discard();
+			}
+		},
 		() => ({
 			kind: "changed",
 			now: { kind: "stop", finding: noRoomFinding() },
@@ -192,6 +230,7 @@ async function bringInInRoom(
 	input: HqChangesBringInInput,
 	options: { readonly onEvent: (event: HqChangesProgress) => void },
 	room: BringInRoom,
+	staging: MediaStaging,
 ): Promise<HqChangesOutcome> {
 	const started = performance.now();
 	/* One count of synchronous pieces for the whole bring-in: the computation's,
@@ -202,7 +241,7 @@ async function bringInInRoom(
 		target,
 		{
 			readingId: input.readingId,
-			keepMedia: true,
+			stageMedia: staging,
 			onEvent: options.onEvent,
 			pieces,
 			cancel: room.signal,
@@ -241,7 +280,7 @@ async function bringInInRoom(
 			target,
 			{
 				readingId: input.readingId,
-				keepMedia: false,
+				stageMedia: null,
 				onEvent: () => {},
 			},
 			"bring-in",
@@ -269,6 +308,7 @@ async function bringInInRoom(
 	)
 		return answered(changedOutcome(review));
 
+	scope = basis.scope;
 	/* The caller's statement about Nova's own changes, where it sent one. */
 	const removes = review.kind === "changes" && review.novaChanges.length > 0;
 	if (
@@ -280,15 +320,26 @@ async function bringInInRoom(
 	}
 
 	/* Each arm writes; the room stops nothing from here on. */
+	await scope.requireOperation?.();
+	if (checked?.installationReviewDigest)
+		await scope.requireInstallationManagement?.();
 	room.beginWrites();
 	try {
-		if (review.kind === "nothing" && review.reason === "reads-the-same")
+		if (
+			(review.kind === "nothing" && review.reason === "reads-the-same") ||
+			checked?.plan.kind === "nothing"
+		)
 			return answered(await recordReadsTheSame(scope, target, basis, checked));
 		if (checked === null)
 			throw new Error(
 				"A review that lists changes or finds them already here came back with no check. computeHqChanges answers both only after the readings.",
 			);
-		if (review.kind === "nothing")
+		if (
+			review.kind === "nothing" ||
+			(checked.plan.kind === "changes" &&
+				checked.plan.batch.length === 0 &&
+				checked.plan.renamedInNova.length === 0)
+		)
 			return answered(
 				await recordAlreadyHere(
 					scope,
@@ -312,6 +363,8 @@ async function bringInInRoom(
 			),
 		);
 	} catch (error) {
+		if (error instanceof HqReviewWriteInFlightError)
+			return answered({ kind: "refused", message: error.message });
 		if (error instanceof DeploymentEndedError)
 			return answered({
 				kind: "refused",
@@ -346,6 +399,17 @@ async function storedSource(
 	};
 }
 
+function pendingHiddenStartingAnswer(checked: CheckedHqChanges): boolean {
+	return stillOmitsHiddenStartingAnswer(
+		checked.readings.base.draft.doc,
+		checked.fetched.reference.doc,
+		checked.draft.doc,
+		checked.plan.kind === "changes"
+			? checked.plan.target
+			: checked.fetched.head.doc,
+	);
+}
+
 /**
  * A save in CommCare HQ that reads as the same app: the source recorded, the
  * media record where it moves, an id learned by content or one whose file
@@ -367,37 +431,56 @@ async function recordReadsTheSame(
 		settled: basis.published,
 	});
 	const written = await recordRefreshedAppBaseline(scope, target, {
+		...(checked?.installationReviewDigest && {
+			installationReview: {
+				digest: checked.installationReviewDigest,
+				headSeq: basis.head.seq,
+				mapping: basis.live.pushToken,
+			},
+		}),
 		expectedEndings: basis.deployment.endings,
 		remoteAppId: basis.live.remoteId,
+
 		comparedDigest: basis.baseline.sourceDigest,
+		comparedPushToken: basis.live.pushToken,
+		comparedRevision: basis.baseline.novaRevision,
+		comparedFold: basis.baseline.foldBinding?.foldSeq,
+		comparedHead: basis.head.seq,
+		reviewedVersion: basis.remoteRevision,
 		read: await storedSource(basis),
 		/* A review that answered before the readings read nothing that moves
 		 * the list, which then stays. */
 		...(checked !== null && {
 			nextPublish: {
-				accepted: firstPublishListToStore(
-					checked.declaration.firstPublish,
-					checked.draft.facts,
-				),
-				publishChanges: checked.plan.publishChanges,
+				...nextPublishLists(checked, basis.head.doc, basis.baseline, []),
+				removedFiles: {
+					compared: basis.baseline.approvedFileRemovals ?? [],
+					accepted: checked.removedFiles,
+				},
+				stillOmitsHiddenStartingAnswer: pendingHiddenStartingAnswer(checked),
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		}),
-		/* An id learned by content, or one whose file is gone, forgotten. */
-		...(hqMediaRecordMoves(basis.baseline.mediaFiles, mediaFiles) && {
-			mediaFiles,
-		}),
-		...(checked !== null &&
-			!sameTargetIdentity(
-				checked.targetIdentity.read,
-				checked.targetIdentity.next,
-			) && { targetIdentity: checked.targetIdentity }),
+		// Even when no id moved, the recorded standings decided that these
+		// were the same files. The transaction verifies that prior evidence.
+		mediaFiles: {
+			read: basis.baseline.mediaFiles,
+			next: mediaFiles,
+			judgedPaths: [
+				...basis.published.map((file) => file.wirePath),
+				...removalLedgerPaths(basis.normalized.normalized, basis.published),
+			],
+		},
+		targetIdentity: checked?.targetIdentity ?? {
+			read: basis.targetIdentity,
+			next: basis.targetIdentity,
+		},
 	});
 	if (written.outcome === "superseded") {
 		const again = await computeHqChanges(
 			scope,
 			target,
-			{ readingId: basis.readingId, keepMedia: false, onEvent: () => {} },
+			{ readingId: basis.readingId, stageMedia: null, onEvent: () => {} },
 			"bring-in",
 		);
 		return changedOutcome(again.review);
@@ -464,6 +547,18 @@ async function bringChangesIn(
 					? HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED
 					: HQ_CHANGES_TABLE_CHOICE_MISSING,
 		};
+	const ownerRules = resolveOwnerRuleChoices(
+		review.ownerRules,
+		input.ownerRuleChoices ?? NO_ENTRIES,
+	);
+	if (!ownerRules.ok)
+		return {
+			kind: "refused",
+			message:
+				ownerRules.notOffered.length > 0
+					? HQ_CHANGES_OWNER_RULE_NOT_OFFERED
+					: HQ_CHANGES_OWNER_RULE_MISSING,
+		};
 	const answeredData = underTableChoices(first.data, resolved.choices);
 	const moved = movedBindingCount(
 		first.data.gathered.tables,
@@ -497,7 +592,12 @@ async function bringChangesIn(
 			onEvent({ type: "files", done: 0, total: held });
 			try {
 				published = (
-					await publishKeptReadingMedia({
+					await publishStagedReadingMedia({
+						authorizePublication: async (tx) => {
+							await scope.requireOperation?.(tx);
+							if (first.installationReviewDigest)
+								await scope.requireInstallationManagement?.(tx);
+						},
 						projectId: scope.projectId,
 						actorUserId: scope.actorUserId,
 						plan: toPublish,
@@ -549,6 +649,20 @@ async function bringChangesIn(
 	/* The tables the changed app newly reads, written in the commit below. */
 	const tables = newTableWrites(answeredData, checked.newTags, review.tables);
 
+	/* The explicit owner rule the person chose for each level the places cannot satisfy, and the
+	 * document the commit makes with it. */
+	const ownerAnswer = workerOwnerMutations(plan.target, ownerRules.levels);
+	const answer =
+		ownerAnswer.length === 0
+			? undefined
+			: {
+					committed: prepareMutationCandidate(
+						plan.target,
+						admitMutationBatch(ownerAnswer),
+					).nextDoc,
+					changes: ["owner-rule-given-to-worker" as const],
+				};
+
 	/* The ownership the next publish's body gives, and the record. */
 	onEvent({ type: "stage", stage: "bringing-in" });
 	const taking = await takenFor(
@@ -558,6 +672,7 @@ async function bringChangesIn(
 		checked,
 		newMediaFiles(checked, plan.target, fetched.head.doc),
 		pieces,
+		answer,
 	);
 	if (taking.kind === "refusal") return taking.outcome;
 
@@ -575,7 +690,11 @@ async function bringChangesIn(
 			}),
 			kind: "hq-changes",
 			expectedHeadSeq: fetched.head.seq,
-			guard: { mutations: admitMutationBatch(plan.batch) },
+			/* The explicit owner rule the person chose for each level the places cannot satisfy,
+			 * given in the same batch, so the commit's gate meets only rules that hold. */
+			guard: {
+				mutations: admitMutationBatch([...plan.batch, ...ownerAnswer]),
+			},
 			/* The tables the change newly reads are written in the commit's own
 			 * transaction, before its gate reads them: a change that is turned
 			 * back (a moved head, a refused gate, a moved baseline) creates,
@@ -745,9 +864,17 @@ async function takenFor(
 	checked: CheckedHqChanges,
 	mediaPaths: readonly AdoptedMediaFile[],
 	pieces: Pieces,
+	/** The person's answers to the review's questions, where they gave any: the document the
+	 *  commit makes with them over the target, and the changes they make. */
+	answer?: {
+		readonly committed: BlueprintDoc;
+		readonly changes: readonly FirstPublishChangeId[];
+	},
 ): Promise<Taking> {
 	const plan = checked.plan;
-	const doc = plan.kind === "changes" ? plan.target : basis.head.doc;
+	const doc =
+		answer?.committed ??
+		(plan.kind === "changes" ? plan.target : basis.head.doc);
 
 	/* Where CommCare HQ keeps everything once the record lands: what the next
 	 * publish prints under, and so what its body's ownership is computed over. */
@@ -758,6 +885,8 @@ async function takenFor(
 		mode: "hq-upload",
 		access: scope,
 		doc,
+		/* The body names each file by its path; no byte of one is read here. */
+		streamMedia: true,
 		compiledAtSeq: basis.head.seq,
 		heldMediaPaths: exported.heldMediaPaths,
 		attachmentTarget: attachmentUrlTarget(target),
@@ -769,17 +898,27 @@ async function takenFor(
 			outcome: hqChangesGateRefusal(boundary.violations),
 		};
 	const seeds = basis.live.ownership === "adopted" ? "target" : "nova";
-	const { ownership } = await pieces.at("the next publish's ownership").steps(
-		hqImportApplicationSteps({
-			prepared: boundary.prepared,
-			target,
-			compatibility: { advisories: [] },
-			update: { appId: basis.live.remoteId, source: basis.source },
-			identity: exported.identity,
-			languageNames: seeds,
-			seeds,
-			keyedCaseIdPrefixes: exported.keyedCaseIdPrefixes,
-		}),
+	const { ownership: bodyOwnership } = await pieces
+		.at("the next publish's ownership")
+		.steps(
+			hqImportApplicationSteps({
+				prepared: boundary.prepared,
+				target,
+				compatibility: { advisories: [] },
+				update: { appId: basis.live.remoteId, source: basis.source },
+				identity: exported.identity,
+				languageNames: seeds,
+				seeds,
+				keyedCaseIdPrefixes: exported.keyedCaseIdPrefixes,
+			}),
+		);
+	/* The layouts are accounted for only where the document taken holds
+	 * every choice this read shows (`legacyMenuLayouts.ts`). */
+	const ownership = observedMenuLayoutOwnership(
+		bodyOwnership,
+		doc,
+		exported.identity,
+		basis.source,
 	);
 
 	/* The file at each path the app publishes: reported by no upload, learned by
@@ -791,10 +930,11 @@ async function takenFor(
 		keptPaths,
 		basis.source.multimediaMap ?? [],
 	);
+	const published = publishedMediaFiles(
+		bulkUploadAssets(doc, boundary.prepared.assets),
+	);
 	const mediaFiles = nextHqMediaRecord({
-		published: publishedMediaFiles(
-			bulkUploadAssets(doc, boundary.prepared.assets),
-		),
+		published,
 		previous: basis.baseline.mediaFiles,
 		learned: { ...basis.learned, ...fetchedBy },
 		reported: NO_ENTRIES,
@@ -808,23 +948,80 @@ async function takenFor(
 			target,
 			expectedEndings: basis.deployment.endings,
 			remoteAppId: basis.live.remoteId,
+			comparedPushToken: basis.live.pushToken,
+			reviewedVersion: basis.remoteRevision,
 			read: {
 				sourceDigest: basis.baseline.sourceDigest,
 				novaRevision: basis.baseline.novaRevision,
 			},
 			source: await storedSource(basis),
 			ownership,
-			mediaFiles,
+			mediaFiles: {
+				read: basis.baseline.mediaFiles,
+				next: mediaFiles,
+				judgedPaths: [...basis.published, ...published]
+					.map((file) => file.wirePath)
+					.concat(
+						keptPaths,
+						removalLedgerPaths(basis.normalized.normalized, published),
+					),
+			},
 			targetIdentity: checked.targetIdentity,
+			...(checked.installationReviewDigest && {
+				installationReview: {
+					digest: checked.installationReviewDigest,
+					headSeq: basis.head.seq,
+					mapping: basis.live.pushToken,
+				},
+			}),
 			firstPublish: {
-				accepted: firstPublishListToStore(
-					checked.declaration.firstPublish,
-					checked.draft.facts,
+				...nextPublishLists(
+					checked,
+					doc,
+					basis.baseline,
+					answer?.changes ?? [],
 				),
-				publishChanges: plan.publishChanges,
+				removedFiles: {
+					compared: basis.baseline.approvedFileRemovals ?? [],
+					accepted: checked.removedFiles,
+				},
+				stillOmitsHiddenStartingAnswer: pendingHiddenStartingAnswer(checked),
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		},
+	};
+}
+
+/**
+ * The lists a take stores of what the next publish changes: the reading's own under the app's
+ * declaration, and the plan's. A change a person's answer to a review makes, which no reading
+ * gives alone (`firstPublishChanges.ts::withAnsweredChanges`), stands where `committed` still
+ * makes it of CommCare HQ's app and an answer stands behind it: `answeredNow`, the answers this
+ * request gives, or the stored list the take replaces. Only this request's answers are new to the
+ * next publish (`publishChanges`).
+ */
+function nextPublishLists(
+	checked: CheckedHqChanges,
+	committed: BlueprintDoc,
+	stored: AppBaseline,
+	answeredNow: readonly FirstPublishChangeId[],
+): Pick<HqChangesFirstPublish, "accepted" | "publishChanges"> {
+	const facts = checked.declaration.firstPublishFacts;
+	const accepted = firstPublishListToStore(
+		withAnsweredChanges(checked.declaration.firstPublish, facts, committed, [
+			...answeredNow,
+			...(stored.answeredPublishChanges ?? []),
+		]),
+		checked.draft.facts,
+	);
+	return {
+		accepted,
+		publishChanges: withAnsweredChanges(
+			{ ...accepted, ids: checked.plan.publishChanges },
+			facts,
+			committed,
+			answeredNow,
+		).ids,
 	};
 }
 

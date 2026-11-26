@@ -12,15 +12,30 @@ import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
 	filledProse,
+	installationLanguages,
 	type LanguageTag,
 	localizeTranslationUnit,
+	makeTranslationUnitId,
 	type ProseTemplate,
 	printProseTemplate,
 	snapshotTranslationUnits,
 	TRANSLATION_FILL_ROLES,
 	type TranslationUnitId,
+	type Uuid,
 	type WireStringSource,
 } from "@/lib/domain";
+import type { IconRef } from "@/lib/domain/builtinIcons";
+import {
+	type Media,
+	type MediaValues,
+	storedFormMedia,
+} from "@/lib/domain/multimedia";
+import {
+	type NavigationMedia,
+	navigationFilesInLanguage,
+	navigationMediaOverride,
+	storedNavigationFile,
+} from "@/lib/domain/navigationMedia";
 import { planLanguageWire } from "./languageWire";
 
 export type WireLanguageMap = Record<string, string>;
@@ -29,6 +44,22 @@ export interface CommCareLocalization {
 	/** Wire codes in `languageOrder` order. */
 	readonly languages: readonly string[];
 	readonly defaultLanguage: string;
+	navigationMedia<T extends IconRef>(
+		code: string,
+		carrier: NavigationMedia<T>,
+	): Pick<NavigationMedia<T>, "icon" | "audioLabel">;
+	menuMediaOverride(
+		code: string,
+		carrier: NavigationMedia,
+	): Pick<NavigationMedia, "icon" | "audioLabel">;
+	storedMenuMedia(
+		code: string,
+		carrier: NavigationMedia,
+	): {
+		icon: ReturnType<typeof storedNavigationFile>;
+		audioLabel: ReturnType<typeof storedNavigationFile>;
+	};
+	media(wireCode: string, bundle: Media | undefined): MediaValues | undefined;
 	/** The device language picker's label row for one wire code. */
 	languageName(wireCode: string): string;
 	wireText(wireCode: string, unitId: TranslationUnitId): string;
@@ -37,6 +68,9 @@ export interface CommCareLocalization {
 	text(wireCode: string, unitId: TranslationUnitId): string;
 	/** A prose unit in one language. */
 	prose(wireCode: string, unitId: TranslationUnitId): ProseTemplate;
+	/** Only configured languages. A missing submit label has the worker's
+	 * own fixed default, independently of the app's source language. */
+	formSubmitLabels(uuid: import("@/lib/domain").Uuid): WireLanguageMap;
 	textMap(unitId: TranslationUnitId): WireLanguageMap;
 	/** `textMap` over a source that may join several units with one space. */
 	textMapFor(source: WireStringSource): WireLanguageMap;
@@ -56,9 +90,17 @@ export interface CommCareLocalization {
  * (`lib/domain/translationFill.ts::filledProse`), so a save changes no value
  * Nova wrote; every method reads one unit the same way.
  */
-export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
+export function commCareLocalization(
+	doc: BlueprintDoc,
+	profileUuid?: Uuid,
+): CommCareLocalization {
 	const effective = effectiveAppLocalization(doc.localization);
-	const plan = planLanguageWire(effective);
+	const order = installationLanguages(doc, profileUuid);
+	const plan = planLanguageWire({
+		...effective,
+		languageOrder: order,
+		defaultLanguage: order[0],
+	});
 	const tagByWireCode = new Map<string, LanguageTag>(
 		[...plan.wireCodeByTag].map(([tag, code]) => [code, tag]),
 	);
@@ -126,6 +168,35 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 	return {
 		languages: plan.languages,
 		defaultLanguage: plan.defaultLanguage,
+		navigationMedia(code, carrier) {
+			return navigationFilesInLanguage(
+				carrier,
+				tagFor(code),
+				effective,
+				profileUuid === undefined ? undefined : order,
+			);
+		},
+		menuMediaOverride(code, carrier) {
+			const tag = tagFor(code);
+			return {
+				icon: navigationMediaOverride(carrier, "icon", tag),
+				audioLabel: navigationMediaOverride(carrier, "audioLabel", tag),
+			};
+		},
+		storedMenuMedia(code, carrier) {
+			const tag = tagFor(code);
+			return {
+				icon: storedNavigationFile(carrier, "icon", tag),
+				audioLabel: storedNavigationFile(carrier, "audioLabel", tag),
+			};
+		},
+		media(wireCode, bundle) {
+			return storedFormMedia(
+				bundle,
+				tagFor(wireCode),
+				effective.defaultLanguage,
+			);
+		},
 		languageName(wireCode) {
 			const name = plan.nameByWireCode.get(wireCode);
 			if (name === undefined) {
@@ -139,6 +210,21 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 		wireTextFor,
 		text,
 		prose,
+		formSubmitLabels(uuid) {
+			const label = doc.forms[uuid]?.submitLabel;
+			if (label === undefined) return {};
+			const unitId = makeTranslationUnitId("form", uuid, "submit-label");
+			return Object.fromEntries(
+				plan.languages.flatMap((code) => {
+					const tag = tagFor(code);
+					const explicit =
+						tag === effective.sourceLanguage
+							? label.text
+							: effective.translations[tag]?.[unitId]?.value;
+					return typeof explicit === "string" ? [[code, explicit]] : [];
+				}),
+			);
+		},
 		textMap(unitId) {
 			return Object.fromEntries(
 				plan.languages.map((wireCode) => [wireCode, text(wireCode, unitId)]),

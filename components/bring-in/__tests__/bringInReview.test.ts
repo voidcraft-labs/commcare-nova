@@ -45,12 +45,15 @@ import {
 	reviewSameEqualTable,
 } from "@/lib/publish/managedData";
 import {
+	addressSearchReviewLine,
 	adoptionRecordedFeaturesLine,
 	PLAN_FEATURES,
 } from "@/lib/publish/planFeatures";
 import {
+	addressSearchLine,
 	answerSourceOf,
 	bringInInputOf,
+	carryAnswers,
 	chosenDeclaration,
 	createLeadLine,
 	declarationRows,
@@ -99,6 +102,7 @@ describe("initialAnswers", () => {
 			runsOnlyOn: "android",
 			splitDatetime: true,
 			tableChoices: {},
+			ownerRuleChoices: {},
 		});
 	});
 });
@@ -148,6 +152,7 @@ describe("bringInInputOf", () => {
 			runsOnlyOn: "android",
 			splitDatetime: false,
 			tableChoices: { districts: "use-project" },
+			ownerRuleChoices: {},
 		});
 	});
 });
@@ -385,6 +390,60 @@ describe("reviewPress", () => {
 			kind: "create",
 			input: bringInInputOf(KEY, answer, answered),
 		});
+	});
+});
+
+describe("reviewPress over an owner rule", () => {
+	const rule = {
+		level: "clinic",
+		levelName: "Clinic",
+		conflict: {
+			kind: "two-places",
+			source: "North district",
+			places: ["First clinic", "Second clinic"],
+		},
+		forms: ["Transfer"],
+	} as const;
+	const answer = reviewAnswer(review({ ownerRules: [rule] }), DIGEST_1);
+
+	it("names the rule with no answer after every table, never choosing it, and sends nothing", () => {
+		expect(reviewPress(KEY, answer, initialAnswers(answer))).toEqual({
+			kind: "owner-rule",
+			level: "clinic",
+		});
+	});
+
+	it("sends the person's answer in the create once it is given", () => {
+		const answered: ReviewAnswers = {
+			...initialAnswers(answer),
+			ownerRuleChoices: { clinic: "worker" },
+		};
+		const press = reviewPress(KEY, answer, answered);
+		expect(press).toEqual({
+			kind: "create",
+			input: bringInInputOf(KEY, answer, answered),
+		});
+		if (press.kind !== "create") throw new Error("expected a create");
+		expect(press.input.ownerRuleChoices).toEqual({ clinic: "worker" });
+	});
+
+	it("keeps an answer for a review that came back asking the same question, and drops it for another", () => {
+		const answered: ReviewAnswers = {
+			...initialAnswers(answer),
+			ownerRuleChoices: { clinic: "worker" },
+		};
+		expect(
+			carryAnswers(answered, answer.review, answer.review, DIGEST_1).answers
+				.ownerRuleChoices,
+		).toEqual({ clinic: "worker" });
+		const moved = review({
+			ownerRules: [
+				{ ...rule, conflict: { kind: "no-place", source: "North district" } },
+			],
+		});
+		const carried = carryAnswers(answered, answer.review, moved, DIGEST_1);
+		expect(carried.answers.ownerRuleChoices).toEqual({});
+		expect(carried.dropped).toBe(true);
 	});
 });
 
@@ -641,6 +700,22 @@ describe("the review's places, files and recorded features", () => {
 			),
 		);
 	});
+
+	it("names what address search needs of the project space only where the chosen row searches", () => {
+		expect(addressSearchLine(choice(null), KEY.domain)).toBeNull();
+		const line = addressSearchLine(
+			{
+				...choice(null),
+				addressSearch: [
+					"Visit has a question that searches for an address in Web Apps.",
+				],
+			},
+			KEY.domain,
+		);
+		expect(line).toBe(addressSearchReviewLine(KEY.domain));
+		expect(line).toContain(`“${KEY.domain}”`);
+		expect(line).toContain("Geocoder");
+	});
 });
 
 describe("what a create that did not create says on the review", () => {
@@ -653,6 +728,7 @@ describe("what a create that did not create says on the review", () => {
 			no_project_access: null,
 			invalid_input: null,
 			app_unavailable: null,
+			session_ended: null,
 			/* The review stands while another app's publish finishes. */
 			publish_in_flight: "footer",
 		};

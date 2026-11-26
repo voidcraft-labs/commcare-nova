@@ -35,7 +35,7 @@ import {
 import {
 	addCaseOperationMutations,
 	type CaseOperationEditVerdict,
-	type CaseOperationMutationPlan,
+	type CaseOperationRemovalPlan,
 	caseOperationAddVerdict,
 	caseOperationEditVerdict,
 	moveCaseOperationMutation,
@@ -82,7 +82,7 @@ export interface CaseOperationsView {
 		uuid: Uuid,
 	) => ReadonlyMap<number, CaseOperationMoveVerdict>;
 	/** Whether removal is allowed, and what blocks it. */
-	readonly removalPlan: (uuid: Uuid) => CaseOperationMutationPlan;
+	readonly removalPlan: (uuid: Uuid) => CaseOperationRemovalPlan;
 	/** Whether one complete edited shape can pass the shared commit gate. */
 	readonly editVerdict: (operation: CaseOperation) => CaseOperationEditVerdict;
 	/** Whether one complete insertion can pass the shared commit gate. */

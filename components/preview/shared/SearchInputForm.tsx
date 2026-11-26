@@ -41,17 +41,23 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerSearch from "@iconify-icons/tabler/search";
 import {
 	type ReactNode,
+	type Ref,
 	useCallback,
 	useEffect,
 	useId,
+	useImperativeHandle,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { choiceKeysForAnswer } from "@/components/preview/shared/multiSelectChoiceKeys";
+import {
+	choiceKeysForAnswer,
+	webSearchChoices,
+} from "@/components/preview/shared/multiSelectChoiceKeys";
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
 import {
 	Field,
 	FieldDescription,
@@ -70,10 +76,15 @@ import {
 	type CaseType,
 	joinMultiSelectSearchAnswer,
 	type SearchInputDef,
+	type SearchInputGroup,
+	searchInputGroupsWithMembers,
+	splitMultiSelectSearchAnswer,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { PLATFORMS } from "@/lib/domain/platforms";
+import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
+import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import {
 	PreviewDataRefusal,
 	type PreviewDataRefusalReason,
@@ -85,7 +96,10 @@ import {
 	type PreviewSearchSessionValues,
 } from "@/lib/preview/engine/identity";
 import type { LookupChoice } from "@/lib/preview/engine/lookupEvaluation";
-import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import {
+	type SearchInputValues,
+	searchForBlankKey,
+} from "@/lib/preview/engine/runtimeBindings";
 import {
 	type HeldCheckRefusal,
 	heldCheckRefusal,
@@ -101,16 +115,52 @@ import {
 	searchInputRequiredMarksOnDevice,
 } from "@/lib/preview/engine/searchInputConstraints";
 import {
+	androidSelectedRangeDay,
+	androidStartingRangeLabel,
+	webSearchRangeDraft,
+} from "@/lib/preview/engine/searchRangeAnswer";
+import {
 	effectivePreviewPlatform,
 	type PreviewPlatformRules,
 	previewPlatformRules,
 } from "@/lib/preview/platform";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { AddressEntryField } from "../form/fields/AddressEntryField";
 import {
 	LookupChoicesEmpty,
 	LookupChoicesLoading,
 } from "../form/fields/LookupChoiceStates";
 import { BarcodeScanner, useBarcodeScanSupport } from "./BarcodeScanner";
+
+function AddressSearchRow({
+	input,
+	value,
+	onCommit,
+}: {
+	readonly input: Extract<SearchInputDef, { kind: "address" }>;
+	readonly value: string;
+	readonly onCommit: (
+		value: string,
+		message?: QuestionMessage,
+	) => Promise<boolean>;
+}) {
+	const label = useId();
+	return (
+		<Field>
+			<FieldLabel id={label}>{input.label}</FieldLabel>
+			<AddressEntryField
+				context="search"
+				field={input}
+				state={{ value, touched: false, valid: true }}
+				labelledBy={label}
+				onCommit={onCommit}
+			/>
+			{input.hint !== undefined && (
+				<FieldDescription>{input.hint}</FieldDescription>
+			)}
+		</Field>
+	);
+}
 
 type SearchInputValidationModule =
 	typeof import("@/lib/preview/engine/searchInputValidation");
@@ -135,7 +185,12 @@ function loadSearchInputValidation(): Promise<SearchInputValidationModule> {
 
 // ── Public surface ──────────────────────────────────────────────────
 
+export interface SearchFormClear {
+	clear(alsoSearch: boolean): void;
+}
+
 interface SearchInputFormProps {
+	readonly clearRef?: Ref<SearchFormClear>;
 	/** Accessible name for the search landmark. The running case list passes
 	 * the same authored title its visible heading shows. */
 	readonly landmarkLabel?: string;
@@ -146,6 +201,7 @@ interface SearchInputFormProps {
 	 *  rendered field order; sibling uniqueness is enforced upstream
 	 *  at the schema layer. */
 	readonly searchInputs: ReadonlyArray<SearchInputDef>;
+	readonly searchInputGroups?: readonly SearchInputGroup[];
 	/** The always-on filter joins the input predicates in exported CSQL. It is
 	 * needed only to derive which prompt values require quote validation. */
 	readonly filter?: Expression;
@@ -183,7 +239,16 @@ interface SearchInputFormProps {
 	 *  Defaults to the platform an app that runs on both plays. */
 	readonly platformRules?: Pick<
 		PreviewPlatformRules,
-		"searchFieldChecks" | "searchScreenText" | "barcodeSearchField"
+		| "searchFieldChecks"
+		| "searchScreenText"
+		| "searchAddressPicker"
+		| "searchFieldGroups"
+		| "barcodeSearchField"
+		| "searchChoiceOrder"
+		| "searchForBlank"
+		| "searchRangeStartingValue"
+		| "searchRangeChosenDay"
+		| "hiddenSearchField"
 	>;
 	/** What the screen shows in place of its fields where a required
 	 *  condition or a check reads data the worker's device lacks (a place key
@@ -205,9 +270,11 @@ const DEBOUNCE_MS = 300;
  * query.
  */
 export function SearchInputForm({
+	clearRef,
 	landmarkLabel = "Search",
 	scopeKey = "",
 	searchInputs,
+	searchInputGroups,
 	filter,
 	caseType,
 	session,
@@ -221,6 +288,7 @@ export function SearchInputForm({
 	platformRules = DEFAULT_SEARCH_RULES,
 	renderRefusal,
 }: SearchInputFormProps) {
+	const { language } = useBuilderLanguage();
 	const [validationState, setValidationState] = useState({
 		scopeKey,
 		attempted: false,
@@ -269,9 +337,22 @@ export function SearchInputForm({
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
 	// responsive; one debounced effect emits upward.
-	const [draft, setDraft] = useState<SearchInputValues>(value);
+	const [sourceDraft, setDraft] = useState<SearchInputValues>(value);
+	const [addressScope, setAddressScope] = useState<{
+		readonly key: string;
+		readonly values: ReadonlyMap<string, string>;
+	}>({ key: scopeKey, values: new Map() });
+	const [addressReset, setAddressReset] = useState(0);
+	const displayed = useMemo<ReturnType<typeof webSearchRangeDraft>>(
+		() =>
+			platformRules.searchRangeStartingValue === "date-picker"
+				? webSearchRangeDraft(searchInputs, sourceDraft)
+				: { draft: sourceDraft },
+		[platformRules.searchRangeStartingValue, searchInputs, sourceDraft],
+	);
+	const draft = displayed.draft;
 	const validateSubmission = useCallback(
-		async (candidate: SearchInputValues) => {
+		async (candidate: SearchInputValues, quiet = false) => {
 			const request = ++validationRequestRef.current;
 			const superseded = () => request !== validationRequestRef.current;
 			const caseListConfig = {
@@ -295,6 +376,7 @@ export function SearchInputForm({
 								candidate,
 								session,
 								environment,
+								{ language },
 							)
 						: await validation.searchInputSubmissionErrorsOnDevice(
 								platformRules,
@@ -303,7 +385,7 @@ export function SearchInputForm({
 								candidate,
 								session,
 								environment,
-								{ evaluateOnDevice },
+								{ evaluateOnDevice, language },
 							);
 			} catch (error) {
 				// A rejection from a request a later draft has already superseded
@@ -317,15 +399,20 @@ export function SearchInputForm({
 			lastValidatedDraftRef.current = candidate;
 			setValidationFailure(undefined);
 			setCheckRefusal(undefined);
-			setValidationState({
-				scopeKey,
-				attempted: errors.size > 0,
-				errors,
-			});
+			/* A quiet judgment (the search Web Apps runs after Clear) paints
+			 * nothing: Web Apps' `query.js::updateSearchResults` skips the
+			 * request while a required field is blank and shows no error, and
+			 * Clear has already removed every earlier one. */
+			setValidationState(
+				quiet
+					? { scopeKey, attempted: false, errors: new Map() }
+					: { scopeKey, attempted: errors.size > 0, errors },
+			);
 			return errors;
 		},
 		[
 			caseType?.name,
+			language,
 			evaluateOnDevice,
 			filter,
 			environment,
@@ -351,9 +438,9 @@ export function SearchInputForm({
 	 * the Search runtime being unavailable. Reported once per attempt and
 	 * cleared by the next judged pass. */
 	const judgeSubmission = useCallback(
-		async (candidate: SearchInputValues) => {
+		async (candidate: SearchInputValues, quiet = false) => {
 			try {
-				return await validateSubmission(candidate);
+				return await validateSubmission(candidate, quiet);
 			} catch (error) {
 				lastValidatedDraftRef.current = candidate;
 				const refused = previewDataRefusalOf(error);
@@ -524,22 +611,30 @@ export function SearchInputForm({
 		// Skip when `draft` is the same reference as the last upward
 		// emission OR the most recent external value. Either way, no
 		// real user change occurred: emitting again would loop.
-		if (draft === lastEmittedRef.current) return;
+		if (sourceDraft === lastEmittedRef.current) return;
 		const handle = setTimeout(() => {
-			lastEmittedRef.current = draft;
-			onChangeRef.current(draft);
+			lastEmittedRef.current = sourceDraft;
+			onChangeRef.current(sourceDraft);
 		}, DEBOUNCE_MS);
 		return () => clearTimeout(handle);
-	}, [draft]);
+	}, [sourceDraft]);
 
 	// One mutator routed through every per-input change handler.
 	// Empty values delete the key: the runtime-bindings layer
 	// short-circuits absent and empty alike, so dropping the key
 	// keeps the emitted map tight + avoids spurious entries that
 	// would only ever evaluate to "no clause" downstream.
-	const setKey = (key: string, next: string) => {
+	const setKey = (key: string, next: string, discard?: string) => {
 		setDraft((prev) => {
-			const updated = new Map(prev);
+			const updated = new Map(
+				platformRules.searchRangeStartingValue === "date-picker"
+					? webSearchRangeDraft(searchInputs, prev).draft
+					: prev,
+			);
+			if (discard !== undefined) {
+				updated.delete(discard);
+				updated.delete(discard.slice(0, discard.lastIndexOf(":")) + ":opening");
+			}
 			if (next === "") {
 				updated.delete(key);
 			} else {
@@ -548,12 +643,99 @@ export function SearchInputForm({
 			return updated;
 		});
 	};
+	const setAddress = (
+		source: Extract<SearchInputDef, { kind: "address" }>,
+		value: string,
+		message?: QuestionMessage,
+	) => {
+		setAddressScope((previous) => {
+			const values = new Map(previous.key === scopeKey ? previous.values : []);
+			if (value === "") values.delete(source.uuid);
+			else values.set(source.uuid, value);
+			return { key: scopeKey, values };
+		});
+		// Web Apps emits nothing when the worker types after selecting an
+		// address. A pick and an explicit clear publish one update.
+		if (message === undefined) return;
+		setDraft((previous) => {
+			const next = new Map(previous);
+			for (const input of searchInputs) {
+				if (input.kind === "hidden" || input.kind === "address") continue;
+				const receiver = input.addressReceiver;
+				if (receiver?.kind !== "address" || receiver.source !== source.uuid)
+					continue;
+				const part = receiver.parts.find((key) => message?.[key] !== undefined);
+				const received = part === undefined ? undefined : message?.[part];
+				if (input.type === "multi-select") {
+					const choices =
+						choicesRead.kind === "read"
+							? choicesRead.value.get(input.uuid)
+							: undefined;
+					const matches = choices?.filter(
+						(choice) => choice.label.trim() === received,
+					);
+					if (matches?.length !== 1) continue;
+					const selected = matches[0].value;
+					const answers = splitMultiSelectSearchAnswer(
+						next.get(input.name) ?? "",
+					);
+					if (!answers.includes(selected))
+						next.set(
+							input.name,
+							joinMultiSelectSearchAnswer([...answers, selected]),
+						);
+					continue;
+				}
+				if (input.type !== "text") continue;
+				if (received) next.set(input.name, received);
+				else next.delete(input.name);
+			}
+			return next;
+		});
+	};
+	const submit = async (candidate: SearchInputValues, quiet = false) => {
+		if (onSubmit === undefined || awaitingWorker) return;
+		setValidating(true);
+		// Only the newest validation can retire the busy state.
+		const judged = judgeSubmission(candidate, quiet);
+		const request = validationRequestRef.current;
+		try {
+			const errors = await judged;
+			if (request === validationRequestRef.current && errors?.size === 0)
+				onSubmit(candidate);
+		} finally {
+			if (request === validationRequestRef.current) setValidating(false);
+		}
+	};
+	useImperativeHandle(clearRef, () => ({
+		clear(alsoSearch) {
+			validationRequestRef.current += 1;
+			const cleared: SearchInputValues = new Map();
+			lastEmittedRef.current = cleared;
+			setDraft(cleared);
+			setAddressScope({ key: scopeKey, values: new Map() });
+			setAddressReset((previous) => previous + 1);
+			lastValidatedDraftRef.current = undefined;
+			setValidationState({ scopeKey, attempted: false, errors: new Map() });
+			setCheckRefusal(undefined);
+			setValidationFailure(undefined);
+			setValidating(false);
+			if (alsoSearch) void submit(cleared, true);
+		},
+	}));
 	const submitAvailable = onSubmit !== undefined;
 
 	// Hidden inputs are system-generated values the worker never sees;
-	// the run-state hook resolves them at submit.
+	// the run-state hook resolves them at submit. A field marked hidden is
+	// one Web Apps does not draw, its starting value searched as it stands,
+	// and one Android draws like any other (`hiddenSearchField`).
 	const visibleInputs = searchInputs.filter(
-		(input): input is VisibleSearchInputDef => input.kind !== "hidden",
+		(input): input is Exclude<SearchInputDef, { kind: "hidden" }> =>
+			input.kind !== "hidden" &&
+			(input.kind === "address"
+				? platformRules.searchAddressPicker
+				: input.hidden !== true ||
+					platformRules.hiddenSearchField === "editable"),
 	);
 
 	// Zero-input modules render nothing: the caller is the
@@ -562,10 +744,19 @@ export function SearchInputForm({
 	// component. Returning null here makes the contract self-
 	// enforcing: a caller that forgets the guard doesn't surface a
 	// labelled-but-empty `<search>` landmark to assistive tech.
-	if (visibleInputs.length === 0) return null;
+	const visibleById = new Map(
+		visibleInputs.map((input) => [input.uuid, input]),
+	);
+	const groups = platformRules.searchFieldGroups
+		? searchInputGroupsWithMembers({ searchInputs, searchInputGroups }).filter(
+				(group) => group.inputs.length > 0,
+			)
+		: [];
+	if (visibleInputs.length === 0 && groups.length === 0) return null;
 
-	const refusalReason =
-		requiredRead.kind === "refused"
+	const refusalReason = displayed.unavailable
+		? { kind: "unreadable-starting-range" as const, ...displayed.unavailable }
+		: requiredRead.kind === "refused"
 			? requiredRead.refusal.reason
 			: choicesRead.kind === "refused"
 				? choicesRead.refusal.reason
@@ -576,19 +767,66 @@ export function SearchInputForm({
 		return renderRefusal(refusalReason);
 	}
 
+	const renderInput = (input: Exclude<SearchInputDef, { kind: "hidden" }>) =>
+		input.kind === "address" ? (
+			<AddressSearchRow
+				key={JSON.stringify([scopeKey, addressReset, input.uuid])}
+				input={input}
+				value={
+					addressScope.key === scopeKey
+						? (addressScope.values.get(input.uuid) ?? "")
+						: ""
+				}
+				onCommit={async (value, message) => {
+					setAddress(input, value, message);
+					return true;
+				}}
+			/>
+		) : (
+			<SearchInputRow
+				key={input.uuid}
+				input={input}
+				draft={draft}
+				startingLabel={displayed.labels?.get(input.name)}
+				setKey={setKey}
+				utcMidnightDays={platformRules.searchRangeChosenDay === "utc-midnight"}
+				showHint={platformRules.searchScreenText}
+				choiceOrder={platformRules.searchChoiceOrder}
+				offerBlank={platformRules.searchForBlank}
+				scanBarcode={platformRules.barcodeSearchField === "scan-or-text"}
+				required={requiredNow(input)}
+				choices={
+					choicesRead.kind === "read"
+						? choicesRead.value.get(input.uuid)
+						: undefined
+				}
+				error={
+					validationAttempted
+						? (() => {
+								const source = submissionErrors.get(input.name);
+								/* A requirement with no message marks the
+								 * field invalid with no words under it: HQ's
+								 * build writes its text as a no-break space,
+								 * which Core keeps, so Web Apps reads a
+								 * message (`query.js::getError`), draws the
+								 * field invalid (`item.html`) and sends no
+								 * search (`inputsHaveErrors`). */
+								return source === undefined || source === ""
+									? source
+									: localizeValidationMessage(source);
+							})()
+						: undefined
+				}
+			/>
+		);
+
 	return (
 		<search aria-label={landmarkLabel}>
 			<form
 				onSubmit={async (event) => {
 					event.preventDefault();
 					if (!submitAvailable || validating || awaitingWorker) return;
-					setValidating(true);
-					try {
-						const errors = await judgeSubmission(draft);
-						if (errors?.size === 0) onSubmit?.(draft);
-					} finally {
-						setValidating(false);
-					}
+					await submit(draft);
 				}}
 			>
 				<div
@@ -596,34 +834,27 @@ export function SearchInputForm({
 					className="rounded-lg border border-border bg-card/30 p-4"
 				>
 					<div className="flex flex-col gap-4">
-						{visibleInputs.map((input) => (
-							<SearchInputRow
-								key={input.uuid}
-								input={input}
-								draft={draft}
-								setKey={setKey}
-								showHint={platformRules.searchScreenText}
-								scanBarcode={
-									platformRules.barcodeSearchField === "scan-or-text"
-								}
-								required={requiredNow(input)}
-								choices={
-									choicesRead.kind === "read"
-										? choicesRead.value.get(input.uuid)
-										: undefined
-								}
-								error={
-									validationAttempted
-										? (() => {
-												const source = submissionErrors.get(input.name);
-												return source === undefined
-													? undefined
-													: localizeValidationMessage(source);
-											})()
-										: undefined
-								}
-							/>
-						))}
+						{groups.length === 0
+							? visibleInputs.map(renderInput)
+							: groups.map((group) => (
+									<details
+										key={group.uuid}
+										open
+										className="rounded-lg border border-border p-3"
+									>
+										<summary className="cursor-pointer font-semibold">
+											<PreviewMarkdown rendering={PREVIEW_LABEL_RENDERING}>
+												{group.label}
+											</PreviewMarkdown>
+										</summary>
+										<div className="mt-3 flex flex-col gap-4">
+											{group.inputs.map(({ uuid }) => {
+												const input = visibleById.get(uuid);
+												return input === undefined ? null : renderInput(input);
+											})}
+										</div>
+									</details>
+								))}
 					</div>
 				</div>
 				{validationFailureMessage !== undefined && (
@@ -673,18 +904,60 @@ function searchCheckFailureMessage(error: unknown): string {
 }
 
 interface SearchInputRowProps {
+	readonly choiceOrder: PreviewPlatformRules["searchChoiceOrder"];
 	readonly input: VisibleSearchInputDef;
 	readonly draft: SearchInputValues;
-	readonly setKey: (key: string, next: string) => void;
+	readonly startingLabel?: string;
+	readonly setKey: (key: string, next: string, discard?: string) => void;
 	/** Android shows no Search field hints (`searchScreenText`). */
 	readonly showHint: boolean;
+	/** Android's range picker gives each chosen day as UTC midnight
+	 *  (`searchRangeChosenDay`). */
+	readonly utcMidnightDays: boolean;
 	/** Android scans a barcode Search field; Web Apps draws a text box. */
 	readonly scanBarcode: boolean;
+	/** Web Apps offers to search for blank under a field that allows it;
+	 *  Android shows the field alone (`searchForBlank`). */
+	readonly offerBlank: boolean;
 	/** Required right now; the label carries the mark. */
 	readonly required: boolean;
 	/** A choice prompt's live rows; `undefined` while they load. */
 	readonly choices: readonly LookupChoice[] | undefined;
 	readonly error: string | undefined;
+}
+
+/**
+ * One Search field: its widget, and under it, where the field allows it and
+ * the platform draws it, Web Apps' "Include results where … is blank" box
+ * (`query/item.html`). The box is its own answer (`searchForBlankKey`), so a
+ * worker can tick it with the field empty, as Web Apps sends a blank alone.
+ */
+function SearchInputRow(props: SearchInputRowProps) {
+	const { input, draft, setKey, offerBlank } = props;
+	const { language } = useBuilderLanguage();
+	const blankId = useId();
+	const widget = <SearchInputWidget {...props} />;
+	if (!offerBlank || input.allowBlank !== true) return widget;
+	const blankKey = searchForBlankKey(input.name);
+	return (
+		<div className="flex flex-col gap-2">
+			{widget}
+			<label
+				htmlFor={blankId}
+				className="flex cursor-pointer items-center gap-2 text-sm text-nova-text"
+			>
+				<Checkbox
+					id={blankId}
+					data-search-for-blank={input.name}
+					checked={draft.get(blankKey) === "true"}
+					onCheckedChange={(next) => setKey(blankKey, next ? "true" : "")}
+				/>
+				{runtimeMessage(language, "searchForBlank", {
+					label: input.label || input.name,
+				})}
+			</label>
+		</div>
+	);
 }
 
 /**
@@ -694,16 +967,23 @@ interface SearchInputRowProps {
  * the value flows into the predicate, which the runtime-bindings
  * layer owns.
  */
-function SearchInputRow({
+function SearchInputWidget({
 	input,
 	draft,
+	startingLabel,
 	setKey,
 	showHint,
+	utcMidnightDays,
 	scanBarcode,
 	required,
-	choices,
+	choiceOrder,
+	choices: rows,
 	error,
 }: SearchInputRowProps) {
+	const choices = useMemo(
+		() => (rows && choiceOrder === "values" ? webSearchChoices(rows) : rows),
+		[choiceOrder, rows],
+	);
 	const chrome = {
 		label: input.label,
 		hint: showHint ? input.hint : undefined,
@@ -753,8 +1033,26 @@ function SearchInputRow({
 					{...chrome}
 					fromValue={draft.get(`${input.name}:from`) ?? ""}
 					toValue={draft.get(`${input.name}:to`) ?? ""}
-					onChangeFrom={(next) => setKey(`${input.name}:from`, next)}
-					onChangeTo={(next) => setKey(`${input.name}:to`, next)}
+					startingText={
+						startingLabel ??
+						(!draft.has(`${input.name}:from`)
+							? androidStartingRangeLabel(draft.get(`${input.name}:starting`))
+							: undefined)
+					}
+					onChangeFrom={(next) =>
+						setKey(
+							`${input.name}:from`,
+							utcMidnightDays ? androidSelectedRangeDay(next) : next,
+							`${input.name}:starting`,
+						)
+					}
+					onChangeTo={(next) =>
+						setKey(
+							`${input.name}:to`,
+							utcMidnightDays ? androidSelectedRangeDay(next) : next,
+							`${input.name}:starting`,
+						)
+					}
 					error={error}
 				/>
 			);
@@ -770,6 +1068,17 @@ function SearchInputRow({
 				/>
 			);
 		case "multi-select":
+			return (
+				<MultipleChoiceList
+					{...chrome}
+					name={input.name}
+					value={draft.get(input.name) ?? ""}
+					choices={choices}
+					onChange={(next) => setKey(input.name, next)}
+					error={error}
+				/>
+			);
+		case "checkboxes":
 			return (
 				<MultiSelectRow
 					{...chrome}
@@ -836,7 +1145,7 @@ function describedBy(
 ): string | undefined {
 	const ids = [
 		...(hint === undefined ? [] : [hintId]),
-		...(error === undefined ? [] : [errorId]),
+		...(error === undefined || error === "" ? [] : [errorId]),
 	];
 	return ids.length === 0 ? undefined : ids.join(" ");
 }
@@ -1032,21 +1341,65 @@ function SelectRow({
 	);
 }
 
-/**
- * Several-choice row: one checkbox per lookup row, the shape Web Apps
- * renders for a `select` prompt. The value is CommCare's own encoding, the
- * chosen values joined by the delimiter in choice order, so the runtime
- * bindings split it exactly as `RemoteQuerySessionManager` does.
- *
- * Selection is tracked by ROW, not by value: lookup rows guarantee neither
- * unique nor non-blank values (row-level validity is the export boundary's
- * verdict), and Web Apps keeps each checkbox's own state, so two rows that
- * share a value tick and untick independently and the answer carries one
- * token per ticked row. The answer string alone cannot say which of two
- * same-value rows was ticked, which is why the row set is local state,
- * re-derived only when the answer changes from outside (a clear, a default)
- * or the rows arrive.
- */
+/** The Web Apps multiple-selection list sends the selected options in list order. */
+function MultipleChoiceList({
+	name,
+	label,
+	hint,
+	required,
+	value,
+	choices,
+	onChange,
+	error,
+}: ChoiceRowProps) {
+	const id = useId();
+	const errorId = `${id}-error`;
+	const hintId = `${id}-hint`;
+	return (
+		<Field data-invalid={error !== undefined}>
+			<FieldLabel htmlFor={id}>
+				<PromptLabelText label={label} required={required} />
+			</FieldLabel>
+			<PromptHint id={hintId} hint={hint} />
+			{choices === undefined ? (
+				<LookupChoicesLoading />
+			) : choices.length === 0 ? (
+				<LookupChoicesEmpty />
+			) : (
+				<select
+					multiple
+					id={id}
+					name={name}
+					aria-required={required}
+					aria-invalid={error !== undefined}
+					aria-describedby={describedBy(hintId, hint, errorId, error)}
+					className="rounded-lg border border-pv-input-border bg-pv-input-bg p-2 text-sm text-nova-text focus-visible:outline-pv-input-focus"
+					value={splitMultiSelectSearchAnswer(value)}
+					onChange={(event) =>
+						onChange(
+							joinMultiSelectSearchAnswer(
+								Array.from(
+									event.currentTarget.selectedOptions,
+									(option) => option.value,
+								),
+							),
+						)
+					}
+				>
+					{choices.map((choice) => (
+						<option key={choice.key} value={choice.value}>
+							{choice.label}
+						</option>
+					))}
+				</select>
+			)}
+			<FieldError id={errorId}>{error}</FieldError>
+		</Field>
+	);
+}
+
+/** Checkbox state belongs to the displayed row. When the form restores a saved
+ * answer, Android marks every offered row with a selected value. */
 function MultiSelectRow({
 	name,
 	label,
@@ -1220,6 +1573,7 @@ function DatePopoverField({
 }
 
 interface DateRangeRowProps extends PromptChrome {
+	readonly startingText?: string;
 	readonly fromValue: string;
 	readonly toValue: string;
 	readonly onChangeFrom: (next: string) => void;
@@ -1244,6 +1598,7 @@ interface DateRangeRowProps extends PromptChrome {
  * shape rather than a runtime invariant.
  */
 function DateRangeRow({
+	startingText,
 	label,
 	hint,
 	required,
@@ -1273,6 +1628,9 @@ function DateRangeRow({
 				<PromptLabelText label={label} required={required} />
 			</legend>
 			<PromptHint id={hintId} hint={hint} />
+			{startingText !== undefined && (
+				<p className="text-sm text-muted-foreground">{startingText}</p>
+			)}
 			<div
 				data-date-range-fields
 				className="grid min-w-0 grid-cols-1 gap-2 @sm/date-range:grid-cols-2"

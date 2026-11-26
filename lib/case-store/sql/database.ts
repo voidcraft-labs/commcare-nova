@@ -65,6 +65,14 @@ export type JsonObject = { [key: string]: JsonValue };
  * fields every case carries.
  */
 export interface CasesTable {
+	/** Observed from this case's creation. An older case can still have
+	 * particular live and cleared indexes whose state is known. */
+	index_history_complete: ColumnType<boolean, boolean | undefined, boolean>;
+	cleared_index_identifiers: ColumnType<
+		string[],
+		string[] | undefined,
+		string[]
+	>;
 	/**
 	 * Stable case identifier — opaque TEXT, the CommCare wire
 	 * identity. Nova-generated ids default to `uuidv7()::text`
@@ -167,6 +175,17 @@ export interface CasesTable {
 	 * throwing.
 	 */
 	external_id: string | null;
+
+	/**
+	 * The case's own location, as a form's `location_id` write leaves it on
+	 * CommCare HQ's server, which keeps that key apart from the case's
+	 * properties (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`)
+	 * and writes it back into a restore as the case's `location_id` element
+	 * when it holds text. An opaque text, never one of the Project's places
+	 * and no grant of access. `null` where no form wrote one; `""` is a real
+	 * blank write, which a device reads as blank as it reads an absent one.
+	 */
+	location_id: string | null;
 
 	/** Denormalized first parent for the common single-parent case. Full ancestor walks go through `case_indices`. */
 	parent_case_id: string | null;

@@ -1,6 +1,7 @@
 "use server";
 
 import { type ZodError, type ZodType, z } from "zod";
+import { lockProjectDataGrant } from "@/lib/auth/dataGrant";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
@@ -8,10 +9,37 @@ import {
 	type LookupReferencingApp,
 	readLookupReferencingApps,
 } from "@/lib/db/lookupReferenceEdges";
-import { getAppDb } from "@/lib/db/pg";
-import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { getAppDb, withAppTx } from "@/lib/db/pg";
+import {
+	bindWorkerGroupTarget,
+	readGroupTarget,
+} from "@/lib/deployment/workerGroupBinding";
+import {
+	lookupColumnIdSchema,
+	lookupMemberIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { log } from "@/lib/logger";
+import {
+	assignmentDirectorySchema,
+	rowAssigneesSchema,
+	workerDirectoryReadSchema,
+	workerGroupEditSchema,
+} from "./assignmentVocabulary";
+import { applyLookupAuthoringBatchInTransaction } from "./authoringBatch";
+import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError, lookupFailure } from "./errors";
+import {
+	contentInput,
+	namedImportRowsSchema,
+	STRUCTURED_ROW_IMPORT_MAX_BYTES,
+} from "./namedRowInput";
+import { lookupEditOnce } from "./operationReceipt";
+import {
+	readRowAssignments,
+	searchAssignmentDirectory,
+} from "./rowAssignments";
 import {
 	addLookupColumnInputSchema,
 	createLookupRowInputSchema,
@@ -19,7 +47,10 @@ import {
 	deleteLookupRowInputSchema,
 	hasUnpairedUtf16Surrogate,
 	lookupExpectedTableRevisionInputSchema,
+	lookupMemberDraftSchema,
+	lookupReaderReviewSchema,
 	lookupResourceReferenceQuerySchema,
+	lookupRevisionSchema,
 	moveLookupColumnInputSchema,
 	moveLookupRowInputSchema,
 	removeLookupColumnInputSchema,
@@ -44,7 +75,8 @@ import {
 	getAllLookupDefinitions,
 	getLookupDefinitions,
 	getLookupManifest,
-	getLookupTable,
+	getLookupTableRowsPage,
+	getLookupTableWindow,
 	moveLookupColumn,
 	moveLookupRow,
 	updateLookupColumnLabel,
@@ -63,9 +95,15 @@ import type {
 	LookupManifest,
 	LookupMutationReceipt,
 	LookupResult,
+	LookupRowsPage,
 	LookupScope,
 	LookupTableSnapshot,
 } from "./types";
+import { editWorkerGroup, readGroupDirectory } from "./workerGroups";
+import {
+	authorizeLookupWriteInTransaction,
+	lockLookupProjectState,
+} from "./writerTransaction";
 
 /** A governance change's outcome: the receipt, or a refusal carrying the
  *  evidence the confirmation surface needs to explain itself. */
@@ -86,15 +124,23 @@ const projectIdSchema = z
 		"Project id contains invalid Unicode.",
 	);
 
+/** The sentence for an entry a schema refuses with no sentence of its own:
+ * Zod's own wording names types and paths a person never sees. */
+const INVALID_PROJECT_DATA =
+	"Nova couldn't save that change to Project data. You can check the entry and try again.";
+
+/** Parse input with Nova's sentence for any issue whose schema gives none. */
+const ownSentences = { error: () => INVALID_PROJECT_DATA };
+
 function invalidInput(error: ZodError): LookupFailure {
 	const details = error.issues.slice(0, 100).map((issue) => ({
 		code: "invalid_input",
-		message: `${issue.path.length > 0 ? `${issue.path.join(".")}: ` : ""}${issue.message}`,
+		message: issue.message,
 	}));
 	return {
 		success: false,
 		code: "invalid_input",
-		message: "Some lookup-table input is invalid.",
+		message: error.issues[0]?.message ?? INVALID_PROJECT_DATA,
 		details,
 		totalDetailCount: error.issues.length,
 	};
@@ -117,7 +163,11 @@ async function runLookupAction<Value, Input>(
 	input: unknown,
 	inputSchema: ZodType<Input>,
 	capability: AppCapability,
-	operation: (scope: LookupScope, input: Input) => Promise<Value>,
+	operation: (
+		scope: LookupScope,
+		input: Input,
+		sessionId: string,
+	) => Promise<Value>,
 ): Promise<LookupResult<Value>> {
 	try {
 		const session = await getSession();
@@ -133,7 +183,7 @@ async function runLookupAction<Value, Input>(
 		// client input. A ZodError thrown by auth, SQL, or the service is an
 		// internal fault and must be logged like any other invariant failure.
 		const projectResult = projectIdSchema.safeParse(projectIdInput);
-		const inputResult = inputSchema.safeParse(input);
+		const inputResult = inputSchema.safeParse(input, ownSentences);
 		if (!projectResult.success) return invalidInput(projectResult.error);
 		if (!inputResult.success) return invalidInput(inputResult.error);
 		const projectId = projectResult.data;
@@ -149,7 +199,7 @@ async function runLookupAction<Value, Input>(
 		};
 		return {
 			success: true,
-			value: await operation(scope, inputResult.data),
+			value: await operation(scope, inputResult.data, session.session.id),
 		};
 	} catch (error) {
 		if (error instanceof AppAccessError) {
@@ -205,7 +255,7 @@ async function runLookupGovernanceAction<Input>(
 			};
 		}
 		const projectResult = projectIdSchema.safeParse(projectIdInput);
-		const inputResult = inputSchema.safeParse(input);
+		const inputResult = inputSchema.safeParse(input, ownSentences);
 		if (!projectResult.success) return invalidInput(projectResult.error);
 		if (!inputResult.success) return invalidInput(inputResult.error);
 
@@ -368,7 +418,49 @@ export async function getLookupTableAction(
 		tableId,
 		lookupTableIdSchema,
 		"view",
-		(scope, id) => getLookupTable(scope, id),
+		(scope, id) => getLookupTableWindow(scope, id),
+	);
+}
+
+export async function getLookupTableWindowAction(
+	projectId: unknown,
+	tableId: unknown,
+	window: unknown = {},
+): Promise<LookupResult<LookupTableSnapshot>> {
+	return runLookupAction(
+		projectId,
+		{ tableId, window },
+		z.strictObject({
+			tableId: lookupTableIdSchema,
+			window: z.strictObject({
+				after: z.string().max(4096).optional(),
+				rowId: lookupRowIdSchema.optional(),
+				query: z.string().max(200).optional(),
+			}),
+		}),
+		"view",
+		(scope, input) => getLookupTableWindow(scope, input.tableId, input.window),
+	);
+}
+
+/** The large-row inspector asks for one row and one slot. Reading a sibling
+ * column can never pull the rest of that row into the browser. */
+export async function getLookupRowProjectionAction(
+	projectId: unknown,
+	input: unknown,
+): Promise<LookupResult<LookupRowsPage>> {
+	return runLookupAction(
+		projectId,
+		input,
+		z.strictObject({
+			tableId: lookupTableIdSchema,
+			rowId: lookupRowIdSchema,
+			columnIds: z.array(lookupColumnIdSchema).max(1),
+			attributeIds: z.array(lookupMemberIdSchema).max(1),
+			cursor: z.string().max(4096).optional(),
+		}),
+		"view",
+		(scope, request) => getLookupTableRowsPage(scope, request),
 	);
 }
 
@@ -396,7 +488,7 @@ export async function createLookupTableAction(
 		input,
 		createLookupTableInputSchema,
 		"edit",
-		createLookupTable,
+		(scope, request) => createLookupTable(scope, request),
 	);
 }
 
@@ -409,7 +501,7 @@ export async function updateLookupTableNameAction(
 		input,
 		updateLookupTableNameInputSchema,
 		"edit",
-		updateLookupTableName,
+		(scope, request) => updateLookupTableName(scope, request),
 	);
 }
 
@@ -422,7 +514,7 @@ export async function updateLookupTableTagAction(
 		input,
 		updateLookupTableTagInputSchema,
 		"delete",
-		updateLookupTableTag,
+		(scope, request) => updateLookupTableTag(scope, request),
 	);
 }
 
@@ -435,7 +527,158 @@ export async function addLookupColumnAction(
 		input,
 		addLookupColumnInputSchema,
 		"edit",
-		addLookupColumn,
+		(scope, request) => addLookupColumn(scope, request),
+	);
+}
+
+const structuredImportInput = lookupExpectedTableRevisionInputSchema.extend({
+	operationId: z.uuid(),
+	json: z
+		.string()
+		.max(STRUCTURED_ROW_IMPORT_MAX_BYTES)
+		.refine(
+			(text) =>
+				Buffer.byteLength(text, "utf8") <= STRUCTURED_ROW_IMPORT_MAX_BYTES,
+			"This file is larger than 256 KiB.",
+		),
+});
+export async function importLookupRowsAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		structuredImportInput,
+		"edit",
+		async (scope, request) => {
+			let json: unknown;
+			try {
+				json = JSON.parse(request.json);
+			} catch {
+				throw new LookupError(
+					"invalid_input",
+					"Nova couldn't read this JSON file. You can check its brackets, commas and quoted text.",
+				);
+			}
+			const parsed = namedImportRowsSchema.safeParse(json);
+			if (!parsed.success)
+				throw new LookupError(
+					"invalid_input",
+					parsed.error.issues[0]?.message ??
+						"These rows need a list of cells and optional details.",
+				);
+			return withAppTx(async (tx) => {
+				const authority = await authorizeLookupWriteInTransaction(
+					tx,
+					scope,
+					"edit",
+				);
+				await lockLookupProjectState(tx, authority);
+				const receipt = await lookupEditOnce(
+					tx,
+					authority,
+					request.operationId,
+					"structured-import",
+					request,
+					async () => {
+						const catalog = await readLookupDefinitionsInTransaction(
+							tx,
+							scope.projectId,
+							[request.tableId],
+						);
+						const table = catalog.definitions[0];
+						if (!table)
+							throw new LookupError("not_found", "Lookup table not found.");
+						const columns = new Map(
+							table.columns.map((c) => [c.wireName, c.id]),
+						);
+						const rowOperations = parsed.data.map((row, i) => ({
+							kind: "add" as const,
+							key: `row-${i}`,
+							cells: row.cells.map(({ name, value }) => {
+								const columnId = columns.get(name);
+								if (!columnId)
+									throw new LookupError(
+										"invalid_input",
+										`Row ${i + 1} names an unknown column “${name}”. You can use its name in exports.`,
+									);
+								return { columnId, value };
+							}),
+							...contentInput(row.content),
+						}));
+						return applyLookupAuthoringBatchInTransaction(tx, authority, {
+							updateTables: [
+								{
+									tableId: request.tableId,
+									expectedTableRevision: request.expectedTableRevision,
+									rowOperations,
+								},
+							],
+						});
+					},
+				);
+				return {
+					count: parsed.data.length,
+					projectRevision: receipt.projectRevision,
+				};
+			});
+		},
+	);
+}
+
+const editableMembersSchema = z
+	.array(
+		lookupMemberDraftSchema.extend({ id: lookupMemberIdSchema.optional() }),
+	)
+	.max(250);
+const updateDetailsSchema = z.strictObject({
+	operationId: z.uuid().optional(),
+	tableId: lookupTableIdSchema,
+	expectedTableRevision: lookupRevisionSchema,
+	reviewed: lookupReaderReviewSchema,
+	change: z.discriminatedUnion("kind", [
+		z.strictObject({
+			kind: z.literal("row-details"),
+			attributes: editableMembersSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("column"),
+			columnId: lookupColumnIdSchema,
+			repeated: z.boolean().optional(),
+			indexed: z.boolean().optional(),
+			properties: editableMembersSchema,
+		}),
+	]),
+});
+export async function updateLookupDetailsAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		updateDetailsSchema,
+		"edit",
+		async (scope, { change, operationId, ...review }) =>
+			withAppTx(async (tx) => {
+				const authority = await authorizeLookupWriteInTransaction(
+					tx,
+					scope,
+					"edit",
+				);
+				const update =
+					change.kind === "row-details"
+						? { ...review, attributes: change.attributes }
+						: {
+								...review,
+								columnOperations: [{ ...change, kind: "update" as const }],
+							};
+				return applyLookupAuthoringBatchInTransaction(tx, authority, {
+					operationId,
+					updateTables: [update],
+				});
+			}),
 	);
 }
 
@@ -448,7 +691,7 @@ export async function updateLookupColumnLabelAction(
 		input,
 		updateLookupColumnLabelInputSchema,
 		"edit",
-		updateLookupColumnLabel,
+		(scope, request) => updateLookupColumnLabel(scope, request),
 	);
 }
 
@@ -461,7 +704,7 @@ export async function updateLookupColumnWireNameAction(
 		input,
 		updateLookupColumnWireNameInputSchema,
 		"delete",
-		updateLookupColumnWireName,
+		(scope, request) => updateLookupColumnWireName(scope, request),
 	);
 }
 
@@ -474,7 +717,7 @@ export async function moveLookupColumnAction(
 		input,
 		moveLookupColumnInputSchema,
 		"edit",
-		moveLookupColumn,
+		(scope, request) => moveLookupColumn(scope, request),
 	);
 }
 
@@ -487,7 +730,7 @@ export async function createLookupRowAction(
 		input,
 		createLookupRowInputSchema,
 		"edit",
-		createLookupRow,
+		(scope, request) => createLookupRow(scope, request),
 	);
 }
 
@@ -500,7 +743,7 @@ export async function updateLookupRowAction(
 		input,
 		updateLookupRowInputSchema,
 		"edit",
-		updateLookupRow,
+		(scope, request) => updateLookupRow(scope, request),
 	);
 }
 
@@ -513,7 +756,7 @@ export async function deleteLookupRowAction(
 		input,
 		deleteLookupRowInputSchema,
 		"edit",
-		deleteLookupRow,
+		(scope, request) => deleteLookupRow(scope, request),
 	);
 }
 
@@ -526,7 +769,7 @@ export async function moveLookupRowAction(
 		input,
 		moveLookupRowInputSchema,
 		"edit",
-		moveLookupRow,
+		(scope, request) => moveLookupRow(scope, request),
 	);
 }
 
@@ -573,5 +816,159 @@ export async function retypeLookupColumnAction(
 		input,
 		retypeLookupColumnInputSchema,
 		(parsed) => ({ kind: "retype-column", ...parsed }),
+	);
+}
+
+export async function readRowAssignmentsAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		z.strictObject({
+			tableId: lookupTableIdSchema,
+			rowId: lookupRowIdSchema,
+			search: assignmentDirectorySchema,
+		}),
+		"edit",
+		async (scope, request, sessionId) =>
+			withAppTx(
+				async (tx) => {
+					await authorizeLookupWriteInTransaction(tx, scope, "edit");
+					await lockProjectDataGrant(
+						tx,
+						scope.actorId,
+						{ kind: "session", sessionId },
+						[],
+					);
+					return {
+						selected: await readRowAssignments(
+							tx,
+							scope.projectId,
+							request.tableId,
+							request.rowId,
+						),
+						...(await searchAssignmentDirectory(
+							tx,
+							scope.projectId,
+							request.search,
+						)),
+					};
+				},
+				{ isolationLevel: "repeatable read" },
+			),
+	);
+}
+export async function updateRowAssignmentsAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		z
+			.strictObject({
+				operationId: z.uuid(),
+				tableId: lookupTableIdSchema,
+				rowId: lookupRowIdSchema.optional(),
+				expectedTableRevision: lookupRevisionSchema,
+				reviewed: lookupReaderReviewSchema.optional(),
+				workerAccess: z.enum(["all", "assigned"]).optional(),
+				assignments: rowAssigneesSchema.optional(),
+			})
+			.refine(
+				(x) =>
+					!!x.workerAccess ||
+					(x.rowId !== undefined && x.assignments !== undefined),
+			)
+			.refine((x) => x.assignments === undefined || x.rowId !== undefined),
+		"edit",
+		async (scope, request, sessionId) =>
+			withAppTx(async (tx) => {
+				const auth = await authorizeLookupWriteInTransaction(tx, scope, "edit");
+				await lockProjectDataGrant(
+					tx,
+					scope.actorId,
+					{ kind: "session", sessionId },
+					[],
+				);
+				return applyLookupAuthoringBatchInTransaction(tx, auth, {
+					operationId: request.operationId,
+					updateTables: [
+						{
+							tableId: request.tableId,
+							expectedTableRevision: request.expectedTableRevision,
+							reviewed: request.reviewed,
+							workerAccess: request.workerAccess,
+							rowOperations:
+								request.assignments && request.rowId
+									? [
+											{
+												kind: "assign",
+												rowId: request.rowId,
+												assignments: request.assignments,
+											},
+										]
+									: [],
+						},
+					],
+				});
+			}),
+	);
+}
+
+export async function readWorkerGroupsAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		workerDirectoryReadSchema,
+		"edit",
+		async (scope, request, sessionId) => {
+			const grant = { kind: "session" as const, sessionId };
+			const target = request.target
+				? await readGroupTarget({ scope, grant }, request.target)
+				: undefined;
+			const directory = await withAppTx(
+				async (tx) => {
+					await authorizeLookupWriteInTransaction(tx, scope, "edit");
+					await lockProjectDataGrant(tx, scope.actorId, grant, []);
+					return readGroupDirectory(tx, scope.projectId, request);
+				},
+				{ isolationLevel: "repeatable read" },
+			);
+			return { ...directory, target };
+		},
+	);
+}
+export async function editWorkerGroupAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		workerGroupEditSchema,
+		"edit",
+		async (scope, request, sessionId) => {
+			const grant = { kind: "session" as const, sessionId };
+			if (request.change.kind === "connect")
+				return bindWorkerGroupTarget(
+					{ scope, grant },
+					{
+						...request.change,
+						operationId: request.operationId,
+						expectedProjectRevision: request.expectedProjectRevision,
+					},
+				);
+			return withAppTx(async (tx) => {
+				const auth = await authorizeLookupWriteInTransaction(tx, scope, "edit");
+				await lockProjectDataGrant(tx, scope.actorId, grant, []);
+				return editWorkerGroup(tx, auth, request);
+			});
+		},
 	);
 }

@@ -1,5 +1,6 @@
 /**
- * Rule: every simple search input names an existing property. An explicit
+ * Rule: every simple search input names an existing property CommCare HQ's
+ * case search holds (never the device-only location column). An explicit
  * mode must also match the targeted property's effective
  * `data_type` — at the input's destination case type (resolved through
  * `via` when the input carries a relation walk).
@@ -46,6 +47,8 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { SEARCH_MODE_PROPERTY_TYPES } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression";
+import { LOCATION_NOT_IN_SEARCH_MESSAGE } from "@/lib/domain/expression/typeChecker";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { type ValidationError, validationError } from "../../errors";
 import { resolvePropertyDataType, validationContextFor } from "./shared";
 
@@ -85,6 +88,28 @@ export function searchInputModeMatchesPropertyType(
 		if (!destination.ok) continue;
 		const destinationCaseType = destination.caseType;
 
+		// CommCare HQ keeps a case's location in its own column, which its
+		// case search does not index, so a search input on it finds nothing
+		// on HQ while Preview's store would answer it.
+		if (isDeviceOnlyCaseProperty(input.property)) {
+			errors.push(
+				validationError(
+					"CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY",
+					"module",
+					`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" searches "${input.property}" on case type "${destinationCaseType}". ${LOCATION_NOT_IN_SEARCH_MESSAGE}`,
+					{ moduleUuid, moduleName: mod.name },
+					{
+						index: String(index),
+						inputName: input.name,
+						inputUuid: input.uuid,
+						property: input.property,
+						destinationCaseType,
+					},
+				),
+			);
+			continue;
+		}
+
 		// Resolve the property's data type via the shared 3-arm model
 		// — backed by the cached augmented case-type list, so
 		// destination lookups (self-walk + cross-walk) all hit memoized
@@ -116,8 +141,10 @@ export function searchInputModeMatchesPropertyType(
 			continue;
 		}
 
-		// Omitted mode still had to resolve its property above.
-		if (!input.mode) continue;
+		// Omitted mode still had to resolve its property above. The project
+		// space's own matching rule matches a field with its matching, over any
+		// type (`nativeSearchFilters`), so no mode of Nova's compares it.
+		if (!input.mode || input.matching === "project-space") continue;
 		const allowed = SEARCH_MODE_PROPERTY_TYPES[input.mode.kind];
 		if (allowed === undefined) continue; // mode admits every type
 		if (allowed.includes(dataType)) continue;

@@ -1,0 +1,120 @@
+[
+	{
+		"id": "visit-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "patient-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "Seen at home"
+				}
+			],
+			"expressions": ["/data/note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Seen at home"
+			}
+		]
+	},
+	{
+		"id": "registration-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_patient_0": "new-patient"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/case_name",
+					"value": "Ada Orchard"
+				}
+			],
+			"expressions": ["/data/case_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Ada Orchard"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_patient_0": "new-patient"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/case_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/case_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_patient_0": "new-patient"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/case_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/case_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	}
+]

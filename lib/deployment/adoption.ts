@@ -15,17 +15,21 @@ import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
-import { requiredPlanFeatures } from "@/lib/commcare/planPrivileges";
+import {
+	formsWritingThroughUserIndex,
+	requiredPlanFeatures,
+} from "@/lib/commcare/planPrivileges";
 import type { ReadMenuAndFormIdentities } from "@/lib/commcare/reader";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import { type BlueprintDoc, operationCaseType } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
-import type {
-	FirstPublishChangeId,
-	FirstPublishView,
-	StoredFirstPublish,
+import {
+	type FirstPublishChangeId,
+	type FirstPublishView,
+	hasRegisteredPublishInputs,
+	type StoredFirstPublish,
 } from "@/lib/publish/firstPublishChangeIds";
 import { attachmentUrlTarget } from "./attachmentTarget";
 import {
@@ -38,8 +42,10 @@ import {
 import {
 	normalizedHqAppSource,
 	normalizeHqAppSource,
+	removedHqFiles,
 } from "./hqSourceBaseline";
 import { hqImportApplicationSteps } from "./importApplication";
+import { observedMenuLayoutOwnership } from "./legacyMenuLayouts";
 import type { DeploymentTargetKey } from "./store";
 import type {
 	AppBaselineWrite,
@@ -59,35 +65,50 @@ export type AdoptedIdentityRows =
 	/** A form of the document has no real id in the aligned read. */
 	| { readonly ok: false; readonly at: string };
 
-/** HQ's summarized menus by their id, the first of each id. */
-export function alignedMenusById(
-	aligned: readonly HqAlignedModule[],
-): ReadonlyMap<string, HqAlignedModule> {
-	const byUniqueId = new Map<string, HqAlignedModule>();
+/** Each menu and form from the bracketed read. A read id can join only
+ * within its source; HQ's application resource supplies the identity to keep. */
+export function alignedMenusById(aligned: readonly HqAlignedModule[]) {
+	const byId = new Map<
+		string,
+		Map<
+			string,
+			{ readonly uniqueId: string; readonly xmlns: string | null }
+		> | null
+	>();
 	for (const module of aligned) {
-		if (module.uniqueId !== null && !byUniqueId.has(module.uniqueId)) {
-			byUniqueId.set(module.uniqueId, module);
-		}
+		if (module.uniqueId === null || byId.has(module.uniqueId)) continue;
+		byId.set(
+			module.uniqueId,
+			module.kind === "not-summarized"
+				? null
+				: new Map(
+						module.forms.map((form) => [
+							form.source.readUniqueId,
+							{ uniqueId: form.uniqueId, xmlns: form.source.xmlns },
+						]),
+					),
+		);
 	}
-	return byUniqueId;
+	return byId;
 }
 
-/** The real id HQ's application resource gives one read form, or where none
- *  is (`adoptedIdentityRows`' `at`). */
+/** The real entry id and its own namespace. Only a content owner has a namespace. */
 export function realFormId(
 	form: Pick<
 		ReadMenuAndFormIdentities["forms"][number],
-		"moduleUniqueId" | "xmlns"
+		"moduleUniqueId" | "xmlns" | "readUniqueId"
 	>,
-	byUniqueId: ReadonlyMap<string, HqAlignedModule>,
-): { readonly uniqueId: string } | { readonly at: string } {
-	const module = byUniqueId.get(form.moduleUniqueId);
-	if (module === undefined || module.kind === "not-summarized")
-		return { at: `menu ${form.moduleUniqueId}` };
-	const real = module.forms.find((one) => one.xmlns === form.xmlns);
-	if (real === undefined)
-		return { at: `form ${form.xmlns} in menu ${form.moduleUniqueId}` };
-	return { uniqueId: real.uniqueId };
+	byId: ReturnType<typeof alignedMenusById>,
+):
+	| { readonly uniqueId: string; readonly xmlns: string | null }
+	| { readonly at: string } {
+	const entries = byId.get(form.moduleUniqueId);
+	if (!entries) return { at: `menu ${form.moduleUniqueId}` };
+	return (
+		entries.get(form.readUniqueId) ?? {
+			at: `form ${form.xmlns} in menu ${form.moduleUniqueId}`,
+		}
+	);
 }
 
 /**
@@ -116,7 +137,7 @@ export function adoptedIdentityRows(
 			entityKind: "form",
 			novaEntityUuid: form.uuid,
 			uniqueId: real.uniqueId,
-			xmlns: form.xmlns,
+			xmlns: real.xmlns,
 		});
 	}
 	rows.sort(
@@ -430,6 +451,20 @@ interface AdoptedBaselineOwnershipInput {
 	readonly identity: WireIdentity;
 }
 
+/** The concrete native references lost by the chosen first import. Used
+ * for the prospective declaration and for recording its accepted birth. */
+export function adoptionFileRemovals(
+	source: HqAppSource,
+	prepared: Pick<PreparedExportBoundary, "doc" | "assets">,
+) {
+	return removedHqFiles(source.raw, {
+		published: publishedMediaFiles(
+			bulkUploadAssets(prepared.doc, prepared.assets),
+		),
+		recorded: null,
+	});
+}
+
 /** `adoptedBaselineOwnership` a part at a time, its import's emission
  *  stopping between its parts (`importApplication.ts::hqImportApplicationSteps`). */
 export function* adoptedBaselineOwnershipSteps(
@@ -447,7 +482,12 @@ export function* adoptedBaselineOwnershipSteps(
 		 * reaches one. */
 		keyedCaseIdPrefixes: new Map(),
 	});
-	return imported.ownership;
+	return observedMenuLayoutOwnership(
+		imported.ownership,
+		input.prepared.doc,
+		input.identity,
+		input.source,
+	);
 }
 
 /**
@@ -485,8 +525,13 @@ export function adoptedAppBaselineWrite(input: {
 }): AppBaselineWrite & { readonly origin: "read" } {
 	const normalized = adoptedSourceNormalized(input.remoteAppId, input.source);
 	const ownership = adoptedBaselineOwnership(input);
+	const ids = input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id));
+	const removed = adoptionFileRemovals(input.source, input.prepared);
 	const list: StoredFirstPublish = {
-		ids: input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id)),
+		...(removed.length && { removedFiles: removed.map((file) => file.digest) }),
+		...(hasRegisteredPublishInputs(ids) && { reviewedInputs: 1 as const }),
+		reviewed: 1,
+		ids,
 		webAppsOnInHq: input.source.cloudcareEnabled,
 		of: "first-publish",
 	};
@@ -521,9 +566,17 @@ export function adoptedAppBaselineWrite(input: {
  * The plan features the app's source already uses, recorded as confirmed at
  * adoption: every feature the document needs when the publish sends no table
  * and no place, except Web Apps where CommCare HQ holds the app's setting off
- * and Save to Case where the source holds no Save to Case block. The first
+ * and Save to Case where the source holds no Save to Case block. Named installations and
+ * their practice workers always need separate destination confirmation: HQ retains their
+ * configuration even where the plan cannot prepare and serve that installation. The first
  * publish leaves each of these as the source has it, so asking would change
  * nothing a person could decide.
+ *
+ * Geocoder is never recorded: an address question in the source says nothing
+ * about the plan, since HQ's form builder offers it on every plan and Web
+ * Apps then saves "Not Supported by Web Entry" in its place
+ * (`cloudcare/views.py::has_geocoder_privs`). The review and the first
+ * publish ask a person instead.
  */
 export function adoptionPlanFeatureConfirmations(input: {
 	readonly doc: BlueprintDoc;
@@ -539,11 +592,18 @@ export function adoptionPlanFeatureConfirmations(input: {
 		attachmentUrlTarget(input.target),
 	)
 		.filter((feature) =>
-			feature.id === "web-apps"
-				? input.sourceWebAppsOn
-				: feature.id === "advanced-case-actions"
-					? input.sourceHoldsSaveToCase
-					: true,
+			// A stored user index key says nothing about the Case Management editor's USERCASE privilege.
+			feature.id === "worker-records" &&
+			formsWritingThroughUserIndex(input.doc).length > 0
+				? false
+				: feature.id === "installation-profiles" ||
+						feature.id === "practice-workers"
+					? false
+					: feature.id === "web-apps"
+						? input.sourceWebAppsOn
+						: feature.id === "advanced-case-actions"
+							? input.sourceHoldsSaveToCase
+							: feature.id !== "geocoder",
 		)
 		.map((feature) => ({ kind: "plan-feature", subject: feature.id }));
 }

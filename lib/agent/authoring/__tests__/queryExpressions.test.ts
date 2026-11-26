@@ -23,6 +23,7 @@ import {
 } from "@/lib/domain/expression/chosenCase";
 import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
 import type { Expression } from "@/lib/domain/expression/types";
+import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import {
@@ -52,7 +53,7 @@ const identity = (kind: string, name: string) => {
 	if (knownIds.has(name)) return name;
 	const key = `${kind}/${name}`;
 	let uuid: string;
-	if (kind === "table" || kind === "column") {
+	if (kind === "table" || kind === "column" || kind.startsWith("member/")) {
 		uuid = lookupIds.get(key) ?? uuidv7();
 		lookupIds.set(key, uuid);
 	} else uuid = testUuid(name);
@@ -76,8 +77,21 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 			],
 		}),
 		identity,
+		memberIdentity: (table, column, name) =>
+			lookupMemberIdSchema.parse(
+				identity(`member/${table}/${column ?? ""}`, name),
+			),
 		chosenCaseMenu(name) {
 			return { module: asUuid(identity("module", name)), caseType: "Client" };
+		},
+		openingSupply(kind, name) {
+			return {
+				kind: "session-datum",
+				datum:
+					kind === "form-selection"
+						? { kind, selection: asUuid(identity("module", name)) }
+						: { kind, datum: asUuid(identity("module", name)) },
+			};
 		},
 		reference(namespace, path) {
 			const name = path.join("/");
@@ -109,6 +123,9 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 		recordProperty(recordType, property) {
 			return { kind: "prop", caseType: recordType, property };
 		},
+		forDeviceRecords(type) {
+			return bindings(type);
+		},
 		forRelation(relation) {
 			return bindings(
 				relation.kind === "subcase" || relation.kind === "any-relation"
@@ -120,14 +137,19 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 		forTable(id) {
 			return bindings(caseType, id);
 		},
+		forRows(type) {
+			return bindings(type);
+		},
 	};
 }
 const scope = bindings();
 const printContext: QueryPrintContext = {
 	typeContext: scope.typeContext,
 	choiceValues: () => undefined,
+	forDeviceRecords: () => printContext,
 	forRelation: () => printContext,
 	forTable: () => printContext,
+	forRows: () => printContext,
 	name: (_kind, id) => id,
 	reference(term) {
 		if (term.kind === "prop" && !term.via)
@@ -359,12 +381,17 @@ it("preserves authored values when a read result is submitted back as an edit", 
 		"format-date(today(), 'iso')",
 		"lookup('districts', 'name', #row/code = 'north')",
 		"property('Client', 'case_name', ancestor('parent'))",
+		"property('Client', 'village', reached('host', 'parent'))",
 		"via(ancestor('parent'), #Household/case_name)",
 		"session('userid')",
 		"user('region')",
 		"location('clinic')",
 		"owner-location('district', 'Client')",
 		"table-column('districts', 'name')",
+		"table-column('districts', row-detail('code'))",
+		"lookup('districts', value-at(value-with('name', 'language', 'fr'), 1), table-column('districts', row-detail('code')) = 'north')",
+		"table-column('districts', value-detail(value-at('name', 2), 'language'))",
+		"table-column('districts', value-with(value-at('name', 2), 'language', 'fr'))",
 	];
 	for (const source of values) {
 		const parsed = parseQueryValue(source, scope);
@@ -406,6 +433,32 @@ it("preserves authored values when a read result is submitted back as an edit", 
 			source,
 		).toEqual(parsed);
 	}
+});
+
+it("spells a reached read as the links it walks to whatever record each reaches", () => {
+	const reached = parseQueryValue(
+		"property('Client', 'village', reached('host', 'parent'))",
+		scope,
+	);
+	expect(reached).toEqual({
+		kind: "term",
+		term: {
+			kind: "prop",
+			caseType: "Client",
+			property: "village",
+			via: {
+				kind: "ancestor",
+				via: [{ identifier: "host" }, { identifier: "parent" }],
+			},
+			readReached: true,
+		},
+	});
+	expect(() => parseQueryPredicate("exists(reached('parent'))", scope)).toThrow(
+		/reached\(\) names the links one property\(\) reads through/,
+	);
+	expect(() =>
+		parseQueryValue("property('Visit', 'village', reached('parent'))", scope),
+	).toThrow(/starts from Client, not Visit/);
 });
 
 it("keeps literal punctuation and backslashes distinct from executable references", () => {
@@ -537,6 +590,8 @@ it("reads back every widened record arm by the call shape it parses from", () =>
 		);
 	}
 	const conditions = [
+		"count(device-records(record-type() = 'Client')) > 1",
+		"count(cases('Client')) > 1",
 		"record-type() = 'visit'",
 		"record-type() != 'visit'",
 		"record-type() = literal('visit')",
@@ -673,6 +728,31 @@ it("takes a value as a distance, a unit and a selected choice, and refuses a uni
 });
 
 // --- The chosen case -------------------------------------------------------
+
+it("round-trips a property of the restored row when the surrounding case has the same property", () => {
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "district", label: "District" }],
+			},
+			{
+				name: "household",
+				properties: [{ name: "district", label: "District" }],
+			},
+		],
+		modules: [],
+	});
+	const scope = new AuthoringScope({ doc, currentCaseType: "household" });
+	const expression: Expression = {
+		kind: "project",
+		of: parseQueryValue("cases('patient')", scope),
+		value: { kind: "prop", caseType: "patient", property: "district" },
+	};
+	const printed = queryPrinter(scope).value(expression);
+	expect(printed).toBe("row-value(cases('patient'), #case/district)");
+	expect(parseQueryValue(printed, scope)).toEqual(expression);
+});
 
 const householdType: CaseType = {
 	name: "Household",

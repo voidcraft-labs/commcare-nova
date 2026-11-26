@@ -385,7 +385,10 @@ export class GenerationContext
 			throw scopeError;
 		}
 		return {
-			doc: hydratePersistedBlueprint(fresh.app.blueprint as PersistableDoc),
+			doc: {
+				...hydratePersistedBlueprint(fresh.app.blueprint as PersistableDoc),
+				publishedQuestions: fresh.publishedQuestions,
+			},
 			canonicalSeq: fresh.baseSeq,
 		};
 	}

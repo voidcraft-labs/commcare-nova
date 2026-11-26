@@ -241,6 +241,7 @@ test("a check that names one project space shows See what changed in CommCare HQ
 		observedDigest: "digest-app",
 		renamedInNova: [],
 		tables: [],
+		ownerRules: [],
 		projectName: "Bring-in team",
 		readingId: "01928c3e-5b7a-7cde-8f01-23456789abcd",
 		reviewDigest: "review-digest",

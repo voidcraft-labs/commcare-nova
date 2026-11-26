@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	type Automation,
 	automationMessageText,
@@ -32,6 +32,7 @@ import {
 	sameTypeChildReasons,
 } from "../projectSpaceCompatibility";
 import { domainFeatureFlag } from "../surface/gates";
+import { caseListActionRolesFixture } from "./caseListActionRolesFixture";
 import { childCreate, own, placementFixture, read } from "./placementFixture";
 
 // These tests project authored feature facts over a whole document; target
@@ -45,7 +46,7 @@ const ANDROID_ONLY = { ...NEW_APP_SETTINGS, runsOnlyOn: "android" } as const;
 function doc(overrides: Partial<CompatibilityInput> = {}): CompatibilityInput {
 	return {
 		...buildDoc(),
-		connectType: null,
+		connectRoles: [],
 		modules: {},
 		forms: {},
 		fields: {},
@@ -80,6 +81,37 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 				doc({ modules: { [patient.uuid]: patient } }),
 			),
 		).toEqual({ capabilities: [], advisories: [] });
+	});
+
+	it("checks the project space's calculation flag for an independent order, including a rule with no menu name", () => {
+		const patient = module();
+		const config = patient.caseListConfig;
+		if (!config) throw new Error("The fixture needs a case list.");
+		const input = doc({ modules: { [patient.uuid]: patient } });
+		expect(projectSpaceCompatibilityProbePlan(input).capabilities).toEqual([]);
+		config.calculatedSorts = [
+			{
+				uuid: testUuid("appointment-order"),
+				expression: term(prop("patient", "appointment")),
+				direction: "asc",
+				priority: 0,
+			},
+		];
+		const plan = projectSpaceCompatibilityProbePlan(input);
+		expect(
+			plan.capabilities.map(({ capability, featureFlags }) => ({
+				id: capability.id,
+				flags: featureFlags.map(({ slug }) => slug),
+			})),
+		).toEqual([
+			{
+				id: "calculated-case-order",
+				flags: [domainFeatureFlag("SORT_CALCULATION_IN_CASE_LIST").slug],
+			},
+		]);
+		expect(requiredProjectSpaceCapabilities(input).map(({ id }) => id)).toEqual(
+			["calculated-case-order"],
+		);
 	});
 
 	it("checks only base Search for a zero-input Search", () => {
@@ -250,7 +282,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 	it("derives CommCare Connect from the app mode", () => {
 		expect(
 			requiredProjectSpaceCapabilities(
-				doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+				doc({ connectRoles: ["learn"], appSettings: ANDROID_ONLY }),
 			).map((capability) => capability.id),
 		).toEqual(["commcare-connect"]);
 	});
@@ -335,6 +367,22 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 				}),
 			).map((item) => item.id),
 		).not.toContain("registration-after-empty-search");
+	});
+
+	it("requires the list action setting for a conditioned button and a parent's follow-up on menus that never search", () => {
+		const plan = projectSpaceCompatibilityProbePlan(
+			caseListActionRolesFixture(),
+		);
+		const capability = plan.capabilities.find(
+			(item) => item.capability.id === "registration-after-empty-search",
+		);
+		expect(capability?.capability.reasons).toEqual([
+			"A case list shows its form button when a condition holds.",
+			"A case list offers a form for its selected parent record.",
+		]);
+		expect(capability?.featureFlags.map((flag) => flag.id)).toEqual([
+			"no-matches-registration",
+		]);
 	});
 
 	describe("a captured file's link", () => {
@@ -644,7 +692,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 describe("project-space compatibility reports", () => {
 	it("keeps an unknown destination semantic and not checked", () => {
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "deliver", appSettings: ANDROID_ONLY }),
+			doc({ connectRoles: ["deliver"], appSettings: ANDROID_ONLY }),
 		);
 		expect(report.status).toBe("not_checked");
 		expect(report.required_capabilities).toMatchObject([
@@ -656,7 +704,7 @@ describe("project-space compatibility reports", () => {
 
 	it("blocks missing and unverified required capabilities", () => {
 		const uses = requiredProjectSpaceCapabilities(
-			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+			doc({ connectRoles: ["learn"], appSettings: ANDROID_ONLY }),
 		);
 		const report = projectSpaceCompatibilityForTarget(
 			"clinic-space",
@@ -727,7 +775,7 @@ describe("project-space compatibility reports", () => {
 
 	it("never serializes private flags, namespaces, or raw probe arrays", () => {
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+			doc({ connectRoles: ["learn"], appSettings: ANDROID_ONLY }),
 		);
 		const serialized = JSON.stringify(report);
 		expect(serialized).not.toContain("commcare_connect");
@@ -741,7 +789,7 @@ describe("project-space compatibility reports", () => {
 			decodeProjectSpaceCompatibilityReport(encodeURIComponent("{}")),
 		).toBeUndefined();
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+			doc({ connectRoles: ["learn"], appSettings: ANDROID_ONLY }),
 		);
 		expect(
 			decodeProjectSpaceCompatibilityReport(
@@ -929,5 +977,75 @@ describe("Links between cases of the same type", () => {
 		expect(
 			requiredProjectSpaceCapabilities(doc).map((use) => use.id),
 		).not.toContain("same-type-child-links");
+	});
+});
+
+describe("Address search", () => {
+	const addressDoc = (runsOnlyOn?: "web-apps" | "android") =>
+		buildDoc({
+			appName: "Visits",
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn },
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "home",
+									label: "Home",
+									addressLookup: true,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it("checks advanced case search for an app that runs in Web Apps, and nothing for Android alone", () => {
+		const gate = domainFeatureFlag("CASE_SEARCH_ADVANCED");
+		for (const runsOnlyOn of [undefined, "web-apps"] as const) {
+			const [capability, ...rest] = projectSpaceCompatibilityProbePlan(
+				addressDoc(runsOnlyOn),
+			).capabilities;
+			expect(rest).toEqual([]);
+			expect(capability).toEqual({
+				capability: {
+					id: "address-search",
+					label: "Address search",
+					description: expect.stringContaining("Geocoder"),
+					reasons: [
+						"Visit has a question that searches for an address in Web Apps.",
+					],
+				},
+				featureFlags: [
+					{
+						id: "advanced-case-search",
+						slug: gate.slug,
+						namespace: gate.namespace,
+					},
+				],
+				featureFlagsOff: [],
+				runtimeProbes: [],
+			});
+		}
+		expect(requiredProjectSpaceCapabilities(addressDoc("android"))).toEqual([]);
+	});
+
+	it("lists the requirement, not checked, beside a download", () => {
+		const report = projectSpaceCompatibilityForDownload(addressDoc());
+		expect(report.status).toBe("not_checked");
+		expect(report.required_capabilities.map((item) => item.id)).toEqual([
+			"address-search",
+		]);
+		expect(
+			decodeProjectSpaceCompatibilityReport(
+				encodeProjectSpaceCompatibilityReport(report),
+			),
+		).toEqual(report);
 	});
 });

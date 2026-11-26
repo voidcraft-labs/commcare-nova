@@ -1,3 +1,8 @@
+import type {
+	ActivityFact,
+	ConnectSubmissionProgram,
+} from "@/lib/domain/connectSubmissionFacts";
+import type { WebFormActivityEntry } from "@/lib/domain/webFormActivity";
 // lib/case-store/submission.ts
 //
 // The atomic submission envelope's public contract — the argument and
@@ -29,8 +34,13 @@ import type {
 	OrganizationLevel,
 	Uuid,
 } from "@/lib/domain";
+import { activityFactsSchema } from "@/lib/domain/connectSubmissionFacts";
 import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
+import {
+	type DeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { DeviceCaseDatabase } from "./store";
 
@@ -56,8 +66,10 @@ export type OrdinarySubmissionAction =
 			readonly selection:
 				| { readonly kind: "single"; readonly maximum: 1 }
 				| { readonly kind: "multiple"; readonly maximum: number };
-			/** The module case type every selected case must hold. */
+			/** The primary type of the selecting menu. */
 			readonly caseType: string;
+			/** Other types selectable under the committed menu contract. */
+			readonly additionalCaseTypes?: readonly string[];
 	  }
 	| { readonly kind: "none" };
 
@@ -77,6 +89,7 @@ export interface SubmissionReceiptIdentity {
  */
 export interface SubmissionReceiptClaim extends SubmissionReceiptIdentity {
 	readonly expectedAppMutationSeq: number;
+	readonly openingCarryScope?: string;
 	/** Digest of the exact committed Blueprint whose after-submit topology the
 	 * client may evaluate when this receipt is returned or replayed. */
 	readonly blueprintDigest: string;
@@ -96,13 +109,11 @@ export interface OperationIterationBindings {
 }
 
 /**
- * One physical multiplicity scope in wire document order: the root
+ * Answer rows by repeat definition: the root
  * scope first (`repeat` absent, exactly one iteration), then each
  * repeat scope in post-order field traversal. A repeat scope carries
- * one entry per live iteration in instance order; the executor runs a
- * scope's operations iteration-major (all of iteration 1's operations,
- * then iteration 2's), matching how JavaRosa walks the submitted
- * instance's repeated operation groups.
+ * one entry per live iteration. The program's scope order walks nested
+ * rows where they occur inside the enclosing iteration.
  */
 export interface OperationScopeIterations {
 	/** Absent = the root scope. */
@@ -161,6 +172,28 @@ export interface OwnCaseProgram {
 	readonly closeCondition?: DomainExpression;
 }
 
+/** Immutable database reads of an authorized form entry. The write transaction
+ * reauthorizes reached targets before changing any current row. */
+export interface OpeningReadSet {
+	readonly currentOwnerIds: readonly string[];
+	/** Cases this actor's own unsynced submissions left on the device, which
+	 * the signed opening carries: the device holds them though the current
+	 * restore may not (a case one of them closed), so a write may still
+	 * reach them. */
+	readonly submittedCaseIds?: readonly string[];
+	readonly cases: DeviceCaseDatabase;
+	readonly locations?: readonly Pick<
+		import("@/lib/organization/footprint").LocationFixtureRow,
+		"id" | "levelUuid" | "lineage"
+	>[];
+	readonly lookupRows: readonly {
+		readonly id: string;
+		readonly table_id: string;
+		readonly order_key: number;
+		readonly values: Readonly<Record<string, string | number>>;
+	}[];
+}
+
 /**
  * The advanced-operation half of a submission. `operations` arrives in
  * canonical `(order, uuid)` sequence (the caller sorts via
@@ -169,6 +202,14 @@ export interface OwnCaseProgram {
  * with `validateResolvedCaseOperationTypeSequence` before any write.
  */
 export interface CaseOperationProgram {
+	readonly groupDefaults?: {
+		readonly owner: string;
+		readonly operations: readonly Uuid[];
+		readonly revisions?: { project: string; places: string };
+	};
+	/** The signed opening's rows, which every read of this submission
+	 *  evaluates against; absent for a form that reads no opening. */
+	readonly openingReads?: OpeningReadSet;
 	/** The authored-key identity scope half the operations share. */
 	readonly formUuid: Uuid;
 	/**
@@ -189,7 +230,28 @@ export interface CaseOperationProgram {
 	 * Server-derived from the committed entry's datums.
 	 */
 	readonly entryCaseKeys?: ReadonlyMap<Uuid, string>;
+	/** Root create identities assigned at initialization and verified with
+	 * the signed form opening. Repeated exact IDs calculate in each live row. */
+	readonly openingCreateIds?: ReadonlyMap<Uuid, string>;
+	/** IDs supplied for exposed creations by this form’s authorized deep-link launch. */
+	readonly suppliedCaseIds?: ReadonlyMap<Uuid, string>;
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;
+	/** Server-derived physical row order for nested repeats. Root effects
+	 * come first; each nested repeat runs inside the enclosing iteration. */
+	readonly scopeOrder?: readonly {
+		readonly repeat?: Uuid;
+		readonly iteration: number;
+	}[];
+	/** Exact submitted-block order when the form positions case changes among
+	 * its answers. The server derives the operation IDs and order from the
+	 * committed submitted layout. An absent leaf covers its expected slot
+	 * but contributes no case block or history. */
+	readonly effectOrder?: readonly {
+		readonly repeat?: Uuid;
+		readonly iteration: number;
+		readonly operationUuids: readonly Uuid[];
+		readonly absent?: true;
+	}[];
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */
 	readonly sessionCaseIds?: ReadonlyArray<string>;
@@ -214,6 +276,9 @@ export interface CaseOperationProgram {
 	 * across the whole envelope (including a schema-heal retry).
 	 */
 	readonly lookupTableSchemas?: LookupTableSchemas;
+	/** The session values the signed opening reached, by datum reference
+	 *  (`datumRefKey`); a chosen-case read takes only these. */
+	readonly entryDatums?: ReadonlyMap<string, string>;
 	/** Open-namespace worker data for `sessionUser` terms: the keys the
 	 * worker's device holds. */
 	readonly sessionUser?: ReadonlyMap<string, string>;
@@ -231,6 +296,10 @@ export interface CaseOperationProgram {
 }
 
 export interface ApplySubmissionArgs {
+	readonly webActivity?: WebFormActivityEntry;
+	/** Empty when the requested location was unavailable; absent when the form requested none. */
+	readonly submissionLocation?: DeviceLocation | null;
+	readonly connect?: ConnectSubmissionProgram;
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
@@ -291,9 +360,11 @@ export interface OperationEffectRecord {
 	readonly selection: number;
 	readonly action: CaseOperation["action"];
 	readonly caseId: string;
-	/** False when the instance's conditions evaluated false — no effect
-	 * applied, recorded so tests can pin skip semantics. */
+	/** Whether the device applied an action from this case block. */
 	readonly executed: boolean;
+	/** A submitted block without a recognized action. HQ records the form
+	 * against the case, while the device leaves its case state alone. */
+	readonly childlessBlock?: true;
 }
 
 /** One concrete child a receipt written before child cases were operations
@@ -311,6 +382,9 @@ export interface CreatedChildCaseReceipt {
 }
 
 export interface SubmissionEnvelopeResult {
+	/** Empty when the requested location was unavailable; absent when the form requested none. */
+	readonly submissionLocation?: DeviceLocation | null;
+	readonly activities?: readonly ActivityFact[];
 	/** The case the registration's own arm created with the id its entry
 	 * minted, the ordered followup/close selection, or an empty collection for
 	 * `kind: "none"` and for a registration whose open condition did not
@@ -336,6 +410,9 @@ export interface SubmissionEnvelopeResult {
 	 * state rather than whatever a later writer changed the rows to. Historical
 	 * receipts predate this slot, so the parser keeps it optional. */
 	readonly caseDatabasePatch?: DeviceCaseDatabase;
+	/** Immutable receipt metadata. The Preview action exposes only whether
+	 *  this release belongs in the currently requested device journal. */
+	readonly openingCarryScope?: string;
 }
 
 function hasInvalidCreatedChildren(value: unknown): boolean {
@@ -387,6 +464,8 @@ export function parseSubmissionEnvelopeResult(
 	if (
 		typeof parsed !== "object" ||
 		parsed === null ||
+		("activities" in parsed &&
+			!activityFactsSchema.safeParse(parsed.activities).success) ||
 		hasCreatedChildren === hasHistoricalChildCaseIds ||
 		(hasCreatedChildren && hasInvalidCreatedChildren(createdChildren)) ||
 		(hasHistoricalChildCaseIds &&
@@ -394,6 +473,9 @@ export function parseSubmissionEnvelopeResult(
 				(caseId) => typeof caseId !== "string" || caseId.length === 0,
 			)) ||
 		!Array.isArray((parsed as { operations?: unknown }).operations) ||
+		("submissionLocation" in parsed &&
+			!deviceLocationSchema.nullable().safeParse(parsed.submissionLocation)
+				.success) ||
 		("primaryCaseIds" in parsed &&
 			!Array.isArray(
 				(parsed as { primaryCaseIds?: unknown }).primaryCaseIds,

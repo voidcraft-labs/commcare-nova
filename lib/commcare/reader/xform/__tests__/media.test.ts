@@ -6,8 +6,8 @@
  * with no file is handed off with its node and listed, never claimed and never
  * `unrecognized`; a language whose text holds no media form shows the form's
  * default language's (Core loads the default locale's keys under every
- * locale), so a path the default holds alone is held, and a file that differs
- * by language, or one only another language holds, is refused. A hint's or a
+ * locale), so a path the default holds alone is held, and distinct files in valid translations are held. A media key that
+ * exists only outside the default language is refused. A hint's or a
  * group label's media, which no slot holds, is inert where the file is there
  * and handed off as `unheld_itext` where it is not. Each question that
  * references one text reads its media as its own. A map of paths by language
@@ -113,6 +113,22 @@ function unclaimedMedia(reading: FormReading): string[] {
 }
 
 describe("media on a text", () => {
+	it("distinguishes a blank media value from an inherited or missing file", async () => {
+		const reading = await readForm(
+			source({
+				en: texts({ label: "jr://file/commcare/q.png" }),
+				fr: texts({ label: "" }),
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(reading)).toEqual([
+			Q("empty-media-form-beside-a-translated-file"),
+		]);
+		expect(field(reading, "q").label_media).toBeUndefined();
+		expect(reading.ctx.facts.pendingMedia).toEqual([]);
+		expect(unclaimedMedia(reading)).toEqual([]);
+	});
+
 	it("puts the one path of every language in a held slot and lists it", async () => {
 		const reading = await readForm(
 			source({
@@ -137,6 +153,41 @@ describe("media on a text", () => {
 		).toEqual(["field_media_bundle", "option_media"]);
 		expect(codes(reading)).toEqual([]);
 		expect(unclaimedMedia(reading)).toEqual([]);
+	});
+
+	it("keeps fallback recipients with the default file and leaves explicit siblings with their own files", async () => {
+		const path = (name: string) => `jr://file/commcare/${name}.png`;
+		const reading = await readForm(
+			source({
+				en: texts({
+					label: path("q"),
+					choice: path("missing"),
+					hint: path("hint"),
+				}),
+				fr: texts({ label: path("q_fr"), hint: path("hint_fr") }),
+			}),
+			{ langs: ["en", "fr", "es"], media: oneFile },
+		);
+		expect(codes(reading)).toEqual([]);
+		const uses = [
+			...reading.ctx.facts.mediaReferences,
+			...reading.ctx.facts.pendingMedia,
+			...reading.ctx.facts.unheldMedia,
+		];
+		const recipient = (name: string) => {
+			const use = uses.find((entry) => entry.path === path(name));
+			if (!use) throw new Error(`The reading lost ${name}.`);
+			return [
+				use.itextRecipients?.map((who) => who.language),
+				use.inheritedItextRecipients?.map((who) => who.language) ?? [],
+			];
+		};
+		expect(recipient("q")).toEqual([["eng"], ["spa"]]);
+		expect(recipient("q_fr")).toEqual([["fra"], []]);
+		expect(recipient("hint")).toEqual([["eng"], ["spa"]]);
+		expect(recipient("hint_fr")).toEqual([["fra"], []]);
+		expect(recipient("missing")).toEqual([["eng"], ["fra", "spa"]]);
+		expect(field(reading, "q").label_media).toEqual({ image: "asset-q.png" });
 	});
 
 	// Core reads a media value's content whole, an `<output>` in it making the path, while the
@@ -248,10 +299,13 @@ describe("media on a text", () => {
 		);
 		expect(codes(reading)).toEqual([]);
 		expect(unclaimedMedia(reading)).toEqual([]);
-		expect(field(reading, "q").label_media).toEqual({ image: "asset-q.png" });
+		expect(field(reading, "q").label_media).toEqual({
+			image: "asset-q.png",
+			mediaByLanguage: { fra: { image: null } },
+		});
 	});
 
-	it("refuses a path that differs by language, and one only a language other than the default holds", async () => {
+	it("holds distinct translated files and refuses a key missing from the form’s default language", async () => {
 		const differing = await readForm(
 			source({
 				en: texts({ label: "jr://file/commcare/q.png" }),
@@ -259,9 +313,11 @@ describe("media on a text", () => {
 			}),
 			{ langs: ["en", "fr"], media: index },
 		);
-		expect(codes(differing)).toEqual([
-			Q("label-or-option-media-differing-by-language"),
-		]);
+		expect(codes(differing)).toEqual([]);
+		expect(field(differing, "q").label_media).toEqual({
+			image: "asset-q.png",
+			mediaByLanguage: { fra: { image: "asset-q-fr.png" } },
+		});
 		const oneOnly = await readForm(
 			source({
 				en: texts({}),
@@ -270,7 +326,7 @@ describe("media on a text", () => {
 			{ langs: ["en", "fr"], media: index },
 		);
 		expect(codes(oneOnly)).toEqual([
-			Q("label-or-option-media-differing-by-language"),
+			Q("media-form-missing-in-default-language"),
 		]);
 		expect(field(oneOnly, "q").label_media).toBeUndefined();
 	});
@@ -360,6 +416,119 @@ describe("media on a text", () => {
 				reference.mediaKind,
 			]),
 		).toEqual([["jr://file/commcare/hen.mp4", "audio"]]);
+	});
+});
+
+describe("a question label's inline video", () => {
+	/** A form of one text question whose label and help each language gives. */
+	const question = (
+		translations: Readonly<Record<string, { label: string; help?: string }>>,
+	) =>
+		xformSource({
+			data: "<q/>",
+			model: `<bind nodeset="/data/q" type="xsd:string"/>${itext(
+				Object.fromEntries(
+					Object.entries(translations).map(([lang, { label, help }]) => [
+						lang,
+						`<text id="q-label"><value>Q</value>${label}</text>${
+							help === undefined
+								? ""
+								: `<text id="q-help"><value>H</value>${help}</text>`
+						}`,
+					]),
+				),
+			)}`,
+			body: `<input ref="/data/q"><label ref="jr:itext('q-label')"/>${
+				Object.values(translations).some((one) => one.help !== undefined)
+					? `<help ref="jr:itext('q-help')"/>`
+					: ""
+			}</input>`,
+		});
+	const inline = (path: string) => `<value form="video-inline">${path}</value>`;
+
+	it("holds one file every language shows, beside the label's image", async () => {
+		const reading = await readForm(
+			question({
+				en: {
+					label: `<value form="image">jr://file/commcare/q.png</value>${inline("jr://file/commcare/v.mp4")}`,
+				},
+				fr: {
+					label: `<value form="image">jr://file/commcare/q.png</value>${inline("jr://file/commcare/v.mp4")}`,
+				},
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(unclaimedMedia(reading)).toEqual([]);
+		expect(field(reading, "q").label_media).toEqual({
+			image: "asset-q.png",
+			videoInline: "asset-v.mp4",
+		});
+		expect(
+			reading.ctx.facts.mediaReferences.map((reference) => [
+				reference.path,
+				reference.mediaKind,
+				reference.slot,
+			]),
+		).toEqual([
+			["jr://file/commcare/q.png", "image", "field_media_bundle"],
+			["jr://file/commcare/v.mp4", "video", "field_media_bundle"],
+		]);
+	});
+
+	it("holds a file per language, and refuses one the default language lacks or a blank beside a file", async () => {
+		const differing = await readForm(
+			question({
+				en: { label: inline("jr://file/commcare/v.mp4") },
+				fr: { label: inline("jr://file/commcare/v-fr.mp4") },
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(differing)).toEqual([]);
+		expect(field(differing, "q").label_media).toEqual({
+			videoInline: "asset-v.mp4",
+			mediaByLanguage: { fra: { videoInline: "asset-v-fr.mp4" } },
+		});
+		const missing = await readForm(
+			question({
+				en: { label: "" },
+				fr: { label: inline("jr://file/commcare/v.mp4") },
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(missing)).toEqual([
+			Q("media-form-missing-in-default-language"),
+		]);
+		expect(field(missing, "q").label_media).toBeUndefined();
+		const blank = await readForm(
+			question({
+				en: { label: inline("jr://file/commcare/v.mp4") },
+				fr: { label: inline("") },
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(blank)).toEqual([
+			Q("empty-media-form-beside-a-translated-file"),
+		]);
+	});
+
+	it("accounts for an inline video on help without keeping it as worker media", async () => {
+		const reading = await readForm(
+			question({
+				en: { label: "", help: inline("jr://file/commcare/v.mp4") },
+			}),
+			{ media: index },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(field(reading, "q").help_media).toBeUndefined();
+		expect(reading.ctx.facts.unheldMedia).toEqual([
+			expect.objectContaining({
+				path: "jr://file/commcare/v.mp4",
+				form: "video-inline",
+				role: ["help"],
+				languageCode: "en",
+			}),
+		]);
 	});
 });
 

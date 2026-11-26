@@ -1,25 +1,13 @@
 /**
- * Contract: a menu under a menu whose forms read the search, as CommCare HQ builds one, is read into
- * an account that names each cause once, never into a document the gate refuses.
- *
- * HQ's build compares the child's results instance with its root menu's, and with the menu its parent
- * selection names, whether or not the child searches (`helpers/validators.py`, `validate_search_config`
- * and `validate_parent_select`), so HQ builds the child only under a results instance name of its own,
- * which Nova does not hold yet: its export gives both menus `results:inline`. That name is one finding
- * at the child's search. A read of the parent's Search fields in the child's form is its own cause:
- * where the child chooses its case from the parent's list first, HQ's build writes the parent's query
- * into the child's entry (`suite_xml/sections/entries.py::EntriesHelper.add_remote_query_datums`), the
- * class Nova does not hold yet; where the child takes its own case from its own list
- * (`EntriesHelper.add_parent_datums` keeps the child's selection), no step of the entry loads the
- * answers, and the read is the refusal of a read no search of the form's entry loads.
- *
- * The failure it catches: the child's results instance claimed as an inactive search's key, so the
- * reading proposes a submenu the gate refuses and the bring-in answers `read-back-differs`; and a read of
- * the parent's answers named by the wrong class.
+ * A menu's navigation parent and its parent selection can name different searches.
+ * Read the actual queries the child's form entry loads, retain an inactive name
+ * for HQ's comparison, and bind same-named prompts to distinct menu identities.
  */
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { namedParentSearchDoc } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import type { BlueprintDoc } from "@/lib/domain";
+import { walkInputRefs } from "@/lib/domain/expression/walk";
 import { simpleSearchInputDef } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import type { Uuid } from "@/lib/domain/uuid";
@@ -29,10 +17,6 @@ import { readHqApp } from "../../index";
 type JsonObject = Record<string, unknown>;
 
 const VILLAGE = "00000000-0000-4000-8000-0000000c1a01" as Uuid;
-const INSTANCE_NAME =
-	"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it";
-const CHILD_READ =
-	"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu";
 const UNLOADED_READ =
 	"expressions-and-data/search-input-read-in-form-expressions-reached-through-a-search";
 
@@ -147,39 +131,116 @@ async function findings(body: JsonObject) {
 }
 
 describe("a menu under a menu whose forms read the search", () => {
-	it("is its results instance name's one finding, at its search", async () => {
-		const found = await findings(
-			childBody(twoMenus("client", "client"), { selects: false, reads: false }),
+	it("keeps the child's results name without turning on its search", async () => {
+		const body = childBody(twoMenus("client", "client"), {
+			selects: false,
+			reads: false,
+		});
+		const result = readHqApp(await inputFor(body));
+		expect(result.kind).toBe("read");
+		if (result.kind !== "read") return;
+		const child = Object.values(result.draft.doc.modules).find(
+			(mod) => mod.name === "Checks",
 		);
-		expect(found).toEqual([[INSTANCE_NAME, "search", 1]]);
+		expect(child?.searchResultsName).toBe("checks");
+		expect(child?.caseSearchConfig).toBeUndefined();
 	});
 
-	it("whose form reads the parent's answers, taking its own case, is that read's refusal beside its name", async () => {
-		const found = await findings(
-			childBody(twoMenus("client", "client"), { selects: false, reads: true }),
+	it("round-trips two named searches with the same prompt name and keeps its suppliers when a menu changes its name", async () => {
+		const first = readHqApp(
+			await inputFor(exportedBody(namedParentSearchDoc())),
 		);
-		expect(new Set(found)).toEqual(
-			new Set([
-				[INSTANCE_NAME, "search", 1],
-				[UNLOADED_READ, "question", 1],
+		if (first.kind !== "read") throw new Error(JSON.stringify(first.findings));
+		const doc = first.draft.doc;
+		const child = Object.values(doc.modules).find(
+			(menu) => menu.searchResultsName === "MemberLookup",
+		);
+		const parent = Object.values(doc.modules).find(
+			(menu) => menu.searchResultsName === "FamilyLookup",
+		);
+		if (!child || !parent)
+			throw new Error("The app needs the child and its family search.");
+		const field = doc.fields[doc.fieldOrder[doc.formOrder[child.uuid][0]][0]];
+		if (field.kind !== "text" || field.default_value === undefined)
+			throw new Error("The form needs its starting answer.");
+		const prompts = [] as { searchInputUuid: string; supplier?: string }[];
+		walkInputRefs(field.default_value, (input) => prompts.push(input));
+		expect(
+			prompts.map(({ searchInputUuid, supplier }) => [
+				searchInputUuid,
+				supplier,
 			]),
-		);
-		expect(found).toHaveLength(2);
+		).toEqual([
+			[parent.caseListConfig?.searchInputs[0].uuid, parent.uuid],
+			[child.caseListConfig?.searchInputs[0].uuid, undefined],
+		]);
+		const changed = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[parent.uuid]: {
+					...parent,
+					name: "Family directory",
+					searchResultsName: "FamilyArchive",
+				},
+			},
+		};
+		const emitted = exportedBody(changed);
+		const forms = Object.values(
+			emitted._attachments as Record<string, string>,
+		).join("\n");
+		expect(forms).toContain("search-input:results:FamilyArchive");
+		expect(forms).toContain("search-input:results:MemberLookup");
+		expect(forms).not.toContain("search-input:results:FamilyLookup");
+		const again = readHqApp(await inputFor(emitted));
+		expect(again.kind === "account" ? again.findings : []).toEqual([]);
+		expect(again.kind).toBe("read");
 	});
 
-	it("whose form reads the parent's answers, choosing its parent from the parent's list, is the child menu's class beside its name", async () => {
-		const found = await findings(
-			childBody(twoMenus("household", "member"), {
-				selects: true,
-				reads: true,
-			}),
+	it("names the unloaded answer when only the navigation parent searches", async () => {
+		expect(
+			await findings(
+				childBody(twoMenus("client", "client"), {
+					selects: false,
+					reads: true,
+				}),
+			),
+		).toEqual([[UNLOADED_READ, "question", 1]]);
+	});
+
+	it("binds the parent's prompt when the child's entry selects its parent from that list", async () => {
+		const outcome = readHqApp(
+			await inputFor(
+				childBody(twoMenus("household", "member"), {
+					selects: true,
+					reads: true,
+				}),
+			),
 		);
-		expect(new Set(found)).toEqual(
-			new Set([
-				[INSTANCE_NAME, "search", 1],
-				[CHILD_READ, "question", 1],
-			]),
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error("Expected to bring the app in");
+		const doc = outcome.draft.doc;
+		const parent = Object.values(doc.modules).find(
+			(menu) => menu.name === "Visits",
 		);
-		expect(found).toHaveLength(2);
+		const child = Object.values(doc.modules).find(
+			(menu) => menu.name === "Checks",
+		);
+		const field = Object.values(doc.fields).find(
+			(question) => question.id === "check",
+		);
+		if (!parent || !child || field?.kind !== "text")
+			throw new Error(
+				"The brought-in app needs both menus and the child question.",
+			);
+		expect(JSON.stringify(field.relevant)).toContain(
+			JSON.stringify(parent.uuid),
+		);
+		expect(JSON.stringify(field.relevant)).toContain(
+			JSON.stringify(parent.caseListConfig?.searchInputs[0].uuid),
+		);
+		expect(child.searchResultsName).toBe("checks");
 	});
 });

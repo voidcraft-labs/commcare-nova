@@ -14,6 +14,7 @@ import {
 } from "@/components/preview/form/formatText";
 import { useHelpFormatText } from "@/components/preview/form/useHelpFormatText";
 import type { FormatTextControl } from "@/components/preview/form/useLabelFormatText";
+import { useLabelFormatText } from "@/components/preview/form/useLabelFormatText";
 import { Button } from "@/components/shadcn/button";
 import { Switch } from "@/components/shadcn/switch";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
@@ -21,6 +22,9 @@ import {
 	type CommitOutcome,
 	EMPTY_PROSE_TEMPLATE,
 	type Field,
+	isFieldProseSlot,
+	LABEL_TEXT_SLOTS,
+	type LabelTextSlot,
 	type ProseTemplate,
 } from "@/lib/domain";
 import type { ProseSlotRef } from "@/lib/domain/expression/types";
@@ -29,6 +33,11 @@ import type {
 	OptionalProseTemplateKeys,
 } from "@/lib/domain/kinds";
 import { proseTemplateHoldsFormatting } from "@/lib/tiptap/formatText";
+import { labelTextNote } from "./labelTextNote";
+
+function isLabelTextSlot(key: string): key is LabelTextSlot {
+	return (LABEL_TEXT_SLOTS as readonly string[]).includes(key);
+}
 
 /** The prose slot a text editor's key names on its field, where a
  *  calculated value in it is parsed and checked. */
@@ -36,10 +45,7 @@ function proseSlotOf(
 	fieldUuid: Field["uuid"],
 	key: string,
 ): ProseSlotRef | undefined {
-	return key === "label" ||
-		key === "hint" ||
-		key === "help" ||
-		key === "validate_msg"
+	return isFieldProseSlot(key)
 		? { entity: "field", uuid: fieldUuid, slot: key }
 		: undefined;
 }
@@ -114,6 +120,16 @@ export function TextEditor<
 		keyName === "help" ? field : undefined,
 	);
 	const platforms = useDeclaredPlatforms();
+	/* A label's other text says what a worker meets on each platform, and an
+	 * extended text whether the label shows as typed. */
+	const labelText = isLabelTextSlot(keyName) ? keyName : undefined;
+	const labelFormatText = useLabelFormatText(
+		labelText === undefined ? undefined : field,
+	);
+	const labelTextLine =
+		labelText === undefined
+			? null
+			: labelTextNote(labelText, platforms, labelFormatText?.plain === true);
 	const [confirmingPlain, setConfirmingPlain] = useState(false);
 	const current =
 		value && typeof value === "object" && "parts" in value
@@ -189,6 +205,14 @@ export function TextEditor<
 					)
 				}
 			/>
+			{labelTextLine === null || labelTextLine === "" ? null : (
+				<p
+					data-label-text-line
+					className="mt-1.5 text-xs leading-relaxed text-nova-text-muted"
+				>
+					{labelTextLine}
+				</p>
+			)}
 			{formatLine === null ? null : (
 				<p
 					data-format-text-line

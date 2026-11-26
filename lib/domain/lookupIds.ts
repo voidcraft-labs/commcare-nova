@@ -3,6 +3,7 @@ import { z } from "zod";
 declare const lookupTableIdBrand: unique symbol;
 declare const lookupColumnIdBrand: unique symbol;
 declare const lookupRowIdBrand: unique symbol;
+declare const lookupMemberIdBrand: unique symbol;
 
 /** Stable server-minted identity for one Project lookup table. */
 export type LookupTableId = string & {
@@ -19,6 +20,9 @@ export type LookupRowId = string & {
 	readonly [lookupRowIdBrand]: true;
 };
 
+/** Stable identity for a row attribute or a property of a column occurrence. */
+export type LookupMemberId = string & { readonly [lookupMemberIdBrand]: true };
+
 export const LOOKUP_UUID_V7_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -34,3 +38,5 @@ function lookupUuidV7Schema<Identity extends string>() {
 export const lookupTableIdSchema = lookupUuidV7Schema<LookupTableId>();
 export const lookupColumnIdSchema = lookupUuidV7Schema<LookupColumnId>();
 export const lookupRowIdSchema = lookupUuidV7Schema<LookupRowId>();
+
+export const lookupMemberIdSchema = lookupUuidV7Schema<LookupMemberId>();

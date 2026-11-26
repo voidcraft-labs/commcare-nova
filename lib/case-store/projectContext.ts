@@ -42,6 +42,7 @@ import {
 import { getCaseStoreDatabase } from "./postgres/connection";
 import { PostgresCaseStore } from "./postgres/store";
 import { HeuristicCaseGenerator } from "./sample/heuristic";
+import { authorizedSearchConfiguration } from "./searchConfiguration";
 import type { CaseStore, TransactionalSchemaCaseStore } from "./store";
 
 /**
@@ -68,6 +69,7 @@ export async function withProjectContext(
 		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeMutation: authorizeCaseMutationInTransaction,
+		readSearchConfiguration: authorizedSearchConfiguration(actorUserId),
 		authorizeSchemaMutation: async (tx, args) => {
 			await authorizeSystemSchemaMutationInTransaction(tx, args);
 		},

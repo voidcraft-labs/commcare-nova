@@ -23,7 +23,8 @@
  * The predicate dialect is per-rule: the filter, the search-button display
  *     condition, and a prompt's required condition and check rule lower
  *     through on-device JavaRosa XPath (`judgePredicate`),
- *     while an advanced input's predicate lowers through the mixed-dialect
+ *     while an advanced input's predicate and the search condition of a
+ *     search whose condition is its own lower through the mixed-dialect
  *     CSQL emitter (`judgeCsqlPredicate`). A rule whose judgment is
  *     dialect-independent passes the same function for both.
  *
@@ -44,6 +45,7 @@ import {
 	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import {
 	type Expression,
 	effectiveFilterForEmission,
@@ -54,14 +56,19 @@ import type { ValidationError } from "../../errors";
 
 export type ModuleWireSlotSurface =
 	| "filter"
+	| "detail-tab"
+	| "case-form-context"
 	| "calculated-column"
+	| "mapping-condition"
+	| "calculated-sort"
 	| "search-input-default"
 	| "search-input-required"
 	| "search-input-validation"
 	| "search-input-hidden-value"
 	| "advanced-input"
 	| "excluded-owner-ids"
-	| "search-button";
+	| "search-button"
+	| "case-list-form-button";
 
 export interface ModuleWireSlotIdentity {
 	readonly mod: Module;
@@ -89,8 +96,9 @@ export interface ModuleWireSlotJudge {
 		predicate: Expression,
 		slot: ModuleWireSlotIdentity,
 	): ValidationError | undefined;
-	/** An advanced search-input's effective predicate, which lowers through
-	 * the mixed-dialect CSQL emitter. */
+	/** An advanced search-input's effective predicate, and a search's own
+	 * condition, each of which lowers through the mixed-dialect CSQL
+	 * emitter. */
 	judgeCsqlPredicate(
 		predicate: Expression,
 		slot: ModuleWireSlotIdentity,
@@ -116,7 +124,8 @@ export function collectModuleWireSlotFindings(
 
 	const filter = effectiveFilterForEmission(mod.caseListConfig?.filter);
 	if (filter !== undefined) {
-		csqlPredicates.push(filter);
+		if (mod.caseListConfig?.searchCondition === undefined)
+			csqlPredicates.push(filter);
 		collect(
 			judge.judgePredicate(filter, {
 				mod,
@@ -129,9 +138,110 @@ export function collectModuleWireSlotFindings(
 		);
 	}
 
+	const context = mod.caseListConfig?.contextAboveForm;
+	const line = caseContextLine(context);
+	if (line)
+		collect(
+			judge.judgeExpression(line, {
+				mod,
+				moduleUuid,
+				slot: "caseListConfig.contextAboveForm.expression",
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_form_context_line",
+				},
+				slotLabel: "the case context above the form",
+				surface: "case-form-context",
+			}),
+		);
+	for (const [index, tab] of (mod.caseListConfig?.detailTabs ?? []).entries()) {
+		if (tab.displayCondition)
+			collect(
+				judge.judgePredicate(tab.displayCondition, {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.detailTabs[${index}].displayCondition`,
+					ref: {
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_detail_tab_condition",
+						member: { tabUuid: tab.uuid },
+					},
+					slotLabel: `the display condition for tab "${tab.title}"`,
+					surface: "detail-tab",
+				}),
+			);
+		const source = tab.rowSource;
+		if (source) {
+			const isChild = source.kind === "children";
+			const expr = isChild ? source.condition : source.rows;
+			if (expr) {
+				const ref = {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: isChild ? "case_detail_tab_filter" : "case_detail_tab_rows",
+					member: { tabUuid: tab.uuid },
+				} as const;
+				const site = {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.detailTabs[${index}].rowSource.${isChild ? "condition" : "rows"}`,
+					ref,
+					slotLabel: `the records in tab "${tab.title}"`,
+					surface: "detail-tab" as const,
+				};
+				collect(
+					isChild
+						? judge.judgePredicate(expr, site)
+						: judge.judgeExpression(expr, site),
+				);
+			}
+		}
+	}
+	const request = effectiveFilterForEmission(
+		mod.caseListConfig?.searchCondition,
+	);
+	if (request !== undefined) {
+		csqlPredicates.push(request);
+		// The search condition is sent to HQ alone, through the CSQL emitter
+		// as an advanced input's condition is; the list a device runs keeps
+		// its own filter, judged above.
+		collect(
+			judge.judgeCsqlPredicate(request, {
+				mod,
+				moduleUuid,
+				slot: "caseListConfig.searchCondition",
+				ref: { entity: "module", uuid: moduleUuid, slot: "case_search_filter" },
+				slotLabel: "the search condition",
+				surface: "filter",
+			}),
+		);
+	}
+
 	const columns = mod.caseListConfig?.columns ?? [];
 	for (let index = 0; index < columns.length; index += 1) {
 		const column = columns[index];
+		if (column.kind === "id-mapping" || column.kind === "image-map") {
+			for (const [rowIndex, row] of column.mapping.entries())
+				if (row.when && row.uuid)
+					collect(
+						judge.judgePredicate(row.when, {
+							mod,
+							moduleUuid,
+							slot: `caseListConfig.columns[${index}].mapping[${rowIndex}].when`,
+							ref: {
+								entity: "module",
+								uuid: moduleUuid,
+								slot: "case_list_mapping_condition",
+								member: { columnUuid: column.uuid, rowUuid: row.uuid },
+							},
+							slotLabel: `rule ${rowIndex + 1} in "${column.header}"`,
+							surface: "mapping-condition",
+							column: { uuid: column.uuid, label: column.header },
+						}),
+					);
+		}
 		if (column.kind !== "calculated") continue;
 		const label = column.header || "Untitled field";
 		collect(
@@ -148,6 +258,28 @@ export function collectModuleWireSlotFindings(
 				slotLabel: `calculated field "${label}"`,
 				surface: "calculated-column",
 				column: { uuid: column.uuid, label },
+			}),
+		);
+	}
+
+	for (const [index, sort] of (
+		mod.caseListConfig?.calculatedSorts ?? []
+	).entries()) {
+		collect(
+			judge.judgeExpression(sort.expression, {
+				mod,
+				moduleUuid,
+				slot: `caseListConfig.calculatedSorts[${index}].expression`,
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_list_sort_expression",
+					member: { sortUuid: sort.uuid },
+				},
+				slotLabel: sort.label
+					? `order calculation "${sort.label}"`
+					: "the default order calculation",
+				surface: "calculated-sort",
 			}),
 		);
 	}
@@ -180,6 +312,7 @@ export function collectModuleWireSlotFindings(
 			);
 		}
 		if (input.kind === "hidden") {
+			if (input.value === undefined) continue;
 			collect(
 				judge.judgeExpression(input.value, {
 					mod,
@@ -299,6 +432,24 @@ export function collectModuleWireSlotFindings(
 					surface: "search-button",
 				},
 			),
+		);
+	}
+
+	const formSlot = mod.caseListRegistrationForm;
+	if (formSlot?.kind === "always" && formSlot.showWhen?.kind === "condition") {
+		collect(
+			judge.judgePredicate(formSlot.showWhen.condition, {
+				mod,
+				moduleUuid,
+				slot: "caseListRegistrationForm.showWhen.condition",
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_list_action_condition",
+				},
+				slotLabel: "the form button condition",
+				surface: "case-list-form-button",
+			}),
 		);
 	}
 
