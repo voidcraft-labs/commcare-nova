@@ -349,7 +349,7 @@ def project_files_in(value):
 def _check_references(row_id, row):
     """Each reference a row holds well formed, and only where the lane resolves one: a set-json value and a list key
     of a ``holds`` fragment."""
-    from proof.matrix.ops import ValueNotSet, references_in
+    from proof.matrix.ops import PROJECT_FILE, ValueNotSet, project_file_of, references_in
 
     allowed = []
     for change in (
