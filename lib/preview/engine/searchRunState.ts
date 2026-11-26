@@ -211,6 +211,53 @@ export function searchForBlankAnswerRefusal(
 	return undefined;
 }
 
+/** The inputs a Search screen draws on a platform: Web Apps hides a hidden
+ *  value and a field marked hidden; Android draws each as an editable
+ *  field holding its value. */
+export function drawnSearchInputs(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+): readonly SearchInputDef[] {
+	return rules.hiddenSearchField === "editable"
+		? searchInputs
+		: searchInputs.filter(
+				(input) => input.kind !== "hidden" && input.hidden !== true,
+			);
+}
+
+/** The answer keys of the fields a platform's Search screen does not draw
+ *  though the worker would answer them where it did: on Web Apps, each
+ *  field marked hidden (`query.js` adds `d-none` to its row), whose
+ *  starting value the search sends as it stands. */
+export function undrawnSearchAnswerKeys(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+): Set<string> {
+	const drawn = new Set(drawnSearchInputs(searchInputs, rules));
+	return searchInputAnswerKeys(
+		searchInputs.filter((input) => !drawn.has(input)),
+	);
+}
+
+/** Why an answer supplied from outside a Search screen (an App Test, a form
+ *  check) for a field the platform does not draw is refused, or `undefined`
+ *  where it is drawn. A Web Apps worker never sees a field marked hidden,
+ *  so only its starting value, or a Clear, reaches the search; Android draws
+ *  it, and takes the answer. */
+export function undrawnSearchAnswerRefusal(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+	key: string,
+): string | undefined {
+	if (!undrawnSearchAnswerKeys(searchInputs, rules).has(key)) return undefined;
+	const field = searchInputs.find(
+		(input) =>
+			input.kind !== "hidden" && searchInputAnswerKeys([input]).has(key),
+	);
+	const name = field?.name ?? key;
+	return `Web Apps doesn't show ${name} on the Search screen, so a Web Apps run takes no answer for it: the search sends its starting value as it stands. Leave ${key} out, or run on Android.`;
+}
+
 /** Every key a query's prompts answer by: the answers the worker gives
  *  (`searchInputAnswerKeys`) and each hidden field's name, since Nova emits a
  *  hidden field as a prompt of its own (`<prompt hidden="true">`), which Core

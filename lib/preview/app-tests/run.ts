@@ -32,6 +32,7 @@ import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import { appReadsPlaces } from "../engine/expressionCaseReads";
+import { drawnSearchInputs } from "../engine/searchRunState";
 import { availablePages } from "../engine/sectionPaging";
 import {
 	recordsReadSearch,
@@ -377,7 +378,12 @@ async function observeScreen(
 									),
 								}
 							: {
-									questions: (mod.caseListConfig?.searchInputs ?? [])
+									/* The fields the platform's Search screen draws:
+									 * Web Apps draws no field marked hidden. */
+									questions: drawnSearchInputs(
+										mod.caseListConfig?.searchInputs ?? [],
+										context.rules,
+									)
 										.filter((input) => input.kind !== "hidden")
 										.map((input) => ({
 											name: input.name,

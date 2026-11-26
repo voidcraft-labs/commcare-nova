@@ -467,3 +467,38 @@ it("refuses a search for blank in an Android form check, whose Search screen dra
 		"Android's Search screen shows patient_name without the box to also find blank",
 	);
 });
+
+it("refuses an answer for a field Web Apps doesn't draw, and takes it on Android", () => {
+	const doc = searchApp([
+		simpleSearchInputDef(
+			testUuid("forms-read-search-answers-region"),
+			"region",
+			"Region",
+			"text",
+			"region",
+			{ hidden: true, default: term(literal("north")) },
+		),
+	]);
+	const read = (device: ReturnType<typeof webAppsDevice>) =>
+		formsReadSearchFormAnswers(
+			doc,
+			{
+				formUuid: FORM,
+				searchAnswers: [{ name: "region", value: "south" }],
+			},
+			{
+				identity: workerOf(doc),
+				device,
+				cases: { rows: [], indices: [] },
+				lookup: {
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				},
+			},
+		);
+	expect(() => read(webAppsDevice())).toThrow(
+		"Web Apps doesn't show region on the Search screen, so a Web Apps run takes no answer for it",
+	);
+	expect(read(androidDevice())).toEqual([{ name: "region", value: "south" }]);
+});

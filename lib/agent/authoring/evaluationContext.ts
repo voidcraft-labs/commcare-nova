@@ -49,6 +49,7 @@ import {
 	openSearchRunState,
 	searchForBlankAnswerRefusal,
 	searchInputAnswerKeys,
+	undrawnSearchAnswerRefusal,
 	withHiddenValues,
 } from "@/lib/preview/engine/searchRunState";
 import { serverPreviewDataRefusalOf } from "@/lib/preview/engine/serverDataRefusal";
@@ -255,6 +256,8 @@ function checkSuppliedSearchAnswers(
 		const blankRefusal = searchForBlankAnswerRefusal(fields, rules, key, value);
 		if (blankRefusal !== undefined)
 			throw new FormEvaluationInputError(blankRefusal);
+		const undrawn = undrawnSearchAnswerRefusal(fields, rules, key);
+		if (undrawn !== undefined) throw new FormEvaluationInputError(undrawn);
 		if (hiddenNames.has(key))
 			throw new FormEvaluationInputError(
 				`Search answer ${key} is a hidden value: the search works it out when the worker searches, and the form reads that value. Leave it out of searchAnswers.`,

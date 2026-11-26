@@ -45,6 +45,8 @@ import {
 	restoreSearchRun,
 	searchForBlankAnswerRefusal,
 	searchInputAnswerKeys,
+	undrawnSearchAnswerKeys,
+	undrawnSearchAnswerRefusal,
 	withHiddenValues,
 } from "./searchRunState";
 import { readingSurfaceNow, surfacedRefusal } from "./surfacedDataRefusal";
@@ -244,6 +246,8 @@ async function searchSnapshot(
 			);
 			if (blankRefusal !== undefined)
 				throw new FormEvaluationInputError(blankRefusal);
+			const undrawn = undrawnSearchAnswerRefusal(inputs, rules, name);
+			if (undrawn !== undefined) throw new FormEvaluationInputError(undrawn);
 			if (!answerKeys.has(name) || seen.has(name))
 				throw new FormEvaluationInputError(
 					`Search answer ${name} is unavailable or repeated.`,
@@ -358,6 +362,9 @@ async function searchSnapshot(
 			? webSearchRangeDraft(inputs, run.draft)
 			: undefined;
 	const visible = new Map(display?.draft ?? run.draft);
+	/* A field the platform does not draw shows nothing on the screen; the
+	 * draft and the search still carry its starting value. */
+	for (const key of undrawnSearchAnswerKeys(inputs, rules)) visible.delete(key);
 	for (const field of inputs) {
 		if (field.kind === "hidden" || field.type !== "date-range") continue;
 		const starting = visible.get(field.name + ":starting");

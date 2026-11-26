@@ -66,8 +66,8 @@ import {
 	startingSearchRange,
 	webSearchRangeDraft,
 } from "../engine/searchRangeAnswer";
+import { drawnSearchInputs } from "../engine/searchRunState";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
-import { drawnSearchInputs } from "../hooks/useSearchInputRunState";
 import {
 	ANDROID_DEVICE_ID_PREFIX,
 	androidAppVersion,

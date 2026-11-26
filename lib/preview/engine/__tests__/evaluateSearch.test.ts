@@ -251,3 +251,67 @@ it("takes a search for blank on Web Apps alone, and only as true", async () => {
 		"Android's Search screen shows village without the box to also find blank",
 	);
 });
+
+/* Web Apps doesn't draw a field marked hidden (`query.js` adds `d-none` to
+ * its row), so a worker there can send only its starting value; Android
+ * draws it, and the worker can change it. */
+it("takes an answer for a field marked hidden on Android alone, and shows it only there", async () => {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "People",
+				caseType: "person",
+				caseListConfig: {
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
+					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("hidden-region"),
+							"region",
+							"Region",
+							"text",
+							"region",
+							{ hidden: true, default: term(literal("north")) },
+						),
+					],
+				},
+				forms: [],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const identity = previewAsMe({ id: "worker", name: "Worker" }, doc);
+	if (!identity) throw new Error("Missing worker.");
+	const run = (
+		device: ReturnType<typeof webAppsDevice>,
+		answers?: SearchEvaluationInput["answers"],
+	) =>
+		evaluateSearch(
+			doc,
+			{ moduleUuid, ...(answers === undefined ? {} : { answers }) },
+			{
+				identity,
+				device,
+				cases: { rows: [], indices: [] },
+				lookup: {
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				},
+			},
+		);
+	await expect(
+		run(webAppsDevice(), [{ name: "region", value: "south" }]),
+	).rejects.toThrow(
+		"Web Apps doesn't show region on the Search screen, so a Web Apps run takes no answer for it",
+	);
+	const pressed = await run(webAppsDevice(), []);
+	expect(pressed.submitted).toEqual([{ name: "region", value: "north" }]);
+	expect(pressed.displayedAnswers).toEqual([]);
+	const changed = await run(androidDevice(), [
+		{ name: "region", value: "south" },
+	]);
+	expect(changed.submitted).toEqual([{ name: "region", value: "south" }]);
+	expect(changed.displayedAnswers).toEqual([
+		{ name: "region", value: "south" },
+	]);
+});

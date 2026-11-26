@@ -14,6 +14,7 @@ import {
 	buildSearchRunState,
 	changeSearchRunDraft,
 	clearSearchRun,
+	drawnSearchInputs,
 	hasNonEmptyValue,
 	openSearchRunState,
 	reconcileSearchRunState,
@@ -76,20 +77,6 @@ export interface SearchInputRunState {
 	 *  search runs before its choice lists are judged, and a search pressed
 	 *  now would carry no hidden value. Their arrival opens it as above. */
 	readonly pending?: true;
-}
-
-/** The inputs a Search screen draws on a platform: Web Apps hides a hidden
- *  value and a field marked hidden; Android draws each as an editable
- *  field holding its value. */
-export function drawnSearchInputs(
-	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
-): readonly SearchInputDef[] {
-	return rules.hiddenSearchField === "editable"
-		? searchInputs
-		: searchInputs.filter(
-				(input) => input.kind !== "hidden" && input.hidden !== true,
-			);
 }
 
 const DEFAULT_RULES = previewPlatformRules(
