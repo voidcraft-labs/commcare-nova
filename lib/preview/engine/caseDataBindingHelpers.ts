@@ -1986,7 +1986,8 @@ export function buildSubmissionReceiptIdentity(args: {
  *
  * When that exact program carries lookup references, this I/O half also
  * projects their table ids through the canonical production occurrence
- * registry and attaches one Project-authorized, rows-free definitions map.
+ * registry and attaches the Project-authorized, worker-visible rows and types.
+ * An opened form uses those captured in its signed opening.
  * A carrier-free program takes the loader's empty-id fast path and performs no
  * lookup read.
  */

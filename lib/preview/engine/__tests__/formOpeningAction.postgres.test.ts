@@ -5,6 +5,10 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { matchAll, tableLookup } from "@/lib/domain/expression";
+import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
+import { getLookupTable, updateLookupRow } from "@/lib/lookup/service";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import { submitFormAction } from "../caseDataBinding";
 import { blueprintRevisionDigest } from "../caseDataBindingClient";
@@ -40,7 +44,7 @@ async function openPracticeForm(
 	count: number,
 	configure?: (
 		blueprint: ReturnType<typeof independentChoicesBlueprint>,
-	) => void,
+	) => void | Promise<void>,
 	withOpeningValues = false,
 ) {
 	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic signed opening secret");
@@ -49,7 +53,7 @@ async function openPracticeForm(
 		"field-visits",
 		withOpeningValues,
 	);
-	configure?.(blueprint);
+	await configure?.(blueprint);
 	const app = await h.seedAppWithBlueprint(blueprint, {
 		id: "signed-opening-practice",
 		owner: member.id,
@@ -500,6 +504,113 @@ it("writes each chosen record and replays the committed receipt after the saved 
 	).toBe("reopen");
 	expect(await reclaimExpiredFormOpeningData()).toBe(1);
 	expect(await submit()).toEqual(result);
+});
+
+it("saves the rich lookup value from the signed opening after its live row changes", async () => {
+	const scope = { projectId: project, actorId: member.id, role: "owner" };
+	const liveEdit: { apply?: () => Promise<unknown> } = {};
+	const { pool, device, request, first, app, next, doc, module } =
+		await openPracticeForm(3, async (blueprint) => {
+			const { tables } = await h
+				.db()
+				.transaction()
+				.execute(async (tx) =>
+					applyLookupAuthoringBatchInTransaction(
+						tx,
+						await authorizeLookupWriteInTransaction(tx, scope, "edit"),
+						{
+							createTables: [
+								{
+									key: "visits",
+									name: "Visits",
+									tag: "visits",
+									columns: [],
+									attributes: [{ wireName: "note", label: "Note" }],
+									rows: [
+										{
+											key: "row",
+											cells: [],
+											content: { attributes: { note: "At form opening" } },
+										},
+									],
+								},
+							],
+						},
+					),
+				);
+			const [created] = tables;
+			const { tableId } = created;
+			const table = await getLookupTable(scope, tableId);
+			const attribute = table.attributes?.[0];
+			const row = created.rowIds[0];
+			const visit = Object.values(blueprint.forms).find(
+				(form) => form.name === "Visit two people",
+			);
+			const write = visit?.caseOperations?.[0].writes?.[0];
+			if (!attribute || !row || !write)
+				throw new Error("Missing the signed lookup fixture.");
+			write.value = tableLookup(
+				tableId,
+				{ attributeId: attribute.id },
+				matchAll(),
+			);
+			liveEdit.apply = () =>
+				updateLookupRow(scope, {
+					tableId,
+					rowId: row.id,
+					expectedTableRevision: table.tableRevision,
+					values: {},
+					content: { attributes: { [attribute.id]: "Edited while open" } },
+				});
+		});
+	const second = await readFormOpeningAction(
+		{
+			...request,
+			previous: first.evidence,
+			choice: { selection: next.selectionUuid, caseId: "training-1" },
+		},
+		device,
+	);
+	if (second.kind !== "opening" || !second.next)
+		throw new Error("Could not open the second case choice.");
+	const opened = await readFormOpeningAction(
+		{
+			...request,
+			previous: second.evidence,
+			choice: { selection: second.next.selectionUuid, caseId: "training-2" },
+		},
+		device,
+	);
+	const note = Object.values(doc.fields).find((field) => field.id === "note");
+	if (opened.kind !== "opening" || opened.next || !note || !liveEdit.apply)
+		throw new Error("Could not finish the form opening.");
+	await liveEdit.apply();
+	const result = await submitFormAction(
+		{
+			kind: "followup",
+			caseIds: ["training-2"],
+			entryKey: request.entry,
+			formUuid: request.form,
+			attachmentRefs: [],
+			formOpening: { run: request.run, module, evidence: opened.evidence },
+			operationAnswers: {
+				root: [{ fieldUuid: note.uuid, value: "Seen today" }],
+				repeats: [],
+			},
+		},
+		app,
+		request.blueprintDigest,
+		undefined,
+		undefined,
+		undefined,
+		device,
+	);
+	expect(result).toMatchObject({ kind: "followup" });
+	const saved = await pool.query(
+		"SELECT properties->>'second_note' AS note FROM cases WHERE app_id=$1 AND case_id='training-2'",
+		[app],
+	);
+	expect(saved.rows).toEqual([{ note: "At form opening" }]);
 });
 
 it("opens the next form on the device its submission left, a case the restore no longer holds among it", async () => {
