@@ -130,6 +130,7 @@ export function validateFormEntryCases(
 			}
 		});
 	};
+	let previousRow: (typeof rows)[number] | undefined;
 	for (const row of rows) {
 		const src = row.source;
 		if (!types.has(row.caseType))
@@ -167,6 +168,17 @@ export function validateFormEntryCases(
 			note(
 				`“${row.name}” needs an earlier record to follow its connection. You can place that record first.`,
 			);
+		// CommCare HQ's form builder narrows a list choice only by the record
+		// chosen right before it (`advanced/actions.js`, `subcase.write`:
+		// `load_update_cases()[index - 1]`), so it can make and keep no other.
+		else if (
+			src.kind === "choose" &&
+			src.under !== undefined &&
+			src.under.selection !== previousRow?.uuid
+		)
+			note(
+				`“${row.name}” is narrowed by a record chosen before the one right above it. You can place “${rows.find((one) => one.uuid === src.under?.selection)?.name ?? "that record"}” right before it, or narrow it by the record right above it.`,
+			);
 		if (src.kind === "worker-record" && row.caseType !== USERCASE_CASE_TYPE)
 			note(
 				`“${row.name}” uses the worker’s own record. You can choose the worker record type for it.`,
@@ -190,6 +202,7 @@ export function validateFormEntryCases(
 		if (src.kind === "expression") checkInput(row.name, src.value);
 		selected.add(row.uuid);
 		supplied.add(`case_id_${row.tag}`);
+		previousRow = row;
 	}
 	const destinations = new Set<string>();
 	const fields = formStructure(doc, form.uuid)?.fields;

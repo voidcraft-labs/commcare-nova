@@ -287,10 +287,12 @@ function ChoiceEditor({
 					/>
 					{prior.length > 0 && (
 						<Picker
-							label="Narrow by an earlier record"
+							label="Narrow by the record before it"
 							options={[
 								{ value: "all", label: "Show all matching records" },
-								...prior,
+								// CommCare narrows a list choice only by the record chosen
+								// right before it.
+								...prior.slice(-1),
 							]}
 							value={src.under?.selection ?? "all"}
 							onChange={(id) => {

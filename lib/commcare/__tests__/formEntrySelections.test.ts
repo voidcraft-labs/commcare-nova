@@ -18,6 +18,7 @@ import {
 	advancedFixture,
 	HOUSEHOLD_VISIT,
 	HOUSEHOLDS,
+	MEMBERS,
 	read,
 } from "./advancedPlacementFixture";
 
@@ -283,5 +284,78 @@ describe("the supplies a worker opens a form with", () => {
 				.flatMap((form) => form.computedDatums ?? [])
 				.map((row) => [row.key, row.value]),
 		).toEqual([["receipt_status", term(literal("received"))]]);
+	});
+
+	// CommCare HQ's form builder narrows a list choice only by the record
+	// chosen right before it (`advanced/actions.js`, `subcase.write`), so the
+	// gate holds no other, and what it holds comes back from Nova's export.
+	it("narrows a list choice only by the record chosen right before it", async () => {
+		const { doc, formUuid } = advancedFixture({
+			menu: "members",
+			formType: "followup",
+			operations: () => [],
+		});
+		const household: FormCaseSelection = {
+			uuid: testUuid("narrow-household"),
+			name: "Household",
+			tag: "household",
+			caseType: "household",
+			source: { kind: "choose", module: HOUSEHOLDS },
+		};
+		const worker: FormCaseSelection = {
+			uuid: testUuid("narrow-worker"),
+			name: "Worker",
+			tag: "worker",
+			caseType: "commcare-user",
+			source: { kind: "worker-record" },
+		};
+		const member: FormCaseSelection = {
+			uuid: testUuid("narrow-member"),
+			name: "Member",
+			tag: "member",
+			caseType: "member",
+			source: {
+				kind: "choose",
+				module: MEMBERS,
+				under: { selection: household.uuid, identifier: "parent" },
+			},
+		};
+		const withRows = (caseSelections: FormCaseSelection[]) => ({
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: { ...doc.forms[formUuid], caseSelections },
+			},
+		});
+		const past = withRows([household, worker, member]);
+		expect(validateFormEntryCases(past, past.forms[formUuid])).toEqual([
+			"In “Under test”, “Member” is narrowed by a record chosen before the one right above it. You can place “Household” right before it, or narrow it by the record right above it.",
+		]);
+		const adjacent = withRows([worker, household, member]);
+		expect(validateFormEntryCases(adjacent, adjacent.forms[formUuid])).toEqual(
+			[],
+		);
+		const read = await namingFromHqPages(readCases)(adjacent);
+		expect(
+			read.whole?.kind,
+			JSON.stringify(
+				read.whole?.kind === "account"
+					? [read.whole.findings, read.whole.defects]
+					: read.whole?.kind,
+			),
+		).toBe("read");
+		if (read.whole?.kind !== "read") return;
+		const rows = Object.values(read.whole.draft.doc.forms).find(
+			(form) => form.name === "Under test",
+		)?.caseSelections;
+		expect(rows?.map((row) => row.source.kind)).toEqual([
+			"worker-record",
+			"choose",
+			"choose",
+		]);
+		const narrowed = rows?.[2]?.source;
+		expect(
+			narrowed?.kind === "choose" ? narrowed.under?.selection : undefined,
+		).toBe(rows?.[1]?.uuid);
 	});
 });

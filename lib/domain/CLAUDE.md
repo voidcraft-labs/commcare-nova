@@ -388,7 +388,10 @@ array derives the original menu sequence and worker load with repeatable UUIDs.
 An empty array opens without those loads. A first edit materializes the derived
 sequence with its identities and held tags. `computedDatums` carries each
 opening calculation by UUID and key. Expressions refer to the supplier UUID.
-Changes to order must keep every input ahead of its consumer.
+Changes to order must keep every input ahead of its consumer. A list choice
+narrowed by an earlier record (`source.under`) names the record right before
+it, the only one CommCare HQ's form builder can narrow by
+(`formEntryValidation.ts`).
 
 A form may supply its own submit button in Web Apps. `submitLabel.text` is the source wording and the form's `submit-label` unit holds each configured translation. A language without a value gets the native default “Submit”. The wire keeps an explicitly blank label, or one explicitly equal to the source. A configured blank falls back to the first nonblank generated value in build order. Android uses its own finish control.
 
