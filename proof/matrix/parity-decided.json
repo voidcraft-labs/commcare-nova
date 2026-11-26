@@ -367,6 +367,7 @@
 		"hq-plain/after-submit-to-the-first-menu",
 		"hq-plain/auto-capture-location",
 		"hq-plain/auto-capture-location-every-form",
+		"hq-plain/auto-select-on-a-multi-select-list",
 		"hq-plain/child-case-in-a-shared-multi-select-menu",
 		"hq-plain/computed-endpoint-argument",
 		"hq-plain/custom-instance",

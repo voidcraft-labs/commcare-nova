@@ -1424,6 +1424,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`Nothing sits in ${q(modName(e))}'s group header, so every group would open with an empty band. Move a field the group shares into the header, or give the header fewer rows.`,
 	MULTI_SELECT_PERSISTENT_TILE: (e) =>
 		`${q(modName(e))} lets people choose several cases, so its Results tile can't stay above a form. Turn off “Keep tile visible in forms.”`,
+	MULTI_SELECT_SEARCH_ON_CLEAR: (e) =>
+		`${q(modName(e))} can choose matching cases automatically once Search on clear is off.`,
 	MULTI_SELECT_NO_BATCH_CONSUMER: (e) =>
 		`${q(modName(e))} is set to Several cases, but it has no follow-up or close form that can use the complete selection and no compatible child workflow can receive it. Add one of those forms, carry the same case selection into a child that has one, or switch Selection to One case.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
