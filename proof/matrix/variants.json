@@ -18490,6 +18490,78 @@
 		}
 	},
 	{
+		"id": "hq-connect-learn/connect-assessment-without-score",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-assessment-without-score",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "intro_check"
+		},
+		"change": {
+			"op": "named",
+			"name": "connect_assessment_without_score"
+		}
+	},
+	{
+		"id": "hq-connect-learn/connect-estimate-outside-receiver-range",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-estimate-outside-receiver-range",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "intro_module"
+		},
+		"change": {
+			"op": "named",
+			"name": "connect_estimate_outside_receiver_range"
+		}
+	},
+	{
+		"id": "hq-connect-learn/connect-repeated-module",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-repeats-module-completion-key",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "lessons/row_module"
+		},
+		"change": {
+			"op": "named",
+			"name": "connect_repeated_module"
+		}
+	},
+	{
+		"id": "hq-connect-deliver/deliver-shared-receiver-key",
+		"base": "hq-connect-deliver",
+		"entry": "questions/connect-deliveries-share-receiver-key",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Household visits",
+			"formName": "Deliver visit",
+			"path": "visits/row_visit"
+		},
+		"change": {
+			"op": "named",
+			"name": "deliver_shared_receiver_key"
+		}
+	},
+	{
 		"id": "hq-connect-deliver/constant-work-area-calculation",
 		"base": "hq-connect-deliver",
 		"entry": "questions/connect-deliver-unit-work-area-id-expression",

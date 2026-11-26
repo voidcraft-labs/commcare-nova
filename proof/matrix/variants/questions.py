@@ -2153,6 +2153,67 @@ def connect_work_area_update(authoring, app_id):
     )
 
 
+def connect_assessment_without_score(authoring, app_id):
+    """The assessment's score left without its calculation, so the submission sends an empty score."""
+    _change(
+        authoring,
+        app_id,
+        "connect-assessment-without-score",
+        (
+            '<bind nodeset="/data/intro_check/assessment/user_score" vellum:calculate="#form/quiz_score"'
+            ' calculate="/data/quiz_score" />',
+            '<bind nodeset="/data/intro_check/assessment/user_score" />',
+            1,
+        ),
+    )
+
+
+def connect_estimate_outside_receiver_range(authoring, app_id):
+    """The learn module's time estimate made one past what Connect's signed 32-bit column holds."""
+    _change(
+        authoring,
+        app_id,
+        "connect-estimate-outside-receiver-range",
+        ("<time_estimate>5</time_estimate>", "<time_estimate>2147483648</time_estimate>", 1),
+    )
+
+
+def connect_repeated_module(authoring, app_id):
+    """A learn module ``row_module`` in each row of a worker-added repeat ``lessons``, so one submission can
+    complete the same module once per row."""
+    _edit(
+        authoring,
+        app_id,
+        "connect-repeated-module",
+        lambda text: _replaced(
+            text,
+            [
+                (
+                    LEARN_DATA_END,
+                    LEARN_DATA_END
+                    + f'\n<lessons jr:template=""><row_module vellum:role="ConnectLearnModule"><module {LEARN_XMLNS}'
+                    ' id="row_module"><name>Practice</name><description>Practice again</description>'
+                    "<time_estimate>1</time_estimate></module></row_module></lessons>",
+                    1,
+                ),
+                (
+                    LEARN_BIND_END,
+                    LEARN_BIND_END
+                    + '\n<bind vellum:nodeset="#form/lessons" nodeset="/data/lessons" />'
+                    '\n<bind vellum:nodeset="#form/lessons/row_module" nodeset="/data/lessons/row_module" />',
+                    1,
+                ),
+                (
+                    "</h:body>",
+                    '<group vellum:ref="#form/lessons" ref="/data/lessons"><label>Lessons</label>'
+                    '<repeat vellum:nodeset="#form/lessons" nodeset="/data/lessons" /></group>\n</h:body>',
+                    1,
+                ),
+            ],
+        ),
+    )
+
+
 # hq-connect-deliver's forms: the deliver unit ``visit_unit`` in the first, the task ``follow_up_task`` in the
 # second.
 
@@ -3382,6 +3443,39 @@ def case_choices(authoring, app_id):
             '<select1 vellum:ref="#form/buddy" ref="/data/buddy">\n<label ref="jr:itext(\'buddy-label\')" />\n'
             + CHOICES_ITEMSET
             + "\n</select1>\n\t</h:body>",
+            1,
+        ),
+    )
+
+
+def deliver_shared_receiver_key(authoring, app_id):
+    """A deliver unit ``row_visit`` in each row of a worker-added repeat ``visits``, every row delivering to the
+    same fixed recipient, so one submission can file two visits under one unit and recipient."""
+    _change(
+        authoring,
+        app_id,
+        "deliver-shared-receiver-key",
+        (
+            "</visit_unit>",
+            '</visit_unit>\n<visits jr:template=""><row_visit vellum:role="ConnectDeliverUnit"><deliver'
+            f' {LEARN_XMLNS} id="row_visit"><name>Row visit</name><entity_id /><entity_name /><work_area_id />'
+            "</deliver></row_visit></visits>",
+            1,
+        ),
+        (
+            '<bind nodeset="/data/visit_unit/deliver/work_area_id" />',
+            '<bind nodeset="/data/visit_unit/deliver/work_area_id" />'
+            '\n<bind vellum:nodeset="#form/visits" nodeset="/data/visits" />'
+            '\n<bind vellum:nodeset="#form/visits/row_visit" nodeset="/data/visits/row_visit" />'
+            """\n<bind nodeset="/data/visits/row_visit/deliver/entity_id" calculate="'same'" />"""
+            """\n<bind nodeset="/data/visits/row_visit/deliver/entity_name" calculate="'Same'" />"""
+            '\n<bind nodeset="/data/visits/row_visit/deliver/work_area_id" />',
+            1,
+        ),
+        (
+            "</h:body>",
+            '<group vellum:ref="#form/visits" ref="/data/visits"><label>Visits</label>'
+            '<repeat vellum:nodeset="#form/visits" nodeset="/data/visits" /></group>\n</h:body>',
             1,
         ),
     )
