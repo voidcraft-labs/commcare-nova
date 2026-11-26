@@ -42,7 +42,10 @@ import {
 } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
-import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import {
+	isDedicatedOwnerFilter,
+	moduleFormsReadSearch,
+} from "@/lib/domain/modules";
 import type { LookupTableId } from "@/lib/lookup/types";
 import { moduleExpressionContexts } from "../expressionContext";
 import type { LookupWireNaming } from "../lookup/naming";
@@ -52,6 +55,7 @@ import {
 	hqCalculatedSortExpression,
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
+import { searchRequestKey } from "../suite/case-search/nativeFilters";
 import type { WireIdentity } from "../wireIdentity";
 import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
@@ -307,6 +311,22 @@ export function externalIdentityMap(
 			}
 			for (const [tabUuid, [first, ...others]] of tabColumns)
 				if (first) add(externalKey.caseDetailTab(first, others), tabUuid);
+			const filterCounts = new Map<string, number>();
+			for (const filter of config.searchFilters ?? []) {
+				// The dedicated owner exclusion is no default filter: its key
+				// names the setting, not its request key's place among them.
+				const key = isDedicatedOwnerFilter(filter)
+					? "search-setting:excluded-owners"
+					: searchRequestKey(filter);
+				add(
+					externalKey.searchFilter(
+						uniqueId,
+						key,
+						nextOrdinal(filterCounts, key),
+					),
+					filter.uuid,
+				);
+			}
 			for (const input of config.searchInputs)
 				add(externalKey.searchInput(uniqueId, input.name), input.uuid);
 		}

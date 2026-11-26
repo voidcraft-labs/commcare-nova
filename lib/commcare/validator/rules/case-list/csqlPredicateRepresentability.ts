@@ -44,6 +44,10 @@ import {
 	effectiveFilterForEmission,
 	slotContext,
 } from "@/lib/domain/expression";
+import {
+	searchConditionOf,
+	searchConditionSlot,
+} from "@/lib/domain/searchConditions";
 import { type ValidationError, validationError } from "../../errors";
 import type { LookupTypeIndex } from "../../lookupTypeContext";
 import { formatPath } from "./shared";
@@ -59,12 +63,16 @@ export function csqlPredicateRepresentability(
 	if (effectiveCaseSearchConfig(mod) === undefined) return [];
 
 	const slots: EffectivePredicateSlot[] = [];
-	const filter = mod.caseListConfig?.filter;
+	const filter = searchConditionOf(mod.caseListConfig);
 	if (filter !== undefined) {
 		const effective = effectiveFilterForEmission(filter);
 		const context = slotContext(
 			doc,
-			{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: searchConditionSlot(mod.caseListConfig),
+			},
 			lookupTables ?? new Map(),
 		);
 		if (effective !== undefined && context !== undefined) {
@@ -73,7 +81,10 @@ export function csqlPredicateRepresentability(
 				moduleUuid,
 				predicate: effective,
 				context,
-				slot: FILTER_SLOT,
+				slot:
+					mod.caseListConfig?.searchCondition === undefined
+						? FILTER_SLOT
+						: "caseListConfig.searchCondition",
 				slotLabel: "the Cases available rule",
 			});
 		}

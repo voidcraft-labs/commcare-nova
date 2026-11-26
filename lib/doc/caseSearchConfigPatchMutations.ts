@@ -31,6 +31,8 @@ const SETTINGS = [
 	"searchButtonDisplayCondition",
 	"workflow",
 	"formsReadSearch",
+	"searchOnClear",
+	"requestOrder",
 ] as const satisfies readonly (keyof CaseSearchConfigPatch)[];
 
 /** Plan one whole editor projection as independent setting writes. */

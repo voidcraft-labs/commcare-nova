@@ -543,6 +543,23 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseSearchConfig.formsReadSearch",
 		),
 	},
+	"search-on-clear": {
+		with: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: { searchOnClear: true } },
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: {} },
+			}),
+		use: slotUse(
+			"search-on-clear",
+			MODULE_OWNER,
+			"caseSearchConfig.searchOnClear",
+		),
+	},
 	"list-first": {
 		with: () =>
 			caseApp({
@@ -1523,6 +1540,38 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.searchInputs[0].required",
 		),
 	},
+	"search-starting-dates": {
+		with: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Review dates",
+						"date-range",
+						"dob",
+						{ default: term(literal("2024-03-10 to 2024-03-11")) },
+					),
+				],
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Review dates",
+						"date-range",
+						"dob",
+					),
+				],
+			}),
+		use: slotUse(
+			"search-starting-dates",
+			INPUT_OWNER,
+			"caseListConfig.searchInputs[0].default",
+		),
+	},
 	"barcode-search-field": {
 		with: () => caseApp({ searchInputs: [input("barcode")] }),
 		without: () => caseApp({ searchInputs: [input("text")] }),
@@ -1530,6 +1579,38 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"barcode-search-field",
 			INPUT_OWNER,
 			"caseListConfig.searchInputs[0].type",
+		),
+	},
+	"search-for-blank": {
+		with: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Date of birth",
+						"date-range",
+						"dob",
+						{ allowBlank: true },
+					),
+				],
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Date of birth",
+						"date-range",
+						"dob",
+					),
+				],
+			}),
+		use: slotUse(
+			"search-for-blank",
+			INPUT_OWNER,
+			"caseListConfig.searchInputs[0].allowBlank",
 		),
 	},
 	"hidden-search-field": {

@@ -42,6 +42,7 @@ import {
 	translationUnitRoles,
 	translationUnitsById,
 	type Uuid,
+	unitsCopiedToANewLanguage,
 	uuidSchema,
 } from "@/lib/domain";
 import {
@@ -715,9 +716,11 @@ export const addLanguageTool = {
 			const mutations: Mutation[] = [
 				addLanguageMutation(heldLanguageWireCodes(doc), identity),
 			];
-			for (const raw of collectLocalizedTranslationUnits(doc, copyFromTag)) {
-				const unit = presentedSearchWording(doc, raw);
-				if (unit.generated && unit.explicit === undefined) continue;
+			for (const unit of unitsCopiedToANewLanguage(
+				collectLocalizedTranslationUnits(doc, copyFromTag).map((unit) =>
+					presentedSearchWording(doc, unit),
+				),
+			)) {
 				mutations.push({
 					kind: "setTranslation",
 					language: tag,

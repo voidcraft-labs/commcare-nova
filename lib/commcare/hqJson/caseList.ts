@@ -85,11 +85,12 @@ import {
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	imageMapShowsImages,
+	isDedicatedOwnerFilter,
 	makeTranslationUnitId,
 	moduleFormsReadSearch,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
-	searchScreenTitleText,
+	searchOwnerOverride,
 	tileCellFor,
 	translatedDistanceProperty,
 } from "@/lib/domain";
@@ -150,9 +151,15 @@ import {
 	storedTileCell,
 	TILE_VERTICAL_ALIGN_WIRE,
 } from "../suite/case-list/tileStyle";
+import {
+	emitSearchRequestValue,
+	searchRequestKey,
+} from "../suite/case-search/nativeFilters";
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
+import { projectRequestOrder } from "../suite/case-search/requestOrder";
 import {
 	type RuntimeCsqlPromptValidation,
+	type SearchPromptAssertion,
 	type SearchPromptSlot,
 	searchPromptWire,
 } from "../suite/case-search/searchPrompts";
@@ -980,6 +987,7 @@ function projectSearchInput(
 	// semantics, so a `true` value persists and an absent key reads false.
 	if (wire.hidden) property.hidden = true;
 	if (wire.exclude) property.exclude = true;
+	if (wire.allowBlank) property.allow_blank_value = true;
 	if (wire.itemset !== undefined) {
 		property.itemset = {
 			instance_id: wire.itemset.instanceId,
@@ -989,17 +997,24 @@ function projectSearchInput(
 			sort: hqXPath(wire.itemset.sort),
 		};
 	}
+	// A check with no text of its own (`searchPrompts.ts::SearchPromptAssertion.message`) stores
+	// an empty map, as HQ's Case List page saves a blank message in every language.
+	const textOf = (message: SearchPromptAssertion["message"]) =>
+		message === undefined ||
+		(Array.isArray(message.source) && message.source.length === 0)
+			? {}
+			: localization.textMapFor(message.source);
 	if (wire.required !== undefined) {
 		property.required = {
 			test: hqXPath(wire.required.test, "no-case"),
-			text: localization.textMapFor(wire.required.message.source),
+			text: textOf(wire.required.message),
 		};
 	}
 	if (wire.validation !== undefined) {
 		property.validations = [
 			{
 				test: hqXPath(wire.validation.test, "no-dots"),
-				text: localization.textMapFor(wire.validation.message.source),
+				text: textOf(wire.validation.message),
 			},
 		];
 	}
@@ -1148,15 +1163,20 @@ function buildSearchConfigDocument(
 		wire === undefined ? undefined : searchInputInstanceId(wire);
 
 	if (caseSearchConfig !== undefined) {
+		if (caseSearchConfig.searchOnClear === true) config.search_on_clear = true;
 		// Use Nova's shared friendly default so a fresh search never inherits
 		// CCHQ's blank or case-type-derived chrome on either wire path. A
-		// search with no title keeps the shell's blank in every language, the
-		// map HQ's Case List page leaves where nothing was typed.
-		if (searchScreenTitleText(caseSearchConfig) !== null) {
-			config.title_label = localization.textMap(
-				makeTranslationUnitId("module", moduleUuid, "search-title"),
-			);
-		}
+		// search with no title is blank in every language that holds none of
+		// its own, the map HQ's Case List page leaves where nothing was typed;
+		// a language that shows a heading of its own writes it. HQ's build
+		// shows a language's own title, else the first language's
+		// (`app_strings.py::_create_case_search_app_strings`,
+		// `create_default_app_strings`), and Nova's gate admits a title blank
+		// in a language only where the first language's is blank too
+		// (`searchTitleBlankBesideFirst`), so each language shows what it holds.
+		config.title_label = localization.textMap(
+			makeTranslationUnitId("module", moduleUuid, "search-title"),
+		);
 		if (
 			caseSearchConfig.searchScreenSubtitle !== undefined &&
 			caseSearchConfig.searchScreenSubtitle !== ""
@@ -1179,7 +1199,29 @@ function buildSearchConfigDocument(
 				rewrites?.({ slot: "search_button_display_condition" }),
 			);
 		}
-		if (caseSearchConfig.excludedOwnerIds !== undefined) {
+		if (caseSearchConfig.requestOrder !== undefined)
+			config.custom_sort_properties = projectRequestOrder(
+				caseSearchConfig.requestOrder,
+			);
+		// The search's own owner exclusion replaces the shared rule for the
+		// search; a default-filter one goes out among the default filters, and
+		// the shared rule then stays off the search so HQ never reads the key
+		// twice (`SearchCriteria._validate_multiple_terms`).
+		const override = searchOwnerOverride(caseListConfig);
+		if (override !== undefined && isDedicatedOwnerFilter(override)) {
+			config.blacklisted_owner_ids_expression = hqXPath(
+				emitSearchRequestValue(
+					override,
+					expressions,
+					inputInstanceId,
+					lookupNaming,
+					datumId,
+				),
+			);
+		} else if (
+			override === undefined &&
+			caseSearchConfig.excludedOwnerIds !== undefined
+		) {
 			config.blacklisted_owner_ids_expression = hqXPath(
 				emitNormalizedExcludedOwnerIdsExpression(
 					caseSearchConfig.excludedOwnerIds,
@@ -1218,9 +1260,25 @@ function buildSearchConfigDocument(
 		);
 		// A search with no input and no clause carries the zero-input
 		// sentinel, as the local suite's query does.
-		config.default_properties = projectDefaultProperties(
-			xpathQueryRequestValues(caseListConfig, xpathQueryEmission),
-		);
+		config.default_properties = [
+			...(caseListConfig.searchFilters ?? [])
+				.filter((row) => !isDedicatedOwnerFilter(row))
+				.map((filter) => ({
+					property: searchRequestKey(filter),
+					defaultValue: hqXPath(
+						emitSearchRequestValue(
+							filter,
+							expressions,
+							inputInstanceId,
+							lookupNaming,
+							datumId,
+						),
+					),
+				})),
+			...projectDefaultProperties(
+				xpathQueryRequestValues(caseListConfig, xpathQueryEmission),
+			),
+		];
 	}
 
 	// `searchWireShape`'s three-flag `WireShape` projects onto the

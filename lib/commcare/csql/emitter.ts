@@ -49,6 +49,7 @@ import {
 import { normalizeRelationEvaluationScopes } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { normalizeRelationPropertyReads } from "@/lib/domain/expression/normalizeRelationReads";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { searchIndexedComparison } from "@/lib/domain/expression/searchIndexedComparison";
 import { asTemporalType } from "@/lib/domain/expression/temporalType";
 import {
 	expressionChildContext,
@@ -549,7 +550,7 @@ function compare(
 		: value(valueSide.expression, valueSide.path, emission);
 	if (
 		(kind === "eq" || kind === "neq") &&
-		readsInstantByRange(anchorSide.expression, emission)
+		readsInstantByRange(anchorSide.expression, emission, valueSide.expression)
 	) {
 		const equal = instantEquality(left, right);
 		return guardBlank(kind === "eq" ? c.group(equal) : c.not(equal), true, [
@@ -575,11 +576,31 @@ function compare(
  * device evaluates the slot, since the checker refuses their equality with a
  * date and time anywhere a device does (the day rule).
  */
-function readsInstantByRange(anchor: Expression, emission: Emission): boolean {
+function readsInstantByRange(
+	anchor: Expression,
+	emission: Emission,
+	value?: Expression,
+): boolean {
 	if (anchor.kind !== "term" || anchor.term.kind !== "prop") return false;
 	if (scalarDataType(typeOf(anchor, emission.types)?.data) !== "datetime")
 		return false;
+	if (
+		value &&
+		searchIndexedComparison(
+			true,
+			anchor,
+			"datetime",
+			value,
+			scalarDataType(typeOf(value, emission.types)?.data),
+		) === "exact-text"
+	)
+		return false;
 	if (!SYSTEM_DATETIME_CASE_PROPERTIES.has(anchor.term.property)) return true;
+	// A calendar date on a system instant is HQ’s destination-day equality.
+	// A pair of ordered comparisons instead includes the following local
+	// midnight and changes the result at a daylight-saving transition.
+	if (value && scalarDataType(typeOf(value, emission.types)?.data) === "date")
+		return false;
 	const targets = emission.types.profile.targets;
 	return !targets.has("SU") && !targets.has("XF");
 }
@@ -1185,6 +1206,8 @@ function value(
 	switch (expression.kind) {
 		case "term":
 			return termValue(expression.term);
+		case "today":
+			return c.value("today");
 		case "now":
 			return c.value("now");
 		case "date-coerce":

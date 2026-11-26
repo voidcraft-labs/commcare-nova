@@ -101,7 +101,6 @@ import type { IdentityMove } from "@/lib/doc/identityMoves";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { menuAboveSearchSentence } from "@/lib/doc/userFacingErrors";
 import {
 	type CaseListConfig,
 	type CaseProperty,
@@ -125,6 +124,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	resultsTileFieldCount,
 	type SearchInputDef,
+	searchOpensOnList,
 	searchScreenTitleText,
 	searchWorkflow,
 	type TileCell,
@@ -132,12 +132,10 @@ import {
 	visibleSearchInputs,
 } from "@/lib/domain";
 import { formContextPatch } from "@/lib/domain/caseFormContext";
-import {
-	type Expression,
-	effectiveFilterForEmission,
-} from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression";
 import { resolveAppLanguage } from "@/lib/domain/localization";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
+import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
@@ -939,8 +937,11 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	const updateExcludedOwnerIds = useCallback(
 		(next: Expression | undefined) => {
 			if (next !== undefined) {
+				// A menu whose search filters keep Search on takes the rule as a
+				// Search setting: the owner-only marker is for a menu with no Search.
 				if (
-					searchConfig === undefined ||
+					(searchConfig === undefined &&
+						(config.searchFilters?.length ?? 0) === 0) ||
 					isOwnerOnlyCaseSearchConfig(searchConfig)
 				) {
 					commitMany([
@@ -985,7 +986,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				),
 			);
 		},
-		[commitMany, moduleUuid, searchConfig],
+		[commitMany, config.searchFilters, moduleUuid, searchConfig],
 	);
 	const configureSearchAction = useCallback(() => {
 		/* Search with nothing to fill in opens on its results: the planner
@@ -1018,12 +1019,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	);
 
 	const ct = caseTypes.find((c) => c.name === caseType);
-	/* A menu that shows its forms in the menu above takes no Search, so the
-	 * Search panel's controls say why instead of adding one the gate would
-	 * refuse. */
-	const searchUnavailableReason =
+	const formsAboveSearchNote =
 		mod !== undefined && moduleShowsFormsInMenuAbove(mod)
-			? menuAboveSearchSentence(mod.name)
+			? "This menu shows its forms in the menu above. Its case list has no Search or Register button."
 			: undefined;
 	const addDisabledReason =
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
@@ -1415,8 +1413,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			(input) => input.uuid !== uuid,
 		);
 		const removesVisibleSearchScreen = remainingInputs.length === 0;
-		const hasCasesAvailableCondition =
-			effectiveFilterForEmission(config.filter) !== undefined;
+		const hasCasesAvailableCondition = searchContentWithoutInputs(config);
 		const nextSearchConfig = removesVisibleSearchScreen
 			? caseSearchConfigAfterFinalInputRemoval(
 					searchConfig,
@@ -1633,28 +1630,37 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			uuid,
 			toIndex,
 		);
-	const clearFilter = useCallback(
-		(nextFilter: Expression | undefined) => {
-			const mutations: Mutation[] = [
+	const updateSearchFilter = useCallback(
+		(
+			edit: NonNullable<
+				Extract<
+					Mutation,
+					{ kind: "setCaseListMeta" }
+				>["patch"]["searchFilterEdit"]
+			>,
+		) => {
+			return commitMany([
 				{
 					kind: "setCaseListMeta",
 					uuid: requireRetainedModuleUuid(moduleUuid),
-					patch: { filter: nextFilter ?? null },
+					patch: { searchFilterEdit: edit },
 				},
-			];
-			// Cases available and Search intent are independent. `{}` is a real
-			// zero-input manual Search action, so "Show all cases" never removes it.
-			return commitMany(mutations);
+			]);
 		},
 		[commitMany, moduleUuid],
 	);
 	const updateFilter = useCallback(
-		(nextFilter: Expression | undefined) =>
+		(next: Expression | undefined, surface?: "list" | "search") =>
 			commitMany([
 				{
 					kind: "setCaseListMeta",
 					uuid: requireRetainedModuleUuid(moduleUuid),
-					patch: { filter: nextFilter ?? null },
+					patch:
+						surface === "search"
+							? { searchCondition: next ?? null }
+							: surface === "list"
+								? { listCondition: next ?? null }
+								: { filter: next ?? null },
 				},
 			]),
 		[commitMany, moduleUuid],
@@ -2138,7 +2144,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				openSearchCondition({ kind: "input", uuid, slot }),
 			onEditSearchButtonCondition: editSearchButtonCondition,
 			searchSettingsHasError: searchButtonConditionBroken,
-			searchUnavailableReason,
+			formsAboveSearchNote,
 			onHideColumn: hideColumnFromSurface,
 			onDeleteColumn: deleteColumn,
 			onRemoveInput: removeInput,
@@ -2266,6 +2272,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		) {
 			resultsDependencyReview = {
 				kind: "cases-available",
+				surface: inputRemovalReview.dependency.surface,
 				token: inputRemovalReview.token,
 				path: inputRemovalReview.dependency.paths[0],
 				inputLabel: inputRemovalReview.inputLabel,
@@ -2276,6 +2283,15 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		) {
 			resultsDependencyReview = {
 				kind: "assigned-cases",
+				token: inputRemovalReview.token,
+				inputLabel: inputRemovalReview.inputLabel,
+			};
+		} else if (
+			inputRemovalReview?.phase === "target" &&
+			inputRemovalReview.dependency.kind === "search-filter"
+		) {
+			resultsDependencyReview = {
+				kind: "search-filter",
 				token: inputRemovalReview.token,
 				inputLabel: inputRemovalReview.inputLabel,
 			};
@@ -2325,7 +2341,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		setTilePersistOnForms,
 		setTileGrouping,
 		addDisabledReason,
-		searchUnavailableReason,
+		formsAboveSearchNote,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
 		searchConditionSurface,
@@ -2340,7 +2356,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		updateColumns,
 		showColumn,
 		updateFilter,
-		clearFilter,
+		updateSearchFilter,
 		updateExcludedOwnerIds,
 		returnToInputRemovalReview,
 	};
@@ -2559,7 +2575,7 @@ export function CaseListWorkspaceCanvas() {
 		setTilePersistOnForms,
 		setTileGrouping,
 		addDisabledReason,
-		searchUnavailableReason,
+		formsAboveSearchNote,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
 		resultsDependencyReview,
@@ -2573,7 +2589,7 @@ export function CaseListWorkspaceCanvas() {
 		updateColumns,
 		showColumn,
 		updateFilter,
-		clearFilter,
+		updateSearchFilter,
 		updateExcludedOwnerIds,
 		returnToInputRemovalReview,
 	} = ws;
@@ -2640,11 +2656,9 @@ export function CaseListWorkspaceCanvas() {
 								onConfigureSearchAction={configureSearchAction}
 								onAddInput={addInput}
 								onAddHiddenInput={addHiddenInput}
-								addInputDisabledReason={
-									searchUnavailableReason ?? addDisabledReason
-								}
-								{...(searchUnavailableReason !== undefined && {
-									searchUnavailableReason,
+								addInputDisabledReason={addDisabledReason}
+								{...(formsAboveSearchNote !== undefined && {
+									formsAboveSearchNote,
 								})}
 								hasSearchSurface={config.searchInputs.length > 0}
 								hasSearchAction={effectiveSearchConfig !== undefined}
@@ -2691,7 +2705,8 @@ export function CaseListWorkspaceCanvas() {
 							filterBroken={filterBroken}
 							excludedOwnerIdsBroken={excludedOwnerIdsBroken}
 							onFilterChange={updateFilter}
-							onClearFilter={clearFilter}
+							onSearchFilterEdit={updateSearchFilter}
+							onClearFilter={updateFilter}
 							searchConfig={searchConfig}
 							onExcludedOwnerIdsChange={updateExcludedOwnerIds}
 							appId={appId}
@@ -2851,8 +2866,8 @@ interface ResolveInspectorArgs {
 	) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
-	/** Why this menu takes no Search (it shows its forms in the menu above). */
-	readonly searchUnavailableReason: string | undefined;
+	/** Where a worker can use the search when this menu shows its forms above. */
+	readonly formsAboveSearchNote: string | undefined;
 	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
 	readonly onDeleteColumn: (
 		surface: CaseDisplaySurface,
@@ -2994,7 +3009,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							sortedInputs.length === 1 &&
 							opensOnResultsAfterFinalInput(
 								args.searchConfig,
-								effectiveFilterForEmission(config.filter) !== undefined,
+								searchContentWithoutInputs(config),
 							)
 						}
 						preservesAssignedCaseRule={
@@ -3042,8 +3057,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						hasSearchAction={effectiveSearch !== undefined}
 						onEditDisplayCondition={args.onEditSearchButtonCondition}
 						searchSettingsHasError={args.searchSettingsHasError}
-						{...(args.searchUnavailableReason !== undefined && {
-							searchUnavailableReason: args.searchUnavailableReason,
+						{...(args.formsAboveSearchNote !== undefined && {
+							formsAboveSearchNote: args.formsAboveSearchNote,
 						})}
 					/>
 				),
@@ -3394,7 +3409,9 @@ function SearchInputInspectorBody({
 											? `${dependency.inputUuid}:${dependency.slot}`
 											: dependency.kind === "form-field"
 												? dependency.fieldUuid
-												: "results"
+												: dependency.kind === "search-filter"
+													? dependency.filterUuid
+													: "results"
 									}:${
 										dependency.kind === "form-field"
 											? dependency.uses
@@ -3624,6 +3641,6 @@ function opensOnResultsAfterFinalInput(
 	return (
 		next !== undefined &&
 		!isOwnerOnlyCaseSearchConfig(next) &&
-		searchWorkflow(next) !== "listFirst"
+		!searchOpensOnList(searchWorkflow(next))
 	);
 }

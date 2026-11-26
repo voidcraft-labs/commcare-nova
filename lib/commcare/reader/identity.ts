@@ -45,6 +45,7 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"caseListSort",
 	"caseDetailTab",
 	"searchInput",
+	"searchFilter",
 	"caseOperation",
 	"formLink",
 	"entryPoint",
@@ -177,6 +178,12 @@ export const externalKey = {
 			}
 		}
 		return { kind: "caseDetailTab", parts: least.parts };
+	},
+	searchFilter(moduleUniqueId: string, target: string, n: number): ExternalKey {
+		return {
+			kind: "searchFilter",
+			parts: [moduleUniqueId, target, ordinal(n)],
+		};
 	},
 	searchInput(moduleUniqueId: string, name: string): ExternalKey {
 		return { kind: "searchInput", parts: [moduleUniqueId, name] };

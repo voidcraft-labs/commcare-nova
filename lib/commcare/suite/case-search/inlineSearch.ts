@@ -22,7 +22,6 @@ import {
 	makeTranslationUnitId,
 	moduleFormsReadSearch,
 	type OrdinaryCaseSearchConfig,
-	searchScreenTitleText,
 	type WireStringSource,
 } from "@/lib/domain";
 import type { DatumRef } from "@/lib/domain/expression/types";
@@ -144,16 +143,13 @@ export function searchScreenTranslationUnits(
 ): Record<string, WireStringSource> {
 	const moduleId = `m${moduleIndex}`;
 	const units: Record<string, WireStringSource> = {
-		// A search with no title writes a blank literal, with no unit.
-		...(searchScreenTitleText(caseSearchConfig) !== null
-			? {
-					[`case_search.${moduleId}.inputs`]: makeTranslationUnitId(
-						"module",
-						mod.uuid,
-						"search-title",
-					),
-				}
-			: {}),
+		// A search with no title holds its unit blank, so each language's
+		// table writes the title that language shows, blank or its own.
+		[`case_search.${moduleId}.inputs`]: makeTranslationUnitId(
+			"module",
+			mod.uuid,
+			"search-title",
+		),
 		...(caseSearchConfig.searchScreenSubtitle !== undefined
 			? {
 					[`case_search.${moduleId}.description`]: makeTranslationUnitId(

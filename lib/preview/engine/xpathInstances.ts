@@ -22,7 +22,10 @@ import {
 } from "@/lib/domain";
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import type { Expression } from "@/lib/domain/expression/types";
-import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import {
+	walkExpressionNodes,
+	walkPropertyRefs,
+} from "@/lib/domain/expression/walk";
 import type { LocationFixtureRow } from "@/lib/organization/footprint";
 import { javaTrim } from "@/lib/preview/xpath/javaString";
 import type {
@@ -57,6 +60,7 @@ export interface CaseDatabaseSnapshot {
 
 /** One case a completed search found, as plain JSON. */
 export interface SearchResultRow {
+	readonly status?: "open" | "closed";
 	readonly case_id: string;
 	readonly case_type: string;
 	readonly owner_id: string | null;
@@ -74,9 +78,8 @@ export interface SearchResultRow {
 	}[];
 }
 
-/** What a completed search returned to the forms of its module: the first
- * `SEARCH_RESULTS_CAP` open matches in Results' order, and how many
- * matched in all. */
+/** What a completed search returned to the forms of its module: the primary
+ * matches the server returned within its cap, before the detail filters them. */
 export interface SearchResultsSnapshot {
 	readonly rows: readonly SearchResultRow[];
 	readonly totalMatches: number;
@@ -84,7 +87,11 @@ export interface SearchResultsSnapshot {
 
 export type LoadSearchResultsSnapshotResult =
 	| { readonly kind: "data"; readonly snapshot: SearchResultsSnapshot }
-	| { readonly kind: "invalid-search"; readonly message: string }
+	| {
+			readonly kind: "invalid-search";
+			readonly message: string;
+			readonly reason?: import("@/lib/case-store/searchRequest").SearchUnavailableReason;
+	  }
 	| {
 			readonly kind: "data-refused";
 			readonly reason: PreviewDataRefusalReason;
@@ -797,11 +804,8 @@ function searchResultPropertyText(
  * has one), `external_id` only when set, `date_opened` (the UTC day of
  * `opened_on`, as text, not a device date), each stored property, and
  * `index` (present only when the case has indices, its children sorted by
- * identifier, `@relationship` written only for an extension). Every row is
- * open: HQ's search finds open cases only. Related cases, their
- * `commcare_is_related_case` mark and `commcare_search_score` are not
- * built, because the read always excludes the first and no catalog
- * property names the others.
+ * identifier, `@relationship` written only for an extension). The primary hits come first. Supporting rows carry their actual status
+ * and the related-case marker HQ supplies.
  *
  * The suite declares the instance `template="case"`, so Core checks its
  * paths against the casedb spec ({@link caseTemplate}), not its data: every
@@ -841,7 +845,7 @@ export function searchResultsXPathInstance(
 					case_id: row.case_id,
 					case_type: row.case_type,
 					owner_id: row.owner_id ?? "",
-					status: "open",
+					status: row.status ?? "open",
 				},
 				attributeTemplates: CASE_ATTRIBUTE_TEMPLATES,
 				templateChildren: [CASE_INDEX_TEMPLATE, CASE_ATTACHMENT_TEMPLATE],
@@ -907,6 +911,33 @@ export function formReadsSearchResults(
 	return formExpressionSlotValues(doc, formUuid).some(({ expression }) =>
 		readsSearchResults(expression),
 	);
+}
+
+/** A form can read a persisted score from its restore and a different
+ * result-only score from the submitted search. Only the latter needs HQ. */
+export function formReadsSearchScore(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): boolean {
+	return formExpressionSlotValues(doc, formUuid).some(({ expression }) => {
+		let found = false;
+		const scoreIn = (where: Expression) =>
+			walkPropertyRefs(where, (ref) => {
+				if (ref.property === "commcare_search_score") found = true;
+			});
+		walkExpressionNodes(expression, (node) => {
+			if (node.kind === "cases" && node.source === "search-results")
+				for (const condition of node.where) scoreIn(condition);
+			if (
+				node.kind === "project" &&
+				readsSearchResults(node.of) &&
+				node.value.kind === "prop" &&
+				node.value.property === "commcare_search_score"
+			)
+				found = true;
+		});
+		return found;
+	});
 }
 
 /** One resolver map for a form engine's immutable evaluation world. */

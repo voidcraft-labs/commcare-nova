@@ -19,6 +19,7 @@ import type {
 } from "@modelcontextprotocol/server";
 import { toMcpErrorResult } from "./errors";
 import {
+	isScopedToolName,
 	McpScopeError,
 	oauthScopeChallenge,
 	requiredToolScopes,
@@ -94,5 +95,25 @@ export function registerScopedTool<
 					: undefined,
 		},
 		gated as ToolCallback<InputArgs>,
+	);
+}
+
+/** Both the canonical and saved-work paths of a shared tool pass through the
+ * registered consent gate before they load an app, a work, or a receipt. */
+export function registerSharedToolWithScopes<
+	InputArgs extends StandardSchemaWithJSON,
+>(
+	server: McpServer,
+	ctx: ToolContext,
+	name: string,
+	config: ScopedToolConfig<InputArgs>,
+	handler: ToolCallback<InputArgs>,
+): RegisteredTool {
+	if (isScopedToolName(name))
+		return registerScopedTool(server, ctx, name, config, handler);
+	return server.registerTool<StandardSchemaWithJSON, InputArgs>(
+		name,
+		config,
+		handler,
 	);
 }

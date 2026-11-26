@@ -468,6 +468,40 @@ function readsExpressionOnlyProperty(column: Column): boolean {
 	);
 }
 
+/** The ordinary record field a screen can follow to fetch related data,
+ * or a calculated projection whose value the screen evaluates itself. */
+export function caseListColumnFieldKind(
+	column: Column,
+	hidden: boolean,
+	property: CaseListOrderProperty | undefined,
+): "property" | "expression" {
+	if (column.kind === "calculated")
+		return translatedDistanceProperty(column) ? "property" : "expression";
+	if (readsExpressionOnlyProperty(column)) return "expression";
+	if (hidden) return "property";
+	switch (column.kind) {
+		case "plain":
+			return column.showChoice !== "saved-value" &&
+				casePropertyShowsOptionLabels(property)
+				? "expression"
+				: "property";
+		case "interval":
+		case "link":
+			return "expression";
+		case "date":
+		case "date-count":
+		case "overdue-marker":
+		case "worker-distance":
+		case "map-location":
+		case "map-layer":
+		case "formatted-text":
+		case "phone":
+		case "id-mapping":
+		case "image-map":
+			return "property";
+	}
+}
+
 interface FieldDraft {
 	readonly column: Column;
 	readonly position: number;

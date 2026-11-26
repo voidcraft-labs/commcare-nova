@@ -40,6 +40,8 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { checkExpression } from "@/lib/domain/expression";
+import { LOOKUP_FIXTURE_ID_PREFIX } from "../../../lookup/naming";
+import { searchButtonUndeclaredInstances } from "../../../suite/case-search/buttonCondition";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -47,6 +49,22 @@ import {
 	semanticCheckErrors,
 } from "../../lookupTypeContext";
 import { formatPath } from "../case-list/shared";
+
+/** What a condition reads, in Nova's words: the worker and the session, a
+ *  lookup table by its id (the condition names it by that id, so the table
+ *  is the one it reads; `identityLookupWireNaming`), places, or the cases on
+ *  the device. */
+function readWhat(instanceId: string): string {
+	if (instanceId === "commcaresession")
+		return "the current worker's or the session's information";
+	if (instanceId === "locations") return "places";
+	if (instanceId === "casedb") return "the cases on the device";
+	if (instanceId.startsWith(`${LOOKUP_FIXTURE_ID_PREFIX}t_`))
+		return `lookup table ${instanceId
+			.slice(LOOKUP_FIXTURE_ID_PREFIX.length + 2)
+			.replaceAll("_", "-")}`;
+	return `instance('${instanceId}')`;
+}
 
 export function searchButtonDisplayConditionTypeCheck(
 	mod: Module,
@@ -93,7 +111,40 @@ export function searchButtonDisplayConditionTypeCheck(
 			error.code !== "case-data-unavailable" &&
 			error.code !== "search-answer-unavailable",
 	);
-	if (errors.length === 0) return [];
+	if (errors.length === 0) {
+		// A condition with a finding of its own (an answer read where Search
+		// has none) is not printed: the finding names it.
+		if (allErrors.length > 0) return [];
+		// HQ's build declares the instances an entry's datums, details and
+		// frames read, never the Search action's `relevant`
+		// (`buttonCondition.ts`), so a condition reading what the list does
+		// not load stops the list on the device once HQ builds the app.
+		let undeclared: readonly string[];
+		try {
+			undeclared = searchButtonUndeclaredInstances(doc, moduleUuid);
+		} catch {
+			// A condition the device printer refuses (a calendar date-add, a
+			// value no device evaluates) is named by the on-device
+			// compatibility rules (`dateAddOnDeviceCompatibility`,
+			// `onDeviceExpressionCompatibility`); what it reads is moot.
+			return [];
+		}
+		if (undeclared.length === 0) return [];
+		return [
+			validationError(
+				"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST",
+				"module",
+				`Module "${mod.name}" has a search-button display condition that reads ${undeclared.map(readWhat).join(", ")}, which its case list doesn't load. CommCare HQ's build loads for a case list only what its selections, its forms' display conditions and their after-submit destinations read, never what the Search button's condition reads, so on the device the case list would stop once the app is on CommCare HQ. Base the condition on fixed values or today's date, or on information the list itself reads: give the case list a filter (or each form that shows it a display condition) over the same information, or set each form that shows the list to return to it after submit (postSubmit "previous"). Otherwise clear the condition to show the button always.`,
+				{ moduleUuid, moduleName: mod.name },
+				{
+					reason: "instance-not-on-the-list",
+					instances: undeclared.join(","),
+					slot: "caseSearchConfig.searchButtonDisplayCondition",
+					surface: "search-button",
+				},
+			),
+		];
+	}
 
 	return errors.map((err) => {
 		const at = formatPath(err.path);

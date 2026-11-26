@@ -10,13 +10,16 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { SearchInputDef } from "@/lib/domain";
 import {
 	concat,
+	dateLiteral,
 	eq,
+	gte,
 	input,
 	literal,
 	neq,
 	prop,
 	sessionContext,
 	term,
+	today,
 } from "@/lib/domain/expression/builders";
 import { NO_SEARCH_SCREEN_TITLE, plainColumn } from "@/lib/domain/modules";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
@@ -93,10 +96,10 @@ describe("a search's settings", () => {
 		).toContain("list-settings-respelled");
 	});
 
-	it("raises a title shown blank in the source language beside another's text", async () => {
+	it("holds a title shown blank in the source language beside another's text as no title", async () => {
 		// A language with no title of its own shows the first language's, so a blank first
-		// language, here the source, shows blank beside another's text. The refusal stands alone:
-		// the search's rows, which the settle never reaches, stand under it.
+		// language, here the source, shows blank beside another's text: the search has no title in
+		// the source, and the other language's text is its translation (`hqSaves.test.ts`).
 		const reading = await readLists(doc({ searchScreenTitle: "Find" }), {
 			edit: (app) => {
 				(app as Record<string, unknown>).langs = ["en", "fra"];
@@ -105,9 +108,10 @@ describe("a search's settings", () => {
 					config.title_label = { en: "", fra: "Trouver" };
 			},
 		});
-		expect(closedCodes(reading)).toEqual([
-			"case-search/title-label-blank-in-some-languages",
-		]);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		});
 	});
 
 	it("reads an owner exclusion, and the list filter's clause for it leaves the filter", async () => {
@@ -162,7 +166,7 @@ describe("a search's settings", () => {
 		);
 	});
 
-	it("refuses a stored owner exclusion the list filter holds no clause for, where Nova's list would", async () => {
+	it("refuses Nova's own spelling of an owner exclusion whose list clause was removed, as a value outside the search's", async () => {
 		const reading = await readLists(
 			doc({ excludedOwnerIds: term(literal("abc")) }),
 			{
@@ -174,12 +178,14 @@ describe("a search's settings", () => {
 				},
 			},
 		);
+		// The setting still holds the shared rule's `normalize-space` wrapper,
+		// which the search-only setting's value does not take.
 		expect(closedCodes(reading)).toEqual([
-			"case-search/blacklisted-owner-ids-expression-without-that-clause",
+			"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
 		]);
 	});
 
-	it("refuses `search_on_clear` beside the case list's own auto select, as HQ reads it, and by its own row otherwise", async () => {
+	it("keeps search on clear unless HQ sees the case list itself auto-select", async () => {
 		// HQ's `Module.is_auto_select` reads the short detail's `auto_select` whether or not the list
 		// is multi-select, and never `auto_select_case`.
 		const read = (
@@ -211,7 +217,8 @@ describe("a search's settings", () => {
 		const caseAuto = await read(true, (module) => {
 			module.auto_select_case = true;
 		});
-		expect(closedCodes(caseAuto)).toContain(own);
+		expect(closedCodes(caseAuto)).not.toContain(own);
+		expect(searchOf(caseAuto)).toMatchObject({ searchOnClear: true });
 		expect(closedCodes(caseAuto)).not.toContain(auto);
 		// HQ refuses it beside the list's auto select on a menu that offers no search too.
 		const inactive = await read(false, (module) => {
@@ -240,6 +247,51 @@ describe("a search's settings", () => {
 			{ where: "/modules/0/search_config/properties/0/input_", key: null },
 		]);
 	});
+
+	it.each([
+		["an input type no runtime names", { input_: "slider" }],
+		[
+			"a Mobile UCR choice list",
+			{
+				input_: "select1",
+				itemset: {
+					instance_id: "commcare-reports:abc",
+					nodeset: "instance('commcare-reports:abc')/rows/row",
+					label: "name",
+					value: "id",
+					sort: "",
+				},
+			},
+		],
+	])(
+		"leaves a barcode scan beside %s under that input's refusal",
+		async (_title, widget) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					const prompt = (
+						app.modules[0]?.search_config.properties as
+							| Record<string, unknown>[]
+							| undefined
+					)?.[0];
+					if (prompt === undefined)
+						throw new Error("The search holds a field.");
+					Object.assign(prompt, widget, { appearance: "barcode_scan" });
+				},
+			});
+			const records = [...reading.ctx.close().claims.records()];
+			const at = (key: string) =>
+				records.find(
+					(one) => one.where === `/modules/0/search_config/properties/0/${key}`,
+				)?.entry;
+			expect(
+				records.some(
+					(one) => one.entry === "case-search/appearance-barcode-scan",
+				),
+			).toBe(false);
+			expect(at("appearance")).toBe(at("input_"));
+			expect(at("input_")).toBeDefined();
+		},
+	);
 
 	it("counts each key HQ's model removed under the removed keys' entry, and any other undeclared key under its own", async () => {
 		const removed = [
@@ -342,10 +394,9 @@ describe("a search's settings", () => {
 				search: {
 					searchScreenTitle: "Find a patient",
 					searchScreenSubtitle: "By notes",
-					searchButtonDisplayCondition: neq(
-						sessionContext("username"),
-						literal("guest"),
-					),
+					// A condition on the device's day: it reads no instance, so
+					// every entry showing the list can evaluate it.
+					searchButtonDisplayCondition: gte(today(), dateLiteral("2026-01-01")),
 					excludedOwnerIds: term(literal("abc")),
 				},
 			}),
@@ -354,11 +405,41 @@ describe("a search's settings", () => {
 		expect(searchOf(reading)).toMatchObject({
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: "By notes",
-			searchButtonDisplayCondition: neq(
-				sessionContext("username"),
-				literal("guest"),
-			),
+			searchButtonDisplayCondition: gte(today(), dateLiteral("2026-01-01")),
 			excludedOwnerIds: term(literal("abc")),
+		});
+	});
+
+	// HQ's build declares no instance for what only the Search action's `relevant` reads
+	// (`post_process/instances.py::_get_all_xpaths_for_entry`), so a session read over a list whose
+	// selection and forms read no session stops the list on the device: the reading refuses it.
+	// Over a list whose filter reads the session, the same condition is held.
+	it("refuses a Search button condition reading what its case list does not load", async () => {
+		const condition = neq(sessionContext("username"), literal("guest"));
+		const refused = await readLists(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [field],
+				search: { searchButtonDisplayCondition: condition },
+			}),
+		);
+		expect(closedCodes(refused)).toContain(
+			"case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+		);
+		const held = await readLists(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [field],
+				list: {
+					filter: eq(
+						term(prop("patient", "owner_id")),
+						term(sessionContext("userid")),
+					),
+				},
+				search: { searchButtonDisplayCondition: condition },
+			}),
+		);
+		expect(codes(held)).toEqual([]);
+		expect(searchOf(held)).toMatchObject({
+			searchButtonDisplayCondition: condition,
 		});
 	});
 
@@ -746,8 +827,11 @@ describe("a search's default filters", () => {
 			expect(codes(reading)).not.toContain(typeKey);
 		});
 
-	it("raises a literal sort key and a literal case type by their own rows", async () => {
-		const sort = await keyed("commcare_sort", "'+name'");
+	it("holds a literal sort Nova reads, and raises one it does not and a literal case type by their own rows", async () => {
+		const held = await keyed("commcare_sort", "'+name'");
+		expect(codes(held)).not.toContain(sortKey);
+		expect(codes(held)).not.toContain(runtime);
+		const sort = await keyed("commcare_sort", "'+name:fuzzy'");
 		expect(codes(sort)).toContain(sortKey);
 		expect(codes(sort)).not.toContain(runtime);
 		const type = await keyed("case_type", "'patient'");
