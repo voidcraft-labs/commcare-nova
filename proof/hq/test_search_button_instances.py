@@ -43,10 +43,13 @@ def _search_app(domain, list_filter=None, workflow=None, condition=SESSION_READ)
     """HQ authors a Search button on a case list containing one follow-up form."""
     from corehq.apps.app_manager.models import CaseSearch, CaseSearchProperty
     from corehq.apps.app_manager.tests.app_factory import AppFactory
+    from proof.core.test_evaluate import number_form
 
     factory = AppFactory(domain=domain, build_version="2.54.0")
     module, form = factory.new_basic_module("clients", "client")
     factory.form_requires_case(form, "client")
+    form.source = number_form("true()").decode()
+    factory.add_module_case_detail_column(module, "short", "name", "Name")
     if workflow is not None:
         form.post_form_workflow = workflow
     module.search_config = CaseSearch(
