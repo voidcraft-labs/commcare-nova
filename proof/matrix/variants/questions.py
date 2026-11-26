@@ -2242,10 +2242,19 @@ def itemset_filter_position_of_scalar(authoring, app_id):
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
     the model, in place of the table."""
+    _case_itemset(authoring, app_id, "itemset-over-cases", "")
+
+
+def itemset_over_open_cases(authoring, app_id):
+    """The district select filters the worker's cases across all case types."""
+    _case_itemset(authoring, app_id, "itemset-over-open-cases", "[@status = &apos;open&apos;]")
+
+
+def _case_itemset(authoring, app_id, name, predicate):
     _change(
         authoring,
         app_id,
-        "itemset-over-cases",
+        name,
         (
             '<instance id="item-list:seasons"',
             '<instance src="jr://instance/casedb" id="casedb" />\n<instance id="item-list:seasons"',
@@ -2253,7 +2262,8 @@ def itemset_over_cases(authoring, app_id):
         ),
         (
             DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL,
-            '<itemset nodeset="instance(\'casedb\')/casedb/case">\n<label ref="case_name" />\n<value ref="@case_id" />',
+            f'<itemset nodeset="instance(\'casedb\')/casedb/case{predicate}">'
+            '\n<label ref="case_name" />\n<value ref="@case_id" />',
             1,
         ),
     )
