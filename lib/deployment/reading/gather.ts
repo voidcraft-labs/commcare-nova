@@ -784,7 +784,7 @@ const SETTLED = {
 		"expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
 	/** A held file's path under `jr://file/`, the path the project space keeps it at. */
 	mediaPath: "expressions-and-data/media-path-jr-file",
-	/** A Connect app, which the document holds as its `connectType`. */
+	/** A Connect app, which the document holds as its configured roles. */
 	connect: "application-and-settings/connect-app-opened-in-the-connect-app",
 	/** The app strings HQ's build writes for every app in every language outside its
 	 *  `translations` (`app_strings.py::_create_custom_app_strings`, `cchq.case`), for the
@@ -1062,7 +1062,7 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 			}
 		}
 	const doc = settled.doc;
-	if (doc !== null && doc.connectType !== null)
+	if (doc !== null && doc.connectRoles.length > 0)
 		records.push(settledRecord("app.json", "", SETTLED.connect));
 	if (doc !== null) {
 		records.push(

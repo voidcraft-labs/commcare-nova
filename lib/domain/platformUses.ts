@@ -40,6 +40,7 @@ import { walkExpressionNodes } from "./expression/walk";
 import { choiceDisplayFeatures, fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
+import { formBehaviorRoles } from "./forms";
 import {
 	effectiveAppLocalization,
 	makeTranslationUnitId,
@@ -80,6 +81,7 @@ import {
 } from "./platforms";
 import { firstMenuCaseRead } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
+import { answerRequiresAndroid } from "./submittedAnswerName";
 import type { Uuid } from "./uuid";
 
 export type PlatformFeatureOwner =
@@ -336,11 +338,11 @@ export function platformFeatureUses(
 		Object.values(doc.modules).some((module) => module.autoSelectSingle);
 	const app: PlatformFeatureOwner = { kind: "app" };
 	const appUses: PlatformFeatureUse[] = [];
-	if (doc.connectType !== null) {
+	if (doc.connectRoles.length > 0) {
 		if (wanted("connect-app"))
-			appUses.push(slotUse("connect-app", app, "connectType"));
+			appUses.push(slotUse("connect-app", app, "connectRoles"));
 		if (wanted("connect-location-capture"))
-			appUses.push(slotUse("connect-location-capture", app, "connectType"));
+			appUses.push(slotUse("connect-location-capture", app, "connectRoles"));
 	}
 	if (wanted("menu-layout")) {
 		if (doc.appSettings.firstMenuLayout === "grid")
@@ -349,7 +351,7 @@ export function platformFeatureUses(
 			appUses.push(slotUse("menu-layout", app, "appSettings.formMenuLayout"));
 	}
 	if (
-		doc.connectType === null &&
+		doc.connectRoles.length === 0 &&
 		doc.appSettings.captureLocation &&
 		wanted("connect-location-capture")
 	)
@@ -437,6 +439,26 @@ export function platformFeatureUses(
 						);
 				}
 			}
+			if (wanted("answer-name-requires-android")) {
+				const lockedPaths = [
+					...(form.ownClosePlacement ? [form.ownClosePlacement.path] : []),
+					...(form.caseOperations ?? []).flatMap((op) =>
+						op.placement?.kind === "save-to-case" ? [op.placement.path] : [],
+					),
+				];
+				if (
+					lockedPaths.some((path) =>
+						path.some((name) => answerRequiresAndroid(name)),
+					)
+				)
+					formUses.push(
+						slotUse(
+							"answer-name-requires-android",
+							formOwner,
+							"caseOperations",
+						),
+					);
+			}
 			if (wanted("after-submit-home") && afterSubmitCanGoHome(doc, formUuid))
 				formUses.push(
 					slotUse(
@@ -491,13 +513,17 @@ export function platformFeatureUses(
 				formUses.push(
 					slotUse("connect-location-capture", formOwner, "captureLocation"),
 				);
+			if (wanted("web-apps-form-behavior"))
+				for (const role of formBehaviorRoles)
+					if (form[role])
+						formUses.push(slotUse("web-apps-form-behavior", formOwner, role));
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(
 				...expressionUses({ entity: "form", uuid: formUuid }, () => formOwner),
 			);
 			out.push(...inFeatureOrder(formUses));
-			const walkFields = (parentUuid: Uuid) => {
+			const walkFields = (parentUuid: Uuid, inRepeat: boolean) => {
 				for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 					const field = doc.fields[fieldUuid];
 					if (field === undefined) continue;
@@ -505,14 +531,15 @@ export function platformFeatureUses(
 						...fieldUses(
 							{ kind: "field", moduleUuid, formUuid, fieldUuid },
 							field,
+							inRepeat,
 							wanted,
 							expressionUses,
 						),
 					);
-					walkFields(fieldUuid);
+					walkFields(fieldUuid, inRepeat || field.kind === "repeat");
 				}
 			};
-			walkFields(formUuid);
+			walkFields(formUuid, false);
 		}
 	}
 
@@ -883,10 +910,20 @@ function searchInputUses(
 function fieldUses(
 	owner: Extract<PlatformFeatureOwner, { kind: "field" }>,
 	field: Field,
+	/** Whether a repeat holds the field, at any depth. */
+	inRepeat: boolean,
 	wanted: (feature: PlatformFeatureId) => boolean,
 	expressionUses: ExpressionUses,
 ): PlatformFeatureUse[] {
 	const uses: PlatformFeatureUse[] = [];
+	if (
+		wanted("answer-name-requires-android") &&
+		answerRequiresAndroid(
+			field.id,
+			field.kind === "hidden" ? field.answerNamespace : undefined,
+		)
+	)
+		uses.push(slotUse("answer-name-requires-android", owner, "id"));
 	for (const id of PLATFORM_FEATURE_IDS) {
 		if (PLATFORM_FEATURES[id].fieldKind === field.kind && wanted(id))
 			uses.push(slotUse(id, owner, "kind"));
@@ -897,6 +934,12 @@ function fieldUses(
 			(field.kind === "group" && field.fieldList === true))
 	)
 		uses.push(slotUse("question-pages", owner, "kind"));
+	if (
+		field.kind === "image" &&
+		field.maxDimension !== undefined &&
+		wanted("image-size")
+	)
+		uses.push(slotUse("image-size", owner, "maxDimension"));
 	// Every display setting whose value a platform reads differently, found
 	// through the one registry, so a new setting needs no detector here.
 	const settings = fieldDisplayValues(field);
@@ -932,6 +975,12 @@ function fieldUses(
 		wanted("plain-text")
 	)
 		uses.push(slotUse("plain-text", owner, "plainLabel"));
+	if (
+		field.kind === "label" &&
+		field.askForConfirmation &&
+		wanted("confirm-message")
+	)
+		uses.push(slotUse("confirm-message", owner, "askForConfirmation"));
 	if ("plainHelp" in field && field.plainHelp === true && wanted("plain-text"))
 		uses.push(slotUse("plain-text", owner, "plainHelp"));
 	if (
@@ -958,6 +1007,14 @@ function fieldUses(
 		wanted("label-spoken-text")
 	)
 		uses.push(slotUse("label-spoken-text", owner, "spoken_text"));
+	if (
+		inRepeat &&
+		field.kind === "hidden" &&
+		field.default_value !== undefined &&
+		field.calculate !== undefined &&
+		wanted("row-starting-value")
+	)
+		uses.push(slotUse("row-starting-value", owner, "default_value"));
 	uses.push(
 		...expressionUses({ entity: "field", uuid: owner.fieldUuid }, () => owner),
 	);

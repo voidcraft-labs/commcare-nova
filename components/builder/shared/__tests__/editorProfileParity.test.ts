@@ -681,6 +681,7 @@ describe("the editor's axes are the slot's profile", () => {
 			"assessment_user_score",
 			"deliver_entity_id",
 			"deliver_entity_name",
+			"deliver_work_area_id",
 		]);
 		for (const slot of declared)
 			expect(

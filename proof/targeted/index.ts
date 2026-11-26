@@ -41,6 +41,8 @@ import {
 	connectDeliverRename,
 	connectLearnHyphenIds,
 	connectLearnRename,
+	connectRecipientRepeat,
+	connectSectionOrder,
 } from "./documents/connectApps";
 import { csqlComposition } from "./documents/csqlComposition";
 import { customTile, tileHiddenOrder } from "./documents/customTile";
@@ -77,6 +79,7 @@ import {
 } from "./documents/formsInMenuAbovePrefixes";
 import { gpsQuestion } from "./documents/gpsQuestion";
 import { heldPlacement } from "./documents/heldPlacement";
+import { hiddenAnswerTypes } from "./documents/hiddenAnswerTypes";
 import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
 import { hiddenFromMenu } from "./documents/hiddenFromMenu";
 import {
@@ -122,6 +125,7 @@ import {
 } from "./documents/migrations";
 import { missingMedia } from "./documents/missingMedia";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
+import { namedAnswerRoot } from "./documents/namedAnswerRoot";
 import {
 	formLinkSessionReads,
 	nestedMenuSessionReads,
@@ -141,7 +145,9 @@ import {
 } from "./documents/registerFromCaseList";
 import { relatedColumns } from "./documents/relatedColumns";
 import { relativeCaseDates } from "./documents/relativeCaseDates";
+import { repeatInvitations } from "./documents/repeatInvitations";
 import {
+	openingQueryChoices,
 	queryRepeatPlacements,
 	queryRepeatPlaces,
 	repeatCountCopy,
@@ -179,19 +185,29 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
+import { startingAndCalculatedAnswers } from "./documents/startingAndCalculatedAnswers";
 import { styledValue } from "./documents/styledValue";
+import {
+	receivingAnswersOnAndroid,
+	receivingAnswersOnBoth,
+} from "./documents/submittedAnswerNames";
+import { submittedGroups } from "./documents/submittedGroups";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
 import { tileRowBound } from "./documents/tileRowBound";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
+import { workerMessages } from "./documents/workerMessages";
 import { workerRecordColumns } from "./documents/workerRecordColumns";
 
 /** Every targeted document's maker, in the corpus's order. */
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
+	receivingAnswersOnBoth,
+	receivingAnswersOnAndroid,
 	lookupReservedTags,
 	searchHqCompile,
 	validatedBarcodeSecret,
+	workerMessages,
 	labelSort,
 	calculationTextNames,
 	customTile,
@@ -207,6 +223,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formLinksHiddenFallback,
 	labelledGroupRepeat,
 	repeatCountCopy,
+	repeatInvitations,
 	reservedNodeNames,
 	searchRelatedLookups,
 	loadTimeValues,
@@ -224,6 +241,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formLinkHiddenTarget,
 	emptyListNoEnglish,
 	connectDeliverRename,
+	connectRecipientRepeat,
+	connectSectionOrder,
 	connectLearnRename,
 	saveToCaseRead,
 	saveToCaseShapes,
@@ -247,6 +266,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	tileRowBound,
 	hiddenFromMenu,
 	listedForms,
+	startingAndCalculatedAnswers,
 	listFirstPlaces,
 	sessionReads,
 	expressionRenames,
@@ -262,6 +282,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	platformDeclaration,
 	syncOnFormEntryWebApps,
 	previewAndroidRenders,
+	hiddenAnswerTypes,
 	sessionContextReads,
 	caseListSearchTextDocument,
 	migrationSearchWorkflow,
@@ -273,6 +294,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	migrationGroupsPreloads,
 	migrationRepeatCounts,
 	queryRepeatPlacements,
+	openingQueryChoices,
 	repeatCountWhole,
 	caseWritesOneConcept,
 	heldPlacement,
@@ -285,6 +307,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	sameTypeChild,
 	supplyPointText,
 	fieldListFlags,
+	submittedGroups,
+	namedAnswerRoot,
 	plainLabels,
 	plainHelp,
 	searchWorkflow,

@@ -1407,6 +1407,28 @@ def other_upload_mediatype(use, manifest):
     return element.get("mediatype") not in UPLOAD_MEDIATYPES
 
 
+def invalid_image_dimension(use, manifest):
+    """The numeric extension is consumed on every upload. Only ordinary ImageWidget
+    and FaceCaptureWidget use a positive setting to resize a photo."""
+    form, element = _form_element(use)
+    if form is None or _local(element) != "upload":
+        return None
+    raw = element.get(f"{{{JAVAROSA}}}imageDimensionScaledMax")
+    if raw is None:
+        return False
+    digits = raw.removesuffix("px")
+    if not re.fullmatch(r"[+-]?[0-9]+", digits):
+        return True
+    significant = digits.lstrip("+-").lstrip("0") or "0"
+    if len(significant) > 10:
+        return True
+    value = (-1 if digits.startswith("-") else 1) * int(significant)
+    image = element.get("mediatype") == "image/*" and element.get("appearance") != "signature"
+    if value < -2147483648 or value > 2147483647 or (image and (value == 0 or value < -1)):
+        return True
+    return False
+
+
 # Setvalues ----------------------------------------------------------------------
 
 
@@ -1605,6 +1627,32 @@ def _default_value(form, setvalue, target):
         and target is not None
         and _is_mug(form, target)
     )
+
+
+def default_other_than_blank_on_a_capture_question(use, manifest):
+    """``questions/default-other-than-blank-on-a-capture-question``: an attachment question's Default Value
+    (``_default_value``: a setvalue Vellum reads as the Default Value of a question an ``<upload>`` binds, which is
+    every image, audio, video, signature and file question) whose value is anything but the blank string literal.
+    Web Apps clears a starting file as the form opens and submits nothing for it, and Android's ``MediaWidget``
+    looks for the named file in the form's own folder and stops the form. A value Core's lexer refuses, or this
+    port does not read, is not settled here: None."""
+    form, setvalue = _setvalue(use)
+    if form is None:
+        return None
+    if setvalue is None:
+        return False  # an event on another element of the form, no setvalue
+    target = _target(form, setvalue)
+    if target is None:
+        return _unplaced_target(form, setvalue)
+    if not _default_value(form, setvalue, target) or isinstance(target, tuple):
+        return False
+    path = form.paths.get(target)
+    if not any(_local(control) == "upload" for control in form.question_controls(path)):
+        return False
+    found = xpath_tokens(setvalue.get("value") or "")
+    if found is None:
+        return None
+    return not (len(found) == 1 and found[0].kind == "STR" and found[0].text[1:-1] == "")
 
 
 def default_event_mismatching_placement(use, manifest):
@@ -7323,10 +7371,9 @@ def _node_name(element):
     return f"{element.prefix}:{_local(element)}" if element.prefix else _local(element)
 
 
-# The question ids Vellum warns about in any case (``baseSpecs.js::RESERVED_NAMES``), and those its parser finds by
-# bare element name at any depth, so a form holding one never opens (``parser.js``, and jQuery's ``parseXML``, which
-# takes any ``parsererror`` element for its own parse failure); ``lib/domain/questionId.ts::RESERVED_QUESTION_IDS``.
-RESERVED_ANY_CASE = frozenset({"case", "registration", "script"})
+# The names Vellum's parser finds by bare element name at any depth, so a form holding one never opens
+# (``parser.js``, and jQuery's ``parseXML``, which takes any ``parsererror`` element for its own parse failure);
+# ``lib/domain/questionId.ts::FORM_SOURCE_READER_NAMES``.
 NEVER_OPENED = frozenset({"instance", "bind", "parsererror"})
 
 
@@ -7357,19 +7404,94 @@ def invalid_question_id(use, manifest):
     return VELLUM_ELEMENT_NAME.fullmatch(name) is None or name.lower() == "meta" or name in NEVER_OPENED
 
 
-def reserved_question_id(use, manifest):
-    """``questions/question-id-case-registration-script``: a question's data node whose name passes Vellum's Question
-    ID rule and is ``case``, ``registration`` or ``script`` in any case, which HQ's form builder only warns about and
-    Nova's question id rule refuses (``RESERVED_ANY_CASE``; Nova's reader claims the node under this entry,
-    ``lib/commcare/reader/xform/join.ts``)."""
-    form, element = _question_node(use)
+def _hq_primary_case(form):
+    """Whether HQ appends its own primary case block (XForm._create_casexml).
+    A project's registry support is an external fact, so a potential registry
+    load cannot establish an HQ build collision from the form alone."""
+    if form.app_form is None:
+        return None
+    app, stored = form.app_form
+    if (stored.get("doc_type") or "Form") != "Form":
+        return False
+    actions = _actions(stored)
+    requires = _requires(stored)
+    opens = requires != "case" and _active(actions.get("open_case"))
+    if opens:
+        return True
+    module = app.module_of(stored) or {}
+    if requires == "none" or _multi_select(module):
+        return False
+    search = module.get("search_config") or {}
+    if _offers_search(module) and search.get("data_registry") and search.get("data_registry_workflow") == "load_case":
+        return None
+    return (any(_active(actions.get(name)) for name in ("update_case", "close_case", "usercase_update"))
+            or any((actions.get(name) or {}).get("preload") for name in ("case_preload", "usercase_preload", "load_from_form"))
+            or any(_active(subcase) for subcase in _subcases(stored)))
+
+
+def _hq_case_collision(form, node):
+    return (node.getparent() is form.data_root and _node_name(node) == "case"
+            and etree.QName(node).namespace in (etree.QName(form.data_root).namespace, CASE))
+
+
+def submitted_case_answer(use, manifest):
+    form, node = _data_node(use)
     if form is None:
         return None
-    # A case block's own ``<case>`` (its namespace the case transaction's) is no question.
-    if element is None or etree.QName(element).namespace == CASE:
+    if node is None or _local(node).lower() != "case":
         return False
-    name = _node_name(element)
-    return VELLUM_ELEMENT_NAME.fullmatch(name) is not None and name.lower() in RESERVED_ANY_CASE
+    if etree.QName(node).namespace == CASE and _local(node) == "case":
+        return False
+    if _hq_case_collision(form, node) and _hq_primary_case(form) is True:
+        return False
+    return not any(ancestor.tag == "{%s}case" % CASE for ancestor in node.iterancestors())
+
+
+def ordinary_stock_answer(use, manifest):
+    form, node = _data_node(use)
+    if form is None:
+        return None
+    stock = "http://commcarehq.org/ledger/v1"
+    if node is None or etree.QName(node).namespace != stock:
+        return False
+    return (_local(node) not in ("balance", "transfer") and node.get("{%s}role" % VELLUM) not in
+            ("Balance", "Transfer", "Dispense", "Receive")
+            and not any(etree.QName(a).namespace == stock or a.tag == "{%s}case" % CASE for a in node.iterancestors() if a is not form.data_root))
+
+
+def unsupported_question_lock(use, manifest):
+    at = use.at
+    if at is None or not hasattr(at, "attribute") or at.attribute is None:
+        return None
+    if at.attribute != "{http://commcarehq.org/xforms/vellum}lock":
+        return False
+    if at.element.get(at.attribute) != "all":
+        return True
+    form, node = _data_node(use)
+    if form is None or node is None:
+        return False
+    path = _path_of(form, node)
+    bind = form.bind(path)
+    return bool(form.question_controls(path)) and (bind is None or bind.get(at.attribute) != "all")
+
+
+def namespace_the_designer_cannot_keep(use, manifest):
+    """``questions/submitted-namespace-the-form-designer-cannot-keep``: a question's data node that declares its own
+    namespace, unprefixed and other than its parent's, where Vellum keeps none: an explicit empty namespace (which
+    Vellum's ``parseDataTree`` loses), or one on a question with a control or children (Vellum keeps an ``xmlns``
+    only for a data-only value), as Nova's reader refuses it (``lib/commcare/reader/xform/join.ts::ownNamespace``,
+    ``claimNode``). A node that inherits its parent's namespace is outside the class: every question of a form
+    does."""
+    form, node = _question_node(use)
+    if form is None:
+        return None
+    if node is None or not use.key.endswith("@xmlns") or node.prefix is not None:
+        return False
+    parent = node.getparent()
+    namespace = etree.QName(node).namespace
+    if parent is None or namespace == etree.QName(parent).namespace:
+        return False
+    return namespace in (None, "") or bool(form.question_controls(_path_of(form, node))) or len(node) > 0
 
 
 def sibling_with_one_name(use, manifest):
@@ -7412,32 +7534,6 @@ def hidden_value_with_children(use, manifest):
     if element is None or form.vellum_nodes.get(element, "") is not None or not _children(element):
         return False
     return not form.question_controls(_path_of(form, element))
-
-
-def _model_setvalues(form):
-    """The setvalues the model holds as its own children, in document order (what Vellum keeps as defaults)."""
-    return [] if form.model is None else list(form.model.iterfind(f"{{{XFORMS}}}setvalue"))
-
-
-def _reads_through_calculates(form, reads, path, seen):
-    """Whether one of ``reads`` (paths) is ``path``, or a Hidden Value's (a node no body control names) whose
-    calculate reads it, through any chain of such calculates. A read this does not place reaches nothing."""
-    for read in reads:
-        if read is None:
-            continue
-        if read == path:
-            return True
-        if read in seen or form.question_controls(read):
-            continue
-        seen.add(read)
-        bind = form.bind(read)
-        calculate = bind.get("calculate") if bind is not None else None
-        if not (calculate or "").strip():
-            continue
-        through = _tree_reads(form, calculate, read)
-        if through and _reads_through_calculates(form, through, path, seen):
-            return True
-    return False
 
 
 def _relative_read(tree, context):
@@ -7523,61 +7619,6 @@ def _count_placement_row_id(form, element, path, bind, defaults):
     )
 
 
-def hidden_value_default_read(use, manifest):
-    """``questions/hidden-value-with-both-calculate-and-a-default-by-any-expression``: a Hidden Value (a data node no
-    body control names, ``mug:DataBindOnly``) whose bind calculates it and whose default a model setvalue sets,
-    where a runtime can read the default: the node stands in a repeat, where a row's default can outlast its
-    calculate; or a later ``xforms-ready`` setvalue of the model reads it, directly or through the calculates of
-    the Hidden Values it reads. Core runs a new form's ``xforms-ready`` setvalues in model order and then every
-    calculate (``FormDef.initialize``, ``initAllTriggerables``), so otherwise the calculate replaces the default
-    before anything reads it, which the held class beside it is
-    (``questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads``). As Nova's reader decides it
-    (``xform/afterBinding.ts::defaultUnread``), a node more than one setvalue sets, and a default set at another
-    event, are in the class. Each later setvalue's reads are its value's structure as HQ's XPath grammar reads it
-    (the observation's ``trees``), evaluated at the node it sets; None where the records hold none, or a read this
-    does not place leaves the class open. The class reads the form's own elements alone, never an app beside it.
-    An attribute HQ's reader lists as a Hidden Value, a SaveToCase block's ``<case>`` attribute
-    (``xform.py::XForm.get_questions``), is outside the class: Vellum reads it as a property of the block's own mug
-    (``saveToCase.js``: ``case_id``, ``date_modified``), never as a Hidden Value."""
-    form, element = _data_node(use)
-    if form is None:
-        return None
-    if use.at.attribute is not None:
-        return False
-    if element is None or form.question_controls(form.paths.get(element)):
-        return False
-    path = form.paths.get(element)
-    bind = form.bind(path)
-    if path is None or bind is None or not (bind.get("calculate") or "").strip():
-        return False
-    defaults = [setvalue for setvalue in _model_setvalues(form) if _held_ref(setvalue) == path]
-    if not defaults:
-        return False
-    row_id = _count_placement_row_id(form, element, path, bind, defaults)
-    if row_id is not False:
-        return None if row_id is None else False
-    if form.in_repeat(path):
-        return True
-    if len(defaults) != 1 or (defaults[0].get("event") or "").split() != ["xforms-ready"]:
-        return True
-    loads = _load_setvalues(form)
-    unsure = False
-    for later in loads[loads.index(defaults[0]) + 1 :]:
-        value = later.get("value")
-        if not (value or "").strip() or _held_ref(later) is None:
-            continue  # nothing read, or a setvalue Core reads otherwise than Nova writes, which sets no node here
-        reads = _tree_reads(form, value, _held_ref(later))
-        if reads is None:
-            unsure = True  # no structure recorded, or a read this does not place
-            continue
-        if _reads_through_calculates(form, reads, path, set()):
-            return True
-        unsure = unsure or None in reads
-    return None if unsure else False
-
-
-# The body controls that may name a node with element children: a group and a repeat, the only questions whose
-# mug takes child mugs with data nodes (Vellum ``mugs.js::isNestableGroup``).
 NESTING_CONTROLS = frozenset({"group", "repeat"})
 
 
@@ -9146,6 +9187,515 @@ def choice_value_refused_by_vellum(use, manifest):
 INSTANCE_READ = re.compile(r"""instance\(\s*['"][^'"]+['"]\s*\)""")
 
 
+CONNECT_NAMESPACE = "http://commcareconnect.com/data/v1/learn"
+CONNECT_ROLES = {
+    "ConnectLearnModule": "module",
+    "ConnectAssessment": "assessment",
+    "ConnectDeliverUnit": "deliver",
+    "ConnectTask": "task",
+    "ConnectWorkAreaUpdate": "work_area_update",
+}
+
+
+def _connect_part(use):
+    """Locate the particular datum read, retaining its role-bearing wrapper and the receiver's own element."""
+    form, element = _form_element(use)
+    if form is None or element not in form.paths:
+        return None
+    wrapper = element
+    while wrapper is not form.data_root:
+        role = wrapper.get(f"{{{VELLUM}}}role")
+        if role in CONNECT_ROLES:
+            own = wrapper.find(f"{{{CONNECT_NAMESPACE}}}{CONNECT_ROLES[role]}")
+            return form, element, wrapper, role, own
+        wrapper = wrapper.getparent()
+    return None
+
+
+LEARN_RECEIVER_NAMES = {"module", "assessment"}
+DELIVER_RECEIVER_NAMES = {"deliver", "task", "work_area_update"}
+
+
+def connect_forwarded_ancestor_name(use, manifest):
+    form, element = _form_element(use)
+    if form is None or element not in form.paths or not element.getchildren():
+        return False
+    name = _local(element)
+    if name not in LEARN_RECEIVER_NAMES | DELIVER_RECEIVER_NAMES:
+        return False
+    if etree.QName(element).namespace == CONNECT_NAMESPACE or element.get(f"{{{VELLUM}}}role") in CONNECT_ROLES:
+        return False
+    if not any(etree.QName(node).namespace == CONNECT_NAMESPACE for node in element.iterdescendants() if isinstance(node.tag, str)):
+        return False
+    forms = form.app_form[0].forms.values() if form.app_form is not None else [form]
+    roles = {
+        node.get(f"{{{VELLUM}}}role")
+        for other in forms
+        for node in other.paths
+    }
+    return bool(
+        (name in LEARN_RECEIVER_NAMES and roles & {"ConnectLearnModule", "ConnectAssessment"})
+        or (name in DELIVER_RECEIVER_NAMES and roles & {"ConnectDeliverUnit", "ConnectTask", "ConnectWorkAreaUpdate"})
+    )
+
+
+def connect_id_changes(use, manifest):
+    part = _connect_part(use)
+    return bool(part and part[1] is part[4] and part[4].get("id") is not None and part[4].get("id") != _local(part[2]))
+
+
+def connect_id_over_width(use, manifest):
+    part = _connect_part(use)
+    if not part or part[1] is not part[2] or part[4] is None:
+        return False
+    width = {"ConnectLearnModule": 50, "ConnectTask": 50, "ConnectDeliverUnit": 100}.get(part[3])
+    return width is not None and len(part[4].get("id", "")) > width
+
+
+def _connect_leaf(use, roles, names):
+    part = _connect_part(use)
+    if part and part[3] in roles and part[1].getparent() is part[4] and _local(part[1]) in names:
+        return part[0], part[1]
+    return None, None
+
+
+def connect_inline_calculation(use, manifest):
+    form, leaf = _connect_leaf(
+        use, {"ConnectAssessment", "ConnectDeliverUnit"}, {"user_score", "entity_id", "entity_name", "work_area_id"}
+    )
+    return leaf is not None and (leaf.text or "") != ""
+
+
+def connect_missing_score(use, manifest):
+    form, leaf = _connect_leaf(use, {"ConnectAssessment"}, {"user_score"})
+    if leaf is None or leaf.text:
+        return False
+    bind = form.bind(form.paths[leaf])
+    return bind is None or not (bind.get("calculate") or "").strip()
+
+
+def connect_estimate_outside_column(use, manifest):
+    form, leaf = _connect_leaf(use, {"ConnectLearnModule"}, {"time_estimate", "name", "description"})
+    if leaf is None:
+        return False
+    text = leaf.text or ""
+    # Connect's module sync reads an empty element as None (`app_xml.py::get_element_text`) into
+    # a column that is never null (`LearnModule.name`, `.description`).
+    if _local(leaf) != "time_estimate":
+        return text == ""
+    # Vellum keeps the string, and the receiver writes a PostgreSQL nonnegative integer.
+    significant = text.lstrip("0") or "0"
+    return (
+        not (text.isascii() and text.isdecimal())
+        or len(significant) > 10
+        or (len(significant) == 10 and significant > "2147483647")
+    )
+
+
+def connect_text_instance(use, manifest):
+    form, leaf = _connect_leaf(
+        use, {"ConnectLearnModule", "ConnectTask", "ConnectDeliverUnit"}, {"name", "description"}
+    )
+    return leaf is not None and INSTANCE_READ.search(leaf.text or "") is not None
+
+
+def _connect_work_area(use):
+    part = _connect_part(use)
+    if not part or part[1] is not part[2] or part[3] != "ConnectWorkAreaUpdate":
+        return None
+    wrapper, own = part[2], part[4]
+    if own is None or len(_children(wrapper)) != 1 or own.get("id") != _local(wrapper):
+        return False
+    fields = ["work_area_id", "status", "reason", "additional_details", "photo_evidence"]
+    return [child.tag for child in _children(own)] == [f"{{{CONNECT_NAMESPACE}}}{key}" for key in fields] and all(
+        not _children(child) for child in _children(own)
+    )
+
+
+def connect_photo_not_forwarded(use, manifest):
+    return _connect_work_area(use) is True
+
+
+def connect_work_area_changed_by_editor(use, manifest):
+    return _connect_work_area(use) is False
+
+
+def _bind_text(form, node, key):
+    bind = form.bind(form.paths.get(node))
+    return (bind.get(key) or "").strip() if bind is not None else ""
+
+
+def _token_texts(expression):
+    found = xpath_tokens(expression)
+    return tuple(token.text for token in found) if found is not None else ()
+
+
+def _connect_count_limit(form, count):
+    # Nova materializes a literal count in a typed calculate which jr:count
+    # names. A worker answer, a variable expression or a mutable setvalue
+    # doesn't prove a fixed maximum for a submitted repeat.
+    tokens = xpath_tokens(count) or ()
+    if len(tokens) > 1 and tokens[0].kind == "SLASH":
+        path = "".join(t.text for t in tokens)
+        node = form.node(path)
+        if node is None or isinstance(node, tuple) or form.question_controls(path):
+            return 2
+        bind = form.bind(path)
+        if bind is None or (bind.get("type") or "").split(":")[-1] != "int":
+            return 2
+        if any(_held_ref(action) == path for action in form.model.iter(f"{{{XFORMS}}}setvalue")):
+            return 2
+        tokens = xpath_tokens(_bind_text(form, node, "calculate")) or ()
+    if len(tokens) == 1 and tokens[0].kind == "NUM" and tokens[0].text.isdecimal():
+        return min(2, int(tokens[0].text)) if len(tokens[0].text) < 10 else 2
+    return 2
+
+
+def _connect_limits(form, wrapper):
+    counts = dict(form.counted_repeats)
+    path = form.paths[wrapper]
+    # The model iteration's named wrapper and its body's item repeat describe
+    # the very same rows. Nested physical repeats still count independently.
+    iterations = {form.paths[n] + "/item" for n in form.model_repeats}
+    repeats = tuple(sorted((p for p in form.repeat_paths if p not in iterations and path.startswith(p + "/")), key=len))
+    limits = [_connect_count_limit(form, counts.get(repeat, "")) for repeat in repeats]
+    return repeats, 0 if 0 in limits else 2 if 2 in limits else 1
+
+
+def _connect_top_level(tokens):
+    depth = 0
+    for index, token in enumerate(tokens):
+        if token.kind in ("RPAREN", "RBRACK"):
+            depth -= 1
+        if depth == 0:
+            yield index, token
+        if token.kind in ("LPAREN", "LBRACK"):
+            depth += 1
+
+
+def _connect_ungroup(tokens):
+    while tokens and tokens[0].kind == "LPAREN" and tokens[-1].kind == "RPAREN":
+        if [i for i, _ in _connect_top_level(tokens)] != [0, len(tokens) - 1]:
+            break
+        tokens = tokens[1:-1]
+    return tokens
+
+
+def _connect_conjuncts(tokens):
+    tokens = _connect_ungroup(tokens)
+    top = list(_connect_top_level(tokens))
+    if any(t.kind == "OR" for _, t in top):
+        return (tokens,)
+    positions = [i for i, t in top if t.kind == "AND"]
+    if not positions:
+        return (tokens,)
+    clauses = []
+    for start, end in zip([-1, *positions], [*positions, len(tokens)], strict=True):
+        clauses.extend(_connect_conjuncts(tokens[start + 1 : end]))
+    return clauses
+
+
+def _connect_guard_fact(form, tokens):
+    negated = bool(tokens and tokens[0].text == "not" and tokens[1:2] and tokens[1].kind == "LPAREN")
+    if negated:
+        inner = _connect_ungroup(tokens[1:])
+        if inner == tokens[1:]:
+            return None
+        tokens = inner
+    operators = [(i, t) for i, t in _connect_top_level(tokens) if t.kind in {"EQ", "NEQ"}]
+    if len(operators) != 1:
+        return None
+    split, operator = operators[0]
+    if negated and operator.kind != "EQ":
+        return None
+    left, right = _connect_ungroup(tokens[:split]), _connect_ungroup(tokens[split + 1 :])
+    if len(left) == 1 and left[0].kind == "STR":
+        left, right = right, left
+    if len(right) != 1 or right[0].kind != "STR" or not left or len(left) % 2:
+        return None
+    if any(t.kind != ("SLASH" if i % 2 == 0 else "QNAME") for i, t in enumerate(left)):
+        return None
+    path = "".join(t.text for t in left)
+    if form.in_repeat(path) or not any(_local(q) in {"input", "select1"} for q in form.question_controls(path)):
+        return None
+    bind = form.bind(path)
+    if bind is not None and (bind.get("type") or "string").split(":")[-1] not in {"string", "select1"}:
+        return None
+    return path, right[0].text[1:-1], (operator.kind == "EQ") != negated
+
+
+def _connect_guards(form, wrapper):
+    """Only a scalar answer shared by the whole form rules out a pair of placements."""
+    guards = []
+    for node in (wrapper, *wrapper.iterancestors()):
+        if node not in form.paths:
+            break
+        expr = _bind_text(form, node, "relevant")
+        if not expr:
+            continue
+        for clause in _connect_conjuncts(xpath_tokens(expr) or ()):
+            if tuple(t.text for t in clause) == ("false", "(", ")"):
+                return None
+            guard = _connect_guard_fact(form, clause)
+            if guard is not None:
+                guards.append(guard)
+    return guards
+
+
+def _connect_exclusive(guards):
+    for i, (path, value, equal) in enumerate(guards):
+        for other, v, eq in guards[i + 1 :]:
+            if path == other and ((equal and eq and value != v) or (equal != eq and value == v)):
+                return True
+    return False
+
+
+def _connect_entity(form, wrapper):
+    leaf = wrapper.find(f"{{{CONNECT_NAMESPACE}}}deliver/{{{CONNECT_NAMESPACE}}}entity_id")
+    if leaf is None:
+        return None, None
+    text = _bind_text(form, leaf, "calculate")
+    parsed = xpath_tokens(text) or ()
+    if not text:
+        return leaf.text or "", leaf
+    if len(parsed) == 1 and parsed[0].kind == "STR":
+        return parsed[0].text[1:-1], leaf
+    return None, leaf
+
+
+def _connect_query_is_injective(form, value):
+    """The worker's joined list is injective only where spaces cannot split an ID."""
+    tokens = xpath_tokens(value) or ()
+    if len(tokens) >= 6 and tuple(t.text for t in tokens[:2]) == ("join", "(") and tokens[2].kind == "STR":
+        if tokens[2].text[1:-1] != " " or tokens[3].text != "," or tokens[-1].text != ")":
+            return False
+        tokens = _connect_ungroup(tokens[4:-1])
+    if len(tokens) == 1 and tokens[0].kind == "STR":
+        ids = tokens[0].text[1:-1].split(" ")
+        return all(ids) and len(ids) == len(set(ids))
+    tree = form.tree(value)
+    joined = _call_of(tree, "join", 2)
+    if joined is not None and joined[0] == ["text", " "]:
+        tree = joined[1]
+    if not isinstance(tree, list) or tree[:2] != ["path", "instance:casedb"]:
+        return False
+    case_type, start, end = _case_predicate_scope(tree)
+    if case_type is None or len(tree[4]) != 3 or list(tree[4][-1]) != ["attribute", "case_id", 0]:
+        return False
+    for predicate in tree[3][start:end]:
+        negated = _call_of(predicate, "not", 1)
+        args = _call_of(negated[0], "contains", 2) if negated else None
+        if args and _bare_read(args[0], "attribute") == "case_id" and args[1] == ["text", " "]:
+            return True
+    return False
+
+
+def _model_setvalues(form):
+    """The setvalues the model holds as its own children, whatever their event, in document order: what a
+    Connect activity's row and recipient rules read of the values a form sets."""
+    return [] if form.model is None else list(form.model.iterfind(f"{{{XFORMS}}}setvalue"))
+
+
+def _connect_initial_value(form, path, event):
+    writes = [action for action in _model_setvalues(form) if _held_ref(action) == path]
+    if len(writes) == 1 and (writes[0].get("event") or "").split() == [event]:
+        return writes[0].get("value") or ""
+    return ""
+
+
+def _connect_iteration_unique(form, container, row, attribute, repeats):
+    outer = [p for p in repeats if p != form.paths[container]]
+    counts = dict(form.counted_repeats)
+    if any(_connect_count_limit(form, counts.get(p, "")) > 1 for p in outer) or _bind_text(form, row, "relevant"):
+        return False
+    base, item = form.paths[container], form.paths[row]
+    current = form.bind(base + "/@current_index")
+    if current is None or _token_texts(current.get("calculate") or "") != _token_texts(f"count({item})"):
+        return False
+    if _token_texts(_connect_initial_value(form, item + "/@index", "jr-insert")) != _token_texts(
+        f"int({base}/@current_index)"
+    ):
+        return False
+    if attribute == "index":
+        return True
+    if attribute != "id" or _token_texts(_connect_initial_value(form, item + "/@id", "jr-insert")) != _token_texts(
+        f"selected-at({base}/@ids, ../@index)"
+    ):
+        return False
+    return _connect_query_is_injective(
+        form, _connect_initial_value(form, base + "/@ids", "jr-insert" if outer else "xforms-ready")
+    )
+
+
+def _connect_count_placement_unique(form, row, member, repeats):
+    """A count-placement row stores its index at insertion. Its ID selects
+    the same index from a space-separated query result. Inspect the row guard,
+    the count's source and both writers of the ID before relying on either."""
+    row_path = form.paths[row]
+    wrapper = row.getparent()
+    if wrapper not in form.paths or row_path not in repeats or _local(row) != "item":
+        return False
+    counts = dict(form.counted_repeats)
+    if any(_connect_count_limit(form, counts.get(path, "")) > 1 for path in repeats if path != row_path):
+        return False
+    controls = [c for c in form.controls.get(row_path, ()) if _local(c) == "repeat"]
+    if len(controls) != 1 or _token_texts(controls[0].get(f"{{{JAVAROSA}}}noAddRemove") or "") != ("true", "(", ")"):
+        return False
+    count_path = counts.get(row_path)
+    count_node = form.node(count_path) if count_path else None
+    if count_node is None or isinstance(count_node, tuple) or count_node.getparent() is not wrapper:
+        return False
+    count_bind = form.bind(count_path)
+    if count_bind is None or (count_bind.get("type") or "").split(":")[-1] != "int":
+        return False
+    if _token_texts(_bind_text(form, row, "relevant")) != _token_texts(f"position() < ../{_local(count_node)}"):
+        return False
+    ids = _token_texts(count_bind.get("calculate") or "")
+    if len(ids) != 6 or ids[:4] != ("count-selected", "(", "..", "/") or ids[-1] != ")":
+        return False
+    ids_node = form.node(form.paths[wrapper] + "/" + ids[4])
+    if ids_node is None or isinstance(ids_node, tuple) or form.question_controls(form.paths[ids_node]):
+        return False
+    members = [node for node in row if isinstance(node.tag, str) and _local(node) == member]
+    if len(members) != 1:
+        return False
+    node = members[0]
+    path = form.paths[node]
+    if form.question_controls(path) or (node.text or "").strip():
+        return False
+    bind = form.bind(path)
+    if bind is None:
+        return False
+
+    def is_stored_index(node):
+        bind = form.bind(form.paths[node])
+        return (
+            bind is not None
+            and (bind.get("type") or "").split(":")[-1] == "int"
+            and not bind.get("calculate")
+            and not form.question_controls(form.paths[node])
+            and _token_texts(_connect_initial_value(form, form.paths[node], "jr-insert"))
+            == _token_texts("position(..)")
+        )
+
+    if is_stored_index(node):
+        return True
+    defaults = [action for action in _model_setvalues(form) if _held_ref(action) == path]
+    if not _count_placement_row_id(form, node, path, bind, defaults):
+        return False
+    branches = _call_of(form.tree(bind.get("calculate")), "if", 3)
+    selected = _call_of(branches[1], "selected-at", 2)
+    actual_ids = _relative_read(selected[0], path)
+    index_path = _relative_read(selected[1], path)
+    index = form.node(index_path) if index_path else None
+    return (
+        actual_ids == form.paths[ids_node]
+        and index is not None
+        and not isinstance(index, tuple)
+        and is_stored_index(index)
+        and _connect_query_is_injective(form, _bind_text(form, ids_node, "calculate"))
+    )
+
+
+def _connect_recipient_unique(form, wrapper, repeats):
+    """Read the native all-row constraint and bind from their wire addresses.
+    Vellum's model iteration index is unique in the repeat that supplied it.
+    A second varying outer repeat restarts those indices."""
+    _, leaf = _connect_entity(form, wrapper)
+    if leaf is None or not repeats:
+        return False
+    tokens = _token_texts(_bind_text(form, leaf, "calculate"))
+    target = leaf
+    while tokens[:2] == ("..", "/"):
+        if target is None:
+            return False
+        target = target.getparent()
+        tokens = tokens[2:]
+    if target is None or target not in form.paths:
+        return False
+    parent = target.getparent()
+    if len(tokens) == 2 and tokens[0] == "@" and parent in form.model_repeats and _local(target) == "item":
+        return _connect_iteration_unique(form, parent, target, tokens[1], repeats)
+    if len(tokens) == 1 and _connect_count_placement_unique(form, target, tokens[0], repeats):
+        return True
+    if len(repeats) != 1:
+        return False
+    repeat = form.node(repeats[0])
+    if target is not repeat or len(tokens) != 1 or repeat.getparent() is not form.data_root:
+        return False
+    path = f"{repeats[0]}/{tokens[0]}"
+    node = form.node(path)
+    if node is None or node.text or _bind_text(form, repeat, "relevant") or _bind_text(form, node, "relevant"):
+        return False
+    bind = form.bind(path)
+    if bind is None or (bind.get("type") or "string").split(":")[-1] != "string" or bind.get("calculate"):
+        return False
+    if any(_held_ref(action) == path for action in _model_setvalues(form)):
+        return False
+    if not any(_local(q) == "input" for q in form.question_controls(path)):
+        return False
+    if _token_texts(_bind_text(form, node, "required")) != ("true", "(", ")"):
+        return False
+    values = f"{repeats[0]}[true()]/{tokens[0]}"
+    constraint = xpath_tokens(_bind_text(form, node, "constraint")) or ()
+
+    # Normalize quote choice at the token level. Every nonempty separator
+    # works, but both sides must use the same string and the same all-row path.
+    def normalized(tokens):
+        return tuple((t.kind, t.text[1:-1] if t.kind == "STR" else t.text) for t in tokens)
+
+    for clause in _connect_conjuncts(constraint):
+        literals = [t for t in clause if t.kind == "STR"]
+        if len(literals) != 2 or not literals[0].text[1:-1] or literals[0].text[1:-1] != literals[1].text[1:-1]:
+            continue
+        separator = literals[0].text
+        left = f"string-length(join({separator}, {values}))"
+        right = f"string-length(join({separator}, distinct-values({values})))"
+        alternatives = [normalized(xpath_tokens(f"{l} = {r}")) for l, r in ((left, right), (right, left))]
+        if normalized(clause) in alternatives:
+            return True
+    return False
+
+
+def connect_colliding_activities(kinds):
+    """Classify the particular reached wrapper against the other occurrences in this submitted form."""
+
+    def applies(use, manifest):
+        part = _connect_part(use)
+        if not part or part[1] is not part[2] or part[3] not in kinds or part[4] is None:
+            return False
+        form, node, wrapper, role, own = part
+        repeats, limit = _connect_limits(form, wrapper)
+        guards = _connect_guards(form, wrapper)
+        if not limit or guards is None or _connect_exclusive(guards):
+            return False
+        for candidate in form.paths:
+            other_role = candidate.get(f"{{{VELLUM}}}role")
+            if other_role not in kinds or (len(kinds) > 1 and other_role == role):
+                continue
+            other = candidate.find(f"{{{CONNECT_NAMESPACE}}}{CONNECT_ROLES[other_role]}")
+            if other is None:
+                continue
+            if candidate is wrapper:
+                if limit == 1 or (role == "ConnectDeliverUnit" and _connect_recipient_unique(form, wrapper, repeats)):
+                    continue
+            _, other_limit = _connect_limits(form, candidate)
+            other_guards = _connect_guards(form, candidate)
+            if not other_limit or other_guards is None or _connect_exclusive(guards + other_guards):
+                continue
+            if len(kinds) == 1 and role != "ConnectAssessment" and own.get("id") != other.get("id"):
+                continue
+            if len(kinds) == 1 and role == "ConnectDeliverUnit" and candidate is not wrapper:
+                first, _ = _connect_entity(form, wrapper)
+                second, _ = _connect_entity(form, candidate)
+                if first is not None and second is not None and first != second:
+                    continue
+            return True
+        return False
+
+    return applies
+
+
 def form_name_read_as_an_instance(use, manifest):
     """``forms-and-case-writes/form-name-read-as-an-instance``: a form whose name in the app's default language
     (``Application.default_language``: the first of ``langs``, ``en`` where there is none) holds text CommCare HQ's
@@ -9363,8 +9913,47 @@ def model_iteration_nested(use, manifest):
         return None
     if container is None:
         return False
+    def fixed_query(element):
+        target = f"{form.paths[element]}/@ids"
+        for assignment in form.model.iterfind(f"{{{XFORMS}}}setvalue"):
+            if _held_ref(assignment) == target:
+                args = _call_of(form.tree(assignment.get("value")), "join", 2)
+                if args and args[1][0] == "text":
+                    return args[1][1]
+        return None
+
+    def count_selected(text):
+        # Core splits U+0020 runs, preserves a leading empty selection
+        # and discards trailing empties. A tab is part of one selection.
+        trimmed = text.rstrip(" ")
+        return len(re.split(" +", trimmed)) if trimmed else 0
+
+    own = fixed_query(container)
+    if own is not None and count_selected(own) == 0:
+        return False
     parent = container.getparent()
-    return parent is not form.data_root and form.in_repeat(form.paths[parent])
+    while parent is not None and parent is not form.data_root:
+        path = form.paths[parent]
+        for control in form.controls.get(path, ()):
+            if _local(control) != "repeat":
+                continue
+            # Model iteration's row count is its parent's captured query.
+            wrapper = parent.getparent()
+            if wrapper in form.model_repeats:
+                members = fixed_query(wrapper)
+                if members is not None and count_selected(members) <= 1:
+                    continue
+                return True
+            # A count in Nova's wire names the scalar question or generated
+            # hidden count. A literal calculation of zero or one cannot
+            # create a second address. A worker-entered count can.
+            count = control.get(f"{{{JAVAROSA}}}count")
+            bind = form.bind(count) if count else None
+            calculated = form.tree(bind.get("calculate")) if bind is not None and bind.get("calculate") else None
+            if calculated is None or calculated[0] != "number" or calculated[1] not in (0,1):
+                return True
+        parent = parent.getparent()
+    return False
 
 
 def _load_setvalues(form):
@@ -9380,9 +9969,33 @@ def _load_setvalues(form):
 
 
 def _iteration_ids(form, container):
-    """The load-time setvalue of a model iteration's ``@ids``, its query (``modeliteration.js``), or None."""
+    """The setvalue that snapshots the wrapper IDs, at ready or at its containing row's insertion."""
     target = f"{form.paths[container]}/@ids"
-    return next((s for s in _load_setvalues(form) if _held_ref(s) == target), None)
+    return next((s for s in form.model.iterfind(f"{{{XFORMS}}}setvalue") if _held_ref(s) == target), None)
+
+
+def _insertion_scope(form, path):
+    """The nearest body repeat row that owns this concrete action."""
+    return max(
+        (
+            row for row in form.repeat_paths
+            if path and (path == row or path.startswith(row + "/"))
+            and any(_local(control) == "repeat" for control in form.controls.get(row, ()))
+        ),
+        key=len, default=None,
+    )
+
+
+def _before_capture(form, assignment):
+    event = assignment.get("event")
+    scope = _insertion_scope(form, _held_ref(assignment))
+    earlier = []
+    for action in form.model.iterfind(f"{{{XFORMS}}}setvalue"):
+        if action is assignment:
+            break
+        if action.get("event") == event and _insertion_scope(form, _held_ref(action)) == scope:
+            earlier.append(action)
+    return earlier
 
 
 def _relevance(form, element):
@@ -9418,14 +10031,11 @@ def model_iteration_under_late_relevance(use, manifest):
     ids = _iteration_ids(form, container)
     if ids is None:
         return None
-    setvalues = _load_setvalues(form)
-    earlier = setvalues[: setvalues.index(ids)]
+    earlier = _before_capture(form, ids)
     if not earlier:
         return False
-    verdicts = {_hidden_at(form, ancestor, earlier) for ancestor in ancestors}
-    if True in verdicts:
-        return True
-    return None if None in verdicts else False
+    # A worker-dependent condition is an input; only proven suppression belongs to this refusal.
+    return any(_hidden_at(form, ancestor, earlier) is True for ancestor in ancestors)
 
 
 def _hidden_at(form, element, earlier):
@@ -9471,12 +10081,18 @@ def _condition_at(form, tree, context, earlier):
         if tree[1] == "and":
             return False if False in sides else None if None in sides else True
         return True if True in sides else None if None in sides else False
-    if tree[1] not in ("=", "!="):
+    if tree[1] not in ("=", "!=", ">", ">=", "<", "<="):
         return None
     values = [_value_at(form, side, context, earlier) for side in tree[2:]]
     if None in values:
         return None
     (left, left_number), (right, right_number) = values
+    if tree[1] in (">", ">=", "<", "<="):
+        try:
+            l, r = float(left), float(right)
+        except ValueError:
+            return False
+        return {">": l > r, ">=": l >= r, "<": l < r, "<=": l <= r}[tree[1]]
     if left_number or right_number:  # XPath compares as numbers where either side is one
         try:
             same = float(left) == float(right)
@@ -9515,8 +10131,9 @@ def _blank_at_load(form, path, setvalue):
     if node is None:
         return None
     element = _target_element(node)
-    setvalues = _load_setvalues(form)
-    earlier = setvalues[: setvalues.index(setvalue)]
+    if _insertion_scope(form, path) != _insertion_scope(form, _held_ref(setvalue)):
+        return False  # another page or an earlier row may already hold the worker's answer
+    earlier = _before_capture(form, setvalue)
     if any(form.node(_held_ref(other)) == node for other in earlier):
         return False  # an earlier load-time setvalue gave it its value there
     holder = element
@@ -9554,18 +10171,31 @@ def model_iteration_reading_blank_answer(use, manifest):
     ids = _iteration_ids(form, container)
     if ids is None:
         return None
-    paths = _tree_reads(form, ids.get("value"), _node_path(form, form.node(_held_ref(ids))))
-    if paths is None:
+    args = _call_of(form.tree(ids.get("value")), "join", 2)
+    if args is None:
         return None
-    own = form.paths[container]
-    verdicts = {
-        None if path is None else _blank_at_load(form, path, ids)
-        for path in paths
-        if path is None or not _under_path(path, own)
-    }
-    if True in verdicts:
-        return True
-    return None if None in verdicts else False
+    query = args[1]
+    if query[0] != "path":
+        return False
+    if query[1] in ("absolute", "relative", "call:current") and not query[3]:
+        context = "/" if query[1] == "absolute" else _node_path(form, form.node(_held_ref(ids)))
+        path = _resolved(context, query[4])
+        return bool(path) and _blank_at_load(form, path, ids) is True
+    if query[1] != "instance:casedb" or not query[3] or list(query[3][0]) != ["text", "casedb"]:
+        return False
+    steps = query[4]
+    if len(steps) != 3 or list(steps[0]) != ["child", "casedb", 0] or list(steps[1][:2]) != ["child", "case"] or list(steps[2]) != ["attribute", "case_id", 0]:
+        return False
+    for condition in query[3][1:]:
+        if condition[:2] != ["binary", "="]:
+            continue
+        for key, read in (condition[2:], reversed(condition[2:])):
+            if _bare_read(key, "attribute") != "case_id" or read[:2] != ["path", "absolute"] or read[3]:
+                continue
+            path = _resolved("/", read[4])
+            if path and _blank_at_load(form, path, ids) is True:
+                return True
+    return False
 
 
 def _itemset_read(use):
@@ -9767,6 +10397,21 @@ def attribute_bind_no_plugin_owns(use, manifest):
         return False
     parent = owner.getparent()
     return not (owner in form.model_repeats or (_local(owner) == "item" and parent in form.model_repeats))
+
+
+def validation_on_hidden_value(use, manifest):
+    """Vellum's DataBindOnly has no constraintAttr. Only a bodyless authored leaf is that question."""
+    form, bind, node = _bind(use)
+    if form is None:
+        return None
+    if bind is None or node is None or isinstance(node, tuple) or use.at.attribute != "constraint":
+        return False
+    return (
+        node in form.vellum_nodes
+        and form.vellum_nodes[node] is None
+        and not _children(node)
+        and not form.question_controls(bind.get("nodeset"))
+    )
 
 
 def bind_on_data_root(use, manifest):
@@ -10568,6 +11213,77 @@ def data_parent_crossing_a_repeat(use, manifest):
     return _nearest_repeat(form, path) != control_repeat
 
 
+def _placed_control(use):
+    """A body control's form, element, its data path (``ref``, or a repeat's ``nodeset``) and the path of the group
+    or repeat it stands in on screen as Vellum's parser takes its parent (the nearest enclosing ``group`` with a
+    ``ref`` or ``repeat`` with a ``nodeset``; the data root at the body's top); ``(form, None, None, None)`` for a
+    use on anything else, and None for the path where the control's is not absolute."""
+    form, element = _form_element(use)
+    if form is None or form.body is None or element not in form.body_elements:
+        return form, None, None, None
+    attribute = "nodeset" if _local(element) == "repeat" else "ref"
+    if element.get(attribute) is None or form.data_root is None:
+        return form, None, None, None
+    path = element.get(attribute).strip()
+    screen = f"/{_local(form.data_root)}"
+    node = element.getparent()
+    if (
+        attribute == "nodeset"
+        and _local(node) == "group"
+        and (node.get("appearance") or "").lower() != "field-list"
+        and [child for child in _children(node) if _local(child) in QUESTION_CONTROLS] == [element]
+    ):
+        # A repeat's wrapping group gives it a label, not a screen parent.
+        # A model iteration's native nodeset is its inner item. Its authored
+        # Data Parent belongs to the enclosing model-iteration data node.
+        container = path.removesuffix("/item")
+        if container != path and any(form.paths[repeat] == container for repeat in form.model_repeats):
+            path = container
+        node = node.getparent()
+    while node is not None and node is not form.body:
+        if _local(node) == "repeat" and node.get("nodeset"):
+            screen = node.get("nodeset").strip()
+            break
+        if _local(node) == "group" and node.get("ref"):
+            screen = node.get("ref").strip()
+            break
+        node = node.getparent()
+    return form, element, (path if path.startswith("/") else None), screen
+
+
+def data_parent_at_the_form_root(use, manifest):
+    """``questions/data-parent-at-the-form-root-under-a-grouped-control``: a body control inside a group whose data
+    node is a child of the data root. Vellum's parser names that data parent ``#form``
+    (``parser.js::parseControlElement``), and its Data Parent check reports "Must be valid path" on every open. A
+    control inside a repeat is the crossing class's."""
+    form, element, path, screen = _placed_control(use)
+    if element is None:
+        return None if form is None else False
+    if path is None:
+        return None
+    if data_parent_crossing_a_repeat(use, manifest):
+        return False
+    root = f"/{_local(form.data_root)}"
+    return screen != root and path.rsplit("/", 1)[0] == root
+
+
+def data_parent_on_a_group_or_repeat(use, manifest):
+    """``questions/data-parent-on-a-group-or-repeat``: a group's or repeat's control whose data node stands under
+    another group than the one the control stands in, at a place other than the data root. Vellum's save writes a
+    group's own answers only under the group's place in its data tree, before it places the group itself
+    (``form.js::dataTree``), so the group's answers are lost. The data root and a crossed repeat are their own
+    classes'."""
+    form, element, path, screen = _placed_control(use)
+    if element is None or _local(element) not in ("group", "repeat"):
+        return None if form is None else False
+    if path is None:
+        return None
+    if data_parent_crossing_a_repeat(use, manifest):
+        return False
+    parent = path.rsplit("/", 1)[0]
+    return parent != screen and parent != f"/{_local(form.data_root)}"
+
+
 # The keys a class does not declare that the inventory's rows name, by class (``menus-and-case-lists/
 # module-display-separately``, ``module-referral-label-case-label`` (HQ's agriculture template app carries both on
 # every menu), ``display-style-on-an-advanced-or-shadow-module``,
@@ -10859,24 +11575,6 @@ def endpoint_on_an_offered_search(use, manifest):
     return offered and bool(config.get("case_search_endpoint_id"))
 
 
-def choice_value_with_both_quote_marks(use, manifest):
-    """``questions/choice-value-holding-both-an-apostrophe-and-a-double-quote``: a choice's ``<value>`` whose text
-    holds both ``'`` and ``"``, which no XPath string literal spells (``lib/domain/selectOptionValue.ts::
-    selectOptionValueProblem``, read by ``lib/commcare/reader/xform/options.ts``). A value with an element of its own
-    inside is read as no value."""
-    form, element = _form_element(use)
-    if form is None:
-        return None
-    item = element.getparent()
-    if _local(element) != "value" or item is None or _local(item) != "item":
-        return False
-    select = item.getparent()
-    if select is None or _local(select) not in SELECTS or _children(element):
-        return False
-    text = element.text or ""
-    return "'" in text and '"' in text
-
-
 def max_select_value_above_100(use, manifest):
     """``menus-and-case-lists/detail-max-select-value-above-100``: a ``max_select_value`` above 100 on the case list
     of a basic menu with a case type whose list selects several cases (``lib/commcare/reader/caseList/details.ts::
@@ -10988,14 +11686,24 @@ def build_profiles_held(use, manifest):
     return None
 
 
-def data_root_named_other_than_data(use, manifest):
-    """``questions/data-root-element-named-other-than-data``: a form whose main instance's data root is named other
-    than ``data`` (``lib/commcare/reader/xform/parse.ts::claimDataRoot``, by its local name), so every answer's path
-    starts with that name. Another instance's root is no data root."""
-    form, element = _form_element(use)
+def unaddressable_answer_root(use, manifest):
+    form, root = _form_element(use)
     if form is None:
         return None
-    return element is form.data_root and _local(element) != "data"
+    if root is not form.data_root:
+        return False
+    name = _local(root)
+    def letter(ch):
+        return ord(ch) <= 0xffff and (ch.isupper() or ch.islower() or ch == "_")
+    return bool(root.prefix or not letter(name[0]) or
+                any(not (letter(ch) or ord(ch) <= 0xffff and ch.isdecimal() or ch in ".-") for ch in name[1:]))
+
+
+def designer_reserved_answer_root(use, manifest):
+    form, root = _form_element(use)
+    if form is None:
+        return None
+    return root is form.data_root and not root.prefix and _local(root) in {"instance", "bind", "parsererror"}
 
 
 # The registry ---------------------------------------------------------------------
@@ -11398,6 +12106,19 @@ VALUE_CLASSES = {
     "application-and-settings/menu-layout-outside-editor-choices": menu_layout_outside_choices,
     "menus-and-case-lists/module-layout-outside-editor-choices": menu_layout_outside_choices,
     # Questions
+    "questions/connect-deliveries-share-receiver-key": connect_colliding_activities({'ConnectDeliverUnit'}),
+    "questions/connect-repeats-module-completion-key": connect_colliding_activities({'ConnectLearnModule'}),
+    "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a": connect_colliding_activities({'ConnectAssessment'}),
+    "questions/connect-deliver-unit-and-task-in-one-form": connect_colliding_activities({'ConnectDeliverUnit', 'ConnectTask'}),
+    "questions/connect-forwarded-ancestor-name": connect_forwarded_ancestor_name,
+    "questions/connect-unit-id-changed-by-form-editor": connect_id_changes,
+    "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or": connect_id_over_width,
+    "questions/connect-value-that-the-editor-clears": connect_inline_calculation,
+    "questions/connect-assessment-without-score": connect_missing_score,
+    "questions/connect-estimate-outside-receiver-range": connect_estimate_outside_column,
+    "questions/connect-block-text-read-as-an-instance": connect_text_instance,
+    "questions/connect-work-area-update-photo-not-forwarded": connect_photo_not_forwarded,
+    "questions/connect-work-area-update": connect_work_area_changed_by_editor,
     "questions/other-h-head-children-whose-local-name-or-a-descendant-s-core-or": head_child,
     "questions/authored-orx-pollsensor": authored_pollsensor,
     "questions/type-on-a-savetocase-property-leaf-a-create-update-or-index": savetocase_leaf_type,
@@ -11412,10 +12133,12 @@ VALUE_CLASSES = {
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
+    "questions/jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater": invalid_image_dimension,
     "questions/upload-with-any-other-mediatype-or-none": other_upload_mediatype,
     "questions/a-default-value-s-setvalue-whose-event-does-not-match-where-the": default_event_mismatching_placement,
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
     "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": savetocase_blank_create_id,
+    "questions/default-other-than-blank-on-a-capture-question": default_other_than_blank_on_a_capture_question,
     "questions/actions-nested-inside-controls": action_nested_in_control,
     "questions/unknown-namespace-model-children-named-itext-instance-bind": foreign_namespace_model_child,
     "questions/jr-count-naming-a-node-in-a-secondary-instance-or-no-node": count_outside_form_data,
@@ -11426,7 +12149,7 @@ VALUE_CLASSES = {
     "questions/question-id-failing-the-grammar-or-meta-in-any-case": invalid_question_id,
     "questions/two-sibling-data-nodes-with-one-name": sibling_with_one_name,
     "questions/hidden-value-with-children": hidden_value_with_children,
-    "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression": hidden_value_default_read,
+    "questions/validation-on-a-hidden-value": validation_on_hidden_value,
     "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": question_with_children,
     "questions/default-data-value-datavalue-instance-text": default_data_value,
     "questions/hand-written-case-block-without-vellum-role-incl-a-root-data": hand_written_case_block,
@@ -11472,6 +12195,8 @@ VALUE_CLASSES = {
     ),
     "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": case_variant_read_differently,
     "questions/data-parent-crossing-a-repeat": data_parent_crossing_a_repeat,
+    "questions/data-parent-at-the-form-root-under-a-grouped-control": data_parent_at_the_form_root,
+    "questions/data-parent-on-a-group-or-repeat": data_parent_on_a_group_or_repeat,
     "questions/any-other-bind-id-named-by-a-control-s-bind": other_bind_id,
     "questions/label-big-image": _big_image("label"),
     "questions/choice-big-image": _big_image("choice"),
@@ -11775,13 +12500,16 @@ VALUE_CLASSES = {
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
-    "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
-    "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
+    "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
+    "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name
     ),
     "menus-and-case-lists/column-reading-an-unknown-hash-property": column_hash_property,
     "application-and-settings/build-profiles-non-empty": build_profiles_held,
-    "questions/question-id-case-registration-script": reserved_question_id,
+    "questions/submitted-node-consumed-as-case": submitted_case_answer,
+    "questions/question-lock-the-designer-cannot-represent": unsupported_question_lock,
+    "questions/ordinary-answer-in-stock-namespace": ordinary_stock_answer,
+    "questions/submitted-namespace-the-form-designer-cannot-keep": namespace_the_designer_cannot_keep,
 }

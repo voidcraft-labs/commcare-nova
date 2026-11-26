@@ -105,9 +105,14 @@ export const w = {
 	form: (
 		parts: readonly string[] | readonly WireStep[],
 		spelling: "hashtag" | "absolute" = "absolute",
+		name?: string,
 	) =>
 		path(
-			{ k: "form", spelling },
+			{
+				k: "form",
+				spelling,
+				...(name !== undefined && name !== "data" && { name }),
+			},
 			parts.map((part) => (typeof part === "string" ? step(part) : part)),
 		),
 	append: (base: WirePath, steps: readonly WireStep[]) =>

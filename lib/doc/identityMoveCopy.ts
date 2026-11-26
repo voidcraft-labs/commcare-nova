@@ -86,6 +86,7 @@ export function identitySubjectName(
 		}
 		case "own-close":
 			return `${quoted(formWords(doc, subject.formUuid))}: closing its case`;
+		case "submitted-question":
 		case "query-repeat":
 			return `${quoted(formWords(doc, subject.formUuid))}, ${quoted(fieldWords(doc, subject.fieldUuid))}`;
 		case "module-kind":
@@ -106,12 +107,18 @@ export function identityMoveReasonSentence(
 ): string {
 	const { reason } = move;
 	switch (reason.source) {
+		case "submitted-question":
+			return "Future submissions will store this answer at its new address.";
 		case "case-placement":
 			return placementIneligibilitySentence(reason.reason.reason);
 		case "form-selection":
 			return reason.nextTag
 				? `From your next publish, the form opens this record under the saved name ${quoted(reason.nextTag)}. Earlier versions used ${quoted(reason.previousTag)}.`
 				: `From your next publish, the form will stop opening the record it kept under the saved name ${quoted(reason.previousTag)}.`;
+		case "query-timing":
+			return reason.timing === "on-open"
+				? "You chose to keep the records found when the form opens."
+				: "You chose to follow changes to the records found during entry.";
 		case "query-repeat": {
 			const need = reason.reason;
 			switch (need.kind) {

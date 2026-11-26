@@ -29,7 +29,7 @@ describe("admitMutationBatch", () => {
 		const admitted = admitMutationBatch(input);
 
 		mutation.name = "After";
-		input.push({ kind: "setConnectType", connectType: null });
+		input.push({ kind: "setConnectRoles", roles: [] });
 
 		expect(admitted).toEqual([{ kind: "setAppName", name: "Before" }]);
 		expect(Object.isFrozen(admitted)).toBe(true);
@@ -546,13 +546,13 @@ describe("admitMutationStages", () => {
 			},
 			{
 				stage: "connect",
-				mutations: [{ kind: "setConnectType", connectType: null }],
+				mutations: [{ kind: "setConnectRoles", roles: [] }],
 			},
 		]);
 
 		expect(admitted.batch).toEqual([
 			{ kind: "setAppName", name: "Nova" },
-			{ kind: "setConnectType", connectType: null },
+			{ kind: "setConnectRoles", roles: [] },
 		]);
 		expect(admitted.slices).toEqual([
 			{ stage: "rename", start: 0, end: 1 },
@@ -563,7 +563,7 @@ describe("admitMutationStages", () => {
 			{ kind: "setAppName", name: "Nova" },
 		]);
 		expect(admittedMutationSlice(admitted, admitted.slices[1])).toEqual([
-			{ kind: "setConnectType", connectType: null },
+			{ kind: "setConnectRoles", roles: [] },
 		]);
 	});
 

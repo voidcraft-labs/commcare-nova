@@ -20,6 +20,7 @@ import {
 	sourceFromBody,
 } from "../../__tests__/readerInput";
 import { readHqApp } from "../../index";
+import { containerConditionFromRows } from "../logic";
 import { modelIterationVerdict } from "../repeats";
 import {
 	codesAt,
@@ -292,7 +293,7 @@ describe("the repeat table", () => {
 		]);
 	});
 
-	it("refuses add captions and drops the others where they hold text", async () => {
+	it("reads the add caption and drops a deletion caption where both hold text", async () => {
 		const reading = await readForm(
 			xformSource({
 				data: `<r jr:template=""><q/></r>`,
@@ -300,9 +301,12 @@ describe("the repeat table", () => {
 				body: '<group><repeat nodeset="/data/r"><jr:addCaption>Add</jr:addCaption><jr:delCaption>Remove</jr:delCaption><input ref="/data/r/q"/></repeat></group>',
 			}),
 		);
-		expect(codesAt(reading, "r")).toEqual([
-			Q("repeat-add-captions-jr-addcaption-jr-addemptycaption"),
-		]);
+		expect(codesAt(reading, "r")).toEqual([]);
+		expect(
+			readFields(reading.xform ?? ({} as never)).find(
+				(field) => field.id === "r",
+			)?.field,
+		).toMatchObject({ addLabel: { parts: [{ kind: "text", text: "Add" }] } });
 	});
 });
 
@@ -313,7 +317,10 @@ function queryDoc(
 	options: {
 		readonly query?: string;
 		readonly nested?: boolean;
+		readonly outerCount?: string;
 		readonly relevant?: string;
+		/** When the query runs, where the author chose. */
+		readonly rowTiming?: "on-open" | "as-answers-change";
 		/** A display condition on a group around the repeat. */
 		readonly groupRelevant?: string;
 		/** The asked question's default. */
@@ -327,6 +334,9 @@ function queryDoc(
 		repeat_mode: "query_bound",
 		data_source: { ids_query: options.query ?? "'a b'" },
 		...(options.relevant === undefined ? {} : { relevant: options.relevant }),
+		...(options.rowTiming === undefined
+			? {}
+			: { rowTiming: options.rowTiming }),
 		children: [f({ kind: "text", id: "note" })],
 	});
 	const repeat =
@@ -356,7 +366,17 @@ function queryDoc(
 									: { default_value: options.askedDefault }),
 							}),
 							options.nested === true
-								? f({ kind: "repeat", id: "outer", children: [repeat] })
+								? f({
+										kind: "repeat",
+										id: "outer",
+										...(options.outerCount === undefined
+											? {}
+											: {
+													repeat_mode: "count_bound",
+													repeat_count: options.outerCount,
+												}),
+										children: [repeat],
+									})
 								: repeat,
 						],
 					},
@@ -395,6 +415,66 @@ describe("a model-iteration repeat Nova writes", () => {
 				Q("repeat-model-iteration-vellum-role-repeat-ids-count-current")
 			],
 		).toBeGreaterThan(0);
+	});
+
+	it("reads a row condition back from the row's bind, where the export writes it", async () => {
+		const doc = queryDoc({
+			relevant: "#form/asked = 'yes'",
+			rowTiming: "on-open",
+		});
+		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+			xmlns: XMLNS,
+		});
+		expect(source).toContain('nodeset="/data/visits/item" relevant=');
+		const reading = await readForm(source);
+		const visits = readFields(reading.xform ?? ({} as never)).find(
+			(field) => field.id === "visits",
+		);
+		expect(visits?.field).toMatchObject({
+			repeat_mode: "query_bound",
+			placement: "model-iteration",
+		});
+		expect(visits?.expressions.map((one) => [one.slot, one.text])).toEqual([
+			["ids_query", "'a b'"],
+			["relevant", "/data/asked = 'yes'"],
+		]);
+		// The query's own text is claimed once the form's expressions bind,
+		// past this stage, as for the repeat with no condition above.
+		expect(unrecognizedAt(reading, "visits")).toEqual(["xform:setvalue@value"]);
+		expect(
+			codesAt(reading, "visits").filter((code) => code !== "unrecognized"),
+		).toEqual([]);
+	});
+
+	it("reads a condition on the container's own bind as the repeat's, beside the one its rows hold", async () => {
+		const doc = queryDoc({
+			relevant: "#form/asked = 'yes'",
+			rowTiming: "on-open",
+		});
+		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+			xmlns: XMLNS,
+		});
+		// A condition the form builder never writes stands on the container
+		// too; both are the repeat's, joined once the form's expressions bind
+		// (`afterBinding.ts::moveContainerConditions`).
+		const reading = await readForm(
+			source.replace(
+				"<bind ",
+				`<bind nodeset="/data/visits" relevant="/data/asked != ''"/><bind `,
+			),
+		);
+		expect(codesAt(reading, "visits")).not.toContain(
+			Q("relevance-bound-on-a-model-iteration-repeat-s-container"),
+		);
+		const visits = readFields(reading.xform ?? ({} as never)).find(
+			(field) => field.id === "visits",
+		);
+		expect(
+			visits?.expressions
+				.filter((one) => one.slot === "relevant")
+				.map((one) => one.text)
+				.sort(),
+		).toEqual(["/data/asked != ''", "/data/asked = 'yes'"]);
 	});
 
 	it("leaves a wrapper missing a setvalue unclaimed", async () => {
@@ -472,6 +552,49 @@ describe("a count-placement query repeat Nova writes", () => {
 	});
 });
 
+describe("a condition on a count placement's wrapper", () => {
+	it("leaves the wrapper the group it is, its condition its own, as Core drops the generated ids with it", async () => {
+		const doc = queryDoc({ nested: true });
+		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+			xmlns: XMLNS,
+		}).replace(
+			"<bind ",
+			`<bind nodeset="/data/outer/visits" relevant="/data/asked != ''"/><bind `,
+		);
+		const reading = await readForm(source);
+		const fields = readFields(reading.xform ?? ({} as never));
+		const visits = fields.find((field) => field.id === "visits");
+		expect(visits?.kind).toBe("group");
+		expect(
+			visits?.expressions
+				.filter((one) => one.slot === "relevant")
+				.map((one) => one.text),
+		).toEqual(["/data/asked != ''"]);
+		expect(
+			reading.closed.claims.counts[
+				Q("count-repeat-whose-count-and-row-ids-come-from-one-query-a")
+			],
+		).toBeUndefined();
+	});
+});
+
+describe("containerConditionFromRows", () => {
+	it("steps each path the container is the context of up one, and leaves a predicate's own paths and absolute ones", () => {
+		expect(containerConditionFromRows("../consent = 'yes'")).toBe(
+			"../../consent = 'yes'",
+		);
+		expect(containerConditionFromRows("consent = 'yes' and /data/a = 1")).toBe(
+			"../consent = 'yes' and /data/a = 1",
+		);
+		expect(
+			containerConditionFromRows(
+				"count(../rows[age > current()/../min]) > 0 and #form/a = 1",
+			),
+		).toBe("count(../../rows[age > current()/../../min]) > 0 and #form/a = 1");
+		expect(containerConditionFromRows("true()")).toBe("true()");
+	});
+});
+
 describe("modelIterationVerdict", () => {
 	const verdict = (
 		doc: BlueprintDoc,
@@ -494,6 +617,11 @@ describe("modelIterationVerdict", () => {
 		expect(verdict(queryDoc({ nested: true }))).toBe(
 			Q("model-iteration-repeat-nested-in-another-repeat-of-any-kind"),
 		);
+		expect(verdict(queryDoc({ nested: true, outerCount: "1" }))).toBe("held");
+		expect(verdict(queryDoc({ nested: true, outerCount: "2" }))).toBe(
+			Q("model-iteration-repeat-nested-in-another-repeat-of-any-kind"),
+		);
+		expect(verdict(queryDoc({ nested: true, query: "''" }))).toBe("held");
 		expect(verdict(queryDoc({ query: "#form/asked" }))).toBe(
 			Q("model-iteration-repeat-whose-query-reads-a-form-answer-that-is"),
 		);
@@ -504,22 +632,29 @@ describe("modelIterationVerdict", () => {
 		expect(verdict(doc, (uuid) => uuid === ASKED)).toBe(
 			Q("model-iteration-repeat-whose-query-reads-a-form-answer-that-is"),
 		);
-		// Set before the row ids, the default is no blank answer: the shape is outside the rule.
-		expect(verdict(doc)).toBe(
-			Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
-		);
+		// An earlier assignment is available to the snapshot.
+		expect(verdict(doc)).toBe("held");
 	});
 
-	it("refuses one under a group whose condition reads an answer blank at load", () => {
+	it("captures while a condition is initially relevant and detects an earlier answer that suppressed its count", () => {
 		expect(verdict(queryDoc({ groupRelevant: "#form/asked = 'yes'" }))).toBe(
-			Q("model-iteration-repeat-under-an-ancestor-that-core-s-load-can"),
+			"held",
 		);
+		expect(
+			verdict(
+				queryDoc({
+					askedDefault: "'no'",
+					groupRelevant: "#form/asked = 'yes'",
+				}),
+			),
+		).toBe(Q("model-iteration-repeat-under-an-ancestor-that-core-s-load-can"));
 	});
 
-	it("names every other need outside Nova's rule", () => {
-		expect(verdict(queryDoc({ relevant: "true()" }))).toBe(
-			Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
-		);
+	it("keeps an explicit condition and a query with a fallback for blank input", () => {
+		expect(verdict(queryDoc({ relevant: "true()" }))).toBe("held");
+		expect(
+			verdict(queryDoc({ query: "if(#form/asked = '', 'a b', #form/asked)" })),
+		).toBe("held");
 	});
 });
 
@@ -539,7 +674,7 @@ describe("a query repeat's wrapper holding a node the emitter never writes there
 			);
 	}
 
-	it("is no count placement: the node stays outside every row, and the reading names what keeps it out", async () => {
+	it("is no count placement: the node stays outside every row, and the row's id reads as a hidden value keeping both its values", async () => {
 		const source = withTotal(queryDoc({ nested: true }), "/data/outer/visits");
 		const reading = await readForm(source);
 		const fields = readFields(reading.xform ?? ({} as never));
@@ -552,14 +687,19 @@ describe("a query repeat's wrapper holding a node the emitter never writes there
 				Q("count-repeat-whose-count-and-row-ids-come-from-one-query-a")
 			],
 		).toBeUndefined();
+		// The row's id holds the query's starting value beside its calculation,
+		// which a Hidden Value now keeps whole, so nothing refuses the form.
+		const rowId = fields.find((field) => field.id === "nova_query_id_visits");
+		expect(rowId?.kind).toBe("hidden");
+		expect(rowId?.expressions.map((expression) => expression.slot)).toEqual(
+			expect.arrayContaining(["default_value", "calculate"]),
+		);
 		expect(
 			await codesThroughEveryStage(
 				source,
 				"outer/visits/item/nova_query_id_visits",
 			),
-		).toContain(
-			Q("hidden-value-with-both-calculate-and-a-default-by-any-expression"),
-		);
+		).toEqual([]);
 	});
 
 	it("is no model iteration: the wrapper is left unclaimed", async () => {

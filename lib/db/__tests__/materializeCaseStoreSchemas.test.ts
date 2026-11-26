@@ -15,7 +15,7 @@ import { materializeCaseStoreSchemas } from "../materializeCaseStoreSchemas";
 const blueprint: PersistableDoc = {
 	appId: "app",
 	appName: "Materialize",
-	connectType: null,
+	connectRoles: [],
 	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: ["a", "b", "c"].map((name) => ({ name, properties: [] })),
 	modules: {},

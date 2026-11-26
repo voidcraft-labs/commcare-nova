@@ -656,9 +656,11 @@ body {
 }
 /* Authored interactive content owns its hit area above the label's extension.
    This is local paint order, not an application overlay plane. Native choice
-   inputs retain their sr-only layout and edit-mode pointer rules still apply. */
+   inputs retain their sr-only layout and edit-mode pointer rules still apply;
+   a native input drawn as itself (a message's confirmation box) owns its box. */
 .pv-choice-row a[href],
 .pv-choice-row button,
+.pv-choice-row input:not(.sr-only),
 .pv-choice-row audio,
 .pv-choice-row video {
 	position: relative;

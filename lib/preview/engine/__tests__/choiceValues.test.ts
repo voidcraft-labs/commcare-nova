@@ -1,4 +1,4 @@
-// Choice values holding one kind of quote mark, and a select with one
+// Choice values holding either or both quote marks, and a select with one
 // choice, run in Preview's form engine as on a device. The plausible
 // failure is Preview and the device disagreeing on a quoted token: a rule
 // naming `it's` printed without its literal, a multi-select answer split on
@@ -22,8 +22,9 @@ const SAY_HI = testUuid("choice-values-say-hi");
 const BACKTICK = testUuid("choice-values-backtick");
 const PLAIN = testUuid("choice-values-plain");
 
+const BOTH = `it's_"here"`;
 const QUOTED_VALUES = [
-	{ uuid: ITS, value: "it's", label: proseText("It's") },
+	{ uuid: ITS, value: BOTH, label: proseText("It's") },
 	{ uuid: SAY_HI, value: 'say"hi"', label: proseText("Say hi") },
 	{ uuid: BACKTICK, value: "back`tick", label: proseText("Backtick") },
 	{ uuid: PLAIN, value: "plain", label: proseText("Plain") },
@@ -103,11 +104,11 @@ function engine(): FormEngine {
 }
 
 describe("quoted choice values and a one-choice select in Preview", () => {
-	it("shows the follow-up only when the answer is it's", () => {
+	it("matches the whole stored token when it contains both quote marks", () => {
 		const form = engine();
 		expect(form.getState("/data/follow_up").visible).toBe(false);
-		form.setValue("/data/answer", "it's");
-		expect(form.getState("/data/answer").value).toBe("it's");
+		form.setValue("/data/answer", BOTH);
+		expect(form.getState("/data/answer").value).toBe(BOTH);
 		expect(form.getState("/data/follow_up").visible).toBe(true);
 		form.setValue("/data/answer", 'say"hi"');
 		expect(form.getState("/data/follow_up").visible).toBe(false);

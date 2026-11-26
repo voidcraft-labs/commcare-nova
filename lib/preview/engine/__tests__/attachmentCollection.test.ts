@@ -30,6 +30,7 @@ type Spec = {
 	kind: Field["kind"];
 	label?: ProseTemplate;
 	relevant?: Expression | string;
+	default_value?: Expression | string;
 	repeat_mode?: string;
 	children?: Spec[];
 };
@@ -78,6 +79,36 @@ function referenceNames(engine: FormEngine): string[] {
 }
 
 describe("collectAttachmentReferences", () => {
+	it("keeps a supplied filename as text until a file is actually attached, including across rebuilds", () => {
+		const form = input([
+			{
+				id: "blank",
+				kind: "file",
+				label: proseText("Blank document"),
+				default_value: "''",
+			},
+			{
+				id: "image",
+				kind: "image",
+				label: proseText("Portrait"),
+				default_value: "'portrait.jpg'",
+			},
+		]);
+		const engine = new FormEngine(form);
+		expect(engine.getState("/data/blank").value).toBe("");
+		expect(engine.getState("/data/image").value).toBe("portrait.jpg");
+		expect(referenceNames(engine)).toEqual([]);
+		engine.setValue("/data/image", "portrait.jpg");
+		expect(referenceNames(engine)).toEqual(["portrait.jpg"]);
+		const resumed = new FormEngine(form);
+		resumed.restoreEntryCheckpoint(engine.entryCheckpoint());
+		expect(referenceNames(resumed)).toEqual(["portrait.jpg"]);
+		resumed.updateSchema(form);
+		expect(referenceNames(resumed)).toEqual(["portrait.jpg"]);
+		resumed.setValue("/data/image", "");
+		expect(referenceNames(resumed)).toEqual([]);
+	});
+
 	it("returns nothing when no capture has an answer", () => {
 		const engine = new FormEngine(
 			input([{ id: "photo", kind: "image", label: proseText("Photo") }]),
@@ -213,7 +244,9 @@ describe("collectAttachmentReferences", () => {
 			]),
 		);
 		engine.setValue("/data/gate", "yes");
-		engine.setValue("/data/visits[0]/photo", "att-1.jpg");
+		engine.addRepeat("/data/visits");
+		expect(engine.setValue("/data/visits[0]/photo", "att-1.jpg")).toBe(true);
+		expect(referenceNames(engine)).toEqual(["att-1.jpg"]);
 		engine.setValue("/data/gate", "no");
 
 		expect(engine.collectAttachmentReferences()).toEqual([]);
@@ -231,6 +264,7 @@ describe("collectAttachmentReferences", () => {
 				},
 			]),
 		);
+		engine.addRepeat("/data/visits");
 		engine.addRepeat("/data/visits");
 		engine.setValue("/data/visits[0]/photo", "first.jpg");
 		engine.setValue("/data/visits[1]/photo", "second.jpg");
@@ -252,6 +286,7 @@ describe("collectAttachmentReferences", () => {
 				},
 			]),
 		);
+		engine.addRepeat("/data/visits");
 		engine.addRepeat("/data/visits");
 		engine.setValue("/data/visits[0]/photo", "first.jpg");
 		engine.setValue("/data/visits[1]/photo", "second.jpg");

@@ -358,6 +358,7 @@ export function flatFieldToField(
 		uuid,
 		id: q.id,
 		...(q.label !== undefined && q.label !== null && { label: q.label }),
+		...(q.askForConfirmation === true && { askForConfirmation: true }),
 		...(q.plain_label === true && { plainLabel: true }),
 		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
 		...(q.help !== undefined && q.help !== null && { help: q.help }),
@@ -390,6 +391,11 @@ export function flatFieldToField(
 		...(q.webSignature != null && { webSignature: q.webSignature }),
 		...(q.keypad != null && { keypad: q.keypad }),
 		...(q.choiceLayout != null && { choiceLayout: q.choiceLayout }),
+		...(q.answerType != null && { answerType: q.answerType }),
+		...(q.lockedInHq === true && { lockedInHq: true }),
+		...(q.answerNamespace != null && { answerNamespace: q.answerNamespace }),
+		...(q.maxDimension != null && { maxDimension: q.maxDimension }),
+		...(q.activity !== undefined && { activity: q.activity }),
 		...(q.required !== undefined &&
 			q.required !== null && { required: q.required }),
 		...(q.relevant !== undefined &&
@@ -405,6 +411,8 @@ export function flatFieldToField(
 		}),
 		...(q.calculate !== undefined &&
 			q.calculate !== null && { calculate: q.calculate }),
+		...(q.addLabel != null && { addLabel: q.addLabel }),
+		...(q.addFirstLabel != null && { addFirstLabel: q.addFirstLabel }),
 		...(q.default_value !== undefined &&
 			q.default_value !== null && { default_value: q.default_value }),
 		...(q.optionsSource != null && { optionsSource: q.optionsSource }),
@@ -429,6 +437,7 @@ export function flatFieldToField(
 					repeat_count: q.repeat.count,
 				}),
 				...(q.repeat.mode === "query_bound" && {
+					...(q.repeat.when == null ? {} : { rowTiming: q.repeat.when }),
 					data_source: {
 						ids_query: q.repeat.ids_query,
 					},

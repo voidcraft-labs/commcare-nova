@@ -74,6 +74,9 @@ function itextEntryWritten(
 					(!isContainer(field) &&
 						mediaHoldsAsset(slotMedia(field, "label_media"))))
 			);
+		case "field-first-add-label":
+		case "field-add-label":
+			return field.kind === "repeat" && anyText;
 		case "field-hint":
 			return field.kind !== "hidden" && anyText;
 		case "field-help":

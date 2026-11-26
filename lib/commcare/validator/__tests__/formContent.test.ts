@@ -16,7 +16,7 @@ import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import type { ValidationError } from "../errors";
 import { runValidation } from "../runner";
@@ -191,10 +191,10 @@ describe("EMPTY_FORM", () => {
 	});
 });
 
-function deliverDoc(connect: ConnectConfig): BlueprintDoc {
+function deliverDoc(...activities: FieldSpec[]): BlueprintDoc {
 	return buildDoc({
 		appName: "Deliveries",
-		connectType: "deliver",
+		connectRoles: ["deliver"],
 		modules: [
 			{
 				name: "Visits",
@@ -202,8 +202,10 @@ function deliverDoc(connect: ConnectConfig): BlueprintDoc {
 					{
 						name: "Home visit",
 						type: "survey",
-						fields: [f({ kind: "text", id: "name", label: proseText("Name") })],
-						connect,
+						fields: [
+							f({ kind: "text", id: "name", label: proseText("Name") }),
+							...activities,
+						],
 					},
 				],
 			},
@@ -211,33 +213,36 @@ function deliverDoc(connect: ConnectConfig): BlueprintDoc {
 	});
 }
 
-const DELIVER_UNIT = { id: "home_visit", name: "Home visit" };
-const TASK = {
+const delivery = f({
+	kind: "connect_activity",
+	id: "home_visit",
+	activity: { kind: "delivery", name: "Home visit" },
+});
+const task = f({
+	kind: "connect_activity",
 	id: "follow_up",
-	name: "Follow up",
-	description: "Visit again",
-};
+	activity: {
+		kind: "assigned-task",
+		name: "Follow up",
+		description: "Visit again",
+	},
+});
 
 describe("CONNECT_DELIVER_FORM_HOLDS_TASK", () => {
-	it("refuses a deliver form that holds both a deliver unit and a task", () => {
-		const refused = findings(
-			deliverDoc({ deliver_unit: DELIVER_UNIT, task: TASK }),
-		);
+	it("identifies the delivery and task that one submission can send together", () => {
+		const refused = findings(deliverDoc(delivery, task));
 		expect(refused.map((error) => error.code)).toEqual([
 			"CONNECT_DELIVER_FORM_HOLDS_TASK",
 		]);
-		expect(refused[0]?.message).toBe(
-			`"Home visit" holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
-		);
-		expect(userFacingError(refused[0] as ValidationError)).toBe(
-			refused[0]?.message,
+		expect(refused[0]).toMatchObject({
+			location: { fieldId: "follow_up" },
+			details: { first: "home_visit", second: "follow_up" },
+		});
+		expect(userFacingError(refused[0])).toContain(
+			"complete the task in an earlier form or show one activity at a time",
 		);
 	});
-
-	it.each<[string, ConnectConfig]>([
-		["a deliver unit alone", { deliver_unit: DELIVER_UNIT }],
-		["a task alone", { task: TASK }],
-	])("accepts %s", (_name, connect) => {
-		expect(findings(deliverDoc(connect))).toEqual([]);
+	it.each([delivery, task])("accepts $id on its own", (activity) => {
+		expect(findings(deliverDoc(activity))).toEqual([]);
 	});
 });
