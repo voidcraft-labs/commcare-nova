@@ -19,6 +19,7 @@ import { CONNECT_XMLNS } from "../../xform/connectActivity";
  */
 
 import { type Element, isTag } from "domhandler";
+import { type FieldKind, isCaptureFieldKind } from "@/lib/domain/fields";
 import {
 	questionIdProblem,
 	RESERVED_QUESTION_IDS,
@@ -483,7 +484,11 @@ export function joinForm(input: JoinInput): JoinedForm {
 	};
 
 	/** Claims what stands on a field's data node whatever its kind. */
-	const claimNode = (node: DataNode, holdsNamespace = false) => {
+	const claimNode = (
+		node: DataNode,
+		holdsNamespace = false,
+		kind?: FieldKind,
+	) => {
 		if (ownNamespace(node, parsed) && !holdsNamespace)
 			cursor.refuse(
 				{ element: node.element, attribute: "xmlns" },
@@ -492,7 +497,9 @@ export function joinForm(input: JoinInput): JoinedForm {
 			);
 		if (node.children.length === 0 && !javaTrimEmpty(node.text))
 			accounting.findingAtNode(
-				X.defaultDataValue,
+				kind !== undefined && isCaptureFieldKind(kind)
+					? X.captureDefaultDataValue
+					: X.defaultDataValue,
 				placeOf(node),
 				{ element: node.element },
 				dataNodeKey(node),
@@ -587,7 +594,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				{ element: node.element, attribute: "xmlns" },
 				X.hiddenNamespace,
 			).value;
-		claimNode(node, holdsNamespace);
+		claimNode(node, holdsNamespace, row?.kind);
 		if (row === undefined) return make(node, parent, control, "hidden", true);
 		if (row.kind === undefined || row.sites === undefined) {
 			const claim =

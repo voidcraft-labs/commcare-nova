@@ -427,6 +427,11 @@ export const X = {
 		Q("default-data-value-datavalue-instance-text"),
 		"xform:model/instance//*",
 	),
+	captureDefaultDataValue: one(
+		"refuse",
+		Q("default-other-than-blank-on-a-capture-question"),
+		"xform:model/instance//*",
+	),
 	connectWorkAreaPhotoNotForwarded: one(
 		"refuse",
 		Q("connect-work-area-update-photo-not-forwarded"),
