@@ -50,7 +50,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { emittedSelectionTag } from "@/lib/domain/advancedEntryDatums";
-import { connectActivitySites } from "@/lib/domain/connectActivitySites";
+import {
+	connectActivitySites,
+	connectForwardedAncestorPaths,
+} from "@/lib/domain/connectActivitySites";
 import { connectSubmissionConflicts } from "@/lib/domain/connectSubmission";
 import { slotContext } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
@@ -1124,7 +1127,19 @@ function connectValidation(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const location = baseLocation(ctx);
-	for (const { field } of connectActivitySites(doc, form.uuid)) {
+	const sites = connectActivitySites(doc, form.uuid);
+	for (const [uuid] of connectForwardedAncestorPaths(doc, sites)) {
+		const field = doc.fields[uuid];
+		errors.push(
+			validationError(
+				"CONNECT_FORWARDED_ANCESTOR_ID",
+				"field",
+				`Connect can't receive the activities inside "${field.id}". Give this part of the form a different ID.`,
+				{ ...location, fieldUuid: uuid, fieldId: field.id },
+			),
+		);
+	}
+	for (const { field } of sites) {
 		const at = { ...location, fieldUuid: field.uuid, fieldId: field.id };
 		const role = connectActivityRole(field.activity.kind);
 		if (!doc.connectRoles.includes(role))

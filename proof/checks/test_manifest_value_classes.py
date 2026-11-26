@@ -7601,6 +7601,19 @@ def _connect_activities():
             <bind nodeset="{item}/activity/deliver/entity_id" calculate="../../../{member}"/>"""
         return _form(data, model, body)
 
+    def forwarded_group(name):
+        activity = block("lesson", "ConnectLearnModule", "module", "<name>Lesson</name>")
+        return _form(f"<{name}>{activity}</{name}><task><note/></task>")
+
+    group_key = "xform:model/instance/*/*"
+    group_place = "{http://example.org/t}"
+    forwarded_ancestors = (
+        refused("form", forwarded_group("module"), group_key, group_place + "module[1]"),
+        accepted("form", forwarded_group("Module"), group_key, group_place + "Module[1]"),
+        accepted("form", forwarded_group("task"), group_key, group_place + "task[1]"),
+        accepted("form", forwarded_group("module"), group_key, group_place + "task[1]"),
+    )
+
     module_content = "<name>Visit</name><description>About</description><time_estimate>0</time_estimate>"
     delivered = "<name>Visit</name><entity_id/><entity_name/><work_area_id/>"
     common = block("delivery", "ConnectDeliverUnit", "deliver", delivered) + block(
@@ -7702,6 +7715,7 @@ def _connect_activities():
             *pair("delivery", None, None, guarded_or, guarded_and),
             *pair("delivery", None, None, guarded_or, negate),
         ),
+        "questions/connect-forwarded-ancestor-name": forwarded_ancestors,
         "questions/connect-unit-id-changed-by-form-editor": pair(
             "lesson", "module", None, lesson("0", "earlier"), lesson("0")
         ),
