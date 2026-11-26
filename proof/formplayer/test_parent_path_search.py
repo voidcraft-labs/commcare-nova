@@ -20,14 +20,16 @@ VALUE = "Dyer's crossing"
 ENTERED = "Dyer's cross!ing"
 
 
-@pytest.mark.parametrize(("variant", "key", "reverse_link_id", "expected"), [
-    pytest.param("field-named-by-a-parent-path", "parent/village", "target-house", "direct",
+@pytest.mark.parametrize(("variant", "key", "reverse_link_id", "expected", "value", "entered"), [
+    pytest.param("field-named-by-a-parent-path", "parent/village", "target-house", "direct", VALUE, ENTERED,
                  id="direct-parent"),
-    pytest.param("field-named-by-a-nested-parent-path", "parent/parent/village", "middle-house", "linked",
+    pytest.param("field-named-by-a-nested-parent-path", "parent/parent/village", "middle-house", "linked", VALUE, ENTERED,
                  id="nested-parent"),
+    pytest.param("field-named-by-a-nested-parent-path", "parent/parent/village", "middle-house", "linked",
+                 "east west", "east we!st", id="nested-parent-multiple-values"),
 ])
 def test_hq_editor_and_worker_keep_the_parent_path_search_key(
-    hq, core_runner, editor_driver, formplayer_runner, evidence, variant, key, reverse_link_id, expected,
+    hq, core_runner, editor_driver, formplayer_runner, evidence, variant, key, reverse_link_id, expected, value, entered,
 ):
     from corehq.apps.case_search.models import CaseSearchConfig, IgnorePatterns
 
@@ -52,17 +54,19 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
             (("parent", "household", parent, "child"),) if parent else (),
         )
 
+    # XForm case transactions join multiple choices in their saved order.
+    # HQ's case index receives that text, including the space between values.
     database = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), (
-        case("target-house", "household", VALUE, owner="other-worker"),
-        case("other-house", "household", "North"),
+        case("target-house", "household", value, owner="other-worker"),
+        case("other-house", "household", "west east" if value == "east west" else "North"),
         case("middle-house", "household", "South", "target-house"),
         case("middle-other", "household", "South", "other-house"),
         case("middle-dangling", "household", "South", "unrestored-house"),
         case("linked", "client", "South", "middle-house"),
         case("direct", "client", "South", "target-house"),
-        case("wrong-ancestor", "client", VALUE, "middle-other"),
-        case("unresolved-second-hop", "client", VALUE, "middle-dangling"),
-        case("unlinked", "client", VALUE),
+        case("wrong-ancestor", "client", value, "middle-other"),
+        case("unresolved-second-hop", "client", value, "middle-dangling"),
+        case("unlinked", "client", value),
     ))
     configuration = Configuration(
         flags={"CASE_SEARCH_ADVANCED", "CASE_SEARCH_RELATED_LOOKUPS", "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
@@ -111,13 +115,13 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
             assert any(display["id"] == key and display["text"] == "Village" for display in search["displays"]), search
             assert not served.hq.searches
             results = web.navigate(path, query_data={search["queryKey"]: {
-                "inputs": {key: ENTERED}, "execute": True,
+                "inputs": {key: entered}, "execute": True,
             }})
             sent = served.hq.searches
-            assert len(sent) == 1 and sent[0].values(key) == (ENTERED,), sent
+            assert len(sent) == 1 and sent[0].values(key) == (entered,), sent
             assert sent[0].values("village") == (), sent
             entities = {item["id"] for item in results.get("entities", [])}
-            compiled = operations.compile_case_search(unit, f'{key} = "{VALUE}"', ("client",))
+            compiled = operations.compile_case_search(unit, f'{key} = "{value}"', ("client",))
             serialized = json.dumps(compiled)
             assert '"parent"' in serialized and json.dumps(reverse_link_id) in serialized
             assert '"middle-dangling"' not in serialized and '"other-house"' not in serialized
