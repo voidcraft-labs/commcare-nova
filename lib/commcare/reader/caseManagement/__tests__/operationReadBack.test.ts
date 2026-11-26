@@ -510,6 +510,26 @@ describe("every place Nova keeps a case operation in", () => {
 		expect(updateBesideBareOwnAsOwnArm(doc)).toBe(doc);
 	});
 
+	it("keeps a conditional owner transfer on the targeted update beside a bare own arm", async () => {
+		const doc = updateBesideBareOwn({
+			writes: [{ property: "external_id", value: term(literal("intake-01")) }],
+			owner: term(literal("team-01")),
+			ownerCondition: conditionalNote.condition,
+		});
+		expect(updateBesideBareOwnAsOwnArm(doc)).toBe(doc);
+
+		const outcome = await readBack(doc);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		expect(outcome.draft.doc.forms[id("form")].caseOperations).toContainEqual(
+			expect.objectContaining({
+				uuid: id("update"),
+				action: "update",
+				ownerCondition: conditionalNote.condition,
+			}),
+		);
+	});
+
 	it("puts an operation in every place the plan gives one", () => {
 		const places = new Set<string>();
 		for (const make of Object.values(DOCUMENTS)) {

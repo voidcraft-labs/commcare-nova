@@ -673,6 +673,31 @@ export function CaseOperationDetailCanvas({
 					/>
 				)}
 
+				{((operation.action === "update" &&
+					operation.owner !== undefined &&
+					operation.target.kind !== "worker-record") ||
+					(operation.action === "create" &&
+						operation.target.kind === "new" &&
+						operation.target.idFrom === undefined &&
+						operation.target.expr === undefined)) &&
+					operation.ownerOnlyIfChanged === undefined && (
+						<OwnerConditionSection
+							slot={{
+								entity: "form",
+								uuid: formUuid,
+								slot: "case_operation_owner_condition",
+								member: { operationUuid },
+							}}
+							value={operation.ownerCondition}
+							canEdit={operationCanEdit}
+							onChange={(ownerCondition) =>
+								commit({ ...operation, ownerCondition })
+							}
+							editorScope={editorScope}
+							createsCase={operation.action === "create"}
+						/>
+					)}
+
 				<Section
 					title="What it saves"
 					description={
@@ -1400,6 +1425,76 @@ function OptionalExpressionSection({
 				/>
 			)}
 			{value !== undefined && footer}
+		</Section>
+	);
+}
+
+function OwnerConditionSection({
+	slot,
+	value,
+	canEdit,
+	onChange,
+	editorScope,
+	createsCase,
+}: {
+	readonly slot: ExpressionSlotRef;
+	readonly value: Expression | undefined;
+	readonly canEdit: boolean;
+	readonly onChange: (next: Expression | undefined) => void;
+	readonly editorScope: EditorScope;
+	readonly createsCase: boolean;
+}) {
+	const expressionContext = useExpressionSlotContext(slot);
+	const { addRef, onCleared } = useClearedSlotFocus(value);
+	return (
+		<Section
+			title="When to assign the owner"
+			description={
+				createsCase
+					? "If the condition is false, the submitting worker owns the new case."
+					: "If the condition is false, the case keeps its current owner."
+			}
+			action={
+				value !== undefined && canEdit ? (
+					<ClearConditionButton
+						label="Always assign"
+						title="Always assign the owner?"
+						consequence="The owner will be assigned every time this change runs."
+						finalFocus={() => addRef.current}
+						onConfirm={() => {
+							onCleared();
+							onChange(undefined);
+						}}
+					/>
+				) : undefined
+			}
+		>
+			{value === undefined ? (
+				<AddSlotButton
+					ref={addRef}
+					label="Add an owner condition"
+					disabled={!canEdit || expressionContext === undefined}
+					onClick={() => {
+						if (expressionContext === undefined) return;
+						onChange(
+							firstComparisonDefault({
+								expressionContext,
+								...editorScope,
+								...editorAxesOf(expressionContext),
+								knownInputs: [],
+							}),
+						);
+					}}
+				/>
+			) : (
+				<ConditionSlotEditor
+					slot={slot}
+					value={value}
+					onChange={onChange}
+					rootLabel="when the owner is assigned"
+					{...editorScope}
+				/>
+			)}
 		</Section>
 	);
 }

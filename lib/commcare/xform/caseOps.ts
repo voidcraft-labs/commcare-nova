@@ -1553,13 +1553,23 @@ export function buildCaseOperations(
 			}
 			if (!create && operation.owner !== undefined) {
 				const ownerPath = updatePath.child("owner_id");
-				requiredScalarTextPaths.push(ownerPath);
+				const ownerCondition = operation.ownerCondition;
+				if (ownerCondition === undefined)
+					requiredScalarTextPaths.push(ownerPath);
+				else conditionalOwnerPath = ownerPath;
 				blockBinds.push(
 					xel(
 						"bind",
 						{
 							xpath: {
 								nodeset: ownerPath.toWire(),
+								...(ownerCondition !== undefined && {
+									relevant: emitExpression(
+										ownerCondition,
+										ownerPath,
+										ownSlot("case_operation_owner_condition"),
+									),
+								}),
 								calculate: caseScalarTextValueCalculation(
 									emitExpression(
 										operation.owner,

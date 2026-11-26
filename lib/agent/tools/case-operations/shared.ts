@@ -390,6 +390,11 @@ const updateOperationInputSchema = z
 			.optional()
 			.describe("Repeat field UUID; omit to run once per submission"),
 		owner: valueSchema.optional(),
+		ownerCondition: conditionSchema
+			.optional()
+			.describe(
+				"Assign the selected owner only when this condition holds. Otherwise keep the case's owner.",
+			),
 		ownerOnlyIfChanged: ownerOnlyIfChangedInputSchema,
 		rename: valueSchema.optional(),
 		renameOnlyIfChanged: renameOnlyIfChangedInputSchema,
@@ -552,6 +557,9 @@ export function resolveCaseOperationInput(
 				...(input.closeAfter === true && { closeAfter: true }),
 				target: input.target,
 				...(input.owner !== undefined && { owner: input.owner }),
+				...(input.ownerCondition !== undefined && {
+					ownerCondition: input.ownerCondition,
+				}),
 				...(input.ownerOnlyIfChanged !== undefined && {
 					ownerOnlyIfChanged: input.ownerOnlyIfChanged,
 				}),
