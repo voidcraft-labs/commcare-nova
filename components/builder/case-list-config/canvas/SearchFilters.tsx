@@ -401,7 +401,7 @@ export function SearchFilters({
 									kind: "order",
 									order: [
 										{
-											property: properties[0].value,
+											property: orderProperties[0]?.value ?? "case_name",
 											comparison: "text",
 											direction: "ascending",
 										},
