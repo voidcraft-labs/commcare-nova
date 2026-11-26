@@ -917,10 +917,7 @@ export function readSearchSettings(
 	let owners: number | undefined;
 	const filter = filterWithOwnerClause(module);
 	let ownersWithoutClause = false;
-	if (
-		!claimed.has("blacklisted_owner_ids_expression") &&
-		holdsText(cursor, "blacklisted_owner_ids_expression")
-	) {
+	if (holdsText(cursor, "blacklisted_owner_ids_expression")) {
 		claimed.add("blacklisted_owner_ids_expression");
 		if (offers)
 			// Nova's list writes no clause for an exclusion that reads a Search answer alone, which
