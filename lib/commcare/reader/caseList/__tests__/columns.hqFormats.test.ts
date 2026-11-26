@@ -1135,6 +1135,33 @@ describe("a detail's callout and tabs", () => {
 		);
 	});
 
+	it("keeps case-ID keyed confidence and its translated heading", async () => {
+		const reading = await readDetails((short, _long, app) => {
+			app.langs = ["en", "fr"];
+			Object.assign(short, {
+				lookup_enabled: true,
+				lookup_action: "org.example.MATCH",
+				lookup_name: "Find a match",
+				lookup_extras: [{ key: "mode", value: "'scan'" }],
+				lookup_responses: [{ key: "first" }],
+				lookup_display_results: true,
+				lookup_field_template: "@case_id",
+				lookup_field_header: { en: "Confidence", fr: "Confiance" },
+			});
+		}, false);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).deviceLookup?.resultHeading).toBe("Confidence");
+		expect(
+			reading.ctx.translations
+				.units()
+				.some(
+					(unit) =>
+						unit.unit.endsWith(":list-lookup-text") &&
+						[...unit.byLanguage.values()].includes("Confiance"),
+				),
+		).toBe(true);
+	});
+
 	it("raises a callout on the list as one finding, each of its keys claimed under it", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, {

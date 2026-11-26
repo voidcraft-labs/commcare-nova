@@ -6252,8 +6252,19 @@ def lookup_with_nonliteral_arguments(use, manifest):
 
 
 def lookup_with_result_column(use, manifest):
+    """The active result columns outside the plain-list case-ID carrier."""
     detail = _short_lookup(use)
-    return detail is not None and detail.get("lookup_display_results") is True
+    if detail is None or detail.get("lookup_display_results") is not True:
+        return False
+    template, headings = detail.get("lookup_field_template"), detail.get("lookup_field_header")
+    parsed = expression_tree(template) if isinstance(template, str) else None
+    return bool(
+        detail.get("case_tile_template") or not parsed
+        or parsed[:2] != ["path", "relative"] or parsed[3] != []
+        or parsed[4] != [["attribute", "case_id", 0]]
+        or not isinstance(headings, dict)
+        or not any(isinstance(value, str) and value.strip() for value in headings.values())
+    )
 
 
 def _lookup_names(entries, keys):

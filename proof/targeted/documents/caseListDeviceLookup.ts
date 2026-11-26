@@ -37,6 +37,7 @@ export function caseListDeviceLookup() {
 						deviceLookup: {
 							action: "org.nova.proof.CASE_LOOKUP",
 							label: "Find a visit",
+							resultHeading: "Confidence",
 							icon: mediaIds.icon,
 							automatic: true,
 							extras: [

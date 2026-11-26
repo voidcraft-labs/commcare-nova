@@ -3521,6 +3521,7 @@ export const caseListDeviceLookupSchema = z
 		action: deviceLookupName,
 		label: deviceLookupName,
 		icon: mediaAssetIdSchema.optional(),
+		resultHeading: caseListWordingSchema.optional(),
 		automatic: z.literal(true).optional(),
 		extras: z.array(deviceLookupExtraSchema).min(1),
 		responses: z.array(deviceLookupName).min(1),
@@ -3642,6 +3643,15 @@ export const caseListConfigSchema = z
 				lastGroup = position;
 			}
 		}
+		if (
+			config.deviceLookup?.resultHeading !== undefined &&
+			config.tile !== undefined
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup", "resultHeading"],
+				message: "Show lookup confidence in a case list with rows.",
+			});
 		if (config.deviceLookup && config.tile?.namedSlots)
 			ctx.addIssue({
 				code: "custom",

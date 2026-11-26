@@ -8989,7 +8989,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`caseListConfig.deviceLookup` writes the enabled action in both carriers. The optional action image has its own carrier, and this class has no active result column.",
+			"cell": "`caseListConfig.deviceLookup` writes the enabled action in both carriers. The optional action image and result column have their own carriers.",
 			"markers": []
 		},
 		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
@@ -9279,6 +9279,39 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/lookup-case-id-confidence",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Case-ID keyed lookup confidence in a row layout",
+		"surfaceKeys": [
+			"app-string-id:case_lists.m#.callout.header",
+			"parser:CalloutParser/field",
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template"
+		],
+		"valueClass": "named-result-column-keyed-by-case-id-on-a-plain-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android shows the companion’s confidence on each matching case",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`deviceLookup.resultHeading` writes a translated heading and matches on the case ID",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -9291,9 +9324,9 @@
 			"schema:Detail.lookup_field_header",
 			"schema:Detail.lookup_field_template"
 		],
-		"valueClass": "on-the-case-list",
+		"valueClass": "lookup-result-column-outside-a-plain-case-id-match",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.resultsColumn {header, expression}`",
+		"dispositionCell": "**HELD-NEW**: results keyed by other expressions, hidden headings or case tiles",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -9319,6 +9352,7 @@
 		"subsection": "Case list callout",
 		"item": "`lookup_enabled: false` with stale keys",
 		"surfaceKeys": [
+			"app-string-id:case_lists.m#.callout.header",
 			"schema:Detail.lookup_action",
 			"schema:Detail.lookup_autolaunch",
 			"schema:Detail.lookup_display_results",

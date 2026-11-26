@@ -58,6 +58,7 @@ import type { HqPlace } from "@/lib/publish/hqFindings";
 import { sharedSources } from "../../hq/suiteDetailSources";
 import { emptyShortListColumns } from "../../hqJson/caseList";
 import { hqXPath, hqXPathText } from "../../hqJson/xpath";
+import { lookupCaseKeyWire } from "../../suite/case-list/deviceLookup";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { scannedInstances } from "../../xpath/instanceSources";
 import { sessionContextPath } from "../../xpath/wire/fromExpression";
@@ -484,10 +485,29 @@ const workerExtraText = CASE_LIST_LOOKUP_WORKER_FIELDS.map((field) => ({
 	text: hqXPathText(hqXPath(sessionContextPath(field))),
 }));
 
-/** The Android text-search branch, with preselection values and ordered fallback responses. */
+const LOOKUP_CONFIDENCE_KEYS = defineClaims(
+	"caseList.details.lookupConfidence",
+	{
+		lookup_display_results: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_display_results",
+		),
+		lookup_field_header: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_field_header",
+		),
+		lookup_field_template: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_field_template",
+		),
+	},
+);
+const lookupCaseKey = hqXPathText(hqXPath(lookupCaseKeyWire()));
+
 function textDeviceLookup(
+	ctx: ReadContext,
 	detail: JsonCursor,
-): CaseListDeviceLookup | undefined {
+): { lookup: CaseListDeviceLookup; heading?: HeldTexts } | undefined {
 	const image = detail.peek("lookup_image");
 	const results = detail.peek("lookup_display_results");
 	const automatic = detail.peek("lookup_autolaunch");
@@ -497,7 +517,9 @@ function textDeviceLookup(
 	const rawResponses = detail.peek("lookup_responses");
 	if (
 		(image !== undefined && image !== null && typeof image !== "string") ||
-		(results !== undefined && results !== null && results !== false) ||
+		(results !== undefined &&
+			results !== null &&
+			typeof results !== "boolean") ||
 		(automatic !== undefined &&
 			automatic !== null &&
 			typeof automatic !== "boolean") ||
@@ -547,14 +569,34 @@ function textDeviceLookup(
 			return undefined;
 		responses.push(entry.key);
 	}
+	let heading: HeldTexts | undefined;
+	if (results === true) {
+		const template = detail.peek("lookup_field_template");
+		if (
+			detail.peek("case_tile_template") ||
+			typeof template !== "string" ||
+			!sameXPathText(template, lookupCaseKey)
+		)
+			return undefined;
+		heading = heldTextsIn(
+			detail.peek("lookup_field_header"),
+			appCodes(ctx),
+			sourceCode(ctx),
+			"case-list-lookup-result-heading",
+		);
+		if (heading === undefined) return undefined;
+	}
 	const value = caseListDeviceLookupSchema.safeParse({
 		action,
 		label,
 		extras,
 		responses,
 		...(automatic === true && { automatic: true }),
+		...(heading !== undefined && {
+			resultHeading: sourceText(ctx, heading.texts),
+		}),
 	});
-	return value.success ? value.data : undefined;
+	return value.success ? { lookup: value.data, heading } : undefined;
 }
 
 const LOOKUP_LONG_KEYS = defineClaims(
@@ -1287,6 +1329,7 @@ interface CaseListShortReading {
 	empty?: HeldTexts;
 	select?: HeldTexts;
 	deviceLookup?: CaseListDeviceLookup;
+	lookup?: HeldTexts;
 }
 
 /**
@@ -1416,8 +1459,8 @@ function readDetailKeys(
 		if (primary !== undefined || screen !== "long") ok = false;
 	}
 	if (detail.peek("lookup_enabled") === true) {
-		const lookup =
-			screen === "short" && wording ? textDeviceLookup(detail) : undefined;
+		const parsedLookup =
+			screen === "short" && wording ? textDeviceLookup(ctx, detail) : undefined;
 		if (
 			screen === "short" &&
 			detail.peek("case_tile_template") === "icon_text_grid"
@@ -1432,7 +1475,16 @@ function readDetailKeys(
 				if (claim !== undefined) detail.refuse(key, claim);
 			}
 			ok = false;
-		} else if (wording && lookup !== undefined) {
+		} else if (wording && parsedLookup !== undefined) {
+			const { lookup, heading } = parsedLookup;
+			wording.lookup = heading;
+			noteRespelled(
+				ctx,
+				LOOKUP_CONFIDENCE_KEYS.lookup_field_header.entry,
+				`${detail.pointer}/lookup_field_header`,
+				detail.peek("lookup_field_header"),
+				heading,
+			);
 			const image = detail.peek("lookup_image");
 			if (typeof image === "string" && image !== "") {
 				const ref = readMediaMap(
@@ -1451,11 +1503,19 @@ function readDetailKeys(
 				}
 			}
 			for (const key of CALLOUT_KEYS) {
+				const resultClaim =
+					heading !== undefined &&
+					(key === "lookup_display_results" ||
+						key === "lookup_field_header" ||
+						key === "lookup_field_template")
+						? LOOKUP_CONFIDENCE_KEYS[key]
+						: undefined;
 				const claim =
-					key === "lookup_extras" &&
+					resultClaim ??
+					(key === "lookup_extras" &&
 					lookup.extras.some((extra) => "expression" in extra)
 						? LOOKUP_WITH_WORKER_EXTRA.extras
-						: TEXT_LOOKUP_KEYS[key];
+						: TEXT_LOOKUP_KEYS[key]);
 				if (
 					claim !== undefined &&
 					detail.used(key) &&
@@ -2602,6 +2662,7 @@ export function readCaseDetails(
 	for (const [slot, held] of [
 		["empty", wording.empty],
 		["select", wording.select],
+		["lookup", wording.lookup],
 	] as const)
 		if (held !== undefined)
 			ctx.translations.set(

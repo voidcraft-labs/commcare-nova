@@ -115,6 +115,7 @@ def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_doc
         {"automatic": True, "primary": " Cedar ", "inspectIcon": True},
         {"primary": None, "named": {"first": "Juniper", "second": "Cedar"}},
         {"primary": "none-matches"},
+        {"identify": "lookup-juniper", "inspectScores": True},
     ]
     with _served(document, database=database) as (served, released):
         blobs = Blobs()
@@ -136,8 +137,11 @@ def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_doc
             assert results[0]["iconCenterARGB"] == "ff49a274"  # The uploaded PNG’s one pixel.
             assert results[0]["lookupName"] == "Find a visit"
             assert results[0]["toolbarTitle"] == "Scan Barcode"
-            assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], []]
-            assert [result["searchText"] for result in results] == ["Cedar", "Juniper", "none-matches"]
+            assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], [], ["Juniper"]]
+            assert [result["searchText"] for result in results[:3]] == ["Cedar", "Juniper", "none-matches"]
+            assert results[3]["isIdentification"]
+            assert "Confidence" in _view_texts(results[3]["scoreHeader"])
+            assert _view_texts(results[3]["scoreRows"]) == ["Juniper", "★★★★★"]
             assert all(result["action"] == ACTION for result in results)
             assert all(result["sent"] == {
                 "visit_mode": "followup", "visit_limit": "3",

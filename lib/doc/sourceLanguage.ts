@@ -258,13 +258,17 @@ export function sourceSlotWriter(
 					: undefined;
 		case "case-list-empty-text":
 		case "case-list-select-text":
+		case "case-list-lookup-result-heading":
 			return owner.kind === "module"
 				? (draft, value) => {
 						const list = draft.modules[owner.moduleUuid]?.caseListConfig;
 						if (list === undefined) return;
 						if (unit.role === "case-list-empty-text")
 							list.emptyText = text(value);
-						else list.selectButtonText = text(value);
+						else if (unit.role === "case-list-select-text")
+							list.selectButtonText = text(value);
+						else if (list.deviceLookup?.resultHeading !== undefined)
+							list.deviceLookup.resultHeading = text(value);
 					}
 				: undefined;
 		case "case-property-option-label":

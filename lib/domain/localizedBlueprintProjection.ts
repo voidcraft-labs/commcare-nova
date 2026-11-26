@@ -147,6 +147,11 @@ export function projectLocalizedModule(
 				caseListWordingUnitId(module.uuid, "select"),
 				list.selectButtonText,
 			);
+		if (list.deviceLookup?.resultHeading !== undefined)
+			list.deviceLookup.resultHeading = text(
+				caseListWordingUnitId(module.uuid, "lookup"),
+				list.deviceLookup.resultHeading,
+			);
 		for (const tab of localized.caseListConfig.detailTabs ?? [])
 			tab.title = text(
 				makeTranslationUnitId("detail-tab", tab.uuid, "title"),
