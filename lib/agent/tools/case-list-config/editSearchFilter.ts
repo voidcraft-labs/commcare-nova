@@ -83,6 +83,27 @@ export const editSearchFilterTool = {
 				};
 			const change = input.change;
 			const uuid = change.uuid ?? newUuid();
+			/* An edit changes a row of its own kind: an order's terms, or a
+			 * value filter's target and value. */
+			if (change.operation === "edit" || change.operation === "edit-order") {
+				const row = mod.caseListConfig?.searchFilters?.find(
+					(one) => one.uuid === change.uuid,
+				);
+				const isOrder = row !== undefined && "order" in row;
+				if (
+					row !== undefined &&
+					isOrder !== (change.operation === "edit-order")
+				)
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: {
+							error: isOrder
+								? "That filter is an order. Use edit-order to change it, or remove it and add a filter."
+								: "That filter matches a value. Use edit to change it, or remove it and add an order.",
+						},
+					};
+			}
 			const edits: Mutation[] = [];
 			if (!mod.caseListConfig)
 				edits.push({
