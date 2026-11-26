@@ -824,10 +824,11 @@ export function readSearchSettings(
 	cursor: JsonCursor,
 	offers: boolean,
 	config: Partial<OrdinaryCaseSearchConfig>,
+	coveredSettings: ReadonlySet<string> = new Set(),
 ): SettingsReading {
 	const place = searchPlace(module);
 	let ok = true;
-	const claimed = new Set<string>();
+	const claimed = new Set(coveredSettings);
 	for (const [key, claim] of BLANK_KEYS)
 		if (cursor.peek(key) === "") {
 			cursor.drop(key, claim);
@@ -916,7 +917,10 @@ export function readSearchSettings(
 	let owners: number | undefined;
 	const filter = filterWithOwnerClause(module);
 	let ownersWithoutClause = false;
-	if (holdsText(cursor, "blacklisted_owner_ids_expression")) {
+	if (
+		!claimed.has("blacklisted_owner_ids_expression") &&
+		holdsText(cursor, "blacklisted_owner_ids_expression")
+	) {
 		claimed.add("blacklisted_owner_ids_expression");
 		if (offers)
 			// Nova's list writes no clause for an exclusion that reads a Search answer alone, which

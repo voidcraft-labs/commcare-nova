@@ -197,7 +197,7 @@
 		],
 		"valueClass": "request-config-key-literal-value-alone",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW** where its value is a literal or a typed value: the typed search control the key sets (the related-case property, related-case inclusion), kept in the default-filter spelling it arrived in, because that spelling's editor gate differs from the dedicated one's (the related-cases key includes related cases for any non-empty value, `case_search/utils.py::get_related_cases_result`), which is where HQ's editor shows it (`details/case_claim.js::defaultPropertyModel` accepts any name). A literal `commcare_sort` Nova reads is `default-filter-orders-the-records-the-search-sends`; one whose text Nova does not read (a comparison other than `exact`, `numeric` or `date`, two signs, more than one `:`) stays here",
+		"dispositionCell": "**HELD-NEW**: A request-order value outside the supported property, direction and comparison spellings, or another native request setting without a represented behavior. Related record IDs and inclusion use their own held rows.",
 		"subject": "search-default-filters",
 		"owner": "case-search",
 		"platforms": {
