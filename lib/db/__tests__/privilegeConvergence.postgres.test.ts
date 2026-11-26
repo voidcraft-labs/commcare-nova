@@ -1051,6 +1051,32 @@ describe("database privilege convergence", () => {
 				columnCount: 23,
 				rollbackVerified: true,
 			});
+			const movedPreviewRoutine = await sql`
+				SELECT pg_catalog.pg_get_userbyid(p.proowner) AS owner,
+					p.prosecdef AS definer, p.proconfig AS config,
+					pg_catalog.pg_get_function_result(p.oid) AS result_type,
+					pg_catalog.has_function_privilege(${config.runtimeRole}, p.oid, 'EXECUTE') AS runtime,
+					pg_catalog.has_function_privilege(${config.cleanupRole}, p.oid, 'EXECUTE') AS cleanup,
+					pg_catalog.has_function_privilege(${config.auditRole}, p.oid, 'EXECUTE') AS audit,
+					EXISTS (
+						SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
+						WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+					) AS public_execute
+				FROM pg_catalog.pg_proc p
+				WHERE p.oid = 'public.nova_clear_moved_preview_activity()'::regprocedure
+			`.execute(migration.db);
+			expect(movedPreviewRoutine.rows).toEqual([
+				{
+					owner: config.migrationRole,
+					definer: true,
+					config: ["search_path=pg_catalog"],
+					result_type: "trigger",
+					runtime: false,
+					cleanup: false,
+					audit: false,
+					public_execute: false,
+				},
+			]);
 			// Convergence is an every-deploy operation, including after `cases` has
 			// already moved and is runtime-owned. Seed historical direct cleanup
 			// grants to prove the second pass converges rather than merely audits
