@@ -78,7 +78,9 @@ def translation_overrides_a_menu_badge(authoring, app_id):
         assert parse_app_strings(app.create_app_strings("en"))[key] == "New"
         suite = etree.fromstring(app.create_suite())
         assert suite.xpath(f"//menu/display/text[@form='badge']/locale[@id='{key}']")
-    ops.set_json(authoring, app_id, f"/translations/en/{key}", "Urgent")
+    translations = dict(app.translations)
+    translations["en"] = {**translations.get("en", {}), key: "Urgent"}
+    ops.set_json(authoring, app_id, "/translations", translations)
     with authoring.step("variant:overridden-menu-badge"):
         app = operations.held_app(authoring.state, app_id)
         assert app.get_module(2).custom_icons[0].text["en"] == "New"
