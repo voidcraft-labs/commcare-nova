@@ -79,6 +79,31 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
         assert entry.disposition == "HELD" and entry.value_class
 
 
+def test_the_retained_dotted_open_index_is_decided_at_its_reference(manifest):
+    from proof.checks import parity
+
+    def source(identifier, *, target="selected_household"):
+        parent = _load("selected_household", case_type="household")
+        later = _load("selected_member", case_type="member")
+        index = _index(target, reference_id=identifier, relationship="child")
+        return _advanced_app([parent, later], [_open("open_visit", case_indices=[index])])
+
+    entry = parity.DOTTED_OPEN_INDEX
+    baseline = source("my-parent")
+    wanted = [
+        item.use.where
+        for item in parity.added_uses(baseline, source("my.parent"), entries=(entry,))
+        if any(resting.id == entry for resting in item.entries)
+    ]
+    assert wanted == ["/modules/0/forms/0/actions/open_cases/0/case_indices/0/reference_id"]
+    for control in [source("my.parent", target="selected_member"), source("my/parent"), baseline]:
+        assert not any(
+            resting.id == entry
+            for item in parity.added_uses(baseline, control, entries=(entry,))
+            for resting in item.entries
+        )
+
+
 SOURCE_FAMILIES_FILE = Path(__file__).parent / "fixtures" / "source-families.json"
 SOURCE_FAMILIES = json.loads(SOURCE_FAMILIES_FILE.read_text(encoding="utf-8"))["families"]
 ALLOWING = ("HELD", "TARGET-OWNED", "INERT")

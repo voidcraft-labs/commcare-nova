@@ -317,6 +317,7 @@ describe("an advanced form's loads and open actions", () => {
 			);
 			const built = expandDoc(reading.doc);
 			const actions = built.modules
+				.filter((menu) => menu.doc_type === "AdvancedModule")
 				.flatMap((menu) => menu.forms)
 				.flatMap((form) =>
 					form.doc_type === "AdvancedForm"
