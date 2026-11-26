@@ -90,6 +90,48 @@ def test_a_form_formplayer_rejects_fails_hqs_build(hq, core_runner):
     assert any("not_in_the_instance" in message for message in messages), built.errors
 
 
+
+@pytest.mark.parametrize(("key", "valid"), [("n名字", False), ("n_name", True)], ids=["uncased-tail", "ascii"])
+def test_basic_update_key_reaches_formplayers_own_xpath_parser(hq, core_runner, evidence, key, valid):
+    app = hq_test_app()
+    app["modules"][0]["forms"][1]["actions"]["update_case"]["update"][key] = {
+        "question_path": "/data/rename",
+        "update_mode": "always",
+    }
+    nodeset = f"/data/case/update/{key}"
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id, _ = operations.publish(state, [nova_shaped_upload(app, "Basic update name probe")])
+        held = operations.held_app(state, app_id)
+        with build_seams():
+            built = operations.build(held, record)
+
+    def generated_bind(xml):
+        tree = etree.fromstring(xml)
+        return next((bind for bind in tree.iter(f"{{{XFORMS}}}bind") if bind.get("nodeset") == nodeset), None)
+
+    [(sent, bind)] = [
+        (sent, bind) for sent in built.form_validations
+        if (bind := generated_bind(sent.xml)) is not None
+    ]
+    xml = etree.fromstring(sent.xml)
+    assert list(xml.iter(f"{{{CASE}}}{key}"))
+    assert bind.get("calculate") == "/data/rename"
+    assert sent.xml == built.files["modules-0/forms-1.xml"]
+    evidence("basic-update-name", {
+        "key": key, "nodeset": nodeset, "calculate": bind.get("calculate"),
+        "formplayer": sent.response, "hqErrors": built.errors,
+    })
+    assert sent.response["validated"] is valid, sent.response
+    if valid:
+        assert built.errors == [], built.errors
+    else:
+        fatal = sent.response["fatal_error"]
+        assert f"Parse error in XPath path: [{nodeset}]" in fatal, fatal
+        assert "Couldn't understand the expression starting at this point: " in fatal, fatal
+        assert "\u034e名" in fatal, fatal
+        assert any(nodeset in (error.get("validation_message") or "") for error in built.errors), built.errors
+
+
 def _with_owner_update(app_json):
     """The app with the follow-up form's ``update_case`` also writing ``owner_id`` from the question it already
     reads."""
