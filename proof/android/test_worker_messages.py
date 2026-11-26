@@ -32,17 +32,27 @@ def test_android_worker_confirms_the_required_checkbox_and_keeps_the_optional_de
     assert [root.findtext("{*}" + name) for name in ("notice", "confirmed", "optional")] == ["OK", "OK", "later"]
 
 
-def test_android_sends_only_the_file_attached_at_a_capture_question(android_documents, hq):
-    from proof.android.test_form_reads import _app, _entries, _forms, _served
+def test_android_sends_only_the_file_attached_at_a_capture_question(android_documents, hq, core_runner):
+    from proof.android.test_form_reads import _entries, _forms
     from proof.formplayer.walk import CAPTURES_DIR
 
     filename = "proof-file.pdf"
     keep = {"/data/report": [], "/data/photo": [], "/data/replacement": []}
-    with _served(android_documents["targeted-worker-messages"]) as (served, archive):
-        refused, refused_sent = _app(served, archive, "kept", commands=["m0-f1"], questions=keep)
+    doc = android_documents["targeted-worker-messages"]
+    # The release HQ builds of Nova's first publish, media and all, as the other witness here installs it.
+    with apps.published(doc, core_runner) as published, hq_forms.serve(published.unit, doc, published.app_id) as served:
+        archive = observe.release_archive(served)
+
+        def walked(label, questions, **steer):
+            blobs, sent = Blobs(), []
+            found = observe.app(served, blobs, label=label, archive=archive, sent=sent, commands=["m0-f1"],
+                                questions=questions, **steer)
+            return blobs.get_json(found["answer"]), sent
+
+        refused, refused_sent = walked("kept", keep)
         posted = []
-        accepted, _ = _app(served, archive, "replaced", commands=["m0-f1"],
-                           questions={**keep, "/data/replacement": [filename]}, submissions=posted)
+        accepted, _ = walked("replaced", {**keep, "/data/replacement": [filename]}, submissions=posted)
+    assert _forms(refused["walks"]["m0-f1"]), refused["walks"]["m0-f1"]
     first, = _forms(refused["walks"]["m0-f1"])
     last, = _forms(accepted["walks"]["m0-f1"])
     assert not refused_sent and not first["saved"]["finishing"], first

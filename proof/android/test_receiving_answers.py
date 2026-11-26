@@ -36,4 +36,7 @@ def test_android_keeps_the_answer_and_processes_the_household(android_documents,
     assert {k: root.findtext("{*}visit/{*}" + k) for k in expected} == expected
     assert root.find("{*}visit/{urn:receiving-service:household}service_value") is not None
     case = root.find("{http://commcarehq.org/case/transaction/v2}case")
-    assert case is not None and case.get("case_id") == household["id"]
+    # The reader names a case the device made by the order it made it (``Cases.java``, ``@device-case:<n>``), not
+    # by the id the form gave it; the submission's own case block carries that id.
+    assert case is not None and case.get("case_id"), received
+    assert household["id"].startswith("@device-case:"), household

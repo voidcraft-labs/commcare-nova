@@ -19,12 +19,22 @@ def test_android_shows_the_invitations_in_each_worker_language(android_documents
     doc = android_documents["targeted-repeat-invitations"]
     with apps.published(doc, core_runner) as published, hq_forms.serve(published.unit, doc, published.app_id) as served:
         blobs, sent = Blobs(), []
+        # The whole app, walked again in Spanish: a request naming its commands walks no other language
+        # (``Screens.java``).
         answer = observe.app(served, blobs, label="visit-invitations", archive=observe.release_archive(served),
-                             commands=["m0-f0"], questions={"/data/visit/place": ["North"]}, views=True, sent=sent)
+                             questions={"/data/visit/place": ["North"]}, views=True, sent=sent)
         walks = blobs.get_json(answer["answer"])["walks"]
-    for key, first, later in (("m0-f0", "Record the first visit", "Record another visit"),
-                              ("@language:es/m0-f0", "Registrar la primera visita", "Registrar otra visita")):
-        form, = [step["form"] for step in walks[key]["steps"] if "form" in step and step.get("screen") == "FormEntryActivity"]
+    for language, first, later in ((None, "Record the first visit", "Record another visit"),
+                                   ("es", "Registrar la primera visita", "Registrar otra visita")):
+        forms = [
+            step["form"]
+            for name, walk in walks.items()
+            if (name.startswith(f"@language:{language}/") if language else "@language:" not in name)
+            for step in walk.get("steps", [])
+            if "form" in step and step.get("screen") == "FormEntryActivity"
+        ]
+        assert len(forms) == 1, sorted(walks)
+        form, = forms
         prompts = [screen for screen in form["screens"] if "choices" in screen and "chose" in screen]
         assert [prompt["choices"][1] for prompt in prompts] == [first, later], form
         assert prompts[0]["chose"] == first and prompts[1]["chose"] == prompts[1]["choices"][2], prompts
