@@ -321,3 +321,35 @@ def test_manual_json_install_then_native_app_import_reads_exact_lookup_value(hq,
         visit_type, site, description = [item["value"] for item in observed["values"]]
         assert (visit_type, site) == ("follow_up", "home")
         assert len(description) == len(value) and description == value
+
+
+def test_native_read_checks_lookup_edit_permission_and_the_api_keys_role(hq):
+    """Nova's defensive authorization read must prove the role and scoped key can edit data."""
+    from django.contrib.auth.models import User
+    from corehq.apps.users.models import HQApiKey, HqPermissions
+    from corehq.apps.users.models_role import UserRole
+
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits
+
+    with hq_check(CONFIGURATION) as (state, _), hq_redis.shared(None), state.committing(), api_rate_limits(state):
+        allowed = operations.seed_api_user(state, "lookup-editor@example.org", edit_apps=False, edit_data=True)
+        denied = operations.seed_api_user(state, "app-editor@example.org", edit_apps=True, edit_data=False)
+        no_data = UserRole.create(
+            state.domain, "API read only", permissions=HqPermissions(access_api=True, edit_data=False)
+        )
+        limited = HQApiKey.objects.create(
+            user=User.objects.get(username=allowed.username),
+            name="lookup proof role scope",
+            is_active=True,
+            domain=state.domain,
+            role=no_data,
+        )
+        narrowed = operations.ApiCredential(allowed.username, limited.plaintext_key)
+        url = f"/a/{state.domain}/api/device-log/v1/?limit=1&device_id=00000000000000000000000000000000"
+        approved = operations.api_request(state, "GET", url, credential=allowed)
+        assert approved.status == 200, approved.retained()
+        assert json.loads(approved.body)["objects"] == []
+        for credential in (denied, narrowed):
+            refused = operations.api_request(state, "GET", url, credential=credential)
+            assert refused.status in (401, 403), refused.retained()
