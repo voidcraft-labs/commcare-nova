@@ -104,8 +104,12 @@ const REGISTRATION = {
 		refuse,
 		"case-list-form-on-a-module-whose-forms-do-not-all-require-a-case",
 	),
-	advanced: blockClaims(
-		refuse,
+	/** The always arm on an advanced host, or naming a form of an advanced
+	 *  menu: the host's forms keep HQ's rules for one (the gate's
+	 *  `CASE_LIST_REGISTRATION_ADVANCED_MENU`), and an advanced form
+	 *  registers by its root open. */
+	advancedAlways: blockClaims(
+		take,
 		"case-list-form-on-an-advanced-module-or-naming-an-advanced-form",
 	),
 	advancedRulesBroken: refuse(
@@ -674,7 +678,14 @@ export function readCaseListRegistration(
 			refuseBlock(REGISTRATION.multiSelectDefault);
 			continue;
 		}
-		const media = readAlways(ctx, host, named.form, form, block);
+		const media = readAlways(
+			ctx,
+			host,
+			named.form,
+			form,
+			block,
+			cls === "AdvancedModule" || named.module.docType === "AdvancedModule",
+		);
 		blocks.push({ host, kind: "always", form: named.form, media });
 	}
 }
@@ -721,11 +732,14 @@ function readAlways(
 	form: DraftForm,
 	stored: JsonObject,
 	block: JsonObject,
+	advanced: boolean,
 ): boolean {
 	const cursor = host.json.object(
 		"case_list_form",
 		"CaseListForm",
-		REGISTRATION.always[host.docType],
+		(advanced ? REGISTRATION.advancedAlways : REGISTRATION.always)[
+			host.docType
+		],
 		caseListPlaceOf(host),
 	);
 	cursor.take("form_id", REGISTRATION.alwaysFormId, (value) => value).value;

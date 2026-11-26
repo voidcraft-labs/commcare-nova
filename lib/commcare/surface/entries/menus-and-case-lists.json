@@ -9177,10 +9177,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "advanced-host-or-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a host or a named form in an advanced menu: HQ's six rules bind every form of the host to one case tag and one detail module, and an advanced form registers through `case_session_var`, a second return-frame source (`AdvancedModuleValidator`); Nova's `always` arm needs both menus basic (`CASE_LIST_REGISTRATION_ADVANCED_MENU`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.caseListRegistrationForm { kind: \"always\" }` on an advanced host whose forms keep HQ's six rules, each form choosing the same record types, each narrowed by the one before, ending with the host's own list (`AdvancedModuleValidator`; the gate's `CASE_LIST_REGISTRATION_ADVANCED_MENU`), or naming a form of an advanced menu whose root open registers the list's type, read by `reader/menus/registration.ts::readAlways`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
