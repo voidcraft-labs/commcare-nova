@@ -284,12 +284,11 @@ origin case type and index name, and one index can reach several types, child
 or extension. `parent_type`/`relationship` stay the compact spelling of a lone
 default `parent` edge; `CaseType.relations` holds only what that slot cannot
 say (`relationMetadata` is the canonical split, `declaredCaseRelations` the
-union). An index name is one Core name step (`CASE_INDEX_NAME_PATTERN`: a
-Latin-1 letter or underscore, then Latin-1 letters, digits, `_`, `.`,
-and `-`), which a read or catalog declaration takes. An actual Advanced
-open action can write that connection. It keeps the spelling and case
-exactly, including an accent before or after a hyphen. Basic and Save to
-Case changes use the narrower ASCII link grammar.
+union). A read or catalog declaration takes one namespace-free XML name
+that both pinned Core lexers can read (`isAdvancedCaseIndexIdentifier`).
+The HQ editor, case transaction and authenticated restore preserve the
+exact spelling and case of these names. An Advanced open action can write
+that connection. Basic and Save to Case changes use the ASCII link grammar.
 A native property column reads through `PropertyRef.readReached`: the walk
 prints and compiles with no case-type predicate, and its value is text unless
 every known destination agrees on a type and no hop is open. Property names

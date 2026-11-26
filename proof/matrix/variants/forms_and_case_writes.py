@@ -189,6 +189,21 @@ def open_visitor_with_leading_accented_index(authoring, app_id):
     _open_visitor_with_index(authoring, app_id, "Équipe")
 
 
+def open_visitor_with_greek_index(authoring, app_id):
+    """A shared worker letter can start the exact index name."""
+    _open_visitor_with_index(authoring, app_id, "Ωprobe")
+
+
+def open_visitor_with_nko_digit_index(authoring, app_id):
+    """A shared worker digit can continue the exact index name."""
+    _open_visitor_with_index(authoring, app_id, "probe߀")
+
+
+def open_visitor_with_web_only_index(authoring, app_id):
+    """The Web Apps lexer accepts a letter the oldest supported Android lexer cannot read."""
+    _open_visitor_with_index(authoring, app_id, "აprobe")
+
+
 def open_visitor_with_decomposed_index(authoring, app_id):
     """Keep the adjacent valid XML name outside the verified XPath grammar."""
     _open_visitor_with_index(authoring, app_id, "me\u0301trique")

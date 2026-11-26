@@ -13,6 +13,7 @@
  */
 
 import {
+	advancedCaseIndexNameProblem,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -21,7 +22,6 @@ import {
 	type FormCaseSelection,
 	type FormSelectionSource,
 	type FormType,
-	isAdvancedCaseIndexIdentifier,
 	isCaseOperationIdentifier,
 	isCaseOperationLinkIdentifier,
 	ownCaseOperationId,
@@ -41,7 +41,6 @@ import {
 } from "@/lib/domain/expression/builders";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
-import { XML_NCNAME_PATTERN } from "@/lib/domain/xmlName";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -564,6 +563,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	),
 	openIndexInvalidXml: refuse(
 		`${F}/index-identifier-invalid-xml-local-name`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	openIndexUnaddressable: refuse(
+		`${F}/index-identifier-unaddressable-in-worker-xpath`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
 	openIndexName: refuse(
@@ -2426,13 +2429,14 @@ function readOrdinaryAdvancedActions(
 				const namesOpen = openIndex !== undefined && loadIndex === undefined;
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
-				if (!isAdvancedCaseIndexIdentifier(identifier)) {
-					I.refuseWhole(
-						XML_NCNAME_PATTERN.test(identifier)
-							? ADVANCED_CLAIMS.openIndexName
-							: ADVANCED_CLAIMS.openIndexInvalidXml,
-						{ name: identifier },
-					);
+				const nameProblem = advancedCaseIndexNameProblem(identifier);
+				if (nameProblem) {
+					const claim = {
+						"invalid-xml": ADVANCED_CLAIMS.openIndexInvalidXml,
+						unaddressable: ADVANCED_CLAIMS.openIndexUnaddressable,
+						"one-platform": ADVANCED_CLAIMS.openIndexName,
+					}[nameProblem];
+					I.refuseWhole(claim, { name: identifier });
 					r.ok = false;
 					return;
 				}

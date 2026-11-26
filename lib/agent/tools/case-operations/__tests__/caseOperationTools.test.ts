@@ -598,7 +598,7 @@ describe("shared case-operation tools", () => {
 		expect(h.currentDoc()).toEqual(saved);
 	});
 
-	it.each(["my.parent", "mé-trique", "Équipe"])(
+	it.each(["my.parent", "mé-trique", "Équipe", "Ωprobe"])(
 		"holds the Advanced name %s when the actual shared write uses Save to Case",
 		async (identifier) => {
 			const { doc, moduleUuid, formUuid } = fixture();

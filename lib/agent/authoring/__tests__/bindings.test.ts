@@ -142,34 +142,37 @@ it("binds unique short field names without changing exact paths or accepting amb
 	expect(rooted.resolveField(["check_date"])).toBe(testUuid("root-check-date"));
 });
 
-it("retains the exact accented index in an authored record expression", () => {
-	const doc = buildDoc({
-		caseTypes: [
-			household,
-			{
-				...patient,
-				relations: [{ identifier: "mé-trique", targetType: "Household" }],
+it.each(["mé-trique", "Ωprobe", "probe߀"])(
+	"retains the exact index %s in an authored record expression",
+	(identifier) => {
+		const doc = buildDoc({
+			caseTypes: [
+				household,
+				{
+					...patient,
+					relations: [{ identifier, targetType: "Household" }],
+				},
+			],
+		});
+		const scope = new AuthoringScope({ doc, currentCaseType: "Patient" });
+		const value = parseQueryValue(
+			`via(ancestor('${identifier}'), #case/region)`,
+			scope,
+		);
+		expect(value).toMatchObject({
+			kind: "term",
+			term: {
+				caseType: "Patient",
+				property: "region",
+				via: { kind: "ancestor", via: [{ identifier }] },
 			},
-		],
-	});
-	const scope = new AuthoringScope({ doc, currentCaseType: "Patient" });
-	const value = parseQueryValue(
-		"via(ancestor('mé-trique'), #case/region)",
-		scope,
-	);
-	expect(value).toMatchObject({
-		kind: "term",
-		term: {
-			caseType: "Patient",
-			property: "region",
-			via: { kind: "ancestor", via: [{ identifier: "mé-trique" }] },
-		},
-	});
-	expect(inferRecordQuery(value, scope.typeContext).errors).toEqual([]);
-	expect(parseQueryValue(queryPrinter(scope).value(value), scope)).toEqual(
-		value,
-	);
-});
+		});
+		expect(inferRecordQuery(value, scope.typeContext).errors).toEqual([]);
+		expect(parseQueryValue(queryPrinter(scope).value(value), scope)).toEqual(
+			value,
+		);
+	},
+);
 
 it("binds related names on their destination while preserving the canonical origin", () => {
 	const moduleUuid = testUuid("household-query-module");
