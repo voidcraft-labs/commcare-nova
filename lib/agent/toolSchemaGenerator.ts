@@ -1,7 +1,10 @@
 import { singleChoiceLayoutSchema } from "@/lib/domain/choicePresentation";
 import { androidAppAnswerSchema } from "@/lib/domain/fields/androidApp";
 import { connectActivitySchema } from "@/lib/domain/fields/connectActivity";
-import { caseOptionsSourceSchema as storedCaseOptionsSourceSchema } from "@/lib/domain/fields/selectOptionsSource";
+import {
+	availableCasesOptionsSourceSchema,
+	caseOptionsSourceSchema as storedCaseOptionsSourceSchema,
+} from "@/lib/domain/fields/selectOptionsSource";
 import { displaySchemas } from "@/lib/domain/questionDisplaySchemas";
 
 const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
@@ -140,7 +143,7 @@ const FIELD_DOCS = {
 	default_value:
 		"Starting value evaluated when the form opens. Use calculate for a value that should keep updating.",
 	optionsSource:
-		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs. labelProperty defaults to case_name. sortProperty orders choices by a property of the chosen case type. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record.",
+		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs. labelProperty defaults to case_name. sortProperty orders choices by a property of the chosen case type. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record. A single-select can use available-cases to show all case types restored for the worker by name. The answer is an exact ID without a named case type.",
 	caseWrite:
 		"Save this answer to a case property. The module's case type saves it to this form's case, and with via to a case above it; a declared child type saves it to a new child case, which needs a question saving its case_name; commcare-user saves it to the worker's own record. A capture saves a link to its file. A value replaces every place this question saves to, and null stops it saving anywhere; when it saves to several places, change them with updateCaseOperation instead. On a follow-up or close form that opens one case, a question saving to this form's case is given a default_value reading that case's value, which you can replace or remove. Use recordName for the case's name.",
 	field_list:
@@ -324,6 +327,7 @@ export const projectedOptionsSourceSchema = z
 		}),
 		lookupOptionsSourceSchema,
 		caseOptionsSourceSchema,
+		availableCasesOptionsSourceSchema,
 	])
 	.describe(FIELD_DOCS.optionsSource);
 

@@ -677,7 +677,7 @@ no selected record. Do not require custom definitions to read built-in metadata.
 
 ## Choices from available cases
 
-`SelectOptionsSource` has three arms: inline, lookup and cases. A cases source
+`SelectOptionsSource` has inline, lookup, cases and available-cases arms. A cases source
 names a declared `caseType`, a `labelProperty`, an optional condition Expression,
 and an optional `sortProperty`.
 Its values are always exact case IDs; no value-property setting exists. Omitted
@@ -694,6 +694,12 @@ property renames, retirement checks and source replacement like other carriers.
 Form case and table filters also admit the zero-argument `position()` call for
 the candidate's one-based source position, evaluated before sorting. A case
 candidate's position is counted within the declared type.
+
+An `{ kind: "available-cases" }` source on a single select offers the entire
+already authorized restored case database in device order, including retained
+types outside the active catalog. It displays `case_name` and saves the opaque
+`case_id`. Operations using that ID check the target against their own type.
+
 
 ## Forms listed in another menu
 

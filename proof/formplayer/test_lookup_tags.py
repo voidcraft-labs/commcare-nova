@@ -117,3 +117,32 @@ def test_formplayer_does_not_open_the_form_over_the_controls_tags(
     evidence("control", screen)
     assert screen_kind(screen) != "form", screen
     assert REFUSAL in str(screen) and "lookup table" in str(screen), screen
+
+
+
+def test_formplayer_unfiltered_case_itemset_lists_the_workers_mixed_restore(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    from lxml import etree
+
+    from proof.observe import visible_case_choice as visible
+
+    with apps.published(formplayer_documents[visible.DOCUMENT], core_runner) as published:
+        with apps.served(published, formplayer_runner, database=visible.database(),
+                         change=visible.release_unfiltered(published)) as served, served.run("all-visible-cases"):
+            web = apps.web(formplayer_runner, served)
+            form = _opened(web)
+            assert screen_kind(form) == "form", form
+            (choice,) = [node for node in _questions(form["tree"]) if node.get("binding") == "/data/clinic"]
+            assert sorted(choice["choices"]) == sorted(visible.EXPECTED.values())
+            index = choice["choices"].index(visible.EXPECTED["former-service"]) + 1
+            answers = {choice["ix"]: index}
+            accepted = web.answer(form["session_id"], choice["ix"], index)
+            assert accepted["status"] == "accepted", accepted
+            start = len(served.hq.submissions)
+            result = web.submit(form["session_id"], answers)
+            assert result["status"] == "success", result
+            (submission,) = served.hq.submissions[start:]
+    case_id = etree.fromstring(submission.instance).findtext("{*}clinic")
+    evidence("all-visible-cases", {"choices": choice["choices"], "submitted": case_id})
+    assert case_id == "former-service"

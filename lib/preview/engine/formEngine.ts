@@ -29,7 +29,10 @@ import type { CompletedFormSearch } from "./xpathInstances";
 import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { androidAppRequest } from "@/lib/commcare";
-import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
+import {
+	availableCasesNodeset,
+	caseOptionsNodeset,
+} from "@/lib/commcare/caseOptions";
 import { formSharingPlan } from "@/lib/commcare/casePlacementPlan";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
@@ -55,9 +58,9 @@ import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	BlueprintDoc,
-	CaseOptionsSource,
 	CaseSelectionCardinality,
 	CaseType,
+	DeviceCaseOptionsSource,
 	Field,
 	FieldProseSlot,
 	Form,
@@ -4922,15 +4925,15 @@ export class FormEngine {
 						break;
 					}
 					const next =
-						field.optionsSource.kind === "cases"
-							? await this.computeCaseChoicesAsync(
+						field.optionsSource.kind === "lookup"
+							? this.computeLookupChoices(
+									field.optionsSource,
+									this.createEvalContext(path, updates),
+								)
+							: await this.computeCaseChoicesAsync(
 									field.optionsSource,
 									path,
 									evaluateAsync,
-								)
-							: this.computeLookupChoices(
-									field.optionsSource,
-									this.createEvalContext(path, updates),
 								);
 					if (next === undefined) break;
 					if (!lookupChoicesEqual(next, choices)) {
@@ -5242,9 +5245,9 @@ export class FormEngine {
 						f.optionsSource.kind !== "inline"
 					) {
 						const next =
-							f.optionsSource.kind === "cases"
-								? this.computeCaseChoices(f.optionsSource, ctx)
-								: this.computeLookupChoices(f.optionsSource, ctx);
+							f.optionsSource.kind === "lookup"
+								? this.computeLookupChoices(f.optionsSource, ctx)
+								: this.computeCaseChoices(f.optionsSource, ctx);
 						/* `undefined` is the typed loading state: no snapshot captured
 						 * yet (the cold-load race before the builder session's fetch
 						 * settles). The renderer shows loading, and the controller's
@@ -6908,8 +6911,9 @@ export class FormEngine {
 	 *  coverage-keyed rebuild resolves them when fresh data arrives.
 	 *  Only a COVERED snapshot evaluates, so `lookupChoicesFromNodeset`'s
 	 *  identity throws stay a genuine validation-bypass surface. */
-	private caseChoiceDataCovered(source: CaseOptionsSource): boolean {
+	private caseChoiceDataCovered(source: DeviceCaseOptionsSource): boolean {
 		return (
+			source.kind === "available-cases" ||
 			source.filter === undefined ||
 			predicateLookupsCovered(source.filter, this.lookupData ?? undefined)
 		);
@@ -6967,35 +6971,39 @@ export class FormEngine {
 	}
 
 	private caseChoiceQuery(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		questionPath: string,
 	): string {
 		return serializeWire(
-			caseOptionsNodeset(
-				source,
-				this.choiceContext(questionPath),
-				{
-					...this.choiceBindings(questionPath),
-					...(this.lookupData && {
-						lookup: {
-							naming: this.lookupData.naming,
-							instanceScope: "xform" as const,
+			source.kind === "available-cases"
+				? availableCasesNodeset()
+				: caseOptionsNodeset(
+						source,
+						this.choiceContext(questionPath),
+						{
+							...this.choiceBindings(questionPath),
+							...(this.lookupData && {
+								lookup: {
+									naming: this.lookupData.naming,
+									instanceScope: "xform" as const,
+								},
+							}),
 						},
-					}),
-				},
-				this.expressions.projection,
-			),
+						this.expressions.projection,
+					),
 			{ target: "preview" },
 		).text;
 	}
 
 	private caseChoicesForIds(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		ids: readonly string[],
 	): readonly LookupChoice[] {
-		const labelPath = emitCasePropertyWirePath(source.labelProperty);
+		const labelPath = emitCasePropertyWirePath(
+			source.kind === "cases" ? source.labelProperty : "case_name",
+		);
 		const sortPath =
-			source.sortProperty === undefined
+			source.kind !== "cases" || source.sortProperty === undefined
 				? undefined
 				: emitCasePropertyWirePath(source.sortProperty);
 		const choices = ids.map((value) => {
@@ -7023,7 +7031,7 @@ export class FormEngine {
 	}
 
 	private computeCaseChoices(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		ctx: EvalContext,
 	): readonly LookupChoice[] | undefined {
 		if (!this.hasCaseSnapshot || !this.caseChoiceDataCovered(source))
@@ -7041,7 +7049,7 @@ export class FormEngine {
 	}
 
 	private async computeCaseChoicesAsync(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<readonly LookupChoice[] | undefined> {
