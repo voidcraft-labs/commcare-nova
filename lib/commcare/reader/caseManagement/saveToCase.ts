@@ -47,6 +47,7 @@ import {
 	type CaseTypeCalculation,
 	fixedCaseTypeOf,
 	hasUpdateOnlyCaseFacets,
+	RESERVED_CASE_OPERATION_TYPES,
 } from "@/lib/domain/forms";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
@@ -794,6 +795,11 @@ export interface ProposedBlock {
 	};
 	readonly retype?: string;
 	readonly typeCalculation?: CaseTypeCalculation;
+	readonly typeChoice?: {
+		readonly text: string;
+		readonly site: ClaimSite;
+		readonly otherwise: string;
+	};
 	readonly writes: readonly ProposedRow[];
 	readonly links: readonly ProposedLink[];
 	readonly condition?: { readonly text: string; readonly site: ClaimSite };
@@ -1514,6 +1520,53 @@ function readBlock(
 	const createTypeText = creates ? calc("case/create/case_type") : undefined;
 	const literalType = literalOf(createTypeText);
 	const declaredType = block.element.attribs["vellum:case_type"];
+	const syntax = parse(createTypeText);
+	const branches =
+		syntax?.kind === "call" && syntax.name === "if" && syntax.args.length === 3
+			? syntax.args
+			: [];
+	const [caseCondition, primaryType, alternateType] = branches;
+	const isDeclared = (type: string) =>
+		ctx.input.knownCaseTypes?.hasType?.(type) === true ||
+		ctx.draft.modules.some((module) => module.module.caseType === type);
+	let choiceType:
+		| (NonNullable<ProposedBlock["typeChoice"]> & { type: string })
+		| undefined;
+	const typeBind = bindAt("case/create/case_type");
+	if (
+		declaredType === "" &&
+		typeBind !== undefined &&
+		createTypeText !== undefined &&
+		caseCondition !== undefined &&
+		primaryType?.kind === "string" &&
+		alternateType?.kind === "string" &&
+		primaryType.value !== alternateType.value
+	) {
+		const names = [primaryType.value, alternateType.value];
+		const reserved = names.find((type) =>
+			RESERVED_CASE_OPERATION_TYPES.has(type),
+		);
+		if (reserved !== undefined)
+			return fail(
+				SAVE_TO_CASE_CLAIMS.reservedType,
+				{ name: reserved },
+				typeBind,
+			);
+		const undeclared = names.find((type) => !isDeclared(type));
+		if (undeclared !== undefined)
+			return fail(
+				SAVE_TO_CASE_CLAIMS.caseTypeXPath,
+				{ name: undeclared },
+				typeBind,
+			);
+		choiceType = {
+			type: primaryType.value,
+			otherwise: alternateType.value,
+			text: createTypeText.slice(caseCondition.from, caseCondition.to),
+			site: { element: typeBind, attribute: "calculate" },
+		};
+	}
+
 	// Vellum removes the declared type when the create's type is an XPath.
 	// Keep the literal-only calculation itself, and resolve the fixed type
 	// before asking for that static metadata.
@@ -1523,14 +1576,15 @@ function readBlock(
 		createTypeText !== undefined &&
 		literalType === undefined &&
 		typeCalculation === undefined &&
-		parse(createTypeText) !== undefined
+		choiceType === undefined &&
+		syntax !== undefined
 	)
 		return fail(SAVE_TO_CASE_CLAIMS.caseTypeXPath);
 	const fixedType =
 		typeCalculation === undefined
 			? undefined
 			: fixedCaseTypeOf(typeCalculation);
-	const caseType = fixedType ?? declaredType;
+	const caseType = choiceType?.type ?? fixedType ?? declaredType;
 	if (caseType === undefined || (caseType === "" && fixedType === undefined))
 		return { ok: false };
 	// The worker's record is a case a block only updates: a create, a close or
@@ -1599,7 +1653,7 @@ function readBlock(
 	// The target.
 	let target: ProposedTarget;
 	if (creates) {
-		const createType = fixedType ?? literalType;
+		const createType = choiceType?.type ?? fixedType ?? literalType;
 		if (createType === undefined)
 			return fail(SAVE_TO_CASE_CLAIMS.caseTypeXPath);
 		if (createType !== caseType) return { ok: false };
@@ -2097,6 +2151,7 @@ function readBlock(
 			...(rename !== undefined && { rename }),
 			...(retype !== undefined && { retype }),
 			...(typeCalculation !== undefined && { typeCalculation }),
+			...(choiceType !== undefined && { typeChoice: choiceType }),
 			writes,
 			links,
 			...(condition !== undefined && { condition }),
@@ -2706,6 +2761,7 @@ export function readSaveToCaseBlocks(
 		firstBlock.target.authoredId === undefined &&
 		firstBlock.ownerCondition === undefined &&
 		firstBlock.typeCalculation === undefined &&
+		firstBlock.typeChoice === undefined &&
 		firstBlock.block.repeat === null &&
 		firstBlock.segments.join("/") === "operations/block" &&
 		firstBlock.name?.answer === undefined &&
@@ -3033,6 +3089,7 @@ function claimAccepted(
 		note(one.condition?.site);
 		note(one.closeCondition?.site);
 		note(one.ownerCondition?.site);
+		note(one.typeChoice?.site);
 		if (one.target.kind === "expression") note(one.target.site);
 		if (one.target.kind === "new") note(one.target.authoredId?.site);
 		for (const write of one.writes) {
@@ -3432,6 +3489,7 @@ function caseSlot(
 	slot:
 		| "case_operation_name"
 		| "case_operation_owner"
+		| "case_operation_type_condition"
 		| "case_operation_owner_condition"
 		| "case_operation_rename"
 		| "case_operation_condition"
@@ -3502,6 +3560,15 @@ function registerTexts(
 				caseSlot(form.uuid, "case_operation_owner", op),
 				one.owner.text,
 				one.owner.site,
+				one.place,
+				CALC,
+			);
+		if (one.typeChoice !== undefined)
+			register(
+				`${op} type condition`,
+				caseSlot(form.uuid, "case_operation_type_condition", op),
+				one.typeChoice.text,
+				one.typeChoice.site,
 				one.place,
 				CALC,
 			);
@@ -3809,6 +3876,12 @@ function operationOf(
 			caseType: one.caseType,
 			...(one.typeCalculation !== undefined && {
 				typeCalculation: one.typeCalculation,
+			}),
+			...(one.typeChoice !== undefined && {
+				typeChoice: {
+					otherwise: one.typeChoice.otherwise,
+					condition: placeholder("condition"),
+				},
 			}),
 			target: {
 				kind: "new",

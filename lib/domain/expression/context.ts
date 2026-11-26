@@ -1087,6 +1087,7 @@ export function slotContext(
 				slot.slot === "case_operation_condition" ||
 				slot.slot === "case_operation_close_condition" ||
 				slot.slot === "case_operation_owner_condition" ||
+				slot.slot === "case_operation_type_condition" ||
 				slot.slot === "case_operation_write_condition";
 			const target =
 				(slot.slot === "case_operation_target_expression" &&

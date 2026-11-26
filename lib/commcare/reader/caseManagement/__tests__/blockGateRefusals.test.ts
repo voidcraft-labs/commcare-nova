@@ -955,3 +955,63 @@ describe("a Save to Case create's calculated type", () => {
 		]);
 	});
 });
+
+it("round trips a create that chooses one of two declared case types from an answer", async () => {
+	const doc = buildDoc(
+		{
+			appId: "app-1",
+			caseTypes: [
+				{ name: "visit", properties: [] },
+				{ name: "patient", properties: [] },
+			],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "visit",
+					forms: [
+						{
+							uuid: "block-gate-form",
+							name: "Visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note", uuid: NOTE })],
+						},
+					],
+				},
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Note",
+							type: "survey",
+							fields: [f({ kind: "text", id: "remark" })],
+						},
+					],
+				},
+			],
+		},
+		(draft) => {
+			draft.forms[FORM].caseOperations = [
+				visitCreate({
+					typeChoice: { condition: onYes, otherwise: "patient" },
+				}),
+			];
+		},
+	);
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	const result = outcome.draft.doc;
+	expect(result.forms[FORM].caseOperations?.[0]).toMatchObject({
+		uuid: VISIT,
+		caseType: "visit",
+		typeChoice: { condition: onYes, otherwise: "patient" },
+	});
+	expect(gateCodes(result)).toEqual([]);
+	const once = exportedBody(result);
+	const twice = await readBack(result);
+	expect(twice.kind).toBe("read");
+	if (twice.kind === "read")
+		expect(exportedBody(twice.draft.doc)).toEqual(once);
+});

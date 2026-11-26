@@ -111,6 +111,7 @@ export function caseOperationDependencyUuids(
 	)
 		collectExpressionDependencies(target.expr, refs);
 	for (const expression of [
+		operation.action === "create" ? operation.typeChoice?.condition : undefined,
 		operation.name,
 		operation.owner,
 		operation.rename,

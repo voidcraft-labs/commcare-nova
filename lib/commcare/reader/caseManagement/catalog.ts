@@ -604,19 +604,24 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				if (caseType === undefined) continue;
 				noteType(caseTypes, caseType);
 				const destination = block.retype ?? caseType;
-				noteType(caseTypes, destination);
+				const destinations =
+					block.typeChoice === undefined
+						? [destination]
+						: [destination, block.typeChoice.otherwise];
+				for (const type of destinations) noteType(caseTypes, type);
 				for (const write of block.writes) {
 					// A value that is one question's answer is that question's write.
 					const field =
 						write.value.kind === "text"
 							? write.value.readsField
 							: write.value.field;
-					writes.push({
-						caseType: destination,
-						property: write.property,
-						...(field !== undefined && { field }),
-						...(boundDateTime(form, field) && { dateTime: true }),
-					});
+					for (const type of destinations)
+						writes.push({
+							caseType: type,
+							property: write.property,
+							...(field !== undefined && { field }),
+							...(boundDateTime(form, field) && { dateTime: true }),
+						});
 				}
 				for (const link of block.links) {
 					noteType(caseTypes, link.targetType);

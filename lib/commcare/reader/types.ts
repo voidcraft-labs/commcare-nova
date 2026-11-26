@@ -137,6 +137,8 @@ export interface ReaderKnownLanguageCodes {
 /** The case types the indices of the app's document reach and the types its catalog declares,
  *  as Nova holds them (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */
 export interface ReaderKnownCaseTypes {
+	/** A case type explicitly declared by the previous Nova document. */
+	hasType?(caseType: string): boolean;
 	/** The type a case of `caseType` reaches through its index `identifier`: for `parent`, the
 	 *  catalog's parent and the relationship it holds; for any other identifier, the type every
 	 *  typed step of the document through that identifier from `caseType` agrees on. Undefined
