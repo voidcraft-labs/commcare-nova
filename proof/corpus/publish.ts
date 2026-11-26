@@ -2732,6 +2732,8 @@ export interface BringInRecord {
 	readonly review: HqChangesReview;
 	/** Exact places in the current reading when the review newly lists the removal of unshown form media. */
 	readonly unshownMediaPlaces?: readonly string[];
+	/** Exact columns in the current reading with legacy related text whose generated keys change. */
+	readonly legacyRelatedCaseTextPlaces?: readonly string[];
 	/** `brought-in`: the change was committed; `recorded`: nothing in the app changed. */
 	readonly taken: "brought-in" | "recorded";
 	/** Whether the bring-in removed changes made in Nova (the plan applied to the published document). */
@@ -3678,6 +3680,14 @@ async function bringInOverPeer(input: {
 				unshownMediaPlaces: firstPublishChangePlaces(
 					checked.declaration.firstPublishFacts,
 					["unshown-form-media-removed"],
+				)[0].places,
+			}),
+			...(checked?.plan.publishChanges.includes(
+				"legacy-related-case-text-rekeyed",
+			) && {
+				legacyRelatedCaseTextPlaces: firstPublishChangePlaces(
+					checked.declaration.firstPublishFacts,
+					["legacy-related-case-text-rekeyed"],
 				)[0].places,
 			}),
 			taken: committed ? "brought-in" : "recorded",

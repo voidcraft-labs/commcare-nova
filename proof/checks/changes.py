@@ -1034,8 +1034,8 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
     """The changes that apply on ``document``, each with the places it stands at: on a document made in HQ, those
     its reading says the first publish makes (``corpus.Document.first_publish_places``), each held to its entry's
     kinds; on a corpus document whose saves in CommCare HQ are brought in, the changes of the next publish Nova's
-    review of them lists (``corpus.Document.next_publish``). Unshown form media keeps the current reading's
-    exact places. The other next-publish changes stand everywhere. None applies on any other document or control."""
+    review of them lists (``corpus.Document.next_publish``). Unshown form media and legacy related case text use
+    places from the current reading. The other next-publish changes stand everywhere. None applies on any other document or control."""
     if getattr(document, "hq_authored", False):
         listed = dict(document.first_publish_places)
         by_id = {change.change: change for change in register}
@@ -1066,8 +1066,12 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
         return {change_id: tuple(places) for change_id, places in listed.items()}
     if getattr(document, "kind", "corpus") == "control":
         return {}
+    exact_places = {
+        UNSHOWN_MEDIA: "unshown_media_places",
+        LEGACY_RELATED_CASE_TEXT: "legacy_related_case_text_places",
+    }
     return {
-        change_id: tuple(document.unshown_media_places) if change_id == UNSHOWN_MEDIA else EVERYWHERE
+        change_id: tuple(getattr(document, exact_places[change_id])) if change_id in exact_places else EVERYWHERE
         for change_id in getattr(document, "next_publish", ()) or ()
     }
 

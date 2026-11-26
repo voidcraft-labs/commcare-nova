@@ -454,6 +454,7 @@ BROUGHT_IN_KEYS = frozenset(
     {"review", "taken", "discarded", "mutations", "identities", "again", "assumedSummary", "document"}
 )
 BROUGHT_IN_READING = "reading"
+BROUGHT_IN_EXACT_PLACES = ("unshownMediaPlaces", "legacyRelatedCaseTextPlaces")
 
 
 @dataclass(frozen=True)
@@ -476,14 +477,15 @@ class BroughtIn:
     document: dict
     reading: dict | None = None
     unshown_media_places: tuple[str, ...] = ()
+    legacy_related_case_text_places: tuple[str, ...] = ()
 
     @classmethod
     def from_json(cls, value, where):
-        if not isinstance(value, dict) or set(value) - {BROUGHT_IN_READING, "unshownMediaPlaces"} != BROUGHT_IN_KEYS:
+        if not isinstance(value, dict) or set(value) - {BROUGHT_IN_READING, *BROUGHT_IN_EXACT_PLACES} != BROUGHT_IN_KEYS:
             raise CorpusLayoutError(
                 f"{where} names its broughtIn as {sorted(value) if isinstance(value, dict) else value!r}; a"
                 f" bring-in's record holds exactly {sorted(BROUGHT_IN_KEYS)}, and {BROUGHT_IN_READING} where the"
-                " review read CommCare HQ's app, and unshownMediaPlaces where it newly listed that removal."
+                " review read CommCare HQ's app, with exact places where the review listed a scoped change."
             )
         if value["taken"] not in ("brought-in", "recorded"):
             raise CorpusLayoutError(f"{where} records a bring-in that took {value['taken']!r}.")
@@ -491,11 +493,16 @@ class BroughtIn:
             if not isinstance(value[key], dict) or not isinstance(value[key].get("kind", ""), str):
                 raise CorpusLayoutError(f"{where} records the bring-in's {key} as {value[key]!r}.")
         reading = value.get(BROUGHT_IN_READING)
-        media_places = value.get("unshownMediaPlaces", [])
-        if not isinstance(media_places, list) or not all(
-            isinstance(p, str) and p.startswith("/") for p in media_places
-        ):
-            raise CorpusLayoutError(f"{where} records unshownMediaPlaces without exact places in the current reading.")
+        exact = {}
+        for key in BROUGHT_IN_EXACT_PLACES:
+            if key not in value:
+                continue
+            places = value[key]
+            if not isinstance(places, list) or not places or not all(
+                isinstance(place, str) and place.startswith("/") for place in places
+            ):
+                raise CorpusLayoutError(f"{where} records {key} without exact places in the current reading.")
+            exact[key] = tuple(places)
         if reading is not None and (
             not isinstance(reading, dict)
             or not isinstance(reading.get("doc"), dict)
@@ -516,7 +523,8 @@ class BroughtIn:
             assumed_summary=value["assumedSummary"],
             document=value["document"],
             reading=reading,
-            unshown_media_places=tuple(media_places),
+            unshown_media_places=exact.get("unshownMediaPlaces", ()),
+            legacy_related_case_text_places=exact.get("legacyRelatedCaseTextPlaces", ()),
         )
 
     @property
@@ -1151,10 +1159,18 @@ class Document:
     def unshown_media_places(self):
         """The current review's exact places, the same across exports. An absent or disagreeing record cannot
         authorize removing a sibling's picture. Read only when the review newly listed this change."""
+        return self._next_publish_exact_places("unshown_media_places")
+
+    @property
+    def legacy_related_case_text_places(self):
+        """The related columns the review names agree across publication carriers."""
+        return self._next_publish_exact_places("legacy_related_case_text_places")
+
+    def _next_publish_exact_places(self, key):
         records = (export.brought_in for export in self.exports.values())
-        places = {record.unshown_media_places if record else () for record in records}
+        places = {getattr(record, key) if record else () for record in records}
         if len(places) != 1 or not next(iter(places)):
-            raise CorpusLayoutError(f"{self.root} has no consistent unshownMediaPlaces in its next-publish review.")
+            raise CorpusLayoutError(f"{self.root} has no consistent {key} in its next-publish review.")
         return next(iter(places))
 
     def republished_as_stated(self):
