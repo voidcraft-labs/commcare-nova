@@ -12383,7 +12383,7 @@ def direct_parent_text_prompt_key(use, manifest):
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", prop) or not _authored_property_name(prop):
         return False
     if prop in {"case_id", "case_name", "date_opened", "last_modified", "owner_id", "external_id",
-                "status", "name", "case_type", "closed_on", "commcare_search_score"}:
+                "status", "name", "case_type", "closed_on", "location_id", "commcare_search_score"}:
         return False
     at = _json(use)
     config = at.nearest("CaseSearch")

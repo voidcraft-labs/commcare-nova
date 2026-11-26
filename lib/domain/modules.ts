@@ -72,6 +72,7 @@ import {
 } from "./navigationMedia";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 } from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
@@ -2920,6 +2921,7 @@ export function isDirectParentSearchProperty(property: string): boolean {
 		/^[A-Za-z][A-Za-z0-9_]*$/.test(property) &&
 		authoredCasePropertyNameSchema.safeParse(property).success &&
 		!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, property) &&
+		!isDeviceOnlyCaseProperty(property) &&
 		!["name", "case_type", "closed_on", "commcare_search_score"].includes(
 			property,
 		)
