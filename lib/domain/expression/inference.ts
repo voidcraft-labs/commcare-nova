@@ -62,9 +62,9 @@ import {
 import { caseDataTypeForFieldKind } from "../caseTypes";
 import { formOfField } from "../fieldForm";
 import type { Field, HiddenField } from "../fields";
-import { fieldValueType } from "../fieldValueType";
+import { fieldValueType, keepsHiddenClock } from "../fieldValueType";
 import { openingAssignmentPropertyType } from "../formOpeningAssignments";
-import { orderedCaseOperations } from "../forms";
+import { orderedCaseOperations, RESERVED_CASE_OPERATION_TYPES } from "../forms";
 import { moduleUuidOfForm } from "../postSubmit";
 import { proseText } from "../prose";
 import {
@@ -392,6 +392,44 @@ export function inferenceFingerprint(doc: PersistableDoc): string {
 	return fingerprint;
 }
 
+/** HQ's untyped basic update leaf wraps the typed source's instant as a day. */
+function directHiddenDayWriter(
+	doc: PersistableDoc,
+	writer: HiddenOpinion,
+): boolean {
+	const field = doc.fields[writer.field];
+	if (
+		!keepsHiddenClock(field) ||
+		RESERVED_CASE_OPERATION_TYPES.has(writer.caseType) ||
+		isStandardCaseListProperty(writer.property) ||
+		!doc.caseTypes
+			?.find(({ name }) => name === writer.caseType)
+			?.properties.some(
+				({ name, data_type }) =>
+					name === writer.property && data_type === "date",
+			)
+	)
+		return false;
+	const form = writer.form === undefined ? undefined : doc.forms[writer.form];
+	if (form?.type !== "followup") return false;
+	const writes = (form.caseOperations ?? []).flatMap((operation) =>
+		(operation.writes ?? [])
+			.filter(({ value }) => writerOfValue(doc, value)?.uuid === writer.field)
+			.map((write) => ({ operation, write })),
+	);
+	if (writes.length !== 1) return false;
+	const [{ operation, write }] = writes;
+	return (
+		operation.action === "own" &&
+		(operation.placement === undefined ||
+			operation.placement.kind === "basic") &&
+		write.property === writer.property &&
+		write.via === undefined &&
+		write.condition === undefined &&
+		write.onlyIfChanged !== true
+	);
+}
+
 /**
  * Each Hidden Value writer that disagrees with the property it writes, with
  * the outputs that disagree. Where the property's type is one every result
@@ -414,6 +452,8 @@ export function hiddenWriterVerdicts(
 		const findings: HiddenWriterFinding[] = [];
 		if (property.type !== undefined) {
 			const fitted = FITTED_PROPERTY_TYPES.has(property.type);
+			const writesDay =
+				property.type === "date" && directHiddenDayWriter(doc, writer);
 			if (
 				!fitted &&
 				writer.wholeType !== undefined &&
@@ -424,6 +464,7 @@ export function hiddenWriterVerdicts(
 				if (
 					fitted &&
 					output.type !== undefined &&
+					!(writesDay && output.type === "datetime") &&
 					!isWriteAssignable(output.type, property.type, output.isoDateText)
 				)
 					findings.push({
@@ -1703,7 +1744,11 @@ class Inference {
 				else add(writer.caseType, writer.property, opinion);
 			} else if (
 				opinion !== undefined &&
-				isWriteAssignable(opinion, destination, false)
+				(isWriteAssignable(opinion, destination, false) ||
+					(opinion === "datetime" &&
+						destination === "date" &&
+						hiddenWriter !== undefined &&
+						directHiddenDayWriter(this.doc, hiddenWriter)))
 			)
 				add(writer.caseType, writer.property, destination);
 			else if (
