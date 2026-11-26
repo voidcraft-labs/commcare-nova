@@ -7,10 +7,15 @@
  * The page's tab menu lists only these (`details/bootstrap5/
  * detail_tab_nodeset.js`, `dropdownOptions`), so a tab's child type outside
  * them is cleared by the page's next save.
+ *
+ * Total over a document the validator refuses: a form whose case wire does
+ * not build (a registration that names no case yet, a slot reading a question
+ * the form no longer holds) adds no child here, and the validator reports that
+ * form's own finding.
  */
 
 import type { BlueprintDoc } from "@/lib/domain";
-import { planFormCaseWire } from "./casePlacementPlan";
+import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
 
 export function hqOfferedChildCaseTypes(
 	doc: BlueprintDoc,
@@ -21,7 +26,12 @@ export function hqOfferedChildCaseTypes(
 	for (const moduleUuid of doc.moduleOrder) {
 		if (doc.modules[moduleUuid]?.caseType !== caseType) continue;
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const plan = planFormCaseWire(doc, formUuid);
+			let plan: FormCaseWirePlan;
+			try {
+				plan = planFormCaseWire(doc, formUuid);
+			} catch {
+				continue;
+			}
 			if (plan.kind !== "basic") continue;
 			for (const child of plan.actions.subcases)
 				if (child.case_type && child.close_condition.type === "never")

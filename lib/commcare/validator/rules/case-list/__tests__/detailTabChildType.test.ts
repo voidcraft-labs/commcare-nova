@@ -41,4 +41,28 @@ describe("a Details tab's child case type", () => {
 			["CASE_DETAIL_TAB_ROWS_INVALID", "contact"],
 		]);
 	});
+
+	// Staged work holds a registration before its name field (createForm, then addFields): the
+	// rule reads every form of the list's case type, and one whose case wire does not build yet
+	// adds no child, while that form's own finding is what the validator reports.
+	it("reads past a registration that does not yet name its case", () => {
+		const doc = produce(tileFixture("conditional-search-children"), (draft) => {
+			const registration = Object.values(draft.forms).find(
+				(form) => form.name === "New visit",
+			);
+			if (registration === undefined)
+				throw new Error("Missing the registration form.");
+			for (const operation of registration.caseOperations ?? [])
+				if (operation.action === "own") delete operation.name;
+		});
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings.map((error) => error.code)).toContain(
+			"CASE_CREATE_NAME_MISSING",
+		);
+		expect(
+			findings.filter(
+				(error) => error.details?.reason === "child-type-not-added",
+			),
+		).toEqual([]);
+	});
 });
