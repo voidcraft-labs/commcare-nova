@@ -69,7 +69,6 @@ import {
 } from "@/lib/domain";
 import { MAX_AUTHORED_CASE_ID_LENGTH } from "@/lib/domain/caseOperationIdentity";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
-import { ifExpr, literal, term } from "@/lib/domain/expression/builders";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
@@ -548,8 +547,8 @@ function allocateCreateIdentities(
 }
 
 /** Batch repeated calculate expressions whose earlier case IDs are already
- * available. The guard is part of the same SQL expression, so an irrelevant
- * row never evaluates its ID expression. */
+ * available. Keep the guard verdict beside each identity so the main pass
+ * cannot evaluate it again. A skipped block never reads its ID expression. */
 async function allocateRepeatedExactIdentities(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -559,7 +558,8 @@ async function allocateRepeatedExactIdentities(
 	allocations: Map<number, CreateAllocation>,
 	sessionFor: (index: number) => SessionAnchor | undefined,
 	bindingsFor: (index: number) => TermBindings,
-): Promise<void> {
+): Promise<ReadonlyMap<number, boolean>> {
+	const executing = new Map<number, boolean>();
 	let pending = instances.flatMap(({ envelope, scopeRepeat }, index) => {
 		const { operation } = envelope;
 		if (
@@ -574,16 +574,10 @@ async function allocateRepeatedExactIdentities(
 			...(operation.condition === undefined ? [] : [operation.condition]),
 		];
 		const [first, ...rest] = conditions;
-		const expression =
-			first === undefined
-				? operation.target.expr
-				: ifExpr(
-						rest.length > 0
-							? { kind: "and", clauses: [first, ...rest] }
-							: first,
-						operation.target.expr,
-						term(literal("")),
-					);
+		const predicate: DomainExpression | undefined =
+			first === undefined || rest.length === 0
+				? first
+				: { kind: "and", clauses: [first, ...rest] };
 		const dependencies = new Set(caseOperationDependencyUuids(operation));
 		for (const condition of envelope.guardConditions)
 			walkExpressionNodes(condition, (node) => {
@@ -595,10 +589,11 @@ async function allocateRepeatedExactIdentities(
 					instance: index,
 					operationUuid: operation.uuid,
 					operationId: operation.id,
-					expression,
+					expression: operation.target.expr,
 					slot: "case ID",
 				},
 				dependencies,
+				predicate,
 			},
 		];
 	});
@@ -613,7 +608,36 @@ async function allocateRepeatedExactIdentities(
 			throw new Error(
 				"Repeated exact case IDs must depend on earlier creates.",
 			);
-		const requests = ready.map(({ request }) => request);
+		const guards = ready.flatMap(({ request, predicate }) =>
+			predicate === undefined
+				? []
+				: [
+						{
+							instance: request.instance,
+							operationUuid: request.operationUuid,
+							operationId: request.operationId,
+							predicate,
+							slot: "condition",
+						},
+					],
+		);
+		const results = await evaluateBatch(
+			trx,
+			host,
+			appId,
+			program,
+			sessionFor,
+			bindingsFor,
+			guards,
+		);
+		for (const [index, guard] of guards.entries())
+			executing.set(guard.instance, results[index] === true);
+		const requests = ready.flatMap(({ request, predicate }) => {
+			if (predicate === undefined) executing.set(request.instance, true);
+			if (executing.get(request.instance)) return [request];
+			allocations.set(request.instance, { caseId: "", identity: "exact" });
+			return [];
+		});
 		const values = await evaluateBatch(
 			trx,
 			host,
@@ -629,13 +653,12 @@ async function allocateRepeatedExactIdentities(
 				identity: "exact",
 			});
 		}
-		const resolved = new Set(
-			requests.map(({ operationUuid }) => operationUuid),
-		);
+		const resolved = new Set(ready.map(({ request }) => request.operationUuid));
 		pending = pending.filter(
 			({ request }) => !resolved.has(request.operationUuid),
 		);
 	}
+	return executing;
 }
 
 /**
@@ -1521,7 +1544,7 @@ async function resolveOperationProgram(
 		};
 	};
 
-	await allocateRepeatedExactIdentities(
+	const repeatedExactExecution = await allocateRepeatedExactIdentities(
 		trx,
 		host,
 		appId,
@@ -1539,6 +1562,7 @@ async function resolveOperationProgram(
 	const conditionRequests: EvalRequest[] = [];
 	const conditionSlots: Array<{ instance: number; count: number }> = [];
 	for (const [index, instance] of instances.entries()) {
+		if (repeatedExactExecution.has(index)) continue;
 		const predicates = [
 			...instance.envelope.guardConditions,
 			...(instance.envelope.operation.condition === undefined
@@ -1565,7 +1589,9 @@ async function resolveOperationProgram(
 		bindingsFor,
 		conditionRequests,
 	);
-	const executing: boolean[] = [];
+	const executing = instances.map(
+		(_, index) => repeatedExactExecution.get(index) === true,
+	);
 	{
 		let cursor = 0;
 		for (const slot of conditionSlots) {
