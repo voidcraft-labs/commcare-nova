@@ -531,6 +531,11 @@ def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
         assert ordered(("commcare_sort", "+priority:exact,-visit:date"), exclude) == [
             "ten", "two-late", "two-early", "none",
         ]
+        # HQ strips both leading signs before looking up the property, while
+        # keeping the first sign's direction. This legacy request runs, even
+        # though Nova only reads a literal order with one direction sign.
+        legacy = ("commcare_sort", "++priority:exact,-visit:date")
+        assert ordered(legacy, exclude) == ["ten", "two-late", "two-early", "none"]
         assert set(ordered(first, second)) == {case[0] for case in cases}
 
 
