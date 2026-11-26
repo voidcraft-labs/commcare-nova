@@ -1,18 +1,32 @@
 /** Real Project membership, worker restore, authenticated opening/submit and
  * entry receipt. The request session is the only external identity supplied. */
+import { v7 } from "uuid";
 import { afterEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { createBlueprintDocStore } from "@/lib/doc/store";
 import { matchAll, tableLookup } from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { getLookupTable, updateLookupRow } from "@/lib/lookup/service";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import { submitFormAction } from "../caseDataBinding";
 import { blueprintRevisionDigest } from "../caseDataBindingClient";
+import { EngineController } from "../engineController";
 import { readFormOpeningAction } from "../formOpeningAction";
+import {
+	formNeedsOpeningEvidence,
+	restoreOpeningCases,
+	restoreOpeningLookup,
+} from "../formOpeningSnapshot";
+import { previewAsPersona } from "../identity";
 import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
 import { webAppsDevice } from "./fixtures/previewDevices";
 
@@ -38,6 +52,208 @@ const h = setupAppStateTestDb("signed_worker_opening_", {
 const project = "signed-entry-project";
 afterEach(() => {
 	vi.unstubAllEnvs();
+});
+
+it("opens assigned lookup choices for the signed Preview worker", async () => {
+	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic signed lookup opening secret");
+	const app = "signed-worker-lookup";
+	const first = { uuid: testUuid("lookup-first-persona"), name: "Bea" };
+	const second = { uuid: testUuid("lookup-second-persona"), name: "Paz" };
+	const workers = [
+		{ persona: first, value: "north", label: "North Clinic" },
+		{ persona: second, value: "south", label: "South Clinic" },
+	] as const;
+	await h.seedProjectMember(member.id, project, "owner");
+	const saveLookup = (
+		input: Parameters<typeof applyLookupAuthoringBatchInTransaction>[2],
+	) =>
+		h.withTransaction(async (tx) =>
+			applyLookupAuthoringBatchInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(
+					tx,
+					{ projectId: project, actorId: member.id },
+					"edit",
+				),
+				input,
+			),
+		);
+	const created = await saveLookup({
+		createTables: [
+			{
+				key: "clinics",
+				tag: "clinics",
+				name: "Clinics",
+				columns: [
+					{ key: "code", wireName: "code", label: "Code", dataType: "text" },
+					{ key: "name", wireName: "name", label: "Name", dataType: "text" },
+				],
+				rows: workers.map(({ value, label }) => ({
+					key: value,
+					cells: [
+						{ columnKey: "code", value },
+						{ columnKey: "name", value: label },
+					],
+				})),
+			},
+		],
+	});
+	const table = created.tables[0];
+	const tableId = lookupTableIdSchema.parse(table.tableId);
+	const valueColumnId = lookupColumnIdSchema.parse(table.columnIds[0].id);
+	const labelColumnId = lookupColumnIdSchema.parse(table.columnIds[1].id);
+	const question = testUuid("signed-worker-clinic");
+	const blueprint = buildDoc({
+		appId: app,
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Log visit",
+						type: "survey",
+						fields: [
+							{
+								kind: "single_select",
+								id: "clinic",
+								uuid: question,
+								label: "Clinic",
+								optionsSource: {
+									kind: "lookup",
+									tableId,
+									valueColumnId,
+									labelColumnId,
+								},
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	const doc = {
+		...blueprint,
+		personas: { [first.uuid]: first, [second.uuid]: second },
+		personaOrder: [first.uuid, second.uuid],
+	};
+	await h.seedAppWithBlueprint(doc, {
+		id: app,
+		owner: member.id,
+		projectId: project,
+	});
+	const expectedTableRevision = table.revisions?.tableRevision;
+	if (!expectedTableRevision) throw new Error("Missing lookup table revision");
+	await saveLookup({
+		operationId: v7(),
+		updateTables: [
+			{
+				tableId,
+				expectedTableRevision,
+				workerAccess: "assigned",
+				rowOperations: table.rowIds.map(({ id }, index) => ({
+					kind: "assign",
+					rowId: id,
+					assignments: [
+						{ kind: "worker", appId: app, id: workers[index].persona.uuid },
+					],
+				})),
+			},
+		],
+	});
+	const pool = h.pool();
+	await pool.query(
+		`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
+		VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
+		[member.session, member.id],
+	);
+	await h.seedProjectMember(member.id, project, "viewer");
+	const module = doc.moduleOrder[0];
+	const form = doc.formOrder[module][0];
+	expect(formNeedsOpeningEvidence(doc, form)).toBe(true);
+	const request = {
+		app,
+		module,
+		form,
+		run: testUuid("assigned-lookup-run"),
+		entry: testUuid("assigned-lookup-entry"),
+		blueprintDigest: await blueprintRevisionDigest(doc),
+	};
+	const device = webAppsDevice();
+	for (const { persona, value, label } of workers) {
+		const opened = await readFormOpeningAction(
+			{ ...request, persona: persona.uuid },
+			device,
+		);
+		if (opened.kind !== "opening" || !opened.projection.complete)
+			throw new Error(`Could not open the lookup form: ${opened.kind}`);
+		expect(
+			opened.projection.lookup.rowsByTable[tableId]?.map(
+				(row) => row.values[valueColumnId],
+			),
+		).toEqual([value]);
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		const controller = new EngineController();
+		try {
+			controller.setDocStore(store);
+			controller.setPreviewIdentity(
+				previewAsPersona(
+					{ id: member.id, name: "Builder", email: "builder@example.invalid" },
+					persona,
+					doc,
+				),
+			);
+			await controller.activateFormAsync(
+				form,
+				undefined,
+				restoreOpeningCases(opened.projection.cases),
+				undefined,
+				{
+					appId: app,
+					boundCases: [],
+					menuSelections: {},
+					openedEntryKey: request.entry,
+					heldEntryValues: opened.projection.resolvedEntries,
+					openingLookup: restoreOpeningLookup(opened.projection.lookup),
+				},
+			);
+			expect(controller.entryStore.getState()).toMatchObject({
+				ready: true,
+				fault: undefined,
+				refusal: undefined,
+			});
+			expect(controller.store.getState()[question].choices).toEqual([
+				expect.objectContaining({ value, label }),
+			]);
+		} finally {
+			controller.dispose();
+			await controller.awaitSettled();
+		}
+		if (persona.uuid === first.uuid)
+			expect(
+				await readFormOpeningAction(
+					{
+						...request,
+						persona: second.uuid,
+						previous: opened.evidence,
+						restore: true,
+					},
+					device,
+				),
+			).toMatchObject({ kind: "reopen" });
+	}
+
+	await pool.query(
+		'UPDATE auth_session SET "expiresAt" = now() WHERE id = $1',
+		[member.session],
+	);
+	expect(
+		await readFormOpeningAction({ ...request, persona: first.uuid }, device),
+	).toMatchObject({
+		kind: "error",
+		message:
+			"This data is no longer available with this connection. You can sign in and refresh it.",
+	});
 });
 
 async function openPracticeForm(

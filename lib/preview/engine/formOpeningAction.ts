@@ -200,7 +200,11 @@ export async function readFormOpeningAction(
 		} else {
 			if (args.choice || args.restore) return reopen;
 			const tableIds = tablesForOpening(doc, args.form);
-			const lookup = await loadLookupFixtureDataAction(args.app, tableIds);
+			const lookup = await loadLookupFixtureDataAction(
+				args.app,
+				tableIds,
+				context.identity.personaUuid,
+			);
 			if (lookup.kind !== "data") return lookup;
 			if (
 				tableIds.some(
