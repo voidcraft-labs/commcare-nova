@@ -35,6 +35,7 @@ import {
 	automationUserDataFilterSchema,
 	type Column,
 	calculatedSortSchema,
+	caseListDeviceLookupSchema,
 	caseListMenuItemSchema,
 	caseListWordingSchema,
 	caseOperationSchema,
@@ -1889,6 +1890,7 @@ function createMutationSchema({
 				emptyText: caseListWordingSchema.nullable().optional(),
 				selectButtonText: caseListWordingSchema.nullable().optional(),
 				optimizations: z.literal(true).nullable().optional(),
+				deviceLookup: caseListDeviceLookupSchema.nullable().optional(),
 			}),
 		}),
 		// The module's case list as its own menu entry, set whole as

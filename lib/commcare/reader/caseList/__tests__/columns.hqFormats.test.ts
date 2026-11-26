@@ -1076,6 +1076,27 @@ describe("a detail's persistence switches", () => {
 });
 
 describe("a detail's callout and tabs", () => {
+	it("brings in fixed text lookup extras and keeps fallback response order", async () => {
+		const reading = await readDetails((short) => {
+			Object.assign(short, {
+				lookup_enabled: true,
+				lookup_action: "org.nova.proof.CASE_LOOKUP",
+				lookup_name: "Find a visit",
+				lookup_autolaunch: true,
+				lookup_extras: [{ key: "mode", value: "'visit'" }],
+				lookup_responses: [{ key: "first" }, { key: "second" }],
+			});
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).deviceLookup).toEqual({
+			action: "org.nova.proof.CASE_LOOKUP",
+			label: "Find a visit",
+			automatic: true,
+			extras: [{ name: "mode", value: "visit" }],
+			responses: ["first", "second"],
+		});
+	});
+
 	it("raises a callout on the list as one finding, each of its keys claimed under it", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, {

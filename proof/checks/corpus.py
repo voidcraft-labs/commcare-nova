@@ -321,7 +321,14 @@ def verdict_lacks(verdict, configuration, where):
         raise CorpusLayoutError(
             f"{where} holds flagsOff {off!r}; a verdict lists the flags it requires off, or says nothing."
         )
+    alternatives = minimum.get("flagsAny", [])
+    if not isinstance(alternatives, list) or ("flagsAny" in minimum and not alternatives) or any(
+        not isinstance(group, list) or len(group) < 2 or not all(isinstance(flag, str) for flag in group)
+        or len(set(group)) != len(group) for group in alternatives
+    ):
+        raise CorpusLayoutError(f"{where} holds flagsAny {alternatives!r}; each group names alternative flags.")
     missing = sorted(set(minimum["flags"]) - set(configuration.flags))
+    missing.extend(" or ".join(group) for group in alternatives if not set(group) & set(configuration.flags))
     if minimum["caseSearchEnabled"] and not configuration.case_search_enabled:
         missing.append("case search")
     if sync is False and configuration.sync_cases_on_form_entry:

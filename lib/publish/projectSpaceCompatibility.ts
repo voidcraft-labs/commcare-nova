@@ -28,6 +28,7 @@ export type ProjectSpaceCapabilityId =
 	| "empty-case-list-text"
 	| "case-list-optimizations"
 	| "case-list-icon-actions"
+	| "case-list-android-lookup"
 	| "save-only-edited-answers"
 	| "same-type-child-links"
 	| "address-search";
@@ -119,6 +120,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Faster case list loading",
 		description:
 			"Lets a phone keep some case list values between visits or work them out after the list shows.",
+	},
+	"case-list-android-lookup": {
+		id: "case-list-android-lookup",
+		label: "Case lookup with an Android app",
+		description:
+			"Lets a worker open another Android app and use its answer to search a case list.",
 	},
 	"case-list-icon-actions": {
 		id: "case-list-icon-actions",
@@ -482,6 +489,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"empty-case-list-text",
 	"case-list-optimizations",
 	"case-list-icon-actions",
+	"case-list-android-lookup",
 	"save-only-edited-answers",
 	"same-type-child-links",
 	"address-search",

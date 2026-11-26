@@ -18,6 +18,7 @@ import {
 	CASE_LIST_SELECT_TEXT_DEFAULT,
 	type CaseSearchConfig,
 	calculatedSortSchema,
+	caseListDeviceLookupSchema,
 	caseListWordingSchema,
 	caseListWordingUnitId,
 	defaultSortBlanks,
@@ -125,6 +126,12 @@ export const configureCaseListInputSchema = z
 			.describe(
 				"Replacement always-on case-list filter. null clears it; omission leaves it unchanged. Ordinary case lists already omit closed cases.",
 			),
+		deviceLookup: caseListDeviceLookupSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Open a companion Android app to search the case list. Give its action and label, fixed text extras, and ordered fallback response names. null removes it; omission leaves it unchanged.",
+			),
 		emptyText: caseListWordingSchema
 			.nullable()
 			.optional()
@@ -192,6 +199,7 @@ export const configureCaseListInputSchema = z
 			input.searchWorkflow === undefined &&
 			input.formsReadSearch === undefined &&
 			!("filter" in input) &&
+			input.deviceLookup === undefined &&
 			input.emptyText === undefined &&
 			input.selectButtonText === undefined &&
 			input.optimizations === undefined &&
@@ -470,6 +478,14 @@ export const configureCaseListTool = {
 					},
 				]);
 			}
+			if (input.deviceLookup !== undefined)
+				append([
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { deviceLookup: input.deviceLookup },
+					},
+				]);
 			const wording: {
 				emptyText?: string | null;
 				selectButtonText?: string | null;

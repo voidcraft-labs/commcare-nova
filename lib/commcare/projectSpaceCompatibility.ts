@@ -72,6 +72,8 @@ export type HqPrivateFeatureFlagId =
 	| "empty-case-list-text"
 	| "case-list-optimizations"
 	| "case-list-icon-actions"
+	| "case-list-lookup"
+	| "case-list-biometric-lookup"
 	| "custom-case-tiles"
 	| "calculated-case-order"
 	| "save-only-edited-answers"
@@ -106,6 +108,8 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"empty-case-list-text": "USH_EMPTY_CASE_LIST_TEXT",
 	"case-list-optimizations": "CASE_LIST_OPTIMIZATIONS",
 	"case-list-icon-actions": "CASE_LIST_CLICKABLE_ICON",
+	"case-list-lookup": "CASE_LIST_LOOKUP",
+	"case-list-biometric-lookup": "BIOMETRIC_INTEGRATION",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
 	"calculated-case-order": "SORT_CALCULATION_IN_CASE_LIST",
 	"save-only-edited-answers": "SAVE_ONLY_EDITED_FORM_FIELDS",
@@ -146,6 +150,8 @@ export interface HqProjectSpaceCapabilityProbePlan {
 	readonly featureFlags: readonly HqPrivateFeatureFlagRequirement[];
 	/** Flags the project space must have off. */
 	readonly featureFlagsOff: readonly HqPrivateFeatureFlagRequirement[];
+	/** When supplied, at least one of these flags must be on. */
+	readonly featureFlagsAny?: readonly HqPrivateFeatureFlagRequirement[];
 	readonly runtimeProbes: readonly HqProjectSpaceRuntimeProbe[];
 }
 
@@ -153,6 +159,8 @@ export interface HqProjectSpaceAdvisoryProbePlan {
 	readonly advisory: ProjectSpaceAdvisoryUse;
 	readonly featureFlags: readonly HqPrivateFeatureFlagRequirement[];
 	readonly featureFlagsOff: readonly HqPrivateFeatureFlagRequirement[];
+	/** When supplied, at least one of these flags must be on. */
+	readonly featureFlagsAny?: readonly HqPrivateFeatureFlagRequirement[];
 	readonly runtimeProbes: readonly HqProjectSpaceRuntimeProbe[];
 }
 
@@ -579,6 +587,11 @@ export function projectSpaceCompatibilityProbePlan(
 				"case-list-optimizations",
 				`The ${module.name} case list loads some values faster on phones.`,
 			);
+		if (module.caseListConfig?.deviceLookup !== undefined)
+			addReason(
+				"case-list-android-lookup",
+				`The ${module.name} case list opens another Android app to look up cases.`,
+			);
 		if (caseContextLine(module.caseListConfig?.contextAboveForm))
 			addReason(
 				"case-form-context",
@@ -703,6 +716,23 @@ export function projectSpaceCompatibilityProbePlan(
 				.filter((flag) => flag !== "custom-case-tiles" || customTile)
 				.map((flag) => HQ_PRIVATE_FEATURE_FLAGS[flag]),
 			featureFlagsOff: [],
+			runtimeProbes: [],
+		});
+	}
+	const deviceLookupReasons = reasonsByCapability.get(
+		"case-list-android-lookup",
+	);
+	if (deviceLookupReasons) {
+		capabilities.push({
+			capability: projectSpaceCapabilityUse("case-list-android-lookup", [
+				...deviceLookupReasons,
+			]),
+			featureFlags: [],
+			featureFlagsOff: [],
+			featureFlagsAny: [
+				HQ_PRIVATE_FEATURE_FLAGS["case-list-lookup"],
+				HQ_PRIVATE_FEATURE_FLAGS["case-list-biometric-lookup"],
+			],
 			runtimeProbes: [],
 		});
 	}

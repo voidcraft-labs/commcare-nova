@@ -3414,6 +3414,42 @@ export function searchFilterUsesValue(
 	return "target" in filter;
 }
 
+/** A case list can open a companion on Android and use its returned text to search. */
+const deviceLookupName = z.string().trim().min(1);
+export const caseListDeviceLookupSchema = z
+	.strictObject({
+		action: deviceLookupName,
+		label: deviceLookupName,
+		automatic: z.literal(true).optional(),
+		extras: z
+			.array(
+				z.strictObject({
+					name: deviceLookupName.refine(
+						(name) => name !== "force_xpath_parsing",
+					),
+					value: z.string(),
+				}),
+			)
+			.min(1),
+		responses: z.array(deviceLookupName).min(1),
+	})
+	.superRefine(({ extras, responses }, ctx) => {
+		const names = extras.map(({ name }) => name);
+		if (new Set(names).size !== names.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["extras"],
+				message: "Give each value sent to the app a different name.",
+			});
+		if (new Set(responses).size !== responses.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["responses"],
+				message: "Use each response name once.",
+			});
+	});
+export type CaseListDeviceLookup = z.infer<typeof caseListDeviceLookupSchema>;
+
 export const caseListConfigSchema = z
 	.strictObject({
 		/**
@@ -3469,6 +3505,7 @@ export const caseListConfigSchema = z
 		 * space's `CASE_LIST_OPTIMIZATIONS` gates.
 		 */
 		optimizations: z.literal(true).optional(),
+		deviceLookup: caseListDeviceLookupSchema.optional(),
 		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.
@@ -3476,6 +3513,13 @@ export const caseListConfigSchema = z
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		if (config.deviceLookup && config.tile?.namedSlots)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup"],
+				message:
+					"Use a list or a custom case tile to look up cases with an Android app.",
+			});
 		if (
 			config.tile?.rawSlots &&
 			(!config.tile.namedSlots ||

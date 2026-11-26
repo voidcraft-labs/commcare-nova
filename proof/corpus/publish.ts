@@ -506,6 +506,7 @@ export interface NovaPublishVerdict {
 		readonly flags: readonly VerdictFlag[];
 		/** The flags the capability needs off, by symbol, sorted; absent where none is. */
 		readonly flagsOff?: readonly string[];
+		readonly flagsAny?: readonly string[];
 		readonly runtimeProbes: readonly string[];
 	}[];
 	readonly advisories: readonly {
@@ -533,6 +534,7 @@ export interface NovaPublishVerdict {
 		 * (a capability's `featureFlagsOff`); absent where none is.
 		 */
 		readonly flagsOff?: readonly string[];
+		readonly flagsAny?: readonly (readonly string[])[];
 	};
 	/**
 	 * The `corehq/privileges.py` constants of the plan privileges Nova's
@@ -690,16 +692,23 @@ export function novaPublishVerdict(
 	const confirmations = confirmationKinds(doc, source);
 	const capabilities = plan.capabilities.map((item) => {
 		const off = flagsOffSymbols(item.featureFlagsOff);
+		const any = verdictFlags(item.featureFlagsAny ?? []).map(
+			({ symbol }) => symbol,
+		);
 		return {
 			id: item.capability.id,
 			flags: verdictFlags(item.featureFlags),
 			...(off.length > 0 && { flagsOff: off }),
+			...(any.length > 0 && { flagsAny: any }),
 			runtimeProbes: [...item.runtimeProbes],
 		};
 	});
 	const flagsOff = [
 		...new Set(capabilities.flatMap((item) => item.flagsOff ?? [])),
 	].sort();
+	const flagsAny = capabilities.flatMap((item) =>
+		item.flagsAny ? [item.flagsAny] : [],
+	);
 	return {
 		capabilities,
 		advisories: plan.advisories.map((item) => ({
@@ -722,6 +731,7 @@ export function novaPublishVerdict(
 				commtrackEnabled: false as const,
 			}),
 			...(flagsOff.length > 0 && { flagsOff }),
+			...(flagsAny.length > 0 && { flagsAny }),
 		},
 		planPrivileges: planPrivileges(doc, source),
 	};
@@ -749,9 +759,21 @@ export function minimumConfiguration(
 			`Nova's publish requires ${both.join(", ")} on for one of these documents and off for another, so no project space takes them all; publish them to separate project spaces.`,
 		);
 	}
+	const selected = new Set(flags);
+	for (const alternatives of verdicts.flatMap(
+		(v) => v.minimumConfiguration.flagsAny ?? [],
+	)) {
+		if (alternatives.some((flag) => selected.has(flag))) continue;
+		const allowed = alternatives.find((flag) => !off.has(flag));
+		if (allowed === undefined)
+			throw new Error(
+				`Nova's publish needs at least one of ${alternatives.join(", ")} on and this set of apps requires them all off.`,
+			);
+		selected.add(allowed);
+	}
 	return {
 		id: "minimum",
-		flags,
+		flags: [...selected].sort(),
 		caseSearchEnabled: verdicts.some(
 			(v) => v.minimumConfiguration.caseSearchEnabled,
 		),
