@@ -445,6 +445,7 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"search-fields": "A search field is",
 	"search-setup": "The search is",
 	"shadow-forms": "A shadow form is",
+	"translation-overrides": "An overriding translation is",
 	"worker-record": "A use of the worker's own record is",
 };
 
