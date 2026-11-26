@@ -151,7 +151,13 @@ class HqPeer implements LookupJsonHq {
 	async readRows(table: HqLookupTable) {
 		return this.ordered(table.id);
 	}
+	/** How many next reads of one row CommCare HQ answers with an error. */
+	failRowReads = 0;
 	async readRow(table: HqLookupTable, id: string) {
+		if (this.failRowReads > 0) {
+			this.failRowReads--;
+			return this.refusal(500);
+		}
 		return this.ordered(table.id).find((row) => row.id === id) ?? "missing";
 	}
 	createTable(definition: HqLookupJsonDefinition) {
@@ -583,6 +589,67 @@ describe("a table published through CommCare HQ's JSON resources", () => {
 			{ id: first?.id, name: "a2" },
 			{ id: second?.id, name: "theirs" },
 		]);
+	});
+
+	it("sends nothing for a row a person deletes in CommCare HQ between two of Nova's requests", async () => {
+		const { key, hq } = await setup();
+		await publish(hq, journalFor(key), rows("a", "b"));
+		const [first, second] = hq.view();
+		hq.sent.length = 0;
+		let admissions = 0;
+		const journal = journalFor(key, "app-one", {
+			async beforeAdmit() {
+				if (++admissions === 2) hq.rows.delete(second?.id ?? "");
+			},
+		});
+		expect(
+			await publish(hq, journal, [renamed("a", "a2"), renamed("b", "b2")]),
+		).toMatchObject({
+			kind: "stopped",
+			stop: { kind: "review", reason: "rows-changed" },
+			writes: 1,
+		});
+		expect(hq.sent.map((line) => line.split("@")[0])).toEqual([
+			`PUT ${first?.id?.slice(-2)}`,
+		]);
+		/* The request that was never sent is settled, not left open. */
+		expect(await journalStates()).toEqual(
+			expect.arrayContaining(["update-row:not-applied"]),
+		);
+		expect(
+			(await journalStates()).filter((entry) =>
+				/:(admitted|uncertain)$/.test(entry),
+			),
+		).toEqual([]);
+	});
+
+	it("sends nothing for a row it could not read just before its request, and sends it on the next publish", async () => {
+		const { key, hq } = await setup();
+		await publish(hq, journalFor(key), rows("a"));
+		const [only] = hq.view();
+		hq.sent.length = 0;
+		hq.failRowReads = 1;
+		expect(
+			await publish(hq, journalFor(key), [renamed("a", "a2")]),
+		).toMatchObject({
+			kind: "stopped",
+			stop: { kind: "read-failed" },
+			writes: 0,
+		});
+		expect(hq.sent).toEqual([]);
+		expect(hq.view()).toEqual([{ id: only?.id, name: "a" }]);
+		expect(
+			(await journalStates()).filter((entry) =>
+				/:(admitted|uncertain)$/.test(entry),
+			),
+		).toEqual([]);
+
+		/* Nothing was sent, so nothing waits on a hold: the next publish
+		 * reads the row and sends the change. */
+		expect(
+			await publish(hq, journalFor(key), [renamed("a", "a2")]),
+		).toMatchObject({ kind: "published", writes: 1 });
+		expect(hq.view()).toEqual([{ id: only?.id, name: "a2" }]);
 	});
 
 	it("stops at a request CommCare HQ refuses, and sends nothing after it", async () => {
