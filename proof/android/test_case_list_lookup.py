@@ -164,6 +164,57 @@ def test_case_list_lookup_uses_the_saved_result_field(hq, editor_driver, heading
     assert _view_texts(alternate["scoreRows"]) == ["Juniper", "★★★★★"]
 
 
+def test_case_list_lookup_matches_duplicate_and_missing_case_properties(hq, editor_driver):
+    """Only list rows take part, and duplicate property values receive the same score."""
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(
+            replace(_case("lookup-cedar", "Cedar"), properties=(("scan_id", "card-22"),)),
+            replace(_case("lookup-juniper", "Juniper"), properties=(("scan_id", "card-41"),)),
+            replace(_case("lookup-oak", "Oak"), properties=(("scan_id", "card-41"),)),
+            _case("lookup-maple", "Maple"),
+            replace(_case("lookup-birch", "Birch"), properties=(("scan_id", ""),)),
+            replace(_case("lookup-elm", "Elm"), case_type="other", properties=(("scan_id", "card-41"),)),
+        ),
+    )
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver, result_template="scan_id")
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup-property") as served:
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label="case-list-lookup-property",
+                archive=observe.release_archive(served),
+                case_lookup_returns=[
+                    {"identifyKeys": ["card-41"], "inspectScores": True},
+                    {"identifyKeys": ["unknown"]},
+                    {"identifyKeys": [""], "inspectScores": True},
+                ],
+            )
+            installed = blobs.get_json(record["answer"])
+
+    write_evidence("android-case-list-lookup-case-property", installed)
+    assert installed["install"] == "Installed", installed
+    assert installed["signIn"].startswith("Success("), installed
+    (observed,) = [
+        step["list"]["lookupReturns"]
+        for walk in installed["walks"].values()
+        for step in walk.get("steps", [])
+        if "lookupReturns" in (step.get("list") or {})
+    ]
+    duplicate, unmatched, empty = observed
+    assert all(reply["isIdentification"] for reply in observed)
+    assert sorted(duplicate["before"]) == ["Birch", "Cedar", "Juniper", "Maple", "Oak"]
+    assert sorted(duplicate["after"]) == ["Juniper", "Oak"]
+    assert sorted(_view_texts(duplicate["scoreRows"])) == ["Juniper", "Oak", "★★★★★", "★★★★★"]
+    assert unmatched["after"] == []
+    assert sorted(empty["after"]) == ["Birch", "Maple"]
+    assert sorted(_view_texts(empty["scoreRows"])) == ["Birch", "Maple", "★★★★★", "★★★★★"]
+
+
 @pytest.mark.parametrize(("scenario", "extra"), [("relative", "scan"), ("text", "'scan'")], ids=["relative", "text"])
 def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_driver, scenario, extra):
     database = casedata.CaseDatabase(
