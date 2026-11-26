@@ -41,6 +41,10 @@
  * the after-submit destinations of every submenu under a menu above, and
  * every frame built through the first menu, read it. A batch that turns it
  * takes the absolute gate, whatever edit did it.
+ *
+ * A Search button condition's verdict reads every entry that shows its list
+ * (`suite/case-search/buttonCondition.ts`), so a menu that holds one joins
+ * every footprint.
  */
 
 import { formHoldsPlacement } from "@/lib/doc/heldIdentity";
@@ -48,6 +52,7 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	afterEmptySearchRegistrationFormOf,
+	effectiveCaseSearchConfig,
 	firstMenuOpensOneCase,
 	formLinkEntries,
 	menuScreenContributors,
@@ -244,6 +249,7 @@ export function incrementalValidationScope(
 	)
 		return undefined;
 	addScreenContributors(doc, nextDoc, scope);
+	addSearchButtonConditions(nextDoc, scope);
 	return {
 		...(scope.moduleUuids.size > 0 && { moduleUuids: scope.moduleUuids }),
 		...(scope.formUuids.size > 0 && { formUuids: scope.formUuids }),
@@ -255,6 +261,28 @@ export function incrementalValidationScope(
  *  the footprint, since the screen's case-first answer reads them all. A
  *  screen only the touched module lists on is that module's own answer,
  *  which the footprint already covers. */
+/** A Search button condition that reads the worker, the session or a table is
+ *  admitted only where every entry that shows its list declares what it
+ *  reads (`suite/case-search/buttonCondition.ts::searchButtonUndeclaredInstances`),
+ *  and that reads the whole app: each form's after-submit and display
+ *  condition, each menu's selection and the filters of the menus it selects
+ *  through, the list's columns. So every menu that holds such a condition
+ *  re-runs its rules on every batch; menus rarely hold one. */
+function addSearchButtonConditions(
+	nextDoc: BlueprintDoc,
+	scope: MutableScope,
+): void {
+	for (const moduleUuid of nextDoc.moduleOrder) {
+		const module = nextDoc.modules[moduleUuid];
+		if (
+			module !== undefined &&
+			effectiveCaseSearchConfig(module)?.searchButtonDisplayCondition !==
+				undefined
+		)
+			scope.moduleUuids.add(moduleUuid);
+	}
+}
+
 function addScreenContributors(
 	doc: BlueprintDoc,
 	nextDoc: BlueprintDoc,
