@@ -1,0 +1,18 @@
+[
+	{
+		"path": "jr://file/commcare/audio/data/site_remark.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "dae77480-c0a3-11f1-8371-97e594466fab",
+		"status": 200,
+		"sha256": "c9238417b92fab975196dfbba3be83ca9ba85675c8866c72577c035108e11b98",
+		"length": 10485761
+	},
+	{
+		"path": "jr://file/large_site_photo.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "da4ede00-c0a3-11f1-872b-cd1ce5061255",
+		"status": 200,
+		"sha256": "263dea0506eacce6e69ccda984e9565fb678ac725b02885152969ae6b8cda79a",
+		"length": 5242881
+	}
+]
