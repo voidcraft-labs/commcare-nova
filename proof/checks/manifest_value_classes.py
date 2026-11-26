@@ -8111,6 +8111,12 @@ def _connect_query_is_injective(form, value):
     return False
 
 
+def _model_setvalues(form):
+    """The setvalues the model holds as its own children, whatever their event, in document order: what a
+    Connect activity's row and recipient rules read of the values a form sets."""
+    return [] if form.model is None else list(form.model.iterfind(f"{{{XFORMS}}}setvalue"))
+
+
 def _connect_initial_value(form, path, event):
     writes = [action for action in _model_setvalues(form) if _held_ref(action) == path]
     if len(writes) == 1 and (writes[0].get("event") or "").split() == [event]:

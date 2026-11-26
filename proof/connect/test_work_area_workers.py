@@ -14,8 +14,7 @@ import pytest
 from lxml import etree
 
 from proof.android import observe as android
-from proof.checks.corpus import BOTH
-from proof.connect.conftest import CONNECT_XMLNS, DELIVER
+from proof.connect.conftest import BOTH, CONNECT_XMLNS, DELIVER
 from proof.connect.test_receiver_transactions import AREA_ID, submitted_blocks
 from proof.editors import vellum
 from proof.editors.hq import HQAnswers

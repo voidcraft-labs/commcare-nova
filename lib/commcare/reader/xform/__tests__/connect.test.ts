@@ -248,6 +248,21 @@ describe("each refusal row", () => {
 		expect(connectCodes(findings)).toEqual([entry]);
 	});
 
+	it("refuses a work area update whole, with the expressions its leaves' binds hold", async () => {
+		const [, source] = cases.find(([name]) =>
+			name.startsWith("a Vellum work area update"),
+		) ?? [undefined, undefined];
+		if (source === undefined) throw new Error("Missing the work area case.");
+		const { findings } = await readApp([source]);
+		// Nothing of the form is left unrecognized: the update's binds stand
+		// under its refusal.
+		expect(
+			findings
+				.filter((finding) => finding.place.kind !== "menu")
+				.map((finding) => finding.code),
+		).toEqual([Q("connect-work-area-update-photo-not-forwarded")]);
+	});
+
 	const shapes: readonly [string, string][] = [
 		[
 			"a fixed ID expressed by the work area calculation",

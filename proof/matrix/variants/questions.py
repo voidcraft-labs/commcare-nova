@@ -2205,7 +2205,7 @@ def connect_repeated_module(authoring, app_id):
                 ),
                 (
                     "</h:body>",
-                    '<group vellum:ref="#form/lessons" ref="/data/lessons"><label>Lessons</label>'
+                    "<group><label>Lessons</label>"
                     '<repeat vellum:nodeset="#form/lessons" nodeset="/data/lessons" /></group>\n</h:body>',
                     1,
                 ),
@@ -3474,7 +3474,7 @@ def deliver_shared_receiver_key(authoring, app_id):
         ),
         (
             "</h:body>",
-            '<group vellum:ref="#form/visits" ref="/data/visits"><label>Visits</label>'
+            "<group><label>Visits</label>"
             '<repeat vellum:nodeset="#form/visits" nodeset="/data/visits" /></group>\n</h:body>',
             1,
         ),

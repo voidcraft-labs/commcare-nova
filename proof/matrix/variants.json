@@ -18402,11 +18402,12 @@
 		"entry": "questions/connect-block-text-read-as-an-instance",
 		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Training",
-			"name": "Hand washing"
+			"formName": "Hand washing",
+			"path": "intro_module"
 		},
 		"change": {
 			"op": "named",

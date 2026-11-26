@@ -464,6 +464,7 @@ function readForm(
 		setvalues,
 		controls,
 		cursor,
+		refusals,
 		accounting,
 		formPlace,
 		lookup: ctx.input.lookup,

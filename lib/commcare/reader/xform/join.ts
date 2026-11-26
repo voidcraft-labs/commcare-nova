@@ -86,7 +86,11 @@ import {
 } from "./model";
 import { type CaseChoicesProposal, readChoices } from "./options";
 import { intentIdsOf, ODK_NS, type ParsedXForm } from "./parse";
-import type { StandingRefusal } from "./refusals";
+import {
+	type FormRefusals,
+	refuseBindLogic,
+	type StandingRefusal,
+} from "./refusals";
 import { type RepeatRead, readRepeat, settleRepeatCount } from "./repeats";
 
 /** The intent class of CommCare's print action, which the form builder reads as its print
@@ -122,6 +126,8 @@ export interface JoinInput {
 	readonly setvalues: readonly SetvalueFacts[];
 	readonly controls: ReadControls;
 	readonly cursor: XmlCursor;
+	/** The refusals the form's cursor has made, whose binds a refused block refuses with it. */
+	readonly refusals: FormRefusals;
 	readonly accounting: Accounting;
 	readonly formPlace: FormPlace;
 	readonly lookup: ReaderLookupCatalog;
@@ -312,18 +318,27 @@ export function joinForm(input: JoinInput): JoinedForm {
 							CONNECT_XMLNS &&
 						child.children.length === 0,
 				);
+			const refusal: StandingRefusal = {
+				claim: forwardingLosesPhoto
+					? X.connectWorkAreaPhotoNotForwarded
+					: X.connectWorkAreaUpdate,
+				place: placeOf(node),
+			};
 			cursor.refuseSubtreeAt(
 				node.element,
 				connectRoleSite(node.element, parsed.scope) ?? {
 					element: node.element,
 				},
-				forwardingLosesPhoto
-					? X.connectWorkAreaPhotoNotForwarded
-					: X.connectWorkAreaUpdate,
-				placeOf(node),
+				refusal.claim,
+				refusal.place,
 			);
+			// The update is refused whole: its nodes, and what each node's bind
+			// says it does (the expressions the form builder writes on its leaves).
 			const cover = (at: DataNode) => {
 				covered.add(at);
+				const bind = input.binds.get(at);
+				if (bind !== undefined)
+					refuseBindLogic(cursor, input.refusals, bind.element, refusal);
 				for (const child of at.children) cover(child);
 			};
 			cover(node);

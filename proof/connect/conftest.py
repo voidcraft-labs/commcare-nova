@@ -59,6 +59,7 @@ from pathlib import Path
 
 import pytest
 
+from proof.checks.corpus import BOTH  # noqa: F401 - the tests read it here: the package reads the corpus here alone
 from proof.connect.hq import HQ_XMLNS, META_XMLNS  # noqa: F401 - the tests read them here
 
 # Every corpus document a Connect proof reads, by id: Nova's deliver app and learn app that each carry the edit
