@@ -79,57 +79,131 @@ export type ReservedInstanceTagWord =
 	(typeof RESERVED_INSTANCE_TAG_WORDS)[number];
 
 /**
- * The names of `Object.prototype`'s own members. CommCare HQ's form builder
- * (Vellum) indexes a form's lookup data in plain JavaScript objects keyed by
- * names a table's tag supplies, and calls each object's own
- * `hasOwnProperty` (`datasources.js::getNode`, `form.js::updateKnownInstances`),
- * so a table tagged with one of these names leaves a form that reads it
- * unable to open there ("t2.hasOwnProperty is not a function", observed on
- * `targeted-lookup-reserved-tags`).
+ * How a table tag collides with an id CommCare HQ's form builder already
+ * holds. HQ's form designer hands the builder (Vellum) the session, the case
+ * database, a registry's cases and then every table of the project space
+ * under its bare tag (`views/formdesigner.py::get_form_data_schema`,
+ * `fixtures/fixturegenerators.py::item_lists_by_domain`). Vellum indexes them
+ * by id, a later source taking an earlier one's place
+ * (`datasources.js`: `_.indexBy(sources, "id")`), and records each id among
+ * the instances it knows (`form.js::updateKnownInstances`), the map from which
+ * it declares an instance a form reads (`form.js::parseInstanceRefs`). The
+ * comparison is a JavaScript object key: the whole tag, case and all.
+ *
+ * So the table reaches every form made in CommCare HQ in that project space,
+ * read or not, at its next save there; each kind is observed by
+ * `proof/editors/test_project_space_table_tags.py` with a table sorting after
+ * it, beside the names just outside each, which keep the form:
+ * - `stops-every-form`: `hasOwnProperty` shadows the method the builder calls
+ *   on that map, so no form there opens ("t2.hasOwnProperty is not a function").
+ * - `takes-the-session`: the save drops the form's `#case/` references and
+ *   CommCare HQ refuses the form.
+ * - `takes-registry-cases`: the save points a `#registry_case/` read at the
+ *   table, so it reads nothing.
+ * - `takes-a-build-instance`: the save declares the table under an instance id
+ *   CommCare HQ's build gives a form that reads it undeclared
+ *   (`suite_xml/post_process/instances.py`), and the form reads the table.
+ *
+ * Nova's own forms read a table under `item-list:<tag>` where its tag
+ * collides (`lib/commcare/lookup/naming.ts`), and the builder keeps them. The
+ * harm is to forms made in CommCare HQ, so Nova refuses only the acts by which
+ * it would put such a table into a project space: making or renaming a table
+ * it manages, taking one over from CommCare HQ, and publishing one. A table
+ * CommCare HQ manages under one of these tags comes in as it is, except
+ * `hasOwnProperty`, where no form opens at all.
  */
-export const FORM_EDITOR_RESERVED_TAGS: ReadonlySet<string> = new Set([
-	"__proto__",
-	"__defineGetter__",
-	"__defineSetter__",
-	"__lookupGetter__",
-	"__lookupSetter__",
-	"constructor",
-	"hasOwnProperty",
-	"isPrototypeOf",
-	"propertyIsEnumerable",
-	"toLocaleString",
-	"toString",
-	"valueOf",
+export type FormBuilderTagCollision =
+	| { readonly kind: "stops-every-form" }
+	| { readonly kind: "takes-the-session" }
+	| { readonly kind: "takes-registry-cases" }
+	| { readonly kind: "takes-a-build-instance"; readonly reads: string };
+
+export const FORM_BUILDER_COLLIDING_TAGS: ReadonlyMap<
+	string,
+	FormBuilderTagCollision
+> = new Map<string, FormBuilderTagCollision>([
+	["hasOwnProperty", { kind: "stops-every-form" }],
+	["commcaresession", { kind: "takes-the-session" }],
+	["registry", { kind: "takes-registry-cases" }],
+	["groups", { kind: "takes-a-build-instance", reads: "the worker's groups" }],
+	["reports", { kind: "takes-a-build-instance", reads: "mobile reports" }],
+	["locations", { kind: "takes-a-build-instance", reads: "locations" }],
+	["results", { kind: "takes-a-build-instance", reads: "case search results" }],
+	[
+		"search-input",
+		{ kind: "takes-a-build-instance", reads: "what a worker searched for" },
+	],
+	[
+		"selected_cases",
+		{ kind: "takes-a-build-instance", reads: "the cases a worker selected" },
+	],
+	[
+		"case-search-fixture",
+		{ kind: "takes-a-build-instance", reads: "the case search fixture" },
+	],
 ]);
 
-/** Why a tag is reserved: the whole name, a word it contains, or a name the
- * form builder keeps for its own JavaScript. */
+/** What a table under a colliding tag does to forms made in CommCare HQ, one
+ * sentence per mechanism. */
+export function formBuilderTagCollisionSentence(
+	collision: FormBuilderTagCollision,
+): string {
+	switch (collision.kind) {
+		case "stops-every-form":
+			return "CommCare HQ's form builder stops opening every form in a project space that holds a table with this name.";
+		case "takes-the-session":
+			return "In CommCare HQ's form builder the table takes the place of the session's case data, so a form made there loses its case references when it's next saved.";
+		case "takes-registry-cases":
+			return "In CommCare HQ's form builder the table takes the place of a registry's cases, so a form made there that reads a registry case reads nothing once it's next saved.";
+		case "takes-a-build-instance":
+			return `A form made in CommCare HQ that reads ${collision.reads} reads this table instead once it's next saved in CommCare HQ's form builder.`;
+	}
+}
+
+/** A tag in place of one that collides with the form builder's own ids. */
+export function formBuilderTagSuggestion(tag: string): string {
+	return `${tag.replaceAll("-", "_")}_table`;
+}
+
+/** Why a tag is reserved: the whole name, a word it contains, or an id
+ * CommCare HQ's form builder already holds. */
 export type ReservedInstanceTagCause =
 	| { readonly kind: "name" }
 	| { readonly kind: "contains"; readonly word: ReservedInstanceTagWord }
-	| { readonly kind: "form-editor" };
-
-/** A tag in place of one the form builder keeps for itself. */
-export function formEditorTagSuggestion(tag: string): string {
-	const stem = tag.replace(/^_+|_+$/g, "");
-	return `${stem === "" ? "table" : stem}_table`;
-}
+	| {
+			readonly kind: "form-builder";
+			readonly collision: FormBuilderTagCollision;
+	  };
 
 /**
- * Why CommCare would read `tag` as its own data, or null when it reads the
- * table, or why the form builder could not open a form that reads it. A
- * whole reserved name wins; otherwise the first word of
+ * Why a table Nova manages can't carry `tag`: CommCare would read it as its
+ * own data, or it collides with an id HQ's form builder holds. A whole
+ * reserved name wins; otherwise the first word of
  * `RESERVED_INSTANCE_TAG_WORDS` the tag contains as written.
  */
 export function reservedInstanceTagCause(
 	tag: string,
 ): ReservedInstanceTagCause | null {
 	if (tag === "casedb" || tag === "ledgerdb") return { kind: "name" };
-	if (FORM_EDITOR_RESERVED_TAGS.has(tag)) return { kind: "form-editor" };
+	const collision = FORM_BUILDER_COLLIDING_TAGS.get(tag);
+	if (collision !== undefined) return { kind: "form-builder", collision };
 	const word = RESERVED_INSTANCE_TAG_WORDS.find((reserved) =>
 		tag.includes(reserved),
 	);
 	return word === undefined ? null : { kind: "contains", word };
+}
+
+/**
+ * Why a table CommCare HQ manages can't come in under `tag`, or null. Nova
+ * never writes such a table, so a collision HQ's editors already live with
+ * comes in, except one under which no form in the project space opens.
+ */
+export function hqManagedTagRefusal(
+	tag: string,
+): ReservedInstanceTagCause | null {
+	const cause = reservedInstanceTagCause(tag);
+	if (cause?.kind !== "form-builder") return cause;
+	return cause.collision.kind === "stops-every-form" ? cause : null;
 }
 
 export function isReservedInstanceTag(tag: string): boolean {

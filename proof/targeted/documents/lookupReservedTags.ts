@@ -54,13 +54,13 @@ export function lookupReservedTags() {
 		wireRow(stock, "soap", { code: "soap", name: "Soap" }),
 		wireRow(stock, "salt", { code: "salt", name: "Salt" }),
 	];
-	// Tables tagged with an Object.prototype member (`hasOwnProperty`,
-	// `__proto__`) left CommCare HQ's form builder unable to open the form
-	// ("t2.hasOwnProperty is not a function", proof4 at B), so Nova refuses
-	// those tags (`lib/lookup/constants.ts::FORM_EDITOR_RESERVED_TAGS`). These
-	// are the names its refusal suggests, the accepted neighbours: each hidden
-	// calculation must survive both of the form builder's saves and read its
-	// own fixture.
+	// A table tagged `hasOwnProperty` stops every form in its project space
+	// opening in CommCare HQ's form builder, and the builder drops a form's
+	// declaration of one tagged `__proto__`
+	// (`lib/lookup/constants.ts::FORM_BUILDER_COLLIDING_TAGS`,
+	// `lib/lookup/pathNames.ts`). These are the names Nova's refusal suggests,
+	// the accepted neighbours: each hidden calculation must survive both of the
+	// form builder's saves and read its own fixture.
 	const editorTables = [
 		{
 			tag: "hasOwnProperty_table",

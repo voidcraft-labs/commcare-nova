@@ -236,9 +236,21 @@ identity and the old, still-referenced field keeps its identity and spelling.
 
 Tags that share a runtime name retain their tag and table identity. The form
 writer assigns them a qualified local instance ID, including the
-`selected_cases` family. A tag every JavaScript object inherits
-(`FORM_EDITOR_RESERVED_TAGS`: `__proto__`, `hasOwnProperty`, …) is refused,
-since HQ's form builder keys plain objects by a table's names. A formula reads
+`selected_cases` family. CommCare HQ's form builder indexes every table of a
+project space by its bare tag beside the ids it holds for itself, so a table
+under one of those ids takes that id's place in every form made in CommCare HQ
+there at its next save (`FORM_BUILDER_COLLIDING_TAGS`: `hasOwnProperty` stops
+every form opening, `commcaresession` drops a form's case references,
+`registry` empties a registry case's reads, and `groups`, `reports`,
+`locations`, `results`, `search-input`, `selected_cases` and
+`case-search-fixture` make a form read the table in place of the runtime
+instance). Nova refuses only the acts by which it would put such a table into
+a project space: making or renaming a table it manages (`lookupTagSchema`),
+taking one over from CommCare HQ, and publishing one (the validator's
+backstop). A table CommCare HQ manages under one of them comes in as it is
+(`lookupStoredTagSchema`, `hqManagedTagRefusal`), but `hasOwnProperty`. A form's
+read of a table tagged `__proto__` is refused (`pathNames.ts`), since the
+builder drops that declaration; the suite reads it. A formula reads
 the table by its UUID; the writer derives the source and the local alias at
 export. The same spellings can name a column. A historical tag containing
 lowercase `ledgerdb` or `casedb` still needs an authorized rename because

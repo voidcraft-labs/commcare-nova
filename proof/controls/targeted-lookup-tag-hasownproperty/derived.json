@@ -1,0 +1,202 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "patient-1",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"age",
+							"7"
+						],
+						[
+							"note",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "patient-2",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"age",
+							"10"
+						],
+						[
+							"note",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "patient-3",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"age",
+							"2"
+						],
+						[
+							"note",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "patient-4",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"age",
+							"7"
+						],
+						[
+							"note",
+							""
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"caseTypes": {
+			"patient": {
+				"age": "int",
+				"case_name": null,
+				"note": "text"
+			}
+		},
+		"intent": {
+			"appName": "Editor experiment",
+			"modules": [
+				[
+					"patient",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {
+								"patient": {
+									"note": "value"
+								}
+							},
+							"formType": "followup",
+							"moduleType": "patient",
+							"multiple": false,
+							"openedWrites": {},
+							"operationWrites": {},
+							"ownCloseAlone": [],
+							"uuid": "9baa5b04-21d6-5418-a2e8-0cd64d33f974",
+							"validations": {},
+							"writes": {
+								"patient": {
+									"note": "value"
+								}
+							}
+						}
+					]
+				],
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"openedWrites": {},
+							"operationWrites": {},
+							"ownCloseAlone": [],
+							"uuid": "0df03e70-1ee9-501c-a9d6-3a4e9648d600",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			],
+			"sequence": 1,
+			"settings": {
+				"showIncompleteForms": false,
+				"showSavedForms": false
+			}
+		},
+		"lookupTags": {
+			"2d4257b7-7bb3-7b2b-a6d3-3a49fc02e2c7": "hasOwnProperty",
+			"52165c53-8cfa-7bb7-a441-e01529700d03": "zz_after"
+		},
+		"platforms": [
+			"android",
+			"web-apps"
+		],
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"9baa5b04-21d6-5418-a2e8-0cd64d33f974"
+					],
+					"uuid": "91be5c2f-747b-513b-af42-e8ddfb84741f"
+				},
+				{
+					"forms": [
+						"0df03e70-1ee9-501c-a9d6-3a4e9648d600"
+					],
+					"uuid": "7e9930bf-82f6-5f63-aca7-55792f2c662f"
+				}
+			]
+		}
+	}
+}

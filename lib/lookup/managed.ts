@@ -21,7 +21,12 @@ import {
 	type ManagedLookupMemberIds,
 } from "./authoringBatch";
 import { validateLookupRowValues } from "./coercion";
-import { LOOKUP_MAX_CHANGE_BYTES, LOOKUP_MAX_COLUMNS } from "./constants";
+import {
+	formBuilderTagCollisionSentence,
+	LOOKUP_MAX_CHANGE_BYTES,
+	LOOKUP_MAX_COLUMNS,
+	reservedInstanceTagCause,
+} from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError, LookupPastInlineCopyError } from "./errors";
 import { formatLookupBytesOverCap } from "./format";
@@ -46,8 +51,8 @@ import { balancedKeysBetween } from "./orderKeys";
 import { resolveNamedRowContent } from "./rowContent";
 import {
 	hasUnpairedUtf16Surrogate,
+	lookupStoredTagSchema,
 	lookupTableNameSchema,
-	lookupTagSchema,
 	lookupWireNameSchema,
 	parseLookupRevision,
 	storedLookupRowValuesSchema,
@@ -579,7 +584,7 @@ export async function createManagedLookupTablesInTransaction(
 	const prepared = [];
 	for (const { binding, name, content, origin } of tables) {
 		const tag = binding.tag;
-		const tagCheck = lookupTagSchema.safeParse(tag);
+		const tagCheck = lookupStoredTagSchema.safeParse(tag);
 		if (!tagCheck.success) {
 			invalid(
 				`${tag} can't be a lookup table's tag: ${tagCheck.error.issues[0]?.message ?? "it is not one Nova takes."}`,
@@ -1717,6 +1722,14 @@ export async function takeOverManagedLookupTableInTransaction(
 		throw new LookupError("not_found", "Lookup resource was not found.");
 	}
 	if (table.hq_taken_over_at !== null) return lookupTableRevisions(table);
+	// A table Nova manages is one Nova writes into CommCare HQ on each publish,
+	// so it takes only a tag Nova gives a table it makes.
+	const reserved = reservedInstanceTagCause(table.tag);
+	if (reserved?.kind === "form-builder")
+		throw new LookupError(
+			"managed_in_hq",
+			`Nova can't manage the table ${table.tag} in place of CommCare HQ: ${formBuilderTagCollisionSentence(reserved.collision)} It stays managed in CommCare HQ, and apps keep reading it as they do.`,
+		);
 	await assertWorkbookEditAvailable(tx, tableId);
 	await holdReviewed(tx, table, reviewed);
 	const original = managedCanonicalSchema.parse(table.hq_canonical);

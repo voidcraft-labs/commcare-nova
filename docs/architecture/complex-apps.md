@@ -1083,6 +1083,15 @@ commcare-core picks an instance's storage by substring
 (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, then
 `fixture`), so a lookup instance named with either word reads the ledger or case
 database and its select lists nothing.
+A table tagged with an id CommCare HQ's form builder holds for itself
+(`lib/lookup/constants.ts::FORM_BUILDER_COLLIDING_TAGS`) takes that id's place in
+every form made in CommCare HQ in its project space at the form's next save, since
+the builder indexes the project space's tables by bare tag beside its own sources
+(harness finding 78, `proof/editors/test_project_space_table_tags.py`). Nova
+refuses the acts that would put such a table there: making or renaming a table it
+manages, taking one over, and publishing one. A table CommCare HQ manages under one
+of those tags comes in, but `hasOwnProperty`, and Nova's own forms read it under
+`item-list:<tag>`, which the builder keeps (`hq-runtime-name-tables`).
 
 ### Atomic submission and resolved identity
 

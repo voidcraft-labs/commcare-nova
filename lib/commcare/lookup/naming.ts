@@ -63,9 +63,9 @@ const runtimeInstanceIds = new Set([
 ]);
 
 /** Whether a tag, as a form's local instance id, would name an instance
- * CommCare provides. A tag every JavaScript object inherits, which HQ's form
- * builder cannot hold, is refused before a form reads it
- * (`lib/lookup/constants.ts::FORM_EDITOR_RESERVED_TAGS`). */
+ * CommCare provides. A form reading such a table declares it under
+ * `item-list:<tag>`, which HQ's form builder keeps in a project space holding
+ * the table (`lib/lookup/constants.ts::FORM_BUILDER_COLLIDING_TAGS`). */
 export function lookupTagCollidesWithInstanceName(tag: string): boolean {
 	const id = tag.toLowerCase();
 	return runtimeInstanceIds.has(id) || id.includes("selected_cases");

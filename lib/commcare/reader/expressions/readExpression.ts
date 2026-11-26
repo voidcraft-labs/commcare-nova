@@ -1856,6 +1856,12 @@ export function bindSlot(
 		context === undefined
 			? parsed.expression
 			: typedWhereRequired(parsed.expression, context);
+	// A name of plain ASCII letters can still be one a slot refuses (a form's
+	// read of a table tagged __proto__, which HQ's form builder drops).
+	if (env.lookup.size > 0 && catalogNeedsNameDiagnostics(env)) {
+		const refusal = boundNameRefusal(candidate, pending, env);
+		if (refusal !== undefined) return { kind: "refused", cause: refusal };
+	}
 	const foldSites = [...sites.used].sort((a, b) => {
 		const left = sites.spans.get(a);
 		const right = sites.spans.get(b);

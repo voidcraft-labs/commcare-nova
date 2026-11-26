@@ -4916,7 +4916,7 @@
 		"id": "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
 		"area": "expressions-and-data",
 		"section": "Lookup tables",
-		"item": "`tag` equal to `commcaresession`, `locations`, `results`, `input`, `search_selected_cases` or a `selected_cases` instance name",
+		"item": "`tag` equal to `commcaresession`, `registry`, `groups`, `reports`, `locations`, `results`, `search-input`, `case-search-fixture`, `input`, `search_selected_cases` or a `selected_cases` instance name, on a table CommCare HQ manages",
 		"surfaceKeys": [
 			"lookup-model:LookupTable.tag",
 			"lookup-model:TypeField.name",
@@ -4927,7 +4927,7 @@
 		],
 		"valueClass": "reserved-instance-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the Project table keeps its tag. A form binds each read to its declared fixture source and assigns a distinct local instance id when the tag coincides with a runtime instance. A tag every JavaScript object inherits is refused (`expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit`).",
+		"dispositionCell": "**HELD**: the Project table keeps its tag, and Nova never writes a table CommCare HQ manages. A form Nova writes binds each read to its declared fixture source under `item-list:<tag>` where the tag coincides with a runtime instance, and reads the runtime instance under its own id; HQ's form builder keeps both in a project space holding the table (proof 4 on `targeted-lookup-runtime-name-tables`), and Nova reads an HQ form's read by its declaration, never by the bare id (`hq-runtime-name-tables`). A table Nova manages can't take one of the ten ids HQ's form builder holds (`lib/lookup/constants.ts::FORM_BUILDER_COLLIDING_TAGS`), since a forms made in CommCare HQ in that project space would lose what they read at their next save there: refused when it is made or renamed, taken over or published (`expressions-and-data/nova-table-tag-colliding-with-the-form-builder-s-ids`). `hasOwnProperty` is refused (`expressions-and-data/tag-has-own-property`), and a form's read of `__proto__` (`expressions-and-data/tag-proto-read-by-a-form`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4946,19 +4946,71 @@
 		"gates": []
 	},
 	{
-		"id": "expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit",
+		"id": "expressions-and-data/nova-table-tag-colliding-with-the-form-builder-s-ids",
 		"area": "expressions-and-data",
 		"section": "Lookup tables",
-		"item": "`tag` equal to a name every JavaScript object inherits (`__proto__`, `constructor`, `hasOwnProperty`, `isPrototypeOf`, `propertyIsEnumerable`, `toLocaleString`, `toString`, `valueOf`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`)",
+		"item": "a table Nova manages tagged `commcaresession`, `registry`, `groups`, `reports`, `locations`, `results`, `search-input`, `selected_cases` or `case-search-fixture`",
 		"surfaceKeys": ["lookup-model:LookupTable.tag"],
-		"valueClass": "form-builder-object-member-tag",
+		"valueClass": "nova-table-form-builder-colliding-tag",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum keys plain objects by a table's names (`datasources.js`: `nodeMap[node.hashtag || node.xpath]`, then `nodeMap.hasOwnProperty`), and the row element is named by the tag, so a form reading such a table does not open in HQ's form builder (`t2.hasOwnProperty is not a function`, proof 4 on `targeted-lookup-reserved-tags`)",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's form designer hands its form builder the session, a registry's cases and every table of the project space under its bare tag, the builder indexes them by id and records each among the instances it knows, so a table Nova put there under `commcaresession`, `registry` or an instance id HQ's build gives an undeclared read (`groups`, `reports`, `locations`, `results`, `search-input`, `selected_cases`, `case-search-fixture`) takes that source's place in every form made in CommCare HQ there at its next save: the form loses its `#case/` references and is refused, reads nothing for a registry case, or reads the table in place of the runtime instance (`proof/editors/test_project_space_table_tags.py`; the same names in another case, or with a character added, keep the form)",
 		"subject": "lookup-tables",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
-				"named": "Vellum keys plain objects by a table's names (`datasources.js`: `nodeMap[node.hashtag || node.xpath]`, then `nodeMap.hasOwnProperty`), and the row element is named by the tag, so a form reading such a table does not open in HQ's form builder (`t2.hasOwnProperty is not a function`, proof 4 on `targeted-lookup-reserved-tags`)"
+				"named": "HQ's form designer hands its form builder the session, a registry's cases and every table of the project space under its bare tag, the builder indexes them by id and records each among the instances it knows, so a table Nova put there under `commcaresession`, `registry` or an instance id HQ's build gives an undeclared read (`groups`, `reports`, `locations`, `results`, `search-input`, `selected_cases`, `case-search-fixture`) takes that source's place in every form made in CommCare HQ there at its next save: the form loses its `#case/` references and is refused, reads nothing for a registry case, or reads the table in place of the runtime instance (`proof/editors/test_project_space_table_tags.py`; the same names in another case, or with a character added, keep the form)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "— (Nova's tag schema refuses making or renaming a table to one, taking one over and publishing one)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-has-own-property",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` equal to `hasOwnProperty`",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "form-builder-has-own-property-tag",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's form designer hands its form builder every table of the project space under its bare tag (`views/formdesigner.py::get_form_data_schema`), and the builder records each in a plain object on which it then calls `hasOwnProperty` (`form.js::updateKnownInstances`), so with a table tagged `hasOwnProperty` and any table after it no form in the project space opens there (`t2.hasOwnProperty is not a function`; `proof/editors/test_project_space_table_tags.py`, control `targeted-lookup-tag-hasownproperty`)",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's form designer hands its form builder every table of the project space under its bare tag (`views/formdesigner.py::get_form_data_schema`), and the builder records each in a plain object on which it then calls `hasOwnProperty` (`form.js::updateKnownInstances`), so with a table tagged `hasOwnProperty` and any table after it no form in the project space opens there (`t2.hasOwnProperty is not a function`; `proof/editors/test_project_space_table_tags.py`, control `targeted-lookup-tag-hasownproperty`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "— (Nova's own tag schema refuses it too)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-proto-read-by-a-form",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` equal to `__proto__`, read by a form",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "form-builder-proto-tag-in-a-form",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's form builder keeps a form's instances in a plain object keyed by id, so a form's declaration of a table tagged `__proto__` sets that object's prototype and is dropped on a save, and HQ's build then refuses the form (`Instance: __proto__ Does not exists`; proof 4, control `targeted-lookup-tag-proto-read-by-a-form`). A case list, a calculated column and a display condition read it in the suite, which the builder never sees: HQ builds them and Formplayer and Web Apps run them",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's form builder keeps a form's instances in a plain object keyed by id, so a form's declaration of a table tagged `__proto__` sets that object's prototype and is dropped on a save, and HQ's build then refuses the form (`Instance: __proto__ Does not exists`; proof 4, control `targeted-lookup-tag-proto-read-by-a-form`). A case list, a calculated column and a display condition read it in the suite, which the builder never sees: HQ builds them and Formplayer and Web Apps run them"
 			}
 		],
 		"platforms": {
@@ -5063,19 +5115,48 @@
 		"id": "expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
 		"area": "expressions-and-data",
 		"section": "Lookup tables",
-		"item": "a menu or form display condition, a search button display condition or excluded owners expression reading a lookup tag or column whose name holds anything but unaccented letters, digits, `_`, `.` and `-`",
+		"item": "a menu or form display condition reading a lookup tag or column whose name holds anything but unaccented letters, digits, `_`, `.` and `-`",
 		"surfaceKeys": [
 			"lookup-model:LookupTable.tag",
 			"lookup-model:TypeField.name"
 		],
 		"valueClass": "hq-checked-condition-non-ascii-name",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ checks these conditions with js-xpath (`xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so its build validation (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`) and its search options save (`views/modules.py::_check_xpath`) refuse the expression",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ's build validation checks a menu's and a form's display condition with js-xpath (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`; `xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so HQ will not build the app",
 		"subject": "lookup-tables",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
-				"named": "HQ checks these conditions with js-xpath (`xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so its build validation (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`) and its search options save (`views/modules.py::_check_xpath`) refuse the expression"
+				"named": "HQ's build validation checks a menu's and a form's display condition with js-xpath (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`; `xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so HQ will not build the app"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a search button display condition or excluded-owners expression reading a lookup tag or column whose name holds anything but unaccented letters, digits, `_`, `.` and `-`",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name"
+		],
+		"valueClass": "search-option-non-ascii-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's Search options page checks these two expressions with js-xpath when it is saved (`views/modules.py::_check_xpath`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so a person cannot save the page in HQ; HQ's build does not check them",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's Search options page checks these two expressions with js-xpath when it is saved (`views/modules.py::_check_xpath`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so a person cannot save the page in HQ; HQ's build does not check them"
 			}
 		],
 		"platforms": {

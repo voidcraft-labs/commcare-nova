@@ -15,6 +15,14 @@ from proof.matrix.bases import _pages
 from proof.matrix.bases.lookups import declare_instance, lookup_select, make_tables
 from proof.matrix.registry import Base
 
+ZONES = {
+    "tag": "zones",
+    "fields": ("code", "clé", "région", "名前", "code.1", "zone.name"),
+    "rows": (
+        ("upland", "upland", "Upland", "upper", "on", "Upper zone"),
+        ("lowland", "lowland", "Lowland", "lower", "off", "Lower zone"),
+    ),
+}
 TABLES = (
     {
         "tag": "meeting.1",
@@ -24,14 +32,7 @@ TABLES = (
     # A select shows région and saves clé, names HQ's form builder keeps as written; its variants' display
     # conditions read code, code.1, zone.name and région. No form reads a table whose tag holds letters outside
     # ASCII: HQ's form builder drops such a table's declaration on save, and HQ then refuses the form.
-    {
-        "tag": "zones",
-        "fields": ("code", "clé", "région", "名前", "code.1", "zone.name"),
-        "rows": (
-            ("upland", "upland", "Upland", "upper", "on", "Upper zone"),
-            ("lowland", "lowland", "Lowland", "lower", "off", "Lower zone"),
-        ),
-    },
+    ZONES,
 )
 
 
@@ -54,14 +55,13 @@ def visit_source(name):
     return form.tostring(xml_declaration=True).decode("utf-8")
 
 
-def build(authoring):
+def make_saved_tables(authoring, tables):
+    """Each of ``tables`` made with HQ's own models (``lookups.make_tables``), then saved on HQ's table editor as a
+    person saves its definition (``update_lookup_tables``), which keeps each name as written."""
     from corehq.apps.fixtures.models import LookupTable
 
-    app_id = _pages.new_app(authoring)
-    _pages.rename_app(authoring, app_id, "Site visits")
-    _pages.turn_web_apps_on(authoring, app_id)
-    make_tables(authoring, TABLES)
-    for spec in TABLES:
+    make_tables(authoring, tables)
+    for spec in tables:
         table = LookupTable.objects.get(domain=authoring.state.domain, tag=spec["tag"])
         payload = {
             "tag": spec["tag"],
@@ -83,6 +83,13 @@ def build(authoring):
         saved = json.loads(response.content)
         if saved.get("tag") != spec["tag"] or [f["name"] for f in saved.get("fields", [])] != list(spec["fields"]):
             raise ValueError(f"HQ's table editor did not keep the definition of {spec['tag']!r}: {saved}")
+
+
+def build(authoring):
+    app_id = _pages.new_app(authoring)
+    _pages.rename_app(authoring, app_id, "Site visits")
+    _pages.turn_web_apps_on(authoring, app_id)
+    make_saved_tables(authoring, TABLES)
     _pages.new_survey_module(authoring, app_id, name="Visit")
     ops.upload_form_source(authoring, app_id, 0, 0, visit_source, "visit-source")
     # No display condition reads a table here: HQ checks one with an XPath reader of unaccented names alone, so a

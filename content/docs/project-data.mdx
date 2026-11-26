@@ -59,8 +59,21 @@ A table has columns and rows. Each column carries three things:
 - **A type of value**: Text, Whole number, Decimal number, Date, Time, or Date
   and time.
 
-You can give a table an export tag like `locations` even if the app also uses
-worker locations. Nova gives the form a separate name for reading that table.
+A few export tags are names CommCare HQ's form builder already uses for its
+own data: `commcaresession`, `registry`, `groups`, `reports`, `locations`,
+`results`, `search-input`, `selected_cases`, `case-search-fixture` and
+`hasOwnProperty`. A table Nova puts into a project space under one of them would
+change forms made in CommCare HQ there the next time someone saves them in the
+form builder, so Nova asks you to pick another tag when you create or rename a
+table, before it manages a table that came from CommCare HQ, and before it
+publishes one. The same word in other letters works, so `Locations` or
+`locations_table` is fine. A table that CommCare HQ already manages under one of
+these tags comes in with your app as it is, except `hasOwnProperty`, which stops
+the form builder opening any form in that project space. Your app reads such a
+table under a separate name, so it keeps reading both the table and the worker's
+own locations or groups. A form can't read a table tagged `__proto__`, since
+CommCare HQ's form builder drops it from the form, but a case list or a display
+condition can.
 A tag can hold up to 32 characters, and an export name up to 255. Both start with
 a letter or an underscore and go on with letters, digits, underscores, hyphens
 and periods, so `site_code`, `école` and `site.name` all work. A name can't

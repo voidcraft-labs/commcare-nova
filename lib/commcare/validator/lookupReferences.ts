@@ -10,7 +10,9 @@ import {
 import type { BlueprintDoc } from "@/lib/domain";
 import { declaredPlatforms } from "@/lib/domain/platforms";
 import {
-	formEditorTagSuggestion,
+	formBuilderTagCollisionSentence,
+	formBuilderTagSuggestion,
+	hqManagedTagRefusal,
 	reservedInstanceTagCause,
 } from "@/lib/lookup/constants";
 import {
@@ -211,7 +213,13 @@ export function validateLookupReferences(
 			}
 			continue;
 		}
-		const reserved = reservedInstanceTagCause(table.tag);
+		// A table CommCare HQ manages is never written by Nova, so a tag that
+		// collides with the form builder's own ids comes in as it is
+		// (`lib/lookup/constants.ts::hqManagedTagRefusal`).
+		const reserved =
+			table.hq?.managedBy === "commcare-hq"
+				? hqManagedTagRefusal(table.tag)
+				: reservedInstanceTagCause(table.tag);
 		if (reserved !== null) {
 			errors.push(
 				validationError(
@@ -219,8 +227,10 @@ export function validateLookupReferences(
 					occurrence.location.scope,
 					reserved.kind === "name"
 						? `The lookup table ${table.name} uses the export tag ${table.tag}, which CommCare reserves for its own data. Rename the export tag in Project data, then try again.`
-						: reserved.kind === "form-editor"
-							? `The lookup table ${table.name} uses the export tag ${table.tag}, a name CommCare HQ's form builder keeps for itself, so a form reading it wouldn't open there. Rename the export tag in Project data, ${formEditorTagSuggestion(table.tag)} for example, then try again.`
+						: reserved.kind === "form-builder"
+							? table.hq?.managedBy === "commcare-hq"
+								? `The lookup table ${table.name}, which CommCare HQ manages, uses the export tag ${table.tag}. ${formBuilderTagCollisionSentence(reserved.collision)} You can choose another table for this setting.`
+								: `The lookup table ${table.name} uses the export tag ${table.tag}, and Nova would put it into CommCare HQ on a publish. ${formBuilderTagCollisionSentence(reserved.collision)} You can rename the export tag in Project data, to ${formBuilderTagSuggestion(table.tag)} for example, then publish again.`
 							: `The lookup table ${table.name} uses the export tag ${table.tag}, which contains ${reserved.word}, and CommCare reads any tag containing ${reserved.word} as its own data. Rename the export tag in Project data, then try again.`,
 					occurrenceLocation(occurrence),
 					occurrenceDetails(occurrence, {

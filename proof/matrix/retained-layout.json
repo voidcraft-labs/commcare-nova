@@ -21,6 +21,7 @@
 				"project-spaces-flag.json",
 				"project-spaces.json",
 				"seed.json",
+				"source-factories.json",
 				"tables.json"
 			],
 			"patterns": [

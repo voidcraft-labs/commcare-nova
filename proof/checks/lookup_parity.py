@@ -210,36 +210,40 @@ def _lookup_condition_names(tree):
 
 
 def changed_form_condition_refusals(base, variant):
-    """Uses at changed form conditions. HQ's own parser identifies the lookup and column; its actual suite
+    """Uses at changed menu and form conditions. HQ's own parser identifies the lookup and column; its actual suite
     discovery and dot interpolation determine each failing class without reading the variant's expected result."""
     from corehq.apps.app_manager.suite_xml.post_process.instances import get_instance_names
     from corehq.apps.app_manager.xpath import dot_interpolate
     from corehq.apps.app_manager.xpath_validator import validate_xpath
     from proof.observe.manifest import expression_tree
 
-    for m, (old_module, module) in enumerate(zip(base.get("modules", []), variant.get("modules", []))):
-        for f, (old_form, form) in enumerate(zip(old_module["forms"], module["forms"])):
-            text = form.get("form_filter")
-            if not text or text == old_form.get("form_filter"):
-                continue
-            declared = get_instance_names(text)
-            issues = set()
-            for instance_id, columns in _lookup_condition_names(expression_tree(text)):
-                tag = instance_id.removeprefix("item-list:")
-                unread = [name for name in columns if not _hq_xpath_name(name)]
-                if not _hq_xpath_name(tag) or unread:
-                    # HQ's own check of the condition answers first: a name its reader does not read fails it.
-                    valid, _ = validate_xpath(text, allow_case_hashtags=True)
-                    if not valid:
-                        if not _hq_xpath_name(tag):
-                            issues.add(("lookup-model:LookupTable.tag", HQ_CHECKED_NAME))
-                        if unread:
-                            issues.add(("lookup-model:TypeField.name", HQ_CHECKED_NAME))
-                        # Each name takes its first refusal, as Nova's rule gives one (``lookupPathNameIssue``).
-                        columns = [name for name in columns if name not in unread]
-                if _hq_xpath_name(tag) and instance_id not in declared:
-                    issues.add(("lookup-model:LookupTable.tag", OMITTED_INSTANCE))
-                elif instance_id in declared and any(dot_interpolate(name, "CURRENT") != name for name in columns):
-                    issues.add(("lookup-model:TypeField.name", INTERPOLATED_COLUMN))
-            for key, entry in sorted(issues):
-                yield key, f"/modules/{m}/forms/{f}/form_filter", entry
+    def conditions():
+        for m, (old_module, module) in enumerate(zip(base.get("modules", []), variant.get("modules", []))):
+            if module.get("module_filter") and module.get("module_filter") != old_module.get("module_filter"):
+                yield module["module_filter"], f"/modules/{m}/module_filter"
+            for f, (old_form, form) in enumerate(zip(old_module["forms"], module["forms"])):
+                if form.get("form_filter") and form.get("form_filter") != old_form.get("form_filter"):
+                    yield form["form_filter"], f"/modules/{m}/forms/{f}/form_filter"
+
+    for text, where in conditions():
+        declared = get_instance_names(text)
+        issues = set()
+        for instance_id, columns in _lookup_condition_names(expression_tree(text)):
+            tag = instance_id.removeprefix("item-list:")
+            unread = [name for name in columns if not _hq_xpath_name(name)]
+            if not _hq_xpath_name(tag) or unread:
+                # HQ's own check of the condition answers first: a name its reader does not read fails it.
+                valid, _ = validate_xpath(text, allow_case_hashtags=True)
+                if not valid:
+                    if not _hq_xpath_name(tag):
+                        issues.add(("lookup-model:LookupTable.tag", HQ_CHECKED_NAME))
+                    if unread:
+                        issues.add(("lookup-model:TypeField.name", HQ_CHECKED_NAME))
+                    # Each name takes its first refusal, as Nova's rule gives one (``lookupPathNameIssue``).
+                    columns = [name for name in columns if name not in unread]
+            if _hq_xpath_name(tag) and instance_id not in declared:
+                issues.add(("lookup-model:LookupTable.tag", OMITTED_INSTANCE))
+            elif instance_id in declared and any(dot_interpolate(name, "CURRENT") != name for name in columns):
+                issues.add(("lookup-model:TypeField.name", INTERPOLATED_COLUMN))
+        for key, entry in sorted(issues):
+            yield key, where, entry

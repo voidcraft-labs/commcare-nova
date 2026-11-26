@@ -12,8 +12,8 @@ import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	compareLookupRevisions,
 	lookupRevisionSchema,
+	lookupStoredTagSchema,
 	lookupTableNameSchema,
-	lookupTagSchema,
 } from "@/lib/lookup/schema";
 import {
 	lookupSourceFactsSchema,
@@ -30,7 +30,7 @@ const lookupTableManifestEntrySchema = z
 	.strictObject({
 		id: lookupTableIdSchema,
 		name: exactLookupTableNameSchema,
-		tag: lookupTagSchema,
+		tag: lookupStoredTagSchema,
 		columnCount: z.number().int().min(0).max(2147483647),
 		rowCount: z.number().int().min(0).max(2147483647).nullable(),
 		dataBytes: z.number().int().nonnegative().nullable(),

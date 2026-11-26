@@ -125,7 +125,7 @@ function read(
 }
 
 describe("readReadingProjectData", () => {
-	it("measures a table tagged __proto__ against both bounds of one inline copy, and refuses its tag", async () => {
+	it("measures a table tagged __proto__ against both bounds of one inline copy, and takes its tag", async () => {
 		const measure = {
 			dataBytes: LOOKUP_MAX_CHANGE_BYTES + 1,
 			largestRowBytes: LOOKUP_MAX_ROW_BYTES + 1,
@@ -176,14 +176,61 @@ describe("readReadingProjectData", () => {
 				measure,
 			),
 		).toHaveLength(2);
-		// HQ's form builder cannot open a form reading a table every JavaScript
-		// object's member names, so the table comes in refused.
-		expect(proto.findings.map((finding) => finding.code)).toEqual([
-			"expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit",
-		]);
+		// HQ's form builder drops only a form's declaration of a `__proto__`
+		// table, which the form's own read refuses; the table comes in.
+		expect(proto.findings.map((finding) => finding.code)).toEqual([]);
 		expect(proto.read.rows).toEqual([]);
 		expect(proto.read.canonical.source?.inventory).toBe("unavailable");
 	});
+
+	it.each([
+		["hasOwnProperty", ["expressions-and-data/tag-has-own-property"]],
+		["locations", []],
+		["commcaresession", []],
+		["HasOwnProperty", []],
+	])(
+		"takes a table CommCare HQ manages tagged %s as its tag allows",
+		async (tag, codes) => {
+			const table = {
+				id: PROTO_ID,
+				tag,
+				fields: [{ field_name: "code", properties: [] }],
+				is_global: true,
+				item_attributes: [],
+				resource_uri: "",
+			};
+			const row = {
+				id: "7a1e0f4a9b8d4c7e8f6a5b4c3d2e1f01",
+				fixture_type: tag,
+				fields: { code: "001" },
+				resource_uri: "",
+			};
+			const source = await sourceNoting(
+				"instance('item-list:unrelated')",
+				`count(instance('item-list:${tag}')/${tag}_list/${tag}) > 0`,
+			);
+			const answer = await withHttpPeer(async (peer) => {
+				serveJson(peer, LIST, {
+					meta: { limit: 100, next: null, offset: 0, total_count: 1 },
+					objects: [table],
+				});
+				serveJson(
+					peer,
+					`/a/${DOMAIN}/api/fixture/v1/?fixture_type_id=${PROTO_ID}`,
+					{
+						meta: { limit: 1000, next: null, offset: 0, total_count: 1 },
+						objects: [row],
+					},
+				);
+				return read(source, emptyProject({ dataBytes: 1, largestRowBytes: 1 }));
+			});
+			if (answer.kind !== "read") throw new Error("the read failed");
+			const [taken] = answer.data.gathered.tables;
+			// Nova never writes a table CommCare HQ manages: a tag HQ's form builder
+			// holds comes in, but one under which no form there opens.
+			expect(taken?.findings.map((finding) => finding.code)).toEqual(codes);
+		},
+	);
 
 	it("reads only the rows reached by the form's local alias, even when prose, a declaration, or a longer tag mentions another table", async () => {
 		const source = await sourceNoting(

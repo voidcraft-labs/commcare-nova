@@ -139,6 +139,16 @@ describe("lookup reference validation", () => {
 			["case_operation_write_value", "tag", "form-builder-unreadable-name"],
 		]);
 		expect(issues(doc, "clinicas", "code.1")).toEqual([]);
+		// HQ's form builder drops a form's declaration of a table tagged
+		// __proto__; the case list and the menu's condition read it in the suite.
+		expect(issues(doc, "__proto__", "code.1")).toEqual([
+			...Array.from({ length: 5 }, () => [
+				"lookup_options_source",
+				"tag",
+				"form-builder-prototype-tag",
+			]),
+			["case_operation_write_value", "tag", "form-builder-prototype-tag"],
+		]);
 		expect(issues(doc, "sites.1", "code")).toContainEqual([
 			"case_list_column_expression",
 			"tag",

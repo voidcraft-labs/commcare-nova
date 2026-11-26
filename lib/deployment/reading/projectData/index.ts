@@ -38,11 +38,11 @@ import {
 	ownRecordValue,
 	recordFromEntries,
 } from "@/lib/domain/records";
+import { hqManagedTagRefusal } from "@/lib/lookup/constants";
 import {
 	type LookupRowsMeasure,
 	lookupInlineCopyExcess,
 } from "@/lib/lookup/managedRules";
-
 import type {
 	LookupFixtureDataSnapshot,
 	LookupFixtureRow,
@@ -73,6 +73,7 @@ import {
 	lookupTableFindings,
 	lookupTableStanding,
 	managedLookupContentOf,
+	NO_FORM_OPENS_TAG_ENTRY,
 	needsWorkerRows,
 	provisionalLookupBinding,
 	readerLookupCatalog,
@@ -713,6 +714,18 @@ export function readingProjectDataFindingsFor(
 			findings.push(
 				manifestFinding(
 					UNSERVED_DECLARATION_ENTRY,
+					{ kind: "lookup-table", tag },
+					tag,
+				),
+			);
+	// CommCare HQ's form builder opens no form in a project space holding a
+	// table tagged hasOwnProperty, whether the app reads it or not; a table
+	// the app reads names it among its own findings.
+	for (const tag of listed)
+		if (!byTag.has(tag) && hqManagedTagRefusal(tag)?.kind === "form-builder")
+			findings.push(
+				manifestFinding(
+					NO_FORM_OPENS_TAG_ENTRY,
 					{ kind: "lookup-table", tag },
 					tag,
 				),

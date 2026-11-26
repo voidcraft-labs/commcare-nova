@@ -165,6 +165,9 @@
 	],
 	"hq-languages": [],
 	"hq-lookup-aliases": [],
+	"hq-lookup-name-lists": [
+		"hq-lookup-name-lists/non-ascii-column-in-menu-condition"
+	],
 	"hq-lookup-names": [
 		"hq-lookup-names/dotted-field-in-form-condition",
 		"hq-lookup-names/dotted-table-in-form-condition",
@@ -380,6 +383,7 @@
 		"hq-questions/upload-other-mediatype",
 		"hq-questions/user-repeat-in-question-list"
 	],
+	"hq-runtime-name-tables": [],
 	"hq-saved-pages": [
 		"hq-saved-pages/detail-with-a-print-template",
 		"hq-saved-pages/tile-cell-bordered-and-shaded"

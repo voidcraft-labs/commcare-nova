@@ -60,7 +60,8 @@ export type LookupPathNameIssue =
 	| "interpolated-period"
 	| "undeclared-instance"
 	| "hq-unreadable-name"
-	| "form-builder-unreadable-name";
+	| "form-builder-unreadable-name"
+	| "form-builder-prototype-tag";
 
 export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 	switch (issue) {
@@ -74,6 +75,8 @@ export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 			return "CommCare HQ checks this condition with its own reader, which takes only unaccented letters, digits, _, . and - in a name, and turns it down.";
 		case "form-builder-unreadable-name":
 			return "CommCare HQ's form builder loses a table whose export tag holds anything but unaccented letters, digits, _, . and -, so the form would stop building after a save there.";
+		case "form-builder-prototype-tag":
+			return "CommCare HQ's form builder drops a table tagged __proto__ from a form when it saves it, and CommCare HQ then refuses to build the form.";
 	}
 }
 
@@ -83,6 +86,7 @@ const LOOKUP_PATH_NAME_ISSUES: readonly LookupPathNameIssue[] = [
 	"undeclared-instance",
 	"hq-unreadable-name",
 	"form-builder-unreadable-name",
+	"form-builder-prototype-tag",
 ];
 
 /** The sentence a setting that reads a table or column by a name that
@@ -129,6 +133,12 @@ export function lookupPathNameIssue(
 		!isFormBuilderXPathName(name)
 	)
 		return "form-builder-unreadable-name";
+	// The builder keeps a form's instances in a plain object keyed by id, so a
+	// declaration under `__proto__` sets the object's prototype and is lost on
+	// a save ("Instance: __proto__ Does not exists"). A case list, a column or
+	// a display condition reads it in the suite, which the builder never sees.
+	if (part === "tag" && isFormSlot(registrySlot) && name === "__proto__")
+		return "form-builder-prototype-tag";
 	if (
 		part === "tag" &&
 		SUITE_SLOTS.has(registrySlot) &&

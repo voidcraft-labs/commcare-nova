@@ -31,7 +31,7 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 	const args = { actorUserId, host, workId: begun.workId };
 	const input = {
 		name: "Venues",
-		tag: "locations",
+		tag: "Locations",
 		columns: [
 			{
 				key: "name",
@@ -69,7 +69,7 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 				{
 					id: receipt.tableId,
 					name: "Venues",
-					tag: "locations",
+					tag: "Locations",
 					columns: [{ id: receipt.columns[0].columnId, wireName: "région.2" }],
 				},
 			],

@@ -38,17 +38,20 @@ import {
 	recordFromEntries,
 } from "@/lib/domain/records";
 import {
+	hqManagedTagRefusal,
 	isReservedInstanceTag,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_TAG_LENGTH,
-	reservedInstanceTagCause,
 } from "@/lib/lookup/constants";
 import { formatLookupBytes } from "@/lib/lookup/format";
 import {
 	columnLabelFor,
 	type ManagedLookupContent,
 } from "@/lib/lookup/managedRules";
-import { lookupTagSchema, lookupWireNameSchema } from "@/lib/lookup/schema";
+import {
+	lookupStoredTagSchema,
+	lookupWireNameSchema,
+} from "@/lib/lookup/schema";
 import { requiresLookupProjection } from "@/lib/lookup/source";
 import type {
 	LookupColumn,
@@ -234,8 +237,8 @@ const CAPS_ENTRY =
 const TAG_TYPES_ENTRY = "expressions-and-data/tag-types";
 const RESERVED_WORD_ENTRY =
 	"expressions-and-data/tag-containing-casedb-or-ledgerdb";
-const FORM_EDITOR_TAG_ENTRY =
-	"expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit";
+export const NO_FORM_OPENS_TAG_ENTRY =
+	"expressions-and-data/tag-has-own-property";
 /** Project data preserves the HQ spelling even when a worker's XPath cannot
  * address it. Only a path that actually reads that table or column needs the
  * narrower runtime grammar. Reserved fixture source tags are reported once
@@ -245,7 +248,7 @@ function nameFinding(
 	name: string,
 	place: HqPlace,
 ): Finding | null {
-	const schema = kind === "tag" ? lookupTagSchema : lookupWireNameSchema;
+	const schema = kind === "tag" ? lookupStoredTagSchema : lookupWireNameSchema;
 	if (schema.safeParse(name).success) return null;
 	if (
 		kind === "tag" &&
@@ -295,12 +298,15 @@ export function lookupTableFindings(
 	if (tag.toLowerCase() === TYPES_SHEET) {
 		findings.push(manifestFinding(TAG_TYPES_ENTRY, place, TYPES_SHEET));
 	}
-	const reserved = reservedInstanceTagCause(tag);
+	// Nova never writes a table CommCare HQ manages, so a tag that collides
+	// with an id HQ's form builder holds comes in as it is, except one under
+	// which no form in the project space opens.
+	const reserved = hqManagedTagRefusal(tag);
 	if (reserved !== null) {
 		findings.push(
 			manifestFinding(
-				reserved.kind === "form-editor"
-					? FORM_EDITOR_TAG_ENTRY
+				reserved.kind === "form-builder"
+					? NO_FORM_OPENS_TAG_ENTRY
 					: RESERVED_WORD_ENTRY,
 				place,
 				tag,

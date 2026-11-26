@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+	FORM_BUILDER_COLLIDING_TAGS,
+	hqManagedTagRefusal,
 	isReservedInstanceTag,
 	LOOKUP_MAX_TAG_LENGTH,
 	reservedInstanceTagCause,
 } from "../constants";
 import {
 	createLookupTableInputSchema,
+	lookupStoredTagSchema,
 	lookupTagSchema,
 	lookupWireNameSchema,
 	updateLookupTableTagInputSchema,
@@ -18,7 +21,6 @@ const columns = [{ wireName: "label", label: "Label", dataType: "text" }];
 // tests in lib/commcare own the demonstrated instance-name collision.
 describe("lookup instance tag admission", () => {
 	it.each([
-		"selected_cases",
 		"selected_cases_patient",
 		"parent_selected_cases",
 		"parent_parent_selected_cases_a",
@@ -134,26 +136,66 @@ describe("the tag's length", () => {
 	});
 });
 
-describe("a tag CommCare HQ's form builder keeps for itself", () => {
+describe("a tag CommCare HQ's form builder already holds", () => {
+	/* Each mechanism observed by `proof/editors/test_project_space_table_tags.py`
+	 * on a form made in CommCare HQ, with a table sorting after the tag. */
 	it.each([
+		["hasOwnProperty", "stops opening every form"],
+		["commcaresession", "loses its case references"],
+		["registry", "reads a registry case reads nothing"],
+		["groups", "reads the worker's groups reads this table instead"],
+		["reports", "reads mobile reports reads this table instead"],
+		["locations", "reads locations reads this table instead"],
+		["results", "reads case search results reads this table instead"],
+		["search-input", "reads what a worker searched for reads this table"],
+		["selected_cases", "reads the cases a worker selected reads this table"],
+		["case-search-fixture", "reads the case search fixture reads this table"],
+	])(
+		"refuses %s on a table Nova makes, saying what it does and offering a rename",
+		(tag, says) => {
+			expect(reservedInstanceTagCause(tag)?.kind).toBe("form-builder");
+			const parsed = lookupTagSchema.safeParse(tag);
+			expect(parsed.success).toBe(false);
+			const message = parsed.error?.issues[0]?.message ?? "";
+			expect(message).toContain(says);
+			expect(message).toContain(
+				`You can name it ${tag.replaceAll("-", "_")}_table instead.`,
+			);
+		},
+	);
+	it("takes a table CommCare HQ manages under each but hasOwnProperty, under which no form opens", () => {
+		for (const tag of FORM_BUILDER_COLLIDING_TAGS.keys()) {
+			const refused = tag === "hasOwnProperty";
+			expect(hqManagedTagRefusal(tag) !== null).toBe(refused);
+			expect(lookupStoredTagSchema.safeParse(tag).success).toBe(!refused);
+		}
+	});
+	it.each([
+		"CommCareSession",
+		"commcaresession2",
+		"HasOwnProperty",
+		"hasownproperty",
+		"hasOwnProperty2",
+		"Registry",
+		"Locations",
+		"Groups",
+		"Results",
+		"input",
+		"search_selected_cases",
+		"__proto",
 		"__proto__",
 		"constructor",
-		"hasOwnProperty",
 		"toString",
 		"valueOf",
-	])("refuses %s and suggests a tag the form builder opens", (tag) => {
-		expect(reservedInstanceTagCause(tag)).toEqual({ kind: "form-editor" });
-		const parsed = lookupTagSchema.safeParse(tag);
-		expect(parsed.success).toBe(false);
-		expect(parsed.error?.issues[0]?.message).toContain(
-			"CommCare HQ's form builder keeps for itself",
-		);
+		"isPrototypeOf",
+		"item-list",
+		"ledger",
+		"data",
+	])("takes %s, which the builder compares whole and keeps", (tag) => {
+		expect(reservedInstanceTagCause(tag)).toBeNull();
+		expect(lookupTagSchema.safeParse(tag).success).toBe(true);
 	});
-	it("accepts the neighbouring names it suggests, and a field of the same name", () => {
-		for (const tag of ["hasOwnProperty_table", "proto_table", "Constructor"]) {
-			expect(reservedInstanceTagCause(tag)).toBeNull();
-			expect(lookupTagSchema.safeParse(tag).success).toBe(true);
-		}
+	it("takes a column of a colliding name", () => {
 		expect(lookupWireNameSchema.safeParse("hasOwnProperty").success).toBe(true);
 	});
 });

@@ -8,15 +8,21 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
-import { lookupTagSchema, parseLookupRevision } from "@/lib/lookup/schema";
+import { FORM_BUILDER_COLLIDING_TAGS } from "@/lib/lookup/constants";
+import {
+	lookupStoredTagSchema,
+	lookupTagSchema,
+	parseLookupRevision,
+} from "@/lib/lookup/schema";
 import { expandDoc } from "../expander";
 import { wireTable } from "../lookup/__tests__/lookupWireCorpus";
 import { lookupWireNaming } from "../lookup/naming";
 import { runValidation } from "../validator/runner";
 import { lookupInstance } from "../xpath/wire/instances";
 
-// `__proto__` and `hasOwnProperty` are refused as tags: the form builder
-// cannot open a form over them (`reservedTags.test.ts`).
+// A table Nova manages can't take an id CommCare HQ's form builder holds
+// (`lib/lookup/constants.ts::FORM_BUILDER_COLLIDING_TAGS`); one CommCare HQ
+// manages can, and Nova's forms read it under its own alias.
 const runtimeIds = [
 	"CaseDB",
 	"LedgerDB",
@@ -31,13 +37,25 @@ const runtimeIds = [
 	"parent_selected_cases",
 	"parent_parent_selected_cases_a",
 ];
-function scenario(tag = "regions") {
+function scenario(tag = "regions", managedBy?: "commcare-hq") {
 	const table = wireTable("regions", [
 		{ name: "value", type: "text" },
 		{ name: "label", type: "text" },
 	]);
 	// Existing persisted definitions can predate today's create/rename admission.
 	table.tag = tag;
+	if (managedBy !== undefined)
+		table.hq = {
+			server: "production",
+			domain: "clinic",
+			remoteId: "5c1e0f4a9b8d4c7e8f6a5b4c3d2e1f00",
+			managedBy,
+			broughtInAt: "2026-11-01T00:00:00.000Z",
+			takenOverAt: null,
+			takenOverBy: null,
+			refreshedAt: "2026-11-01T00:00:00.000Z",
+			goneColumnIds: [],
+		};
 	const doc = buildDoc({
 		caseTypes: [{ name: "patient", properties: [] }],
 		modules: [
@@ -82,8 +100,13 @@ describe("lookup and runtime instance names", () => {
 	it.each(runtimeIds)(
 		"emits a distinct local alias for the fixture tagged %s",
 		(tag) => {
-			expect(lookupTagSchema.parse(tag)).toBe(tag);
-			const { doc, table, context } = scenario(tag);
+			const colliding = FORM_BUILDER_COLLIDING_TAGS.has(tag);
+			expect(lookupTagSchema.safeParse(tag).success).toBe(!colliding);
+			expect(lookupStoredTagSchema.parse(tag)).toBe(tag);
+			const { doc, table, context } = scenario(
+				tag,
+				colliding ? "commcare-hq" : undefined,
+			);
 			expect(runValidation(doc, context)).toEqual([]);
 			const [xml] = Object.values(
 				expandDoc(doc, { lookupNaming: lookupWireNaming([table]) })
@@ -102,6 +125,26 @@ describe("lookup and runtime instance names", () => {
 			expect(
 				findAll((e) => e.name === "itemset", nodes)[0]?.attribs.nodeset,
 			).toBe(`instance('item-list:${tag}')/${tag}_list/${tag}`);
+		},
+	);
+	it.each(
+		[...FORM_BUILDER_COLLIDING_TAGS.keys()].filter(
+			(tag) => tag !== "hasOwnProperty",
+		),
+	)(
+		"refuses publishing a table Nova manages tagged %s, offering a rename",
+		(tag) => {
+			const { doc, context } = scenario(tag);
+			const findings = runValidation(doc, context);
+			expect(new Set(findings.map((finding) => finding.code))).toEqual(
+				new Set(["LOOKUP_TAG_RESERVED_BY_RUNTIME"]),
+			);
+			expect(findings[0]?.message).toContain(
+				"Nova would put it into CommCare HQ on a publish.",
+			);
+			expect(findings[0]?.message).toContain(
+				`You can rename the export tag in Project data, to ${tag.replaceAll("-", "_")}_table for example`,
+			);
 		},
 	);
 	it.each([

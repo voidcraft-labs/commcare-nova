@@ -6,7 +6,9 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
-	formEditorTagSuggestion,
+	formBuilderTagCollisionSentence,
+	formBuilderTagSuggestion,
+	hqManagedTagRefusal,
 	LOOKUP_DATA_TYPES,
 	LOOKUP_MAX_CELL_BYTES,
 	LOOKUP_MAX_CHANGE_BYTES,
@@ -152,10 +154,16 @@ function wireNameProblem(label: string, value: string): string {
 	return `${label} can't hold “${character}”. ${example}`;
 }
 
-function wireIdentifierSchema(kind: "tag" | "column") {
-	const maxLength =
-		kind === "tag" ? LOOKUP_MAX_TAG_LENGTH : LOOKUP_MAX_WIRE_NAME_LENGTH;
-	const label = kind === "tag" ? "The export tag" : "The export name";
+/**
+ * `tag` is a tag Nova gives a table it manages; `stored-tag` is any tag a
+ * table Nova holds may carry, which takes a table CommCare HQ manages under
+ * a tag that collides with an id HQ's form builder holds, since Nova never
+ * writes that table (`lib/lookup/constants.ts::hqManagedTagRefusal`).
+ */
+function wireIdentifierSchema(kind: "tag" | "stored-tag" | "column") {
+	const isTag = kind !== "column";
+	const maxLength = isTag ? LOOKUP_MAX_TAG_LENGTH : LOOKUP_MAX_WIRE_NAME_LENGTH;
+	const label = isTag ? "The export tag" : "The export name";
 	return z
 		.string()
 		.min(1, `${label} cannot be blank.`)
@@ -174,18 +182,21 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 			`${label} can't start with lowercase "xml", which CommCare HQ keeps for itself. A capital first letter works.`,
 		)
 		.superRefine((value, ctx) => {
-			if (kind !== "tag") return;
+			if (!isTag) return;
 			// Core chooses storage from the fixture source, which contains the
 			// table's tag even when a form assigns the instance another name.
-			const cause = reservedInstanceTagCause(value);
+			const cause =
+				kind === "tag"
+					? reservedInstanceTagCause(value)
+					: hqManagedTagRefusal(value);
 			if (cause === null) return;
 			ctx.addIssue({
 				code: "custom",
 				message:
 					cause.kind === "name"
 						? `${label} is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.`
-						: cause.kind === "form-editor"
-							? `${label} ${value} is a name CommCare HQ's form builder keeps for itself, so a form reading this table wouldn't open there. You can use ${formEditorTagSuggestion(value)} instead.`
+						: cause.kind === "form-builder"
+							? `${formBuilderTagCollisionSentence(cause.collision)} You can name it ${formBuilderTagSuggestion(value)} instead.`
 							: `${label} contains ${cause.word}, and CommCare reads any tag containing ${cause.word} as its own data, so a table can't use it. You can write it as ${RESERVED_INSTANCE_TAG_WORD_SPELLING[cause.word]} instead.`,
 			});
 		})
@@ -195,6 +206,7 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 }
 
 export const lookupTagSchema = wireIdentifierSchema("tag");
+export const lookupStoredTagSchema = wireIdentifierSchema("stored-tag");
 export const lookupWireNameSchema = wireIdentifierSchema("column");
 
 /** Base-62 fractional key, canonicalized by forbidding a trailing zero. */

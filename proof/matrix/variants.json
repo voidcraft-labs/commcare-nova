@@ -21479,6 +21479,72 @@
 		}
 	},
 	{
+		"id": "hq-lookup-name-lists/non-ascii-column-in-menu-condition",
+		"base": "hq-lookup-name-lists",
+		"entry": "expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 0,
+			"name": "Sites"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/module_filter",
+			"value": "instance('item-list:zones')/zones_list/zones[code = 'upland'][1]/région = 'Upland'"
+		}
+	},
+	{
+		"id": "hq-lookup-name-lists/non-ascii-column-in-search-button-condition",
+		"base": "hq-lookup-name-lists",
+		"entry": "expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Site search"
+		},
+		"change": {
+			"op": "named",
+			"name": "search_button_condition_reading_region"
+		},
+		"hqNeverServes": {
+			"raised": "MatrixChangeRefused"
+		}
+	},
+	{
+		"id": "hq-lookup-name-lists/table-tagged-has-own-property",
+		"base": "hq-lookup-name-lists",
+		"entry": "expressions-and-data/tag-has-own-property",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "lookup-table",
+			"tag": "hasOwnProperty"
+		},
+		"change": {
+			"op": "named",
+			"name": "has_own_property_table"
+		}
+	},
+	{
+		"id": "hq-lookup-name-lists/table-tagged-proto-read-by-a-form",
+		"base": "hq-lookup-name-lists",
+		"entry": "expressions-and-data/tag-proto-read-by-a-form",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 1,
+			"menuName": "Sites",
+			"formName": "Followup Form",
+			"path": "note"
+		},
+		"change": {
+			"op": "named",
+			"name": "proto_table_read_by_a_form"
+		}
+	},
+	{
 		"id": "hq-lookups/choice-name-on-a-lookup-select",
 		"base": "hq-lookups",
 		"entry": "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select",

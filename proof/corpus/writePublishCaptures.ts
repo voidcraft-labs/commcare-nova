@@ -103,8 +103,8 @@ import {
 	lookupMemberSchema,
 	lookupRevisionSchema,
 	lookupRowContentSchema,
+	lookupStoredTagSchema,
 	lookupTableNameSchema,
-	lookupTagSchema,
 	lookupWireNameSchema,
 } from "@/lib/lookup/schema";
 import { lookupSourceFactsSchema } from "@/lib/lookup/source";
@@ -190,7 +190,7 @@ const lookupHqOriginSchema = z.strictObject({
 const lookupDefinitionSchema = z.strictObject({
 	id: lookupTableIdSchema,
 	name: lookupTableNameSchema,
-	tag: lookupTagSchema,
+	tag: lookupStoredTagSchema,
 	columnCount: z.number().int().nonnegative().optional(),
 	rowCount: z.number().int().nonnegative().optional(),
 	dataBytes: z.number().int().nonnegative().optional(),

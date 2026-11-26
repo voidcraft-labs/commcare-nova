@@ -131,9 +131,13 @@
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/commcare/reader/expressions/__tests__/readExpression.form.test.ts refuses a form condition reading a Greek table or column, and proof 4 on proof/targeted/documents/lookupNonAsciiNames.ts, before this refusal, saw HQ's form builder break both."
 	},
-	"expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit": {
+	"expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's Search options page checks the search button's condition and the excluded owners with js-xpath before it saves them (views/modules.py::_check_xpath) and refuses a lookup name outside its unaccented names, so no app's source carries one; the row hq-lookup-names/non-ascii-column-in-search-button-condition holds that outcome."
+	},
+	"expressions-and-data/nova-table-tag-colliding-with-the-form-builder-s-ids": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/read.test.ts reads CommCare HQ's lookup answers for a table tagged __proto__ and refuses it."
+		"note": "A table Nova manages, which no app made in CommCare HQ holds: Nova's tag schema refuses making or renaming one to these tags (lib/lookup/__tests__/reservedTags.test.ts), taking one over and publishing one (lib/commcare/validator/__tests__); proof/editors/test_project_space_table_tags.py observes each mechanism on a form made in CommCare HQ, beside the names just outside each, which keep the form."
 	},
 	"expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any": {
 		"reason": "not-in-app-source",
