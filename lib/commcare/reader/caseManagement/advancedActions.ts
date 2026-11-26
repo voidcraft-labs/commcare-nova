@@ -40,6 +40,7 @@ import {
 } from "@/lib/domain/expression/builders";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { XML_NCNAME_PATTERN } from "@/lib/domain/xmlName";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -558,6 +559,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	/** An index to an earlier open action in a repeat, from an open action in the same repeat. */
 	openIndexInsideRepeat: take(
 		`${F}/an-advanced-open-action-indexed-to-an-open-action-that-has-a-equal`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	openIndexInvalidXml: refuse(
+		`${F}/index-identifier-invalid-xml-local-name`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
 	openIndexName: refuse(
@@ -2421,7 +2426,12 @@ function readOrdinaryAdvancedActions(
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
 				if (!ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(identifier)) {
-					I.refuseWhole(ADVANCED_CLAIMS.openIndexName, { name: identifier });
+					I.refuseWhole(
+						XML_NCNAME_PATTERN.test(identifier)
+							? ADVANCED_CLAIMS.openIndexName
+							: ADVANCED_CLAIMS.openIndexInvalidXml,
+						{ name: identifier },
+					);
 					r.ok = false;
 					return;
 				}

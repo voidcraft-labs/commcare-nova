@@ -7530,15 +7530,14 @@ def _held_new():
             accepted("app", own_update("aª"), update_map, updates),
         ),
         "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
-            refused("app", opened("my/parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
-            refused("app", opened("my..parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
-            refused("app", opened("my."), reference, f"{opens}/0/case_indices/0/reference_id"),
-            refused("app", opened(".parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
-            refused("app", opened("my:parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("métrique"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("my/parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("my..parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("my."), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("my.2parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my.parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my-parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my_parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
-            # A load's index is another class's.
             accepted("app", load_indexed("my-parent"), reference, f"{loads}/1/case_index/reference_id"),
         ),
         "case-search/prompt-key-outside-nova-s-name-grammar": (

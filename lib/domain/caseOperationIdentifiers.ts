@@ -18,11 +18,11 @@ import { submittedAction } from "./submittedAnswerName";
 
 export const CASE_OPERATION_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const CASE_OPERATION_LINK_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_-]*$/;
-/** Advanced case actions and their entry selections can name a connection
- * with complete dot-separated parts. The placement gate limits writes to
- * the Advanced open action that can build this name. */
+/** Advanced case actions and their entry selections also allow periods
+ * after the first character. The placement gate keeps these writes on the
+ * Advanced open action that can build the connection. */
 export const ADVANCED_CASE_INDEX_IDENTIFIER_REGEX =
-	/^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$/;
+	/^[A-Za-z_][A-Za-z0-9_.-]*$/;
 /** A written property's name: the catalog's grammar. */
 export const CASE_OPERATION_PROPERTY_REGEX =
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN;
@@ -34,7 +34,7 @@ export const CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE =
 	"Start with a letter or underscore. Use only letters, digits, underscores, or hyphens.";
 
 export const ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE =
-	"Start each part with a letter or underscore. Use letters, digits, underscores, or hyphens within each part, with a single period between parts.";
+	"Start with a letter or underscore. Use letters, digits, underscores, hyphens, or periods.";
 
 export const CASE_OPERATION_PROPERTY_FORMAT_MESSAGE =
 	"Start with a letter; use only letters, digits, underscores, or hyphens.";
