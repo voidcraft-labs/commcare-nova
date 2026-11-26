@@ -142,8 +142,23 @@
 		"hq-case-management/worker-record-preload-alone",
 		"hq-case-management/write-through-an-unknown-index"
 	],
-	"hq-connect-deliver": ["hq-connect-deliver/auto-gps-capture-on"],
-	"hq-connect-learn": [],
+	"hq-connect-deliver": [
+		"hq-connect-deliver/auto-gps-capture-on",
+		"hq-connect-deliver/deliver-shared-receiver-key",
+		"hq-connect-deliver/deliver-unit-and-task",
+		"hq-connect-deliver/deliver-work-area-fixed-id"
+	],
+	"hq-connect-learn": [
+		"hq-connect-learn/connect-assessment-without-score",
+		"hq-connect-learn/connect-estimate-outside-receiver-range",
+		"hq-connect-learn/connect-long-id",
+		"hq-connect-learn/connect-receiver-id-changed",
+		"hq-connect-learn/connect-repeated-module",
+		"hq-connect-learn/connect-text-instance",
+		"hq-connect-learn/connect-two-assessments",
+		"hq-connect-learn/connect-work-area-photo",
+		"hq-connect-learn/connect-work-area-update"
+	],
 	"hq-expressions": [
 		"hq-expressions/inline-instance",
 		"hq-expressions/second-instance-without-id",
