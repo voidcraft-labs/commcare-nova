@@ -23315,7 +23315,7 @@
 		]
 	},
 	{
-		"id": "hq-lookups/itemset-over-open-cases",
+		"id": "hq-lookups/itemset-over-closed-cases",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
 		"standing": "not-yet",
@@ -23329,8 +23329,24 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_over_open_cases"
+			"name": "itemset_over_closed_cases"
 		}
+	},
+	{
+		"id": "hq-lookups/itemset-over-open-cases",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
+		"change": {
+			"op": "named",
+			"name": "itemset_over_open_cases"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["district"]],
+				"pointer": "/optionsSource",
+				"value": { "kind": "available-cases", "status": "open" }
+			}
+		]
 	},
 	{
 		"id": "hq-lookups/itemset-sort",

@@ -2787,7 +2787,9 @@ record scope, and the same earlier/current-or-enclosing-repeat answer rule as
 lookup filters. It dry-runs `toWire` to reject unsupported relation shapes before commit. This adds no report instance or arbitrary nodeset
 source. Core's ItemSetUtils::populateDynamicChoices evaluates the nodeset in the
 question context and the label/value in each candidate context; CaseInstanceTreeElement
-reads local case storage. The native case-choice family checks CCZ and HQ-regenerated
+reads local case storage. A single-select `available-cases` source uses the
+bare worker casedb or one `@status = 'open'` predicate, with exact case IDs and
+names in both paths. The native case-choice family checks CCZ and HQ-regenerated
 forms with duplicate names, changed earlier answers and final-only attendance effects.
 
 Vellum's `src/itemset.js::Itemset.itemsetData.validationFunc` requires the

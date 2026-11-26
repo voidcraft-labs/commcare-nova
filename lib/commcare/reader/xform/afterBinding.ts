@@ -500,7 +500,7 @@ function settleChoices(
 				field.place,
 				head !== undefined &&
 					!filtered &&
-					sameTree(head, availableCasesNodeset()),
+					sameTree(head, availableCasesNodeset(proposal.status)),
 				false,
 			);
 			continue;

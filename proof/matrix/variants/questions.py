@@ -2291,6 +2291,11 @@ def itemset_over_open_cases(authoring, app_id):
     _case_itemset(authoring, app_id, "itemset-over-open-cases", "[@status = &apos;open&apos;]")
 
 
+def itemset_over_closed_cases(authoring, app_id):
+    """A closed-only all-type itemset lies outside the admitted open selector."""
+    _case_itemset(authoring, app_id, "itemset-over-closed-cases", "[@status = &apos;closed&apos;]")
+
+
 def _case_itemset(authoring, app_id, name, predicate):
     _change(
         authoring,

@@ -697,7 +697,8 @@ candidate's position is counted within the declared type.
 
 An `{ kind: "available-cases" }` source on a single select offers the entire
 already authorized restored case database in device order, including retained
-types outside the active catalog. It displays `case_name` and saves the opaque
+types outside the active catalog. Optional `status: open` keeps only open
+records in that same authorized snapshot. It displays `case_name` and saves the opaque
 `case_id`. Operations using that ID check the target against their own type.
 
 

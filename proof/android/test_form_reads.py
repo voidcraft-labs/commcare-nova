@@ -882,14 +882,15 @@ def test_android_replaces_a_saved_case_choice_after_its_row_stops_matching(andro
 
 
 
-def test_android_unfiltered_case_itemset_lists_the_workers_mixed_restore(android_documents, hq):
+@pytest.mark.parametrize("open_only", [False, True], ids=["all", "open"])
+def test_android_case_itemset_keeps_its_lifecycle_scope(android_documents, hq, open_only):
     from proof.android import observe
     from proof.formplayer import apps
     from proof.observe import visible_case_choice as visible
 
     with apps.published(android_documents[visible.DOCUMENT], None) as published:
         with apps.served(published, None, database=visible.database(),
-                         change=visible.release_unfiltered(published)) as served:
+                         change=visible.release_with_lifecycle(published, open_only)) as served:
             answer, sent = _app(
                 served, observe.release_archive(served), "all-visible-cases", commands=[FORM],
                 controls=True, questions={"/data/clinic": ["1"]},
@@ -900,6 +901,9 @@ def test_android_unfiltered_case_itemset_lists_the_workers_mixed_restore(android
         if question["reference"] == "/data/clinic[1]"
     ]
     choices = question["control"]["choices"]
-    assert {choice["value"]: choice["label"] for choice in choices} == visible.EXPECTED
+    expected = dict(visible.EXPECTED)
+    if open_only:
+        del expected["closed-host"]
+    assert {choice["value"]: choice["label"] for choice in choices} == expected
     (instance,) = sent
     assert _child(etree.fromstring(instance), "clinic").text == choices[0]["value"]

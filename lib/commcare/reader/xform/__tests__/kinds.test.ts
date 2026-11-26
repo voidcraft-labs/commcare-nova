@@ -988,6 +988,7 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 		filter: string | undefined,
 		options: {
 			readonly allCases?: true;
+			readonly openOnly?: true;
 			readonly labelProperty?: string;
 			readonly sortProperty?: string;
 			readonly xml?: (xml: string) => string;
@@ -1019,7 +1020,10 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 									kind: "single_select",
 									id: "clinic",
 									optionsSource: options.allCases
-										? { kind: "available-cases" }
+										? {
+												kind: "available-cases",
+												...(options.openOnly && { status: "open" }),
+											}
 										: {
 												kind: "cases",
 												caseType: "clinic",
@@ -1081,6 +1085,44 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 			(one) => one.id === "clinic",
 		);
 		expect(field).toMatchObject({ optionsSource: { kind: "available-cases" } });
+	});
+
+	it("keeps the exact open filter over all restored case types", async () => {
+		const { atQuestion, outcome } = await questionFindings(undefined, {
+			allCases: true,
+			openOnly: true,
+			xml: (xml) => {
+				expect(xml).toContain(
+					`nodeset="instance(&apos;casedb&apos;)/casedb/case[@status = &apos;open&apos;]"`,
+				);
+				return xml;
+			},
+		});
+		expect(atQuestion).toEqual([]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") throw new Error("Expected a read form.");
+		expect(
+			Object.values(outcome.draft.doc.fields).find(
+				(field) => field.id === "clinic",
+			),
+		).toMatchObject({
+			optionsSource: { kind: "available-cases", status: "open" },
+		});
+	});
+
+	it("retains the placed finding for a closed-only filter", async () => {
+		const { atQuestion } = await questionFindings(undefined, {
+			allCases: true,
+			openOnly: true,
+			xml: (xml) =>
+				xml.replace(
+					"@status = &apos;open&apos;",
+					"@status = &apos;closed&apos;",
+				),
+		});
+		expect(atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
 	});
 
 	it("refuses a custom label over untyped cases", async () => {

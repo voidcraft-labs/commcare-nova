@@ -49,6 +49,8 @@ from urllib.parse import parse_qsl
 
 from lxml import etree
 
+import pytest
+
 from proof.editors import pages, vellum
 from proof.editors.conftest import corpus_document, record_timing
 from proof.hq import operations
@@ -443,14 +445,15 @@ def test_vellum_keeps_typed_case_choice_sort_and_refs(hq, editor_driver):
 
 
 
-def test_vellum_keeps_an_unfiltered_case_itemset(hq, editor_driver):
+@pytest.mark.parametrize("open_only", [False, True], ids=["all", "open"])
+def test_vellum_keeps_the_case_itemset_lifecycle_scope(hq, editor_driver, open_only):
     from proof.observe import visible_case_choice as visible
 
     document = corpus_document(visible.DOCUMENT)
     with _published(document, "LOOKUP_TABLES", True) as opened:
         app = operations.held_app(opened.state, opened.app_id)
         (form,) = app.get_forms()
-        form.source = visible.unfiltered_source(form.source)
+        form.source = visible.source_with_lifecycle(form.source, open_only)
         app.save()
         run = vellum.fresh_open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id)
         assert run.loaded and run.saved, (run.load_error, run.save_refusal)
@@ -459,6 +462,6 @@ def test_vellum_keeps_an_unfiltered_case_itemset(hq, editor_driver):
         (itemset,) = rebuilt.xpath(
             "//*[local-name()='select1' and @ref='/data/clinic']/*[local-name()='itemset']"
         )
-        assert itemset.get("nodeset") == visible.NODESET
+        assert itemset.get("nodeset") == visible.nodeset(open_only)
         assert itemset.xpath("./*[local-name()='label']/@ref") == ["case_name"]
         assert itemset.xpath("./*[local-name()='value']/@ref") == ["@case_id"]
