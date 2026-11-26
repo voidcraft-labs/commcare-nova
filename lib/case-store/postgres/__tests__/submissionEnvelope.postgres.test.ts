@@ -1188,9 +1188,10 @@ describe("ordered selected-case batches", () => {
 		await seedSessionPatient(store);
 		const inner = testUuid("nested-iteration");
 		const record = (
-			uuid: typeof OP_A,
-			repeat: typeof REPEAT_UUID,
+			uuid: Uuid,
+			repeat: Uuid,
 			id: string,
+			condition?: TargetedCaseOperation["condition"],
 		) =>
 			operation({
 				uuid,
@@ -1199,14 +1200,19 @@ describe("ordered selected-case batches", () => {
 				caseType: "patient",
 				target: { kind: "session" },
 				forEach: { repeat },
+				...(condition !== undefined && { condition }),
 				writes: [{ property: "notes", value: term(formField(KEY_FIELD)) }],
 			});
 		const program = rootProgram([
 			envOp(record(OP_A, inner, "inner_notes")),
-			envOp({
-				...record(OP_B, REPEAT_UUID, "outer_notes"),
-				condition: eq(formField(KEY_FIELD), literal("outer row one")),
-			}),
+			envOp(
+				record(
+					OP_B,
+					REPEAT_UUID,
+					"outer_notes",
+					eq(formField(KEY_FIELD), literal("outer row one")),
+				),
+			),
 		]);
 		const request = {
 			appId: APP_ID,
