@@ -2879,6 +2879,21 @@ def save_to_case_own_case_beside(authoring, app_id):
     )
 
 
+def save_to_case_positioned_beside_own(authoring, app_id):
+    """In the same household visit, the update stands in the authored form itself beside the managed write."""
+    data, binds = _block(
+        "again", "household", "<update><note/></update>", MENU_CASE,
+        [("update/note", 'calculate="/data/new_member"')], group="/data",
+    )
+    _change(
+        authoring, app_id, "save-to-case-positioned-beside-own",
+        ("<visited />", data + "\n<visited />", 1),
+        ("<itext>", binds + "\n<itext>", 1),
+        ("</instance>\n", f"</instance>\n{SESSION_INSTANCE}\n", 1),
+        form=2,
+    )
+
+
 # More questions ------------------------------------------------------------------------------------------------------
 
 

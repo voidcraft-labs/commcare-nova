@@ -18786,6 +18786,24 @@
 		}
 	},
 	{
+		"id": "hq-case-management/save-to-case-positioned-beside-own",
+		"base": "hq-case-management",
+		"entry": "questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 2,
+			"menuName": "Households",
+			"formName": "Followup",
+			"path": "again"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_positioned_beside_own"
+		}
+	},
+	{
 		"id": "hq-case-management/save-to-case-worker-twice",
 		"base": "hq-case-management",
 		"entry": "questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record",
