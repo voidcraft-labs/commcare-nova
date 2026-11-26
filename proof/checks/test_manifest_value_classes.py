@@ -3346,6 +3346,20 @@ def _search_and_menus():
     def plain(**module):
         return _module(unique_id=module.pop("unique_id", "p"), **module)
 
+    def icon_action(endpoint="visit", *, automatic=True, requires="case"):
+        target = {**_form_json(requires), "session_endpoint_id": "visit"}
+        label = "Pragma-Submit-Automatically" if automatic else "survey-label"
+        return _with_forms(
+            columns_app(
+                _column(fmt="clickable-icon", endpoint_action_id=endpoint),
+                forms=[target],
+            ),
+            f=_form(
+                data="<done />",
+                body=f'<trigger ref="/data/done"><label ref="jr:itext(&apos;{label}&apos;)" /></trigger>',
+            ),
+        )
+
     # A form that returns to its own menu after it is sent.
     returns_to_its_menu = {**_form_json(), "post_form_workflow": "module"}
     # A form whose one after-submit link opens the menu ``p``.
@@ -4235,6 +4249,16 @@ def _search_and_menus():
                 "schema:DetailColumn.enum",
                 f"{short}/columns/0/enum",
             ),
+        ),
+        "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint": (
+            refused("app", icon_action("missing"), "format:clickable-icon", f"{short}/columns/0/format"),
+            refused(
+                "app", icon_action(automatic=False), "format:clickable-icon", f"{short}/columns/0/format"
+            ),
+            refused(
+                "app", icon_action(requires="none"), "format:clickable-icon", f"{short}/columns/0/format"
+            ),
+            accepted("app", icon_action(), "format:clickable-icon", f"{short}/columns/0/format"),
         ),
         "menus-and-case-lists/21p-translatable-enum-key-outside-a-za-z0-9": (
             refused(
