@@ -18,6 +18,7 @@ import {
 	generatedWordingId,
 } from "@/lib/domain/generatedWording";
 import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import type { EmissionPlan } from "./emissionPlan";
 import type { ExpandOptions } from "./expander";
@@ -152,7 +153,7 @@ export function generatedWordingKeys(
 					? generatedSearchChecks(authored, moduleUuid, projection.lookupNaming)
 					: undefined;
 			for (const input of mod.caseListConfig?.searchInputs ?? []) {
-				const prefix = `search_property.${menu}.${input.name}`;
+				const prefix = `search_property.${menu}.${searchInputRequestKey(input)}`;
 				register(prefix, input.uuid, "promptLabel");
 				register(`${prefix}.hint`, input.uuid, "promptHint");
 				register(`${prefix}.required.text`, input.uuid, "promptRequired");

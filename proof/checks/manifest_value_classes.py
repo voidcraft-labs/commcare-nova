@@ -12371,6 +12371,40 @@ def _prompt_slot(use, key):
     return at.owner
 
 
+def direct_parent_text_prompt_key(use, manifest):
+    """A native direct-parent Search key on a labeled plain text prompt."""
+    prompt = _prompt_slot(use, "name")
+    if prompt is None:
+        return None
+    name = prompt.get("name")
+    if not isinstance(name, str) or not name.startswith("parent/"):
+        return False
+    prop = name.removeprefix("parent/")
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", prop) or not _authored_property_name(prop):
+        return False
+    if prop in {"case_id", "case_name", "date_opened", "last_modified", "owner_id", "external_id",
+                "status", "name", "case_type", "closed_on", "commcare_search_score"}:
+        return False
+    at = _json(use)
+    config = at.nearest("CaseSearch")
+    if config and (config.get("case_search_endpoint_id") or any(
+        item.get("is_group") or item.get("group_key") for item in config.get("properties", [])
+    )):
+        return False
+    label = prompt.get("label") or {}
+    itemset = prompt.get("itemset") or {}
+    required = prompt.get("required") or {}
+    return (
+        isinstance(label, dict) and any(isinstance(text, str) and text.strip() for text in label.values())
+        and isinstance(itemset, dict) and not (itemset.keys() - {"doc_type"})
+        and isinstance(required, dict) and not required.get("test")
+        and not any(prompt.get(key) for key in (
+            "hidden", "exclude", "allow_blank_value", "group_key", "input_", "appearance",
+            "receiver_expression", "default_value", "validations",
+        ))
+    )
+
+
 def prompt_key_outside_nova_s_name_grammar(use, manifest):
     """``case-search/prompt-key-outside-nova-s-name-grammar``: a prompt's ``name`` outside a Search field's grammar
     (``SEARCH_INPUT_NAME``), or, on a prompt that is neither hidden nor ``exclude``, a case property Nova's grammar
@@ -12383,7 +12417,7 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     name = prompt.get("name")
     if not isinstance(name, str):
         return None
-    if name in PROMPT_REQUEST_KEYS:
+    if name in PROMPT_REQUEST_KEYS or direct_parent_text_prompt_key(use, manifest):
         return False
     if SEARCH_INPUT_NAME.fullmatch(name) is None:
         return True
@@ -13342,6 +13376,7 @@ VALUE_CLASSES = {
     # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
+    "case-search/prompt-key-matching-a-direct-parent-property": direct_parent_text_prompt_key,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,

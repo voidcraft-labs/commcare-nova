@@ -24,7 +24,7 @@ import type { CaseSearchRequest } from "@/lib/case-store/searchRequest";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { SEARCH_RESULTS_CAP } from "@/lib/commcare/session";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, SearchInputDef } from "@/lib/domain";
 import { caseClaimCaseType } from "@/lib/domain/caseClaim";
 import {
 	eq,
@@ -507,6 +507,77 @@ describe("a completed search's snapshot", () => {
 				},
 			}),
 		).rejects.toMatchObject({ reason: { kind: "search-settings-changed" } });
+	});
+
+	it("matches a typed parent Search prompt using the destination rule for its exact request key", async () => {
+		const store = storeAs(WORKER, async () => ({
+			revision: "settings",
+			maximum: 500,
+			timeZone: "UTC",
+			projectSpace: "clinic",
+			matcherFor: (key) =>
+				key === "parent/village"
+					? { fuzzy: false, ignoreLiterals: ["!"] }
+					: null,
+		}));
+		const parent: SearchInputDef = {
+			uuid: testUuid("parent-village"),
+			name: "parent_village",
+			label: "Parent village",
+			kind: "simple",
+			type: "text",
+			property: "village",
+			matching: "project-space",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		};
+		for (const [caseId, value] of [
+			["target-house", "Dyer's crossing"],
+			["other-house", "North"],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "household",
+					case_name: caseId,
+					status: "closed",
+					properties: { village: value },
+				},
+			});
+		}
+		for (const [caseId, relationship, ownValue] of [
+			["linked", "target-house", "South"],
+			["own-value", "other-house", "Dyer's crossing"],
+			["unlinked", undefined, "Dyer's crossing"],
+		] as const) {
+			const row = patient(caseId, "open", relationship);
+			await store.insert({
+				...row,
+				row: {
+					...row.row,
+					properties: { district: "north", village: ownValue },
+				},
+			});
+		}
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.searchInputs = [parent];
+		const read = (answer: string) => {
+			const request = completedSearchRequest(
+				{ caseListConfig: config },
+				new Map([[parent.name, answer]]),
+				undefined,
+				{ revision: "settings" },
+			);
+			return readSearchResultsSnapshot(store, {
+				...SEARCH,
+				searchPopulation: { ...SEARCH.searchPopulation, request },
+			});
+		};
+		const found = await read("Dyer's cross!ing");
+		expect(found.rows.map((row) => row.case_id)).toEqual(["linked"]);
+		await expect(read('Dyer"s crossing')).rejects.toMatchObject({
+			reason: { kind: "query-value-invalid", field: "Parent village" },
+		});
 	});
 
 	it("decides a fuzzy search condition from the Project's own words", async () => {

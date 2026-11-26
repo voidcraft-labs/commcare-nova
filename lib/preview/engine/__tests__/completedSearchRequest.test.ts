@@ -44,6 +44,38 @@ const village: SearchInputDef = {
 };
 
 describe("completedSearchRequest", () => {
+	it("sends a parent text answer by its typed request key and Core's delimiter semantics", () => {
+		const parent: SearchInputDef = {
+			uuid: testUuid("parent-village"),
+			name: "parent_village",
+			label: "Parent village",
+			kind: "simple",
+			type: "text",
+			property: "village",
+			matching: "project-space",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		};
+		expect(
+			completedSearchRequest(
+				moduleWith([parent]),
+				new Map([["parent_village", "#,#Kibera#,#West#,#"]]),
+			).parameters,
+		).toEqual([
+			{
+				key: "parent/village",
+				field: "Parent village",
+				readsAnswers: true,
+				target: {
+					kind: "property",
+					property: "village",
+					ancestors: [{ identifier: "parent" }],
+				},
+				values: ["", "Kibera", "West"],
+			},
+		]);
+		expect(sent([parent], { parent_village: "#,#" })).toEqual([]);
+	});
+
 	it("sends the blank before the answer where the box is ticked", () => {
 		expect(
 			sent([village], { village: "Kibera", "village:blank": "true" }),

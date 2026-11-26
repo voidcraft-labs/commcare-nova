@@ -70,7 +70,10 @@ import {
 	formerNavigationMediaSchema,
 	navigationMediaSchema,
 } from "./navigationMedia";
-import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "./standardCaseProperties";
+import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+} from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Sort + visibility — common column slots ──────────────────────
@@ -2911,12 +2914,69 @@ export function simpleSearchInputHasCoherentRangeWidget(
 	);
 }
 
+/** The ordinary dynamic properties a direct parent Search field can match. */
+export function isDirectParentSearchProperty(property: string): boolean {
+	return (
+		/^[A-Za-z][A-Za-z0-9_]*$/.test(property) &&
+		authoredCasePropertyNameSchema.safeParse(property).success &&
+		!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, property) &&
+		!["name", "case_type", "closed_on", "commcare_search_score"].includes(
+			property,
+		)
+	);
+}
+
+function directParentSearchProperty(
+	input: Pick<SimpleSearchInputDef, "property" | "via" | "type" | "mode">,
+): string | undefined {
+	const path = input.via;
+	return input.type === "text" &&
+		(input.mode === undefined || input.mode.kind === "exact") &&
+		path?.kind === "ancestor" &&
+		path.via.length === 1 &&
+		path.via[0].identifier === "parent" &&
+		path.via[0].throughCaseType === undefined &&
+		isDirectParentSearchProperty(input.property)
+		? input.property
+		: undefined;
+}
+
+/** The worker and project space use the typed parent path as the key.
+ * The field's Nova name remains a separate authoring alias for its UUID. */
+export function directParentSearchRequestKey(
+	input: SearchInputDef,
+): string | undefined {
+	if (input.kind !== "simple" || input.matching !== "project-space")
+		return undefined;
+	const property = directParentSearchProperty(input);
+	return property === undefined ? undefined : `parent/${property}`;
+}
+
+/** Settings that would give the parent text field another runtime use. */
+export function directParentSearchSettingsFit(
+	input: SimpleSearchInputDef,
+): boolean {
+	return (
+		input.group === undefined &&
+		input.default === undefined &&
+		!input.hidden &&
+		input.required === undefined &&
+		input.validation === undefined &&
+		!input.allowBlank &&
+		input.addressReceiver === undefined &&
+		input.label.trim() !== ""
+	);
+}
+
+export function searchInputRequestKey(input: SearchInputDef): string {
+	return directParentSearchRequestKey(input) ?? input.name;
+}
+
 /**
  * Whether a simple field can take the project space's own matching
  * (`matching: "project-space"`): its prompt rides the bare key CommCare HQ
- * matches by its own rule, so it searches this case's own property under the
- * property's name (`name` is the case's name), with exact matching or a date
- * range. HQ then matches the answer whatever the property's type, so a field
+ * matches by its own rule. The key names this case's own property, or an
+ * ordinary property across the direct parent link for a text field. HQ then matches the answer whatever the property's type, so a field
  * whose widget doesn't fit the property's type can still search it there.
  * Shared by the commit gate and the builder so the builder offers the
  * matching, and the widgets it admits, exactly where the gate does.

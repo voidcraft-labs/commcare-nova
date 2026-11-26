@@ -13,6 +13,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { expandDoc } from "@/lib/commcare/expander";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { isVisibleSearchInput } from "@/lib/domain/modules";
@@ -629,6 +630,46 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 				"search",
 				"status",
 			],
+		]);
+	});
+});
+
+describe("a plain native parent Search field", () => {
+	const village = { name: "parent/village", label: { en: "Village" } };
+
+	it("holds the exact parent key independently of a safe, unoccupied authoring name", async () => {
+		const { doc } = await documentOf((body) => {
+			promptsOf(body).push(village, {
+				name: "parent_village",
+				label: { en: "Code" },
+			});
+		});
+		const mod = doc.modules[doc.moduleOrder[0]];
+		expect(mod.caseListConfig?.searchInputs.at(-2)).toMatchObject({
+			name: "parent_village_2",
+			kind: "simple",
+			type: "text",
+			matching: "project-space",
+			property: "village",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		});
+		expect(
+			expandDoc(doc).modules[0].search_config.properties.slice(-2),
+		).toMatchObject([
+			{ name: "parent/village", label: { en: "Village" } },
+			{ name: "parent_village", label: { en: "Code" } },
+		]);
+	});
+
+	it("keeps a parent prompt with a different widget outside the held slice", async () => {
+		expect(
+			await account((body) => {
+				promptsOf(body).push({ ...village, input_: "date" });
+			}),
+		).toContainEqual([
+			`${S}prompt-key-outside-nova-s-name-grammar`,
+			"search",
+			"parent/village",
 		]);
 	});
 });

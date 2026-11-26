@@ -9,8 +9,11 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
 import { LOCATION_NOT_IN_SEARCH_MESSAGE } from "@/lib/domain/expression/typeChecker";
 import {
+	directParentSearchRequestKey,
+	directParentSearchSettingsFit,
 	isOrdinaryCaseSearchConfig,
 	projectSpaceMatchingFits,
+	searchInputRequestKey,
 } from "@/lib/domain/modules";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
@@ -93,9 +96,21 @@ export function nativeSearchFilters(
 				{ moduleUuid, moduleName: mod.name },
 			),
 		);
-	const names = new Set(
-		mod.caseListConfig?.searchInputs.map((input) => input.name),
-	);
+	const keys = new Set<string>();
+	for (const input of mod.caseListConfig?.searchInputs ?? []) {
+		const key = searchInputRequestKey(input);
+		if (directParentSearchRequestKey(input) !== undefined && keys.has(key))
+			errors.push(
+				validationError(
+					"CASE_SEARCH_FILTER_INVALID",
+					"module",
+					`Search field "${input.name}" uses the same parent property as another field.`,
+					{ moduleUuid, moduleName: mod.name },
+					{ inputUuid: input.uuid, reason: "key-taken", key },
+				),
+			);
+		keys.add(key);
+	}
 	const offered = new Set(
 		Object.values(doc.modules).map((menu) => menu.caseType),
 	);
@@ -182,7 +197,7 @@ export function nativeSearchFilters(
 		}
 		const key = searchFilterKey(filter.target);
 		const parsed = readSearchFilterTarget(key);
-		if (names.has(key))
+		if (keys.has(key))
 			reject(
 				`Search filter ${index + 1} on "${mod.name}" sends "${key}", which a search field there already sends.`,
 				{ reason: "key-taken", key },
@@ -214,6 +229,24 @@ export function nativeSearchFilters(
 	}
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
 		if (input.kind !== "simple" || input.matching !== "project-space") continue;
+		const parent = directParentSearchRequestKey(input);
+		if (parent !== undefined) {
+			if (!directParentSearchSettingsFit(input))
+				errors.push(
+					validationError(
+						"CASE_SEARCH_FILTER_INVALID",
+						"module",
+						`Search field "${input.name}" needs a label and a plain text entry to match a parent property.`,
+						{ moduleUuid, moduleName: mod.name },
+						{
+							inputUuid: input.uuid,
+							reason: "parent-prompt-settings",
+							key: parent,
+						},
+					),
+				);
+			continue;
+		}
 		if (projectSpaceMatchingFits(input)) continue;
 		errors.push(
 			validationError(

@@ -30,6 +30,7 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
+	directParentSearchRequestKey,
 	effectiveDataType,
 	effectiveSimpleSearchModeKind,
 	exactMode,
@@ -292,7 +293,10 @@ export function resolveRows(
 		let typeCouplingErrors: readonly string[] = [];
 		if (row.kind === "simple") {
 			const property = resolveProperty(caseTypes, row, currentCaseType);
-			if (property === undefined) {
+			if (
+				property === undefined &&
+				directParentSearchRequestKey(row) === undefined
+			) {
 				propertyState = {
 					kind: "dangling",
 					destination: resolveDestinationCaseType(
