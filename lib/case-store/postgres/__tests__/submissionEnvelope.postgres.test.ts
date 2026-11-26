@@ -775,42 +775,67 @@ describe("whole-envelope atomicity", () => {
 });
 
 describe("ordered selected-case batches", () => {
-	it("refuses a 101-case selection before a shared write or receipt can land", async () => {
+	it("refuses a 101-case selection before a shared write or receipt can land", {
+		timeout: 25_000,
+	}, async () => {
 		const store = makeStore();
-		await seedSessionPatient(store);
-		const caseIds = [
-			SESSION_CASE_ID,
-			...Array.from({ length: 100 }, (_, index) => `past-bound-${index}`),
-		];
+		const caseIds = Array.from(
+			{ length: 101 },
+			(_, index) => `bounded-case-${index}`,
+		);
+		for (const caseId of caseIds) await seedPatient(store, caseId, caseId);
+		const apply = (selected: readonly string[], maximum: number) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: {
+					kind: "followup",
+					caseType: "patient",
+					caseIds: selected,
+					selection: { kind: "multiple", maximum },
+				},
+				operations: {
+					...ownProgram("followup", [
+						ownOp({
+							writes: literalWrites({ notes: "from the selected form" }),
+						}),
+					]),
+					sessionCaseIds: selected,
+				},
+			});
 		for (const maximum of [100, 101]) {
-			await expect(
-				submit(store, {
-					appId: APP_ID,
-					ordinary: {
-						kind: "followup",
-						caseType: "patient",
-						caseIds,
-						selection: { kind: "multiple", maximum },
-					},
-					operations: {
-						...ownProgram("followup", [
-							ownOp({ writes: literalWrites({ notes: "must not land" }) }),
-						]),
-						sessionCaseIds: caseIds,
-					},
-				}),
-			).rejects.toMatchObject({
+			await expect(apply(caseIds, maximum)).rejects.toMatchObject({
 				rejection: { kind: "selection", reason: "too-many", maximum: 100 },
 			});
 		}
-		expect(
-			(await patientRow(store, SESSION_CASE_ID))?.properties,
-		).toMatchObject({ notes: "original" });
-		const receipts =
-			await sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
+		const read = () =>
+			store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
+		expect((await read()).map((row) => row.properties.notes)).toEqual(
+			caseIds.map(() => "original"),
+		);
+		const receipts = () =>
+			sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
 				dbHandle.db,
 			);
-		expect(receipts.rows).toEqual([]);
+		expect((await receipts()).rows).toEqual([]);
+		const selected = caseIds.slice(0, 100).reverse();
+		expect(await apply(selected, 100)).toMatchObject({
+			primaryCaseIds: selected,
+		});
+		const rows = await read();
+		expect(
+			rows
+				.filter((row) => row.properties.notes === "from the selected form")
+				.map((row) => row.case_id)
+				.sort(),
+		).toEqual(selected.toSorted());
+		expect(
+			rows.find((row) => row.case_id === caseIds[100])?.properties.notes,
+		).toBe("original");
+		expect((await receipts()).rows).toHaveLength(1);
 	});
 	it("applies the own case's shared answers to every selected case, then each later operation", async () => {
 		const store = makeStore();
