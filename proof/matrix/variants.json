@@ -29191,17 +29191,47 @@
 		}
 	},
 	{
-		"id": "hq-new-app/save-to-case-close-only-condition",
+		"id": "hq-new-app/save-to-case-another-case-close-condition",
 		"base": "hq-new-app",
 		"entry": "questions/a-close-only-savetocase-block-with-a-close-condition",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_another_case_close_condition"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/action",
+				"value": "close"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/target/kind",
+				"value": "expression"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/caseOperations/1/closeCondition/kind",
+				"value": "gt"
+			}
+		]
+	},
+	{
+		"id": "hq-new-app/save-to-case-close-only-condition",
+		"base": "hq-new-app",
+		"entry": "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it",
 		"standing": "not-yet",
 		"place": {
-			"kind": "question",
+			"kind": "form",
 			"menu": 0,
 			"form": 1,
 			"menuName": "Case List",
-			"formName": "Followup Form",
-			"path": "nova_operations/shut"
+			"name": "Followup Form"
 		},
 		"change": {
 			"op": "named",

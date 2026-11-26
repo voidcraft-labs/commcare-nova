@@ -2537,7 +2537,7 @@ FOLLOWUP_DATA = "<default_label />"
 FOLLOWUP_BIND = '<bind vellum:nodeset="#form/default_label" nodeset="/data/default_label" />'
 
 
-def _followup(authoring, app_id, what, *blocks):
+def _followup(authoring, app_id, what, *blocks, instances=(SESSION_INSTANCE,)):
     """hq-new-app's follow-up form with ``blocks`` put in."""
     _edit(
         authoring,
@@ -2549,6 +2549,7 @@ def _followup(authoring, app_id, what, *blocks):
             data_before=FOLLOWUP_DATA,
             binds_before="<itext>",
             group_after="<h:body>",
+            instances=instances,
         ),
         form=1,
     )
@@ -2562,6 +2563,18 @@ def save_to_case_close_only_condition(authoring, app_id):
         app_id,
         "save-to-case-close-only-condition",
         _block("shut", "case", "<close/>", MENU_CASE, [("close", "relevant=\"today() &gt; date('2020-01-01')\"")]),
+    )
+
+
+def save_to_case_another_case_close_condition(authoring, app_id):
+    """A separate case whose block remains present when its close condition is false."""
+    case_id = "instance('casedb')/casedb/case[@case_id = 'another-case' and @case_type = 'case']/@case_id"
+    _followup(
+        authoring,
+        app_id,
+        "save-to-case-another-case-close-condition",
+        _block("shut", "case", "<close/>", case_id, [("close", "relevant=\"today() &gt; date('2020-01-01')\"")]),
+        instances=(SESSION_INSTANCE, '<instance src="jr://instance/casedb" id="casedb" />'),
     )
 
 
