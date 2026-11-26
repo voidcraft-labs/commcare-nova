@@ -9,10 +9,10 @@ import {
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { uuidSchema } from "@/lib/domain";
-import { getLookupFixtureData } from "@/lib/lookup/service";
 import { readCaseDatabaseSnapshot } from "./engine/caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./engine/caseDataBindingTelemetry";
 import { previewLookupData } from "./engine/lookupEvaluation";
+import { readPreviewLookup } from "./engine/workerLookupScope";
 import { prepareEntryPointLaunch } from "./entryPointLaunch";
 import type {
 	EntryPointLaunchResult,
@@ -82,7 +82,7 @@ export async function launchEntryPointAction(input: {
 				restoreScope: context.restoreScope,
 			}),
 			tableIds.length
-				? getLookupFixtureData(context.scope, tableIds).then(previewLookupData)
+				? readPreviewLookup(context.scope, tableIds).then(previewLookupData)
 				: undefined,
 		]);
 		/* A chosen case the worker's restore does not hold, read with its

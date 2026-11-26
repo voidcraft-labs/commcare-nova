@@ -92,12 +92,13 @@ expr {
 // Segments are the dedicated ASCII `hashtagName` token — NOT `localName`
 // — so a segment's full EXTENT agrees with the regex matchers'
 // `[A-Za-z0-9_-]+` charset. XPath element names (`NameTest`)
-// keep the full Unicode range; hashtag segments never had a Unicode
+// use the worker's UTF-16 name grammar; hashtag segments never had a Unicode
 // vocabulary (field ids and case properties are ASCII by the identifier
 // rules), and a wider token here made this matcher claim a longer ref
 // than the regex layers could find.
 @external tokens hashtagGuard from "./hashtagGuard" { noGapIdent, noGapSlash }
 @external tokens coreOperatorTokens from "./coreOperatorTokens" { AndOp, OrOp, DivOp, ModOp }
+@external tokens coreNameTokens from "./coreNameTokens" { localName, qualifiedName, qualifiedWildcard, VariableReference }
 
 HashtagRef { "#" noGapIdent HashtagType { hashtagName } (!hashtag noGapSlash "/" noGapIdent HashtagSegment { hashtagName })+ }
 
@@ -121,33 +122,11 @@ name {
 @tokens {
   whitespace { $[ \r\n\t\f]+ }
 
-  identStart {
-    @asciiLetter | "_"
-    | $[\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02FF\u0370-\u037D\u037F-\u1FFF\u200C-\u200D]
-    | $[\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD]
-  }
-
-  identChar {
-    identStart | "-" | "." | @digit | $[\u00B7\u0300-\u036F\u203F-\u2040]
-  }
-
-  localName {
-    identStart identChar*
-  }
-
   // One hashtag segment (namespace or path segment): the ASCII charset
   // shared with `HASHTAG_SEGMENT_SOURCE`, `[A-Za-z0-9_-]+`
   // (lib/domain/hashtagSegments.ts). Deliberately narrower than `localName`:
   // the editor matcher and parser must agree on a segment's extent.
   hashtagName { (@asciiLetter | "_" | @digit | "-")+ }
-
-  qualifiedName {
-    localName ":" localName
-  }
-
-  qualifiedWildcard {
-    localName ":" "*"
-  }
 
   StringLiteral {
     "\"" !["]* "\""
@@ -157,11 +136,6 @@ name {
   NumberLiteral {
     @digit+ ("." @digit*)?
     | "." @digit+
-  }
-
-  VariableReference {
-    "$" localName
-    | "$" qualifiedName
   }
 
   "#"
@@ -190,7 +164,6 @@ name {
   @precedence {
     "//", "/",
     "..", NumberLiteral, ".",
-    qualifiedWildcard, qualifiedName, localName,
     "#"
   }
 }

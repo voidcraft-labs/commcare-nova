@@ -287,6 +287,9 @@ it(
 				source: app.source,
 				application: app.application,
 				currentVersion: app.currentVersion,
+				...(app.sourceFactoryReads && {
+					sourceFactoryReads: app.sourceFactoryReads,
+				}),
 				...(app.projectSpaces !== undefined && {
 					projectSpaces: app.projectSpaces,
 				}),

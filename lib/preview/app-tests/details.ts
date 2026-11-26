@@ -1,3 +1,4 @@
+import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import {
 	workerLocalizedValues,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
 import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseColumnLabel } from "../caseColumnLabel";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
@@ -77,12 +79,7 @@ export async function appTestDetails(
 				undefined,
 				context.clock.timeZone,
 			),
-			lookupTableSchemas: new Map(
-				context.lookup.definitions.map((table) => [
-					table.id,
-					new Map(table.columns.map((column) => [column.id, column.dataType])),
-				]),
-			),
+			lookupTableSchemas: workerLookupSchemas(scope.projectId, context.lookup),
 			// A record chosen from a search's Results reads as the search found it.
 			...(searched
 				? { searchPopulation: { heldBy: context.restoreScope } }
@@ -168,9 +165,7 @@ export function appTestCellProjector(
 					new Map(
 						context.lookup.definitions.map((table) => [
 							table.id,
-							new Map(
-								table.columns.map((column) => [column.id, column.dataType]),
-							),
+							lookupReadTypes(table),
 						]),
 					),
 				);

@@ -26,6 +26,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
+import { formSharingPlan } from "@/lib/commcare/casePlacementPlan";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { fieldBindType } from "@/lib/commcare/xform/bindType";
@@ -783,6 +784,11 @@ export class FormEngine {
 		runtimeOptions: FormEngineRuntimeOptions = {},
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
+		if (
+			formSharingPlan(input.doc, input.formUuid) &&
+			caseDatabase?.workerGroups?.length !== 1
+		)
+			throw new PreviewDataRefusal({ kind: "group-count" });
 		this.hasCaseSnapshot = caseDatabase != null;
 		this.lookupData = lookupData ?? null;
 		this.previewIdentity = previewIdentity ?? null;

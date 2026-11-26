@@ -145,6 +145,18 @@ describe("hqMediaStandings", () => {
 		[paths.unreadable]: "doc-before",
 	};
 
+	it("holds a mapped picture under the wrong class even when its recorded id is unchanged", () => {
+		const file = published(paths.recorded);
+		const image = entry(file.wirePath, record[paths.recorded]);
+		const audio: HqMediaMapItem = { ...image, mediaType: "CommCareAudio" };
+		expect(
+			hqMediaStandings({ published: [file], record, now: [audio] }),
+		).toMatchObject([{ standing: "replaced" }]);
+		expect(mediaMovedBetween([image], [audio], [file])).toMatchObject([
+			{ standing: "replaced" },
+		]);
+	});
+
 	it("judges every combination of a record and an entry", () => {
 		const standings = hqMediaStandings({
 			published: Object.values(paths).map(published),

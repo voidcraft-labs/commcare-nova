@@ -70,7 +70,7 @@
 
 import { readFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -101,6 +101,7 @@ import { supplyPointTextApp } from "../../targeted/documents/supplyPointText";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import { afterFirstPublish } from "../editBatches";
+import { writeMediaSidecar } from "../mediaSidecar";
 import {
 	capturePublish,
 	documentVerdict,
@@ -110,6 +111,7 @@ import {
 	PROOF_DOMAIN,
 	type PublishDocument,
 	type RetainedPublish,
+	type UploadedMedia,
 } from "../publish";
 import { TargetPeer } from "../targetPeer";
 
@@ -145,6 +147,129 @@ async function searchLookupMedia(): Promise<PublishDocument> {
 		]),
 	};
 }
+
+it("captures each physical media batch and its counter over the 200-file destination limit", async () => {
+	const image = await readFile("public/nova-icons/household.png");
+	const media = new Map<string, UploadedMedia>();
+	const fields = Array.from({ length: 201 }, (_, i) => {
+		const id = testMediaAssetId(`physical-file-${i}`);
+		media.set(id, {
+			kind: "image",
+			extension: ".png",
+			mimeType: "image/png",
+			bytes: Buffer.concat([image, Buffer.from([i])]),
+		});
+		return f({ id: `photo_${i}`, kind: "text", label_media: { image: id } });
+	});
+	const document: PublishDocument = {
+		id: "large-media-publish",
+		doc: toPersistableDoc(
+			buildDoc({
+				appName: "Photos",
+				modules: [
+					{
+						name: "Visits",
+						forms: [{ name: "Visit", type: "survey", fields }],
+					},
+				],
+			}),
+		),
+		compiledAtSeq: 1,
+		media,
+	};
+	const capture = await capturePublish({
+		create: document,
+		updates: [],
+		configuration: minimumConfiguration([documentVerdict(document)]),
+	});
+	if (capture.status !== "sent")
+		throw new Error("The media publish did not land.");
+	const uploads = capture.create.content.mediaUploads;
+	expect(uploads.map((one) => one.saveCounter)).toEqual([
+		{ before: 2, after: 3 },
+		{ before: 3, after: 4 },
+	]);
+	const sidecar = await writeMediaSidecar(
+		uploads,
+		async (_request, role) => `${role}.body`,
+	);
+	expect(sidecar).toEqual({
+		mediaBatches: [
+			{ body: "media.body", saveCounter: { before: 2, after: 3 } },
+			{ body: "media-2.body", saveCounter: { before: 3, after: 4 } },
+		],
+	});
+	const sent = [];
+	for (const { request } of uploads) {
+		const form = await new Response(new Uint8Array(request.body), {
+			headers: { "content-type": request.contentType },
+		}).formData();
+		const file = form.get("bulk_upload_file");
+		if (!(file instanceof Blob))
+			throw new Error("The physical media POST lost its file.");
+		sent.push(
+			new AdmZip(Buffer.from(await file.arrayBuffer()))
+				.getEntries()
+				.map((entry) => entry.getData()),
+		);
+	}
+	expect(sent.map((batch) => batch.length)).toEqual([200, 1]);
+	expect(new Set(sent.flat().map((bytes) => bytes.at(-1)))).toEqual(
+		new Set(Array.from({ length: 201 }, (_, i) => i)),
+	);
+	expect(
+		capture.create.sequence.filter((line) =>
+			line.startsWith("GET /hq/multimedia/file/"),
+		),
+	).toHaveLength(201);
+}, 60000);
+
+it.each([
+	/* The read-back after the upload. An unchanged republish reads no file:
+	 * CommCare HQ binds a file id to one content
+	 * (`hqmedia/models.py::CommCareMultimedia.get_by_data`), so the id Nova
+	 * recorded still at its path is the file Nova sent. */
+	{ read: 1, message: "did not verify the media upload", posts: 1 },
+])(
+	"stops when the authenticated file bytes differ on read $read despite the matched upload report",
+	async ({ read, message, posts }) => {
+		const document = await searchLookupMedia();
+		const answer = TargetPeer.prototype.answer;
+		let reads = 0,
+			uploads = 0;
+		const spy = vi
+			.spyOn(TargetPeer.prototype, "answer")
+			.mockImplementation(async function (this: TargetPeer, request) {
+				const actual = await answer.call(this, request);
+				if (request.method === "POST" && request.path.endsWith("/multimedia/"))
+					uploads++;
+				if (
+					request.method === "GET" &&
+					request.path.startsWith("/hq/multimedia/file/") &&
+					++reads === read
+				) {
+					return {
+						...actual,
+						body: Buffer.alloc(Buffer.byteLength(actual.body), 0),
+					};
+				}
+				return actual;
+			});
+		try {
+			await expect(
+				capturePublish({
+					create: document,
+					updates: [{ name: "update", document }],
+					configuration: minimumConfiguration([documentVerdict(document)]),
+				}),
+			).rejects.toThrow(message);
+			expect(uploads).toBe(posts);
+			expect(reads).toBe(read);
+		} finally {
+			spy.mockRestore();
+		}
+	},
+);
 
 it("sends under the document's minimum configuration and refuses without any one of its flags or case search", async () => {
 	const document = await searchLookupMedia();
@@ -216,12 +341,12 @@ it("republishes over a retained A, sending an update and no create, over the bas
 		create: { request: create.importApp, ownership: create.ownership },
 		content: { request: content.importApp, ownership: content.ownership },
 		...(content.lookup !== undefined && { workbook: content.lookup }),
-		...(content.media !== undefined && { media: content.media }),
+		mediaUploads: content.mediaUploads.map((upload) => upload.request),
 	};
 	// A pushed a workbook and uploaded media, so the peer applies every kind
 	// of retained body.
 	expect(retainedA.workbook).toBeDefined();
-	expect(retainedA.media).toBeDefined();
+	expect(retainedA.mediaUploads).toHaveLength(1);
 
 	const republished = await capturePublish({
 		create: document,

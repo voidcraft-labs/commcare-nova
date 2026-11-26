@@ -1,0 +1,39 @@
+[
+	{
+		"id": "site-registered-in-its-zone",
+		"entry": "expressions-and-data/tag-or-field-name-with-non-ascii-letters",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_site_0": "new-site"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/site_name",
+					"value": "Hill clinic"
+				},
+				{
+					"path": "/data/zone",
+					"value": "upland"
+				}
+			],
+			"expressions": ["/data/site_name", "/data/zone"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Hill clinic"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "upland"
+			}
+		]
+	}
+]

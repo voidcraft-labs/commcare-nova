@@ -187,6 +187,12 @@ import {
 	caseListMenuItemLabelUnit,
 	emissionPlan,
 } from "./emissionPlan";
+import { buildMediaSuiteXml } from "./multimedia/mediaSuiteXml";
+import {
+	GROUP_OWNER_ASSERTION,
+	GROUP_OWNER_MESSAGE,
+	needsSingleGroup,
+} from "./workerGroupsWire";
 import { w } from "./xpath/wire/builders";
 import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
 
@@ -334,6 +340,7 @@ function registerActionFor(
  * each `jr://fixture` declaration against.
  */
 export type CompilePartsOptions = Omit<CompileOptions, "lookup"> & {
+	readonly streamMedia?: boolean;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly lookupFixtures?: CompiledLookupFixtureSet;
 };
@@ -434,7 +441,15 @@ export function compileCczParts(
 	// Media bundle: media_suite.xml descriptor and the CCZ byte entries. With no
 	// manifest the bundle is empty and `mediaSuiteXml` is the byte-identical
 	// empty placeholder, so a media-free app's archive is unchanged.
-	const mediaBundle = buildMediaBundle(assets ?? new Map(), "compileCcz");
+	const mediaMembers = new Map(
+		[...(assets?.values() ?? [])].map((asset) => [asset.wirePath, asset]),
+	);
+	const mediaBundle = opts.streamMedia
+		? {
+				cczEntries: [],
+				mediaSuiteXml: buildMediaSuiteXml([...mediaMembers.values()]),
+			}
+		: buildMediaBundle(assets ?? new Map(), "compileCcz");
 
 	// The set of `commcare/<hash><ext>` wire paths bundled into the archive
 	// — derived from the SAME asset manifest the expander stamped jr://
@@ -442,9 +457,7 @@ export function compileCczParts(
 	// receive this set so a generator drift between "what gets emitted as a
 	// jr:// reference" and "what gets bundled" surfaces as an oracle finding
 	// at compile time instead of as a broken-icon symptom on device.
-	const bundledWirePaths = new Set(
-		mediaBundle.cczEntries.map((entry) => entry.path),
-	);
+	const bundledWirePaths = new Set(mediaMembers.keys());
 
 	files[PROFILE_MEMBER] = generateProfile({
 		doc: authoredDoc,
@@ -971,6 +984,7 @@ export function compileCczParts(
 								xform,
 								{ actions: hqForm.actions },
 								{
+									caseSharing: doc.appSettings.caseSharing,
 									loadDatumIds: advancedLoadDatumIds(
 										planFormCaseWire(doc, formUuid),
 										entrySessionDatums(doc, linkContext, moduleUuid, formUuid),
@@ -985,6 +999,7 @@ export function compileCczParts(
 									? undefined
 									: sessionDataRef(ownCaseDatumId),
 								ownCaseDatum?.maxSelectValue === undefined,
+								doc.appSettings.caseSharing,
 							);
 			}
 			// The three steps after the case blocks change one parse of the form.
@@ -1089,6 +1104,12 @@ export function compileCczParts(
 				{ mode: { target: "suite" }, instances: commandInstances },
 			);
 			const entryDef = deriveEntryDefinition({
+				groupAssertion:
+					doc.appSettings.caseSharing && needsSingleGroup(hqForm.actions)
+						? hqForm.doc_type === "AdvancedForm"
+							? "advanced"
+							: "basic"
+						: undefined,
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
 				formIndex: fIdx,
@@ -1189,8 +1210,11 @@ export function compileCczParts(
 			// It carries no translation unit: it is Nova's own system copy
 			// rather than something an author wrote, so every language table
 			// takes the source text verbatim.
-			if (entryDef.assertions !== undefined) {
-				appStrings[USERCASE_MISSING_LOCALE_ID] = USERCASE_MISSING_MESSAGE;
+			for (const assertion of entryDef.assertions ?? []) {
+				if (assertion.localeId === USERCASE_MISSING_LOCALE_ID)
+					appStrings[USERCASE_MISSING_LOCALE_ID] = USERCASE_MISSING_MESSAGE;
+				if (assertion.localeId === GROUP_OWNER_ASSERTION.localeId)
+					appStrings[GROUP_OWNER_ASSERTION.localeId] = GROUP_OWNER_MESSAGE;
 			}
 			suiteEntryDefinitions.push({
 				definition: entryDef,

@@ -146,7 +146,8 @@
 	"hq-expressions": [
 		"hq-expressions/inline-instance",
 		"hq-expressions/second-instance-without-id",
-		"hq-expressions/survey-typed-advanced"
+		"hq-expressions/survey-typed-advanced",
+		"hq-expressions/user-groups-read"
 	],
 	"hq-kept-settings": [
 		"hq-kept-settings/android-app-dependencies",
@@ -168,7 +169,20 @@
 		"hq-kept-settings/translation-key-with-a-leading-space"
 	],
 	"hq-languages": [],
-	"hq-lookups": ["hq-lookups/itemset-copy"],
+	"hq-lookup-aliases": [],
+	"hq-lookup-name-lists": [
+		"hq-lookup-name-lists/non-ascii-column-in-menu-condition"
+	],
+	"hq-lookup-names": [
+		"hq-lookup-names/dotted-field-in-form-condition",
+		"hq-lookup-names/dotted-table-in-form-condition",
+		"hq-lookup-names/non-ascii-column-in-form-condition"
+	],
+	"hq-lookups": [
+		"hq-lookups/declared-report-fixture",
+		"hq-lookups/itemset-copy",
+		"hq-lookups/itemset-property-as-label"
+	],
 	"hq-media": [
 		"hq-media/form-media-for-every-language",
 		"hq-media/label-video-inline"
@@ -397,6 +411,7 @@
 		"hq-questions/user-repeat-in-question-list",
 		"hq-questions/video-acquire"
 	],
+	"hq-runtime-name-tables": [],
 	"hq-saved-pages": [
 		"hq-saved-pages/detail-with-a-print-template",
 		"hq-saved-pages/tile-cell-bordered-and-shaded"

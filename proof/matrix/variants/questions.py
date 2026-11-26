@@ -1806,13 +1806,28 @@ DISTRICT_LABEL = '<label ref="name" />\n\t\t\t\t<value ref="id" />'
 VILLAGE_FILTER = 'villages[district = /data/district]"'
 
 
+from proof.matrix.bases.lookups import changes_lookup_data, qualify_districts
+
+
+@changes_lookup_data
 def itemset_attribute_ref(authoring, app_id):
-    """The district select's choices valued by the attribute ``@id`` of each row."""
+    """The district select saves a row attribute and labels the filtered French occurrence."""
+    qualify_districts(authoring)
     _change(
         authoring,
         app_id,
         "itemset-attribute-ref",
-        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name" />\n<value ref="@id" />', 1),
+        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name[@lang=&quot;fr&quot;][1]" />\n<value ref="@row_code" />', 1),
+    )
+
+
+@changes_lookup_data
+def itemset_property_as_label(authoring, app_id):
+    """A field property's value as a question label, outside Vellum's fixture choices."""
+    qualify_districts(authoring)
+    _change(
+        authoring, app_id, "itemset-property-as-label",
+        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name[1]/@lang" />\n<value ref="id" />', 1),
     )
 
 

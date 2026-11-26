@@ -282,7 +282,7 @@ export function personasAtLocation(
 ): string[] {
 	return Object.values(personasOf(doc))
 		.filter((persona) =>
-			assignedLocationUuids(persona.locations).includes(locationId),
+			assignedLocationUuids(persona.locations).some((id) => id === locationId),
 		)
 		.map((persona) => persona.name);
 }

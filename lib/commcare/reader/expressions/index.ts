@@ -10,6 +10,7 @@
  * typing fact is cached per document, and documents are replaced, never
  * changed in place. Pure; it never throws for an app's content.
  */
+
 import { freeze, produce } from "immer";
 import {
 	hydratePersistedBlueprint,
@@ -66,6 +67,11 @@ import {
 	EMISSION_REWRITES,
 	type EmissionRewriteId,
 } from "../../emissionRewrites";
+import {
+	lookupFixtureId,
+	lookupFixtureSrc,
+	lookupXformInstanceId,
+} from "../../lookup/naming";
 import { inventoryIndex } from "../../surface/inventory";
 import {
 	formDisplayCondition,
@@ -73,6 +79,7 @@ import {
 } from "../../validator/rules/displayConditions";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { instanceSourcesAfterScan } from "../../xpath/instanceSources";
 import { noteProperty } from "../caseManagement/catalog";
 import { type HandOffKind, sameJson } from "../jsonCursor";
 import {
@@ -111,6 +118,7 @@ import { levelControl, type PrintLevel } from "./printLevel";
 import {
 	type BoundSlot,
 	bindSlot,
+	instanceSourcesOf,
 	judgeSlot,
 	lookupTypes,
 	printSlot,
@@ -131,6 +139,7 @@ import {
 } from "./surfaceUses";
 
 export interface ExpressionReadEnv {
+	readonly factories?: import("../../xpath/instanceSources").InstanceFactories;
 	readonly lookup: LookupDefinitionIndex;
 	/** Per form: the source's own names, from which the binding projection is built. */
 	readonly sourceNames: ReadonlyMap<Uuid, ReadSourceNames>;
@@ -138,6 +147,8 @@ export interface ExpressionReadEnv {
 	readonly itextUnits: ReadonlyMap<Uuid, ReadonlyMap<string, ItextUnit>>;
 	/** Per form: each declared instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<Uuid, ReadonlyMap<string, string>>;
+	/** Declarations and scanned factory instances in each rendered XForm. */
+	readonly formReadSources?: ReadonlyMap<Uuid, ReadonlyMap<string, string>>;
 	/** Per form: a generated sibling the form reader set aside, by absolute path, with its calculate. */
 	readonly generatedValues: ReadonlyMap<
 		Uuid,
@@ -498,6 +509,7 @@ type Resolution =
 			readonly kind: "entry";
 			readonly entryId: string;
 			readonly reason: string;
+			readonly name?: string;
 			/** The surface key the entry is answered under, where the reader
 			 *  that answered it named one. */
 			readonly key?: string;
@@ -567,14 +579,12 @@ function slotDefault(
 /** What the slot's form declares beside its expressions. */
 function declarationsOf(
 	doc: BlueprintDoc,
-	ref: SlotContextRef,
+	pending: PendingExpression,
 	env: ExpressionReadEnv,
 ): FormDeclarations {
-	const form = slotForm(doc, ref);
+	const form = slotForm(doc, pending.ref);
 	return {
-		instanceSources:
-			(form === undefined ? undefined : env.instanceSources.get(form)) ??
-			new Map(),
+		instanceSources: instanceSourcesOf(doc, pending, env) ?? new Map(),
 		computedDatums:
 			(form === undefined ? undefined : env.computedDatums.get(form)) ??
 			new Set(),
@@ -590,6 +600,14 @@ function refusalOf(
 	pending: PendingExpression,
 	env: ExpressionReadEnv,
 ): Resolution {
+	if (cause.kind === "lookup-name")
+		return {
+			kind: "entry",
+			entryId: cause.entryId,
+			key: cause.key,
+			name: cause.name,
+			reason: "lookup-name",
+		};
 	if (cause.kind === "no-case-datum")
 		return { kind: "unrecognized", reason: "no-case-datum" };
 	const issue =
@@ -608,7 +626,7 @@ function refusalOf(
 						to: pending.text.length,
 						message: "",
 					};
-	const declarations = declarationsOf(doc, pending.ref, env);
+	const declarations = declarationsOf(doc, pending, env);
 	// A read of a table the catalog lacks is project data's to judge: the
 	// table is one finding however many slots read it.
 	const table =
@@ -1434,7 +1452,10 @@ export function* readExpressionsSteps(
 					refusal: {
 						entryId: resolution.entryId,
 						key: refusalKey,
-						detail: { name, reason: resolution.reason },
+						detail: {
+							name: resolution.name ?? name,
+							reason: resolution.reason,
+						},
 						...(handOff !== undefined && { handOff }),
 					},
 				});
@@ -1444,7 +1465,7 @@ export function* readExpressionsSteps(
 					entryId: resolution.entryId,
 					place: registration.place,
 					key: registration.key,
-					detail: { name, reason: resolution.reason },
+					detail: { name: resolution.name ?? name, reason: resolution.reason },
 					...(handOff !== undefined && { handOff }),
 				});
 			}
@@ -1978,9 +1999,8 @@ function surfaceUseFactsOf(
 				: form !== undefined && childOfInlineSearchMenu(doc, form)
 					? "child-of-inline"
 					: "other",
-		instanceSources:
-			(form === undefined ? undefined : env.instanceSources.get(form)) ??
-			new Map(),
+		instanceSources: instanceSourcesOf(doc, registration, env) ?? new Map(),
+		formInstancesOnly: instanceSourcesOf(doc, registration, env) !== undefined,
 		shorthand:
 			registration.mode.target === "hq-json" &&
 			registration.mode.interpolation !== "none" &&
@@ -2003,7 +2023,7 @@ function declarationClaims(
 	 * form rather than found again per form. */
 	const readByForm = new Map<string, Set<string>>();
 	pending.forEach((registration, index) => {
-		if (!held.has(index)) return;
+		if (!held.has(index) || registration.mode.target !== "xform") return;
 		const form = slotForm(doc, registration.ref);
 		if (form === undefined) return;
 		const read = readByForm.get(form) ?? new Set<string>();
@@ -2154,13 +2174,37 @@ function readBack(
 	}
 	if (!readFormSyntax(text).ok) return candidate;
 	const print: PendingExpression = { ...pending, text };
+	// This second read is of Nova’s own print. Its form declares Nova’s
+	// local IDs, even when the adopted source used an entirely different alias.
+	let printEnv = env;
+	if (form !== undefined && pending.mode.target === "xform") {
+		const declarations = new Map<string, string>();
+		walkExpression(candidate, {
+			visitExpression(node) {
+				if (node.kind === "table-rows" || node.kind === "table-lookup") {
+					const table = env.lookup.get(node.tableId);
+					if (table !== undefined)
+						declarations.set(
+							lookupXformInstanceId(table.tag),
+							lookupFixtureSrc(lookupFixtureId(table.tag)),
+						);
+				}
+			},
+		});
+		printEnv = {
+			...env,
+			formReadSources: new Map([
+				[form, instanceSourcesAfterScan(declarations, { xmlValue: text })],
+			]),
+		};
+	}
 	const withdrawn = new Set<string>();
 	// Each turn withdraws a site not withdrawn before, and a binding uses
 	// finitely many, so the loop ends.
 	for (;;) {
-		const again = bindSlot(doc, print, env, withdrawn);
+		const again = bindSlot(doc, print, printEnv, withdrawn);
 		if (again.kind === "refused") return candidate;
-		const judged = judgeSlot(doc, print, env, again.bound);
+		const judged = judgeSlot(doc, print, printEnv, again.bound);
 		if (judged.kind !== "bound") return candidate;
 		if (judged.equal) return judged.candidate;
 		if (judged.withdraw === undefined || withdrawn.has(judged.withdraw))

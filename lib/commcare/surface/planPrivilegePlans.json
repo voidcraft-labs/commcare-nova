@@ -27,6 +27,15 @@
 		"advanced_v0",
 		"enterprise_v0"
 	],
+	"case_sharing_groups": [
+		"community_v0",
+		"community_v1",
+		"standard_v0",
+		"pro_v0",
+		"pro_v1",
+		"advanced_v0",
+		"enterprise_v0"
+	],
 	"form_link_workflow": [
 		"standard_v1",
 		"standard_v2",

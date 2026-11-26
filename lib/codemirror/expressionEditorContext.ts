@@ -16,6 +16,7 @@ import {
 	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 } from "@/lib/commcare/formLinkProjection";
+import { lookupInstanceIdForScope } from "@/lib/commcare/lookup/naming";
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "@/lib/commcare/sessionContext";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
@@ -58,6 +59,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import { operationCaseType, orderedCaseOperations } from "@/lib/domain/forms";
 import { userPropertiesOf } from "@/lib/domain/users";
+import { lookupPathNameIssue } from "@/lib/lookup/pathNames";
 import {
 	buildFormReferenceContext,
 	type FormReferenceContext,
@@ -83,9 +85,10 @@ export interface NamedRead {
  * what the parser binds and the checker admits at this slot, so a
  * completion is never offered and then refused. */
 export interface ExpressionReads {
-	/** The Project's data tables, each by its tag. */
+	/** The Project's data tables, each by the instance this slot reads. */
 	readonly tables: ReadonlyArray<{
 		readonly tag: string;
+		readonly instanceId: string;
 		readonly name: string;
 		readonly columns: ReadonlyArray<{
 			readonly wireName: string;
@@ -382,18 +385,42 @@ function slotReads(
 			: undefined;
 	const slotChoices =
 		slotField === undefined ? undefined : choicesOf(slotField);
+	const nameSlot = scope.slot.slot;
 	return {
 		tables:
 			lookup === "unavailable"
 				? []
-				: [...lookup.values()].map((table) => ({
-						tag: table.tag,
-						name: table.name,
-						columns: table.columns.map((column) => ({
-							wireName: column.wireName,
-							label: column.label,
+				: [...lookup.values()]
+						.filter(
+							(table) =>
+								lookupPathNameIssue(
+									table.tag,
+									nameSlot,
+									"tag",
+									context.platforms,
+								) === null,
+						)
+						.map((table) => ({
+							tag: table.tag,
+							instanceId: lookupInstanceIdForScope(context.profile.scope)(
+								table.tag,
+							),
+							name: table.name,
+							columns: table.columns
+								.filter(
+									(column) =>
+										lookupPathNameIssue(
+											column.wireName,
+											nameSlot,
+											"column",
+											context.platforms,
+										) === null,
+								)
+								.map((column) => ({
+									wireName: column.wireName,
+									label: column.label,
+								})),
 						})),
-					})),
 		...(levels.length === 0
 			? {}
 			: {

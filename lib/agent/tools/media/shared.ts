@@ -23,8 +23,7 @@
  * Every attach runs the at-source asset verdict BEFORE its gated commit
  * (`attachGuardedMutate` below → `lib/media/attachVerdicts.ts`): the
  * asset must exist in the caller's library, be `ready`, match the slot's
- * kind, and keep the app's referenced-media aggregate inside the export
- * ceiling — so a committed reference can't dangle, and the export
+ * kind, and play on every platform the app runs on — so a committed reference can't dangle, and the export
  * boundary's media rules become defense-in-depth (legacy refs, ops
  * disasters) rather than the gate a live attach relies on. Clears carry
  * no expectations and skip the asset read entirely.
@@ -315,7 +314,7 @@ export async function commitMediaBatch(args: {
 /**
  * The one commit path for the attach tools: run the at-source asset
  * verdict over `expectations` (exists / owned / ready / kind-matched /
- * inside the export ceiling — `lib/media/attachVerdicts.ts`), then the
+ * plays where the app runs — `lib/media/attachVerdicts.ts`), then the
  * standard validity-gated commit. The expectations ride through to
  * the workspace host so the MCP surface re-verifies them inside its
  * transactional save. A verdict failure returns the same `{ ok: false }`

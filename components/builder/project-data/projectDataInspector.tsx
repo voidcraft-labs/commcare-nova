@@ -114,7 +114,7 @@ export function useProjectDataInspector(): {
 			 * deliberately, here or by a co-member, and nothing is waiting on a
 			 * decision. An empty panel would be the only thing claiming it exists. */
 			if (row === undefined) return { inspector: null, onClose };
-			const position = table.rows.indexOf(row) + 1;
+			const position = (row.sourceIndex ?? table.rows.indexOf(row)) + 1;
 			return {
 				inspector: {
 					kicker: "Row",

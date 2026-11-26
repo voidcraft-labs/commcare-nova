@@ -93,6 +93,7 @@ async function downloadArtifact(opts: {
 	server?: CommCareServer;
 	/** The project space a CCZ is made for; the import file takes none. */
 	domain?: string;
+	privateData?: boolean;
 	endpoint: string;
 	/** Noun for the failure toast, e.g. `"the .ccz file"` / `"the JSON file"`. */
 	fileLabel: string;
@@ -116,6 +117,7 @@ async function downloadArtifact(opts: {
 				appId: opts.appId,
 				...(opts.server ? { server: opts.server } : {}),
 				...(opts.domain ? { domain: opts.domain } : {}),
+				...(opts.privateData && { privateData: true }),
 			}),
 			signal: opts.signal,
 		});
@@ -156,9 +158,26 @@ async function downloadArtifact(opts: {
 		const manualImportGuide = decodeManualImportGuide(
 			res.headers.get(MANUAL_IMPORT_GUIDE_HEADER),
 		);
-		const blob = await res.blob();
-		if (!opts.isCurrent()) return { ok: false };
-		triggerBlobDownload(blob, opts.filename);
+		if (res.headers.get("Content-Type")?.startsWith("application/json")) {
+			const body = await res.json();
+			if (!opts.isCurrent()) return { ok: false };
+			const id = body?.artifact?.id;
+			if (
+				typeof id !== "string" ||
+				!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(id)
+			)
+				throw new Error(
+					"Nova could not open this download. You can prepare the file again.",
+				);
+			const link = document.createElement("a");
+			link.href = `/api/compile/downloads/${id}`;
+			link.download = opts.filename;
+			link.click();
+		} else {
+			const blob = await res.blob();
+			if (!opts.isCurrent()) return { ok: false };
+			triggerBlobDownload(blob, opts.filename);
+		}
 		return {
 			ok: true,
 			projectSpaceCompatibility,
@@ -332,12 +351,14 @@ export const PublishPanel = memo(function PublishPanel() {
 	const handleDownloadJson = useCallback(
 		async (
 			downloadServer?: CommCareServer,
+			privateDomain?: string,
 		): Promise<PublishDownloadOutcome> => {
 			const s = docStore?.getState();
 			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
 			return runDownload({
 				appId: s.appId,
 				server: downloadServer,
+				...(privateDomain && { domain: privateDomain, privateData: true }),
 				endpoint: "/api/compile/json",
 				fileLabel: "the CommCare HQ import file",
 				// The import file is always a ZIP: the app, its companions, and the

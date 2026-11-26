@@ -111,8 +111,10 @@ import {
 	term,
 } from "@/lib/domain/expression";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import { readPlaceRuleIssuesAction } from "@/lib/organization/actions";
 import {
 	fixedLocationOwnerIssue,
+	placeRuleRequest,
 	reverseLocationOwnerRefusal,
 } from "@/lib/organization/ownerTargetVerdicts";
 import { useOrganization } from "@/lib/organization/useOrganization";
@@ -826,7 +828,63 @@ export function CaseOwnerSection({
 		editorAxesOf(ownerContext).caseDataScope !== "global";
 	// Where CommCare HQ manages the places, a source with no destination or
 	// two is answered in CommCare HQ and a refresh, as the commit answers it.
+	const remoteQuery = useMemo(
+		() =>
+			organization.paged && reverseLevels.length
+				? JSON.stringify(
+						placeRuleRequest(
+							doc,
+							organization.revision,
+							reverseLevels.map((level) => level.uuid),
+						),
+					)
+				: undefined,
+		[organization.paged, organization.revision, doc, reverseLevels],
+	);
+	const [checked, setChecked] = useState<{
+		key: string;
+		error?: string;
+		issues?: Record<string, string>;
+	}>();
+	useEffect(() => {
+		if (!remoteQuery || !appId) return;
+		let live = true;
+		readPlaceRuleIssuesAction(appId, JSON.parse(remoteQuery)).then(
+			(response) => {
+				if (live)
+					setChecked(
+						response.success
+							? {
+									key: remoteQuery,
+									issues: response.data.reverse,
+									error: response.data.assignment,
+								}
+							: { key: remoteQuery, error: response.message },
+					);
+			},
+			() => {
+				if (live)
+					setChecked({
+						key: remoteQuery,
+						error:
+							"Nova couldn’t check these places. Open Organization to refresh them.",
+					});
+			},
+		);
+		return () => {
+			live = false;
+		};
+	}, [appId, remoteQuery]);
 	const reverseLevelIssues = useMemo(() => {
+		if (remoteQuery)
+			return new Map(
+				reverseLevels.map((level) => [
+					level.uuid,
+					checked?.key === remoteQuery
+						? (checked.error ?? checked.issues?.[level.uuid])
+						: "Checking the places at this level.",
+				]),
+			);
 		const managed = managedPlacesContext(organization.hq);
 		return new Map(
 			reverseLevels.map((level) => [
@@ -839,7 +897,14 @@ export function CaseOwnerSection({
 				),
 			]),
 		);
-	}, [doc, organization.hq, organization.locations, reverseLevels]);
+	}, [
+		doc,
+		organization.hq,
+		organization.locations,
+		reverseLevels,
+		remoteQuery,
+		checked,
+	]);
 	const fixedModeIssue = fixedOwnerModeIssue(
 		organization,
 		fixedLocationCandidates.length,
@@ -1007,6 +1072,18 @@ export function CaseOwnerSection({
 								Place that owns the case
 							</p>
 							<LocationChoiceSelect
+								remote={
+									organization.paged && appId
+										? {
+												appId,
+												revision: organization.revision,
+												activeOnly: true,
+												levelIds: levels
+													.filter(levelOwnsCases)
+													.map((level) => level.uuid),
+											}
+										: undefined
+								}
 								locations={fixedLocationCandidates}
 								value={
 									selected?.term.kind === "fixed-location"
@@ -1028,7 +1105,9 @@ export function CaseOwnerSection({
 								issueFor={(location) =>
 									fixedLocationOwnerIssue(
 										doc,
-										organization.locations,
+										location.path
+											? [...organization.locations, ...location.path, location]
+											: organization.locations,
 										location.id,
 									)
 								}

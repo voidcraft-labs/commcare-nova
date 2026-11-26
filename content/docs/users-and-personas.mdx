@@ -193,8 +193,7 @@ This is the whole point of describing them. Previewing as Asha means:
 
 - conditions on worker information see *her* values, not yours;
 - a case list that shows "only my cases" shows *hers*;
-- new cases use the form's configured owner, defaulting to *her* when the form
-  does not choose another owner, such as a shared place.
+- new cases use the form's configured owner, defaulting to her when the app uses individual case ownership. A form can also choose a shared place or an explicit owner.
 
 Preview always says whose session you are looking at, so the two never blur
 together. Returning to edit mode also returns the next Preview to **Preview as
@@ -210,6 +209,12 @@ or reassigning your real test data. The confirmation counts every retained case
 the persona owns, including data from case types you have since removed from the
 app, before it enables removal. Those cases remain available in unfiltered case
 data views.
+
+## Sharing a new case with a group
+
+Turn on **Share new cases with a group** in app settings when a new case should belong to the worker's group. **Worker groups** in Project data lets you choose which groups own cases and who belongs to them. Places that own cases also provide groups to their assigned workers.
+
+An entry that needs a group as its default owner opens for a worker with exactly one eligible group. If none or several qualify, Preview explains what to check. A form that chooses an owner explicitly keeps that choice. When the worker's eligible group changes during an entry, reopen the form to use the current assignment.
 
 ## What travels to CommCare
 

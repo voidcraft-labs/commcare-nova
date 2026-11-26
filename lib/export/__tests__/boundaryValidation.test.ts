@@ -467,6 +467,7 @@ describe("prepareExportBoundary", () => {
 					role: "owner",
 				},
 				[],
+				"export",
 			);
 			expect(getLookupDefinitions).not.toHaveBeenCalled();
 			/* No referenced table — nothing to carry, so neither carrier. */
@@ -636,6 +637,7 @@ describe("prepareExportBoundary", () => {
 				role: ACCESS.role,
 			},
 			[tableId],
+			"export",
 		);
 		expect(missing.violations.map((finding) => finding.code)).toContain(
 			"LOOKUP_TABLE_NOT_AVAILABLE",
@@ -1288,14 +1290,14 @@ it.each(["hq-json", "hq-upload"] as const)(
 );
 
 it.each(["ccz", "hq-json", "hq-upload"] as const)(
-	"refuses historical runtime-reserved lookup tags before releasing a %s artifact",
+	"refuses a lookup routed to the case database before releasing a %s artifact",
 	async (mode) => {
 		const snapshot = carrierFixtureSnapshot();
 		vi.mocked(getLookupFixtureData).mockResolvedValue({
 			...snapshot,
 			definitions: snapshot.definitions.map((table) => ({
 				...table,
-				tag: "selected_cases",
+				tag: "clinic_casedb_codes",
 			})),
 		});
 		const result = await prepareExportBoundary({
@@ -1312,7 +1314,7 @@ it.each(["ccz", "hq-json", "hq-upload"] as const)(
 			new Set(["LOOKUP_TAG_RESERVED_BY_RUNTIME"]),
 		);
 		expect(
-			result.violations.every((f) => f.details?.tag === "selected_cases"),
+			result.violations.every((f) => f.details?.tag === "clinic_casedb_codes"),
 		).toBe(true);
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	},

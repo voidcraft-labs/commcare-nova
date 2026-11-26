@@ -18,6 +18,7 @@ import {
 
 export interface PersonaLocationEditorInputs {
 	readonly doc: OrganizationRuleInputs;
+	readonly paged?: boolean;
 	readonly persona: Persona;
 	readonly locations: readonly StoredLocation[];
 	readonly loading: boolean;
@@ -54,7 +55,7 @@ export function personaLocationEditor(input: PersonaLocationEditorInputs) {
 		locations.map((location) => [location.id, location]),
 	);
 	const removalIssues =
-		canEdit && authoritative
+		canEdit && authoritative && !input.paged
 			? personaAssignmentRemovalIssues(
 					doc,
 					locations,
@@ -122,7 +123,9 @@ export function planPersonaLocationChange(
 		input.refreshing
 	)
 		return undefined;
-	const assigned = assignedLocationUuids(input.persona.locations);
+	const assigned: readonly string[] = assignedLocationUuids(
+		input.persona.locations,
+	);
 	const index = assigned.indexOf(change.id);
 	if (change.kind === "add" ? index >= 0 : index < 0) return undefined;
 	if (
@@ -137,6 +140,7 @@ export function planPersonaLocationChange(
 				? [change.id, ...assigned.filter((id) => id !== change.id)]
 				: assigned.filter((id) => id !== change.id);
 	if (
+		!input.paged &&
 		personaAssignmentIssue(
 			input.doc,
 			input.locations,

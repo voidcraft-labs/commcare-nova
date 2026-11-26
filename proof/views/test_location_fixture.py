@@ -268,3 +268,101 @@ def test_the_project_spaces_location_fixture_page_turns_the_flat_list_off_and_on
                 steps.append(LocationFixtureConfiguration.for_domain(unit.domain).sync_flat_fixture)
             stored[flagged] = steps
     assert stored == {False: 404, True: [False, True]}, stored
+
+
+def test_organization_workbook_changes_only_the_external_id_in_the_workers_rebuilt_restore(
+    hq, core_runner, view_documents, published
+):
+    """An editor imports Nova's destination workbook; the released worker receives the same
+    place and ancestry with the new external ID, even after the identical import is repeated."""
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from corehq.apps.custom_data_fields.models import CustomDataFieldsDefinition, Field
+    from corehq.apps.locations.bulk_management import new_locations_import
+    from corehq.apps.locations.models import LocationFixtureConfiguration, LocationType, SQLLocation
+    from corehq.apps.locations.views import LocationFieldsView
+    from corehq.util.workbook_json.excel import WorkbookJSONReader
+
+    from proof.formplayer import hq as formplayer_hq
+
+    proof_dir = Path(__file__).resolve().parents[1]
+    book_path = proof_dir / "hq" / "fixtures" / "place-external-id.xlsx"
+    v1 = json.loads((proof_dir / "hq-reads" / "places" / "locations-v1.json").read_text())
+    rows = {row["site_code"]: row for row in json.loads(v1["body"])["objects"]}
+    document = view_documents[DOCUMENT]
+    with published(document, "minimum", core_runner) as (unit, app_id, _):
+        with formplayer_hq.serve(unit, document, app_id, label="place-workbook") as served:
+            with unit.committing():
+                LocationFixtureConfiguration.objects.update_or_create(
+                    domain=unit.domain, defaults={"sync_flat_fixture": True, "sync_hierarchical_fixture": False}
+                )
+                fields = CustomDataFieldsDefinition.get_or_create(unit.domain, LocationFieldsView.field_type)
+                fields.set_fields([Field(slug="phone"), Field(slug="local_note")])
+                fields.save()
+                region = LocationType.objects.create(domain=unit.domain, code="region", name="Region")
+                district = LocationType.objects.create(
+                    domain=unit.domain, code="district", name="District", parent_type=region
+                )
+                root = SQLLocation.objects.create(
+                    domain=unit.domain, name=rows["north"]["name"], site_code="north",
+                    location_type=region, location_id=rows["north"]["location_id"]
+                )
+                child = SQLLocation.objects.create(
+                    domain=unit.domain, name=rows["north_clinic"]["name"], site_code="north_clinic",
+                    location_type=district, parent=root, location_id=rows["north_clinic"]["location_id"],
+                    latitude="1.2300000000", metadata={"phone": "01923", "local_note": "ward α"}
+                )
+                other = SQLLocation.objects.create(
+                    domain=unit.domain, name="Southern private district", site_code="south",
+                    location_type=region, location_id=rows["south"]["location_id"],
+                    metadata={"local_note": "southern workers only"}
+                )
+                served.worker.set_location(child)
+
+            def observed(label):
+                with served.run(label):
+                    restore = etree.fromstring(_device_restore(unit, served, label))
+                    fixtures = restore.xpath("//*[local-name()='fixture' and @id='locations']")
+                    assert len(fixtures) == 1
+                    assert fixtures[0].get("user_id") == served.worker.user_id
+                    restored_text = etree.tostring(fixtures[0], encoding="unicode")
+                    assert other.name not in restored_text and "southern workers only" not in restored_text
+                    places = fixtures[0].xpath(".//*[local-name()='location']")
+                    assert sorted(place.get("id") for place in places) == sorted([root.location_id, child.location_id])
+                    place, = [place for place in places if place.get("id") == child.location_id]
+                    assert place.get("region_id") == root.location_id and place.get("district_id") == child.location_id
+                    texts = {etree.QName(node.tag).localname: node.text or "" for node in place.iterdescendants()}
+                    assert texts["phone"] == "01923" and texts["local_note"] == "ward α"
+                    assert texts["latitude"] == "1.2300000000" and texts["site_code"] == "north_clinic"
+                    return texts
+
+            before = observed("before-workbook")
+            assert before["external_id"] == ""
+            for label in ["first-workbook", "repeated-workbook"]:
+                with unit.committing():
+                    book = WorkbookJSONReader(str(book_path))
+                    result = new_locations_import(
+                        unit.domain, SimpleNamespace(worksheets=book.worksheets, add_progress=lambda *args: None),
+                        unit.web_user
+                    )
+                    assert result.success, result.errors
+                assert observed(label) == {**before, "external_id": "EXT-α-01"}
+
+            # Setting the new primary alone deliberately retains the previous
+            # assignment. The native user's full replacement removes it.
+            with unit.committing():
+                served.worker.set_location(other)
+                served.worker.reset_locations([other.location_id])
+            with served.run("after-reassignment"):
+                rebuilt = etree.fromstring(_device_restore(unit, served, "after-reassignment"))
+                fixture, = rebuilt.xpath("//*[local-name()='fixture' and @id='locations']")
+                assert fixture.get("user_id") == served.worker.user_id
+                moved, = fixture.xpath(".//*[local-name()='location']")
+                assert moved.get("id") == other.location_id
+                texts = {etree.QName(node.tag).localname: node.text or "" for node in moved.iterdescendants()}
+                assert texts["name"] == other.name and texts["local_note"] == "southern workers only"
+                contents = etree.tostring(fixture, encoding="unicode")
+                for previous in [root.location_id, child.location_id, child.name, "EXT-α-01", "ward α"]:
+                    assert previous not in contents

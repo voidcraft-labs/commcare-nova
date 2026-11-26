@@ -1,3 +1,5 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
+
 /**
  * The publish gates: what `publishAppToHq` asks a person to confirm, the
  * CommCare version it holds the target app to, when it asks before
@@ -75,17 +77,19 @@ import { placementMoveOffer, placementMoveOfferView } from "../placementMoves";
 import { narrowingTo } from "../platformNarrowing";
 import { readPreviewDeploymentAnswer } from "../previewSpace";
 import { HQ_CHANGED_DURING_PUSH_MESSAGE } from "../remoteChanges";
-import {
-	type PublishOutcome,
-	projectSpaceConfirmations,
-	publishAppToHq,
-} from "../service";
+import { type PublishOutcome, projectSpaceConfirmations } from "../service";
 import { readDeployment, withdrawDeploymentConfirmation } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
+import { servePlaceInventory } from "./placeInventoryPeer";
+import { servePublishedImage, storeProjectImages } from "./publishedImage";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	downloadAssetBytes: vi.fn(),
+	streamAsset: vi.fn(),
+	getStoredObjectMetadata: vi.fn(),
+}));
 /* The real boundary, spied on so one test can hand the publish a prepared
  * export the boundary would never give. */
 vi.mock("@/lib/export/boundaryValidation", async (importOriginal) => {
@@ -481,22 +485,17 @@ async function seedPlace() {
 }
 /** The levels, and the places the project space holds. */
 function inventory(peer: MockAgent, withNorth: boolean) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: withNorth ? [remotePlace] : [],
-	});
+	servePlaceInventory(
+		peer,
+		"clinic",
+		withNorth ? [remotePlace] : [],
+		remoteLevels,
+	);
 }
 /** The place batch taken, and the inventory read that reads it back. */
 function placeTaken(peer: MockAgent) {
 	request(peer, PLACE_PUSH, "PATCH").reply(202, JSON.stringify(["hq-north"]));
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: [remotePlace],
-	});
+	inventory(peer, true);
 }
 
 /** A first publish of the lookup document, landed. */
@@ -621,6 +620,47 @@ describe("the version floor", () => {
 		},
 	);
 
+	it("stops before any write where the project space lists more places than Nova reads, and says retrying won't help", async () => {
+		const doc = await seed(await lookupAndPlaceDocument());
+		await seedPlace();
+		await withPeer(async (peer) => {
+			emptyTables(peer);
+			request(peer, LEVELS).reply(200, {
+				meta: { next: null, total_count: 1 },
+				objects: remoteLevels,
+			});
+			request(peer, PLACES).reply(200, {
+				meta: {
+					next: `https://india.commcarehq.org${PLACES}&offset=5000`,
+					offset: 0,
+					total_count: 100_001,
+				},
+				objects: [
+					{
+						...remotePlace,
+						domain: "clinic",
+						last_modified: "2026-11-01T09:00:00",
+					},
+				],
+			});
+			expect(refusal(await publish(doc, [LOOKUP, ORGANIZATION]))).toMatchObject(
+				{
+					phase: "preflight",
+					failure: {
+						code: "hq_resource_state_unknown",
+						message:
+							"“clinic” holds more places than Nova reads from one project space, which is up to 100,000 places, so Nova stopped rather than push places into a list it can't read whole. You can publish this app to another project space.",
+					},
+				},
+			);
+			expect(requests(peer)).toEqual([
+				`GET ${TABLES}`,
+				`GET ${LEVELS}`,
+				`GET ${PLACES}`,
+			]);
+		});
+	});
+
 	it("stops a new app below the floor after its create and before any table or place, and the next publish fills that same app", async () => {
 		const doc = await seed(await lookupAndPlaceDocument());
 		await seedPlace();
@@ -645,6 +685,7 @@ describe("the version floor", () => {
 				`GET ${TABLES}`,
 				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 			]);
@@ -698,7 +739,7 @@ describe("the version floor", () => {
 			workbookTaken(peer);
 			tablesWithOurs(peer);
 			tableRows(peer);
-			placeTaken(peer);
+			inventory(peer, true);
 			serve(peer, "source-live", edited);
 			accepted(peer, 200, bodies);
 			serve(peer, "source-live");
@@ -1384,6 +1425,32 @@ describe("links between cases of the same type", () => {
 
 // ── C5. The flat location list ──────────────────────────────────────────
 
+function serveConfiguredLevels(peer: MockAgent, doc: BlueprintDoc) {
+	const levels = Object.values(doc.organizationLevels ?? {});
+	servePlaceInventory(
+		peer,
+		"clinic",
+		[],
+		levels.map((level, index) => ({
+			id: index + 1,
+			code: level.code,
+			name: level.name,
+			shares_cases: level.caseFlow.ownsCases,
+			administrative: true,
+			view_descendants:
+				"descendantCases" in level.caseFlow &&
+				level.caseFlow.descendantCases.kind !== "none",
+			parent: level.parentLevelUuid
+				? HOST +
+					"/a/clinic/api/location_type/v1/" +
+					(levels.findIndex((parent) => parent.uuid === level.parentLevelUuid) +
+						1) +
+					"/"
+				: null,
+		})),
+	);
+}
+
 describe("the flat location list", () => {
 	it("is asked for an app whose form sets an owner from a place, and lands once confirmed", async () => {
 		const doc = await seed(locationOwnerFixture("direct"));
@@ -1401,6 +1468,7 @@ describe("the flat location list", () => {
 				whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 			});
 			expect(allRequests(peer)).toEqual([]);
+			serveConfiguredLevels(peer, doc);
 			await firstPublishConfirming(
 				peer,
 				doc,
@@ -1421,6 +1489,7 @@ describe("the flat location list", () => {
 			expect(needed.map((need) => need.kind)).not.toContain(
 				"flat-location-fixture",
 			);
+			serveConfiguredLevels(peer, doc);
 			await firstPublishConfirming(
 				peer,
 				doc,
@@ -1912,6 +1981,7 @@ describe("logos", () => {
 		await seed(doc);
 		const first = await seedImage(logo, "public/nova-icons/household.png");
 		const second = await seedImage(other, "public/nova-icons/checklist.png");
+		storeProjectImages(PROJECT, [first, second]);
 		vi.mocked(downloadAssetBytes).mockImplementation(async (key) =>
 			key.includes(createHash("sha256").update(first).digest("hex"))
 				? first
@@ -1940,6 +2010,13 @@ describe("logos", () => {
 			accepted(peer, 200);
 			serve(peer, "source-live");
 			mediaTaken(peer);
+			servePublishedImage(peer, {
+				source: SOURCE,
+				read: "source-live",
+				wirePath: `commcare/${createHash("sha256").update(first).digest("hex")}.png`,
+				id: "updated-logo-image",
+				bytes: first,
+			});
 			const changed = landed(await publish(doc));
 			expect(changed.logoStep?.changed).toBe(true);
 			expect(requests(peer)).toContain(`POST ${MEDIA}`);

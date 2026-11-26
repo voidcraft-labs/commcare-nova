@@ -69,13 +69,14 @@ export function countLookupCsvRows(bytes: Uint8Array): number | null {
 
 /** Replace every row in a table with the CSV's, in one transaction. */
 export async function importLookupCsv(args: {
+	operationId: string;
 	projectId: string;
 	tableId: LookupTableId;
 	expectedTableRevision: LookupRevision;
 	bytes: Uint8Array;
 	signal?: AbortSignal;
 }): Promise<LookupImportResult> {
-	const url = `/api/projects/${encodeURIComponent(args.projectId)}/lookup/tables/${encodeURIComponent(args.tableId)}/import?expectedTableRevision=${encodeURIComponent(args.expectedTableRevision)}`;
+	const url = `/api/projects/${encodeURIComponent(args.projectId)}/lookup/tables/${encodeURIComponent(args.tableId)}/import?expectedTableRevision=${encodeURIComponent(args.expectedTableRevision)}&operationId=${encodeURIComponent(args.operationId)}`;
 	let response: Response;
 	try {
 		response = await fetch(url, {

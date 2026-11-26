@@ -268,6 +268,7 @@ export function compileExpression(
 		case "choice-name":
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations":
 		case "selected-cases":
 		case "case-list-search-text":

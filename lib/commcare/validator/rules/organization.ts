@@ -41,11 +41,6 @@ import {
 import { type ValidationError, validationError } from "../errors";
 import { userPropertySlugVerdict } from "../userPropertySlug";
 
-/** Case-insensitive display-name key, so two levels can't look identical. */
-function nameKey(name: string): string {
-	return name.trim().toLowerCase();
-}
-
 /**
  * A source's complete reverse-hop destination branch must fit in one atomic
  * create. Count per source rather than globally: independent organization
@@ -119,7 +114,7 @@ function levelIdentities(doc: BlueprintDoc): ValidationError[] {
 		}
 		codes.add(level.code);
 
-		const key = nameKey(level.name);
+		const key = level.name;
 		if (names.has(key)) {
 			errors.push(
 				validationError(

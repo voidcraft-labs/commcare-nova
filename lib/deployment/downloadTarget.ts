@@ -22,6 +22,7 @@ import {
 	type AttachmentUrlTarget,
 	attachmentUrlTarget,
 } from "./attachmentTarget";
+import { exportTargetRevision } from "./exportTargetRevision";
 import {
 	type CczUnavailable,
 	cczUnavailableRefusal,
@@ -52,7 +53,7 @@ import { exportIdentityOf } from "./targetIdentity";
  * of the ledger and should not take the publish lifecycle's expander, media
  * bundler and HQ client into their import graph to do it.
  */
-export type DownloadTarget =
+export type DownloadTarget = { readonly targetRevision?: string } & (
 	| {
 			readonly format: "ccz";
 			/** The deployment the archive is made for. */
@@ -86,7 +87,8 @@ export type DownloadTarget =
 			readonly attachmentTarget: AttachmentUrlTarget | null;
 			/** The reached deployments on the chosen server, or all of them. */
 			readonly reached: readonly ReachedDeploymentTarget[];
-	  };
+	  }
+);
 
 export type { DownloadTargetRefusal };
 
@@ -166,13 +168,24 @@ export async function resolveDownloadTarget(
 		readonly format: "ccz" | "json";
 		readonly server?: CommCareServer;
 		readonly domain?: string;
+		readonly assignmentDestination?: DeploymentTargetKey;
 		readonly doc: BlueprintDoc;
 	},
 ): Promise<DownloadTarget | DownloadTargetRefusal> {
-	const read = await withDeploymentReadSnapshot(scope, "view", (snapshot) =>
-		resolveDownloadTargetIn(snapshot, input),
+	const { read, targetRevision } = await withDeploymentReadSnapshot(
+		scope,
+		"view",
+		async (snapshot) => ({
+			read: await resolveDownloadTargetIn(snapshot, input),
+			targetRevision: await exportTargetRevision(
+				snapshot.db,
+				scope.projectId,
+				scope.appId,
+			),
+		}),
 	);
-	if (!("held" in read)) return read;
+	if (!("held" in read))
+		return "kind" in read ? read : { ...read, targetRevision };
 	const { target, reached, targetIdentity, held } = read;
 	const standing = cczStandingOf(target, held);
 	if (standing.unavailable !== null) {
@@ -183,6 +196,7 @@ export async function resolveDownloadTarget(
 	const exported = exportIdentityOf(input.doc, targetIdentity);
 	return {
 		format: "ccz",
+		targetRevision,
 		target,
 		runtimeTarget: {
 			server: target.server,
@@ -212,6 +226,7 @@ async function resolveDownloadTargetIn(
 		readonly format: "ccz" | "json";
 		readonly server?: CommCareServer;
 		readonly domain?: string;
+		readonly assignmentDestination?: DeploymentTargetKey;
 		readonly doc: BlueprintDoc;
 	},
 ): Promise<DownloadTarget | DownloadTargetRefusal | HeldCczTarget> {
@@ -230,8 +245,9 @@ async function resolveDownloadTargetIn(
 	if (format === "json") {
 		return {
 			format,
-			attachmentTarget:
-				choice.kind === "project-space"
+			attachmentTarget: input.assignmentDestination
+				? attachmentUrlTarget(input.assignmentDestination)
+				: choice.kind === "project-space"
 					? attachmentUrlTarget(choice.target)
 					: null,
 			reached: reached.filter(

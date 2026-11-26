@@ -1,3 +1,8 @@
+import {
+	bindLookupRead,
+	lookupReadNames,
+	lookupReadPath,
+} from "../../lookup/readPath";
 /**
  * A select's choices: its inline `item`s, or one `itemset` over a lookup table or over
  * the worker's cases in the shape Nova writes for a question's case choices. An itemset's
@@ -8,14 +13,17 @@
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
+import { questionChoiceReadIssue } from "@/lib/domain/lookupRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
+import { instanceForRead } from "../../xpath/instanceSources";
 import { w } from "../../xpath/wire/builders";
 import { casePropertyStep } from "../../xpath/wire/rowScope";
 import type { Accounting } from "../accounting";
-import { readFormSyntax } from "../syntaxRead";
+import { lookupNameRefusal } from "../lookupNames";
+import { readFormSyntax, readStoredNameSyntax } from "../syntaxRead";
 import type { ReaderLookupCatalog, UnreadTable } from "../types";
 import { ownText, type XmlCursor, type XmlNode } from "../xmlCursor";
 import type { ControlNode } from "./body";
@@ -23,9 +31,6 @@ import { X } from "./claims";
 import { sameTree } from "./generated";
 import type { DraftField } from "./index";
 import type { ParsedXForm } from "./parse";
-
-/** The lookup tables' instance source, `jr://fixture/item-list:<tag>`. */
-const ITEM_LIST_SOURCE = "jr://fixture/item-list:";
 
 /** A select's case choices as the form stage proposes them, decided once the filter is bound. */
 export interface CaseChoicesProposal {
@@ -195,19 +200,13 @@ function instanceChain(node: FormSyntax):
 		if (at.left === undefined) return undefined;
 		at = at.left;
 	}
-	if (
-		at.kind !== "call" ||
-		at.name !== "instance" ||
-		at.args.length !== 1 ||
-		at.args[0]?.kind !== "string"
-	)
-		return undefined;
-	return { id: at.args[0].value, steps, predicates };
+	const id = literalInstanceId(at);
+	return id === undefined ? undefined : { id: id.value, steps, predicates };
 }
 
 /** A ref that is one name step: the column's or the property's name. */
-function singleName(text: string): string | undefined {
-	const read = readFormSyntax(text);
+function singleName(text: string, storedName = false): string | undefined {
+	const read = storedName ? readStoredNameSyntax(text) : readFormSyntax(text);
 	if (!read.ok || read.node?.kind !== "name" || read.node.wildcard)
 		return undefined;
 	return read.node.name;
@@ -272,13 +271,12 @@ function readItemset(
 		return undefined;
 	}
 	const nodeset = plain(itemset, "nodeset") ?? "";
-	const read = readFormSyntax(nodeset);
+	const runtime = readFormSyntax(nodeset);
+	const read = runtime.ok ? runtime : readStoredNameSyntax(nodeset);
 	const chain =
 		read.ok && read.node !== undefined ? instanceChain(read.node) : undefined;
 	const labelRef = plain(label, "ref") ?? "";
 	const valueRef = value === undefined ? "" : (plain(value, "ref") ?? "");
-	const source =
-		chain === undefined ? undefined : input.instanceSources.get(chain.id);
 	const other = () => {
 		cursor.refuseSubtree(itemset, X.otherItemset, place);
 		return undefined;
@@ -287,10 +285,11 @@ function readItemset(
 
 	// A lookup table: instance(id)/<tag>_list/<tag>, with at most one predicate.
 	const tag = chain.steps[1];
+	const bound = instanceForRead(chain.id, input.instanceSources);
 	if (
-		source?.startsWith(ITEM_LIST_SOURCE) &&
 		tag !== undefined &&
-		source.slice(ITEM_LIST_SOURCE.length) === tag &&
+		bound?.kind === "table" &&
+		bound.tag === tag &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === `${tag}_list` &&
 		chain.predicates.length <= 1
@@ -311,8 +310,8 @@ function readItemset(
 			cursor.refuseSubtreeAt(itemset, refOf(label), X.itemsetItextLabel, place);
 			return undefined;
 		}
-		const labelName = singleName(labelRef);
-		const valueName = singleName(valueRef);
+		const labelName = lookupReadPath(labelRef, "stored-xml");
+		const valueName = lookupReadPath(valueRef, "stored-xml");
 		if (labelName === undefined || valueName === undefined) {
 			cursor.refuseSubtreeAt(
 				itemset,
@@ -322,8 +321,8 @@ function readItemset(
 			);
 			return undefined;
 		}
-		const labelColumn = table.column(labelName);
-		const valueColumn = table.column(valueName);
+		const labelColumn = bindLookupRead(labelName, table);
+		const valueColumn = bindLookupRead(valueName, table);
 		// A ref to a column the table lacks reads blank for every choice on a device: one finding,
 		// which the whole itemset stands behind. Its reason is the form parser's for a read of a
 		// column the table lacks, so a reader of the account can tell a read of the Project's data
@@ -334,6 +333,35 @@ function readItemset(
 			});
 			return undefined;
 		}
+		for (const [names, part, at] of [
+			[[tag], "tag", { element: itemset, attribute: "nodeset" }],
+			[lookupReadNames(labelName), "column", refOf(label)],
+			[lookupReadNames(valueName), "column", refOf(value)],
+		] as const) {
+			for (const name of names) {
+				const refusal = lookupNameRefusal(name, "lookup_options_source", part);
+				if (refusal !== undefined) {
+					cursor.refuseSubtreeAt(itemset, at, refusal.claim, place, { name });
+					return undefined;
+				}
+			}
+		}
+		if (
+			questionChoiceReadIssue(labelColumn) ||
+			questionChoiceReadIssue(valueColumn)
+		) {
+			cursor.refuseSubtreeAt(
+				itemset,
+				questionChoiceReadIssue(labelColumn) ? refOf(label) : refOf(value),
+				X.itemsetRefShape,
+				place,
+			);
+			return undefined;
+		}
+		const labelSites =
+			typeof labelColumn === "string" ? X.lookupRefs : X.richLookupRefs;
+		const valueSites =
+			typeof valueColumn === "string" ? X.lookupRefs : X.richLookupRefs;
 		const sites = X.lookupItemset;
 		const refs = X.lookupRefs;
 		const one = select === "select1";
@@ -366,12 +394,12 @@ function readItemset(
 			[
 				label,
 				one ? refs.select1Label : refs.selectLabel,
-				one ? refs.select1LabelRef : refs.selectLabelRef,
+				one ? labelSites.select1LabelRef : labelSites.selectLabelRef,
 			],
 			[
 				value,
 				one ? refs.select1Value : refs.selectValue,
-				one ? refs.select1ValueRef : refs.selectValueRef,
+				one ? valueSites.select1ValueRef : valueSites.selectValueRef,
 			],
 		] as const) {
 			cursor.take({ element }, siteElement).value;
@@ -388,7 +416,9 @@ function readItemset(
 
 	// The worker's cases, in the shape Nova writes (`caseOptions.ts::caseOptionsNodeset`).
 	if (
-		source === "jr://instance/casedb" &&
+		runtime.ok &&
+		bound?.kind === "native" &&
+		bound.id === "casedb" &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === "casedb" &&
 		chain.steps[1] === "case" &&

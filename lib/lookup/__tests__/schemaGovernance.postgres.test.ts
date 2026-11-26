@@ -15,7 +15,13 @@ import {
 	LookupSchemaGovernanceError,
 	type LookupSchemaGovernanceOperation,
 } from "../schemaGovernance";
-import { createLookupRow, createLookupTable, getLookupTable } from "../service";
+import {
+	createLookupRow,
+	createLookupTable,
+	getLookupTable,
+	updateLookupColumnWireName,
+	updateLookupTableTag,
+} from "../service";
 import type {
 	LookupColumnDraft,
 	LookupRowValues,
@@ -195,6 +201,22 @@ describe("lookup schema governance", () => {
 			await expectGovernanceError(runCore(operation), "accepted_design");
 		}
 
+		await expect(
+			updateLookupTableTag(GOVERNOR, {
+				tableId: table.id,
+				expectedTableRevision: table.tableRevision,
+				tag: "district.all",
+			}),
+		).rejects.toMatchObject({ code: "accepted_design" });
+
+		await expect(
+			updateLookupColumnWireName(GOVERNOR, {
+				tableId: table.id,
+				columnId: table.columns[1].id,
+				expectedTableRevision: table.tableRevision,
+				wireName: "district.code",
+			}),
+		).rejects.toMatchObject({ code: "accepted_design" });
 		const protections = await h
 			.db()
 			.selectFrom("design_lookup_protections")
@@ -203,6 +225,13 @@ describe("lookup schema governance", () => {
 			.execute();
 		expect(protections).toHaveLength(1);
 		expect(await getLookupTable(GOVERNOR, table.id)).toEqual(table);
+		const permitted = await updateLookupColumnWireName(GOVERNOR, {
+			tableId: table.id,
+			columnId: table.columns[0].id,
+			expectedTableRevision: table.tableRevision,
+			wireName: "district.code",
+		});
+		expect(permitted.tableRevision).not.toBe(table.tableRevision);
 	});
 
 	it("reports only exact blocking app ids and ignores edges to another column", async () => {
@@ -402,6 +431,8 @@ describe("lookup schema governance", () => {
 				rowsRevision: result.projectRevision,
 				tableRevision: result.projectRevision,
 			});
+			if (before.dataBytes === null)
+				throw new Error("The public table's byte count is unavailable.");
 			expect(after).toMatchObject({
 				columnCount: 1,
 				rowCount: 3,

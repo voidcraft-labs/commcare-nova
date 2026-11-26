@@ -45,6 +45,7 @@ import { findOne, getChildren } from "domutils";
 import type { FormActionCondition, FormActions } from "@/lib/commcare";
 import {
 	el,
+	text,
 	type WireElementContext,
 	xel,
 } from "@/lib/commcare/elementBuilders";
@@ -69,6 +70,7 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { appendDefaultOwner, basicAutosetsOwner } from "../workerGroupsWire";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { caseById } from "../xpath/wire/rowScope";
@@ -190,6 +192,7 @@ function buildCaseBlocks(
 	caseType: string | undefined,
 	selectedCaseIdRef: WireExpr,
 	context: WireElementContext,
+	caseSharing: boolean,
 ): CaseBlocksEmission | null {
 	const openCase = actions.open_case;
 	const updateCase = actions.update_case;
@@ -270,7 +273,7 @@ function buildCaseBlocks(
 		caseChildren.push(
 			el("create", {}, [
 				el("case_name", {}),
-				el("owner_id", {}),
+				el("owner_id", {}, basicAutosetsOwner(actions) ? [] : [text("-")]),
 				el("case_type", {}),
 			]),
 		);
@@ -310,23 +313,14 @@ function buildCaseBlocks(
 		// where it is inert; the local archive stamps it alike. The question's
 		// own requirement is the source's (`builder.ts`).
 		requiredNamePaths.push(validatedNamePath);
-		// owner_id reads from the always-on meta block (which is itself seeded
-		// from session/context at form load). Matching CCHQ's canonical shape —
-		// `instance('commcaresession')/session/context/userid` resolves
-		// equivalently but the fixture-shape calculate is what CCHQ Vellum emits
-		// and what the Vellum round-trip preserves.
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: primaryCreatePath.child("owner_id").toWire(),
-						calculate: metaUserID,
-					},
-				},
-				context,
-			),
-		);
+		if (basicAutosetsOwner(actions))
+			appendDefaultOwner(
+				{ binds, setvalues, context },
+				primaryCreatePath.child("owner_id").toWire(),
+				metaUserID,
+				caseSharing,
+				false,
+			);
 		// Wire the form's `/data/case/@case_id` to the session datum
 		// `deriveSessionDatums` emits for this same `open_case` action.
 		// `xforms-ready` fires once at form load — the form-side and the
@@ -597,7 +591,11 @@ function buildCaseBlocks(
 		scChildren.push(
 			el("create", {}, [
 				el("case_name", {}),
-				el("owner_id", {}),
+				el(
+					"owner_id",
+					{},
+					Object.hasOwn(sc.case_properties, "owner_id") ? [text("-")] : [],
+				),
 				el("case_type", {}),
 			]),
 		);
@@ -632,26 +630,14 @@ function buildCaseBlocks(
 		// `add_create_block` runs the same `required="true()"` stamp on the
 		// subcase's name action path. Surface the path for the merge.
 		requiredNamePaths.push(namePath);
-		// Owner-id binds to the submitting user. The basic module Nova uploads
-		// always autosets the owner via `autoset_owner_id_for_subcase`
-		// (`'owner_id' not in case_properties`, relationship-independent), so
-		// CCHQ's regenerated form carries this userID bind on EVERY subcase —
-		// child and extension alike. (The unowned-extension sentinel is an
-		// advanced-module-only shape Nova never emits.) The `extension`
-		// relationship is carried solely on the `<index>` below.
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: subcaseCreatePath.child("owner_id").toWire(),
-						calculate: metaUserID,
-					},
-				},
-				context,
-			),
-		);
-
+		if (!Object.hasOwn(sc.case_properties, "owner_id"))
+			appendDefaultOwner(
+				{ binds, setvalues, context },
+				subcaseCreatePath.child("owner_id").toWire(),
+				metaUserID,
+				caseSharing,
+				!!repeatCtxPath,
+			);
 		// Wire the subcase's `@case_id`. When the subcase lives in a repeat,
 		// setvalues won't fire per-iteration AND the session datum isn't emitted
 		// for repeat-context subcases (CCHQ skips them in
@@ -1083,6 +1069,7 @@ export function addCaseBlocks(
 		w.step("case_id"),
 	]),
 	defaultCaseManagement = true,
+	caseSharing = false,
 ): string {
 	const opensCase =
 		actions.open_case.condition.type === "always" ||
@@ -1125,6 +1112,7 @@ export function addCaseBlocks(
 		caseType,
 		selectedCaseIdRef,
 		context,
+		caseSharing,
 	);
 	if (emission === null) return xform;
 

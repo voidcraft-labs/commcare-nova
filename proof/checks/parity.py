@@ -63,7 +63,7 @@ import functools
 import json
 from dataclasses import dataclass
 
-from proof.checks import appearance_rows, changes, manifest_usage, observations, proof6, readerbundle
+from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
 
 CHECK = "parity"
@@ -296,6 +296,10 @@ def variant_differences(base_source: dict, variant_source: dict, claims, entries
     """A variant's parity, as the lane judges one (the row's own uses, ``row_uses``, joined to its claim log): the
     uses judged, and the differences. A row whose judged uses are none is one the lane's check does not decide."""
     uses = row_uses(added_uses(base_source, variant_source), claims, entries)
+    if lookup_parity.CONDITION_ENTRIES.intersection(entries):
+        by_id = _entries_by_id(manifest())
+        for key, where, entry in lookup_parity.changed_form_condition_refusals(base_source, variant_source):
+            uses.append(Decided(manifest_usage.Use(key, "app.json", where), manifest_usage.REFUSED, (by_id[entry],)))
     return uses, join(uses, claims, document=document)
 
 
@@ -546,8 +550,7 @@ def claim_places_of(document, records) -> changes.ClaimPlaces:
     )
 
 
-def _lane_uses(document, records, name, readings):
-    reads = _authored_reads(document, records, name)
+def _lane_uses(document, records, name, readings, reads):
     if reads is None:
         return None
     source = observations.answer_json(reads["source"])
@@ -569,12 +572,14 @@ def differences(document, records, *, claims=None) -> list[Difference]:
     readings = _readings(document, records)
     found = []
     for name in sorted(claims):
-        uses = _lane_uses(document, records, name, readings)
+        reads = _authored_reads(document, records, name)
+        uses = _lane_uses(document, records, name, readings, reads)
         if uses is None:
             continue
         decided, _ = decided_uses(uses)
         found += join(decided, claims[name], document=document.id, extracted=uses.uses)
         found += unseen(uses.uses, claims[name], document=document.id)
+        found += lookup_parity.differences(document.id, manifest(), uses.lookup_tags, reads, records_of(claims[name]))
     return found
 
 
@@ -597,7 +602,8 @@ def undecided(document, records) -> dict[str, int]:
     readings = _readings(document, records)
     counts = {}
     for name in sorted(document.exports):
-        uses = _lane_uses(document, records, name, readings)
+        reads = _authored_reads(document, records, name)
+        uses = _lane_uses(document, records, name, readings, reads)
         if uses is None:
             continue
         _, unjudged = decided_uses(uses)

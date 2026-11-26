@@ -21,8 +21,8 @@ writes Nova's value back.
 them (a workbook where the document has lookup tables, then the create) and their saves made over it: the first
 holds the UI translation, build profile, add-ons and app settings saves, and its next publish is applied over them;
 the second holds the lookup table a person keeps, over which Nova's next publish stops.
-``targeted-hq-side-owned`` holds a person's Auto Capture Location and required Android app, both settings Nova
-owns, and its next publish is the one sent once the person confirmed discarding them.
+``targeted-hq-side-owned`` holds a person's Auto Capture Location, case sharing and required Android app, settings
+Nova owns, and its next publish is the one sent once the person confirmed discarding them.
 ``targeted-kept-values`` holds every value a ``.ccz`` made for the project space mirrors, secure submissions among
 them, which HQ takes only through the app settings page's one save (``views/settings.py::edit_commcare_settings``)
 and answers with 400 at the attribute's own URL (``views/apps.py::edit_app_attr``). A project space without
@@ -201,19 +201,25 @@ def test_novas_confirmed_publish_writes_its_own_value_over_a_setting_a_person_ch
 
         def owned(app):
             features = (app.profile or {}).get("features") or {}
-            return {"auto_gps_capture": app.auto_gps_capture, "dependencies": features.get("dependencies") or []}
+            return {
+                "auto_gps_capture": app.auto_gps_capture,
+                "case_sharing": app.case_sharing,
+                "dependencies": features.get("dependencies") or [],
+            }
 
-        assert owned(operations.held_app(unit, app_id)) == {"auto_gps_capture": False, "dependencies": []}
+        unshared = {"auto_gps_capture": False, "case_sharing": False, "dependencies": []}
+        assert owned(operations.held_app(unit, app_id)) == unshared
         held = hqside.save(unit, _ops(unit), app_id, saves)
         assert sorted(held) == sorted(set(saves) - set(hqside.STATEMENTS))
         assert owned(operations.held_app(unit, app_id)) == {
             "auto_gps_capture": True,
+            "case_sharing": True,
             "dependencies": saves["profileFeatures"]["dependencies"],
         }
 
         refusal, lookups = publish.update(unit, app_id, export.republish, "B")
         assert _landed(refusal, lookups), (refusal, lookups)
-        assert owned(operations.held_app(unit, app_id)) == {"auto_gps_capture": False, "dependencies": []}
+        assert owned(operations.held_app(unit, app_id)) == unshared
 
 
 def test_novas_next_publish_stops_over_a_table_a_person_keeps_and_leaves_it_as_it_is(hq, core_runner):

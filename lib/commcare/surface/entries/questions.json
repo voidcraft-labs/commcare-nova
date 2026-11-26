@@ -2767,10 +2767,9 @@
 			"xform:select1/itemset/value@ref"
 		],
 		"valueClass": "attribute-or-property-field",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: lookup carrier over attributes and field properties (Lookup tables)",
-		"subject": "question-choices",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: identity-bound row attribute or qualified field occurrence",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2783,6 +2782,37 @@
 		},
 		"emission": {
 			"cell": "refs",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/lookup-choice-reference-the-form-editor-cannot-keep",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a lookup question label or value read outside the form editor’s known row attributes and fields after it strips predicates",
+		"surfaceKeys": [
+			"xform:select/itemset/label@ref",
+			"xform:select/itemset/value@ref",
+			"xform:select1/itemset/label@ref",
+			"xform:select1/itemset/value@ref"
+		],
+		"valueClass": "outside-known-lookup-refs",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum’s known-fixture validator cannot keep this reference",
+		"subject": "question-choices",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum itemset.js::validateRefWidget strips predicates and checks the remainder against item_lists_by_domain, which exposes row attributes and fields. A field property as the displayed or saved value and an open bracket in a qualifying literal fail that check."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

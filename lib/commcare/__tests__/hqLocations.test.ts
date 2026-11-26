@@ -255,11 +255,15 @@ it("does not turn an unresolvable parent into a root or accept contradictory lev
 				.get(HOST)
 				.intercept({ path: TYPES, method: "GET" })
 				.reply(200, { objects, meta: { next: null } });
-		for (const objects of invalid)
+		for (const [index, objects] of invalid.entries())
 			expect(
 				await listHqLocationTypes(CREDS, DOMAIN),
 				JSON.stringify(objects),
-			).toEqual({ success: false, status: 502, cause: "malformed" });
+			).toEqual(
+				index < 3 || index === 6
+					? { success: false, status: 503, cause: "moved" }
+					: { success: false, status: 502, cause: "malformed" },
+			);
 	});
 });
 
@@ -696,4 +700,74 @@ it("logs a refused batch by its status, its count and its body's shape and lengt
 			vi.mocked(log.warn).mock.calls,
 		]),
 	).not.toContain("north_maternity_ward");
+});
+
+it("joins both native inventories without changing source numbers, nullable names or worker text", async () => {
+	const retained = (file: string) =>
+		JSON.parse(
+			readFileSync(
+				path.join(process.cwd(), "proof/hq-reads/places", file + ".json"),
+				"utf8",
+			),
+		);
+	const { listHqLocationObservations } = await import("../hq/locations");
+	const { locationWireValue } = await import("../hq/locationMetadata");
+	const worker = retained("rich-worker-fields");
+	await withHttpPeer(async (peer) => {
+		const origin = peer.get("https://www.commcarehq.org");
+		for (const [filename, url] of [
+			["rich-locations", "v2/?limit=5000"],
+			["rich-locations-v1", "v1/?limit=1000"],
+		]) {
+			const response = retained(filename);
+			origin
+				.intercept({
+					path: "/a/nova-proof/api/location/" + url,
+					method: "GET",
+					headers: AUTH,
+				})
+				.reply(response.status, response.body, { headers: response.headers });
+		}
+		const rows = await listHqLocationObservations(
+			{ ...CREDS, server: "production" },
+			"nova-proof",
+			[
+				{
+					...region,
+					id: "1",
+					parentCode: null,
+					sharesCases: false,
+					viewDescendants: false,
+				},
+				{
+					...district,
+					id: "2",
+					parentCode: "region",
+					sharesCases: true,
+					viewDescendants: true,
+				},
+			],
+		);
+		if ("success" in rows) throw Error(JSON.stringify(rows));
+		const place = rows.find((item) => item.siteCode === "École");
+		expect(place).toMatchObject({
+			name: "",
+			latitude: "1234567890.0000000000",
+			observation: { nameIsNull: true, externalId: " EXT 01 " },
+		});
+		for (const key of ["visits", "rate", "ready", "items"])
+			expect(place?.observation?.worker[key]).toBe(worker[key]);
+		expect(place?.observation?.worker.labels).toBeUndefined();
+		expect(worker.labels).toBe("{'z': 'first', 'a': 'second'}");
+		expect(worker.absent).toBe("");
+		const observed = place?.observation?.wire ?? {};
+		expect(observed.labels).toBe('{"a":"second","z":"first"}');
+		for (const key of ["visits", "rate", "ready", "items", "labels"]) {
+			expect(JSON.stringify(locationWireValue(observed[key]))).toBe(
+				observed[key],
+			);
+		}
+		expect(observed.visits).toBe("9007199254740993");
+		expect(observed.rate).toBe("1.0");
+	});
 });

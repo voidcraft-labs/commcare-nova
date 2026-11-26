@@ -1,11 +1,15 @@
 /**
- * The one in-memory publisher of a Project's ready media file.
+ * The one publisher of a Project's ready media file whose bytes the server
+ * itself judged.
  *
- * A caller that already holds validated bytes in memory (MCP's inline upload,
- * and a create that brings an app in from CommCare HQ) publishes them here.
+ * A caller that holds validated bytes in memory (MCP's inline upload)
+ * publishes them here, and so does one that wrote them under `pending/`
+ * itself (a create that brings an app in from CommCare HQ, which stages each
+ * file as it judges it rather than holding every file until it publishes).
  * There is no untrusted PUT round trip, so the bytes go straight to their
- * content key and the complete `ready` row commits in ONE metadata
- * transaction: there is no invisible pending row whose id a crash could lose.
+ * content key, uploaded or copied from exactly the staged generation, and the
+ * complete `ready` row commits in ONE metadata transaction: there is no
+ * invisible pending row whose id a crash could lose.
  *
  * The whole publication runs under the canonical Project/hash content lock
  * (`withMediaObjectKeyLock`) the browser confirm, the Project copy and the
@@ -35,11 +39,20 @@ import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { gcsObjectKeyFor, type MediaAssetId } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import {
+	copyAssetObjectIfAbsent,
 	deleteAsset as deleteStoredAsset,
+	type StagedObject,
 	uploadAssetBytes,
 } from "@/lib/storage/media";
 import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 import type { ValidatedMediaMetadata } from "./validate";
+
+/** The bytes a publication stores: held in memory, or written under `pending/` by the
+ *  server itself (`lib/storage/media.ts::stageAssetBytes`), whose generation is copied. The
+ *  caller deletes a staged object once the publication answers. */
+export type ReadyMediaBytes =
+	| { readonly bytes: Buffer; readonly staged?: never }
+	| { readonly staged: StagedObject; readonly bytes?: never };
 
 /** What a publication of ready bytes answered. */
 export type ReadyMediaPublication =
@@ -68,16 +81,17 @@ export class MediaPublishPermissionError extends Error {
  * file that already holds them. Proves `edit` on the Project inside each
  * metadata transaction.
  */
-export async function publishReadyMedia(input: {
-	readonly actorUserId: string;
-	readonly projectId: string;
-	readonly bytes: Buffer;
-	readonly validated: ValidatedMediaMetadata;
-	readonly originalFilename: string;
-	/** The id a new row takes. */
-	readonly assetId: MediaAssetId;
-}): Promise<ReadyMediaPublication> {
-	const { actorUserId, projectId, bytes, validated, assetId } = input;
+export async function publishReadyMedia(
+	input: {
+		readonly actorUserId: string;
+		readonly projectId: string;
+		readonly validated: ValidatedMediaMetadata;
+		readonly originalFilename: string;
+		/** The id a new row takes. */
+		readonly assetId: MediaAssetId;
+	} & ReadyMediaBytes,
+): Promise<ReadyMediaPublication> {
+	const { actorUserId, projectId, validated, assetId } = input;
 	const gcsObjectKey = gcsObjectKeyFor(
 		projectId,
 		validated.contentHash,
@@ -109,11 +123,21 @@ export async function publishReadyMedia(input: {
 				 * committed remotely. The flag stays set until the lock body and its
 				 * advisory unlock both finish successfully. */
 				finalObjectMayNeedCleanup = true;
-				await uploadAssetBytes({
-					gcsObjectKey,
-					bytes,
-					contentType: validated.mimeType,
-				});
+				if (input.staged === undefined)
+					await uploadAssetBytes({
+						gcsObjectKey,
+						bytes: input.bytes,
+						contentType: validated.mimeType,
+					});
+				else
+					await copyAssetObjectIfAbsent({
+						sourceGcsObjectKey: input.staged.gcsObjectKey,
+						sourceGeneration: input.staged.generation,
+						destinationGcsObjectKey: gcsObjectKey,
+						expectedSize: validated.sizeBytes,
+						expectedChecksum: input.staged.checksum,
+						expectedContentType: validated.mimeType,
+					});
 				const published = await withUploadPermission(
 					lockedDb,
 					actorUserId,

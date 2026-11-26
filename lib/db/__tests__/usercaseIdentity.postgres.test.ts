@@ -1,5 +1,6 @@
 /** Real app birth, authorization, worker materialization and form submission.
  * Only the authenticated request session is supplied at its external boundary. */
+import { sql } from "kysely";
 import { beforeEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -47,6 +48,7 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 			name: "Amara",
 			email: "amara@dimagi.com",
 		},
+		session: { id: "worker-in-many-apps-session" },
 	}),
 }));
 const h = setupAppStateTestDb("usercase_identity_", {
@@ -56,6 +58,10 @@ const h = setupAppStateTestDb("usercase_identity_", {
 beforeEach(async () => {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
 	await h.seedProjectMember(ACTOR, OTHER_PROJECT, "owner");
+	// The live browser session every Project data read locks.
+	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
+		VALUES ('worker-in-many-apps-session','usercase-token',${ACTOR},now()+interval '1 hour',now(),now())
+		ON CONFLICT (id) DO NOTHING`.execute(h.db());
 });
 async function create(projectId = PROJECT) {
 	const birth = await createExplicitBlankApp(

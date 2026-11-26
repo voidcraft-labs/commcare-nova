@@ -1,0 +1,91 @@
+[
+	{
+		"id": "worker-places-and-groups-read-undeclared",
+		"entry": "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/office_note",
+					"value": "Checked in"
+				}
+			],
+			"expressions": ["/data/my_places", "/data/my_groups"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "6"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "each-table-read-under-its-bare-tag",
+		"entry": "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/table_note",
+					"value": "All of them"
+				}
+			],
+			"expressions": [
+				"/data/rows_registry",
+				"/data/rows_groups",
+				"/data/rows_reports",
+				"/data/rows_locations",
+				"/data/rows_results",
+				"/data/rows_search_input",
+				"/data/rows_selected_cases",
+				"/data/rows_case_search_fixture"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/4/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/5/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/6/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/7/value",
+				"value": "1"
+			}
+		]
+	}
+]

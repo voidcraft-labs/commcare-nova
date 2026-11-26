@@ -13,6 +13,8 @@ import { Client } from "pg";
 import { v7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
+import { inlineWorkbookReceipts } from "@/lib/commcare/lookup/workbookReceipt";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { holdAppRow, waitForBlockedLocks } from "@/lib/db/__tests__/heldAppRow";
 import {
@@ -29,12 +31,16 @@ import {
 } from "@/lib/db/hqAppClaims";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import { withAppTx } from "@/lib/db/pg";
+import { hqConnectionDigest } from "@/lib/db/settings";
 import {
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
+import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { LookupError } from "@/lib/lookup/errors";
+import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
 import {
 	createManagedLookupTablesInTransaction,
 	type ManagedLookupContent,
@@ -42,8 +48,10 @@ import {
 	readManagedTableReview,
 	refreshManagedLookupTableInTransaction,
 } from "@/lib/lookup/managed";
+import { createLookupTable, getLookupTable } from "@/lib/lookup/service";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { handBackWhilePublishing } from "@/lib/publish/managedData";
+import { destinationOwnerDigestInTransaction } from "../destinationRowOwners";
 import { DeploymentEndedError } from "../errors";
 import {
 	activeRemoteApp,
@@ -75,11 +83,13 @@ import {
 	settleRemoteWrites,
 } from "../store";
 import type { AppBaselineWrite } from "../types";
+import { plannedWorkbookTables } from "../workbookAuthority";
 import {
 	type AdoptedBirth,
 	appMappingToken,
 	birthAdoptedApp,
 } from "./adoptedBirth";
+import { publishSession } from "./publishWithGrant";
 import { readable } from "./readableRecord";
 
 const h = setupAppStateTestDb("remote_writes_", {
@@ -812,14 +822,126 @@ async function handBack(tableId: LookupTableId) {
 	);
 }
 
+async function planned(
+	birth: AdoptedBirth,
+	tableId: LookupTableId,
+	issued?: ProjectDataGrant,
+	assigned = false,
+) {
+	const grant = issued ?? (await publishSession(OWNER));
+	await h
+		.db()
+		.insertInto("user_settings")
+		.values({
+			user_id: OWNER,
+			commcare_server: TARGET.server,
+			commcare_username: "publisher",
+			commcare_api_key: "fixture-ciphertext",
+			approved_domains: JSON.stringify([
+				{ name: TARGET.domain, displayName: "Clinic" },
+			]),
+			updated_at: new Date(),
+		})
+		.onConflict((c) => c.column("user_id").doNothing())
+		.execute();
+	const { connection_epoch: epoch } = await h
+		.db()
+		.selectFrom("user_settings")
+		.select("connection_epoch")
+		.where("user_id", "=", OWNER)
+		.executeTakeFirstOrThrow();
+	const connectionDigest = hqConnectionDigest(
+		"publisher",
+		epoch,
+		TARGET.server,
+		TARGET.domain,
+	);
+	const authority = await withAppTx(async (tx) => {
+		const grantBinding = await authorizeAssignmentExport(
+			tx,
+			birth.scope,
+			grant,
+			TARGET,
+			"publish",
+			connectionDigest,
+		);
+		const snapshot = await readLookupFixtureDataInTransaction(
+			tx,
+			PROJECT,
+			[tableId],
+			assigned ? "project-editor" : "archive",
+		);
+		const receipts = inlineWorkbookReceipts(snapshot, new Set([tableId]));
+		const witness = assigned
+			? {
+					target: TARGET,
+					tables: [
+						{
+							tableId,
+							digest: "remote-principals-checked-before-admission",
+							localDigest: await destinationOwnerDigestInTransaction(
+								tx,
+								{
+									scope: birth.scope,
+									grant,
+									target: TARGET,
+									purpose: "publish",
+								},
+								tableId,
+							),
+						},
+					],
+				}
+			: undefined;
+		return {
+			grant,
+			connectionDigest,
+			grantBinding,
+			tables: plannedWorkbookTables(snapshot, receipts, witness),
+		};
+	});
+	return { ...fence, tableIds: [tableId], authority };
+}
+
+async function restrictTable(tableId: LookupTableId) {
+	const table = await getLookupTable({ ...writer, role: "editor" }, tableId);
+	return withAppTx(async (tx) =>
+		applyLookupAuthoringBatchInTransaction(
+			tx,
+			await authorizeLookupWriteInTransaction(tx, writer, "edit"),
+			{
+				operationId: v7(),
+				updateTables: [
+					{
+						tableId,
+						expectedTableRevision: table.tableRevision,
+						workerAccess: "assigned",
+					},
+				],
+			},
+		),
+	);
+}
+async function localTable(tag: string) {
+	return createLookupTable(
+		{ ...writer, role: "editor" },
+		{
+			name: tag,
+			tag,
+			columns: [{ label: "Name", wireName: "name", dataType: "text" }],
+		},
+	);
+}
+
 describe("a workbook and the hand-back of a table it carries", () => {
 	it("refuses a hand-back while an admitted workbook carrying the table is open, leaving the table as it was", async () => {
 		const birth = await born();
 		const tableId = await managedInNova();
-		const admitted = await admitWorkbookWrite(birth.scope, TARGET, {
-			...fence,
-			tableIds: [tableId],
-		});
+		const admitted = await admitWorkbookWrite(
+			birth.scope,
+			TARGET,
+			await planned(birth, tableId),
+		);
 		if (admitted.kind !== "admitted") throw new Error("Expected an admission");
 
 		const refused = await outcome(handBack(tableId));
@@ -845,11 +967,124 @@ describe("a workbook and the hand-back of a table it carries", () => {
 		const tableId = await managedInNova();
 		await handBack(tableId);
 		expect(
-			await admitWorkbookWrite(birth.scope, TARGET, {
-				...fence,
-				tableIds: [tableId],
-			}),
+			await admitWorkbookWrite(
+				birth.scope,
+				TARGET,
+				await planned(birth, tableId),
+			),
 		).toEqual({ kind: "handed-back", tags: ["districts"] });
+		expect(await openWrites()).toBe(0);
+	});
+});
+
+describe("outbound lookup authority", () => {
+	it.each([false, true])(
+		"holds stale global bytes and prior receipts when the chosen table now has assigned workers (observed %s)",
+		async (observedOnly) => {
+			const birth = await born(),
+				table = await localTable("districts");
+			const captured = await planned(birth, table.id);
+			await restrictTable(table.id);
+			expect(
+				await admitWorkbookWrite(birth.scope, TARGET, {
+					...captured,
+					observedOnly,
+				}),
+			).toEqual({ kind: "changed" });
+			expect(await openWrites()).toBe(0);
+		},
+	);
+	it("allows an unrelated audience edit during upload, waits on the actual table, and permits that edit after settlement", async () => {
+		const birth = await born(),
+			table = await localTable("districts"),
+			other = await localTable("other");
+		const captured = await planned(birth, table.id);
+		await restrictTable(other.id);
+		const saved = await admitWorkbookWrite(birth.scope, TARGET, {
+			...captured,
+			observedOnly: true,
+		});
+		expect(saved).toEqual({ kind: "admitted", writeIds: [] });
+		const open = await admitWorkbookWrite(birth.scope, TARGET, captured);
+		if (open.kind !== "admitted") throw Error("Expected an admission");
+		await expect(restrictTable(table.id)).rejects.toMatchObject({
+			code: "conflict",
+		});
+		await settleRemoteWrites(open.writeIds, { kind: "settled" });
+		await restrictTable(table.id);
+		expect(await openWrites()).toBe(0);
+	});
+	it("requires the same destination group even when a group reconnection leaves both table revisions unchanged", async () => {
+		const birth = await born(),
+			tableId = await managedInNova(),
+			groupId = v7();
+		await restrictTable(tableId);
+		await sql`INSERT INTO worker_groups(project_id,id,name) VALUES (${PROJECT},${groupId},'Team')`.execute(
+			h.db(),
+		);
+		await sql`INSERT INTO worker_group_targets(project_id,group_id,server,domain,remote_id,confirmed_name) VALUES (${PROJECT},${groupId},${TARGET.server},${TARGET.domain},'original-group','Team')`.execute(
+			h.db(),
+		);
+		await sql`INSERT INTO lookup_row_assignments(project_id,table_id,row_id,kind,principal_id)
+    SELECT project_id,table_id,id,'group',${groupId} FROM lookup_rows WHERE project_id=${PROJECT} AND table_id=${tableId}`.execute(
+			h.db(),
+		);
+		const captured = await planned(birth, tableId, undefined, true);
+		expect(
+			await admitWorkbookWrite(birth.scope, TARGET, {
+				...captured,
+				observedOnly: true,
+			}),
+		).toEqual({ kind: "admitted", writeIds: [] });
+		await sql`UPDATE worker_group_targets SET remote_id='replacement-group' WHERE project_id=${PROJECT} AND group_id=${groupId}`.execute(
+			h.db(),
+		);
+		expect(await admitWorkbookWrite(birth.scope, TARGET, captured)).toEqual({
+			kind: "changed",
+		});
+		expect(await openWrites()).toBe(0);
+	});
+	it("requires a fresh plan after Project publishing access is removed and granted again", async () => {
+		const birth = await born(),
+			table = await localTable("districts"),
+			captured = await planned(birth, table.id);
+		await sql`UPDATE auth_member SET role='viewer' WHERE "organizationId"=${PROJECT} AND "userId"=${OWNER}`.execute(
+			h.db(),
+		);
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await expect(
+			admitWorkbookWrite(birth.scope, TARGET, captured),
+		).rejects.toMatchObject({ code: "not_found" });
+		expect(await openWrites()).toBe(0);
+	});
+	it("requires the issued session, including for a previously verified file", async () => {
+		const birth = await born(),
+			table = await localTable("districts"),
+			captured = await planned(birth, table.id);
+		await sql`DELETE FROM auth_session WHERE "userId"=${OWNER}`.execute(h.db());
+		for (const observedOnly of [false, true])
+			await expect(
+				admitWorkbookWrite(birth.scope, TARGET, { ...captured, observedOnly }),
+			).rejects.toMatchObject({ code: "not_found" });
+		expect(await openWrites()).toBe(0);
+	});
+	it("rejects an earlier publish grant when the same API key is revoked and re-enabled", async () => {
+		const birth = await born(),
+			table = await localTable("districts"),
+			keyId = "pub-key";
+		await sql`INSERT INTO auth_apikey(id,key,"referenceId","configId","createdAt","updatedAt",enabled,permissions) VALUES (${keyId},'synthetic-key',${OWNER},'default',now(),now(),true,${JSON.stringify({ scope: ["nova.read", "nova.write", "nova.hq.write"] })})`.execute(
+			h.db(),
+		);
+		const captured = await planned(birth, table.id, { kind: "api-key", keyId });
+		await sql`UPDATE auth_apikey SET enabled=false WHERE id=${keyId}`.execute(
+			h.db(),
+		);
+		await sql`UPDATE auth_apikey SET enabled=true WHERE id=${keyId}`.execute(
+			h.db(),
+		);
+		await expect(
+			admitWorkbookWrite(birth.scope, TARGET, captured),
+		).rejects.toMatchObject({ code: "not_found" });
 		expect(await openWrites()).toBe(0);
 	});
 });
@@ -993,9 +1228,8 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 			"a pushed table": async (birth) => {
 				const tableId = await managedInNova();
 				const admitted = await admitWorkbookWrite(birth.scope, TARGET, {
-					...fence,
+					...(await planned(birth, tableId)),
 					firstContentGeneration: crypto.randomUUID(),
-					tableIds: [tableId],
 				});
 				if (admitted.kind !== "admitted")
 					throw new Error("Expected an admission");

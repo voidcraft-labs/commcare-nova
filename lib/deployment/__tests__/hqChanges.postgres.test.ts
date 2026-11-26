@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * What a bring-in of changes made in CommCare HQ stores, in real Postgres:
  * `store.ts::recordHqChangesTaken` in a commit's own transaction and in a
@@ -82,8 +83,12 @@ import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { Uuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
-import { readManagedTableReview } from "@/lib/lookup/managed";
+import {
+	readManagedTableReview,
+	takeOverManagedLookupTableInTransaction,
+} from "@/lib/lookup/managed";
 import { getLookupTable, updateLookupTableTag } from "@/lib/lookup/service";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import {
@@ -91,6 +96,7 @@ import {
 	hqChangesPublishingStoppedLine,
 } from "@/lib/publish/hqChangesCopy";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
+import { downloadAssetBytes } from "@/lib/storage/media";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { TargetPeer } from "@/proof/corpus/targetPeer";
 import {
@@ -103,7 +109,6 @@ import { reviewHqChanges } from "../hqChanges/review";
 import type { HqChangesReview } from "../hqChanges/types";
 import type { HqMediaRecord } from "../hqMedia";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
-import { manageLookupTableInNova } from "../managedData";
 import { readPreviewDeploymentAnswer } from "../previewSpace";
 import {
 	adoptFixtureApp,
@@ -140,7 +145,6 @@ import { authorizeBringIn, readHqAppForReview } from "../reading/read";
 import {
 	landedFirstPublish,
 	peekHqAppChanged,
-	publishAppToHq,
 	refreshKeptValues,
 	setupArtifactFor,
 } from "../service";
@@ -214,6 +218,18 @@ vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(async () => undefined),
 	deleteAsset: vi.fn(),
 	downloadAssetBytes: vi.fn(),
+	stageAssetBytes: vi.fn(
+		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+			gcsObjectKey,
+			generation: "1",
+			checksum: "staged",
+		}),
+	),
+	copyAssetObjectIfAbsent: vi.fn(async () => ({
+		destinationGeneration: "1",
+		replay: false,
+	})),
+	deleteAssetGeneration: vi.fn(async () => undefined),
 }));
 beforeEach(() => {
 	seam.beforeCommit = null;
@@ -1781,12 +1797,18 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 					return reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} });
 				}),
 			);
+			vi.mocked(downloadAssetBytes).mockClear();
 			const outcome = await withHttpPeer(async (peer) => {
 				serveRead(peer, source, { tables: true });
 				serveImage(peer, REPLACED, 1, other);
 				return bringIn(scope, listed);
 			});
 			expect(outcome).toMatchObject({ kind: "brought-in" });
+			/* The next publish's body names each file by its path: the bring-in
+			 * reads no byte of the app's files back from the bucket, so an app
+			 * holding more media than one archive carries in memory still takes
+			 * its changes. */
+			expect(downloadAssetBytes).not.toHaveBeenCalled();
 
 			const loaded = await loadApp(scope.appId);
 			if (loaded === null) throw new Error("The app is gone.");
@@ -2441,13 +2463,28 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		expect(tables.map((table) => table.tag)).toEqual(["district"]);
 		const tableId = lookupTableIdSchema.parse(tables[0]?.id);
 		const tableReview = await readManagedTableReview(E2E_PROJECT, tableId);
-		expect(
-			await manageLookupTableInNova(
-				lookupScope,
+		if (!tableReview)
+			throw new Error("Missing source-managed district fixture");
+		// The lifecycle is exercised at the transfer boundary. This change-read
+		// starts from an already confirmed Nova-managed copy of the retained app.
+		await h.withTransaction(async (tx) => {
+			const stored = await tx
+				.selectFrom("lookup_tables")
+				.select("hq_canonical")
+				.where("id", "=", tableId)
+				.executeTakeFirstOrThrow();
+			const digest = stored.hq_canonical?.digest;
+			if (typeof digest !== "string")
+				throw new Error("Missing retained lookup digest");
+			await takeOverManagedLookupTableInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, lookupScope, "delete"),
 				tableId,
-				tableReview?.reviewDigest ?? "",
-			),
-		).toMatchObject({ ok: true });
+				tableReview,
+				new Date(),
+				{ sourceDigest: digest, indexedFields: [] },
+			);
+		});
 		const held = await getLookupTable(lookupScope, tableId);
 		await updateLookupTableTag(lookupScope, {
 			tableId,

@@ -27,6 +27,7 @@ import {
 	sent,
 	serveRows,
 	serveTableList,
+	serveTransferEvidence,
 } from "@/lib/deployment/__tests__/managedFixtures";
 import { NO_MANAGED_PLACES } from "@/lib/deployment/managedData";
 import { LOOKUP_DISCARD_NOTE } from "@/lib/deployment/remoteChanges";
@@ -43,9 +44,11 @@ import {
 	managedInNovaBanner,
 	manageInNovaBody,
 	manageInNovaTitle,
+	separateTableTitle,
 } from "@/lib/publish/managedData";
 import {
 	registerRefreshManagedData,
+	registerSeparateLookupTable,
 	registerSetLookupTableManagement,
 } from "../tools/managedData";
 import { withMcpClient } from "./client";
@@ -71,7 +74,7 @@ const EDITOR_LOOKUP: LookupScope = {
 };
 
 const facilities: ServedTable = {
-	id: "hq-facilities",
+	id: "a".repeat(32),
 	tag: "facilities",
 	fields: ["code", "name"],
 	rows: [
@@ -115,6 +118,7 @@ function asUser<T>(userId: string, run: (client: Client) => Promise<T>) {
 		};
 		registerRefreshManagedData(server, ctx);
 		registerSetLookupTableManagement(server, ctx);
+		registerSeparateLookupTable(server, ctx);
 	}, run);
 }
 
@@ -288,9 +292,12 @@ it("lets only an admin hand a table to Nova, and previews the hand-back once Nov
 	await asUser(ADMIN, async (client) => {
 		const preview = await answer(client, "set_lookup_table_management", args);
 		expect(
-			await answer(client, "set_lookup_table_management", {
-				...args,
-				review_digest: preview.review_digest,
+			await withHttpPeer(async (peer) => {
+				serveTransferEvidence(peer, DOMAIN, facilities);
+				return answer(client, "set_lookup_table_management", {
+					...args,
+					review_digest: preview.review_digest,
+				});
 			}),
 		).toEqual({
 			project_id: PROJECT,
@@ -356,9 +363,12 @@ it("changes nothing over a preview another app's reading has moved, and answers 
 		expect(await managedBy(copy)).toBe("commcare-hq");
 		/* The answer's own digest is the one the change is then made under. */
 		expect(
-			await answer(client, "set_lookup_table_management", {
-				...args,
-				review_digest: moved.review_digest,
+			await withHttpPeer(async (peer) => {
+				serveTransferEvidence(peer, DOMAIN, facilities);
+				return answer(client, "set_lookup_table_management", {
+					...args,
+					review_digest: moved.review_digest,
+				});
 			}),
 		).toMatchObject({ ok: true, managed_by: "nova" });
 	});
@@ -381,5 +391,66 @@ it("finds no Project the caller is not a member of", async () => {
 			project_id: PROJECT,
 		});
 	});
+	expect(await managedBy(copy)).toBe("commcare-hq");
+});
+
+it("makes a separate table under the preview the user read, and reads nothing of CommCare HQ", async () => {
+	const copy = await seed();
+	await withHttpPeer(async (peer) => {
+		await asUser(EDITOR, async (client) => {
+			const args = { project_id: PROJECT, table_id: copy.tableId };
+			/* A table that came from CommCare HQ names no project space to take. */
+			expect(
+				await refusal(client, "set_lookup_table_management", {
+					...args,
+					managed_by: "commcare-hq",
+					source_domain: DOMAIN,
+				}),
+			).toMatchObject({ error_type: "invalid_input" });
+			const preview = await answer(client, "separate_lookup_table", args);
+			expect(preview).toMatchObject({
+				ok: true,
+				title: separateTableTitle("facilities"),
+				apps: [{ app_id: APP, app_name: "Facility visits", deleted: false }],
+				suggested: { name: "facilities 2", tag: "facilities_2" },
+				review_digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+			});
+			expect(
+				await refusal(client, "separate_lookup_table", {
+					...args,
+					name: "Clinic facilities",
+					tag: "clinic_facilities",
+					app_ids: [APP],
+				}),
+			).toMatchObject({ error_type: "invalid_input" });
+			const made = await answer(client, "separate_lookup_table", {
+				...args,
+				name: "Clinic facilities",
+				tag: "clinic_facilities",
+				app_ids: [APP],
+				review_digest: preview.review_digest,
+			});
+			expect(made).toMatchObject({ ok: true, app_ids: [APP] });
+			/* The digest is spent: the table's readers moved. */
+			expect(
+				await answer(client, "separate_lookup_table", {
+					...args,
+					name: "Clinic facilities again",
+					tag: "clinic_facilities_again",
+					app_ids: [APP],
+					review_digest: preview.review_digest,
+				}),
+			).toMatchObject({
+				ok: false,
+				reason: "review-moved",
+				message: MANAGEMENT_REVIEW_MOVED,
+			});
+		});
+		expect(sent(peer)).toEqual([]);
+	});
+	const tags = (await getLookupManifest(EDITOR_LOOKUP)).tables
+		.map((table) => table.tag)
+		.sort();
+	expect(tags).toEqual(["clinic_facilities", "facilities"]);
 	expect(await managedBy(copy)).toBe("commcare-hq");
 });

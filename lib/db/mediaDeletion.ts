@@ -1,9 +1,7 @@
 /** Authoritative attach/delete serialization for Project-scoped media. */
 
-import { sql, type Transaction } from "kysely";
-import { jsonArrayFrom } from "kysely/helpers/postgres";
+import type { Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { MediaAssetId } from "@/lib/domain";
 import {
 	asWalkableDoc,
@@ -12,9 +10,9 @@ import {
 } from "@/lib/domain/mediaRefs";
 import { type MediaAssetRecord, mediaAssetRecordFromRow } from "./mediaAssets";
 import {
-	assemblePersistedBlueprintJsonText,
-	type PersistedEntityRowText,
-} from "./persistedJson";
+	hydrateReferenceApp,
+	persistedReferenceApps,
+} from "./persistedReferenceApps";
 import { type AppDatabase, withAppTx } from "./pg";
 import { projectRoleForInTransaction } from "./projectMembership";
 
@@ -102,71 +100,20 @@ async function persistedAppReferencesInTransaction(
 	tx: Transaction<AppDatabase>,
 	args: { assetId: MediaAssetId; projectId: string },
 ): Promise<string[]> {
-	// Exact edges, the app root, normalized entities, and thread transcripts MUST
-	// come from one statement snapshot. A READ COMMITTED transaction takes a
-	// fresh snapshot per statement: reading candidate edges first would otherwise
-	// let a concurrent writer remove its edge and carrier before the carrier
-	// statement, producing a false projection-invariant failure. We deliberately
-	// cannot lock apps after the asset lock, so one edge-rooted query with
-	// correlated JSON subqueries makes the complete projection coherent without
-	// reversing the global lock order.
-	const appQuery = tx
-		.selectFrom("media_asset_refs as edge")
-		.innerJoin("apps as app", (join) =>
+	// Read exact edges and their carriers from the same statement snapshot.
+	const appQuery = persistedReferenceApps(tx)
+		.innerJoin("media_asset_refs as edge", (join) =>
 			join
 				.onRef("app.id", "=", "edge.app_id")
 				.onRef("app.project_id", "=", "edge.project_id"),
 		)
-		.select(["app.id", "app.app_name", "app.connect_type", "app.logo"])
-		.select(
-			sql<string | null>`${sql.ref("app.case_types")}::text`.as(
-				"case_types_text",
-			),
-		)
-		.select(
-			sql<string | null>`${sql.ref("app.localization")}::text`.as(
-				"localization_text",
-			),
-		)
-		.select(
-			sql<string | null>`${sql.ref("app.app_settings")}::text`.as(
-				"app_settings_text",
-			),
-		)
-		.select((eb) => [
-			jsonArrayFrom(
-				eb
-					.selectFrom("blueprint_entities as entity")
-					.select([
-						"entity.uuid",
-						"entity.kind",
-						"entity.parent_uuid",
-						"entity.ordinal",
-					])
-					.select(sql<string>`${sql.ref("entity.data")}::text`.as("data_text"))
-					.whereRef("entity.app_id", "=", "app.id")
-					.orderBy("entity.uuid"),
-			).as("entities"),
-		])
 		.where("edge.project_id", "=", args.projectId)
 		.where("edge.asset_id", "=", args.assetId);
 	const apps = await appQuery.orderBy("app.id").execute();
 
 	const descriptions: string[] = [];
 	for (const app of apps) {
-		const persisted = assemblePersistedBlueprintJsonText(
-			app.id,
-			{
-				app_name: app.app_name,
-				connect_type: app.connect_type,
-				case_types_text: app.case_types_text,
-				localization_text: app.localization_text,
-				app_settings_text: app.app_settings_text,
-				logo: app.logo,
-			},
-			app.entities as PersistedEntityRowText[],
-		);
-		const doc = hydratePersistedBlueprint(persisted);
+		const doc = hydrateReferenceApp(app);
 		const carriers = [
 			...new Set(
 				[...walkAuthoredAssetRefs(asWalkableDoc(doc))]

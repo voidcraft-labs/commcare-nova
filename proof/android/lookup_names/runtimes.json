@@ -1,0 +1,35 @@
+{
+	"core": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"runtimes": [
+		{
+			"runtime": "openjdk 17.0.3 2022-04-19\nOpenJDK Runtime Environment Temurin-17.0.3+7 (build 17.0.3+7)\nOpenJDK 64-Bit Server VM Temurin-17.0.3+7 (build 17.0.3+7, mixed mode)",
+			"rangeSha256": "b7653c9b9ecbee06071751c075619cabe380f253005cc462c1a92de9f4cd9c72",
+			"initial": 2792,
+			"continuationOnly": 372
+		},
+		{
+			"runtime": "Android/sdk_google_phone_arm64/generic_arm64:6.0/MASTER/8690019:userdebug/test-keys",
+			"rangeSha256": "c03a5af908e2f502c027ae350e7c85dc26b430206656ace54bd4e6929f6bf350",
+			"sdk": 23,
+			"systemImageRevision": 33,
+			"initial": 2252,
+			"continuationOnly": 372
+		},
+		{
+			"runtime": "google/sdk_gphone64_arm64/emulator64_arm64:10/QSR1.211112.011/13135432:userdebug/dev-keys",
+			"rangeSha256": "9afc6886a543452fc4973629222382de4686f0588d53aee7a7bf96d73e35f151",
+			"sdk": 29,
+			"systemImageRevision": 13,
+			"initial": 2541,
+			"continuationOnly": 372
+		},
+		{
+			"runtime": "google/sdk_gphone64_arm64/emu64a:15/AE3A.240806.036/12592187:user/release-keys",
+			"rangeSha256": "f1aff520c6fa9b2f0809fca6a14a16c6c38202394dca8c7e80da53df8218bf76",
+			"sdk": 35,
+			"systemImageRevision": 9,
+			"initial": 2573,
+			"continuationOnly": 372
+		}
+	]
+}

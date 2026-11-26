@@ -13,6 +13,8 @@ register entry names a class (check, artifact pattern, structural path, kind), w
 - "Auto Capture Location" (``appAttributes.auto_gps_capture``): HQ's build of each form loses the location meta
   block, its bind and its poll (``xform.py::XForm._add_meta_2``), and so each submission its location
   (proof 3, on HQ's build and on the local archive made for the project space as the republish left it);
+- "Case Sharing" (``appAttributes.case_sharing``): HQ's suite loses the demo ``user-groups`` fixture its build writes
+  for an app that shares cases (``suite_xml/sections/fixtures.py``);
 - the required Android apps (``profileFeatures.dependencies``): HQ's profile loses its ``<dependencies>``
   (``templates/app_manager/profile.xml``) in each of its four spellings, and each language's app strings the
   name of each app (``app_strings.py::_create_dependencies_app_strings``).
@@ -42,9 +44,11 @@ class Discarded:
     kind: str
 
     def matches(self, difference) -> bool:
+        # A statement names a structural path, or, where the structural path keeps no key that tells one element
+        # from its siblings (``/suite/fixture[@id=*]``), the element's own path.
         return (
             difference.check == self.check
-            and difference.path == self.path
+            and self.path in (difference.path, difference.at)
             and difference.kind == self.kind
             and fnmatch.fnmatchcase(difference.artifact, self.artifact)
         )
@@ -57,6 +61,9 @@ DISCARDED = {
         Discarded("proof2", "form:*", "/html/head[*]/model[*]/pollsensor[*]", "removed"),
         Discarded("proof3", "trace@B", LOCATION_SUBMISSION, "removed"),
         Discarded("proof3", "trace@local.ccz", LOCATION_SUBMISSION, "removed"),
+    ),
+    ("appAttributes", "case_sharing"): (
+        Discarded("proof2", "suite.xml", "/suite/fixture[@id=user-groups]", "removed"),
     ),
     ("profileFeatures", "dependencies"): (
         Discarded("proof2", "profile.xml", DEPENDENCIES, "removed"),

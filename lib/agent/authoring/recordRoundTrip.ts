@@ -22,6 +22,7 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { caseWriteKeyOf, sameCaseWriteKey } from "@/lib/domain/forms";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
 	type AuthoringScope,
@@ -287,10 +288,7 @@ export const recordDialectRoundTrip: RecordDialectJudge = (
 	if (scope === undefined) return "round-trip";
 	const printer = queryPrinter(scope);
 	const types = new Map(
-		[...lookup.values()].map((table) => [
-			table.id,
-			new Map(table.columns.map((column) => [column.id, column.dataType])),
-		]),
+		[...lookup.values()].map((table) => [table.id, lookupReadTypes(table)]),
 	);
 	const condition =
 		slotContext(doc, ref, types)?.profile.expectation.kind === "condition";

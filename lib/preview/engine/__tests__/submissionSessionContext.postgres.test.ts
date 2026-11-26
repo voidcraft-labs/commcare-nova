@@ -2,6 +2,7 @@
  * Preview plays, through the submission Server Action's own program: real
  * app storage, authorization and case writes, with only the authenticated
  * request session supplied at its external boundary. */
+import { sql } from "kysely";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -27,6 +28,7 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/auth-utils")>()),
 	getSession: async () => ({
 		user: { id: "device-id-writer", name: "Amara", email: "amara@dimagi.com" },
+		session: { id: "device-id-writer-session" },
 	}),
 }));
 const h = setupAppStateTestDb("submission_session_context_", {
@@ -35,6 +37,10 @@ const h = setupAppStateTestDb("submission_session_context_", {
 });
 beforeEach(async () => {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	// The live browser session every Project data read locks.
+	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
+		VALUES ('device-id-writer-session','device-id-token',${ACTOR},now()+interval '1 hour',now(),now())
+		ON CONFLICT (id) DO NOTHING`.execute(h.db());
 });
 
 async function deviceRecordApp() {

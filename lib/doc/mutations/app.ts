@@ -89,6 +89,10 @@ export function applyAppMutation(
 				draft.appSettings.captureLocation = true;
 			else if (mut.settings.captureLocation === false)
 				delete draft.appSettings.captureLocation;
+			if (mut.settings.caseSharing === null)
+				delete draft.appSettings.caseSharing;
+			else if (mut.settings.caseSharing !== undefined)
+				draft.appSettings.caseSharing = mut.settings.caseSharing;
 			if (mut.settings.showSavedForms !== undefined) {
 				draft.appSettings.showSavedForms = mut.settings.showSavedForms;
 			}

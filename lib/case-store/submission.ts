@@ -173,6 +173,11 @@ export interface OwnCaseProgram {
  * with `validateResolvedCaseOperationTypeSequence` before any write.
  */
 export interface CaseOperationProgram {
+	readonly groupDefaults?: {
+		readonly owner: string;
+		readonly operations: readonly Uuid[];
+		readonly revisions?: { project: string; places: string };
+	};
 	/** The authored-key identity scope half the operations share. */
 	readonly formUuid: Uuid;
 	/**

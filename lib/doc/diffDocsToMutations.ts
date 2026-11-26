@@ -576,6 +576,8 @@ function appSettingsPatch(
 	if (prev.captureLocation !== next.captureLocation) {
 		patch.captureLocation = next.captureLocation === true;
 	}
+	if (prev.caseSharing !== next.caseSharing)
+		patch.caseSharing = next.caseSharing ?? null;
 	if (prev.showSavedForms !== next.showSavedForms) {
 		patch.showSavedForms = next.showSavedForms;
 	}

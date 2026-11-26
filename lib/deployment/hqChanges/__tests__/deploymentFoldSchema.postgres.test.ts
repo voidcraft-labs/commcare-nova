@@ -31,7 +31,6 @@ import {
 } from "@/scripts/lib/deploymentFoldArtifacts";
 import { loadReferenceDocument } from "../reference";
 
-const migration = "20261204000000_deployment_fold_references";
 const h = setupAppStateTestDb("fold_scan_before_ddl_", {
 	authSchema: "migrated",
 	// The deployed tree ends at 20261202000000_hq_bring_in_project_data.
@@ -41,11 +40,14 @@ const h = setupAppStateTestDb("fold_scan_before_ddl_", {
 const projectId = "clinic-project",
 	owner = "clinic-owner";
 
+/** The candidate's whole tree: the fold write runs the candidate's own code,
+ * which reads every table its later migrations add, as a deploy does once
+ * every migration has applied. */
 async function installCandidate() {
 	const result = await new Migrator({
 		db: h.db(),
 		provider: caseStoreMigrationProvider,
-	}).migrateTo(migration);
+	}).migrateToLatest();
 	if (result.error !== undefined) throw result.error;
 }
 

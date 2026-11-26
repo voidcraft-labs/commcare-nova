@@ -708,6 +708,18 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/*"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/xpath[*]/@function",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/datum[@id=*]/@nodeset",
+				"kind": "changed"
 			}
 		]
 	},

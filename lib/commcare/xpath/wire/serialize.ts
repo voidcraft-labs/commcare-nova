@@ -1,6 +1,7 @@
-import { decodeHTML } from "entities";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
-import { instanceScanCuts } from "../../hqInstanceScan";
+import { isPortableName } from "@/lib/domain/portableName";
+import { hasInterpolatedNamePeriod } from "@/lib/lookup/pathNames";
+import { hqHtmlUnescape, instanceScanCuts } from "../../hqInstanceScan";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
 import { chargeWork } from "../../workMeter";
 import { w } from "./builders";
@@ -17,43 +18,6 @@ import type {
 
 // These examine literal VALUES, never XPath structure.
 const INTERPOLATION_LITERAL = /#(?:user|session\/|case|parent|host)/gu;
-// localName from grammar.lezer.grammar. Endpoint arguments are generated datum
-// identities, never an authored arbitrary variable or a qualified name.
-const NAME_START =
-	"A-Za-z_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
-const ENDPOINT_ARGUMENT_NAME = new RegExp(
-	`^[${NAME_START}][${NAME_START}0-9.\\-\\u00B7\\u0300-\\u036F\\u203F-\\u2040]*$`,
-	"u",
-);
-
-/** Python html.unescape has the HTML5 named table but drops certain numeric
- * references that browser decoders retain. Read each original reference once,
- * as Python does: a decoded ampersand never begins another decoding pass. */
-function hqHtmlUnescape(value: string): string {
-	return value.replace(
-		/&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)/gu,
-		(reference: string) => {
-			if (reference.startsWith("&#")) {
-				const hex = reference[2] === "x" || reference[2] === "X";
-				const codepoint = Number.parseInt(
-					reference.slice(hex ? 3 : 2),
-					hex ? 16 : 10,
-				);
-				if (
-					(codepoint >= 1 && codepoint <= 8) ||
-					codepoint === 11 ||
-					(codepoint >= 14 && codepoint <= 31) ||
-					codepoint === 127 ||
-					(codepoint >= 0xfdd0 && codepoint <= 0xfdef) ||
-					(codepoint <= 0x10ffff && (codepoint & 0xffff) >= 0xfffe)
-				)
-					return "";
-			}
-			return decodeHTML(reference);
-		},
-	);
-}
-
 function hashtagInterpolationRuns(mode: WireMode): boolean {
 	return (
 		mode.target === "hq-json" &&
@@ -186,6 +150,20 @@ function children(expr: WireExpr): readonly WireExpr[] {
 	}
 }
 
+/** A name HQ's form builder reads: js-xpath's `QName`, unaccented letters,
+ * digits, `_`, `.` and `-`, with an optional prefix (`xpath.jisonlex`). */
+const FORM_BUILDER_QNAME =
+	/^[A-Za-z_][A-Za-z0-9._-]*(?::[A-Za-z_][A-Za-z0-9._-]*)?$/;
+
+/**
+ * Whether the `vellum:` copy of an expression is written. HQ's form builder
+ * loads that copy in place of the expression and writes it back as the
+ * expression when it cannot parse it (`util.js::writeHashtags` converts a
+ * reference back only behind its `#invalid/xpath ` mark), so an expression
+ * holding a name its reader cannot lex gets no copy: the builder then keeps
+ * the expression as written, as it keeps one a person wrote in CommCare HQ
+ * without a copy (`form.js::normalize`).
+ */
 function shadowEligibility(
 	expr: WireExpr,
 	visited = new WeakSet<WireExpr>(),
@@ -196,6 +174,14 @@ function shadowEligibility(
 	let eligible = false;
 	if (expr.k === "path") {
 		if (expr.root.k === "hq-case") return "withheld";
+		if (
+			expr.steps.some(
+				(step) =>
+					(step.axis === "child" || step.axis === "attribute") &&
+					!FORM_BUILDER_QNAME.test(step.name ?? ""),
+			)
+		)
+			return "withheld";
 		if (expr.root.k === "form" && expr.root.spelling === "hashtag") {
 			if (
 				expr.steps.some(
@@ -277,6 +263,17 @@ export function serializeWire(
 				"An HQ enum key may use a self placeholder, but cannot contain a parent step.",
 			);
 		}
+		if (
+			mode.target === "hq-json" &&
+			(dotInterpolated || mode.interpolation === "enum-key") &&
+			node.steps.some(
+				(step) =>
+					(step.axis === "child" || step.axis === "attribute") &&
+					step.name !== undefined &&
+					hasInterpolatedNamePeriod(step.name),
+			)
+		)
+			throw new Error("CommCare HQ would replace a period in this path step.");
 		let root: string;
 		switch (node.root.k) {
 			case "form":
@@ -412,7 +409,7 @@ export function serializeWire(
 				result = `$nova_text_${node.index.toString(10).padStart(10, "0")}`;
 				break;
 			case "endpoint-argument-var":
-				if (!ENDPOINT_ARGUMENT_NAME.test(node.name))
+				if (!isPortableName(node.name))
 					throw new Error(
 						"A generated endpoint argument must have an XPath local name.",
 					);

@@ -744,8 +744,7 @@ export interface HqApplicationProfile {
 /**
  * The HQ app document Nova emits, listing ONLY fields Nova authors.
  *
- * App content Nova does not author yet (`case_sharing`)
- * and target-owned settings and state (`secure_submissions`, `build_spec` and
+ * Target-owned settings and state (`secure_submissions`, `build_spec` and
  * the rest of the build/release metadata, `logo_refs`, and the rest of HQ's
  * App Settings fields) are deliberately absent. Three keys hold Nova's values
  * beside the target's own: `translations`, `add_ons` and `profile`. An
@@ -755,6 +754,7 @@ export interface HqApplicationProfile {
  */
 export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	doc_type: "Application";
+	case_sharing?: boolean;
 	application_version: string;
 	name: string;
 	langs: string[];

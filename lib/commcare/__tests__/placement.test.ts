@@ -9,12 +9,19 @@
 import { describe, expect, it } from "vitest";
 import {
 	type PlacementSubject,
+	placedBasic,
 	placementCandidates,
 	placementIneligibility,
 	planPlacements,
+	readsTrimmedSibling,
 	statedCondition,
 } from "@/lib/commcare/placement";
 import type { CaseOperation, CasePlacement, Form, Uuid } from "@/lib/domain";
+import {
+	caseCreateNameFields,
+	caseScalarTextGuards,
+	caseScalarTextSiblings,
+} from "@/lib/domain/caseScalarTextGuard";
 import {
 	concat,
 	eq,
@@ -1248,5 +1255,35 @@ describe("holds the document no longer expresses", () => {
 				],
 			},
 		]);
+	});
+});
+
+describe("a form's placement predicates over any operation id", () => {
+	// Each predicate is a closure Nova builds for the form, held in a Map, so an
+	// operation id that names a member every object inherits reads as one more
+	// id: a boolean, never a call into Object.prototype.
+	it("answers a boolean for every such id, and the guard sets hold none of them", () => {
+		const { doc, formUuid } = placementFixture("registration");
+		const placed = placedBasic(doc, formUuid);
+		const sibling = readsTrimmedSibling(doc, formUuid);
+		for (const operation of [
+			"constructor",
+			"toString",
+			"__proto__",
+			"hasOwnProperty",
+			"valueOf",
+		] as Uuid[]) {
+			expect(placed(operation)).toBe(false);
+			expect(typeof sibling(operation)).toBe("boolean");
+		}
+		const options = { placedBasic: placed, readsSibling: sibling };
+		expect(caseScalarTextGuards(doc, formUuid, options)).toEqual(
+			caseScalarTextGuards(doc, formUuid, {
+				placedBasic: (operation) => placed(operation),
+				readsSibling: (operation) => sibling(operation),
+			}),
+		);
+		expect(caseCreateNameFields(doc, formUuid, options)).toBeInstanceOf(Set);
+		expect(caseScalarTextSiblings(doc, formUuid, options)).toBeInstanceOf(Set);
 	});
 });

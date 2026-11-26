@@ -40,7 +40,7 @@ import {
 } from "../../suite/case-list/columns";
 import { hqEnumPlaceholder } from "../../suite/case-list/orderPlanOptions";
 import { columnPropertyPath, isHqDetailField } from "../../suite/wire";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { applicationReading } from "../appShell";
@@ -2031,14 +2031,7 @@ function isCaseRows(node: FormSyntax | undefined): boolean {
 		root.step.name !== "casedb"
 	)
 		return false;
-	const call = root.left;
-	return (
-		call?.kind === "call" &&
-		call.name === "instance" &&
-		call.args.length === 1 &&
-		call.args[0]?.kind === "string" &&
-		call.args[0].value === "casedb"
-	);
+	return literalInstanceId(root.left)?.value === "casedb";
 }
 
 /** The indices a case nodeset walks from `current()`, where it is

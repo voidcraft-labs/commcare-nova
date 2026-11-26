@@ -963,6 +963,7 @@ function termRefsCaseType(term: Term, caseType: string): boolean {
 		case "case-row-type":
 		case "repeat-row":
 		case "location-level":
+		case "worker-group-field":
 		case "location-field":
 			return false;
 		default: {

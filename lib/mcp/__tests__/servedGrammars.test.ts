@@ -1,7 +1,7 @@
 /** The name grammars a client receives from tools/list are the ones Nova
  * holds: a case type in HQ's editor grammar, a written property and a Search
  * field's name holding hyphens, a choice value holding a quote mark, a lookup
- * tag or column name holding hyphens, and an inline choice list of one
+ * tag or column name holding hyphens or periods, and an inline choice list of one
  * option. A served schema that kept an older, narrower pattern or minimum
  * would refuse at the client a name every other surface admits, so the model
  * could never write it. Each served position is read as a client reads it and
@@ -9,6 +9,7 @@
 import type { Client } from "@modelcontextprotocol/client";
 import Ajv2020 from "ajv/dist/2020";
 import { beforeAll, describe, expect, it } from "vitest";
+import { lookupTagSchema, lookupWireNameSchema } from "@/lib/lookup/schema";
 import { registerNovaTools } from "../server";
 import { withMcpClient } from "./client";
 
@@ -213,27 +214,41 @@ describe("the served grammars take the names Nova holds", () => {
 		}
 	});
 
-	it("takes a lookup tag holding hyphens and refuses one holding a period, on every tool that names one", () => {
-		for (const tool of ["create_lookup_table", "update_lookup_table"]) {
-			for (const schema of patternedAt(tool, "tag"))
-				expect(NO_HYPHEN_PATTERNS.has(schema.pattern as string), tool).toBe(
-					false,
+	// A table's export tag and a column's export name are XML names, checked
+	// by Nova's own parse (a refinement, so no served pattern carries them).
+	// What a client receives must not refuse a hyphen, a period or a
+	// non-ASCII letter Nova admits; Nova's parse still refuses a space.
+	it.each([
+		["tag", lookupTagSchema, ["create_lookup_table", "update_lookup_table"]],
+		[
+			"wireName",
+			lookupWireNameSchema,
+			["create_lookup_table", "edit_lookup_columns"],
+		],
+	] as const)(
+		"takes a lookup %s holding a hyphen, a period or a non-ASCII letter on every tool that names one",
+		(property, parse, tools) => {
+			const admitted = ["health-facility-v2", "geo.lat", "région"];
+			for (const name of admitted)
+				expect(parse.safeParse(name).success).toBe(true);
+			expect(parse.safeParse("health facility").success).toBe(false);
+			for (const tool of tools) {
+				const named = positions(served(tool)).filter(
+					(position) =>
+						position.property === property &&
+						(position.schema.type === "string" ||
+							typeof position.schema.pattern === "string"),
 				);
-			expect(takes(tool, "tag", "health-facility-v2"), tool).toBe(true);
-			expect(takes(tool, "tag", "geo.lat"), tool).toBe(false);
-			expect(takes(tool, "tag", "health facility"), tool).toBe(false);
-		}
-	});
-
-	it("takes a lookup column name holding hyphens and refuses one holding a period, on every tool that names one", () => {
-		for (const tool of ["create_lookup_table", "edit_lookup_columns"]) {
-			for (const schema of patternedAt(tool, "wireName"))
-				expect(NO_HYPHEN_PATTERNS.has(schema.pattern as string), tool).toBe(
-					false,
-				);
-			expect(takes(tool, "wireName", "geo-lat"), tool).toBe(true);
-			expect(takes(tool, "wireName", "geo.lat"), tool).toBe(false);
-			expect(takes(tool, "wireName", "geo lat"), tool).toBe(false);
-		}
-	});
+				expect(named.length, tool).toBeGreaterThan(0);
+				for (const { schema } of named) {
+					expect(NO_HYPHEN_PATTERNS.has(schema.pattern as string), tool).toBe(
+						false,
+					);
+					const check = validator(schema);
+					for (const name of admitted)
+						expect(Boolean(check(name)), `${tool} ${name}`).toBe(true);
+				}
+			}
+		},
+	);
 });

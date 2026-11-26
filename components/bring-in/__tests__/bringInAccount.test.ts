@@ -185,7 +185,7 @@ describe("accountHeading", () => {
 	const fault = (code: "unrecognized" | "read-back-differs") =>
 		circumstanceFinding(code, { kind: "app" }, { name: "odd_key" });
 	const place = circumstanceFinding(
-		"places-over-nova-limit",
+		"place-field-unusable",
 		{ kind: "organization" },
 		{ name: "Districts" },
 	);

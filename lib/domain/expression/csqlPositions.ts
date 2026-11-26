@@ -151,6 +151,7 @@ export function readsSearchRow(node: Expression | Term): boolean {
 			break;
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations":
 		case "project":
 			return false;

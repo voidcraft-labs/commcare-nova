@@ -139,6 +139,7 @@ export interface AcceptReadingInput {
 		| "media"
 		| "appStrings"
 		| "recordDialect"
+		| "sourceProjectFactories"
 		| "saveOnlyEditedApplied"
 	>;
 	/**
@@ -830,6 +831,7 @@ function* fixedPointCheck(
 					resolver,
 					lookup: input.reader.lookup,
 					organization: input.reader.organization,
+					sourceProjectFactories: input.reader.sourceProjectFactories,
 					media: input.reader.media,
 					appStrings: input.reader.appStrings,
 					recordDialect: input.reader.recordDialect,

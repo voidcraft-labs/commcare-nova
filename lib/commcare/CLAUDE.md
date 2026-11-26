@@ -815,10 +815,13 @@ refused before it is parsed. The throttled reads of one bring-in run one at a ti
 bring-in, a table's row read and the place list stop once they are certain to pass Nova's limit
 (the row read's `maxRows`, the place list's `stopPast`), or pass their byte bound.
 
-`client.ts::readHqSaveOnlyEditedAnswers` reads the one flag a bring-in needs of the source
-project space, by the two lists the publish probe reads, and answers a failure where a publish's
-probe would answer `unverified`: a bring-in never guesses whether a write is saved only if
-changed.
+`client.ts::readHqSourceFlag` reads the source project’s membership and a domain-only feature
+flag through the two lists the publish probe reads. A reading asks for the flag when case
+updates depend on “save only if changed”, or an active expression needs a project-dependent
+instance. With hierarchical locations enabled, the flat-fixture setting comes from an actual
+working form or suite in that project. Both requests use the working id that the bracketed
+application read authenticated and identified as a working app. They address this document
+directly, including on project spaces with location-specific releases. The reader keeps an unverified declaration unresolved.
 
 `hq/media.ts::readHqMediaFile` reads one file from the address HQ gives its media map item
 (`hqmedia/models.py::HQMediaMapItem.url`), bounded by the caller's limit, under a deadline of its
@@ -2000,9 +2003,7 @@ supplies one to the XForm/suite emitters, so a carrier reaching any other
 surface fails loudly.
 `fixtures.ts` builds the suite-embedded global `<fixture id="item-list:<tag>">`
 blocks — one `<{tag}_list>` body, one `<{tag}>` per row in authored
-`(order_key, row UUID)` order, EVERY defined column as a child element in
-authored column order with an empty element for missing and stored-empty cells
-alike, matching HQ's `ItemListsProvider` body so the same XPaths work
+`(order_key, row UUID)` order, declared row attributes and columns in definition order with each field’s actual occurrence order and details. A missing field contributes one empty element, an explicit empty list contributes zero, and one empty value contributes one. Reading a missing declared attribute refuses the source. This is the same shape as the worker fixture, matching HQ's `ItemListsProvider` body so the same XPaths work
 whichever path later delivers the data. `SuiteParser`/`FixtureXmlParser`
 (no `user_id` → global storage, overwrite on app upgrade) are the wire
 authority: HQ never emits suite-embedded item-list fixtures. `compileCcz`
@@ -2012,6 +2013,8 @@ are the canonical JS number spelling); the aggregate 10,000-row /
 100,000-cell / 16 MiB-exact-byte budgets and the row-dependent select-source
 validity live at the export boundary, measured on the exact serialized blocks
 the compiler embeds.
+
+A lookup selector binds its table, column, row detail and occurrence details by UUID. Lowering resolves the current names of those members. A row attribute reads `@code`; a field value qualified by a property and position reads `name[@lang='fr'][1]`. A calculation can read an occurrence’s property as `name[1]/@lang`. Vellum strips predicates before checking the form’s choice label/value against HQ’s field names and row attributes. The question rejects a terminal field property and a qualifying literal whose opening bracket disrupts that edit. A scalar choice must identify one value for every row in the complete worker-specific base table.
 
 Lowering: a `table-lookup` becomes
 `instance('item-list:<tag>')/<tag>_list/<tag>[<where>][1]/<column>` — the
@@ -2028,7 +2031,7 @@ then value column refs, filter predicate on the nodeset) with zero inline
 `<item>`s and no option itext; its filter's form answers print absolute paths
 at root and `current()`-relative paths for repeat-borne fields
 (`bindLookupFilterFieldPaths` — `ItemSetUtils.populateDynamicChoices` binds
-`current()` to the question node contextualized to its iteration). A carrier's lookup root declares itself wherever its tree is printed, from the serializer's instance set under the lookup naming: in an XForm the bare tag with source `jr://fixture/item-list:<tag>`, and in entries, menus and remote requests `item-list:<tag>`. Form logic reads a table too, by table and column UUID: `instance('<tag>')/<tag>_list/<tag>[…]` in a form and `instance('item-list:<tag>')/…` in a form link, printed under the current tag and wire names, so a rename keeps the read. Its reads join the reference edges (`lib/doc/lookupReferences.ts`), so the publish push, the `.ccz` fixtures and the plan feature follow. The suite oracle
+`current()` to the question node contextualized to its iteration). A carrier's lookup root declares itself wherever its tree is printed, from the serializer's instance set under the lookup naming: an XForm declares the fixture source `jr://fixture/item-list:<tag>` under the tag, using `item-list:<tag>` when the tag coincides with a runtime instance name. Entries, menus and remote requests use `item-list:<tag>` throughout. Form logic reads a table by table and column UUID, as `instance('<id>')/<tag>_list/<tag>[…]` in a form and `instance('item-list:<tag>')/…` in a form link, printed under the current tag and wire names, so a rename keeps the read. Its reads join the reference edges (`lib/doc/lookupReferences.ts`), so the publish push, the `.ccz` fixtures and the plan feature follow. The suite oracle
 cross-checks embedded fixtures (`SUITE_FIXTURE_INVALID`: id required/unique,
 single body element, no `user_id`, every declared `jr://fixture/` src
 delivered) and the XForm oracle checks itemset shape
@@ -2051,9 +2054,22 @@ strings are the contract, not labels: a mandatory `types` sheet
 definition, and one data sheet per table NAMED BY ITS TAG (`UID`,
 `Delete(Y/N)`, `field: <wireName>`…). `IteratorJSONReader.set_field_value` is
 the header grammar (`a N` is a list, `a: b` nests, `a?` is a boolean). Because
-the types sheet carries the definition, CommCare HQ's JSON `lookup_table`
-resource is not on the write path at all. `lib/commcare/hq/lookupTables.ts`
+the types sheet carries the definition, the workbook needs CommCare HQ's JSON
+`lookup_table` resource only to read. `lib/commcare/hq/lookupTables.ts`
 drives both endpoints; `lib/deployment` owns what may be written over.
+
+`lib/commcare/hq/lookupJson.ts` is the second carrier, for what a workbook
+cannot hold: a table tagged `types`, a row past the workbook's 500,000, a
+value with surrounding spaces or a repeated empty value. It writes one
+definition or one row per request through `lookup_table/v1/` and
+`lookup_table_item/v2/` and answers each as `applied`, `not-applied` or
+`uncertain`, which a journaled caller resumes from; it never retries. Its
+resources carry no index and no row owner (`LookupTableResource`'s schema
+admits a field's name and properties only, and a PUT of `fields` resets every
+`is_indexed`), so only a global table with no index takes it. The plan of its
+writes is `lib/deployment/lookupJsonPlan.ts`, which keys every row by the
+destination ledger's mapping of a Nova row UUID to CommCare HQ's row id,
+never by its values.
 
 `searchWireShape.ts` is the authored workflow's spelling, one three-flag `WireShape` for every platform an app declares: `auto_launch` unless list first, `default_search` for skip to results, `inline_search` for forms that read the search (`caseSearchConfig.workflow`, absent search first, and `formsReadSearch`; list first beside Forms read the search is unrepresentable). The case list's filter and inputs choose none of the flags. Android reads no `auto_launch` and opens the list first, which the platform table states (`search-first`, `skip-to-results`). The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute, HQ's `AUTO_LAUNCH_EXPRESSIONS` expression wherever `auto_launch` is on: the multi-select one for a list that selects several cases (`module.is_multi_select()`), which reads the chosen cases as `instance('next_input')`, the instance a multi-select screen builds into the condition's own context and no suite element declares (the suite oracle admits it in `<action auto_launch>` alone), and the single-select one otherwise. Both export paths send a match-all filter for a zero-input search (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 
@@ -2616,3 +2632,11 @@ boundary for historical answers; source evidence is in
 ### Question control presentation
 
 The importer classifies a source appearance on its actual control and bind in `reader/xform/appearances.ts`. `xform/readDisplaySettings.ts` projects its worker and editor effects onto typed settings. `xform/appearance.ts` writes a canonical recipe. Reading the recipe must preserve the editor kind, precedence, Android whole-control behavior, Web Apps word positions, parameter values and returned answer. The validator checks this at authoring and export. `hq/appearanceIdentity.ts` compares the actual source and published controls, and protects every effective setting from a reading claiming it was inert. An image that collects a signature only in Web Apps keeps its native picture identity.
+
+### Trusted lookup source reads
+
+`hq/lookupSource.ts` follows HQ's filtered fixture inventory, reads only selected row detail URLs and never follows peer-supplied continuation URLs. Rich details must match the requested ID, table, listed fields and native sort key order on both complete passes. Staged pages carry an ordered prefix digest bound to the selected source. `hq/lookupCoverage.ts` accepts a global fixture's independent count together with distinct source-scoped candidate IDs and two ordered comparisons against native worker bytes. An assigned worker sample cannot establish complete inventory.
+
+`hq/lookupRestore.ts` extracts a single table from an authenticated OpenRosa response. The XML parser binds token, registration, project, principal, fixture tag and worker. It retains no cases, registration password or other fixtures. A previously verified full observation can supply a missing fixture in a continuous delta for the same scope. Worker-visible rows have no administrative IDs. The current worker entry acquires a fresh full observation.
+
+`hq/lookupWorkbook.ts` compares a selected HQ download against that table's independently read ordered rows. It checks the literal header and value projection of `fixtures/download.py::_prepare_fixture`, including blank padding and propertyless fields with multiple occurrences. It never promotes the workbook's lossy cell view to canonical source values. Group and place directories are read under the editor's own approved source grant only when their names occur on the workbook. Only matching owner identities and names survive the check.

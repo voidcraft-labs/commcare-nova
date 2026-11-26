@@ -6,8 +6,10 @@
  * native `fetch` (the dispatch path Nova's client uses) reaches it and
  * nothing else: the agent refuses every connection, and each request Nova's
  * client makes is answered from the retained answer for it, status, headers
- * and body as HQ gave them, once. A request with no retained answer, or a
- * second request of one already given, is refused by the agent; the reading
+ * and body as HQ gave them, once (a table's list, definition and row details
+ * excepted, which a rich table's read asks twice, `REREAD_ANSWER`). A request
+ * with no retained answer, or a second request of any other already given,
+ * is refused by the agent; the reading
  * then ends naming that request's path (`RetainedAnswerMissing`). No socket
  * is opened.
  */
@@ -61,7 +63,12 @@ const ORIGIN = COMMCARE_SERVERS[LANE_TARGET.server].baseUrl;
 
 type Answers = Pick<
 	LaneReadInput,
-	"source" | "application" | "currentVersion" | "projectSpaces" | "projectData"
+	| "source"
+	| "application"
+	| "currentVersion"
+	| "projectSpaces"
+	| "projectData"
+	| "sourceFactoryReads"
 >;
 
 interface Served {
@@ -122,11 +129,24 @@ function tagsByTableId(answers: Answers): ReadonlyMap<string, string> {
 function answerFor(
 	answers: Answers,
 	path: string,
+	asked: readonly string[],
 ): { readonly name: string; readonly answer: Served } | undefined {
 	const url = new URL(path, ORIGIN);
 	const at = url.pathname;
 	const space = `/a/${LANE_TARGET.domain}`;
 	const appId = applicationId(answers);
+	const extra = answers.sourceFactoryReads;
+	const held = extra && Object.hasOwn(extra, path) ? extra[path] : undefined;
+	if (held) return { name: `factory:${path}`, answer: served(held) };
+	if (
+		asked.includes("source") &&
+		at === `${space}/apps/source/${appId}/` &&
+		extra?.["source-check"]
+	)
+		return {
+			name: "factory:source-check",
+			answer: served(extra["source-check"]),
+		};
 	if (appId !== undefined) {
 		if (at === `${space}/api/application/v1/${appId}/`)
 			return { name: "application", answer: served(answers.application) };
@@ -136,7 +156,17 @@ function answerFor(
 			return { name: "currentVersion", answer: served(answers.currentVersion) };
 	}
 	if (at === "/api/user_domains/v1/" && answers.projectSpaces !== undefined) {
-		return url.searchParams.has("feature_flag")
+		const flag = url.searchParams.get("feature_flag");
+		if (flag !== null && flag !== "save-only-edited-form-fields") return;
+		if (flag === null && asked.includes("projectSpaces:all") && extra) {
+			const repeat = Object.keys(extra).find(
+				(key) =>
+					key.startsWith("membership:") && !asked.includes(`factory:${key}`),
+			);
+			if (repeat)
+				return { name: `factory:${repeat}`, answer: served(extra[repeat]) };
+		}
+		return flag !== null
 			? {
 					name: "projectSpaces:flagged",
 					answer: served(answers.projectSpaces.flagged),
@@ -148,6 +178,16 @@ function answerFor(
 	}
 	const data = answers.projectData;
 	if (data === undefined) return undefined;
+	for (const [collection, resource, name] of [
+		[data.lookupDefinitions, "lookup_table", "lookupDefinition"],
+		[data.fixtureDetails, "lookup_table_item", "fixtureDetail"],
+	] as const) {
+		const prefix = `${space}/api/${resource}/v1/`;
+		if (!collection || !at.startsWith(prefix) || !at.endsWith("/")) continue;
+		const id = at.slice(prefix.length, -1);
+		if (Object.hasOwn(collection, id))
+			return { name: `${name}:${id}`, answer: served(collection[id]) };
+	}
 	if (at === `${space}/api/lookup_table/v1/`)
 		return { name: "lookupTables", answer: served(data.lookupTables) };
 	if (at === `${space}/api/fixture/v1/`) {
@@ -167,6 +207,8 @@ function answerFor(
 		data.locationTypes !== undefined
 	)
 		return { name: "locationTypes", answer: served(data.locationTypes) };
+	if (at === `${space}/api/location/v1/` && data.locationsV1 !== undefined)
+		return { name: "locationsV1", answer: served(data.locationsV1) };
 	if (at === `${space}/api/location/v2/` && data.locations !== undefined)
 		return { name: "locations", answer: served(data.locations) };
 	const file = /^\/hq\/multimedia\/file\/([^/]+)\/([^/]+)\/$/.exec(at);
@@ -189,6 +231,13 @@ function answerFor(
 	return undefined;
 }
 
+/** Answers a reading may ask for again. Nova reads a table whose definition
+ * or rows carry more than plain text between two identical observations
+ * (`lookupSource.ts::streamHqLookupTable`): its row list, its definition
+ * and each row's detail, each asked again of a table that did not change,
+ * which HQ answers the same. Every other answer is given once. */
+const REREAD_ANSWER = /^(?:fixtureRows|fixtureDetail|lookupDefinition):/;
+
 /** Answers native `fetch` from `answers` for the length of `run`, and nothing else. */
 export async function withRetainedHq<T>(
 	answers: Answers,
@@ -208,11 +257,14 @@ export async function withRetainedHq<T>(
 		.intercept({ path: () => true, method: () => true })
 		.reply((request) => {
 			const found =
-				request.method === "GET" ? answerFor(answers, request.path) : undefined;
+				request.method === "GET"
+					? answerFor(answers, request.path, asked)
+					: undefined;
 			const path = new URL(request.path, ORIGIN).pathname;
-			if (found === undefined || asked.includes(found.name))
-				return refuse(path);
-			asked.push(found.name);
+			if (found === undefined) return refuse(path);
+			if (asked.includes(found.name)) {
+				if (!REREAD_ANSWER.test(found.name)) return refuse(path);
+			} else asked.push(found.name);
 			return {
 				statusCode: found.answer.status,
 				data: found.answer.body,

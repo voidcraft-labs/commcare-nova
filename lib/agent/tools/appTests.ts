@@ -11,6 +11,7 @@ import {
 	AppTestEvidenceInputError,
 	appTestReadWindowSchema,
 } from "@/lib/preview/app-tests/evidence";
+import { withCurrentAppTestProof } from "@/lib/preview/app-tests/lookupAccess";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import {
 	appTestActionSchema,
@@ -20,6 +21,7 @@ import {
 } from "@/lib/preview/app-tests/types";
 import { FormEvaluationInputError } from "@/lib/preview/engine/formEvaluationTypes";
 import type { ToolInvocationContext } from "../workspace/types";
+import { lookupAgentScope } from "./shared/lookupScope";
 
 async function authoringJourney<T>(run: Promise<T>): Promise<T> {
 	try {
@@ -40,6 +42,10 @@ function scope(ctx: ToolInvocationContext) {
 	return {
 		appId: ctx.appId,
 		actorUserId: ctx.userId,
+		workerGrant: ctx.dataGrant ?? {
+			kind: "architect" as const,
+			authority: lookupAgentScope(ctx),
+		},
 		projectId: ctx.projectId,
 	};
 }
@@ -164,7 +170,9 @@ export const readAppTestTool = {
 					? await authoringJourney(listAppTests(admitted))
 					: await authoringJourney(
 							readAppTestSteps({
-								...admitted,
+								...(await withCurrentAppTestProof(admitted, {
+									testId: input.testId,
+								})),
 								...input,
 								testId: input.testId,
 							}),

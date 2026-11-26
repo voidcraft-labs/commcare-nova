@@ -380,6 +380,26 @@ describe("comparing two reads", () => {
 		expect(diff(base, emptied, ownership)).toEqual([]);
 	});
 
+	it("reads case sharing only where the baseline owns it, an absent key as off", () => {
+		/* Every update writes case sharing, so a person's flip of it in HQ over
+		 * a baseline that owns it is a change the publish asks about; over a
+		 * baseline recorded before Nova owned it, none. */
+		const owning = { ...ownership, caseSharing: true };
+		const { caseSharing: _owned, ...older } = owning;
+		const shared = edited((app) => {
+			app.case_sharing = true;
+		});
+		expect(diff(base, shared, owning)).toEqual([{ kind: "settings" }]);
+		expect(diff(base, shared, older)).toEqual([]);
+		const offSpelledAbsent = edited((app) => {
+			app.case_sharing = false;
+		});
+		const absent = edited((app) => {
+			delete app.case_sharing;
+		});
+		expect(diff(offSpelledAbsent, absent, owning)).toEqual([]);
+	});
+
 	it("leaves the Web App setting to the Web Apps question", () => {
 		/* One question covers who moved it (`webApps.ts::webAppsChange`), so
 		 * the drift check never asks about the same value a second time. */

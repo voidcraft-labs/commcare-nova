@@ -1,6 +1,7 @@
 /** Persisted apps through the actual MCP SDK, export gate and wire compilers. */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/client";
 import AdmZip from "adm-zip";
 import { getElementsByTagName, textContent } from "domutils";
@@ -31,18 +32,25 @@ import {
 } from "@/lib/deployment/store";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
-import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
-import { downloadAssetBytes } from "@/lib/storage/media";
+import { streamAsset } from "@/lib/storage/media";
 import { registerCompileApp } from "../tools/compileApp";
 import { withMcpClient } from "./client";
 
 // Only the external object store is replaced. Metadata, authorization, bytes
 // selection, validation, lookup snapshots and all emitters execute normally.
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	streamAsset: vi.fn(),
+	getStoredObjectMetadata: async () => ({
+		size: PNG.length,
+		generation: "7",
+		contentType: "image/png",
+		checksum: "test",
+	}),
+}));
 beforeEach(() => {
-	vi.mocked(downloadAssetBytes).mockReset();
+	vi.mocked(streamAsset).mockReset();
 });
 const h = setupAppStateTestDb("mcp_compile_", { authSchema: "migrated" });
 const APP = "export-app",
@@ -296,9 +304,9 @@ async function seedImage(projectId = PROJECT, status = "ready") {
 			media_format: status === "ready" ? "png" : null,
 		})
 		.execute();
-	vi.mocked(downloadAssetBytes).mockImplementation(async (key) => {
+	vi.mocked(streamAsset).mockImplementation((key) => {
 		if (key !== KEY) throw new Error(`Unexpected object key: ${key}`);
-		return PNG;
+		return Readable.from([PNG]);
 	});
 }
 async function snapshot() {
@@ -393,7 +401,7 @@ it("exports a shared viewer's actual committed version as HQ JSON and an install
 		expect(resources).toHaveLength(1);
 		expect(textContent(resources[0])).toContain("./modules-0/forms-0.xml");
 	});
-	expect(downloadAssetBytes).not.toHaveBeenCalled();
+	expect(streamAsset).not.toHaveBeenCalled();
 	expect(await snapshot()).toEqual(before);
 });
 
@@ -518,18 +526,10 @@ it.each([false, true])(
 					.map(textContent),
 			).toEqual(withMedia ? [`jr://file/${WIRE}`] : []);
 		});
-		expect(downloadAssetBytes).toHaveBeenCalledTimes(withMedia ? 2 : 0);
+		expect(streamAsset).toHaveBeenCalledTimes(withMedia ? 2 : 0);
 		if (withMedia) {
-			expect(downloadAssetBytes).toHaveBeenNthCalledWith(
-				1,
-				KEY,
-				ASSET_SIZE_CAPS_BYTES.image,
-			);
-			expect(downloadAssetBytes).toHaveBeenNthCalledWith(
-				2,
-				KEY,
-				ASSET_SIZE_CAPS_BYTES.image,
-			);
+			expect(streamAsset).toHaveBeenNthCalledWith(1, KEY, "7");
+			expect(streamAsset).toHaveBeenNthCalledWith(2, KEY, "7");
 		}
 		expect(await snapshot()).toEqual(before);
 		await replaceLookupRows(scope, {
@@ -548,7 +548,7 @@ it.each([false, true])(
 				});
 			}
 		});
-		expect(downloadAssetBytes).toHaveBeenCalledTimes(withMedia ? 2 : 0);
+		expect(streamAsset).toHaveBeenCalledTimes(withMedia ? 2 : 0);
 	},
 );
 
@@ -582,7 +582,7 @@ it("refuses missing, foreign and pending media before fetching any bytes in eith
 			});
 		}
 	});
-	expect(downloadAssetBytes).not.toHaveBeenCalled();
+	expect(streamAsset).not.toHaveBeenCalled();
 });
 
 it("returns no artifact on object-store failure and succeeds on a later request", async () => {
@@ -598,8 +598,13 @@ it("returns no artifact on object-store failure and succeeds on a later request"
 	await seed(doc);
 	const before = await snapshot();
 	await asUser(async (client) => {
-		vi.mocked(downloadAssetBytes).mockRejectedValueOnce(
-			new Error("private storage credential diagnostic"),
+		vi.mocked(streamAsset).mockImplementationOnce(() =>
+			Readable.from(
+				(async function* () {
+					yield PNG;
+					throw new Error("private storage credential diagnostic");
+				})(),
+			),
 		);
 		expect(errorBody(await call(client, "json"))).toEqual({
 			error_type: "internal",
@@ -638,7 +643,7 @@ it("enforces actual Project access and SDK formats", async () => {
 		expect(foreign).toMatchObject({ error_type: "not_found", app_id: APP });
 		expect(errorBody(await call(client, "ccz"))).toEqual(foreign);
 	}, "outsider");
-	expect(downloadAssetBytes).not.toHaveBeenCalled();
+	expect(streamAsset).not.toHaveBeenCalled();
 });
 
 const NEEDS_PUBLISHED =

@@ -37,8 +37,9 @@ An asset's state lives OUTSIDE the blueprint doc (bytes in GCS, a metadata row i
 
 So the four attach tools verify the asset **at the source** —
 `attachVerdicts.ts::mediaAttachVerdict` checks that it exists in the app's
-Project, is `ready`, matches the slot's `MediaKind`, and keeps the app inside the
-export ceiling before the gated commit. App writers maintain the exact authored
+Project, is `ready`, matches the slot's `MediaKind`, and plays on every platform
+the app runs on, before the gated commit. No total of the app's media bounds an
+attach. App writers maintain the exact authored
 `media_asset_refs` projection under sorted asset share locks; deletion takes the
 conflicting asset update lock and refuses authored references. Conversation
 admission retains model-readable bytes under that same asset lock before the
@@ -109,13 +110,13 @@ asset to a now-unauthorized caller. Session-lock owners handle the checked-out
 Postgres client's separate error event, fail the operation, and discard that
 connection. An active query's rejected promise alone does not own that event.
 
-## The export ceiling has one source; the client checks for UX, the boundary enforces
+## An app holds any number of files; every export streams them
 
-Media-ON compile / HQ upload load every referenced ready asset's bytes into memory at once, so an aggregate ceiling (`MAX_MEDIA_EXPORT_ASSETS` / `MAX_MEDIA_EXPORT_BYTES` in `lib/domain/multimedia.ts`) bounds the whole export before a byte is fetched. The math lives in ONE place — `exportBudget.ts` — consumed by the attach verdict, the browser pre-dispatch check (`components/builder/media/useAttachBudget.ts`), and the export boundary. The trust model: the client checks are an honest-user UX guarantee and fail OPEN on a fetch error (refusing over transient network is worse than letting the boundary enforce); the **boundary is the enforcement authority** — a bypassing client changes nothing, the export still refuses.
+Every production export (`.ccz` compile, the HQ JSON package, HQ upload, and the next publish's body a bring-in of HQ changes computes) passes `streamMedia`: the manifest names each file by a byte source read from GCS when the archive or the upload batch reaches it (`lib/commcare/multimedia/streamMedia.ts`, `uploadBatches.ts`), so no total of an app's media is held at once and none bounds it. Only the boundary's in-memory mode, which nothing in production runs, loads every referenced ready asset's bytes and so keeps its aggregate ceiling (`MAX_MEDIA_EXPORT_ASSETS` / `MAX_MEDIA_EXPORT_BYTES`, math in `exportBudget.ts`). The per-kind caps bound one file Nova takes from an upload or reads from CommCare HQ. The browser's attach check (`components/builder/media/useAttachGuard.ts`) and the SA/MCP attach verdict refuse a file the app's platforms can't play, in the same prose; the boundary stays the enforcement authority.
 
 ## The export boundary — zero tolerance, every entry point
 
-`lib/export/boundaryValidation.ts::prepareExportBoundary` runs at EVERY media-ON export entry (`.ccz` compile, HQ upload, JSON export) before the emitter. It first loads one exact rows-free lookup snapshot, including for an empty target set, then walks the doc's asset refs, loads the rows (ready AND pending, so a still-uploading ref surfaces "not ready" rather than "not found"), runs the complete validator with the supplied lookup context and media group (`mediaAssetExists` / `mediaAssetReady` / `mediaKindMatches` / `mediaFormatPlays`), and appends the aggregate budget error. ANY finding rejects with actionable prose. Only a clean result proceeds to `manifest.ts::resolveMediaManifest`, which resolves refs → wire paths and streams bytes under bounded concurrency; it filters to `ready` + media-kind, so a media-free app does zero I/O. An uploaded asset's wire path is the path the export's target holds for it (`app_deployment_media_paths`, for a file that came in from CommCare HQ, on the project space it came from; `ResolveManifestOptions.heldPaths`, which the boundary takes as `heldMediaPaths`) or, with none, the content-hash path. A built-in icon has no asset row and always takes its content-hash path.
+`lib/export/boundaryValidation.ts::prepareExportBoundary` runs at EVERY media-ON export entry (`.ccz` compile, HQ upload, JSON export) before the emitter. It first loads one exact rows-free lookup snapshot, including for an empty target set, then walks the doc's asset refs, loads the rows (ready AND pending, so a still-uploading ref surfaces "not ready" rather than "not found"), runs the complete validator with the supplied lookup context and media group (`mediaAssetExists` / `mediaAssetReady` / `mediaKindMatches` / `mediaFormatPlays`), and, in the in-memory mode alone, appends the aggregate budget error. ANY finding rejects with actionable prose. Only a clean result proceeds to `manifest.ts::resolveMediaManifest`, which resolves refs → wire paths and streams bytes under bounded concurrency; it filters to `ready` + media-kind, so a media-free app does zero I/O. An uploaded asset's wire path is the path the export's target holds for it (`app_deployment_media_paths`, for a file that came in from CommCare HQ, on the project space it came from; `ResolveManifestOptions.heldPaths`, which the boundary takes as `heldMediaPaths`) or, with none, the content-hash path. A built-in icon has no asset row and always takes its content-hash path.
 
 ## Built-in library icons — one shared copy, no asset row
 
@@ -131,7 +132,7 @@ Built-in awareness is **quarantined to `lib/media/builtinIconAssets.ts`** (the p
   including hidden or inactive case-list/icon/audio/image-map definitions, plus
   strict canonical `threads.messages[*].metadata.attachments[*]`. Every app and
   thread writer replaces that complete projection transactionally.
-- **Client** (`components/builder/media/mediaClient.ts::mediaSrc`) routes a closed built-in ref to its static `/nova-icons/<slug>.png` (not `/api/media`). The picker returns a discriminated uploaded-row or built-in-ref result, so built-ins never impersonate `WireMediaAsset`; `useAttachBudget.ts` receives uploaded candidates only and drops existing built-ins from its gap-fetch.
+- **Client** (`components/builder/media/mediaClient.ts::mediaSrc`) routes a closed built-in ref to its static `/nova-icons/<slug>.png` (not `/api/media`). The picker returns a discriminated uploaded-row or built-in-ref result, so built-ins never impersonate `WireMediaAsset`; `useAttachGuard.ts` receives uploaded candidates only.
 
 The commit gate needs no manifest awareness — it skips the row-backed media rules (`gate.ts::evaluateCommit`), while the domain schemas still reject a built-in outside its exact icon carrier. The runtime `fs` read of `public/` is invisible to the standalone tracer, so `next.config.ts`'s `outputFileTracingIncludes` ships `public/nova-icons/**` with the emit routes (the browser's static handler needs nothing). The SA sets a built-in via a `set_menu_media` item's exact catalog slug; `resolveIconInput` turns that slug into the closed ref with no row expectation. The only other accepted non-null input is a canonical uploaded-media UUID, which follows the ordinary attach verdict. Reads project built-ins back to their catalog slug and never expose the internal prefixed ref as an authoring address.
 
@@ -177,3 +178,18 @@ Document extraction permissions follow the side effect: preview/status `GET` nee
 ### Files chosen for a language
 
 `walkAuthoredAssetRefs` includes a question's label and help, a static choice, a menu, a form, a case list item and its Register action. Each reference identifies its carrier and, for an override, its language. A former language code can still supply a menu file in an existing installation. Keep that file in the same Project-scoped manifest, deletion and move checks. Two references to one asset share its bytes and budget. The author and worker projections resolve the files each role actually shows before displaying them.
+
+### Delivery of media already in the Project
+
+The direct uploader applies its ordinary per-kind limits. Publish and file download
+open each referenced Project object at its pinned generation and verify the
+stored length and SHA-256 while streaming. A direct publish makes one full
+verification pass before creating or updating anything on its destination. It
+reopens those same generations when the remote app is ready to take its files.
+The bulk uploader groups whole paths
+by size and count, and an indivisible large path travels alone. A successful
+job is followed by a read of the actual target app map and each matched file.
+A later attempt reuses a completed path whose destination still maps the file
+id Nova recorded (CommCare HQ binds a file id to one content), settles a path
+whose id moved by its bytes, and can continue after a partial result. An editor can upload a refused file on the target and retry
+after its mapped bytes match.

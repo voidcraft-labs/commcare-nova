@@ -18,7 +18,11 @@
 
 import { createHash } from "node:crypto";
 import { v7 } from "uuid";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type {
+	LookupColumnId,
+	LookupMemberId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 const TUPLE_TAG = "nova-hq-lookup-v1";
@@ -74,4 +78,12 @@ export function broughtInLookupColumnId(
 		tag,
 		fieldName,
 	]) as LookupColumnId;
+}
+
+/** A row attribute is owned by its table, a value property by its column. */
+export function broughtInLookupMemberId(
+	owner: LookupTableId | LookupColumnId,
+	name: string,
+): LookupMemberId {
+	return derivedId(owner, [TUPLE_TAG, "member", owner, name]) as LookupMemberId;
 }

@@ -1,7 +1,9 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /** Publish persisted apps through the actual SDK, compiler, ledger and HTTP. */
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/client";
 import AdmZip from "adm-zip";
 import { sql } from "kysely";
@@ -45,6 +47,7 @@ import {
 	serveTableList,
 	withManagedPeer,
 } from "@/lib/deployment/__tests__/managedFixtures";
+import { servePublishedImage } from "@/lib/deployment/__tests__/publishedImage";
 import {
 	clinicVisitsDocument as document,
 	reloadHeadFor,
@@ -57,7 +60,7 @@ import {
 } from "@/lib/deployment/errors";
 import { APP_PREVIEW_NOTE } from "@/lib/deployment/remoteChanges";
 import { activeRemoteApp } from "@/lib/deployment/resources";
-import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
+import { refreshDeployment } from "@/lib/deployment/service";
 import {
 	readDeployment,
 	readDeploymentNovaRevisions,
@@ -94,14 +97,42 @@ import {
 	planLacksWebAppsMessage,
 	webAppsChangeMessage,
 } from "@/lib/publish/webApps";
-import { downloadAssetBytes } from "@/lib/storage/media";
+import {
+	downloadAssetBytes,
+	getStoredObjectMetadata,
+	streamAsset,
+} from "@/lib/storage/media";
 import { loadAppBlueprint } from "../loadApp";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	downloadAssetBytes: vi.fn(),
+	getStoredObjectMetadata: vi.fn(),
+	streamAsset: vi.fn(),
+}));
+/** The Project's stored file at `key` holds `bytes`, at one pinned generation. */
+function storeBytes(bytes: Buffer, key?: string) {
+	vi.mocked(downloadAssetBytes).mockImplementation(async (requested) => {
+		if (key !== undefined) expect(requested).toBe(key);
+		return bytes;
+	});
+	vi.mocked(getStoredObjectMetadata).mockImplementation(async (requested) => {
+		if (key !== undefined) expect(requested).toBe(key);
+		return {
+			size: bytes.length,
+			generation: "7",
+			checksum: "stored",
+			contentType: "image/png",
+		};
+	});
+	vi.mocked(streamAsset).mockImplementation((requested) => {
+		if (key !== undefined) expect(requested).toBe(key);
+		return Readable.from([bytes]);
+	});
+}
 /* Passed through, so a test can make the read after a landed app fault. */
 vi.mock("@/lib/deployment/store", async (original) => {
 	const store = await original<typeof import("@/lib/deployment/store")>();
@@ -115,6 +146,8 @@ beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
 	vi.mocked(downloadAssetBytes).mockReset();
+	vi.mocked(getStoredObjectMetadata).mockReset();
+	vi.mocked(streamAsset).mockReset();
 });
 const h = setupAppStateTestDb("mcp_publish_", { authSchema: "migrated" });
 const APP = "publish-app",
@@ -141,14 +174,33 @@ const SOURCE = sourcePath();
  */
 const PROJECT_SPACES_READ = `GET ${HOST}/api/user_domains/v1/?limit=100`;
 const PROJECT_SPACES = [PROJECT_SPACES_READ, PROJECT_SPACES_READ];
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
-	scopes = ["nova.read", "nova.hq.write"],
+	scopes = ["nova.read", "nova.write", "nova.hq.write"],
 ) {
+	const clientId = "publish-fixture";
+	const issuedAt = Math.floor(Date.now() / 1000);
+	await sql`INSERT INTO auth_oauth_client(id,"clientId","redirectUris","createdAt","updatedAt") VALUES (${clientId},${clientId},'[]'::jsonb,now(),now()) ON CONFLICT DO NOTHING`.execute(
+		h.db(),
+	);
+	await sql`INSERT INTO auth_oauth_consent(id,"clientId","userId",scopes,"createdAt","updatedAt")
+ SELECT ${`${userId}-consent`},${clientId},id,${JSON.stringify(scopes)}::jsonb,now(),now() FROM auth_user WHERE id=${userId}
+ ON CONFLICT(id) DO UPDATE SET scopes=excluded.scopes`.execute(h.db());
 	return withMcpClient(
 		(server) =>
-			registerUploadAppToHq(server, { userId, scopes, authKind: "oauth" }),
+			registerUploadAppToHq(server, {
+				userId,
+				scopes,
+				authKind: "oauth",
+				grant: {
+					kind: "oauth",
+					clientId,
+					issuedAt,
+					expiresAt: issuedAt + 3600,
+					scopes,
+				},
+			}),
 		run,
 	);
 }
@@ -198,7 +250,7 @@ it.each(["parent-multiple", "same-smaller"] as const)(
 				expect(target).toBeNull();
 			});
 			expect(requests(peer)).toEqual([]);
-			expect(downloadAssetBytes).not.toHaveBeenCalled();
+			expect(streamAsset).not.toHaveBeenCalled();
 		});
 	},
 );
@@ -1066,10 +1118,7 @@ it.each([
 				media_format: "png",
 			})
 			.execute();
-		vi.mocked(downloadAssetBytes).mockImplementation(async (requested) => {
-			expect(requested).toBe(key);
-			return png;
-		});
+		storeBytes(png, key);
 		await withManagedPeer(async (peer) => {
 			shellCreated(peer);
 			imported(peer);
@@ -1111,6 +1160,18 @@ it.each([
 						errors: [],
 					});
 			}
+			/* After a job HQ reports done, Nova reads where the file landed and
+			 * the file itself before it records it. */
+			const landed =
+				outcome === "complete"
+					? servePublishedImage(peer, {
+							source: SOURCE,
+							read: "source-live",
+							wirePath: wire,
+							id: "landed-image",
+							bytes: png,
+						})
+					: null;
 			await asUser(async (client) => {
 				const result = body(await call(client));
 				expect(result).toMatchObject({
@@ -1137,6 +1198,9 @@ it.each([
 					: outcome === "status-disconnect"
 						? [`GET ${HOST}${status}`, `GET ${HOST}${status}`]
 						: [`GET ${HOST}${status}`]),
+				...(landed === null
+					? []
+					: [`GET ${HOST}${SOURCE}`, `GET ${HOST}${landed}`]),
 			]);
 		});
 	},
@@ -1168,7 +1232,7 @@ it("offers a logo only the logo uses for upload in CommCare HQ, and sends it in 
 			media_format: "png",
 		})
 		.execute();
-	vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+	storeBytes(png);
 	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
@@ -1732,7 +1796,7 @@ it("refuses a missing media reference before creating a deployment or recording 
 		expect(await snapshot()).toEqual({ deployments: [], resources: [] });
 		expect(await h.db().selectFrom("events").selectAll().execute()).toEqual([]);
 		expect(requests(peer)).toEqual([]);
-		expect(downloadAssetBytes).not.toHaveBeenCalled();
+		expect(streamAsset).not.toHaveBeenCalled();
 	});
 });
 
@@ -1848,13 +1912,64 @@ async function place(
 		})
 	).location;
 }
+const PLACE_DETAILS = "/a/clinic/api/location/v1/?limit=1000";
+/**
+ * HQ's place inventory as Nova reads it: the levels, the v2 list, and the v1
+ * list of the same places, which alone carries each external ID
+ * (`locations/resources/v0_5.py`, `v0_6.py`). Each v1 row names its parent
+ * and level by address, as HQ's v1 resource does.
+ */
+function servePlaces(
+	peer: MockAgent,
+	objects: unknown[] | (() => unknown[]),
+	levels: readonly unknown[],
+) {
+	const read = () =>
+		(typeof objects === "function" ? objects() : objects).map(
+			(object): Record<string, unknown> => ({
+				domain: "clinic",
+				last_modified: "2026-11-01T09:00:00",
+				...(object as Record<string, unknown>),
+			}),
+		);
+	const levelId = new Map(
+		levels.map((level) => {
+			const { id, code } = level as { id: number; code: string };
+			return [code, id];
+		}),
+	);
+	const v1 = (places: ReturnType<typeof read>) =>
+		places.map((place) => ({
+			location_id: place.location_id,
+			name: place.name,
+			site_code: place.site_code,
+			domain: place.domain,
+			last_modified: place.last_modified,
+			external_id: place.external_id ?? null,
+			parent: place.parent_location_id
+				? `${HOST}/a/clinic/api/location/v1/${String(place.parent_location_id)}/`
+				: null,
+			location_type: `${HOST}/a/clinic/api/location_type/v1/${levelId.get(String(place.location_type_code))}/`,
+			latitude: place.latitude,
+			longitude: place.longitude,
+			location_data: place.location_data,
+		}));
+	request(peer, PLACES).reply(200, () => ({
+		meta: { next: null },
+		objects: read().map(({ external_id: _externalId, ...place }) => place),
+	}));
+	request(peer, PLACE_DETAILS).reply(200, () => ({
+		meta: { next: null },
+		objects: v1(read()),
+	}));
+}
 function inventory(
 	peer: MockAgent,
-	objects: unknown[] = [],
+	objects: unknown[] | (() => unknown[]) = [],
 	levels: unknown[] = remoteLevels,
 ) {
 	request(peer, LEVELS).reply(200, { meta: { next: null }, objects: levels });
-	request(peer, PLACES).reply(200, { meta: { next: null }, objects });
+	servePlaces(peer, objects, levels);
 }
 function remotePlace(
 	site: string,
@@ -1874,9 +1989,39 @@ function remotePlace(
 		location_data: metadata,
 	};
 }
-/** HQ's place inventory as a publish reads it back after its pushes. */
-function placesReadBack(peer: MockAgent, objects: unknown[]) {
-	request(peer, PLACES).reply(200, { meta: { next: null }, objects });
+/**
+ * HQ's place inventory as a publish reads it back after its pushes: `before`,
+ * with each place every accepted batch in `payloads` wrote laid over it, as
+ * HQ's v2 PATCH saves a row (`locations/resources/v0_6.py`).
+ */
+function placesReadBack(
+	peer: MockAgent,
+	before: unknown[],
+	payloads: readonly unknown[],
+): () => unknown[] {
+	const from = payloads.length;
+	const current = () => {
+		const byId = new Map(
+			before.map((place) => [
+				(place as { location_id: string }).location_id,
+				place as Record<string, unknown>,
+			]),
+		);
+		for (const payload of payloads.slice(from))
+			for (const row of (payload as { objects: Record<string, unknown>[] })
+				.objects) {
+				const id = String(row.location_id ?? `hq-${String(row.site_code)}`);
+				byId.set(id, {
+					...remotePlace(String(row.site_code), String(row.location_type_code)),
+					...byId.get(id),
+					...row,
+					location_id: id,
+				});
+			}
+		return [...byId.values()];
+	};
+	inventory(peer, current);
+	return current;
 }
 function acceptPlaces(peer: MockAgent, payloads: unknown[], ids: string[]) {
 	request(peer, PLACE_PUSH, "PATCH").reply(async (opts) => {
@@ -1946,15 +2091,7 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 					),
 				};
 			});
-		placesReadBack(peer, [
-			remotePlace("north", "region"),
-			remotePlace("south", "region"),
-			remotePlace("central", "district", "hq-north"),
-			remotePlace("south_district", "district", "hq-south"),
-			...Array.from({ length: 101 }, (_, i) =>
-				remotePlace(`clinic_${i}`, "facility", "hq-south_district"),
-			),
-		]);
+		const held = placesReadBack(peer, [], payloads);
 		shellCreated(peer);
 		shellSource(peer);
 		source(peer);
@@ -2032,14 +2169,15 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 					)
 				).archivedCount,
 			).toBe(103);
-			const kept = [
-				remotePlace("north", "region"),
-				remotePlace("central", "district", "hq-north"),
-			];
+			const kept = held().filter((place) =>
+				["hq-north", "hq-central"].includes(
+					(place as { location_id: string }).location_id,
+				),
+			);
+			/* North and central stand on CommCare HQ as Nova sent them, so the
+			 * republish patches neither, and reads them back as they stand. */
 			inventory(peer, kept);
-			acceptPlaces(peer, payloads, ["hq-north"]);
-			acceptPlaces(peer, payloads, ["hq-central"]);
-			placesReadBack(peer, kept);
+			inventory(peer, kept);
 			source(peer);
 			source(peer);
 			imported(peer, "working-app");
@@ -2060,7 +2198,7 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 		});
 		expect(
 			requests(peer).filter((value) => value.startsWith("PATCH")),
-		).toHaveLength(6);
+		).toHaveLength(4);
 	});
 });
 
@@ -2079,7 +2217,7 @@ it("requires exact adoption and preserves foreign JSON while applying and cleari
 		inventory(peer, [remote]);
 		shellCreated(peer);
 		acceptPlaces(peer, payloads, ["hq-north"]);
-		placesReadBack(peer, [remote]);
+		placesReadBack(peer, [remote], payloads);
 		shellSource(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -2115,7 +2253,6 @@ it("requires exact adoption and preserves foreign JSON while applying and cleari
 						location_id: "hq-north",
 						name: "North",
 						site_code: "north",
-						location_type_code: "region",
 						location_data: {
 							phone: "001",
 							old_note: "",
@@ -2154,7 +2291,7 @@ it.each(["refused", "lost response"] as const)(
 					? [remotePlace("central", "district", "hq-north")]
 					: []),
 			];
-			placesReadBack(peer, remotes);
+			const held = placesReadBack(peer, remotes, payloads);
 			await asUser(async (client) => {
 				const failure = body(await call(client), true);
 				expect(failure.error_type).toBe("hq_upload_failed");
@@ -2178,7 +2315,7 @@ it.each(["refused", "lost response"] as const)(
 					}),
 				]);
 				if (mode === "lost response") {
-					inventory(peer, remotes);
+					inventory(peer, held());
 					expect(body(await call(client), true)).toMatchObject({
 						error_type: "hq_resource_conflict",
 						resource_conflicts: [
@@ -2187,14 +2324,11 @@ it.each(["refused", "lost response"] as const)(
 					});
 					expect((await state())?.active).toEqual(partial?.active);
 				}
-				inventory(peer, remotes);
+				/* North stands as Nova sent it, so only central is patched. */
+				inventory(peer, held());
 				shellSource(peer);
-				acceptPlaces(peer, payloads, ["hq-north"]);
 				acceptPlaces(peer, payloads, ["hq-central"]);
-				placesReadBack(peer, [
-					remotePlace("north", "region"),
-					remotePlace("central", "district", "hq-north"),
-				]);
+				placesReadBack(peer, held(), payloads);
 				shellSource(peer);
 				imported(peer);
 				expect(
@@ -2870,6 +3004,14 @@ describe("a lookup table CommCare HQ manages in the project space", () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		const copy = await makeManagedCopy(h, lookup, facilities, TARGET);
 		await seed(managedReader([copy]));
+		/* Manage in Nova, as its index check leaves the table
+		 * (`lib/lookup/managed.ts`): every field's index seen, none indexed. */
+		await h
+			.db()
+			.updateTable("lookup_columns")
+			.set({ index_status: "off" })
+			.where("table_id", "=", copy.tableId)
+			.execute();
 		await h
 			.db()
 			.updateTable("lookup_tables")

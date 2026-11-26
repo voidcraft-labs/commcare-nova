@@ -107,6 +107,7 @@ import {
 	type HqPlace,
 	type ReadCircumstance,
 } from "@/lib/publish/hqFindings";
+import type { StagedObject } from "@/lib/storage/media";
 import type { AdoptedMediaFile } from "../adoption";
 import { DeploymentAppDeletedError, deploymentNotFound } from "../errors";
 import {
@@ -136,7 +137,6 @@ import {
 	type AcceptedDeclaration,
 	acceptReadingSteps,
 } from "../reading/acceptance";
-
 import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
 import { reviewMediaId } from "../reading/mediaIds";
 import {
@@ -149,13 +149,15 @@ import {
 import {
 	adoptedMediaFiles,
 	type HqMediaVerdict,
-	mediaReadLimit,
 	narrowDeclarationsByMedia,
 	type ReadingMediaPlan,
 	readingMediaFindings,
 	readingMediaRows,
 } from "../reading/projectData/media";
-import { judgeReadingMedia } from "../reading/projectData/mediaStore";
+import {
+	judgeReadingMedia,
+	type MediaStaging,
+} from "../reading/projectData/mediaStore";
 import {
 	postgresProjectSide,
 	readReadingProjectData,
@@ -536,8 +538,9 @@ export interface HqChangesComputation {
 export interface HqChangesComputeOptions {
 	/** Minted by a review; the one a bring-in was sent, so a newly read table's ids derive alike. */
 	readonly readingId: string;
-	/** True in a bring-in: the plan keeps the bytes of each file CommCare HQ added or replaced. */
-	readonly keepMedia: boolean;
+	/** Null in a review. In a bring-in: where the bytes of each held file CommCare HQ added
+	 *  or replaced are staged until the bring-in publishes them. */
+	readonly stageMedia: MediaStaging | null;
 	readonly onEvent: (event: HqChangesProgress) => void;
 	readonly cancel?: AbortSignal;
 	/** The pieces a bring-in counts its own synchronous work in beside the computation's. */
@@ -785,18 +788,18 @@ export function unionPlan(
 	return {
 		files: [...files.values()].sort((a, b) => compareText(a.key, b.key)),
 		verdicts: NO_ENTRIES,
-		kept: new Map(),
+		staged: new Map(),
 		published: NO_ENTRIES,
 	};
 }
 
-/** `plan` with a judged plan's verdicts, kept bytes and published assets. */
+/** `plan` with a judged plan's verdicts, staged objects and published assets. */
 export function withJudged(
 	plan: ReadingMediaPlan,
-	judged: Pick<ReadingMediaPlan, "verdicts" | "kept" | "published">,
+	judged: Pick<ReadingMediaPlan, "verdicts" | "staged" | "published">,
 ): ReadingMediaPlan {
 	const verdicts = recordFromEntries<HqMediaVerdict>([]);
-	const kept = new Map<string, Buffer>();
+	const staged = new Map<string, StagedObject>();
 	const published = recordFromEntries<MediaAssetId>([]);
 	for (const file of plan.files) {
 		const verdict = ownRecordValue(judged.verdicts, file.key);
@@ -806,12 +809,12 @@ export function withJudged(
 				? { kind: "available" }
 				: verdict;
 		if (file.availabilityOnly || verdict.kind !== "held") continue;
-		const bytes = judged.kept.get(verdict.file.contentHash);
-		if (bytes !== undefined) kept.set(verdict.file.contentHash, bytes);
+		const object = judged.staged.get(verdict.file.contentHash);
+		if (object !== undefined) staged.set(verdict.file.contentHash, object);
 		const asset = ownRecordValue(judged.published, file.key);
 		if (asset !== undefined) published[file.key] = asset;
 	}
-	return { files: plan.files, verdicts, kept, published };
+	return { files: plan.files, verdicts, staged, published };
 }
 
 /** File assignments for this reading. An HQ file is identified by the native
@@ -1389,10 +1392,13 @@ async function computeWith(
 			creds,
 			server: target.server,
 			domain: target.domain,
+			working: reading,
 			appId: scope.appId,
 			readingId: options.readingId,
 			source,
 			alsoSource: baseSource,
+			pieces,
+			modules,
 			project: postgresProjectSide({
 				projectId: scope.projectId,
 				actorUserId: scope.actorUserId,
@@ -1403,6 +1409,8 @@ async function computeWith(
 			...(cancel !== undefined && { cancel }),
 		});
 	const projectData = await readData("when-source-reads");
+	if (projectData.kind === "too-intricate")
+		return answer(unavailable("comparison-too-intricate", since));
 	if (projectData.kind === "failed")
 		return answer(failedRead(projectData.failure));
 	let fetched: FetchedHqChanges = {
@@ -1439,6 +1447,8 @@ async function computeWith(
 			);
 			onEvent({ type: "stage", stage: "reading-project-data" });
 			const again = await readData("always");
+			if (again.kind === "too-intricate")
+				return answer(unavailable("comparison-too-intricate", since));
 			if (again.kind === "failed") return answer(failedRead(again.failure));
 			fetched = { ...fetched, data: again.data };
 			onEvent({ type: "stage", stage: "checking" });
@@ -1487,16 +1497,17 @@ async function computeWith(
 
 	/* 11. The files both sources name, each fetched once and judged. */
 	const union = unionPlan(planned.base.plan, planned.now.plan);
-	const readLimit = mediaReadLimit(union.files);
-	if (readLimit) return answer(accountReview([readLimit]));
-	let judged: Pick<ReadingMediaPlan, "verdicts" | "kept" | "published"> = union;
+	let judged: Pick<ReadingMediaPlan, "verdicts" | "staged" | "published"> =
+		union;
 	if (union.files.length > 0) {
 		onEvent({ type: "stage", stage: "checking-media" });
 		onEvent({ type: "files", done: 0, total: union.files.length });
 		const files = await judgeReadingMedia({
 			creds,
 			plan: union,
-			keep: options.keepMedia,
+			...(options.stageMedia !== null && {
+				stage: options.stageMedia.stage,
+			}),
 			fetched: settledReads,
 			onProgress: (done, total) => onEvent({ type: "files", done, total }),
 			...(cancel !== undefined && { cancel }),
@@ -1778,17 +1789,7 @@ export async function checkHqChanges(
 			source: readerNow.source,
 			modules: readerNow.modules,
 			outcome: now,
-			reader: {
-				target: readerNow.target,
-				lookup: readerNow.lookup,
-				organization: readerNow.organization,
-				media: readerNow.media,
-				appStrings: readerNow.appStrings,
-				recordDialect: readerNow.recordDialect,
-				...(readerNow.saveOnlyEditedApplied !== undefined && {
-					saveOnlyEditedApplied: readerNow.saveOnlyEditedApplied,
-				}),
-			},
+			reader: readerNow,
 			choices: {
 				kind: "choices",
 				choices: [own],
@@ -2163,7 +2164,7 @@ async function reviewInRoom(
 		target,
 		{
 			readingId: uuidv7(),
-			keepMedia: false,
+			stageMedia: null,
 			onEvent: options.onEvent,
 			...(options.cancel !== undefined && { cancel: options.cancel }),
 		},

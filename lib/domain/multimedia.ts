@@ -761,20 +761,13 @@ export const ASSET_SIZE_CAPS_BYTES: Record<AssetKind, number> = {
 };
 
 /**
- * Aggregate export budget for a single compile / HQ upload. The media-ON
- * paths load EVERY referenced ready asset's bytes into memory at once —
- * the `.ccz` bundles them in one ZIP buffer, the HQ path POSTs them
- * per-file from the same manifest — so the cost scales with the SUM of
- * referenced media, which the per-asset caps above don't bound. Without
- * an aggregate ceiling an app that references hundreds of distinct owned
- * assets could balloon a shared worker's heap (CWE-770). These bound the
- * whole export: the media validator sums the referenced ready assets and
- * rejects an over-budget app before `resolveMediaManifest` downloads a
- * single object.
- *
- * Set generously — a real media-rich app never approaches them (200 MB /
- * 500 attachments is already far past any sane CommCare deployment) — so
- * the only thing they catch is the pathological case.
+ * Aggregate budget of the export boundary's in-memory mode
+ * (`lib/export/boundaryValidation.ts` without `streamMedia`), which loads
+ * EVERY referenced ready asset's bytes at once and so must bound their SUM
+ * (CWE-770): it refuses an over-budget app before `resolveMediaManifest`
+ * downloads a single object. Every production export streams its media one
+ * file at a time instead, so no app is held to these, and neither an attach
+ * nor a bring-in from CommCare HQ counts against them.
  */
 export const MAX_MEDIA_EXPORT_ASSETS = 500;
 export const MAX_MEDIA_EXPORT_BYTES = 200 * 1024 * 1024;

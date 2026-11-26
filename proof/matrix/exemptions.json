@@ -48,8 +48,8 @@
 		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
 	},
 	"expressions-and-data/absent-field-vs-zero-values-vs-empty-string": {
-		"reason": "stated-by-its-part",
-		"note": "Part 11 decided it (its section 13.1): the row resource raises on a field with no value, so no reading meets one."
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/commcare/__tests__/hqLookupRestore.test.ts reads a zero-occurrence field from CommCare HQ's row details and its absence from the device fixture."
 	},
 	"expressions-and-data/audio-3gp": {
 		"reason": "stated-by-its-part",
@@ -68,8 +68,8 @@
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
 	},
 	"expressions-and-data/fields-is-indexed": {
-		"reason": "stated-by-its-part",
-		"note": "Part 11 decided it (its section 13.1): no read an API key makes shows whether a field is indexed."
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; no API-key read shows whether a field is indexed, and lib/commcare/__tests__/hqLookupRestore.test.ts reads the indexed fields from a verified global restore's schema."
 	},
 	"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name": {
 		"reason": "not-in-app-source",
@@ -127,19 +127,19 @@
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
 	},
-	"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns": {
+	"expressions-and-data/non-ascii-lookup-name-a-form-reads": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+		"note": "Every key is of a lookup family, which no app's source holds; lib/commcare/reader/expressions/__tests__/readExpression.form.test.ts refuses a form condition reading a Greek table or column, and proof 4 on proof/targeted/documents/lookupNonAsciiNames.ts, before this refusal, saw HQ's form builder break both."
+	},
+	"expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's Search options page checks the search button's condition and the excluded owners with js-xpath before it saves them (views/modules.py::_check_xpath) and refuses a lookup name outside its unaccented names, so no app's source carries one; the row hq-lookup-names/non-ascii-column-in-search-button-condition holds that outcome."
+	},
+	"expressions-and-data/nova-table-tag-colliding-with-the-form-builder-s-ids": {
+		"reason": "not-in-app-source",
+		"note": "A table Nova manages, which no app made in CommCare HQ holds: Nova's tag schema refuses making or renaming one to these tags (lib/lookup/__tests__/reservedTags.test.ts), taking one over and publishing one (lib/commcare/validator/__tests__); proof/editors/test_project_space_table_tags.py observes each mechanism on a form made in CommCare HQ, beside the names just outside each, which keep the form."
 	},
 	"expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any": {
-		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
-	},
-	"expressions-and-data/tag-or-field-name-holding-a-period": {
-		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
-	},
-	"expressions-and-data/tag-or-field-name-with-non-ascii-letters": {
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
 	},

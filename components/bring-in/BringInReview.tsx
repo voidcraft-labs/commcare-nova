@@ -312,6 +312,26 @@ export function BringInReview({
 								<SentenceParts parts={tables.managed} />
 							</p>
 						) : null}
+						{review.tables
+							.filter(
+								(table) =>
+									table.source?.inventory === "unavailable" ||
+									table.source?.distribution === "assigned",
+							)
+							.map((table) => (
+								<p
+									key={table.tag}
+									className="text-sm leading-relaxed text-nova-text-secondary"
+								>
+									<strong>{table.tag}</strong>
+									{table.source?.inventory === "unavailable"
+										? " stays linked to its source. A Project editor can refresh the inventory in Project data."
+										: ""}
+									{table.source?.distribution === "assigned"
+										? " Each worker receives only their assigned rows. You can check one worker’s access in Project data."
+										: ""}
+								</p>
+							))}
 						{tables.sameEqual.map((line) => (
 							<p
 								key={line}

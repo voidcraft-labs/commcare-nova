@@ -2883,6 +2883,9 @@
 			"expressions-and-data/item-list-tag-read-in-any-other-expression",
 			"expressions-and-data/table-tag-in-nova-s-grammar",
 			"expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any",
+			"expressions-and-data/tag-or-field-name-holding-a-period",
+			"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+			"expressions-and-data/tag-or-field-name-with-non-ascii-letters",
 			"expressions-and-data/tag-types",
 			"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
 			"expressions-and-data/item-attributes-and-per-row-attribute-values",
@@ -2966,7 +2969,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Settings and profile, `case_sharing`)",
+		"content": "HELD (Settings and profile, `case_sharing`)",
 		"contentEntries": ["application-and-settings/39-hq-case-sharing"],
 		"platforms": "n/a",
 		"preflight": {

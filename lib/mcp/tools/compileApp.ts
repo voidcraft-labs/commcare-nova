@@ -34,23 +34,28 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
-	buildHqJsonExportArchive,
 	hqImportFileGuide,
+	streamHqJsonExportArchive,
 } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { projectSpaceCompatibilityForDownload } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { withAppTx } from "@/lib/db/pg";
 import {
 	downloadAttachmentState,
 	downloadKeptAdvisoryFacts,
 	resolveDownloadTarget,
 } from "@/lib/deployment/downloadTarget";
 import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
+import { compileExportSpec } from "@/lib/export/artifacts/access";
+import { EXPORT_RESOURCE_BYTES } from "@/lib/export/artifacts/range";
+import { deliverExport } from "@/lib/export/artifacts/store";
 import {
 	type ExportMode,
 	prepareExportBoundary,
 } from "@/lib/export/boundaryValidation";
-import { compileLocalArchive } from "@/lib/export/localArchive";
+import { streamLocalArchive } from "@/lib/export/localArchive";
+import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
 import {
 	type ExportAdvisory,
 	exportAdvisories,
@@ -60,6 +65,7 @@ import {
 	renderManualImportGuide,
 } from "@/lib/publish/manualImportGuide";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import { sanitizeFilename } from "@/lib/utils/sanitize";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -67,6 +73,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 type CompileFormat = "json" | "ccz";
@@ -83,7 +90,7 @@ export const COMPILE_EXPORT_MODE_BY_FORMAT = {
  * so the hydrated blueprint, authorized Project scope, and denormalized
  * `app_name` (the json media bundle's filename) come from the same load.
  * `app.app_name` is non-blank by schema, so this tool threads it straight
- * into `buildHqJsonExportArchive` without a defensive fallback; the ccz
+ * into `streamHqJsonExportArchive` without a defensive fallback; the ccz
  * profile's name is the document's own `appName`, the same value
  * (`lib/db/blueprintRows.ts` reads the document's name from that column).
  */
@@ -92,8 +99,14 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an app you can view. `format: "json"` returns the CommCare HQ import file, a base64-encoded zip holding the app JSON, its media and Project data when it has them, and a README with the manual import steps; the steps also come first as a `nova_manual_import_guide` text block. The import file works in any project space, so it takes no `domain`. `format: "ccz"` returns the mobile app file base64-encoded, made for one project space the app is already published to: it signs workers in there and sends their forms there. Pass `domain` (and `server` when two servers hold that name) to choose among several; an app published nowhere has no CCZ yet. An app that runs in Web Apps only has no CCZ. `_meta["nova/target"]` names the project space and HQ app a CCZ is made for. A download checks no project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile; when the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact. Check one actual destination with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
+				'Compile an app you can view. Files above 1 MiB return a download resource. Read its parts with resources/read on this connection. `format: "json"` returns the CommCare HQ import file, a base64-encoded zip holding the app JSON, its media and Project data when it has them, and a README with the manual import steps; the steps also come first as a `nova_manual_import_guide` text block. The import file works in any project space, so it takes no `domain`. `format: "ccz"` returns the mobile app file base64-encoded, made for one project space the app is already published to: it signs workers in there and sends their forms there. Pass `domain` (and `server` when two servers hold that name) to choose among several; an app published nowhere has no CCZ yet. An app that runs in Web Apps only has no CCZ. `_meta["nova/target"]` names the project space and HQ app a CCZ is made for. A download checks no project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile; when the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact. Check one actual destination with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
 			inputSchema: z.object({
+				private_data: z
+					.boolean()
+					.optional()
+					.describe(
+						"Include verified worker assignments in the import file for the named server and domain. Requires Project editor access and nova.projects.data.export.",
+					),
 				server: z
 					.enum(COMMCARE_SERVER_IDS)
 					.optional()
@@ -125,6 +138,8 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * denormalized app name in one read. Throws
 				 * `McpAccessError` on cross-tenant probe or vanished row;
 				 * the wire collapses both to `not_found`. */
+				if (args.private_data)
+					assertScope(ctx, SCOPES.projectDataExport, "compile_app");
 				const { doc, app, access } = await loadAppBlueprint(appId, ctx.userId);
 
 				/* Boundary gate — zero tolerance before any expensive work.
@@ -142,10 +157,40 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * manifest resolves only the ids the app's own blueprint references,
 				 * filtered to the project. */
 				const mode = COMPILE_EXPORT_MODE_BY_FORMAT[args.format];
+				const grant = ctx.grant;
 				/* A CCZ is made for one project space this app is published
 				 * to, and the import file for none: a reached deployment only
 				 * scopes its attachment links. The same choice the browser
 				 * download makes, over the document this call loaded. */
+				const assignmentAccess =
+					args.private_data &&
+					args.format === "json" &&
+					args.domain &&
+					args.server &&
+					grant
+						? {
+								scope: {
+									appId,
+									projectId: access.projectId,
+									actorUserId: ctx.userId,
+								},
+								grant,
+								target: { server: args.server, domain: args.domain },
+							}
+						: undefined;
+				if (args.private_data && !assignmentAccess)
+					throw new McpInvalidInputError(
+						"Choose a server and project space for the import file with worker assignments.",
+					);
+				if (assignmentAccess)
+					await withAppTx((tx) =>
+						authorizeAssignmentExport(
+							tx,
+							assignmentAccess.scope,
+							assignmentAccess.grant,
+							assignmentAccess.target,
+						),
+					);
 				const download = await resolveDownloadTarget(
 					{
 						appId,
@@ -156,7 +201,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					{
 						format: args.format,
 						...(args.server !== undefined && { server: args.server }),
-						...(args.domain !== undefined && { domain: args.domain }),
+						...(assignmentAccess && {
+							assignmentDestination: assignmentAccess.target,
+						}),
+						...(!args.private_data &&
+							args.domain !== undefined && { domain: args.domain }),
 						doc,
 					},
 				);
@@ -170,6 +219,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				}
 				const { attachmentTarget } = download;
 				const boundary = await prepareExportBoundary({
+					streamMedia: true,
+					...(grant && {
+						archiveActor: () => ({ appId, grant }),
+					}),
+					assignmentAccess,
 					mode,
 					access,
 					doc,
@@ -180,6 +234,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					 * made for none. */
 					...(download.format === "ccz" && {
 						heldMediaPaths: download.mediaPaths,
+						installTarget: download.runtimeTarget,
 					}),
 				});
 				if (!boundary.ok) {
@@ -203,6 +258,49 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					managedLookupTables,
 					managedLookupWorkbooks,
 				} = boundary.prepared;
+				const prepared = boundary.prepared;
+				const authorizedTarget = download;
+				async function contentFor(
+					source: AsyncIterable<Uint8Array>,
+					format: "zip" | "ccz",
+				) {
+					const file = await deliverExport(
+						source,
+						() => {
+							if (!grant)
+								throw new McpInvalidInputError(
+									"You can reconnect to Nova to prepare this download.",
+								);
+							return {
+								actor: { userId: ctx.userId, grant },
+								spec: compileExportSpec(
+									appId,
+									prepared,
+									authorizedTarget,
+									sanitizeFilename(app.app_name) + "." + format,
+								),
+							};
+						},
+						{ protected: prepared.assignmentWitness !== undefined },
+					);
+					return {
+						type: "text" as const,
+						text: JSON.stringify(
+							"bytes" in file
+								? {
+										format,
+										encoding: "base64",
+										data: file.bytes.toString("base64"),
+									}
+								: {
+										format,
+										artifact: file.artifact,
+										resource: "nova://exports/" + file.artifact.id + "/bytes/0",
+										partBytes: EXPORT_RESOURCE_BYTES,
+									},
+						),
+					};
+				}
 				const hasMedia = assets.size > 0;
 				const projectSpaceCompatibility =
 					projectSpaceCompatibilityForDownload(preparedDoc);
@@ -252,6 +350,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							assets,
 							lookupWorkbook,
 							managedLookupWorkbooks,
+							extraWorkbooks: prepared.streamedWorkbooks,
 							managedLookupTables,
 							attachmentTarget,
 							lookupNaming,
@@ -259,7 +358,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						/* base64 inside a `{ format: "zip", ... }` wrapper: MCP
 						 * text content is UTF-8 only, and the wrapper tells the
 						 * client to decode rather than parse the text. */
-						const archive = buildHqJsonExportArchive(
+						const archive = streamHqJsonExportArchive(
 							app.app_name,
 							preparedDoc,
 							hqJson,
@@ -267,20 +366,14 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							lookupWorkbook,
 							managedLookupWorkbooks,
 							renderManualImportGuide(guide),
+							prepared.streamedWorkbooks,
 						);
 						return {
 							content: [
 								...projectSpaceCompatibilityContent,
 								...advisoryContent,
 								manualImportGuideContent(guide),
-								{
-									type: "text",
-									text: JSON.stringify({
-										format: "zip",
-										encoding: "base64",
-										data: archive.toString("base64"),
-									}),
-								},
+								await contentFor(archive, "zip"),
 							],
 							_meta: {
 								"nova/compiledAtSeq": compiledAtSeq,
@@ -304,7 +397,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * MCP text content is UTF-8 only, so base64 is the
 						 * safest lossless escape, and the `encoding` field
 						 * inside the wrapper tells the caller to decode it. */
-						const cczBuf = compileLocalArchive(
+						const cczBuf = streamLocalArchive(
 							boundary.prepared,
 							download.runtimeTarget,
 							download.identity,
@@ -320,14 +413,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							content: [
 								...projectSpaceCompatibilityContent,
 								...advisoryContent,
-								{
-									type: "text",
-									text: JSON.stringify({
-										format: "ccz",
-										encoding: "base64",
-										data: cczBuf.toString("base64"),
-									}),
-								},
+								await contentFor(cczBuf, "ccz"),
 							],
 							_meta: {
 								"nova/target": {

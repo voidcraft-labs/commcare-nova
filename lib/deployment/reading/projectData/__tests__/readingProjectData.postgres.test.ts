@@ -125,6 +125,7 @@ const HOST = "https://india.commcarehq.org";
 const READS = path.join(process.cwd(), "proof/hq-reads");
 const LIST = `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`;
 const LEVELS = `/a/${DOMAIN}/api/location_type/v1/?limit=1000`;
+const PLACE_DETAILS = `/a/${DOMAIN}/api/location/v1/?limit=1000`;
 const PLACES = `/a/${DOMAIN}/api/location/v2/?limit=5000`;
 const PLAIN_ID = "09948f8373da4c86a86b7707a0e9fbcd";
 const RICH_ID = "9ea70d486f644cc4a2f22c063294e197";
@@ -162,7 +163,50 @@ function serveJson(peer: MockAgent, requestPath: string, body: unknown): void {
 function serveTables(peer: MockAgent): void {
 	serve(peer, LIST, retained("lookups/lookup-tables.json"));
 	serve(peer, rowsPath(PLAIN_ID), retained("lookups/fixture-rows-plain.json"));
-	serve(peer, rowsPath(RICH_ID), retained("lookups/fixture-rows-rich.json"));
+	serveRich(peer);
+}
+
+/**
+ * The rows of `rich`, whose definition carries a row attribute and a field
+ * property, so Nova reads them as the plan's section 1B says: the ordered
+ * list, the definition, each listed row's detail
+ * (`fixtures/resources/v0_1.py::LookupTableItemResource`) in two passes, and
+ * the definition again. Each detail repeats what the list holds, in the
+ * `field_list` form, with the row's sort key and no attribute value.
+ */
+function serveRich(peer: MockAgent): void {
+	const list = retained("lookups/fixture-rows-rich.json");
+	const rows = (
+		JSON.parse(list.body) as {
+			objects: { id: string; fields: Record<string, unknown> }[];
+		}
+	).objects;
+	const definition = (
+		JSON.parse(retained("lookups/lookup-tables.json").body) as {
+			objects: { id: string }[];
+		}
+	).objects.find((table) => table.id === RICH_ID);
+	for (let pass = 0; pass < 3; pass++) serve(peer, rowsPath(RICH_ID), list);
+	for (let read = 0; read < 2; read++)
+		serveJson(peer, `/a/${DOMAIN}/api/lookup_table/v1/${RICH_ID}/`, definition);
+	for (const [index, row] of rows.entries()) {
+		const fields = Object.fromEntries(
+			Object.entries(row.fields).map(([name, value]) => [
+				name,
+				typeof value === "string"
+					? { field_list: [{ field_value: value, properties: {} }] }
+					: value,
+			]),
+		);
+		for (let pass = 0; pass < 2; pass++)
+			serveJson(peer, `/a/${DOMAIN}/api/lookup_table_item/v1/${row.id}/`, {
+				id: row.id,
+				data_type_id: RICH_ID,
+				sort_key: index,
+				item_attributes: {},
+				fields,
+			});
+	}
 }
 
 /** A row in the shape `FixtureResource` serves. */
@@ -197,7 +241,7 @@ function serveWithRegion(peer: MockAgent): void {
 			}),
 		]),
 	);
-	serve(peer, rowsPath(RICH_ID), retained("lookups/fixture-rows-rich.json"));
+	serveRich(peer);
 }
 
 const ZONES_ID = "3f0a5d2c7b1e4a9c8d6f0e2b4a6c8e01";
@@ -260,7 +304,18 @@ function levelAnswer(withDistrict: boolean) {
 
 function servePlaces(peer: MockAgent, withDistrict = true): void {
 	serveJson(peer, LEVELS, levelAnswer(withDistrict));
-	serve(peer, PLACES, retained("places/locations.json"));
+	for (const [url, file] of [
+		[PLACES, "locations"],
+		[PLACE_DETAILS, "locations-v1"],
+	]) {
+		const answer = retained(`places/${file}.json`);
+		serve(peer, url, {
+			...answer,
+			body: answer.body
+				.replaceAll("nova-proof", DOMAIN)
+				.replaceAll("https://www.commcarehq.org", HOST),
+		});
+	}
 }
 
 function calls(peer: MockAgent): readonly string[] {
@@ -274,9 +329,11 @@ function calls(peer: MockAgent): readonly string[] {
 
 /**
  * A source CommCare HQ served, its first form declaring the `plain` and
- * `rich` tables as the form builder declares a lookup table.
+ * `rich` tables and reading both in a question condition.
  */
-async function namingSource(): Promise<HqAppSource> {
+async function namingSource(
+	tags: readonly string[] = ["plain", "rich"],
+): Promise<HqAppSource> {
 	const body = retainedSourceBody(
 		"navigation-base/app-source-after-form-settings-save",
 	);
@@ -289,10 +346,21 @@ async function namingSource(): Promise<HqAppSource> {
 		...body,
 		_attachments: {
 			...attachments,
-			[first]: attachments[first].replace(
-				casedb,
-				`${casedb}<instance src="jr://fixture/item-list:plain" id="plain"/><instance src="jr://fixture/item-list:rich" id="rich"/>`,
-			),
+			[first]: attachments[first]
+				.replace(
+					casedb,
+					casedb +
+						tags
+							.map(
+								(tag) =>
+									`<instance src="jr://fixture/item-list:${tag}" id="${tag}"/>`,
+							)
+							.join(""),
+				)
+				.replace(
+					"<bind ",
+					`<bind relevant="${tags.map((tag) => `count(instance('${tag}')/${tag}_list/${tag}) > 0`).join(" and ")}" `,
+				),
 		},
 	});
 }
@@ -332,7 +400,7 @@ async function readData(
 ): Promise<ReadingProjectData> {
 	const answer = await read(source, places, project, ids);
 	if (answer.kind !== "read")
-		throw new Error(`the read failed: ${JSON.stringify(answer.failure)}`);
+		throw new Error(`the read failed: ${JSON.stringify(answer)}`);
 	return answer.data;
 }
 
@@ -697,28 +765,11 @@ describe("readReadingProjectData over Postgres", () => {
 				"north_clinic",
 				"south",
 			]);
-			expect(data.gathered.placesPastLimit).toBeNull();
-		});
-	});
-
-	it("stops a place list past Nova's limit at the page that names its total", async () => {
-		await h.seedProjectMember(ACTOR, PROJECT, "owner");
-		const source = await namingSource();
-		const page = JSON.parse(retained("places/locations.json").body) as {
-			meta: Record<string, unknown>;
-		};
-		page.meta.total_count = 10_001;
-		page.meta.next = `/a/${DOMAIN}/api/location/v2/?limit=5000&offset=1000`;
-		await withHttpPeer(async (peer) => {
-			serveTables(peer);
-			serveJson(peer, LEVELS, levelAnswer(true));
-			serveJson(peer, PLACES, page);
-			const data = await readData(source, "always");
-			expect(data.gathered.placesPastLimit).toEqual({ totalCount: 10_001 });
-			expect(data.gathered.hqPlaces).toEqual([]);
-			expect(calls(peer).filter((call) => call.startsWith(PLACES))).toEqual([
-				PLACES,
-			]);
+			expect(
+				data.gathered.hqPlaces.every(
+					(place) => place.observation !== undefined,
+				),
+			).toBe(true);
 		});
 	});
 
@@ -731,17 +782,30 @@ describe("readReadingProjectData over Postgres", () => {
 			servePlaces(peer, true);
 			const data = await readData(source, "always");
 			expect(data.organization.levelCodes).toEqual(["region", "district"]);
-			expect(calls(peer).slice(-4)).toEqual([LEVELS, PLACES, LEVELS, PLACES]);
+			expect(calls(peer).slice(-6)).toEqual([
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+			]);
 		});
 		await withHttpPeer(async (peer) => {
 			serveTables(peer);
 			servePlaces(peer, false);
 			servePlaces(peer, false);
-			expect(await read(source, "always")).toEqual({
-				kind: "failed",
-				failure: { kind: "hq-unavailable", request: "locations", status: 200 },
-			});
-			expect(calls(peer).slice(-4)).toEqual([LEVELS, PLACES, LEVELS, PLACES]);
+			expect((await readData(source, "always")).gathered.inconsistent).toBe(
+				true,
+			);
+			expect(calls(peer).slice(-6)).toEqual([
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+			]);
 		});
 	});
 
@@ -1260,11 +1324,7 @@ describe("the birth's two writers, in a birth's order", () => {
 					}),
 				]),
 			);
-			serve(
-				peer,
-				rowsPath(RICH_ID),
-				retained("lookups/fixture-rows-rich.json"),
-			);
+			serveRich(peer);
 			return readData(source, "when-source-reads", undefined, SECOND);
 		});
 		expect(second.gathered.tables[0].standing?.kind).toBe("same-managed");
@@ -1609,18 +1669,13 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 		const high = lookupTableIdSchema.parse(
 			"019a8000-0000-7000-8000-000000000002",
 		);
-		const source = await sourceFromBody({
-			...retainedSourceBody(
-				"navigation-base/app-source-after-form-settings-save",
-			),
-			note: "instance('item-list:zones') instance('item-list:clinics')",
-		});
+		const source = await namingSource(["zones", "clinics"]);
 		const reads = await withHttpPeer(async (peer) => {
 			serveTwoTables(peer);
 			const answer = await readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: DOMAIN,
-				sourceText: JSON.stringify(source.raw),
+				referencedTags: async () => new Set(["zones", "clinics"]),
 			});
 			if ("success" in answer) throw new Error("the tables did not read");
 			return answer.tables;

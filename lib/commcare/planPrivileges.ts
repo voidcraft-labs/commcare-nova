@@ -62,6 +62,7 @@ export const HQ_PLAN_PRIVILEGE_IDS = [
 	"user_case",
 	"lookup_tables",
 	"child_cases",
+	"case_sharing_groups",
 	"form_link_workflow",
 	"save_to_case",
 	"locations",
@@ -113,6 +114,7 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	user_case: "worker-records",
 	lookup_tables: "lookup-tables",
 	child_cases: "child-cases",
+	case_sharing_groups: "case-sharing-groups",
 	form_link_workflow: "form-links",
 	save_to_case: "advanced-case-actions",
 	locations: "organization",
@@ -357,6 +359,13 @@ export function requiredPlanPrivileges(
 	 * and its view ignores one that is posted (`views/forms.py::_edit_form_attr`),
 	 * so nobody can change the links Nova wrote. The emitter writes
 	 * `post_form_workflow: "form"` exactly for a form with links. */
+	add(
+		"case_sharing_groups",
+		doc.appSettings.caseSharing
+			? ["New cases can belong to a worker’s case-sharing group."]
+			: [],
+	);
+
 	add(
 		"form_link_workflow",
 		forms.flatMap(({ formUuid }) =>

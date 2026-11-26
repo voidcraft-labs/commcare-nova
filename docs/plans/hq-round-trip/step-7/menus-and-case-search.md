@@ -147,6 +147,16 @@ argument, collection order, collision on create, stale manifest and failure leav
 
 ## M3. Display conditions and badges
 
+Extend the lookup reader’s source-keyed instance resolution to the complete suite entry that evaluates a
+condition. In HQ’s `suite_xml/post_process/instances.py`, `_get_all_xpaths_for_entry` scans the command,
+reachable details, datums, search request, assertions and stack frames, and selects menu expressions by build
+version. `_get_custom_instances` joins declarations to the command’s owning form. The same local ID may be
+absent in a neighboring entry. Group 1 witnesses a grouped lookup ID with and without a scanner-visible
+sibling in one search request. Carry this pair through a gated Search default, a referenced detail, a
+form’s custom instance and an unrelated command when the shared menu/entry projection can name those owners.
+Retain the exact built suite’s per-entry declarations and both readers’ worker outcomes for the M3 corpus.
+
+
 Reuse the existing typed `Expression`, slot scopes and typed relation/table/property references.
 `Module.displayCondition` has the menu session context. A form condition may read the case only when its actual
 screen already chose it and the HQ build can resolve it on that command. The wider boolean slot admits supported

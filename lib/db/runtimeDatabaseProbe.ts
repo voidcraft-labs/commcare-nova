@@ -289,6 +289,7 @@ async function assertFinalMediaReferenceCatalog(
 }
 
 export interface RuntimeProbeStoredProjectLookupReference {
+	readonly member_id?: string;
 	readonly project_id: string;
 	readonly table_id: string;
 	readonly column_id: string | null;
@@ -436,7 +437,13 @@ function expectedProjectLookupReferences(
 	projectId: string,
 	targets: LookupReferenceTargetSet,
 ): readonly RuntimeProbeStoredProjectLookupReference[] {
-	return [
+	const rows: RuntimeProbeStoredProjectLookupReference[] = [
+		...(targets.memberTargets ?? []).map(({ tableId, columnId, memberId }) => ({
+			project_id: projectId,
+			table_id: tableId,
+			column_id: columnId ?? null,
+			member_id: memberId,
+		})),
 		...targets.tableIds.map((tableId) => ({
 			project_id: projectId,
 			table_id: tableId,
@@ -447,10 +454,12 @@ function expectedProjectLookupReferences(
 			table_id: tableId,
 			column_id: columnId,
 		})),
-	].sort(
+	];
+	return rows.sort(
 		(left, right) =>
 			left.table_id.localeCompare(right.table_id) ||
 			(left.column_id ?? "").localeCompare(right.column_id ?? "") ||
+			(left.member_id ?? "").localeCompare(right.member_id ?? "") ||
 			left.project_id.localeCompare(right.project_id),
 	);
 }
@@ -459,17 +468,27 @@ async function readStoredProjectLookupReferences(
 	tx: Kysely<AppDatabase>,
 	appId: string,
 ): Promise<readonly RuntimeProbeStoredProjectLookupReference[]> {
-	const result = await sql<RuntimeProbeStoredProjectLookupReference>`
-		SELECT project_id, table_id::text AS table_id, NULL::text AS column_id
+	const result = await sql<
+		Omit<RuntimeProbeStoredProjectLookupReference, "member_id"> & {
+			member_id: string | null;
+		}
+	>`
+		SELECT project_id, table_id::text AS table_id, NULL::text AS column_id, NULL::text AS member_id
 		FROM lookup_table_references
 		WHERE app_id = ${appId}
 		UNION ALL
-		SELECT project_id, table_id::text AS table_id, column_id::text AS column_id
+		SELECT project_id, table_id::text AS table_id, column_id::text AS column_id, NULL::text AS member_id
 		FROM lookup_column_references
 		WHERE app_id = ${appId}
-		ORDER BY table_id, column_id NULLS FIRST, project_id
+		UNION ALL
+		SELECT r.project_id,r.table_id::text,m.column_id::text,r.member_id::text
+		FROM lookup_member_references r JOIN lookup_members m ON (r.project_id,r.table_id,r.member_id)=(m.project_id,m.table_id,m.id)
+		WHERE r.app_id=${appId}
+		ORDER BY table_id, column_id NULLS FIRST, member_id NULLS FIRST, project_id
 	`.execute(tx);
-	return result.rows;
+	return result.rows.map(({ member_id, ...row }) =>
+		member_id === null ? row : { ...row, member_id },
+	);
 }
 
 async function auditRuntimeMediaReferenceProjection(

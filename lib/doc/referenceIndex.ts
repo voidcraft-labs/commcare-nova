@@ -1109,6 +1109,8 @@ function termEdges(
 		case "location-level":
 			sink.edge(entityTargetKey(term.levelUuid), slot);
 			return;
+		case "worker-group-field":
+			break;
 		case "location-field":
 			if (typeof term.field !== "string")
 				sink.edge(

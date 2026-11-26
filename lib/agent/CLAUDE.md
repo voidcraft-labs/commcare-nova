@@ -41,6 +41,17 @@ compiler briefs, and slice executors are retired. Historical database artifacts
 are retained for inspection; serving code does not translate or execute them.
 The one-time transition is in `docs/architecture/design-format-cutover.md`.
 
+## Project data authoring
+
+The shared lookup tools use the app’s Project and the caller’s live grant.
+The rows-free catalog pages stable column and detail identities. A schema edit
+reviews every referencing app under one Project and table revision.
+Ordinary row pages can return text fragments. Individual value reads and staged
+UTF-8 replacements address the exact row, column or detail and occurrence.
+A staged edit binds the app, caller, grant, operation ID, table revision and value
+digest. A protected source inventory requires its own connected editor or worker
+read. The general catalog carries its availability without counts or source rows.
+
 ## Library discovery and source selection
 
 The shared `listMediaAssets` operation searches the current Project's whole

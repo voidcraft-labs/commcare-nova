@@ -75,7 +75,7 @@ def _renamed(published):
     write = apps.form_written(published, {"0.0": lambda source: _with_tags(source)})
 
     def change(stored):
-        for table in LookupTable.objects.filter(domain=published.unit.domain):
+        for table in LookupTable.objects.filter(domain=published.unit.domain, tag__in=list(TAGS)):
             table.tag = TAGS[table.tag]
             table.save()
         write(stored)
