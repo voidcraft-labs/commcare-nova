@@ -10,7 +10,9 @@
 // the three proofs a run's evidence writes; a `proof3` row, a difference
 // a worker meets, only under an entry that touches workers, but a value a
 // search sends CommCare HQ, which no worker meets apart from the cases HQ
-// answers with, and proof 3 compares those apart; and each
+// answers with, and the paired group identities of a legacy Search heading.
+// The source judge certifies that heading's paired spelling and the native
+// judge compares wording and behavior separately. Each
 // object's `placeKinds` the kinds of place its entry stands at. Otherwise
 // the lane would accept a stored-app difference the register does not allow,
 // a behavior difference under an entry that declares none, or a place of a
@@ -47,6 +49,7 @@ const CHECKS = new Set(["source", "proof1", "proof2", "proof3"]);
 // (`proof/checks/xform_parts.py`).
 const FORM_SOURCE = "/_attachments/*";
 const FORM_PART = `${FORM_SOURCE}/`;
+const LEGACY_SEARCH_GROUP_REKEY = "legacy-search-group-wording-rekeyed";
 
 // Values carried in an HQ Search request. Proof 3 separately compares HQ's
 // answers and what the worker sees.
@@ -95,6 +98,23 @@ describe("proof/first-publish-changes.json", () => {
 				FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId];
 			const appWide = "appWide" in entry.at;
 			const source = one.rows.filter((row) => row.check === "source");
+			if (one.change === LEGACY_SEARCH_GROUP_REKEY) {
+				// The source comparison gives the certified locale pair its own class.
+				// The recorded paths name the two locale entries and their owning group.
+				expect(entry.paths).toEqual([
+					"/translations/*/*",
+					"/modules/*/search_config/properties/*/group_key",
+				]);
+				expect(source).toEqual(
+					["removed", "added"].map((kind) => ({
+						check: "source",
+						artifact: "app.json",
+						path: "/translations/*/search_group_heading",
+						kind,
+					})),
+				);
+				continue;
+			}
 			for (const row of source)
 				expect([one.change, row.artifact, row.kind]).toEqual([
 					one.change,
@@ -154,13 +174,33 @@ describe("proof/first-publish-changes.json", () => {
 	});
 
 	it("allows a difference a worker meets only under a change that touches workers", () => {
-		for (const one of load())
-			if (one.rows.some((row) => row.check === "proof3" && !searchSent(row)))
-				expect([
-					one.change,
-					FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId]
-						.touchesWorkers,
-				]).toEqual([one.change, true]);
+		for (const one of load()) {
+			const { touchesWorkers } =
+				FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId];
+			const behavior = one.rows.filter((row) => row.check === "proof3");
+			if (one.change === LEGACY_SEARCH_GROUP_REKEY) {
+				// Formplayer includes the group key on each member and maps the same
+				// displayed heading under that key. The native judge holds both together.
+				expect(touchesWorkers).toBe(false);
+				expect(behavior).toEqual(
+					["/response", "/response/queryResponse"].flatMap((response) => {
+						const prefix = `/runs/*/steps/*${response}`;
+						return [
+							{ path: `${prefix}/displays/*/groupKey`, kind: "changed" },
+							{ path: `${prefix}/groupHeaders/*`, kind: "removed" },
+							{ path: `${prefix}/groupHeaders/*`, kind: "added" },
+						].map((role) => ({
+							check: "proof3",
+							artifact: "formplayer@*",
+							...role,
+						}));
+					}),
+				);
+				continue;
+			}
+			if (behavior.some((row) => !searchSent(row)))
+				expect([one.change, touchesWorkers]).toEqual([one.change, true]);
+		}
 	});
 
 	it("reads Search query and order values only from request parameter paths", () => {
