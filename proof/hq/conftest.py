@@ -51,6 +51,7 @@ DOCUMENTS = (
     "case-list-inline",
     "case-list-local",
     "targeted-hq-side-lookup",
+    "targeted-indexed-lookup",
     "targeted-hq-side-owned",
     "search-registration-link",
     "targeted-hq-side-state",
