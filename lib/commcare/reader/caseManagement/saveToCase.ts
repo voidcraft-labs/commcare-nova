@@ -994,6 +994,20 @@ function bindsUnder(
 	return out;
 }
 
+/** Binds of an exact XML index leaf, even when its name cannot be parsed as
+ * a portable XPath. A refusal never uses this path as a new expression. */
+function sourceIndexBinds(
+	xform: ReadXForm,
+	block: ReadSaveToCaseBlock,
+	identifier: string,
+): readonly Element[] {
+	const root = xform.parsed.dataRoot.name;
+	const path = `/${[root, ...block.path, "case", "index", identifier].join("/")}`;
+	return xform.parsed.binds.filter(
+		({ attribs }) => attribs.nodeset?.trim() === path,
+	);
+}
+
 /** Each bind under `prefix` after the first on its node (`bindsUnder` holds
  *  the first), which the xform stage reads as no bind of its node
  *  (`xform/model.ts::readBinds`): a block that holds one is no block Nova
@@ -2059,22 +2073,13 @@ function readBlock(
 			if (
 				!identifier.includes(":") &&
 				/[^ -~]/u.test(identifier) &&
-				elementNamespace(link, xform.parsed.scope(link)) === CASE_TRANSACTION_NS
-			) {
-				const sourcePath = `/${[root, ...linkPath].join("/")}`;
-				// Check the exact stored nodeset even when a name cannot be parsed
-				// as a portable XPath. A refusal never creates a new expression.
-				if (
-					xform.parsed.binds.some(
-						({ attribs }) =>
-							attribs.nodeset?.trim() === sourcePath &&
-							attribs.calculate?.trim(),
-					)
+				elementNamespace(link, xform.parsed.scope(link)) ===
+					CASE_TRANSACTION_NS &&
+				sourceIndexBinds(xform, block, identifier).some(({ attribs }) =>
+					attribs.calculate?.trim(),
 				)
-					return fail(SAVE_TO_CASE_CLAIMS.linkUnicodeName, {
-						name: identifier,
-					});
-			}
+			)
+				return fail(SAVE_TO_CASE_CLAIMS.linkUnicodeName, { name: identifier });
 			if (
 				!isCaseOperationLinkIdentifier(identifier) ||
 				nameProblem !== undefined
@@ -3092,6 +3097,12 @@ function refuseBlock(
 				)
 					reachNode(xform, { element: bind, attribute }, claim);
 	}
+	if (
+		claim === SAVE_TO_CASE_CLAIMS.linkUnicodeName &&
+		typeof detail?.name === "string"
+	)
+		for (const bind of sourceIndexBinds(xform, block, detail.name))
+			reachElement(xform, bind, claim);
 	for (const bind of laterBindsUnder(xform, block.path))
 		reachElement(xform, bind, claim);
 	for (const setvalue of setvaluesUnder(xform, block.path))
