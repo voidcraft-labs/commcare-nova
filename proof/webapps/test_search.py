@@ -931,3 +931,56 @@ def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
         assert result["headings"] == [text, "Case details"]
         assert sent == [{"first_name": "North", "case_name": "River"}]
         assert run.page_errors == []
+
+
+def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence,
+):
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+    from proof.matrix import ops
+    from proof.matrix.authoring import Authoring
+
+    document = webapps_documents["search-grouped-prompts"]
+    group_name, prop_label = "g", "Account code"
+    key = f"search_property.m0.{group_name}"
+    with webapps_hq.project(document) as project:
+        state, app_id = project.unit, project.app_id
+        app = operations.held_app(state, app_id)
+        properties = [prop.to_json() for prop in app.get_module(0).search_config.properties]
+        properties[0].update({"name": group_name, "group_key": group_name})
+        properties[1]["group_key"] = group_name
+        properties.append({
+            "doc_type": "CaseSearchProperty",
+            "name": group_name, "label": {"en": prop_label},
+            "group_key": properties[-1]["group_key"], "exclude": True,
+        })
+        authoring = Authoring(state, {}, "shared-search-group-locale", operation=state.operation)
+        ops.set_json(authoring, app_id, "/modules/0/search_config/properties", properties)
+        app = operations.held_app(state, app_id)
+        assert key not in app.translations.get("en", {})
+        assert parse_app_strings(app.create_app_strings("en"))[key] == prop_label
+        suite = etree.fromstring(app.create_suite())
+        assert suite.xpath(f".//group[@key='{group_name}']/display/text/locale[@id='{key}']")
+        assert suite.xpath(f".//prompt[@key='{group_name}']/display/text/locale[@id='{key}']")
+        opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+        with project.released(formplayer_runner) as release:
+            run = Session(release, editor_driver).run([
+                *opening,
+                {"eval": """() => {
+                    const text = (selector) => [...document.querySelectorAll(selector)]
+                        .map(label => label.textContent.trim());
+                    return {
+                        headings: text('#query-list-contents .search-query-group-header-label'),
+                        prompts: text('#query-list-contents [id="query-group-content"] .query-caption label'),
+                    };
+                }"""},
+            ])
+    read = run.value(len(opening))
+    labels, prompts = read["headings"], read["prompts"]
+    evidence("shared-search-group-locale", {"headings": labels, "prompts": prompts, "locale": key})
+    assert not run.page_errors and not run.dialogs
+    assert labels == [prop_label, "Case details"]
+    assert prompts == ["Name", "Record name", prop_label]
