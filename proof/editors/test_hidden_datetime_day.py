@@ -75,7 +75,7 @@ def hidden_day_database():
         cases=(
             casedata.CaseRecord(
                 case_id=PERSON, case_type="person", name="One person", owner_id=casedata.USER_ID,
-                opened_on="2025-04-01T00:00:00Z", modified_on="2025-04-01T00:00:00Z",
+                opened_on="2025-04-01T00:00:00.000000Z", modified_on="2025-04-01T00:00:00.000000Z",
                 external_id=None, properties=(),
             ),
         ),
