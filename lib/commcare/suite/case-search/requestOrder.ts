@@ -203,15 +203,23 @@ export function requestOrderText(order: SearchRequestOrder): string {
 
 /** The order a literal `commcare_sort` text names, or `undefined` for text
  *  Nova cannot hold. HQ strips leading signs from the property and reads
- *  only the first for direction. Multiple comparison separators still refuse. */
+ *  only the first for direction. A single nonempty suffix after an explicit
+ *  comparison is discarded by the receiver, which reads only the first two
+ *  fields. An empty comparison instead resets the accumulated sort. */
 export function readRequestOrderText(
 	text: string,
-): SearchRequestOrder | undefined {
+): { order: SearchRequestOrder; removedSuffix: boolean } | undefined {
 	const order: Term[] = [];
+	let removedSuffix = false;
+	let repeatedSigns = false;
 	for (const part of text.split(",")) {
 		const signed = /^[+-]/.test(part);
-		const [key, comparison, ...extra] = part.replace(/^[-+]+/, "").split(":");
-		if (extra.length > 0 || key === undefined) return;
+		repeatedSigns ||= /^[+-]{2}/.test(part);
+		const [key, comparison, suffix, ...extra] = part
+			.replace(/^[-+]+/, "")
+			.split(":");
+		if (extra.length > 0 || key === undefined || suffix === "") return;
+		removedSuffix ||= suffix !== undefined;
 		const term = readTerm(
 			key,
 			comparison ?? "exact",
@@ -224,5 +232,7 @@ export function readRequestOrderText(
 			...(!signed && { implicitDirection: true as const }),
 		});
 	}
-	return order as SearchRequestOrder;
+	// The two source rewrites have independent first-publish controls.
+	if (removedSuffix && repeatedSigns) return;
+	return { order: order as SearchRequestOrder, removedSuffix };
 }

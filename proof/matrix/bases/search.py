@@ -64,7 +64,8 @@
    values in sequence. The first uses two leading signs on its first term.
    HQ keeps the stored text and uses its first sign, so the first publish
    removes only the redundant sign (``search-order-direction-signs-respelled``).
-   The second order stays as written.
+   The second keeps its explicit comparison and drops the ignored suffix
+   (``search-order-unused-suffix-removed``).
 5. A referrals menu that searches case attributes, a date, an ancestor and
    the worker's owner ID. Independent rows use both the matched and excluded
    prompts. A separate device filter narrows the worker's list after the
@@ -285,7 +286,7 @@ def build(authoring) -> str:
         authoring, app_id, 2, rows=[JOINED_ROW],
         filters=[
             ("commcare_sort", "'+-client_code:exact,-dob:date'"),
-            ("commcare_sort", "'+name'"),
+            ("commcare_sort", "'+name:exact:obsolete'"),
         ],
         auto_launch=True, inline_search=True,
     )

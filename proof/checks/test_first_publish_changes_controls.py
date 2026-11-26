@@ -928,8 +928,13 @@ def _built(artifact, path, at, kind="changed"):
 
 
 @pytest.mark.parametrize("build_element", ("remote-request", "entry"))
-def test_repeated_search_order_change_covers_original_filter_and_exact_built_and_sent_values(build_element):
-    change = "search-order-direction-signs-respelled"
+@pytest.mark.parametrize(("change", "original"), (
+    ("search-order-direction-signs-respelled", "++priority:exact"),
+    ("search-order-unused-suffix-removed", "+priority:exact:obsolete"),
+))
+def test_search_order_change_covers_original_filter_and_exact_built_and_sent_values(build_element, change, original):
+    canonical = "+priority:exact"
+    before, after = f"'{original}'", f"'{canonical}'"
     document = _document(RESIDUE, (change, ["/menu/0/search_config/default_properties/0/defaultValue"]))
     sites = changes.Sites(
         builds={("suite.xml", f"{build_element}[1]"): ("menu", "0")},
@@ -962,12 +967,12 @@ def test_repeated_search_order_change_covers_original_filter_and_exact_built_and
             "trace": [{"screen": "search", "params": params, "requests": [{"kind": "search", "params": params}]}],
         }
 
-    changed = source.compare_sources("hq-planted", app("'++priority'", "'north'"), app("'+priority'", "'south'"))
+    changed = source.compare_sources("hq-planted", app(before, "'north'"), app(after, "'south'"))
     assert len(changed) == 2
     assert [_held_by(document, item, sites) for item in changed] == [{change}, frozenset()]
 
     built = compare_xml(
-        suite("'++priority'", "'-name'"), suite("'+priority'", "'-name'"),
+        suite(before, "'-name'"), suite(after, "'-name'"),
         check="proof2", document="hq-planted", artifact="suite.xml",
     )
     assert [item.path for item in built] == [
@@ -976,7 +981,7 @@ def test_repeated_search_order_change_covers_original_filter_and_exact_built_and
     assert _held_by(document, built[0], sites) == {change}
 
     position_swapped = compare_xml(
-        suite("'+priority'", "'-name'"), suite("'-name'", "'+priority'"),
+        suite(after, "'-name'"), suite("'-name'", after),
         check="proof2", document="hq-planted", artifact="suite.xml",
     )
     assert len(position_swapped) == 2
@@ -984,7 +989,7 @@ def test_repeated_search_order_change_covers_original_filter_and_exact_built_and
     assert not _held_by(document, replace(built[0], after="'-priority'"), sites)
 
     sent = compare_traces(
-        {"runs": [run("++priority", "-name")]}, {"runs": [run("+priority", "-name")]},
+        {"runs": [run(original, "-name")]}, {"runs": [run(canonical, "-name")]},
         check="proof3", document="hq-planted", artifact="trace@B", rules=(),
     )
     assert {item.path for item in sent} == {
@@ -992,6 +997,24 @@ def test_repeated_search_order_change_covers_original_filter_and_exact_built_and
         "/runs/*/trace/*/requests/*/params/commcare_sort/*",
     }
     assert all(_held_by(document, item, sites) == {change} for item in sent)
+
+
+@pytest.mark.parametrize(("before", "after"), [
+    ("+priority::obsolete", "+priority:exact"),
+    ("++priority:exact:obsolete", "+priority:exact"),
+    ("+priority:unknown:obsolete", "+priority:unknown"),
+    ("+location_id:exact:obsolete", "+location_id:exact"),
+    ("+status:exact:obsolete", "+status:exact"),
+    ("+priority:exact:", "+priority:exact"),
+    ("+priority:exact:obsolete:old", "+priority:exact"),
+    ("+priority:exact:obsolete", "+priority:numeric"),
+    ("+priority:exact:obsolete", "-priority:exact"),
+    ("+priority:exact:obsolete,-date_opened:date", "-date_opened:date,+priority:exact"),
+])
+def test_unused_sort_suffix_does_not_cover_other_sort_changes(before, after):
+    difference = Difference("proof3", "hq-planted", "trace@B", "/params/commcare_sort/*",
+                            "/params/commcare_sort/0", "changed", before, after)
+    assert not changes.search_order_unused_suffix_removed(difference)
 
 
 def test_a_menu_s_change_holds_no_other_menu_s_build_difference():

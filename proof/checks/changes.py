@@ -219,6 +219,8 @@ class Change:
             return difference.at in OWNED_PROFILE_SETTINGS and difference.kind == "added" and difference.after == "no"
         if self.change == "search-order-direction-signs-respelled":
             return search_order_signs_respelled(difference)
+        if self.change == "search-order-unused-suffix-removed":
+            return search_order_unused_suffix_removed(difference)
         if self.change == "search-value-guards" and difference.kind == "changed":
             if suite_validation_test_change(difference):
                 return redundant_search_quote_guard(difference.before, difference.after) is not None
@@ -244,11 +246,10 @@ class Change:
         return True
 
 
-def search_order_signs_respelled(difference):
-    """The same ordered terms, with only redundant direction signs removed."""
+def _search_order_texts(difference):
     before, after = difference.before, difference.after
     if difference.kind != "changed" or not isinstance(before, str) or not isinstance(after, str):
-        return False
+        return None
     if difference.check in ("source", "proof2"):
         def literal(value):
             value = value.strip()
@@ -256,9 +257,45 @@ def search_order_signs_respelled(difference):
                 return value[1:-1]
         before, after = literal(before), literal(after)
         if before is None or after is None:
-            return False
+            return None
+    return before, after
+
+
+def search_order_signs_respelled(difference):
+    """The same ordered terms, with only redundant direction signs removed."""
+    values = _search_order_texts(difference)
+    if not values:
+        return False
+    before, after = values
     canonical, repetitions = re.subn(r"(^|,)([+-])[+-]+", r"\1\2", before)
     return repetitions != 0 and canonical == after
+
+
+def search_order_unused_suffix_removed(difference):
+    """Only alter a suffix after a supported explicit comparison, in place."""
+    from proof.checks.manifest_value_classes import (
+        SERVER_ORDER_RECORD_KEYS, SERVER_SEARCH_DEVICE_ONLY_KEYS, _order_key_reserved,
+    )
+
+    values = _search_order_texts(difference)
+    if not values:
+        return False
+    before, after = values
+    terms = []
+    for term in before.split(","):
+        fields = term.split(":")
+        key = fields[0].lstrip("+-")
+        if len(fields[0]) - len(key) > 1:
+            return False
+        if (key not in SERVER_ORDER_RECORD_KEYS and not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", key)
+                or _order_key_reserved(key) or key in SERVER_SEARCH_DEVICE_ONLY_KEYS):
+            return False
+        if len(fields) > 1 and fields[1] not in ("exact", "numeric", "date"):
+            return False
+        if len(fields) > 3 or (len(fields) == 3 and not fields[2]):
+            return False
+        terms.append(":".join(fields[:2]))
+    return before != after and after == ",".join(terms)
 
 
 def suite_validation_test_change(difference):
