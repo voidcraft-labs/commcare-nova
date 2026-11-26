@@ -133,7 +133,7 @@ def test_a_schema_field_is_used_exactly_where_hqs_own_model_writes_another_value
     assert "schema:Form.surprise" not in manifest.items
 
 
-def test_case_condition_uses_the_operator_only_where_hq_builds_a_comparison(hq, manifest):
+def test_hq_close_reads_its_operator_and_the_update_reads_its_map(hq, manifest):
     from corehq.apps.app_manager.models import ConditionalCaseUpdate, FormActionCondition
     from lxml import etree
 
@@ -171,19 +171,22 @@ def test_case_condition_uses_the_operator_only_where_hq_builds_a_comparison(hq, 
             }
             tree = etree.fromstring(regenerate_form(form, state.domain))
             (note,) = tree.xpath("//*[local-name()='bind'][@nodeset='/data/case/update/visit_note']")
-            (close,) = tree.xpath("//*[local-name()='bind'][@nodeset='/data/case/close']")
-            return observed, dict(note.attrib), close.attrib["relevant"]
+            assert len(tree.xpath("//*[local-name()='case']/*[local-name()='close']")) == 1
+            relevant = tree.xpath("//*[local-name()='bind'][@nodeset='/data/case/close']/@relevant")
+            return observed, dict(note.attrib), relevant
 
         plain, always_note, always_close = build("always", None)
-        assert not plain
+        close_operator = f"{actions}/close_case/condition/operator"
+        update_operator = f"{actions}/update_case/condition/operator"
+        assert plain == {close_operator}
         assert always_note["calculate"] == LABEL
-        assert always_close == "true()"
+        assert always_close == []
 
         for operator, relevance in (("boolean_true", LABEL), ("selected", f"selected({LABEL}, 'yes')")):
             observed, note, close = build("if", operator)
-            assert observed == {f"{actions}/close_case/condition/operator"}
+            assert observed == {close_operator, update_operator}
             assert note == always_note
-            assert close == relevance
+            assert close == [relevance]
 
 
 def test_values_the_schemas_slots_name_are_used_by_value(hq, manifest):

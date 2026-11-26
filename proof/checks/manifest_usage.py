@@ -622,12 +622,24 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
         return
     _object_uses(cls, value, pointer, manifest, artifact, found, JsonAt(document, scope))
     for key, child in value.items():
-        if cls == "FormActionCondition" and key == "operator":
-            # HQ's action_relevance reads an operator only for "if". The basic
-            # case and worker updates read the action's activeness and its map
-            # without calling action_relevance, even for an "if" condition.
-            update = len(scope) > 1 and scope[-2][0] == "UpdateCaseAction"
-            if value.get("type", "never") in ("always", "never") or update:
+        if cls == "FormActionCondition" and key == "operator" and child is None and len(scope) > 2:
+            owner_class, owner = scope[-2]
+            enclosing_class, enclosing = scope[-3]
+            # HQ's Case Management page stores null on these two inactive
+            # operator slots. The update reads only activeness and the map,
+            # and a never-close on a child does not build a close. Keep
+            # operators on the other conditions, whose reading accounts for
+            # them as part of the retained form type or action.
+            if (
+                owner_class == "UpdateCaseAction"
+                and enclosing_class == "FormActions"
+                and enclosing.get("update_case") is owner
+                and value.get("type") == "always"
+            ) or (
+                owner_class == "OpenSubCaseAction"
+                and owner.get("close_condition") is value
+                and value.get("type") == "never"
+            ):
                 continue
         at = f"{pointer}/{pointer_token(key)}"
         slot = JsonAt(document, scope, key)
