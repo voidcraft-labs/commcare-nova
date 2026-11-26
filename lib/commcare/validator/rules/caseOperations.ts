@@ -610,7 +610,8 @@ function validateOperation(
 		if (
 			operation.action !== "create" ||
 			operation.target.kind !== "new" ||
-			operation.target.idFrom !== undefined
+			operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined
 		)
 			errors.push(
 				opError(
@@ -1580,6 +1581,16 @@ function validateTarget(
 ): void {
 	switch (target.kind) {
 		case "new":
+			if (target.expr !== undefined)
+				validateTarget(
+					ctx,
+					operation,
+					{ kind: "expression", expr: target.expr },
+					priorCreates,
+					slot,
+					errors,
+				);
+			return;
 		// The worker's record is always there; `workerRecordFindings` holds
 		// which operation may target it.
 		case "worker-record":
