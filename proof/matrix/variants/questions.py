@@ -417,12 +417,8 @@ def model_iteration_outside_rule(authoring, app_id):
     )
 
 
-def model_iteration_hidden_first_row(authoring, app_id):
-    """The first row can hide while separately enabled later rows are created."""
-    _change(
-        authoring,
-        app_id,
-        "model-iteration-hidden-first-row",
+def _model_iteration_hidden_first_row(text):
+    return _replaced(text, [
         (
             '<input vellum:ref="#form/phone" ref="/data/phone" appearance="numeric">',
             '<input vellum:ref="#form/phone" ref="/data/phone">',
@@ -446,7 +442,28 @@ def model_iteration_hidden_first_row(authoring, app_id):
             """value="join(' ', 'a b c')" """.strip(),
             1,
         ),
-    )
+    ])
+
+
+def model_iteration_hidden_first_row(authoring, app_id):
+    """The first row can hide while separately enabled later rows are created."""
+    _edit(authoring, app_id, "model-iteration-hidden-first-row", _model_iteration_hidden_first_row)
+
+
+def model_iteration_relocated_answers(authoring, app_id):
+    """Earlier controls save their answers in another data group and can still hide the first row."""
+    def relocate(text):
+        return _replaced(_model_iteration_hidden_first_row(text), [
+            ("<full_name />", "", 1),
+            ("<phone />", "", 1),
+            ("</details>", "<full_name /><phone /></details>", 1),
+            ("/data/full_name", "/data/details/full_name", None),
+            ("/data/phone", "/data/details/phone", None),
+            ("#form/full_name", "#form/details/full_name", None),
+            ("#form/phone", "#form/details/phone", None),
+        ])
+
+    _edit(authoring, app_id, "model-iteration-relocated-answers", relocate)
 
 
 def model_iteration_container_condition(authoring, app_id):

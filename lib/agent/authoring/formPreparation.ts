@@ -449,6 +449,11 @@ export function prepareFormAuthoring(args: {
 		const order = new Map<Uuid, readonly Uuid[]>(
 			[...saved.fieldOrder].map(([owner, children]) => [owner, [...children]]),
 		);
+		const controlOrder =
+			saved.controlOrder === undefined
+				? undefined
+				: new Map(saved.controlOrder);
+		const orders = controlOrder === undefined ? [order] : [order, controlOrder];
 		if (uuid === formUuid && toolName === "addFields") {
 			const additions = objects.parse(input.fields);
 			const ids = new Set(
@@ -462,35 +467,34 @@ export function prepareFormAuthoring(args: {
 				);
 				fields.set(id, fieldDeclaration(item, id, parent));
 				if (ids.has(parent))
-					order.set(parent, [...(order.get(parent) ?? []), id]);
+					for (const target of orders)
+						target.set(parent, [...(target.get(parent) ?? []), id]);
 				else {
 					const siblings = top.get(parent) ?? [];
 					siblings.push(id);
 					top.set(parent, siblings);
 				}
-				if (
-					!order.has(id) &&
-					["group", "section", "repeat"].includes(String(item.kind))
-				)
-					order.set(id, []);
+				if (["group", "section", "repeat"].includes(String(item.kind)))
+					for (const target of orders) if (!target.has(id)) target.set(id, []);
 			}
-			for (const [parent, added] of top) {
-				const siblings = [...(order.get(parent) ?? [])];
-				const before =
-					input.beforeFieldUuid === undefined
-						? -1
-						: siblings.indexOf(uuidSchema.parse(input.beforeFieldUuid));
-				const after =
-					input.afterFieldUuid === undefined
-						? -1
-						: siblings.indexOf(uuidSchema.parse(input.afterFieldUuid));
-				siblings.splice(
-					before >= 0 ? before : after >= 0 ? after + 1 : siblings.length,
-					0,
-					...added,
-				);
-				order.set(parent, siblings);
-			}
+			for (const target of orders)
+				for (const [parent, added] of top) {
+					const siblings = [...(target.get(parent) ?? [])];
+					const before =
+						input.beforeFieldUuid === undefined
+							? -1
+							: siblings.indexOf(uuidSchema.parse(input.beforeFieldUuid));
+					const after =
+						input.afterFieldUuid === undefined
+							? -1
+							: siblings.indexOf(uuidSchema.parse(input.afterFieldUuid));
+					siblings.splice(
+						before >= 0 ? before : after >= 0 ? after + 1 : siblings.length,
+						0,
+						...added,
+					);
+					target.set(parent, siblings);
+				}
 		} else if (
 			uuid === formUuid &&
 			(toolName === "editField" || toolName === "setFieldOptionsSource")
@@ -540,10 +544,10 @@ export function prepareFormAuthoring(args: {
 						if (field !== undefined)
 							fields.set(member, { ...field, parent: page });
 					}
-					order.set(page, members);
+					for (const target of orders) target.set(page, members);
 					pages.push(page);
 				}
-				order.set(uuid, pages);
+				for (const target of orders) target.set(uuid, pages);
 			}
 		}
 		const links = new Map(saved.links);
@@ -613,6 +617,7 @@ export function prepareFormAuthoring(args: {
 				}),
 			fields,
 			fieldOrder: order,
+			controlOrder,
 			links,
 			expressionAt: read,
 		};

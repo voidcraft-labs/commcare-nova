@@ -245,6 +245,31 @@ def _uses(xml, manifest, key, artifact="form:0.0", readings=None):
     return [use for use in found.uses if use.key == key]
 
 
+@pytest.mark.parametrize("screen", ["earlier", "later", "grouped", "hidden-data-parent"])
+def test_model_iteration_visibility_reads_the_root_control_order(manifest, screen):
+    group = "/data/receiving"
+    answer = f"{group}/first"
+    data = '<rounds ids="" vellum:role="Repeat"><item jr:template=""/></rounds><receiving><first/></receiving>'
+    condition = f"if(position() = 0, {answer} = 'yes', {answer} = 'no')"
+    group_bind = f'<bind nodeset="{group}" relevant="false()"/>' if screen == "hidden-data-parent" else ""
+    model = (
+        f'<bind nodeset="/data/rounds/item" relevant="{condition}"/>'
+        f'<bind nodeset="{answer}" type="xsd:string"/>{group_bind}'
+        """<setvalue event="xforms-ready" ref="/data/rounds/@ids" value="join(' ', 'a b c')"/>"""
+    )
+    question = f'<input ref="{answer}"><label>First</label></input>'
+    repeat = '<group><label>Rounds</label><repeat nodeset="/data/rounds/item"/></group>'
+    group_control = f'<group ref="{group}"><label>Receiving</label>{question if screen == "grouped" else ""}</group>'
+    body = repeat + question if screen == "later" else ("" if screen == "grouped" else question) + repeat
+    uses = _uses(
+        _form(data=data, model=model, body=body + group_control),
+        manifest,
+        "vellum-markup:model/instance//*@vellum:role",
+    )
+    use, = uses
+    assert classes.model_iteration_hides_earlier_row(use, manifest) is (screen == "earlier")
+
+
 def _read(reader, uses, manifest):
     return {use.where: reader(use, manifest) for use in uses}
 
