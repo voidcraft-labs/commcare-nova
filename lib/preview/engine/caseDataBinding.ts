@@ -79,7 +79,11 @@ import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
-import { projectSearchOf, searchOwnerOverride } from "@/lib/domain/modules";
+import {
+	moduleFormsReadSearch,
+	projectSearchOf,
+	searchOwnerOverride,
+} from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -187,7 +191,11 @@ import {
 	searchInputRuntimeGlobalError,
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
-import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
+import { keepSearchResult, readKeptSearchResult } from "./searchResultReceipt";
+import {
+	readSearchResultsSnapshot,
+	searchResultsSnapshotFromInstance,
+} from "./searchResultsSnapshot";
 import { serverPreviewDataRefusalOf } from "./serverDataRefusal";
 import type { ServerSearchWorld } from "./serverSearchRead";
 import { verifyFormOpening } from "./signedFormOpening";
@@ -456,6 +464,8 @@ type RunningCaseReadArgs = {
 	/** The search is the menu's default search, run as the list opened:
 	 *  its prompts' answers are not sent (`CaseSearchRequest.unsentPrompts`). */
 	defaultSearch?: boolean;
+	/** Identity of the inline search whose initial response this load serves. */
+	searchSubmission?: string;
 	/** The viewer's latest position, which a calculated column's `here()`
 	 *  reads; `null` or omitted while the browser has shared none. It travels
 	 *  in this request and the query's bound parameters only, and is never
@@ -479,6 +489,10 @@ type PreparedRunningCaseRead =
 			readonly kind: "read";
 			readonly store: CaseStore;
 			readonly read: Parameters<typeof readCases>[1];
+			readonly context: Extract<
+				Awaited<ReturnType<typeof resolveAuthorizedPreviewContext>>,
+				{ kind: "ready" }
+			>;
 	  }
 	| Exclude<LoadCasesResult, { kind: "rows" }>;
 
@@ -766,6 +780,7 @@ async function prepareRunningCaseRead(
 	return {
 		kind: "read",
 		store,
+		context,
 		read: {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -812,20 +827,38 @@ export async function loadCasesAction(
 	try {
 		const prepared = await prepareRunningCaseRead(args);
 		if (prepared.kind !== "read") return prepared;
+		const { searchSubmission: submission, appId, moduleUuid, caseType } = args;
+		const module = moduleUuid && args.blueprint?.modules[moduleUuid];
+		const retain =
+			submission !== undefined &&
+			moduleUuid !== undefined &&
+			module &&
+			moduleFormsReadSearch(module)
+				? (instance: Parameters<typeof searchResultsSnapshotFromInstance>[0]) =>
+						keepSearchResult(
+							{ appId, moduleUuid, caseType, submission },
+							prepared.context,
+							searchResultsSnapshotFromInstance(instance),
+						)
+				: undefined;
 		if (!args.automaticSelection)
-			return await readCases(prepared.store, prepared.read);
+			return await readCases(prepared.store, prepared.read, retain);
 		const selection = prepared.read.caseListConfig?.selection;
 		if (selection?.autoSelect !== true)
 			return {
 				kind: "error",
 				message: "This list no longer chooses cases automatically.",
 			};
-		return await readCases(prepared.store, {
-			...prepared.read,
-			page: undefined,
-			datumOrder: true,
-			cap: selection.maximum + 1,
-		});
+		return await readCases(
+			prepared.store,
+			{
+				...prepared.read,
+				page: undefined,
+				datumOrder: true,
+				cap: selection.maximum + 1,
+			},
+			retain,
+		);
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
@@ -877,9 +910,44 @@ export async function loadCasesAction(
 export async function loadSearchResultsSnapshotAction(
 	args: Omit<RunningCaseReadArgs, "page" | "search" | "viewerLocation"> & {
 		readonly formUuid?: Uuid;
+		readonly resultReceipt?: string;
 	},
 ): Promise<LoadSearchResultsSnapshotResult> {
 	try {
+		const { searchSubmission: submission, moduleUuid, appId, caseType } = args;
+		if (
+			submission !== undefined &&
+			moduleUuid !== undefined &&
+			args.caseIds === undefined
+		) {
+			const context = await resolveAuthorizedPreviewContext({
+				appId,
+				personaUuid: args.personaUuid,
+				required: "view",
+				loadBlueprint: true,
+				device: args.device,
+			});
+			if (context.kind !== "ready") return context;
+			const snapshot = await readKeptSearchResult(
+				{ appId, caseType, moduleUuid, submission },
+				context,
+				args.resultReceipt,
+			);
+			if (snapshot === undefined)
+				return {
+					kind: "invalid-search",
+					message:
+						"These search results are no longer available. You can run Search again to open the form.",
+				};
+			if (
+				snapshot.totalMatches > 0 &&
+				args.formUuid &&
+				args.blueprint &&
+				formReadsSearchScore(args.blueprint, args.formUuid)
+			)
+				throw new CaseSearchUnavailableError({ kind: "hit-score-unavailable" });
+			return { kind: "data", snapshot };
+		}
 		const prepared = await prepareRunningCaseRead({ ...args, search: true });
 		switch (prepared.kind) {
 			case "read":

@@ -523,6 +523,7 @@ export interface SearchResultsPage {
 	readonly offset: number;
 	readonly rows: readonly CaseRowWithCalculated[];
 	readonly grouped?: GroupedQueryResult;
+	readonly instance?: SearchResultInstance;
 }
 
 export interface GroupedQueryResult {
@@ -1191,6 +1192,7 @@ export interface CaseStore extends SchemaCaseStore {
 	querySearchResults(
 		args: QueryArgs,
 		grouping?: string,
+		captureInstance?: true,
 	): Promise<SearchResultsPage>;
 	readSearchResultInstance(args: QueryArgs): Promise<SearchResultInstance>;
 

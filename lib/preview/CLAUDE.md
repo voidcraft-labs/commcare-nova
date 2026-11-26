@@ -2214,15 +2214,19 @@ The context keeps the screen's answers (a date range as its two bounds);
 `runtimeBindings.ts::searchInputInstanceValues` folds them to the instance's
 one field per prompt where `FormScreen` hands them to the engine.
 
-A menu form of a menu whose forms read the search that reads what it found
-(`xpathInstances.ts::formReadsSearchResults`, a walk of the form's and its
-questions' expression slots, links included) reads `results:inline`.
-`engine/searchResultsSnapshot.ts::readSearchResultsSnapshot`, through
-`caseDataBinding.ts::loadSearchResultsSnapshotAction`, runs the completed
-attempt's Results read (`prepareRunningCaseRead`, which `loadCasesAction`
-shares) without a page window, up to `SEARCH_RESULTS_CAP` (500) rows while
-counting every match, reads each row's direct indices, and returns
-`{ rows, totalMatches }` as plain JSON. `xpathInstances.ts::searchResultsXPathInstance(rows, catalog)`
+A form that reads its menu's completed search
+(`xpathInstances.ts::formReadsSearchResults`, including links) reads
+`results:inline`. On a new browser Search, `querySearchResults` reads the
+complete case instance from the same bounded primary and supporting IDs,
+within the same repeatable-read transaction as the Results page. It keeps the
+record values and direct indices that were returned. `engine/searchResultReceipt.ts`
+stores the response in the existing expiring form-opening store and returns
+only a digest to the session. Form entry reads that receipt while rechecking
+the app, Project, worker, browser session, Search attempt, device and current
+Search settings. Case edits and live claim authorization do not rewrite it.
+The case a no-matches form registered, and the explicit Web Apps history query
+that runs with changed answers past the list, use their own entry reads.
+`xpathInstances.ts::searchResultsXPathInstance(rows, catalog)`
 writes HQ's `CaseDBXMLGenerator` shape: every row `status="open"`,
 `last_modified` in `json_format_datetime`, `date_opened` as the UTC day,
 `external_id` only when set, a date-and-time property in HQ's spelling, and

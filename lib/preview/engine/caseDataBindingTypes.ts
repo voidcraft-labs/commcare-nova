@@ -103,6 +103,7 @@ export type LoadCasesResult =
 			kind: "rows";
 			/** Primary matches before the device filters or groups them. */
 			searchMatchCount?: number;
+			resultReceipt?: string;
 			rows: ReadonlyArray<CaseRowWithCalculated>;
 			/** Full ROW population matching the authored + worker query, in
 			 * both the ordinary and the grouped shape. Present for bounded
@@ -156,6 +157,7 @@ export type LoadCasesResult =
 	| {
 			kind: "empty";
 			searchMatchCount?: number;
+			resultReceipt?: string;
 			/** When a worker Search and authored availability are both active,
 			 * this count isolates the authored-only population. Zero proves that
 			 * clearing Search cannot reveal a case; a positive value proves that

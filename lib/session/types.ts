@@ -289,6 +289,7 @@ export type PreviewSearchState =
 			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly matchCount: number;
+			readonly resultReceipt?: string;
 			readonly deviceValues?: PreviewSearchDeviceValues;
 			/** Set once the no-matches form registers a case: Results then
 			 * shows that one case, as the wire's return frame does. */
