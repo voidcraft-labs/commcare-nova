@@ -1,6 +1,9 @@
 /** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
-import { formBehaviorTextChoices } from "@/lib/commcare/xform/behaviorTexts";
+import {
+	formBehaviorTextChoices,
+	formBehaviorTextIssue,
+} from "@/lib/commcare/xform/behaviorTexts";
 import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -9,14 +12,19 @@ import {
 	setFormHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { formRecordNameMutations } from "@/lib/doc/formRecordName";
-import type { PostSubmitDestination } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	Form,
+	PostSubmitDestination,
+	Uuid,
+} from "@/lib/domain";
 import {
 	afterEmptySearchRegistrationFormOf,
 	moduleFormsReadSearch,
 	POST_SUBMIT_DESTINATIONS,
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
-import { formLogicSchema } from "@/lib/domain/expression/types";
+import { formLogicSchema, type ItextUnit } from "@/lib/domain/expression/types";
 import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { behaviorTextSchema, formBehaviorRoles } from "@/lib/domain/forms";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
@@ -156,6 +164,50 @@ export type UpdateFormResult =
 	  })
 	| { error: string };
 
+/**
+ * The first text of the form, question labels first, that can hold automatic
+ * submission beside the form's other behaviors as `patch` leaves them: one the
+ * commit gate would admit, never one another behavior holds or an earlier
+ * equal text takes over.
+ */
+function freeBehaviorText(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	patch: Parameters<typeof updateFormMutations>[2],
+): ItextUnit | undefined {
+	const form = doc.forms[formUuid];
+	if (form === undefined) return undefined;
+	const others: Form = { ...form };
+	for (const role of formBehaviorRoles) {
+		if (role === "automaticSubmissionText" || patch[role] === undefined)
+			continue;
+		const value = patch[role];
+		if (value === null) delete others[role];
+		else others[role] = value;
+	}
+	const options = formBehaviorTextChoices(doc, formUuid);
+	const ranked = [
+		...options.filter((option) => option.questionLabel),
+		...options.filter((option) => !option.questionLabel),
+	];
+	return ranked.find(
+		(option) =>
+			formBehaviorTextIssue(
+				{
+					...doc,
+					forms: {
+						...doc.forms,
+						[formUuid]: {
+							...others,
+							automaticSubmissionText: { carrier: option.unit },
+						},
+					},
+				},
+				formUuid,
+			) === undefined,
+	)?.unit;
+}
+
 export const updateFormTool = {
 	description:
 		"Edit a form's name, purpose, record naming rule, open and close conditions, automatic submission, after-submit navigation, or whether it is its menu's registration from the case list.",
@@ -207,28 +259,28 @@ export const updateFormTool = {
 			if (purpose !== undefined) patch.purpose = purpose;
 			if (capture_location !== undefined)
 				patch.captureLocation = capture_location ? true : null;
+			for (const role of formBehaviorRoles) {
+				if (role !== "automaticSubmissionText" && input[role] !== undefined)
+					patch[role] = input[role];
+			}
 			if (automaticSubmissionText === true) {
 				if (!existing.automaticSubmissionText) {
-					const options = formBehaviorTextChoices(doc, formUuid);
-					const first =
-						options.find((option) => option.questionLabel) ?? options[0];
-					if (!first)
+					const chosen = freeBehaviorText(doc, formUuid, patch);
+					if (chosen === undefined)
 						return {
 							kind: "mutate",
 							mutations: [],
 							result: {
 								error:
-									"A question or choice with text lets this form submit automatically. Add one and try again.",
+									formBehaviorTextChoices(doc, formUuid).length === 0
+										? "A question or choice with text lets this form submit automatically. Add one and try again."
+										: "Every question and choice text in this form already holds another setting or matches an earlier text. You can add a question with its own text, or name a text for automatic submission.",
 							},
 						};
-					patch.automaticSubmissionText = { carrier: first.unit };
+					patch.automaticSubmissionText = { carrier: chosen };
 				}
 			} else if (automaticSubmissionText !== undefined)
 				patch.automaticSubmissionText = automaticSubmissionText;
-			for (const role of formBehaviorRoles) {
-				if (role !== "automaticSubmissionText" && input[role] !== undefined)
-					patch[role] = input[role];
-			}
 			if (plain_text !== undefined)
 				patch.plainText = plain_text === true ? true : null;
 			// Each condition arrives parsed in its own form slot; the checker

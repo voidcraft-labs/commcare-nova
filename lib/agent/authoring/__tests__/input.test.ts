@@ -855,3 +855,40 @@ it("names a form behavior's choice text by its value beside the question that ho
 		},
 	});
 });
+
+it("lets Nova choose a question label for automatic submission that no other behavior holds", async () => {
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Garden", forms: [{ name: "Weekly check", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fields: [
+			{ kind: "text", id: "first", label: "First" },
+			{ kind: "text", id: "second", label: "Second" },
+		],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fieldUuid: "fixture_placeholder",
+	});
+	// The first label holds one behavior and, in the same call, a second.
+	await h.call("updateForm", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		skipAutomaticSyncText: { carrier: { field: "first", role: "field-label" } },
+		automaticSubmissionText: true,
+	});
+	const doc = h.currentDoc();
+	const form = Object.values(doc.forms).find(
+		(item) => item.name === "Weekly check",
+	);
+	const second = Object.values(doc.fields).find((item) => item.id === "second");
+	expect(form?.automaticSubmissionText).toEqual({
+		carrier: { field: second?.uuid, role: "field-label" },
+	});
+});
