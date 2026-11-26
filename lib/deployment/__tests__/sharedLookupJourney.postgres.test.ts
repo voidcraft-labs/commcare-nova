@@ -333,14 +333,7 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 
 	const adoptedBefore = await readTargetIdentity(appScope(appId), origin);
 	expect(adoptedBefore.entities).toHaveLength(2);
-	await applyBlueprintChangeProposal({
-		appId,
-		userId: actorId,
-		expectedProjectId: projectId,
-		batchId: crypto.randomUUID(),
-		kind: "autosave",
-		guard: { mutations: edit(firstDoc) },
-	});
+
 	const siblingRemoteId = "published-outreach";
 	const siblingIdentities = await withTargetPeer(
 		targetPeer(origin.domain, siblingRemoteId),
@@ -366,6 +359,32 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 		async (peer) => {
 			peer.holdTables([nativeTable]);
 			peer.holdSource(reviewedSource);
+			const initialPublish = await publish(appId, origin);
+			if (!initialPublish.landed)
+				throw new Error(JSON.stringify(initialPublish.refusal));
+			expect(initialPublish.hqAppAction).toBe("updated");
+			expect(initialPublish.sent.map((resource) => resource.kind)).toEqual([
+				"app",
+			]);
+			const beforeEdit = peer.snapshot();
+			if (!beforeEdit.source) throw new Error("HQ needs the first publish.");
+			expect(beforeEdit.source.langs).toEqual(["en", "fra"]);
+			expect(identities(beforeEdit.source)).toEqual(
+				identities(body(retained.application)),
+			);
+			expect(beforeEdit.tables).toEqual([nativeTable]);
+			expect(await readTargetIdentity(appScope(appId), origin)).toEqual(
+				adoptedBefore,
+			);
+			await applyBlueprintChangeProposal({
+				appId,
+				userId: actorId,
+				expectedProjectId: projectId,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				guard: { mutations: edit(firstDoc) },
+			});
+
 			const result = await publish(appId, origin);
 			if (!result.landed) throw new Error(JSON.stringify(result.refusal));
 			expect(result.hqAppAction).toBe("updated");
@@ -380,6 +399,14 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 				identities(body(retained.application)),
 			);
 			expect(identities(held.source)).not.toEqual(siblingIdentities);
+			expect(
+				peer.requests
+					.filter(({ method }) => method === "POST")
+					.map(({ path }) => path),
+			).toEqual([
+				`/a/${origin.domain}/apps/api/import_app/`,
+				`/a/${origin.domain}/apps/api/import_app/`,
+			]);
 			expect(peer.unexpected).toEqual([]);
 			return held.source;
 		},
