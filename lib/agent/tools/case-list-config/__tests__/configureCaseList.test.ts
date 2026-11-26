@@ -18,6 +18,38 @@ const PHONE_COLUMN = testUuid("configure-case-list-phone-column");
 const NAME_SEARCH = testUuid("configure-case-list-name-search");
 
 describe("configureCaseList", () => {
+	it("commits the Android lookup as one setting and leaves invalid drafts out", async () => {
+		const h = makeCaseListFixture();
+		const deviceLookup = {
+			action: "org.nova.proof.CASE_LOOKUP",
+			label: "Find a visit",
+			extras: [{ name: "mode", value: "followup" }],
+			responses: ["primary", "backup"],
+		};
+		const before = h.currentDoc().modules[MOD_A].caseListConfig;
+		const added = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			deviceLookup,
+		});
+		expect(added.mutations).toEqual([
+			{ kind: "setCaseListMeta", uuid: MOD_A, patch: { deviceLookup } },
+		]);
+		expect(h.currentDoc().modules[MOD_A].caseListConfig?.deviceLookup).toEqual(
+			deviceLookup,
+		);
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				deviceLookup: { ...deviceLookup, responses: [] },
+			}).success,
+		).toBe(false);
+		await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			deviceLookup: null,
+		});
+		expect(h.currentDoc().modules[MOD_A].caseListConfig).toEqual(before);
+	});
+
 	it("keeps an independent order calculation out of Results and preserves its identity across edits", async () => {
 		const h = makeCaseListFixture();
 		const original = h.currentDoc().modules[MOD_A].caseListConfig;

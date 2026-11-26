@@ -2731,6 +2731,15 @@ export function CaseListWorkspaceCanvas() {
 							onApplyTilePreset={applyTilePreset}
 							onTilePersistOnFormsChange={setTilePersistOnForms}
 							onCaseSelectionChange={setCaseSelection}
+							onDeviceLookupChange={(next) =>
+								commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: { deviceLookup: next },
+									},
+								])
+							}
 							onWordingChange={(slot, next) =>
 								commitLayout([
 									{

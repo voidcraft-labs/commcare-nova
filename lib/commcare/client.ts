@@ -279,7 +279,11 @@ export async function probeHqProjectSpaceCompatibility(
 	const allPlans = [...plan.capabilities, ...plan.advisories];
 	const privateFlags = new Map<string, HqPrivateFeatureFlagRequirement>();
 	for (const item of allPlans) {
-		for (const flag of [...item.featureFlags, ...item.featureFlagsOff]) {
+		for (const flag of [
+			...item.featureFlags,
+			...item.featureFlagsOff,
+			...(item.featureFlagsAny ?? []),
+		]) {
 			privateFlags.set(flag.id, flag);
 		}
 	}
@@ -508,6 +512,18 @@ function aggregatePrivateProbeState(
 				: state === "missing"
 					? "available"
 					: "unverified",
+		);
+	}
+	if (plan.featureFlagsAny?.length) {
+		const alternatives = plan.featureFlagsAny.map(
+			(flag) => flagResults.get(flag.id) ?? "unverified",
+		);
+		states.push(
+			alternatives.includes("available")
+				? "available"
+				: alternatives.includes("unverified")
+					? "unverified"
+					: "missing",
 		);
 	}
 	if (plan.runtimeProbes.includes("case-search")) {

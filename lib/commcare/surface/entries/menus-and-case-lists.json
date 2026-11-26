@@ -8958,6 +8958,45 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/lookup-with-text-extras",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Enabled Android lookup with fixed text extras and ordered response names",
+		"surfaceKeys": [
+			"schema:Detail.lookup_enabled",
+			"schema:Detail.lookup_autolaunch",
+			"schema:Detail.lookup_action",
+			"schema:Detail.lookup_name",
+			"schema:Detail.lookup_image",
+			"schema:Detail.lookup_extras",
+			"schema:Detail.lookup_responses",
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template"
+		],
+		"valueClass": "enabled-android-lookup-with-text-extras",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: opens a companion Android app to search the case list by its returned text",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (no button) / RUNS",
+			"webApps": {
+				"reading": "ignored",
+				"note": "no button"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`caseListConfig.deviceLookup` writes the action, label, optional automatic launch, fixed text extras and ordered response names on the short detail in both carriers",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-enabled-lookup-action",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

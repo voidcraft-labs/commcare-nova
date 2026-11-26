@@ -52,6 +52,7 @@ DOCUMENTS = (
     "targeted-case-choice-reopen",
     "targeted-case-map",
     "targeted-case-list-icon-action",
+    "targeted-case-list-device-lookup",
     "targeted-reached-choice-columns",
     "targeted-relative-case-dates",
     "targeted-hidden-column",
