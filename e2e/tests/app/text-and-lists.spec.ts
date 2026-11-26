@@ -7,8 +7,8 @@ import { replaceRichText } from "../../lib/richText";
 
 /**
  * A search with no title, where a sort rule puts blank values, and text shown
- * as typed: the Search panel's Show a title switch, under the source language
- * and under another, each Default order rule's Blank values control through
+ * as typed: the Search panel's Show a title switch, the app's in every
+ * language, under the source language and under another, each Default order rule's Blank values control through
  * two turns of the direction, a help text's Format text switch and a form's
  * Format text in this form switch, each with what it saves and what the canvas
  * and Preview then draw. A help kept as typed keeps that setting through the form's
@@ -165,10 +165,10 @@ test("Show a title turns a search's title off and on again", {
 		await expect(titleBox).toHaveCount(0);
 	});
 
-	await test.step("under that language, on again gives it a title of its own while the source keeps none", async () => {
+	await test.step("under that language, on again gives every language its title back", async () => {
 		await selectLanguage(page, "Español");
 		await editPanel.click();
-		const on = savedWith(page, appId, '"kind":"setTranslation"');
+		const on = savedWith(page, appId, '"searchScreenTitle":null');
 		await toggle.click();
 		expect((await on).ok()).toBe(true);
 		await expect(toggle).toBeChecked();
@@ -178,13 +178,12 @@ test("Show a title turns a search's title off and on again", {
 		await expect(runningTitle).toHaveText("Search");
 		await backToEdit(page);
 
-		// English, the first language, still shows no title.
+		// Showing a title is the app's setting, so English shows it again too.
 		await selectLanguage(page, "English");
 		await editPanel.click();
-		await expect(toggle).not.toBeChecked();
-		await expect(titleBox).toHaveCount(0);
+		await expect(toggle).toBeChecked();
 		await openPreviewSearch(page);
-		await expect(runningTitle).toHaveCount(0);
+		await expect(runningTitle).toHaveText("Search");
 		await backToEdit(page);
 	});
 });
