@@ -102,44 +102,6 @@ function members(columns: readonly Column[] = []) {
 	});
 }
 
-/** HQ stores this format's path rather than an XPath. Its calculation is the
- * same reached property with the unreferenced enum wording still present.
- */
-function reachedColumn(
-	header: string,
-	ordinal: number,
-	path: readonly [string, ...string[]],
-) {
-	const id = nativeIdentity("calculated", "", ordinal);
-	const [first, ...rest] = path;
-	return {
-		...calculatedColumn(
-			id,
-			header,
-			term({
-				kind: "prop",
-				caseType: "member",
-				property: "zone",
-				readReached: true,
-				via: {
-					kind: "ancestor",
-					via: [
-						{ identifier: first },
-						...rest.map((identifier) => ({ identifier })),
-					],
-				},
-			}),
-			onlyOnList,
-		),
-		texts: [
-			{
-				uuid: mintEntityUuid(ID, externalKey.caseCalculationText(id, "guide")),
-				label: "Area guide",
-			},
-		],
-	};
-}
-
 export function hqChangesCaseFormats(): CorpusDocument {
 	const document = targetedDocument({
 		id: ID,
@@ -218,38 +180,13 @@ export function hqChangesCaseFormats(): CorpusDocument {
 			concat(term(literal("Visit ")), term(prop("member", "case_name"))),
 			onlyOnList,
 		),
-		reachedColumn("Parent area", 1, ["parent"]),
-		reachedColumn("Host parent area", 2, ["host", "parent"]),
 	];
 	const after = members(added);
 	const columns =
 		expandDoc(after).modules[0]?.case_details.short.columns.slice(1);
 	if (columns?.length !== added.length)
 		throw new Error("The Case List save must hold each added format.");
-	const authored = columns.map((column, index) => {
-		const path =
-			index === added.length - 2
-				? "parent/zone"
-				: index === added.length - 1
-					? "host/parent/zone"
-					: undefined;
-		return path === undefined
-			? column
-			: {
-					...column,
-					field: path,
-					format: "translatable-enum",
-					useXpathExpression: false,
-					enum: [
-						{
-							doc_type: "MappingItem",
-							key: "guide",
-							value: { en: "Area guide" },
-							alt_text: {},
-						},
-					],
-				};
-	});
+
 	return {
 		...document,
 		hqSide: {
@@ -272,7 +209,7 @@ export function hqChangesCaseFormats(): CorpusDocument {
 			},
 			moduleDetail: {
 				module: 0,
-				columns: authored as unknown as readonly Readonly<
+				columns: columns as unknown as readonly Readonly<
 					Record<string, unknown>
 				>[],
 			},
