@@ -40,6 +40,8 @@ export function appRemoteChange(input: {
 	/** The app's automatic-location line, when the target holds the other value
 	 * and its baseline predates Nova owning that switch. */
 	readonly locationChange?: string;
+	/** Languages the older cutover baseline could not attest as part of the Nova document. */
+	readonly legacyLanguageRemoval?: string;
 	/** A completed review may disclose a removal the shorter publish preview cannot show. */
 	readonly discards?: readonly RemoteChangeDiscard[];
 	readonly appName: string;
@@ -90,9 +92,16 @@ export function appRemoteChange(input: {
 		parts: readonly string[],
 		baselineKnown: boolean,
 	): DeploymentRemoteChange => {
-		const full = [...lines, ...parts];
+		const full = [
+			...(input.legacyLanguageRemoval ? [input.legacyLanguageRemoval] : []),
+			...lines,
+			...parts,
+		];
 		const shown = boundedParts(full);
-		const truncated = fileDisclosureTruncated(lines.length, parts.length);
+		const truncated = fileDisclosureTruncated(
+			lines.length,
+			parts.length + Number(input.legacyLanguageRemoval !== undefined),
+		);
 		const complete = hqDiscardDigest(
 			input.authority,
 			input.current.digest,
@@ -162,7 +171,9 @@ export function appRemoteChange(input: {
 	}
 	if (input.locationChange !== undefined)
 		descriptions.unshift(input.locationChange);
-	return descriptions.length === 0 && removed.length === 0
+	return descriptions.length === 0 &&
+		removed.length === 0 &&
+		input.legacyLanguageRemoval === undefined
 		? null
 		: change(descriptions, true);
 }
