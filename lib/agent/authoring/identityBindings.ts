@@ -93,6 +93,13 @@ export function bindNamedIdentity(args: {
 		if (object) {
 			const field = uuidSchema.safeParse(object.fieldUuid);
 			if (field.success) fieldUuid = field.data;
+			// A text unit names its question beside its choice (`{ field, role, option }`,
+			// a form behavior's text); the field family has resolved it to its identity.
+			const unitField =
+				slot.family === "select-option"
+					? uuidSchema.safeParse(object.field)
+					: undefined;
+			if (unitField?.success) fieldUuid = unitField.data;
 			const module = uuidSchema.safeParse(object.moduleUuid);
 			if (module.success) scope.moduleUuid = module.data;
 			const form = uuidSchema.safeParse(object.formUuid);

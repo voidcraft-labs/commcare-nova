@@ -795,3 +795,63 @@ it("uses each translation unit's own form and preserves inserted identities", as
 		items: [{ status: "ready", effective: "Salut {{name}}" }],
 	});
 });
+
+it("names a form behavior's choice text by its value beside the question that holds it", async () => {
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Garden", forms: [{ name: "Weekly check", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fields: [
+			{ kind: "text", id: "note", label: "Note" },
+			{
+				kind: "single_select",
+				id: "done",
+				label: "Finished?",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{ value: "yes", label: "Yes, send it" },
+						{ value: "no", label: "Not yet" },
+					],
+				},
+			},
+		],
+	});
+	await h.call("updateForm", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		automaticSubmissionText: {
+			carrier: { field: "done", role: "select-option-label", option: "yes" },
+		},
+		skipAutomaticSyncText: {
+			carrier: { field: "done", role: "select-option-label", option: "no" },
+		},
+	});
+	const doc = h.currentDoc();
+	const form = Object.values(doc.forms).find(
+		(item) => item.name === "Weekly check",
+	);
+	const done = Object.values(doc.fields).find((item) => item.id === "done");
+	if (done?.kind !== "single_select" || done.optionsSource.kind !== "inline")
+		throw new Error("Missing the choice question.");
+	const [yes, no] = done.optionsSource.options;
+	expect(form?.automaticSubmissionText).toEqual({
+		carrier: {
+			field: done.uuid,
+			role: "select-option-label",
+			option: yes?.uuid,
+		},
+	});
+	expect(form?.skipAutomaticSyncText).toEqual({
+		carrier: {
+			field: done.uuid,
+			role: "select-option-label",
+			option: no?.uuid,
+		},
+	});
+});
