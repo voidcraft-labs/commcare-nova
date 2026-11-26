@@ -15,6 +15,7 @@ def test_web_apps_keeps_ordinary_cases_and_omits_the_android_lookup(
         with project.released(formplayer_runner, database=database) as release:
             short = release.doc["modules"][0]["case_details"]["short"]
             assert short["lookup_enabled"] and short["lookup_name"] == "Find a visit"
+            assert short["lookup_autolaunch"]
             run = Session(release, editor_driver).run([
                 *steps.open_app("Case list lookup"),
                 *steps.choose("Visits"),
