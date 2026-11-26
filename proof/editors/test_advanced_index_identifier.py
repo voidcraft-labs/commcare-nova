@@ -109,6 +109,7 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
                 app=admission["app"],
                 xmlns=form.xmlns,
                 restoreBase64=base64.b64encode(etree.tostring(restore)).decode(),
+                session={"data": {"case_id_new_requisition_0": case_id, "case_id_load_clinic0": PARENT}},
                 expressions=[
                     f"instance('casedb')/casedb/case[@case_id = '{case_id}']/index/{reference}",
                 ],
