@@ -1,6 +1,47 @@
 [
 	{
-		"id": "hq-advanced/advanced-menu-with-a-narrowed-case-list-item",
+		"id": "hq-advanced/a-calculation-shares-an-opening-record-name",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/opening-values-sharing-a-physical-session-name",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/arbitrary_datums",
+			"value": [
+				{
+					"doc_type": "ArbitraryDatum",
+					"datum_id": "case_id_load_household0",
+					"datum_function": "'ready'"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-advanced/a-connection-uses-a-name-its-parent-replaced",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 2,
+			"form": 0,
+			"menuName": "Member reviews",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "named",
+			"name": "connection_from_a_parent_aligned_load"
+		}
+	},
+	{
+		"id": "hq-advanced/advanced-menu-whose-forms-read-the-search",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
 		"standing": "not-yet",
@@ -10,9 +51,70 @@
 			"name": "Member visits"
 		},
 		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config",
+			"value": {
+				"search_button_label": { "en": "Search All Cases" },
+				"properties": [
+					{
+						"name": "case_name",
+						"label": { "en": "Name" },
+						"hint": {},
+						"hidden": false,
+						"allow_blank_value": false,
+						"exclude": false,
+						"required": { "test": null, "text": {}, "doc_type": "Assertion" },
+						"validations": [],
+						"itemset": { "doc_type": "Itemset" },
+						"is_group": false,
+						"doc_type": "CaseSearchProperty"
+					}
+				],
+				"auto_launch": true,
+				"default_search": false,
+				"default_properties": [],
+				"custom_sort_properties": [],
+				"additional_case_types": [],
+				"additional_registry_cases": [],
+				"title_label": {},
+				"description": {},
+				"include_all_related_cases": false,
+				"search_on_clear": false,
+				"inline_search": true,
+				"doc_type": "CaseSearch"
+			}
+		}
+	},
+	{
+		"id": "hq-advanced/advanced-menu-with-a-narrowed-case-list-item",
+		"base": "hq-advanced",
+		"entry": "menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule",
+		"change": {
 			"op": "named",
 			"name": "advanced_menu_with_a_narrowed_case_list_item"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/heldKind",
+				"value": "advanced"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/filter/kind",
+				"value": "gt"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/auto-capture-location",
@@ -35,17 +137,23 @@
 		"id": "hq-advanced/auto-select-case",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/auto-select-case-on-an-advanced-module",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 1,
-			"name": "Member visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/auto_select_case",
 			"value": true
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/autoSelectSingle",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/auto-select-case-on-a-load-s-basic-list",
@@ -316,6 +424,32 @@
 		}
 	},
 	{
+		"id": "hq-advanced/automatic-load-in-an-unknown-mode",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/automatic-choice-with-an-unknown-mode",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/auto_select",
+			"value": {
+				"doc_type": "AutoSelectCase",
+				"mode": "location",
+				"value_source": "",
+				"value_key": "commtrack-supply-point"
+			}
+		},
+		"hqNeverServes": {
+			"raised": "BadValueError"
+		}
+	},
+	{
 		"id": "hq-advanced/blank-tag",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action",
@@ -368,14 +502,6 @@
 		"id": "hq-advanced/computed-datum",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/arbitrary-datums-datum-id-datum-function",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/arbitrary_datums",
@@ -386,13 +512,25 @@
 					"datum_function": "today()"
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/computedDatums/0/key",
+				"value": "visit_day"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/condition-reading-the-case-with-no-chosen-load",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/auto-select-mode-raw-value-key",
-		"standing": "not-yet",
+		"entry": "expressions-and-data/session-data-datum-the-entry-does-not-supply",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 2,
@@ -521,18 +659,32 @@
 		"id": "hq-advanced/first-load-indexed-to-the-worker-load",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/an-index-on-the-first-chosen-load-naming-the-worker-s-record-loaded-before-it",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "named",
 			"name": "first_load_indexed_to_the_worker_load"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/0/source/kind",
+				"value": "worker-record"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/1/source/kind",
+				"value": "choose"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/first-load-writes-through-parent",
@@ -624,8 +776,8 @@
 	{
 		"id": "hq-advanced/household-chosen-by-expression",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/auto-select-mode-raw-value-key",
-		"standing": "not-yet",
+		"entry": "expressions-and-data/session-data-datum-the-entry-does-not-supply",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -746,6 +898,136 @@
 				}
 			]
 		}
+	},
+	{
+		"id": "hq-advanced/household-chosen-by-expression-from-an-earlier-choice",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/auto-select-mode-raw-value-key",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/load_update_cases",
+			"value": [
+				{
+					"case_type": "household",
+					"case_tag": "load_household0",
+					"details_module": {
+						"$menu": 0
+					},
+					"case_properties": {
+						"last_member_visit": {
+							"question_path": "/data/visited_on",
+							"update_mode": "edit",
+							"doc_type": "ConditionalCaseUpdate"
+						}
+					},
+					"preload": {},
+					"auto_select": null,
+					"load_case_from_fixture": null,
+					"show_product_stock": false,
+					"product_program": null,
+					"case_index": {
+						"tag": null,
+						"reference_id": "parent",
+						"relationship": "child",
+						"relationship_question": "",
+						"doc_type": "CaseIndex"
+					},
+					"doc_type": "LoadUpdateAction",
+					"close_condition": {
+						"type": "never",
+						"question": null,
+						"answer": null,
+						"operator": "=",
+						"doc_type": "FormActionCondition"
+					}
+				},
+				{
+					"case_type": "member",
+					"case_tag": "load_member1",
+					"details_module": {
+						"$menu": 1
+					},
+					"case_index": {
+						"tag": "load_household0",
+						"reference_id": "parent",
+						"relationship": "child",
+						"relationship_question": "",
+						"doc_type": "CaseIndex"
+					},
+					"preload": {
+						"/data/age_seen": "age"
+					},
+					"case_properties": {
+						"notes": {
+							"question_path": "/data/notes",
+							"update_mode": "always",
+							"doc_type": "ConditionalCaseUpdate"
+						}
+					},
+					"auto_select": null,
+					"load_case_from_fixture": null,
+					"show_product_stock": false,
+					"product_program": null,
+					"doc_type": "LoadUpdateAction",
+					"close_condition": {
+						"type": "never",
+						"question": null,
+						"answer": null,
+						"operator": "=",
+						"doc_type": "FormActionCondition"
+					}
+				},
+				{
+					"case_type": "household",
+					"case_tag": "load_household2",
+					"details_module": null,
+					"case_properties": {
+						"last_member_note": {
+							"question_path": "/data/notes",
+							"update_mode": "always",
+							"doc_type": "ConditionalCaseUpdate"
+						}
+					},
+					"preload": {},
+					"auto_select": {
+						"doc_type": "AutoSelectCase",
+						"mode": "raw",
+						"value_source": "",
+						"value_key": "instance('commcaresession')/session/data/case_id_load_household0"
+					},
+					"load_case_from_fixture": null,
+					"show_product_stock": false,
+					"product_program": null,
+					"case_index": {
+						"tag": null,
+						"reference_id": "parent",
+						"relationship": "child",
+						"relationship_question": "",
+						"doc_type": "CaseIndex"
+					},
+					"doc_type": "LoadUpdateAction",
+					"close_condition": {
+						"type": "never",
+						"question": null,
+						"answer": null,
+						"operator": "=",
+						"doc_type": "FormActionCondition"
+					}
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/2/source/kind",
+				"value": "expression"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/household-chosen-by-its-own-index",
@@ -876,8 +1158,8 @@
 	{
 		"id": "hq-advanced/household-chosen-by-lookup-row",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/auto-select-mode-fixture",
-		"standing": "not-yet",
+		"entry": "forms-and-case-writes/automatic-table-choice-without-its-table-or-column",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -1000,17 +1282,30 @@
 		}
 	},
 	{
+		"id": "hq-advanced/household-chosen-by-lookup-row-with-the-table",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/auto-select-mode-fixture",
+		"change": {
+			"op": "named",
+			"name": "household_chosen_by_a_stored_table"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/2/source/kind",
+				"value": "table"
+			}
+		]
+	},
+	{
 		"id": "hq-advanced/household-chosen-by-the-member-index",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/auto-select-mode-case-index-of-an-earlier-load",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/load_update_cases",
@@ -1123,20 +1418,34 @@
 					}
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/2/source/kind",
+				"value": "index"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/2/source/identifier",
+				"value": "parent"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/household-chosen-by-worker-data",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/auto-select-mode-user",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/load_update_cases",
@@ -1249,7 +1558,29 @@
 					}
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/2/source/kind",
+				"value": "worker-data"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/2/source/property/field",
+				"value": "household_id"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/index-to-a-load-before-the-last",
@@ -1454,39 +1785,67 @@
 		"id": "hq-advanced/load-listed-by-another-menu",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/details_module",
 			"value": {
 				"$menu": 2
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/1/name",
+				"value": "Member reviews"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/1/source/kind",
+				"value": "choose"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/load-preload-read-later",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/loadupdateaction-preload-read-later-in-the-load",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"formName": "Untitled Form",
-			"path": "age_seen"
-		},
 		"change": {
 			"op": "named",
 			"name": "load_preload_read_later"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "age"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [1, 0]
+					},
+					["notes"]
+				],
+				"pointer": "/default_value/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/load-with-a-blank-product-program",
@@ -1957,7 +2316,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/links/0/relationship",
+				"pointer": "/caseOperations/0/links/0/relationship",
 				"value": "extension"
 			},
 			{
@@ -1967,7 +2326,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/links/0/identifier",
+				"pointer": "/caseOperations/0/links/0/identifier",
 				"value": "host"
 			}
 		]
@@ -2025,7 +2384,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/placement",
+				"pointer": "/caseOperations/0/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2038,8 +2397,8 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/action",
-				"value": "create"
+				"pointer": "/caseOperations/0/action",
+				"value": "own"
 			}
 		]
 	},
@@ -2059,8 +2418,8 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/3/action",
-				"value": "close"
+				"pointer": "/caseOperations/0/action",
+				"value": "own"
 			},
 			{
 				"key": [
@@ -2069,7 +2428,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/3/condition/kind",
+				"pointer": "/closeCondition/kind",
 				"value": "eq"
 			}
 		]
@@ -2178,7 +2537,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/placement",
+				"pointer": "/caseOperations/0/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2191,7 +2550,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/condition/kind",
+				"pointer": "/openCondition/kind",
 				"value": "eq"
 			}
 		]
@@ -2255,7 +2614,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/writes/0/property",
+				"pointer": "/caseOperations/0/writes/0/property",
 				"value": "first_visit"
 			}
 		]
@@ -2827,14 +3186,6 @@
 		"id": "hq-advanced/read-only-load-tagged-by-hand",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/load-changing-no-case-with-a-tag-nova-does-not-derive",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 2,
-			"form": 0,
-			"menuName": "Member reviews",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/forms/0/actions/load_update_cases",
@@ -2902,7 +3253,19 @@
 					}
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [2, 0]
+					}
+				],
+				"pointer": "/caseSelections/0/tag",
+				"value": "hh"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/registration-from-an-advanced-list",
@@ -3326,8 +3689,8 @@
 	{
 		"id": "hq-advanced/shadow-form",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/shadowform",
-		"standing": "not-yet",
+		"entry": "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -3412,37 +3775,115 @@
 		}
 	},
 	{
+		"id": "hq-advanced/shared-visit-entry",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/shadowform",
+		"change": {
+			"op": "named",
+			"name": "two_entries_opening_the_visit"
+		},
+		"holds": [
+			{
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
+				"pointer": "/name",
+				"value": "Visit from a referral"
+			},
+			{
+				"key": ["form", ["shared-form", { "$form": [2, 1] }]],
+				"pointer": "/name",
+				"value": "Visit from a callback"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/shared-entry-parent",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/shadow-parent-form-id-naming-an-advancedform-that-is-not-a",
+		"change": {
+			"op": "named",
+			"name": "two_entries_opening_the_visit"
+		},
+		"holds": [
+			{
+				"key": ["form", ["shared-form", { "$form": [2, 1] }]],
+				"pointer": "/shadowOf/selections/0/kind",
+				"value": "replace"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/shared-entry-replaces-choice",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/extra-actions-load-update-cases-repeating-a-parent-tag-overrides",
+		"change": {
+			"op": "named",
+			"name": "two_entries_opening_the_visit"
+		},
+		"holds": [
+			{
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
+				"pointer": "/shadowOf/selections/1/kind",
+				"value": "replace"
+			},
+			{
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
+				"pointer": "/shadowOf/selections/1/caseType",
+				"value": "member"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/shared-entry-extra-choice",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/extra-actions-load-update-cases-with-a-tag-absent-from-the",
+		"change": {
+			"op": "named",
+			"name": "two_entries_opening_the_visit"
+		},
+		"holds": [
+			{
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
+				"pointer": "/shadowOf/selections/0/kind",
+				"value": "add"
+			},
+			{
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
+				"pointer": "/shadowOf/selections/0/tag",
+				"value": "referring_household"
+			}
+		]
+	},
+	{
 		"id": "hq-advanced/supply-point-id-from-a-computed-datum",
 		"base": "hq-advanced",
 		"entry": "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"formName": "Untitled Form",
-			"path": "notes"
-		},
 		"change": {
 			"op": "named",
 			"name": "supply_point_id_read"
 		},
-		"second": {
-			"entry": "forms-and-case-writes/arbitrary-datums-datum-id-datum-function",
-			"standing": "not-yet",
-			"place": {
-				"kind": "form",
-				"menu": 1,
-				"form": 0,
-				"menuName": "Member visits",
-				"name": "Untitled Form"
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/computedDatums/0/key",
+				"value": "supply_point_id"
 			},
-			"change": {
-				"op": "named",
-				"name": "supply_point_id_computed"
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [1, 0]
+					},
+					["notes"]
+				],
+				"pointer": "/relevant/left/term/datum/kind",
+				"value": "entry-value"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-advanced/tag-starting-with-a-digit",
@@ -3466,19 +3907,18 @@
 		"id": "hq-advanced/tag-with-a-hyphen",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/case-tag-holding-a-hyphen",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/case_tag",
 			"value": "load-member1"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/placement",
+				"value": { "kind": "advanced", "tag": "load-member1" }
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/tag-with-a-slash",
@@ -3496,6 +3936,24 @@
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/case_tag",
 			"value": "load/member1"
+		}
+	},
+	{
+		"id": "hq-advanced/two-actions-share-a-tag",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/case-actions-using-the-same-tag",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/case_tag",
+			"value": "load_household0"
 		}
 	},
 	{
@@ -3708,16 +4166,32 @@
 		"id": "hq-advanced/worker-case-type-on-an-advanced-menu",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/case-type-commcare-user-on-an-advancedmodule",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 2,
-			"name": "Member reviews"
-		},
 		"change": {
 			"op": "named",
 			"name": "worker_case_type_on_an_advanced_menu"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseType",
+				"value": "commcare-user"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [2, 0]
+					}
+				],
+				"pointer": "/caseSelections/1/caseType",
+				"value": "commcare-user"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/worker-load-after-the-chosen-loads",
@@ -3793,7 +4267,38 @@
 		"id": "hq-advanced/worker-load-stored-first",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/the-worker-s-record-s-auto-selected-load-stored-before-a-chosen-load",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "worker_load_stored_first"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/0/source/kind",
+				"value": "worker-record"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseSelections/1/source/kind",
+				"value": "choose"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/worker-record-load-of-another-type",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/worker-record-selection-with-another-case-type",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -3802,8 +4307,14 @@
 			"name": "Untitled Form"
 		},
 		"change": {
-			"op": "named",
-			"name": "worker_load_stored_first"
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/auto_select",
+			"value": {
+				"doc_type": "AutoSelectCase",
+				"mode": "usercase",
+				"value_source": "",
+				"value_key": ""
+			}
 		}
 	},
 	{
@@ -16225,19 +16736,22 @@
 		"id": "hq-case-management/child-close-is-true-on-a-choice",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/a-child-case-or-advanced-action-condition-boolean-true-on-a",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 2,
-			"menuName": "Households",
-			"formName": "Followup",
-			"path": "member_left"
-		},
 		"change": {
 			"op": "named",
 			"name": "child_close_is_true_on_a_choice"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 2]
+					}
+				],
+				"pointer": "/caseOperations/2/condition/fn",
+				"value": "boolean"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/child-close-on-a-text-answer",
@@ -16322,9 +16836,9 @@
 		}
 	},
 	{
-		"id": "hq-case-management/datetime-saved-straight",
+		"id": "hq-case-management/datetime-saved-straight-as-the-external-id",
 		"base": "hq-case-management",
-		"entry": "forms-and-case-writes/a-datetime-question-saved-straight-to-a-case",
+		"entry": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
 		"standing": "not-yet",
 		"place": {
 			"kind": "form",
@@ -16335,22 +16849,18 @@
 		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/forms/3/actions/update_case/update/seen_at/question_path",
-			"value": "/data/seen_at"
+			"pointer": "/modules/0/forms/3/actions/update_case/update/external_id",
+			"value": {
+				"question_path": "/data/seen_at",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
 		}
 	},
 	{
 		"id": "hq-case-management/edit-mode-on-a-registration",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-mode-edit-off-a-follow-up-form-s-own-update",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Households",
-			"name": "Registration Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/0/actions/update_case/update/head",
@@ -16359,7 +16869,45 @@
 				"update_mode": "edit",
 				"doc_type": "ConditionalCaseUpdate"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/onlyIfChanged",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/edit-mode-on-the-own-owner",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/update-mode-edit-on-a-case-s-name-or-owner",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/update_case/update/owner_id",
+			"value": {
+				"question_path": "/data/status_note",
+				"update_mode": "edit",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerOnlyIfChanged",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/extension-child-case",
@@ -16743,14 +17291,6 @@
 		"id": "hq-case-management/location-id-write",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-keys-location-id-hq-user-id",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/update_case/update/location_id",
@@ -16759,7 +17299,19 @@
 				"update_mode": "always",
 				"doc_type": "ConditionalCaseUpdate"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "location_id"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/members-chosen-from-their-household",
@@ -17086,20 +17638,43 @@
 		"id": "hq-case-management/preload-from-the-host",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/case-preload-from-any-other-index-path-host-user-a-mixed-path",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"formName": "Followup Form",
-			"path": "village_seen"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/1/actions/case_preload/preload/~1data~1village_seen",
 			"value": "host/village"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/openingAssignments/0/via/0/identifier",
+				"value": "host"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/preload-from-the-parent",
@@ -17125,18 +17700,33 @@
 		"holds": [
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["status_note"]
+					}
 				],
-				"pointer": "/default_value/term",
-				"value": {
-					"kind": "form-case",
-					"caseType": "household",
-					"property": "village"
-				}
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openingAssignments/0/via/0/identifier",
+				"value": "parent"
 			}
 		]
 	},
@@ -17151,25 +17741,23 @@
 		"holds": [
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["status_note"]
+					}
 				],
-				"pointer": "/id",
+				"pointer": "/openingAssignments/0/property",
 				"value": "status_note"
 			},
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["status_note"]
+					}
 				],
-				"pointer": "/default_value",
-				"value": null
+				"pointer": "/heldBasicOpening",
+				"value": true
 			}
 		]
 	},
@@ -17177,15 +17765,6 @@
 		"id": "hq-case-management/preload-into-a-calculated-hidden-value",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/case-preload-into-a-question-that-holds-no-default",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 3,
-			"menuName": "Households",
-			"formName": "Followup",
-			"path": "nova_datetime_seen_at"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/3/actions/case_preload",
@@ -17202,7 +17781,40 @@
 					"doc_type": "FormActionCondition"
 				}
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 3]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "seen_at"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 3]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 3]
+					},
+					["nova_datetime_seen_at"]
+				],
+				"pointer": "/kind",
+				"value": "hidden"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/preload-into-a-repeated-question",
@@ -17215,25 +17827,23 @@
 		"holds": [
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["visits", "visitor"]
+					}
 				],
-				"pointer": "/id",
-				"value": "visitor"
+				"pointer": "/openingAssignments/0/property",
+				"value": "status_note"
 			},
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["visits", "visitor"]
+					}
 				],
-				"pointer": "/default_value",
-				"value": null
+				"pointer": "/heldBasicOpening",
+				"value": true
 			}
 		]
 	},
@@ -17241,19 +17851,43 @@
 		"id": "hq-case-management/preload-read-later",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"formName": "Followup Form",
-			"path": "village_seen"
-		},
 		"change": {
 			"op": "named",
 			"name": "preload_read_later"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 1]
+					},
+					["visit_note"]
+				],
+				"pointer": "/default_value/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/preload-saved-as-always",
@@ -17273,18 +17907,23 @@
 		"holds": [
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [0, 1]
-					},
-					["village_seen"]
+					}
 				],
-				"pointer": "/default_value/term",
-				"value": {
-					"kind": "form-case",
-					"caseType": "household",
-					"property": "village"
-				}
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
 			}
 		]
 	},
@@ -17507,14 +18146,6 @@
 		"id": "hq-case-management/rename-the-parent",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-key-name-or-owner-id-through-an-index-segment",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/update_case/update/parent~1name",
@@ -17523,7 +18154,19 @@
 				"update_mode": "always",
 				"doc_type": "ConditionalCaseUpdate"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "case_name"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/reserved-update-key",
@@ -18388,21 +19031,6 @@
 		]
 	},
 	{
-		"id": "hq-case-management/visit-kind-written-as-one-and-several-choices",
-		"base": "hq-case-management",
-		"entry": "forms-and-case-writes/writers-single-select-multi-select",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 0,
-			"name": "Households"
-		},
-		"change": {
-			"op": "named",
-			"name": "visit_kind_from_both_selects"
-		}
-	},
-	{
 		"id": "hq-case-management/worker-record-first-name",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes",
@@ -18444,6 +19072,24 @@
 				"update_mode": "always",
 				"doc_type": "ConditionalCaseUpdate"
 			}
+		}
+	},
+	{
+		"id": "hq-case-management/worker-preload-observed-before-its-source-only-write",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 1,
+			"menuName": "Households",
+			"formName": "Followup Form",
+			"path": "village_seen"
+		},
+		"change": {
+			"op": "named",
+			"name": "worker_preload_observed_before_its_source_only_write"
 		}
 	},
 	{
@@ -30241,21 +30887,20 @@
 		"id": "hq-plain/submit-label",
 		"base": "hq-plain",
 		"entry": "forms-and-case-writes/submit-label-non-default",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/1/submit_label",
 			"value": {
 				"en": "Send visit"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/submitLabel/text",
+				"value": "Send visit"
+			}
+		]
 	},
 	{
 		"id": "hq-plain/submit-notification-label",

@@ -56,6 +56,7 @@ import {
 	type AliasableExpression,
 	type Kysely,
 	type RawBuilder,
+	type SelectQueryBuilder,
 	sql,
 } from "kysely";
 import type { Database } from "./database";
@@ -88,6 +89,12 @@ export interface RestoreScopeQuery {
 	 * from it. Every existing filter, sort key, and join stays where it is.
 	 */
 	readonly creator: Kysely<Database>;
+	/** Start a complete-device read with each live identity exactly once. */
+	readonly liveRows: SelectQueryBuilder<
+		Database & { live: { case_id: string } },
+		"live",
+		Record<never, never>
+	>;
 	/**
 	 * Restrict one `cases` row source to the closure.
 	 *
@@ -238,11 +245,21 @@ export function buildRestoreScope(
 							// cross-tenant edge unable to answer the question.
 							eb
 								.selectFrom("case_indices as probe")
-								.innerJoin("cases as probe_far", (join) =>
-									join
-										.onRef("probe_far.case_id", "=", "probe.ancestor_id")
-										.on("probe_far.app_id", "=", appId)
-										.on("probe_far.project_id", "=", projectId),
+								// Resolve the real edge before its far endpoint. Without
+								// this boundary an unanalyzed new tenant can scan all
+								// its cases once per seed even when it has no edges.
+								.innerJoinLateral(
+									(qb) =>
+										qb
+											.selectFrom("cases as far")
+											.select(["far.app_id", "far.project_id"])
+											.whereRef("far.case_id", "=", "probe.ancestor_id")
+											.limit(1)
+											.as("probe_far"),
+									(join) =>
+										join
+											.on("probe_far.app_id", "=", appId)
+											.on("probe_far.project_id", "=", projectId),
 								)
 								.select((probe) => probe.lit(1).as("is_extension_case"))
 								.whereRef("probe.case_id", "=", "avail.case_id")
@@ -344,6 +361,9 @@ export function buildRestoreScope(
 
 	return {
 		creator: scoped as unknown as Kysely<Database>,
+		liveRows: (
+			scoped as unknown as Kysely<Database & { live: { case_id: string } }>
+		).selectFrom("live"),
 		restrict: <QB>(qb: QB, casesAlias: string): QB =>
 			(
 				qb as {

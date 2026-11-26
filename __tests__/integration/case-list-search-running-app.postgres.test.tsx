@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import {
 	loadCaseDataAction,
 	loadCaseDatabaseSnapshotAction,
@@ -34,6 +35,12 @@ import {
 } from "@/lib/preview/engine/caseDataBinding";
 import { caseRowsToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
 import { EngineController } from "@/lib/preview/engine/engineController";
+import { readFormOpeningAction } from "@/lib/preview/engine/formOpeningAction";
+import {
+	type FormOpeningBinding,
+	restoreOpeningCases,
+	restoreOpeningLookup,
+} from "@/lib/preview/engine/formOpeningSnapshot";
 import { previewAsMe } from "@/lib/preview/engine/identity";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
@@ -56,6 +63,7 @@ const MEMBER = {
 	name: "Preview Worker",
 	email: "worker@dimagi.com",
 };
+const AUTH_SESSION = "running-app-auth-session";
 const h = setupAppStateTestDb("running_app_actions_", {
 	authSchema: "migrated",
 	poolMax: 4,
@@ -64,9 +72,10 @@ const controllers = new Set<EngineController>();
 let doc: BlueprintDoc;
 let digest: string;
 beforeEach(async () => {
+	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic running app opening secret");
 	getSession.mockResolvedValue({
 		user: MEMBER,
-		session: { id: "running-app-session" },
+		session: { id: AUTH_SESSION },
 	});
 	doc = assertAdmittedPreviewDoc(buildFixtureDoc());
 	digest = canonicalJsonDigest(toPersistableDoc(doc));
@@ -87,6 +96,7 @@ afterEach(async () => {
 	);
 	controllers.clear();
 	vi.restoreAllMocks();
+	vi.unstubAllEnvs();
 });
 function buildFixtureDoc(): BlueprintDoc {
 	return buildDoc({
@@ -228,6 +238,86 @@ async function controllerFor(formUuid: Uuid, caseId?: string) {
 	expect(controller.entryStore.getState().ready).toBe(true);
 	return controller;
 }
+/** A form whose questions read the chosen case opens the way the browser
+ * does: the server signs the records it read, and the submission carries them. */
+async function openedControllerFor(formUuid: Uuid, caseId: string) {
+	const device = webAppsDevice();
+	const run = testUuid("running-app-opening-run");
+	const entry = crypto.randomUUID();
+	const opening = await readFormOpeningAction(
+		{
+			app: APP_ID,
+			module: MODULE_UUID,
+			form: formUuid,
+			run,
+			entry,
+			blueprintDigest: digest,
+			bound: [caseId],
+		},
+		device,
+	);
+	if (opening.kind !== "opening")
+		throw new Error(`Form opening failed: ${JSON.stringify(opening)}`);
+	const store = createBlueprintDocStore();
+	store.getState().load(doc);
+	const controller = new EngineController();
+	controllers.add(controller);
+	controller.setDocStore(store);
+	controller.setPreviewIdentity(previewAsMe(MEMBER, doc));
+	const snapshot = restoreOpeningCases(opening.projection.cases);
+	controller.setCaseDatabaseState({
+		required: true,
+		status: "ready",
+		snapshot,
+	});
+	const row = snapshot.rows.find((candidate) => candidate.case_id === caseId);
+	if (!row) throw new Error("The signed opening is missing the chosen case");
+	controller.activateForm(
+		formUuid,
+		caseRowsToFormPreloads(row, [], [{ name: "patient", depth: 0 }]),
+		undefined,
+		undefined,
+		{
+			appId: APP_ID,
+			boundCases: [{ caseId }],
+			menuSelections: {},
+			openedEntryKey: entry,
+			heldEntryValues: opening.projection.resolvedEntries,
+			openingLookup: restoreOpeningLookup(opening.projection.lookup),
+		},
+	);
+	expect(controller.entryStore.getState().ready).toBe(true);
+	expect(controller.entryKey).toBe(entry);
+	const binding: FormOpeningBinding = {
+		module: MODULE_UUID,
+		run,
+		evidence: opening.evidence,
+	};
+	return { controller, binding, device };
+}
+async function submitOpened(
+	opened: Awaited<ReturnType<typeof openedControllerFor>>,
+	caseIds: readonly string[],
+) {
+	const { controller, binding, device } = opened;
+	expect(controller.validateAll()).toBe(true);
+	const entryKey = controller.entryKey;
+	if (!entryKey) throw new Error("Controller entry missing");
+	const snapshot = await controller.computeSubmissionMutationAsync(
+		{ caseIds },
+		entryKey,
+	);
+	if (!snapshot) throw new Error("Controller submission missing");
+	return submitFormAction(
+		{ ...snapshot.mutation, formOpening: binding },
+		APP_ID,
+		digest,
+		undefined,
+		undefined,
+		undefined,
+		device,
+	);
+}
 async function submit(
 	controller: EngineController,
 	caseIds?: readonly string[],
@@ -313,11 +403,16 @@ describe("controller and Server Action journey against PostgreSQL", () => {
 	});
 	it("preloads and follows up the selected case, preserving unrelated values and recomputing its projection", async () => {
 		const caseId = await register("Alice", 40);
-		const controller = await controllerFor(FOLLOWUP_FORM_UUID, caseId);
+		const opened = await openedControllerFor(FOLLOWUP_FORM_UUID, caseId);
+		const { controller } = opened;
 		const ageUuid = doc.fieldOrder[FOLLOWUP_FORM_UUID][0];
 		expect(controller.store.getState()[ageUuid].value).toBe("40");
 		controller.setValueAt("/data/age", "41");
+		// Without the opening it read, the server will not guess the records.
 		expect(await submit(controller, [caseId])).toMatchObject({
+			kind: "error",
+		});
+		expect(await submitOpened(opened, [caseId])).toMatchObject({
 			kind: "followup",
 			caseIds: [caseId],
 		});

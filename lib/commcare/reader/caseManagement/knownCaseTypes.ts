@@ -16,10 +16,31 @@
  */
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
 import { caseRelationsForReadBack } from "@/lib/domain/appCaseRelations";
+import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import type { KnownIndexTarget, ReaderKnownCaseTypes } from "../types";
 
 export function knownCaseTypesOf(doc: BlueprintDoc): ReaderKnownCaseTypes {
 	const graph = caseRelationsForReadBack(doc);
+	for (const form of Object.values(doc.forms)) {
+		for (const assignment of form.openingAssignments ?? []) {
+			let origin = openingAssignmentSource(
+				doc,
+				form.uuid,
+				assignment.source,
+			).type;
+			for (const step of assignment.via ?? []) {
+				if (origin === undefined) break;
+				const targetType: string | undefined =
+					step.throughCaseType ??
+					(step.identifier === "parent"
+						? doc.caseTypes?.find((type) => type.name === origin)?.parent_type
+						: undefined);
+				if (targetType === undefined) break;
+				graph.note(origin, { identifier: step.identifier, targetType });
+				origin = targetType;
+			}
+		}
+	}
 	const declared = new Map<string, CasePropertyDataType>();
 	for (const type of doc.caseTypes ?? [])
 		for (const property of type.properties)
