@@ -146,9 +146,12 @@
 		"hq-case-management/child-case-repeat-context-without-repeat",
 		"hq-case-management/child-case-without-open",
 		"hq-case-management/child-close-answer-with-apostrophe",
+		"hq-case-management/child-close-is-true-on-a-choice",
 		"hq-case-management/child-close-on-a-text-answer",
 		"hq-case-management/close-on-a-text-answer",
 		"hq-case-management/detail-tab-over-child-cases",
+		"hq-case-management/edit-mode-on-a-registration",
+		"hq-case-management/edit-mode-on-the-own-owner",
 		"hq-case-management/explicit-tab-rows-with-related-cases",
 		"hq-case-management/extension-child-case",
 		"hq-case-management/external-id-on-a-follow-up",
@@ -178,7 +181,9 @@
 		"hq-case-management/worker-record-preload-alone",
 		"hq-case-management/write-through-an-unknown-index"
 	],
-	"hq-connect-deliver": ["hq-connect-deliver/auto-gps-capture-on"],
+	"hq-connect-deliver": [
+		"hq-connect-deliver/auto-gps-capture-on"
+	],
 	"hq-connect-learn": [],
 	"hq-empty-search": [
 		"hq-empty-search/conditional-registration-returning-to-search"
@@ -227,7 +232,9 @@
 		"hq-lookups/itemset-copy",
 		"hq-lookups/itemset-property-as-label"
 	],
-	"hq-media": ["hq-media/form-media-for-every-language"],
+	"hq-media": [
+		"hq-media/form-media-for-every-language"
+	],
 	"hq-menus": [
 		"hq-menus/after-submit-to-the-parent-menu",
 		"hq-menus/badge",
@@ -302,7 +309,9 @@
 		"hq-new-app/smart-lang-display",
 		"hq-new-app/vellum-case-management-off"
 	],
-	"hq-nova-then-builder": ["hq-nova-then-builder/close-on-a-survey"],
+	"hq-nova-then-builder": [
+		"hq-nova-then-builder/close-on-a-survey"
+	],
 	"hq-owner-rules": [],
 	"hq-places": [],
 	"hq-plain": [
@@ -336,6 +345,7 @@
 		"hq-plain/return-to-the-screen-before-in-a-multi-select-menu",
 		"hq-plain/schedule-form-id",
 		"hq-plain/source-backed-menu",
+		"hq-plain/submit-label",
 		"hq-plain/submit-notification-label",
 		"hq-plain/tile-grouped-by-parent",
 		"hq-plain/undeclared-form-key",

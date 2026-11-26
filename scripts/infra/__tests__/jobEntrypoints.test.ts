@@ -45,6 +45,7 @@ beforeAll(async () => {
 			"export async function convergeDatabasePrivileges(value, roles){if(value!==db)throw Error('wrong database');event('privileges',roles);}",
 			"export async function runCanonicalRuntimeDatabaseProbe(value, role){if(value!==db)throw Error('wrong database');event('runtime-probe',role);return {verified:true};}",
 			"export async function withExclusiveCaptureCleanupWorker(work){event('lease');if(['already-running','capacity-saturated'].includes(mode))return {kind:mode};try{await work();return {kind:'ran'};}finally{event('lease-released');}}",
+			"export async function reclaimExpiredFormOpeningData(){event('expired-opening-data');return mode==='bounded'?32:1;}",
 			"export async function runCaptureCleanupSchemaProbe(){event('cleanup-probe');return {verified:true};}",
 			"let purges=0;",
 			"export async function purgeExpiredFormAttachments(limit){event('purge',limit);purges++;return mode==='bounded'?{processed:100,transitioned:80,objects:[]}:purges===1?{processed:2,transitioned:1,objects:[{objectKey:'unversioned',objectGeneration:null},{objectKey:'versioned',objectGeneration:'123456'},{objectKey:'failed',objectGeneration:'654321'}]}:{processed:0,transitioned:0,objects:[]};}",
@@ -64,6 +65,7 @@ beforeAll(async () => {
 		"@/lib/db/runtimeDatabaseProbe",
 		"@/lib/db/captureCleanupLease",
 		"@/lib/db/captureCleanupSchemaProbe",
+		"@/lib/db/formOpeningData",
 		"@/lib/db/formAttachmentPreparation",
 		"@/lib/db/formAttachments",
 		"@/lib/storage/media",
@@ -219,6 +221,7 @@ describe("recurring capture worker process", () => {
 		expect(names).toEqual([
 			"lease",
 			"cleanup-probe",
+			"expired-opening-data",
 			"purge",
 			"delete",
 			"delete-generation",
@@ -259,6 +262,7 @@ describe("recurring capture worker process", () => {
 		).toEqual(Array.from({ length: 10 }, () => [{ limit: 100 }]));
 		expect(reports).toEqual([
 			expect.objectContaining({
+				expiredOpeningSnapshots: 320,
 				expiredRows: 1000,
 				transitionedExpiredRows: 800,
 				objectDeleteFailures: 0,

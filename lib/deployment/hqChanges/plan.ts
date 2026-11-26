@@ -1571,7 +1571,7 @@ function holdsSplit(ref: BlueprintDoc, draft: ReadDraft): boolean {
 function formsOf(draft: ReadDraft): readonly { readonly uuid: Uuid }[] {
 	return draft.facts.forms.flatMap((form) => {
 		const found = draft.identities.forms.find(
-			(one) => one.xmlns === form.xmlns,
+			(one) => one.xmlns === form.xmlns && !draft.doc.forms[one.uuid]?.shadowOf,
 		);
 		return found === undefined ? [] : [{ uuid: found.uuid }];
 	});

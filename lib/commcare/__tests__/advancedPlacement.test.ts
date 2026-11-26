@@ -14,7 +14,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { HqAdvancedForm, HqForm } from "@/lib/commcare";
 import {
 	type AdvancedIneligibility,
 	loadIneligibility,
@@ -36,6 +35,7 @@ import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { CaseOperation, CaseOperationLink, Uuid } from "@/lib/domain";
 import { concat, eq, literal, term } from "@/lib/domain/expression/builders";
+import type { HqAnyForm } from "../types";
 import {
 	type AdvancedFixtureOptions,
 	advancedFixture,
@@ -610,8 +610,8 @@ describe("the advanced procedure", () => {
 		const moduleIds = hq.modules.map((module) => module.unique_id);
 		expect(moduleIds).toContain(householdsId);
 		expect(moduleIds).toContain(membersId);
-		const forms: readonly (HqForm | HqAdvancedForm)[] = hq.modules.flatMap(
-			(module): readonly (HqForm | HqAdvancedForm)[] => module.forms,
+		const forms: readonly HqAnyForm[] = hq.modules.flatMap(
+			(module): readonly HqAnyForm[] => module.forms,
 		);
 		const form = forms.find(
 			(candidate) => candidate.unique_id === derivedUniqueId(formUuid),

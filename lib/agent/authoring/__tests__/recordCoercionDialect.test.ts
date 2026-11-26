@@ -1,7 +1,7 @@
 /**
- * The record dialect over the two record-rule widenings: a yes or no answer
- * read alone as a case change's condition, and the comparisons CommCare
- * coerces. Each prints and reads back to itself, the law the reader of
+ * The record dialect over the record-rule widenings: a yes or no answer
+ * read alone as a case change's condition, `boolean(...)` of any other
+ * answer there, and the comparisons CommCare coerces. Each prints and reads back to itself, the law the reader of
  * CommCare HQ's apps holds every record slot to (`recordDialectRoundTrip`),
  * so an app that holds one comes in and an agent can read and edit it. The
  * failure this catches: the printer or the parser refusing a shape the
@@ -29,6 +29,7 @@ import { recordDialectRoundTrip } from "../recordRoundTrip";
 const FORM = testUuid("coercion-dialect-form");
 const FLAG = testUuid("coercion-dialect-flag");
 const REFERRAL = testUuid("coercion-dialect-referral");
+const NOTE = testUuid("coercion-dialect-note");
 
 function doc(condition: Expression): BlueprintDoc {
 	const built = buildDoc({
@@ -60,7 +61,7 @@ function doc(condition: Expression): BlueprintDoc {
 						name: "Inspection",
 						type: "followup",
 						fields: [
-							f({ kind: "text", id: "note", label: "Note" }),
+							f({ uuid: NOTE, kind: "text", id: "note", label: "Note" }),
 							f({
 								uuid: FLAG,
 								kind: "hidden",
@@ -108,6 +109,14 @@ describe("the record dialect over the widened record rules", () => {
 	it.each([
 		["a yes or no read alone", term(formField(FLAG))],
 		["its negation", not(term(formField(FLAG)))],
+		[
+			"an answer read alone as CommCare reads it",
+			{
+				kind: "call",
+				fn: "boolean",
+				args: [term(formField(NOTE))],
+			} satisfies Expression,
+		],
 		["a choice against a number", eq(prop("site", "cut_water"), literal(1))],
 		[
 			"a whole number against its text",

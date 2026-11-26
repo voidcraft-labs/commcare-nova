@@ -20,6 +20,7 @@ import {
 	formLinkActionsBuildable,
 	formLinkProjectionContext,
 	formLinkTargetDatumIds,
+	physicalEntrySupplyProblems,
 	projectAfterSubmit,
 } from "@/lib/commcare/formLinkProjection";
 import { instanceScanRead } from "@/lib/commcare/hqInstanceScan";
@@ -58,9 +59,11 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
+import { emittedSelectionTag } from "@/lib/domain/advancedEntryDatums";
 import { slotContext } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import { datumRefKey } from "@/lib/domain/expression/types";
+import { validateFormEntryCases } from "@/lib/domain/formEntryValidation";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import {
 	menuMediaProblemDetails,
@@ -69,6 +72,8 @@ import {
 } from "@/lib/domain/navigationMedia";
 import { freeQuestionId } from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
+import { HQ_CASE_RESERVED_WORDS } from "../../constants";
 import { type ValidationError, validationError } from "../errors";
 import {
 	checkErrorDetails,
@@ -76,7 +81,10 @@ import {
 	semanticCheckErrors,
 } from "../lookupTypeContext";
 import { formLinkNeedsNewCaseDatum } from "./advancedModule";
-import { validateCaseOperations } from "./caseOperations";
+import {
+	sharedEntryWriteFindings,
+	validateCaseOperations,
+} from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
 import { validateCasePlacements } from "./casePlacement";
 import { formDisplayCondition } from "./displayConditions";
@@ -90,6 +98,7 @@ import {
 	formLinkSelectionCardinality,
 	multiSelectFormSemantics,
 } from "./multiSelect";
+import { sharedFormDependencies } from "./sharedForm";
 import { casePropertyNameFormBuilderCannotKeep } from "./sourceCaseWrites";
 import { unwrittenValidationMessageReads } from "./validationMessageRead";
 
@@ -403,6 +412,20 @@ function ownCaseConditionValidation(
 				`Only registration and close forms close their own case, and “${ctx.formName}” is a ${typeName} form. You can remove the close condition or make it a close form.`,
 				{ ...loc, field: "closeCondition" },
 				{ formType: form.type },
+			),
+		);
+	}
+
+	if (
+		mod.caseType === USERCASE_CASE_TYPE &&
+		(form.type === "registration" || form.type === "close")
+	) {
+		errors.push(
+			validationError(
+				"CASE_OPERATION_RESERVED_CASE_TYPE",
+				"form",
+				`"${ctx.formName}" would ${form.type === "registration" ? "create" : "close"} a worker’s own record. A follow-up form can save answers to an existing worker’s record.`,
+				loc,
 			),
 		);
 	}
@@ -1396,7 +1419,74 @@ export function runFormRules(
 				menuMediaProblemDetails(mediaProblem),
 			),
 		);
-	errors.push(...emptyForm(doc, form, ctx));
+	for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {})) {
+		if (tag === emittedSelectionTag(doc, formUuid, uuid as Uuid)) continue;
+		const subjectWords = `The opening record saved as “${tag}”`;
+		const sentence =
+			"The form now uses a different record or saved name. You can review this change to keep it.";
+		errors.push(
+			validationError(
+				"HELD_PLACEMENT_INEXPRESSIBLE",
+				"form",
+				`${subjectWords} has changed. ${sentence}`,
+				baseLocation(ctx),
+				{
+					subjectWords,
+					sentence,
+					subject: JSON.stringify({
+						kind: "form-selection",
+						selectionUuid: uuid,
+					}),
+					held: JSON.stringify({ kind: "selection-tag", tag }),
+				},
+			),
+		);
+	}
+	const entryProblems = validateFormEntryCases(doc, form, lookupTables);
+	if (!entryProblems.length)
+		entryProblems.push(
+			...physicalEntrySupplyProblems(doc, entryPlan, moduleUuid, formUuid).map(
+				(issue) => issue.message,
+			),
+		);
+	errors.push(
+		...entryProblems.map((message) =>
+			validationError("FORM_ENTRY_SETUP", "form", message, baseLocation(ctx), {
+				sentence: message,
+			}),
+		),
+	);
+	for (const assignment of form.openingAssignments ?? []) {
+		if (
+			assignment.property !== "case_name" &&
+			HQ_CASE_RESERVED_WORDS.has(assignment.property)
+		) {
+			errors.push(
+				validationError(
+					"FORM_ENTRY_SETUP",
+					"form",
+					`“${assignment.property}” cannot supply a starting record value. You can choose a record property or read this value in the question’s formula.`,
+					baseLocation(ctx),
+				),
+			);
+		}
+	}
+	if (form.shadowOf)
+		errors.push(
+			...sharedFormDependencies(doc, form, moduleUuid, entryPlan).map(
+				(message) =>
+					validationError(
+						"FORM_ENTRY_SETUP",
+						"form",
+						message,
+						baseLocation(ctx),
+						{
+							sentence: message,
+						},
+					),
+			),
+		);
+	else errors.push(...emptyForm(doc, form, ctx));
 	errors.push(...formSections(doc, ctx));
 	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid, lookupTables));
 	if (lookupTables !== undefined) {
@@ -1418,7 +1508,9 @@ export function runFormRules(
 	errors.push(...formTextReadAsInstance(doc, ctx));
 	errors.push(...unwrittenValidationMessageReads(doc, ctx));
 	errors.push(
-		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
+		...(form.shadowOf
+			? sharedEntryWriteFindings(doc, form, moduleUuid, lookupTables)
+			: validateCaseOperations(doc, formUuid, moduleUuid, lookupTables)),
 	);
 	errors.push(...validateCasePlacements(doc, formUuid, moduleUuid));
 	errors.push(...formLinkNeedsNewCaseDatum(doc, formUuid, moduleUuid));

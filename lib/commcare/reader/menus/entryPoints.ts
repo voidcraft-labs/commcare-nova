@@ -32,7 +32,7 @@ const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
 type MenuClass = DraftModule["docType"];
-type FormClass = "Form" | "AdvancedForm";
+type FormClass = DraftForm["docType"];
 
 function byClass<C extends string, U extends Claim["use"]>(
 	classes: readonly C[],
@@ -50,7 +50,7 @@ const MENUS: readonly MenuClass[] = [
 	"AdvancedModule",
 	"ShadowModule",
 ];
-const FORMS: readonly FormClass[] = ["Form", "AdvancedForm"];
+const FORMS: readonly FormClass[] = ["Form", "AdvancedForm", "ShadowForm"];
 
 const ENTRY_POINTS = {
 	sharedFormId: take(
@@ -465,7 +465,7 @@ export function readEntryPoints(
 							(v) => v,
 						).value;
 					const uuid = mint(
-						externalKey.entryPoint("form", form.xmlns),
+						externalKey.entryPoint("form", form.entryKey ?? form.xmlns),
 						form.place,
 						`schema:${cls}.session_endpoint_id`,
 					);

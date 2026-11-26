@@ -1,8 +1,10 @@
 /**
  * A case write's property takes the catalog's grammar: a letter first, then
  * letters, digits, underscores and hyphens, and `category` and `state` are
- * ordinary properties. `location_id` and `hq_user_id` stay refused, because
- * CommCare HQ stores each somewhere other than the property. A hyphenated
+ * ordinary properties. `location_id` and `hq_user_id` are written as any
+ * other key, since a block's `<update>` is where CommCare HQ's server reads
+ * them from to store the case's location and copy its external id
+ * (`update_strategy.py::_apply_update_action`). A hyphenated
  * property is a leaf `FormPath` names in both places a write lands: the local
  * archive's basic case block and a Save to Case block of the source.
  */
@@ -105,14 +107,38 @@ describe("a case write's property", () => {
 		expect(codes(followup(SAVED, computed))).toEqual([]);
 	});
 
-	it.each(["location_id", "hq_user_id"])(
-		"refuses %s at the gate",
-		(property) => {
-			expect(codes(followup([property], asItStands))).toContain(
-				"CASE_OPERATION_RESERVED_PROPERTY",
-			);
-		},
-	);
+	it("admits location_id and hq_user_id and writes each as an update key of both wires", () => {
+		const keys = ["hq_user_id", "location_id"];
+		for (const value of [asItStands, computed])
+			expect(codes(followup(keys, value))).toEqual([]);
+		const doc = followup(keys, asItStands);
+		const hq = expandDoc(doc);
+		expect(
+			Object.keys(basicForm(hq, 0, 0).actions.update_case.update).sort(),
+		).toEqual(keys);
+		const zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
+		const update = childNamed(
+			childNamed(dataOf(zip.readAsText("modules-0/forms-0.xml")), "case"),
+			"update",
+		);
+		expect(leaves(update)).toEqual(keys);
+		const block = expandDoc(followup(keys, computed));
+		const source =
+			block._attachments[`${basicForm(block, 0, 0).unique_id}.xml`];
+		if (typeof source !== "string") throw new Error("no source");
+		expect(
+			descendants(dataOf(source), "case").flatMap((one) =>
+				one.children
+					.filter(isTag)
+					.filter((e) => e.name === "update")
+					.map((u) => leaves(u).sort()),
+			),
+			// Beside the block, the text guard that holds both fixed columns'
+			// values to HQ's 255-character bound, as it holds an external id's.
+		).toEqual([keys, ["case_type"]]);
+	});
 
 	it("names the leaf in Case Management's update and the local archive's case block", () => {
 		const doc = followup(SAVED, asItStands);
