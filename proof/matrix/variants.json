@@ -16428,6 +16428,19 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/translation-overrides-a-detail-tab-title",
+		"base": "hq-case-lists",
+		"entry": "application-and-settings/translations-generated-key-anything-else",
+		"standing": "not-yet",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "named",
+			"name": "translation_overrides_a_detail_tab_title"
+		}
+	},
+	{
 		"id": "hq-case-lists/worker-words-for-one-generated-title",
 		"base": "hq-case-lists",
 		"entry": "application-and-settings/translations-generated-wording",

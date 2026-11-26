@@ -26,6 +26,30 @@ def menu_icon_override_without_a_resource(authoring, app_id):
     ops.set_json(authoring, app_id, "/translations", {"en": {"modules.m0.icon": path}})
 
 
+def translation_overrides_a_detail_tab_title(authoring, app_id):
+    """A generated override changes one native detail tab's title independently of its own header."""
+    from proof.hq import operations
+    from proof.checks.compare.app_strings import parse_app_strings
+
+    key = "m0.case_long.tab.1.title"
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/0/case_details/long/tabs",
+        [
+            {"doc_type": "DetailTab", "header": {"en": "Patient"}, "starting_index": 0, "has_nodeset": False},
+            {"doc_type": "DetailTab", "header": {"en": "More"}, "starting_index": 3, "has_nodeset": False},
+        ],
+    )
+    with authoring.step("variant:plain-detail-tab-title"):
+        app = operations.held_app(authoring.state, app_id)
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Patient"
+    ops.set_json(authoring, app_id, f"/translations/en/{key}", "Patient details")
+    with authoring.step("variant:overridden-detail-tab-title"):
+        app = operations.held_app(authoring.state, app_id)
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Patient details"
+
+
 def every_form_deleted(authoring, app_id):
     """The first menu's case list offered as a menu item of its own (``case_list``, shown, labelled), and then each
     of its forms deleted through the form's own delete (``views/forms.py::delete_form``), which takes the form out
