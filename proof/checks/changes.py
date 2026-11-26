@@ -807,9 +807,16 @@ def _unshown_media_location(d, sites):
         where = locate(d)
         if (
             len(where) >= 9
-            and where[-4] == ":itext"
-            and where[-3] in ("hint", "constraintMsg", "label")
-            and where[-1] in ("audio", "image", "video")
+            and (
+                where[-4] == ":itext" and where[-3] in ("hint", "constraintMsg", "label")
+                and where[-1] in ("audio", "image", "video")
+                or where[-1] == "video-inline" and (
+                    where[-4] == ":itext" and where[-3] in (
+                        "hint", "help", "constraintMsg", "label", "add-empty-caption", "add-caption"
+                    )
+                    or where[-5:-3] == (":itext", "item")
+                )
+            )
             and isinstance(d.before, str)
             and d.before.strip().startswith("jr://file/")
             and "<" not in d.before

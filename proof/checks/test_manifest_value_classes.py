@@ -7146,40 +7146,22 @@ def _label_texts():
             <text id="q2"><value>B</value></text></translation></itext>""",
         body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
     )
-    owned = _form(
-        data="<q/><g/><r/><s/>",
+    video = _form(
+        data="<q/><r/>",
         model="""<itext><translation lang="en" default="">
-            <text id="q"><value>A</value><value form="long">Question</value></text>
-            <text id="g"><value>B</value><value form="long">Group</value></text>
-            <text id="r"><value>C</value><value form="long">Repeat</value></text>
-            <text id="h"><value>D</value><value form="long">Help</value></text>
-            <text id="m"><value>E</value><value form="long">Message</value></text>
-            <text id="a"><value>F</value><value form="long">Alert</value></text>
-            <text id="c"><value>G</value><value form="long">Choice</value></text>
-            <text id="n"><value>H</value><value form="long">Hint</value></text>
-            <text id="nested"><value>I</value><value form="long">Expression only</value></text>
-            </translation></itext>
-            <bind nodeset="/data/q" jr:constraintMsg="jr:itext('m')"/>""",
-        body="""<input ref="/data/q"><label ref="jr:itext('q')"/>
-            <hint ref="jr:itext('n')"/><help ref="jr:itext('h')"/><alert ref="jr:itext('a')"/></input>
-            <group ref="/data/g"><label ref="jr:itext( &quot;g&quot; )"/></group>
-            <repeat nodeset="/data/r"><label ref="jr:itext('r')"/></repeat>
-            <select1 ref="/data/s"><label ref="concat(jr:itext('nested'), 'suffix')"/>
-            <item><label ref="jr:itext('c')"/><value>one</value></item></select1>""",
+          <text id="blank"><value/><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          <text id="ordinary"><value>Help</value><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          <text id="caption"><value/><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          </translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('caption')"/><help ref="jr:itext('blank')"/></input>
+          <input ref="/data/r"><help ref="jr:itext('ordinary')"/></input>""",
     )
-    long = "itext-form:core/long"
-
-    def value_at(index):
-        return f"translation[1]/text[{index}]/value[2]/@form"
-
+    inline = "itext-form:android/video-inline"
     return {
-        "questions/long-form-on-a-group-or-repeat-label": (
-            *(refused("form", owned, long, value_at(index)) for index in (2, 3)),
-            *(accepted("form", owned, long, value_at(index)) for index in (1, 4, 9)),
-        ),
-        "questions/long-form-on-a-hint-help-text-validation-message-or-choice": (
-            *(refused("form", owned, long, value_at(index)) for index in range(4, 9)),
-            *(accepted("form", owned, long, value_at(index)) for index in (1, 2, 9)),
+        "questions/video-inline-as-the-only-content-of-a-help-text": (
+            refused("form", video, inline, "translation[1]/text[1]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[2]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[3]/value[2]/@form"),
         ),
         "questions/long-qrcode-or-tts-form-missing-in-default-language": (
             refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),

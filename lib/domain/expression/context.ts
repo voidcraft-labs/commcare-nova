@@ -825,9 +825,8 @@ export function slotContext(
 				!declaration.repeatModes.includes(field.repeatMode as never))
 		)
 			return undefined;
-		if (slot.slot === "option_label" && !field.choices?.kind) return undefined;
 		if (
-			slot.slot === "option_label" &&
+			(slot.slot === "option_label" || slot.slot === "option_extended_text") &&
 			(field.choices?.kind !== "inline" ||
 				!field.choices.options.some(
 					(option) => option.uuid === slot.member.optionUuid,

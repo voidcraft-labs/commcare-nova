@@ -1,5 +1,6 @@
 import { moduleUuidOfForm } from "@/lib/domain";
 import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
+import { workerChoiceProse, workerFieldProseSlot } from "../workerProse";
 import type { CompletedFormSearch } from "./xpathInstances";
 /**
  * FormEngine — reactive form engine backed by a Zustand store.
@@ -273,11 +274,15 @@ function resolvedLabelTextsOf(
 	return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
-function optionProseSlot(field: Field, optionUuid: Uuid): ProseSlotRef {
+function optionProseSlot(
+	field: Field,
+	optionUuid: Uuid,
+	slot: "option_label" | "option_extended_text",
+): ProseSlotRef {
 	return {
 		entity: "field",
 		uuid: field.uuid,
-		slot: "option_label",
+		slot,
 		member: { optionUuid },
 	};
 }
@@ -717,6 +722,16 @@ export class FormEngine {
 	 *  field slice rooted at its one form. Rebuilt whenever the input
 	 *  is re-supplied. */
 	private printDoc: BlueprintDoc;
+
+	private validationMessageSlot(field: Field) {
+		return workerFieldProseSlot(
+			field,
+			"validate_msg",
+			this.printDoc.forms[this.inputFormUuid] ?? {},
+			this.device.platform,
+		);
+	}
+
 	private inputFormUuid: Uuid;
 	private readonly openingAssignments: NonNullable<
 		FormEngineInput["openingAssignments"]
@@ -4847,13 +4862,26 @@ export class FormEngine {
 						fieldProseTemplate(field, "label"),
 						resolve(fieldProseSlot(field, "label")),
 					);
+					const textForm = this.printDoc.forms[this.inputFormUuid] ?? {};
+					const hintSlot = workerFieldProseSlot(
+						field,
+						"hint",
+						textForm,
+						this.device.platform,
+					);
+					const helpSlot = workerFieldProseSlot(
+						field,
+						"help",
+						textForm,
+						this.device.platform,
+					);
 					const nextHint = await resolveLabelAsync(
-						fieldProseTemplate(field, "hint"),
-						resolve(fieldProseSlot(field, "hint")),
+						fieldProseTemplate(field, hintSlot),
+						resolve(fieldProseSlot(field, hintSlot)),
 					);
 					const nextHelp = await resolveLabelAsync(
-						fieldProseTemplate(field, "help"),
-						resolve(fieldProseSlot(field, "help")),
+						fieldProseTemplate(field, helpSlot),
+						resolve(fieldProseSlot(field, helpSlot)),
 					);
 					const labelTexts = new Map<LabelTextSlot, string>();
 					for (const slot of LABEL_TEXT_SLOTS) {
@@ -4887,9 +4915,15 @@ export class FormEngine {
 					) {
 						const entries: Array<readonly [string, string]> = [];
 						for (const option of field.optionsSource.options) {
+							const { template, slot } = workerChoiceProse(
+								field,
+								option,
+								textForm,
+								this.device.platform,
+							);
 							const label = await resolveLabelAsync(
-								option.label,
-								resolve(optionProseSlot(field, option.uuid)),
+								template,
+								resolve(optionProseSlot(field, option.uuid, slot)),
 							);
 							if (label !== undefined) entries.push([option.uuid, label]);
 						}
@@ -5169,13 +5203,26 @@ export class FormEngine {
 							fieldProseTemplate(f, "label"),
 							resolve(fieldProseSlot(f, "label")),
 						);
+						const textForm = this.printDoc.forms[this.inputFormUuid] ?? {};
+						const hintSlot = workerFieldProseSlot(
+							f,
+							"hint",
+							textForm,
+							this.device.platform,
+						);
+						const helpSlot = workerFieldProseSlot(
+							f,
+							"help",
+							textForm,
+							this.device.platform,
+						);
 						const rh = resolveLabel(
-							fieldProseTemplate(f, "hint"),
-							resolve(fieldProseSlot(f, "hint")),
+							fieldProseTemplate(f, hintSlot),
+							resolve(fieldProseSlot(f, hintSlot)),
 						);
 						const rhelp = resolveLabel(
-							fieldProseTemplate(f, "help"),
-							resolve(fieldProseSlot(f, "help")),
+							fieldProseTemplate(f, helpSlot),
+							resolve(fieldProseSlot(f, helpSlot)),
 						);
 						const rtexts = resolvedLabelTextsOf((slot) =>
 							resolveLabel(
@@ -5202,9 +5249,15 @@ export class FormEngine {
 							f.optionsSource.kind === "inline"
 								? Object.fromEntries(
 										f.optionsSource.options.flatMap((option) => {
+											const { template, slot } = workerChoiceProse(
+												f,
+												option,
+												textForm,
+												this.device.platform,
+											);
 											const value = resolveLabel(
-												option.label,
-												resolve(optionProseSlot(f, option.uuid)),
+												template,
+												resolve(optionProseSlot(f, option.uuid, slot)),
 											);
 											return value === undefined
 												? []
@@ -5427,18 +5480,26 @@ export class FormEngine {
 					? await resolveConstraintMessageAsync(
 							async () =>
 								(await resolveLabelAsync(
-									fieldProseTemplate(field, "validate_msg"),
+									fieldProseTemplate(field, this.validationMessageSlot(field)),
 									async (part) =>
 										xpathToString(
 											await evaluateAsync(
 												this.expressions.prose(
 													part,
-													fieldProseSlot(field, "validate_msg"),
+													fieldProseSlot(
+														field,
+														this.validationMessageSlot(field),
+													),
 												),
 												path,
 											),
 										),
-								)) ?? proseSource(field, "validate_msg", this.printDoc),
+								)) ??
+								proseSource(
+									field,
+									this.validationMessageSlot(field),
+									this.printDoc,
+								),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
@@ -5504,18 +5565,26 @@ export class FormEngine {
 					? resolveConstraintMessage(
 							() =>
 								resolveLabel(
-									fieldProseTemplate(field, "validate_msg"),
+									fieldProseTemplate(field, this.validationMessageSlot(field)),
 									(part) =>
 										xpathToString(
 											evaluate(
 												this.expressions.prose(
 													part,
-													fieldProseSlot(field, "validate_msg"),
+													fieldProseSlot(
+														field,
+														this.validationMessageSlot(field),
+													),
 												),
 												ctx,
 											),
 										),
-								) ?? proseSource(field, "validate_msg", this.printDoc),
+								) ??
+								proseSource(
+									field,
+									this.validationMessageSlot(field),
+									this.printDoc,
+								),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 

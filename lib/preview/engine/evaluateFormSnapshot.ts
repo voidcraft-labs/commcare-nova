@@ -27,6 +27,7 @@ import {
 	refusalCopy,
 	runtimeMessage,
 } from "../runtimeMessages";
+import { workerChoiceProse } from "../workerProse";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -669,6 +670,8 @@ async function runFormSnapshot(
 			{ stateAt: (_field, path) => engine.getState(path), workerRelevant },
 			{
 				language: engineInput.language,
+				platform: context.device.platform,
+				textForm: engineInput.form,
 				containsControl: engine.containsControl,
 				rootPath: engine.rootPath,
 				/* A sectioned form on Android pages by section; every other
@@ -718,7 +721,15 @@ async function runFormSnapshot(
 								value: option.value,
 								label:
 									state.resolvedOptionLabels?.[option.uuid] ??
-									projectProseTemplate(option.label, doc).text,
+									projectProseTemplate(
+										workerChoiceProse(
+											field,
+											option,
+											engineInput.form,
+											context.device.platform,
+										).template,
+										doc,
+									).text,
 							}))
 						: undefined);
 				const observedAnswer: {

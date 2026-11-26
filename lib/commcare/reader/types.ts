@@ -20,7 +20,7 @@ import type {
 } from "@/lib/domain";
 import type { CaseRelation } from "@/lib/domain/caseRelations";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
-import type { LabelTextSlot } from "@/lib/domain/labelForms";
+import type { ExtendedProseSlot, LabelTextSlot } from "@/lib/domain/labelForms";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
@@ -334,7 +334,17 @@ export interface ReadFacts {
 	readonly mediaReferences: readonly ReadMediaReference[];
 	/** Each mapped itext reference on a slot that holds no media in Nova. HQ may require the file at install. */
 	readonly unheldMedia: readonly (Omit<PendingMedia, "resolution"> & {
-		readonly role: "hint" | "constraintMsg" | "label";
+		readonly role:
+			| readonly [
+					| "label"
+					| "hint"
+					| "help"
+					| "constraintMsg"
+					| "add-empty-caption"
+					| "add-caption",
+			  ]
+			| readonly ["item", string];
+		readonly form: MediaKind | "video-inline";
 		readonly languageCode: string;
 	})[];
 	/** Every media reference handed off: no file for its path. */
@@ -495,7 +505,7 @@ export interface ReadFormFacts {
 /** One blank non-default value filled at publication: a text slot's, or one of a question
  *  label's other texts (`lib/domain/labelForms.ts`). */
 export type BlankTranslationSlot = Omit<ItextRecipient, "slot"> & {
-	readonly slot: ItextRecipient["slot"] | LabelTextSlot;
+	readonly slot: ItextRecipient["slot"] | LabelTextSlot | ExtendedProseSlot;
 };
 
 export interface ReadGeneratedNode {

@@ -118,6 +118,7 @@ import {
 	type ProseAtomPart,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
+	type SelectOption,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -127,9 +128,11 @@ import type {
 	DatumRef,
 	Expression,
 	FormNodeRef,
+	ProseSlotRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { formWireName } from "@/lib/domain/formWireName";
+import type { FIELD_EXTENDED_TEXT_SLOTS } from "@/lib/domain/labelForms";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
@@ -187,8 +190,8 @@ interface ItextRegistration {
 /** A label's other text, written as one more form of the label's entry
  *  (`lib/domain/labelForms.ts`). */
 interface LabelTextForm {
-	readonly field: Uuid;
-	readonly slot: LabelTextSlot;
+	readonly form: LabelTextSlot;
+	readonly ref: ProseSlotRef;
 }
 type AddItext = (
 	id: string,
@@ -871,16 +874,22 @@ export function buildXFormSource(
 		// drops only an item empty in every form). A language's blank is filled
 		// from another's first (`translationFill.ts`), as the form builder's
 		// save fills it (`ItextForm.getValueOrDefault`).
-		const otherForms = labelTexts.map(({ field, slot }) => {
-			const slotRef = { entity: "field", uuid: field, slot } as const;
-			const unit = makeTranslationUnitId("field", field, slot);
+		const otherForms = labelTexts.map(({ form, ref }) => {
+			const unit =
+				"member" in ref
+					? makeTranslationUnitId(
+							"field",
+							ref.uuid,
+							"option_extended_text",
+							ref.member.optionUuid,
+						)
+					: makeTranslationUnitId("field", ref.uuid, ref.slot);
 			return {
-				form: LABEL_TEXT_WIRE_FORMS[slot],
+				form: LABEL_TEXT_WIRE_FORMS[form],
 				templates: localization.languages.map((language) =>
 					localization.prose(language, unit),
 				),
-				lower: (part: ProseAtomPart): WireExpr =>
-					expressions.prose(part, slotRef),
+				lower: (part: ProseAtomPart): WireExpr => expressions.prose(part, ref),
 			};
 		});
 		if (
@@ -890,14 +899,18 @@ export function buildXFormSource(
 			otherForms.length === 0
 		)
 			return { registered: false };
+		const extended = otherForms.find((extra) => extra.form === "long");
 		const protectedMessage = protectConstraint
 			? protectConstraintMessage(
 					id,
 					localization.languages.map((language, index) => ({
 						language,
-						template: localizedTemplates[index] ?? sourceTemplate,
+						template:
+							extended?.templates[index] ??
+							localizedTemplates[index] ??
+							sourceTemplate,
 					})),
-					lowerProse,
+					extended?.lower ?? lowerProse,
 				)
 			: undefined;
 		if (BEHAVIOR_WIRE_IDS.has(id)) {
@@ -1139,14 +1152,7 @@ export function buildXFormSource(
  * Read the inline arm of a select field's final options-source union.
  * Lookup-backed selects emit an itemset and therefore have no inline choices.
  */
-function readOptions(field: Field):
-	| Array<{
-			value: string;
-			label: ProseTemplate;
-			media?: Media;
-			plainLabel?: true;
-	  }>
-	| undefined {
+function readOptions(field: Field): SelectOption[] | undefined {
 	if (
 		(field.kind !== "single_select" && field.kind !== "multi_select") ||
 		field.optionsSource.kind !== "inline"
@@ -1306,11 +1312,25 @@ function buildFieldParts(
 		textForm,
 		"plainHelp" in field ? field : {},
 	);
-	const labelTexts = fieldKindCarriesLabelTexts(field.kind)
+	const labelTexts: LabelTextForm[] = fieldKindCarriesLabelTexts(field.kind)
 		? LABEL_TEXT_SLOTS.filter(
 				(slot) => labelTextOf(field, slot) !== undefined,
-			).map((slot) => ({ field: fieldUuid, slot }))
+			).map((slot) => ({
+				form: slot,
+				ref: { entity: "field", uuid: fieldUuid, slot },
+			}))
 		: [];
+	const extendedText = (
+		slot: (typeof FIELD_EXTENDED_TEXT_SLOTS)[keyof typeof FIELD_EXTENDED_TEXT_SLOTS],
+	): LabelTextForm[] =>
+		carrier[slot] === undefined
+			? []
+			: [
+					{
+						form: "extended_text",
+						ref: { entity: "field", uuid: fieldUuid, slot },
+					},
+				];
 	const hasLabel =
 		field.kind !== "hidden" &&
 		itext(
@@ -1324,18 +1344,41 @@ function buildFieldParts(
 		).registered;
 	const hasHint =
 		field.kind !== "hidden" &&
-		itext(textId("hint"), hint, undefined, false, false, false).registered;
+		itext(
+			textId("hint"),
+			hint,
+			undefined,
+			false,
+			false,
+			false,
+			extendedText("extended_hint"),
+		).registered;
 	const hasHelp =
 		field.kind !== "hidden" &&
-		itext(textId("help"), help, helpMedia, false, false, helpMarkdown)
-			.registered;
+		itext(
+			textId("help"),
+			help,
+			helpMedia,
+			false,
+			false,
+			helpMarkdown,
+			extendedText("extended_help"),
+		).registered;
 	// A message no constraint can fail is never shown, so none is written.
 	const validationMessage = bindCarriesConstraint(
 		field.kind,
 		validate,
 		scalarGuard,
 	)
-		? itext(textId("constraintMsg"), validateMsg, undefined, false, true, false)
+		? itext(
+				textId("constraintMsg"),
+				validateMsg,
+				undefined,
+				false,
+				true,
+				false,
+				extendedText("extended_validate_msg"),
+			)
 		: { registered: false };
 	const hasValidationMessage = validationMessage.registered;
 
@@ -1677,6 +1720,19 @@ function buildFieldParts(
 				true,
 				false,
 				!labelShowsAsTyped(textForm, opt),
+				opt.extended_text === undefined
+					? []
+					: [
+							{
+								form: "extended_text",
+								ref: {
+									entity: "field",
+									uuid: fieldUuid,
+									slot: "option_extended_text",
+									member: { optionUuid: opt.uuid },
+								},
+							},
+						],
 			);
 		});
 	}

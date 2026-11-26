@@ -95,6 +95,7 @@ DOCUMENTS = (
     "targeted-independent-case-order",
     "targeted-supply-point-text",
     "targeted-plain-help",
+    "targeted-media-slots",
     "targeted-menu-badges",
     "targeted-submitted-groups",
 )

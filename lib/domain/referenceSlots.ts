@@ -414,7 +414,7 @@ export const FIELD_REFERENCE_SLOTS = [
 				slot,
 				path: slot,
 				kind: "prose",
-				appliesTo: LABEL_TEXT_KINDS,
+				appliesTo: slot === "extended_text" ? LABELED_KINDS : LABEL_TEXT_KINDS,
 			}) as const,
 	),
 	{
@@ -438,6 +438,16 @@ export const FIELD_REFERENCE_SLOTS = [
 		kind: "prose",
 		appliesTo: INPUT_KINDS,
 	},
+	...(["extended_hint", "extended_help", "extended_validate_msg"] as const).map(
+		(slot) =>
+			({
+				entity: "field",
+				slot,
+				path: slot,
+				kind: "prose",
+				appliesTo: INPUT_KINDS,
+			}) as const,
+	),
 	{
 		entity: "field",
 		slot: "addFirstLabel",
@@ -456,6 +466,13 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "option_label",
 		path: "optionsSource.options[].label",
+		kind: "prose",
+		appliesTo: SELECT_KINDS,
+	},
+	{
+		entity: "field",
+		slot: "option_extended_text",
+		path: "optionsSource.options[].extended_text",
 		kind: "prose",
 		appliesTo: SELECT_KINDS,
 	},
@@ -1667,7 +1684,8 @@ function proseRefForEntry(
 	slot: FieldProseSlotId,
 	indices: readonly number[],
 ): ProseSlotRef | undefined {
-	if (slot !== "option_label") return { entity: "field", uuid, slot };
+	if (slot !== "option_label" && slot !== "option_extended_text")
+		return { entity: "field", uuid, slot };
 	const options = (
 		field as { optionsSource?: { options?: readonly { uuid?: Uuid }[] } }
 	).optionsSource?.options;
@@ -1752,11 +1770,11 @@ export function translatedFieldProse(
 			const ref = proseRefForEntry(field, field.uuid, entry.slot, indices);
 			if (source === undefined || ref === undefined) continue;
 			const unitId =
-				ref.slot === "option_label"
+				"member" in ref
 					? makeTranslationUnitId(
 							"field",
 							field.uuid,
-							"option",
+							ref.slot === "option_label" ? "option" : "option_extended_text",
 							ref.member.optionUuid,
 						)
 					: makeTranslationUnitId("field", field.uuid, ref.slot);

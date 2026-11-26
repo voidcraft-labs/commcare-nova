@@ -523,10 +523,18 @@ function allocateGeneratedNodes(
 			)
 		)
 			return false;
-		if ((field as { validate_msg?: unknown }).validate_msg === undefined)
+		const slot =
+			"extended_validate_msg" in field &&
+			field.extended_validate_msg !== undefined
+				? "extended_validate_msg"
+				: "validate_msg";
+		if (
+			slot === "validate_msg" &&
+			(!("validate_msg" in field) || field.validate_msg === undefined)
+		)
 			return false;
 		localization ??= commCareLocalization(doc);
-		const unitId = makeTranslationUnitId("field", field.uuid, "validate_msg");
+		const unitId = makeTranslationUnitId("field", field.uuid, slot);
 		const active = localization;
 		return constraintMessageNeedsProtection(
 			active.languages.map((language) => active.prose(language, unitId)),

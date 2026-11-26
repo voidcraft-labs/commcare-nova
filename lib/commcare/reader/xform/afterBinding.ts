@@ -666,9 +666,10 @@ function settleProtectedMessage(
 	const text = formText(xform);
 	const uuid = message.field.uuid;
 	if (text === undefined || uuid === undefined) return;
-	const source = (
-		doc.fields[uuid] as { validate_msg?: ProseTemplate } | undefined
-	)?.validate_msg;
+	const field = doc.fields[uuid] as
+		| { validate_msg?: ProseTemplate; extended_validate_msg?: ProseTemplate }
+		| undefined;
+	const source = field?.extended_validate_msg ?? field?.validate_msg;
 	const slot = text.slots.find(
 		(one) =>
 			one.owner.field === message.field &&
@@ -676,12 +677,24 @@ function settleProtectedMessage(
 			one.id === message.textId,
 	);
 	if (source === undefined || slot === undefined || slot.refused) return;
+	const extended = text.labelTexts.find(
+		(one) =>
+			one.owner.field === message.field && one.slot === "extended_validate_msg",
+	);
+	const values = extended?.values ?? slot.values;
+	const registered = extended
+		? (values
+				.get(extended.own)
+				?.parts.flatMap((part) =>
+					part.kind === "output" ? [part.output] : [],
+				) ?? [])
+		: slot.registered;
 	// Each reference of the message stands where the source output it was bound from does.
 	const atoms = source.parts.filter((part) => part.kind !== "text");
-	if (atoms.length !== slot.registered.length) return;
+	if (atoms.length !== registered.length) return;
 	const outputOf = new Map<string, string>();
 	atoms.forEach((atom, index) => {
-		outputOf.set(JSON.stringify(atom), slot.registered[index]?.text ?? "");
+		outputOf.set(JSON.stringify(atom), registered[index]?.text ?? "");
 	});
 	const holeOf = new Map<string, string>();
 	const holeFor = (part: ProseAtomPart): string => {
@@ -691,12 +704,16 @@ function settleProtectedMessage(
 		return hole;
 	};
 	const localization = commCareLocalization(doc);
-	const unitId = makeTranslationUnitId("field", uuid, "validate_msg");
+	const unitId = makeTranslationUnitId(
+		"field",
+		uuid,
+		extended === undefined ? "validate_msg" : "extended_validate_msg",
+	);
 	// The text's own forms, language by language.
 	const wireCodes = planLanguageWire(
 		effectiveAppLocalization(doc.localization),
 	).wireCodeByTag;
-	for (const [language, value] of slot.values) {
+	for (const [language, value] of values) {
 		const code = wireCodes.get(language);
 		if (code === undefined) continue;
 		const translated = localization.prose(code, unitId);

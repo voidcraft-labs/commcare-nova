@@ -23371,19 +23371,17 @@
 		"id": "hq-media/video-inline-on-help",
 		"base": "hq-media",
 		"entry": "questions/video-inline-form-on-a-text-other-than-a-question-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Animals",
-			"formName": "Survey",
-			"path": "animal_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "video_inline_on_help"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["animal_name"]],
+				"pointer": "/help/parts/0/text",
+				"value": "Say what the animal is called"
+			}
+		]
 	},
 	{
 		"id": "hq-media/media-key-outside-jr-file",
@@ -34077,25 +34075,23 @@
 		"id": "hq-questions/long-form-on-group-label",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-group-or-repeat-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "members"
-		},
 		"change": {
 			"op": "named",
 			"name": "long_form_on_group_label"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["members"]],
+				"pointer": "/extended_text/parts/0/text",
+				"value": "Every member of the household"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/long-form-on-help",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
-		"standing": "not-yet",
+		"standing": "holds",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -34107,7 +34103,14 @@
 		"change": {
 			"op": "named",
 			"name": "long_form_on_help"
-		}
+		},
+		"output": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
+				"pointer": "/extended_help/parts/0/text",
+				"value": "Ask who heads the household"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/markdown-differing",
