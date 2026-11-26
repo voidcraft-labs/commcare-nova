@@ -34,10 +34,12 @@ LOOKUP = {
 }
 
 
-def _lookup_case_list(state, editor_driver, *, name=LOOKUP["lookup_name"], icon=None):
+def _lookup_case_list(state, editor_driver, *, name=LOOKUP["lookup_name"], icon=None, extras=None):
     app_id = _case_list_app(state, editor_driver)
     module = operations.held_app(state, app_id).modules[0]
     lookup = {**LOOKUP, "lookup_name": name}
+    if extras is not None:
+        lookup["lookup_extras"] = extras
     if icon is not None:
         lookup["lookup_image"] = icon
     _hq(
@@ -55,6 +57,7 @@ def _lookup_case_list(state, editor_driver, *, name=LOOKUP["lookup_name"], icon=
     )
     held = operations.held_app(state, app_id).modules[0].case_details.short
     assert held.lookup_enabled and held.lookup_action == ACTION
+    assert held.lookup_extras == lookup["lookup_extras"]
     assert [response["key"] for response in held.lookup_responses] == ["first", "second"]
     assert held.lookup_field_header["en"] == "Match"
     return app_id, module.unique_id
