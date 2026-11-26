@@ -551,19 +551,22 @@ function ownerExpressible(
 	return readsQuestion(f, owner, repeat);
 }
 
-/** An aliased close can land on the same slot as the form's own update,
- * even when its target was authored as a separate record choice. */
-function sharesClosingLoad(f: CaseSlotFacts, index: number): boolean {
-	return f.operations.some((operation) => {
-		if (
-			operation.action !== "close" ||
-			operation.forEach !== undefined ||
-			!stateable(f, operation.condition, undefined)
-		)
-			return false;
-		const target = advancedLoadOf(f, operation);
-		return target?.kind === "chain" && target.index === index;
-	});
+/** An expression can target the same load as the own update. Keep a close
+ * on that record separate so the load continues to read as a follow-up. */
+function loadCarriesOwnPassiveLabel(
+	f: CaseSlotFacts,
+	load: Extract<AdvancedLoadRef, { kind: "chain" }>,
+): boolean {
+	const own = f.own;
+	return (
+		own !== undefined &&
+		f.form.type === "followup" &&
+		ownFormSelectionIndex(f.doc, f.formUuid) === load.index &&
+		!f.positionedOperations.has(own.uuid) &&
+		!heldOwnOrCreateBlockExpresses(f, own) &&
+		own.writes?.some((write) => readsOwnPassiveLabel(f, write)) === true &&
+		loadClause(f, own, load) === undefined
+	);
 }
 
 /** The first clause that keeps `operation` from `load`, in the table order
@@ -599,11 +602,7 @@ export function loadClause(
 		writes.some(
 			(write) =>
 				!readsQuestion(f, write.value, undefined) &&
-				!(
-					ownFollowup &&
-					readsOwnPassiveLabel(f, write) &&
-					!sharesClosingLoad(f, load.index)
-				),
+				!(ownFollowup && readsOwnPassiveLabel(f, write)),
 		)
 	)
 		return "value-not-a-question";
@@ -614,11 +613,12 @@ export function loadClause(
 			operation.condition.kind !== "match-all")
 	)
 		return "write-condition";
-	if (
-		operation.action === "close" &&
-		!stateable(f, operation.condition, undefined)
-	)
-		return "condition-not-stateable";
+	if (operation.action === "close") {
+		if (!stateable(f, operation.condition, undefined))
+			return "condition-not-stateable";
+		if (load.kind === "chain" && loadCarriesOwnPassiveLabel(f, load))
+			return "scope";
+	}
 	if (
 		load.kind === "chain" &&
 		(f.form.caseSelections === undefined

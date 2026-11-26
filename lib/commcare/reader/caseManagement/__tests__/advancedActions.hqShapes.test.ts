@@ -67,6 +67,50 @@ const F = "forms-and-case-writes";
 const readCases = namingFromHqPages(readCasesOf);
 const readMenusOf = namingFromHqPages(readMenusOfDoc);
 
+it("reads back a passive Advanced label with a separate close of its selected record", async () => {
+	const { doc } = advancedFixture({
+		menu: "members",
+		formType: "followup",
+		operations: () => [
+			{
+				uuid: OP("own"),
+				id: "member",
+				action: "own",
+				writes: [{ property: "seen", value: read("note") }],
+			},
+			{
+				uuid: OP("close"),
+				id: "finish_member",
+				action: "close",
+				caseType: "member",
+				target: { kind: "expression", expr: chosen(MEMBERS) },
+			},
+		],
+	});
+	const reading = await readCases(doc);
+	if (reading.whole?.kind !== "read")
+		throw new Error(JSON.stringify(findingCodes(reading)));
+	const form = formNamed(reading.whole.draft.doc, "Under test");
+	expect(form.type).toBe("followup");
+	expect(form.caseOperations).toMatchObject([
+		{
+			action: "own",
+			placement: { kind: "advanced", tag: "load_member1" },
+			writes: [
+				{ property: "seen", value: { kind: "term", term: { kind: "field" } } },
+			],
+		},
+		{
+			action: "close",
+			caseType: "member",
+			placement: {
+				kind: "save-to-case",
+				path: ["nova_operations", "finish_member"],
+			},
+		},
+	]);
+});
+
 /** The stored actions of the form under test, the first advanced form. */
 function actionsOf(app: AppJson | MenuAppJson): Record<string, unknown> & {
 	load_update_cases: Record<string, unknown>[];
