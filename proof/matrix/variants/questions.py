@@ -1840,6 +1840,10 @@ def save_to_case_type_expression(authoring, app_id):
             1,
         ),
     )
+    _computed_type_references(authoring, app_id, guard_type="household")
+
+
+def _computed_type_references(authoring, app_id, *, guard_type):
     # The source upload and the reference rows together reproduce a Vellum save.
     ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {
         f"{OPS}/make_household": {
@@ -1851,12 +1855,43 @@ def save_to_case_type_expression(authoring, app_id):
         },
         f"{OPS}/nova_guard_make_household_text": {
             "doc_type": "CaseSaveReference",
-            "case_type": "household",
+            "case_type": guard_type,
             "properties": ["case_type"],
             "create": False,
             "close": False,
         },
     })
+
+
+def save_to_case_declared_type_choice(authoring, app_id):
+    """Two declared case types, the same saved field and a guard reading the computed type."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    from proof.matrix.bases import _pages
+
+    def visit_form(name):
+        form = XFormBuilder(name)
+        form.new_question("note", "Note", "string")
+        return form.tostring().decode("utf-8")
+
+    _pages.new_survey_module(authoring, app_id, name="Visits")
+    ops.upload_form_source(authoring, app_id, 1, 0, visit_form, "visit-type-carrier")
+    ops.set_json(authoring, app_id, "/modules/0/case_type", "household")
+    ops.set_json(authoring, app_id, "/modules/1/case_type", "visit")
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-declared-type-choice",
+        ('vellum:role="SaveToCase" vellum:case_type="household"',
+         'vellum:role="SaveToCase" vellum:case_type=""', 2),
+        (STC_TYPE_BIND,
+         f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
+         1),
+        (f'<bind nodeset="{GUARD}/update/case_type" calculate="&apos;household&apos;"/>',
+         f'<bind nodeset="{GUARD}/update/case_type" calculate="current()/../../../../make_household/case/create/case_type"/>',
+         1),
+    )
+    _computed_type_references(authoring, app_id, guard_type="")
 
 
 def save_to_case_dynamic_type(authoring, app_id):
@@ -2052,6 +2087,11 @@ def save_to_case_hyphenated_link_name(authoring, app_id):
 def save_to_case_link_name_outside_grammar(authoring, app_id):
     """The bind path contains a period that Vellum does not parse as an index bind."""
     _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
+
+
+def save_to_case_link_stops_form_designer(authoring, app_id):
+    """An ordinary case link whose element uses the reserved script name."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "script")
 
 
 def save_to_case_index_close_adds_action(authoring, app_id):
@@ -2847,6 +2887,23 @@ def save_to_case_retype_converts(authoring, app_id):
         app_id,
         "save-to-case-retype-converts",
         lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, RETYPE_CONVERTS_MODEL, RETYPE_CONVERTS_BODY),
+    )
+
+
+def save_to_case_keyed_from_outside_its_row(authoring, app_id):
+    """A create in members keys all its rows from the one root answer full_name."""
+    _edit(
+        authoring,
+        app_id,
+        "save-to-case-keyed-from-outside-its-row",
+        lambda text: _transplanted(
+            text,
+            KEYED_IN_REPEAT_DATA,
+            KEYED_IN_REPEAT_MODEL.replace("current()/../../../../member_name", "/data/full_name"),
+            KEYED_IN_REPEAT_BODY,
+            data_before="</members>",
+            body_after=MEMBER_NAME_CLOSE,
+        ),
     )
 
 

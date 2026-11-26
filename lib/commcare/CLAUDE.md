@@ -1564,6 +1564,14 @@ records of its type. Its forms' manual lists retain their configured filter.
 
 ### Authored case-operation emission
 
+A create with a calculated type keeps the empty type metadata Vellum writes.
+A fixed concatenation must resolve to the declared operation type. An imported
+conditional can choose between two distinct declared types for a fresh case
+when the saved scalar property shapes agree and no other case change consumes
+the result. The generated guard writes the resolved create type to the same
+case. Preview resolves it inside the submission transaction before writing
+the case or its properties.
+
 A write to an effective datetime property, by the operation's destination type
 after retyping, is an untyped leaf whose calculate is
 `xform/datetimeCaseValue.ts::datetimeCaseValue` of the value: the moment as

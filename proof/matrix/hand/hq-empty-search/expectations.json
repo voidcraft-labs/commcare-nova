@@ -29,6 +29,35 @@
 		]
 	},
 	{
+		"id": "registration-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_patient_0": "new-patient"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/case_name",
+					"value": "Ada Orchard"
+				}
+			],
+			"expressions": ["/data/case_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Ada Orchard"
+			}
+		]
+	},
+	{
 		"id": "case-names-checked:before",
 		"entry": "forms-and-case-writes/open-case-name-update-question-path",
 		"form": {

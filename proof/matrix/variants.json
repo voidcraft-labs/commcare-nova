@@ -5995,6 +5995,27 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/automatic-fixed-text-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-autolaunch",
+		"change": {
+			"op": "named",
+			"name": "automatic_fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/automatic",
+				"value": true
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/case-id-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-id-as-a-property-column-s-field",
@@ -8562,6 +8583,113 @@
 			"pointer": "/modules/0/case_details/short/filter",
 			"value": "#host/village = 'north'"
 		}
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-with-text-extras",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup",
+				"value": {
+					"action": "org.example.SCAN",
+					"label": "Scan a card",
+					"extras": [
+						{
+							"name": "mode",
+							"value": "scan"
+						},
+						{
+							"name": "source",
+							"value": "home visit"
+						}
+					],
+					"responses": ["patient_id", "fallback"]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-extras",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-fixed-text",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/extras",
+				"value": [
+					{
+						"name": "mode",
+						"value": "scan"
+					},
+					{
+						"name": "source",
+						"value": "home visit"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-name",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/label",
+				"value": "Scan a card"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-responses",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-responses-key",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/responses",
+				"value": ["patient_id", "fallback"]
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/follow-ups-shown-above-offering-registration",
@@ -34091,20 +34219,11 @@
 		"id": "hq-questions/long-form-on-help",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
-		"standing": "holds",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "long_form_on_help"
 		},
-		"output": [
+		"holds": [
 			{
 				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
 				"pointer": "/extended_help/parts/0/text",
@@ -35279,6 +35398,50 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-keyed-from-outside-its-row",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "members/nova_operations/kid"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_keyed_from_outside_its_row"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-declared-type-choice",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_declared_type_choice"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/caseType",
+				"value": "household"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/otherwise",
+				"value": "visit"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/condition/kind",
+				"value": "gt"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-dynamic-type",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-case-type-given-as-an-xpath",
@@ -35387,6 +35550,24 @@
 		"change": {
 			"op": "named",
 			"name": "save_to_case_link_name_outside_grammar"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-link-stops-form-designer",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_link_stops_form_designer"
 		}
 	},
 	{
@@ -38187,6 +38368,26 @@
 		}
 	},
 	{
+		"id": "hq-search/default-filter-sorting-by-a-repeated-direction",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'++priority:exact'"
+			}
+		}
+	},
+	{
 		"id": "hq-search/default-filter-sorting-by-a-session-value",
 		"base": "hq-search",
 		"entry": "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case",
@@ -38763,6 +38964,36 @@
 		"change": {
 			"op": "named",
 			"name": "fields_with_ungrouped_prompt"
+		}
+	},
+	{
+		"id": "hq-search/field-with-an-unknown-heading",
+		"base": "hq-search",
+		"entry": "case-search/search-group-layout-unreadable",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "fields_with_unknown_search_heading"
+		}
+	},
+	{
+		"id": "hq-search/fields-with-a-blank-heading",
+		"base": "hq-search",
+		"entry": "case-search/search-group-heading-unreadable",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "fields_with_blank_search_heading"
 		}
 	},
 	{

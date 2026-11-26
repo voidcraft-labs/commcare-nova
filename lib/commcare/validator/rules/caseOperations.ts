@@ -24,6 +24,7 @@ import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
+	caseOperationDependencyUuids,
 	caseOperationsInSubmissionOrder,
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolationDetails,
@@ -108,6 +109,7 @@ import {
 	caseOperationNameSentence,
 	freeCaseOperationName,
 } from "@/lib/domain/questionId";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { WRITABLE_STANDARD_CASE_PROPERTY_WORDS } from "@/lib/domain/standardCaseProperties";
 import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import {
@@ -654,6 +656,8 @@ function validateOperation(
 			),
 		);
 
+	if (operation.action === "create" && operation.typeChoice !== undefined)
+		validateCreateTypeChoice(ctx, operation, errors);
 	// A retype of the worker's record is refused as a facet it can't carry
 	// (`workerRecordFindings`), so no retype plan is asked of it.
 	if (operation.retype !== undefined && !workerRecord) {
@@ -1733,6 +1737,100 @@ export function caseOperationCaseTypeNameProblem(
 	return undefined;
 }
 
+/** In this range every alternative takes the same authored writes. No later
+ * operation can assume which type the new identity has. */
+function validateCreateTypeChoice(
+	ctx: OperationRuleContext,
+	operation: TargetedCaseOperation,
+	errors: ValidationError[],
+): void {
+	const choice = operation.typeChoice;
+	if (choice === undefined) return;
+	validateCaseType(ctx, operation, choice.otherwise, errors);
+	validatePredicateSlot(
+		ctx,
+		operation,
+		choice.condition,
+		operationSlot(ctx, operation, "case_operation_type_condition"),
+		errors,
+	);
+	const primary = ctx.caseTypesByName.get(operation.caseType);
+	const alternate = ctx.caseTypesByName.get(choice.otherwise);
+	const compatibleWrites = (operation.writes ?? []).every((write) => {
+		if (
+			write.via !== undefined ||
+			(write.value.kind === "term" && write.value.term.kind === "capture-link")
+		)
+			return false;
+		if (Object.hasOwn(WRITABLE_STANDARD_CASE_PROPERTY_WORDS, write.property))
+			return true;
+		const from = primary?.properties.find(
+			(property) => property.name === write.property,
+		);
+		const to = alternate?.properties.find(
+			(property) => property.name === write.property,
+		);
+		return (
+			from !== undefined &&
+			to !== undefined &&
+			from.data_type === to.data_type &&
+			from.data_type !== "single_select" &&
+			from.data_type !== "multi_select" &&
+			(from.options?.length ?? 0) === 0 &&
+			(to.options?.length ?? 0) === 0
+		);
+	});
+	const consumers = (ctx.form.caseOperations ?? []).some((other) =>
+		caseOperationDependencyUuids(other).has(operation.uuid),
+	);
+	const suppliesCaseList = Object.values(ctx.doc.modules).some((menu) => {
+		const action = menu.caseListRegistrationForm;
+		return (
+			action?.kind === "always" &&
+			action.formUuid === ctx.formUuid &&
+			action.target?.kind === "created-case" &&
+			action.target.operationUuid === operation.uuid
+		);
+	});
+	const owners = [
+		{ entity: "form" as const, uuid: ctx.formUuid },
+		...[...ctx.fields.keys()].map((uuid) => ({
+			entity: "field" as const,
+			uuid,
+		})),
+	];
+	let expressionConsumer = false;
+	for (const owner of owners)
+		for (const { expression } of expressionSlotValues(ctx.doc, owner))
+			walkExpressionNodes(expression, (node) => {
+				if (node.kind === "id-of" && node.opUuid === operation.uuid)
+					expressionConsumer = true;
+			});
+	if (
+		operation.typeCalculation !== undefined ||
+		choice.otherwise === operation.caseType ||
+		operation.target.kind !== "new" ||
+		operation.target.idFrom !== undefined ||
+		operation.target.expr !== undefined ||
+		(operation.links?.length ?? 0) > 0 ||
+		operation.closeAfter === true ||
+		ctx.form.entryCaseCreations?.includes(operation.uuid) === true ||
+		expressionContainsIdOf(choice.condition) ||
+		consumers ||
+		expressionConsumer ||
+		suppliesCaseList ||
+		!compatibleWrites
+	)
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_TYPE_CHOICE_INVALID",
+				"A create that chooses between case types needs a new case, compatible saved properties, and no connected case changes.",
+			),
+		);
+}
+
 function validateCaseType(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
@@ -1900,6 +1998,7 @@ type OperationScalarSlot =
 	| "case_operation_close_condition"
 	| "case_operation_name"
 	| "case_operation_owner"
+	| "case_operation_type_condition"
 	| "case_operation_owner_condition"
 	| "case_operation_rename";
 function operationSlot(

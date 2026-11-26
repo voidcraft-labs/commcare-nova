@@ -848,6 +848,10 @@ function settleCaseChanges(
 							: OUTSIDE_VOCABULARY,
 					);
 				break;
+			case "CASE_OPERATION_TYPE_CHOICE_INVALID":
+				if (block !== undefined)
+					refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.caseTypeXPath);
+				break;
 			case "CASE_OPERATION_EXECUTION_ORDER":
 				atForm.add(ORDER_CLAIMS.noOrder);
 				break;

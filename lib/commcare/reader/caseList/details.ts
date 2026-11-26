@@ -445,12 +445,22 @@ const LOOKUP_ON_KEYS = defineClaims("caseList.details.lookupOn", {
 	),
 });
 
+const TEXT_LOOKUP_FIELD_ENTRIES = new Map<string, string>([
+	["lookup_name", "lookup-name"],
+	["lookup_autolaunch", "lookup-autolaunch"],
+	["lookup_responses", "lookup-responses-key"],
+	["lookup_extras", "lookup-extras-fixed-text"],
+]);
+
 const TEXT_LOOKUP_KEYS = defineClaims(
 	"caseList.details.textLookup",
 	recordFromEntries(
 		CALLOUT_KEYS.map((key) => [
 			key,
-			take(`${A}lookup-with-text-extras`, `schema:Detail.${key}`),
+			take(
+				`${A}${TEXT_LOOKUP_FIELD_ENTRIES.get(key) ?? "lookup-with-text-extras"}`,
+				`schema:Detail.${key}`,
+			),
 		]),
 	) as Record<string, Claim<"take">>,
 );

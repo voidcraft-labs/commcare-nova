@@ -28,6 +28,7 @@ export function caseListDeviceLookup() {
 						deviceLookup: {
 							action: "org.nova.proof.CASE_LOOKUP",
 							label: "Find a visit",
+							automatic: true,
 							extras: [
 								{ name: "visit_mode", value: "followup" },
 								{ name: "visit_limit", value: "3" },

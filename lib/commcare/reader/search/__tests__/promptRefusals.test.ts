@@ -683,6 +683,37 @@ describe("a Search field Nova cannot hold", () => {
 		]);
 	});
 
+	it("places an unknown membership on the field without changing its sibling group", async () => {
+		expect(
+			await account((body) => {
+				const prompts = promptsOf(body);
+				for (const prompt of prompts) prompt.group_key = "g";
+				prompts[0].group_key = "unknown_heading";
+				prompts.unshift({
+					name: "g",
+					label: { en: "Group" },
+					is_group: true,
+					group_key: "g",
+				});
+			}),
+		).toEqual([[`${S}search-group-layout-unreadable`, "search", "case_name"]]);
+	});
+
+	it("places one blank-heading refusal over valid group members", async () => {
+		expect(
+			await account((body) => {
+				const prompts = promptsOf(body);
+				for (const prompt of prompts) prompt.group_key = "g";
+				prompts.unshift({
+					name: "g",
+					label: { en: "" },
+					is_group: true,
+					group_key: "g",
+				});
+			}),
+		).toEqual([[`${S}search-group-heading-unreadable`, "search", "g"]]);
+	});
+
 	// The filter keyed by a plain property is a finding of its own, and its value stands under it.
 	it("for a name a default filter shares is its one finding, beside the filter's own", async () => {
 		expect(

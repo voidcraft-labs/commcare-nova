@@ -603,7 +603,11 @@ function collectFormSlotReferences(
 	}
 	for (const operation of form.caseOperations ?? []) {
 		const operationLabel = `case operation "${operation.id || operation.uuid}"`;
-		if (operation.caseType === caseType) {
+		if (
+			operation.caseType === caseType ||
+			(operation.action === "create" &&
+				operation.typeChoice?.otherwise === caseType)
+		) {
 			out.push(sameRef(`${operationLabel} in ${where} targets "${caseType}"`));
 		}
 		if (operation.retype === caseType) {
@@ -625,6 +629,7 @@ function collectFormSlotReferences(
 					break;
 				case "case_operation_condition":
 				case "case_operation_close_condition":
+				case "case_operation_type_condition":
 				case "case_operation_owner_condition":
 					out.push(
 						sameRef(
