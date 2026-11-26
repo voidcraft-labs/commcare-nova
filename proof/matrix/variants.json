@@ -33947,7 +33947,7 @@
 		"id": "hq-questions/long-form-on-help",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
-		"standing": "not-yet",
+		"standing": "holds",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -33959,7 +33959,14 @@
 		"change": {
 			"op": "named",
 			"name": "long_form_on_help"
-		}
+		},
+		"output": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
+				"pointer": "/extended_help/parts/0/text",
+				"value": "Ask who heads the household"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/markdown-differing",

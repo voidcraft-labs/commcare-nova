@@ -32,6 +32,10 @@ import {
 import type { ItextUnit } from "@/lib/domain/expression/types";
 import { fieldKindDeclaresKey } from "@/lib/domain/fields";
 import {
+	type ExtendedProseSlot,
+	FIELD_EXTENDED_TEXT_SLOTS,
+} from "@/lib/domain/labelForms";
+import {
 	makeTranslationUnitId,
 	type TranslationUnitId,
 	translationSourceFingerprint,
@@ -44,6 +48,7 @@ import {
 	translationFillSource,
 } from "@/lib/domain/translationFill";
 import {
+	EXTENDED_FIELD_TEXT_ROLES,
 	itextUnitTranslationId,
 	LABEL_TEXT_ROLES,
 	LABEL_TEXT_SLOT_OF_ROLE,
@@ -470,6 +475,8 @@ export interface SlotText {
 		value: ReadValue;
 		original: ReadValue | undefined;
 	}[];
+	/** Without the inline video entry the emitter would have no help element. */
+	readonly helpOnlyInlineVideo?: true;
 }
 
 /** A validation message Nova composes in its question's bind: the question, the text its
@@ -535,7 +542,7 @@ export function messagesWithNoConditionAbsent(doc: BlueprintDoc): BlueprintDoc {
 				const field = doc.fields[uuid];
 				if (
 					field !== undefined &&
-					(field as { validate_msg?: unknown }).validate_msg !== undefined &&
+					("validate_msg" in field || "extended_validate_msg" in field) &&
 					!bindCarriesConstraint(
 						field.kind,
 						expressionSlotValue(doc, {
@@ -555,12 +562,16 @@ export function messagesWithNoConditionAbsent(doc: BlueprintDoc): BlueprintDoc {
 	if (unwritten.length === 0) return doc;
 	return withCandidate(doc, (draft) => {
 		for (const uuid of unwritten) {
-			delete (draft.fields[uuid] as { validate_msg?: unknown }).validate_msg;
-			const unit = makeTranslationUnitId("field", uuid, "validate_msg");
-			for (const entries of Object.values(
-				draft.localization?.translations ?? {},
-			))
-				delete entries[unit];
+			const field = draft.fields[uuid] as Record<string, unknown>;
+			for (const slot of ["validate_msg", "extended_validate_msg"] as const) {
+				delete field[slot];
+				const unit = makeTranslationUnitId("field", uuid, slot);
+				for (const entries of Object.values(
+					draft.localization?.translations ?? {},
+				)) {
+					delete entries[unit];
+				}
+			}
 		}
 	});
 }
@@ -651,12 +662,20 @@ function writeSourceProse(
 	const owner = unit.owner;
 	if (owner.kind === "select-option") {
 		const field = draft.fields[owner.fieldUuid] as
-			| { optionsSource?: { options?: { uuid: Uuid; label: unknown }[] } }
+			| {
+					optionsSource?: {
+						options?: { uuid: Uuid; label: unknown; extended_text?: unknown }[];
+					};
+			  }
 			| undefined;
 		const option = field?.optionsSource?.options?.find(
 			(one) => one.uuid === owner.optionUuid,
 		);
-		if (option !== undefined) option.label = value;
+		if (option !== undefined) {
+			if (unit.role === "select-option-extended-text")
+				option.extended_text = value;
+			else option.label = value;
+		}
 		return;
 	}
 	if (owner.kind !== "field") return;
@@ -1072,14 +1091,26 @@ export function readText(input: ReadTextInput): FormText {
 	let blankTranslations = 0;
 	const blankTranslationSlots: BlankTranslationSlot[] = [];
 	const firstOwner = new Map<string, Reference>();
+	const extraFormOwners = new Map<string, Map<LabelTextSlot, Reference>>();
 	for (const ref of references) {
-		if (ref.id !== undefined && !firstOwner.has(ref.id))
-			firstOwner.set(ref.id, ref);
-		if (ref.id !== undefined) itext.own(ref.id, ref.owner);
+		if (ref.id === undefined) continue;
+		if (!firstOwner.has(ref.id)) firstOwner.set(ref.id, ref);
+		itext.own(ref.id, ref.owner);
+		const extra = extraFormOwners.get(ref.id) ?? new Map();
+		for (const slot of extraItextSlots(ref.owner)) {
+			const wireSlot = extraItextForm(slot);
+			if (!extra.has(wireSlot)) extra.set(wireSlot, ref);
+		}
+		extraFormOwners.set(ref.id, extra);
 	}
 	for (const ref of references) {
 		const first = firstOwner.get(ref.id ?? "") === ref || ref.id === undefined;
-		const read = readSlotText(input, ref, first);
+		const read = readSlotText(
+			input,
+			ref,
+			first,
+			extraFormOwners.get(ref.id ?? ""),
+		);
 		// One physical itext value can supply several questions or choices.
 		if (first) blankTranslations += read.blanks.length;
 		for (const language of read.blanks)
@@ -1089,7 +1120,7 @@ export function readText(input: ReadTextInput): FormText {
 			labelTexts.push(reading);
 			// A label's other text left blank beside the default's is filled from it, as the
 			// label's own value is.
-			if (first) blankTranslations += reading.blanks.length;
+			if (reading.first) blankTranslations += reading.blanks.length;
 			for (const language of reading.blanks)
 				blankTranslationSlots.push({
 					...itextRecipient(ref.owner, language),
@@ -1468,12 +1499,49 @@ function registerOtherLanguageOutputs(
 		}
 }
 
+type ExtraItextSlot = LabelTextSlot | ExtendedProseSlot;
+
+function extraItextForm(slot: ExtraItextSlot): LabelTextSlot {
+	if (slot === "qr_code" || slot === "spoken_text") return slot;
+	return "extended_text";
+}
+
+function extraItextSlots(owner: ItextOwner): readonly ExtraItextSlot[] {
+	if (owner.slot === "label")
+		return LABEL_TEXT_SLOTS.filter((slot) =>
+			fieldKindDeclaresKey(owner.field.kind, slot),
+		);
+	if (owner.slot === "option_label") return ["option_extended_text"];
+	if (
+		owner.slot === "hint" ||
+		owner.slot === "help" ||
+		owner.slot === "validate_msg"
+	) {
+		const slot = FIELD_EXTENDED_TEXT_SLOTS[owner.slot];
+		return fieldKindDeclaresKey(owner.field.kind, slot) ? [slot] : [];
+	}
+	return [];
+}
+
+function extraTextRecord(
+	field: Record<string, unknown>,
+	owner: ItextOwner,
+	slot: ExtraItextSlot,
+): { record: Record<string, unknown>; key: string } | undefined {
+	if (slot !== "option_extended_text") return { record: field, key: slot };
+	const options = (
+		field.optionsSource as { options?: Record<string, unknown>[] } | undefined
+	)?.options;
+	const record = options?.[owner.option ?? -1];
+	return record && { record, key: "extended_text" };
+}
+
 /** One of a question label's other texts (`lib/domain/labelForms.ts`), as the form stage read it:
  *  each app language's value of its form, the language whose value the slot holds, and the outputs
  *  of that value registered for the expression stage. */
 export interface LabelTextReading {
 	readonly owner: ItextOwner;
-	readonly slot: LabelTextSlot;
+	readonly slot: ExtraItextSlot;
 	readonly place: HqPlace;
 	/** The label's itext id; a second label of the id takes the first's reading. */
 	readonly id: string;
@@ -1491,23 +1559,17 @@ export interface LabelTextReading {
 function takeLabelText(
 	cursor: XmlCursor,
 	value: Element,
-	slot: LabelTextSlot,
+	slot: ExtraItextSlot,
 	owner: ItextOwner,
 ): void {
 	const claim =
 		slot === "extended_text" && CONTAINER_KINDS.has(owner.field.kind)
 			? X.longFormOnContainer
-			: X.labelText[slot];
+			: slot === "extended_text" || slot === "qr_code" || slot === "spoken_text"
+				? X.labelText[slot]
+				: X.longFormOnOtherText;
 	cursor.take({ element: value }, claim).value;
 	cursor.partOf({ element: value, attribute: "form" }, claim);
-}
-
-/** Whether this label carries extended text. QR code and speech are decided by the field kind. */
-function heldLabelTexts(owner: ItextOwner): boolean {
-	return (
-		owner.slot === "label" &&
-		fieldKindDeclaresKey(owner.field.kind, "extended_text")
-	);
 }
 
 /**
@@ -1529,16 +1591,17 @@ function readLabelTexts(
 	owner: ItextOwner,
 	place: HqPlace,
 	id: string,
-	first: boolean,
+	ownsForm: (slot: LabelTextSlot) => boolean,
 	forms: ReadonlyMap<LanguageTag, ReadonlyMap<string, Element>>,
 	defaultLanguage: LanguageTag,
 ): LabelTextReading[] {
 	const { cursor, accounting, scope, itext } = input;
 	const context: ValueContext = { cursor, accounting, scope, place };
 	const out: LabelTextReading[] = [];
-	for (const slot of LABEL_TEXT_SLOTS) {
-		if (!fieldKindDeclaresKey(owner.field.kind, slot)) continue;
-		const wire = LABEL_TEXT_WIRE_FORMS[slot];
+	for (const slot of extraItextSlots(owner)) {
+		const wireSlot = extraItextForm(slot);
+		const first = ownsForm(wireSlot);
+		const wire = LABEL_TEXT_WIRE_FORMS[wireSlot];
 		const elements = new Map<LanguageTag, Element>();
 		for (const [language, held] of forms) {
 			const value = held.get(wire);
@@ -1549,7 +1612,11 @@ function readLabelTexts(
 			if (first)
 				for (const value of elements.values()) {
 					claimFormValue(accounting, value, place);
-					cursor.refuseSubtree(value, X.labelTextMissingDefault[slot], place);
+					cursor.refuseSubtree(
+						value,
+						X.labelTextMissingDefault[wireSlot],
+						place,
+					);
 				}
 			continue;
 		}
@@ -1604,6 +1671,7 @@ function readLabelTexts(
 			const register = (output: SourceOutput, translatedOutput?: true) =>
 				owner.field.expressions.push({
 					slot,
+					...(owner.option === undefined ? {} : { option: owner.option }),
 					...(translatedOutput && { translatedOutput }),
 					text: output.text,
 					at: { element: output.element, attribute: output.attribute },
@@ -1626,7 +1694,9 @@ function readLabelTexts(
 					register(part.output, true);
 				}
 			}
-			owner.field.field[slot] = placeholderTemplate(ownValue.parts);
+			const holder = extraTextRecord(owner.field.field, owner, slot);
+			if (holder)
+				holder.record[holder.key] = placeholderTemplate(ownValue.parts);
 		}
 		const blanks = [...read]
 			.filter(
@@ -1645,6 +1715,7 @@ function readSlotText(
 	input: ReadTextInput,
 	ref: Reference,
 	first: boolean,
+	extraOwners: ReadonlyMap<LabelTextSlot, Reference> | undefined,
 ): {
 	readonly slot: SlotText | undefined;
 	readonly blanks: readonly LanguageTag[];
@@ -1816,11 +1887,17 @@ function readSlotText(
 			}
 		for (const values of itext.allValues(id).values())
 			for (const value of values)
-				claimOtherForm(input, owner, place, value, heldLabelTexts(owner));
+				claimOtherForm(input, owner, place, value, extraOwners);
 	}
-	const labelTexts = heldLabelTexts(owner)
-		? readLabelTexts(input, owner, place, id, first, forms, defaultLanguage)
-		: [];
+	const labelTexts = readLabelTexts(
+		input,
+		owner,
+		place,
+		id,
+		(wireSlot) => extraOwners?.get(wireSlot) === ref,
+		forms,
+		defaultLanguage,
+	);
 
 	// A text blank everywhere is an entry Nova writes only where its slot carries media or a
 	// question's label holds one of its other texts (`builder.ts::addItext`), and there its
@@ -1884,6 +1961,10 @@ function readSlotText(
 			values: read.size === 0 ? empty : read,
 			registered,
 			media: mediaHolding(owner),
+			...(owner.slot === "help" &&
+				blankEverywhere &&
+				labelTexts.length === 0 &&
+				!writesMedia(owner, forms) && { helpOnlyInlineVideo: true }),
 			forms,
 			refused,
 			copies,
@@ -1993,14 +2074,13 @@ function claimMarkdown(
 
 /** A form unknown to this text's prose and media readers. Containers carry
  * extended labels. Core reads `long` on hints, help text, validation refusals
- * and choices too, so those forms still have a placed refusal. Android reads
- * QR and speech forms only on question labels. */
+ * and choices too. Android reads QR and speech forms only on question labels. */
 function claimOtherForm(
 	input: ReadTextInput,
 	owner: ItextOwner,
 	place: HqPlace,
 	value: Element,
-	heldLabelTexts: boolean,
+	extraOwners: ReadonlyMap<LabelTextSlot, Reference> | undefined,
 ): void {
 	const { cursor } = input;
 	const form = value.attribs.form;
@@ -2014,16 +2094,11 @@ function claimOtherForm(
 		return;
 	if (form.startsWith("__nova_")) return;
 	const labelText = labelTextSlotOfWireForm(form);
-	if (
-		labelText !== undefined &&
-		heldLabelTexts &&
-		fieldKindDeclaresKey(owner.field.kind, labelText)
-	)
-		return;
+	if (labelText !== undefined && extraOwners?.has(labelText)) return;
 	claimFormValue(input.accounting, value, place);
 	if (labelText !== undefined) {
 		if (labelText === "extended_text")
-			cursor.refuseSubtree(value, X.longFormOnOtherText, place);
+			cursor.dropSubtree(value, X.longFormOnRepeatAction);
 		else cursor.dropSubtree(value, X.labelTextElsewhere[labelText]);
 		return;
 	}
@@ -2320,37 +2395,61 @@ export function finishText(ctx: ReadContext): void {
 					unit.role,
 				);
 			}
-			// A question label's other texts: a second label of one id takes the first's.
 			const firstLabelText = new Map<string, LabelTextReading>();
 			for (const reading of text.labelTexts) {
 				const uuid = reading.owner.field.uuid;
 				if (uuid === undefined) continue;
 				const field = next.fields[uuid] as Record<string, unknown> | undefined;
 				if (field === undefined) continue;
-				const key = `${reading.id}\u0000${reading.slot}`;
+				const holder = extraTextRecord(field, reading.owner, reading.slot);
+				if (holder === undefined) continue;
+				const key = `${reading.id}\u0000${extraItextForm(reading.slot)}`;
 				if (reading.first) firstLabelText.set(key, reading);
 				else {
-					const sharedUuid = firstLabelText.get(key)?.owner.field.uuid;
-					const bound =
+					const shared = firstLabelText.get(key);
+					const sharedUuid = shared?.owner.field.uuid;
+					const sharedField =
 						sharedUuid === undefined
 							? undefined
-							: (
-									next.fields[sharedUuid] as Record<string, unknown> | undefined
-								)?.[reading.slot];
+							: (next.fields[sharedUuid] as
+									| Record<string, unknown>
+									| undefined);
+					const source =
+						shared && sharedField
+							? extraTextRecord(sharedField, shared.owner, shared.slot)
+							: undefined;
+					const bound = source?.record[source.key];
 					if (bound !== undefined) {
-						field[reading.slot] = structuredClone(bound);
+						holder.record[holder.key] = structuredClone(bound);
 						changed = true;
 					}
 				}
-				const template = field[reading.slot] as ProseTemplate | undefined;
+				const template = holder.record[holder.key] as ProseTemplate | undefined;
 				if (template === undefined) continue;
+				const unit = unitOf(reading.owner);
+				const slot = reading.slot;
+				const translationId =
+					slot === "option_extended_text"
+						? unit?.role === "select-option-label"
+							? makeTranslationUnitId("field", uuid, slot, unit.option)
+							: undefined
+						: makeTranslationUnitId("field", uuid, slot);
+				if (translationId === undefined) continue;
+				const role =
+					slot === "option_extended_text"
+						? "select-option-extended-text"
+						: slot === "extended_text" ||
+								slot === "qr_code" ||
+								slot === "spoken_text"
+							? LABEL_TEXT_ROLES[slot]
+							: EXTENDED_FIELD_TEXT_ROLES[slot];
 				translate(
-					makeTranslationUnitId("field", uuid, reading.slot),
+					translationId,
 					template,
 					reading,
 					text.itext.defaultLanguage,
 					text.itext.languages,
-					LABEL_TEXT_ROLES[reading.slot],
+					role,
 				);
 			}
 		}

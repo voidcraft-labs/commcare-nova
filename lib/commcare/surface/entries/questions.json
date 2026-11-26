@@ -9871,6 +9871,29 @@
 		"gates": []
 	},
 	{
+		"id": "questions/video-inline-as-the-only-content-of-a-help-text",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "A help text carrying inline video alone",
+		"surfaceKeys": [
+			"itext-form:android/video-inline",
+			"itext-form:hq/video-inline"
+		],
+		"valueClass": "empty-help-with-inline-video",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: Core's `hasHelp` detects the help element itself. Omitting an otherwise empty entry would remove its Android help button.",
+		"subject": "question-text",
+		"owner": "question-display",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": { "reading": "ignored" },
+			"android": { "reading": "runs" }
+		},
+		"emission": { "cell": "help presence", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "questions/label-big-image",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
@@ -10014,10 +10037,9 @@
 		"item": "`long` form on a hint, a help text, a validation message or a choice",
 		"surfaceKeys": ["itext-form:core/long"],
 		"valueClass": "other-text",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an extended text on a hint, a help text, a validation message or a choice (both runtimes show it in place of the text: Core reads `long` first and the default after it, `FormEntryPrompt.getSelectItemText` for a choice and `FormEntryCaption.getQuestionText` for a hint, a help text and a validation message its alert names, which Formplayer sends and Android draws)",
-		"subject": "question-text",
-		"owner": "question-display",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: localized extended prose on the hint, help, validation message or inline choice",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -10058,6 +10080,19 @@
 			"cell": "`form=\"long\"`",
 			"markers": []
 		},
+		"gates": []
+	},
+	{
+		"id": "questions/long-form-on-a-repeat-action-caption",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "`long` form on a repeat action caption",
+		"surfaceKeys": ["itext-form:core/long"],
+		"valueClass": "repeat-action-caption",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: Core's `FormEntryCaption.getCaptionText` looks up the default value only for custom repeat action captions. The repeat label's extended text still supplies the default action's title.",
+		"platforms": { "kind": "not-applicable", "cell": "n/a" },
+		"emission": { "cell": "omit", "markers": ["omit"] },
 		"gates": []
 	},
 	{

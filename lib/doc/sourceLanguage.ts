@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain/localization";
 import { recordFromEntries } from "@/lib/domain/records";
 import {
+	EXTENDED_FIELD_TEXT_SLOT_OF_ROLE,
 	hasGeneratedWording,
 	LABEL_TEXT_SLOT_OF_ROLE,
 	snapshotTranslationUnits,
@@ -120,6 +121,9 @@ export function sourceSlotWriter(
 		case "field-first-add-label":
 		case "field-add-label":
 		case "field-validation-message":
+		case "field-extended-hint":
+		case "field-extended-help":
+		case "field-extended-validation-message":
 		case "field-extended-text":
 		case "field-qr-code":
 		case "field-spoken-text": {
@@ -128,6 +132,7 @@ export function sourceSlotWriter(
 				"field-hint": "hint",
 				"field-help": "help",
 				"field-validation-message": "validate_msg",
+				...EXTENDED_FIELD_TEXT_SLOT_OF_ROLE,
 				...LABEL_TEXT_SLOT_OF_ROLE,
 				"field-first-add-label": "addFirstLabel",
 				"field-add-label": "addLabel",
@@ -142,6 +147,7 @@ export function sourceSlotWriter(
 				: undefined;
 		}
 		case "select-option-label":
+		case "select-option-extended-text":
 			return owner.kind === "select-option"
 				? (draft, value) => {
 						const field = draft.fields[owner.fieldUuid];
@@ -155,7 +161,9 @@ export function sourceSlotWriter(
 							(one) => one.uuid === owner.optionUuid,
 						);
 						if (option !== undefined)
-							option.label = value as typeof option.label;
+							option[
+								unit.role === "select-option-label" ? "label" : "extended_text"
+							] = value as typeof option.label;
 					}
 				: undefined;
 		case "case-detail-tab-title":

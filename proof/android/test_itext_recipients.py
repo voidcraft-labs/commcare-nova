@@ -4,10 +4,16 @@ import io
 import json
 import zipfile
 
+import pytest
+
 from proof.android.observe import archive_bytes
 from proof.android.test_form_reads import FORM, _app, _forms, _served, _texts
+from proof.formplayer.test_itext_recipients import VIDEO
 from proof.formplayer.test_itext_recipients import with_recipient_forms
 from proof.formplayer.test_media_slots import GROUPED
+
+
+pytestmark = pytest.mark.reader("android")
 
 
 def _inline_videos(view):
@@ -17,19 +23,24 @@ def _inline_videos(view):
         yield from _inline_videos(child)
 
 
-def test_android_uses_long_recipients_and_only_one_inline_video(android_documents, hq, evidence):
+def test_android_uses_long_recipients_and_only_one_inline_video(android_documents, hq, android_walk_evidence):
     with _served(android_documents[GROUPED]) as (served, archive):
         with zipfile.ZipFile(io.BytesIO(archive)) as zip_file:
             entries = {name: zip_file.read(name) for name in zip_file.namelist()}
         path, = (name for name in entries if name.endswith("modules-0/forms-0.xml"))
-        entries[path] = with_recipient_forms(entries[path]).encode()
+        basename = VIDEO.rsplit("/", 1)[-1]
+        media = next(name for name in entries if name.endswith(basename))
+        entries[media.replace(basename, "inline-proof.mp4")] = entries[media]
+        entries[path] = with_recipient_forms(
+            entries[path], "jr://file/commcare/inline-proof.mp4"
+        ).encode()
         answer, _ = _app(served, archive_bytes(entries), "itext-recipients", commands=[FORM], views=True)
     form, = _forms(answer["walks"][FORM])
     screens = form["screens"]
     views = [screen.get("view") or {} for screen in screens]
     text = " ".join(label for view in views for label in _texts(view))
-    evidence("android-itext-recipient-forms", screens)
-    for expected in ("The address label", "The address hint", "The household title", "The chosen option", "The entries title"):
+    android_walk_evidence(answer["walks"][FORM])
+    for expected in ("The address label", "The address hint", "The address help", "The household title", "The chosen option", "The entries title"):
         assert expected in text, (expected, text)
     assert "The address violation" in json.dumps(screens), screens
     shown_video_counts = [len(list(_inline_videos(view))) for view in views]

@@ -1501,7 +1501,35 @@ def inline_video_off_question_label(use, manifest):
     if value is None or value.get("form") != "video-inline":
         return False
     owners = form.long_text_owners.get(value.getparent().get("id"), ())
-    return not {"hint", "help", "alert", "message", "choice", "container-label"}.isdisjoint(owners)
+    if inline_video_on_empty_help(use, manifest) and owners == {"help"}:
+        return False
+    return not {"hint", "help", "alert", "message", "choice", "container-label", "caption"}.isdisjoint(owners)
+
+
+def inline_video_on_empty_help(use, manifest):
+    """An otherwise empty help element keeps Android's help affordance."""
+    form, value = _itext_value(use)
+    if form is None:
+        return None
+    if value is None or value.get("form") != "video-inline":
+        return False
+    text_id = value.getparent().get("id")
+    if "help" not in form.long_text_owners.get(text_id, ()):
+        return False
+    for translation in form.translations:
+        for text in _children(translation):
+            if _local(text) != "text" or text.get("id") != text_id:
+                continue
+            for candidate in _children(text):
+                if _local(candidate) != "value":
+                    continue
+                role = candidate.get("form") or "default"
+                if role == "long" or (
+                    role in {"default", "audio", "image", "video"}
+                    and (len(candidate) or (candidate.text or "").strip())
+                ):
+                    return False
+    return True
 
 
 def _long_form_on(owners):
@@ -12390,9 +12418,11 @@ VALUE_CLASSES = {
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
     "questions/video-inline-form-on-a-text-other-than-a-question-label": inline_video_off_question_label,
+    "questions/video-inline-as-the-only-content-of-a-help-text": inline_video_on_empty_help,
     "questions/long-form-on-a-hint-help-text-validation-message-or-choice": _long_form_on(
         {"hint", "help", "alert", "message", "choice"}
     ),
+    "questions/long-form-on-a-repeat-action-caption": _long_form_on({"caption"}),
     "questions/long-form-on-a-group-or-repeat-label": _long_form_on({"container-label"}),
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes": orphan_android_action,

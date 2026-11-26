@@ -231,6 +231,17 @@ function readSlotMedia(
 		if (first)
 			for (const value of values.values())
 				claimFormValue(ctx.accounting, value, place);
+		if (unshownInline && slot.helpOnlyInlineVideo) {
+			let hasInlineValue = false;
+			for (const value of values.values()) {
+				if (!emitterMediaValue(value, form, scope)) continue;
+				hasInlineValue = true;
+				if (first) cursor.refuseSubtree(value, X.videoInlineOnlyHelp, place);
+			}
+			if (!first && hasInlineValue)
+				ctx.accounting.finding(X.videoInlineOnlyHelp, place);
+			continue;
+		}
 		if (slot.media === "unheld" || unshownInline) {
 			for (const [language, value] of values) {
 				if (unshownInline && !emitterMediaValue(value, form, scope)) continue;

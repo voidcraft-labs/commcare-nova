@@ -7,10 +7,8 @@
  * same document. A form the form's default language lacks is refused (Core's
  * `Localizer.getLocaleData` raises `NoLocalizedTextException` for it as that language loads); a
  * blank in the default language beside another language's text is refused, as a label's is; a
- * blank everywhere is held blank. A `long` form on any other text (a group's label, a hint, a
- * choice) is refused as not yet held, since both runtimes show it in place of that text
- * (`FormEntryPrompt.getSelectItemText`, `FormEntryCaption.getQuestionText`), and a QR code or
- * spoken text on one, which no runtime reads, is dropped.
+ * blank everywhere is held blank. Group labels, hints, help and validation messages and
+ * choice labels keep their own extended prose. Only a question label holds QR and spoken text.
  *
  * Plausible failures: a form read only in the source language, or not read; a translation lost
  * or read as the source; a reference read as text; a form only another language holds read
@@ -20,7 +18,11 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	f,
+	parseFixtureExpression,
+} from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
@@ -212,7 +214,7 @@ describe("a question label's other texts", () => {
 		).toBe(true);
 	});
 
-	it("refuses a long form on a hint or a choice as not yet held, and drops a QR code there", async () => {
+	it("keeps extended hint, help and choice text from the same form without claiming a hint QR code", async () => {
 		const doc = buildDoc({
 			appName: "Other texts",
 			modules: [
@@ -228,6 +230,7 @@ describe("a question label's other texts", () => {
 									id: "answer",
 									label: proseText("Answer"),
 									hint: proseText("A hint"),
+									help: proseText("Some help"),
 								}),
 								f({
 									kind: "single_select",
@@ -244,39 +247,136 @@ describe("a question label's other texts", () => {
 				},
 			],
 		});
-		const notYetHeld = (outcome: Awaited<ReturnType<typeof read>>) =>
-			JSON.stringify(outcome.kind === "account" ? outcome.findings : []);
-		const hinted = await read(doc, (xml) =>
-			xml.replace(
-				/(<text id="answer-hint">\s*<value>A hint<\/value>)/u,
-				'$1<value form="long">Longer</value>',
-			),
+		const result = await read(doc, (xml) =>
+			xml
+				.replace(
+					/(<value>A hint<\/value>)/u,
+					'$1<value form="long">Longer hint</value><value form="qrcode">An inert code</value>',
+				)
+				.replace(
+					/(<value>Some help<\/value>)/u,
+					'$1<value form="long">Extended help</value>',
+				)
+				.replace(
+					/(<value>Yes<\/value>)/u,
+					'$1<value form="long">Yes, the child was seen today</value>',
+				),
 		);
-		expect(hinted.kind).toBe("account");
-		expect(notYetHeld(hinted)).toContain(
-			"long-form-on-a-hint-help-text-validation-message-or-choice",
+		expect(result.defects).toEqual([]);
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const { doc: imported } = result.draft;
+		const answer = fieldById(imported, "answer");
+		expect(answer).toMatchObject({
+			hint: proseText("A hint"),
+			extended_hint: proseText("Longer hint"),
+			help: proseText("Some help"),
+			extended_help: proseText("Extended help"),
+		});
+		expect(answer.qr_code).toBeUndefined();
+		expect(fieldById(imported, "seen").optionsSource).toMatchObject({
+			options: [
+				{
+					value: "yes",
+					label: proseText("Yes"),
+					extended_text: proseText("Yes, the child was seen today"),
+				},
+				{ value: "no", label: proseText("No") },
+			],
+		});
+		const reexported = await read(imported);
+		expect(reexported.defects).toEqual([]);
+		if (reexported.kind !== "read")
+			throw new Error(JSON.stringify(reexported.findings));
+		expect(fieldById(reexported.draft.doc, "answer")).toMatchObject({
+			extended_hint: proseText("Longer hint"),
+			extended_help: proseText("Extended help"),
+		});
+		expect(fieldById(reexported.draft.doc, "seen").optionsSource).toMatchObject(
+			{
+				options: [
+					{ extended_text: proseText("Yes, the child was seen today") },
+					{ value: "no" },
+				],
+			},
 		);
-		const chosen = await read(doc, (xml) =>
-			xml.replace(
-				/(<value>Yes<\/value>)/u,
-				'$1<value form="long">Yes, the child was seen today</value>',
-			),
-		);
-		expect(chosen.kind).toBe("account");
-		expect(notYetHeld(chosen)).toContain(
-			"long-form-on-a-hint-help-text-validation-message-or-choice",
-		);
+	});
 
-		const coded = await read(doc, (xml) =>
-			xml.replace(
-				/(<text id="answer-hint">\s*<value>A hint<\/value>)/u,
-				'$1<value form="qrcode">A code</value><value form="tts">Say it</value>',
+	it("round trips a protected validation message and its translated extended reference", async () => {
+		const original = labelTexts();
+		const answer = original.fields[NAME];
+		if (answer?.kind !== "text") throw new Error("Expected a text question.");
+		original.fields[NAME] = {
+			...answer,
+			validate: parseFixtureExpression(
+				original,
+				{ entity: "field", uuid: NAME, slot: "validate" },
+				". != 'x'",
 			),
+			validate_msg: proseText("Check the name"),
+			extended_validate_msg: withName("Please check "),
+		};
+		const locale = original.localization?.translations.spa;
+		if (locale === undefined)
+			throw new Error("Expected a Spanish translation.");
+		locale[makeTranslationUnitId("field", NAME, "extended_validate_msg")] =
+			translation(withName("Please check "), withName("Compruebe "));
+		expect(runValidation(original, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const written = Object.values(
+			exportedBody(original)._attachments as Record<string, string>,
+		).join("");
+		expect(written).toContain('form="long">Please check');
+		expect(written).toContain("constraint=");
+		const result = await read(original);
+		expect(result.defects).toEqual([]);
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const answerRead = fieldById(result.draft.doc, "name");
+		const uuid = answerRead.uuid as Uuid;
+		expect(answerRead).toMatchObject({
+			validate_msg: proseText("Check the name"),
+			extended_validate_msg: {
+				parts: [
+					{ kind: "text", text: "Please check " },
+					{ kind: "field-ref", uuid },
+				],
+			},
+		});
+		expect(
+			result.draft.doc.localization?.translations.spa?.[
+				makeTranslationUnitId("field", uuid, "extended_validate_msg")
+			]?.value,
+		).toMatchObject({
+			parts: [
+				{ kind: "text", text: "Compruebe " },
+				{ kind: "field-ref", uuid },
+			],
+		});
+	});
+
+	it("keeps an empty Android help affordance out of the unshown-video cleanup", async () => {
+		const original = labelTexts();
+		const question = original.fields[NAME];
+		if (question?.kind !== "text") throw new Error("Expected a text question.");
+		original.fields[NAME] = { ...question, help: proseText("Ordinary help") };
+		const insertVideo = (xml: string, defaultText: string) =>
+			xml.replaceAll(
+				'<value>Ordinary help</value><value form="markdown">Ordinary help</value>',
+				`<value>${defaultText}</value><value form="video-inline">jr://file/commcare/explanation.mp4</value>`,
+			);
+		const held = await read(original, (xml) => insertVideo(xml, ""));
+		expect(held.kind).toBe("account");
+		if (held.kind !== "account")
+			throw new Error("Expected a help affordance finding.");
+		expect(JSON.stringify(held.findings)).toContain(
+			"video-inline-as-the-only-content-of-a-help-text",
 		);
-		expect(coded.defects).toEqual([]);
-		expect(coded.kind === "account" ? coded.findings : []).toEqual([]);
-		if (coded.kind !== "read") throw new Error("The QR code was not dropped.");
-		expect(fieldById(coded.draft.doc, "answer").qr_code).toBeUndefined();
+		const ordinary = await read(original, (xml) =>
+			insertVideo(xml, "Ordinary help"),
+		);
+		expect(
+			JSON.stringify(ordinary.kind === "account" ? ordinary.findings : []),
+		).not.toContain("video-inline-as-the-only-content-of-a-help-text");
 	});
 
 	it("keeps a group's default and long forms as separately editable text", async () => {

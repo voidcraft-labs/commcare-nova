@@ -21,7 +21,7 @@ LONG_TEXT = {
 }
 
 
-def with_recipient_forms(source):
+def with_recipient_forms(source, inline_video=VIDEO):
     root = etree.fromstring(source.encode() if isinstance(source, str) else source)
     model, = root.iter(f"{XF}model")
     body, = root.iter(BODY)
@@ -56,7 +56,7 @@ def with_recipient_forms(source):
         for old in text.findall(f"{XF}value[@form='markdown']"):
             text.remove(old)
         etree.SubElement(text, f"{XF}value", form="long").text = long
-        etree.SubElement(text, f"{XF}value", form="video-inline").text = VIDEO
+        etree.SubElement(text, f"{XF}value", form="video-inline").text = inline_video
     return etree.tostring(root, encoding="unicode")
 
 
@@ -64,7 +64,9 @@ def test_formplayer_reads_long_recipients_and_never_sends_inline_video(
     hq, core_runner, formplayer_runner, formplayer_documents, evidence
 ):
     with apps.published(formplayer_documents[GROUPED], core_runner) as published:
-        change = apps.form_written(published, {"0.0": with_recipient_forms})
+        change = apps.form_written(published, {
+            "0.0": lambda source: with_recipient_forms(source, "jr://file/commcare/inline-proof.mp4"),
+        })
         with apps.served(published, formplayer_runner, change=change) as served:
             walked = apps.walked(formplayer_runner, served)
     steps = [step for run in walked["runs"] for step in run["steps"]]
@@ -90,4 +92,4 @@ def test_formplayer_reads_long_recipients_and_never_sends_inline_video(
     assert any("The address violation" in json.dumps(response) for response in refusals), refusals
     # Ordinary video is a separate, visible control beside the accepted label.
     assert str(address.get("caption_video")).endswith(".mp4"), address
-    assert all("video-inline" not in json.dumps(node) for node in questions), questions
+    assert "inline-proof.mp4" not in json.dumps(trees), trees

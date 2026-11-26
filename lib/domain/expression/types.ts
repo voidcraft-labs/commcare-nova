@@ -1328,13 +1328,16 @@ export type ProseSlotRef =
 				| "help"
 				| "validate_msg"
 				| "extended_text"
+				| "extended_hint"
+				| "extended_help"
+				| "extended_validate_msg"
 				| "qr_code"
 				| "spoken_text";
 	  }
 	| {
 			readonly entity: "field";
 			readonly uuid: Uuid;
-			readonly slot: "option_label";
+			readonly slot: "option_label" | "option_extended_text";
 			readonly member: { readonly optionUuid: Uuid };
 	  };
 export type SlotContextRef = ExpressionSlotRef | ProseSlotRef;
@@ -1345,11 +1348,15 @@ const PROSE_SLOT_NAMES: ReadonlySet<string> = new Set<ProseSlotRef["slot"]>([
 	"help",
 	"validate_msg",
 	"extended_text",
+	"extended_hint",
+	"extended_help",
+	"extended_validate_msg",
 	"qr_code",
 	"spoken_text",
 	"addFirstLabel",
 	"addLabel",
 	"option_label",
+	"option_extended_text",
 ]);
 
 /** Whether a slot address names a prose slot (a text, and the calculated

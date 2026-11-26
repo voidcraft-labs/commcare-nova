@@ -5,12 +5,17 @@ import {
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
 import type { ItextUnit, ProseSlotRef } from "@/lib/domain/expression/types";
+import type { Field } from "@/lib/domain/fields";
 import {
 	behaviorTextUnits,
 	type FormBehaviorRole,
 	formBehaviorRoles,
 } from "@/lib/domain/forms";
-import type { TranslationUnitId } from "@/lib/domain/localization";
+import { LABEL_TEXT_SLOTS, labelTextOf } from "@/lib/domain/labelForms";
+import {
+	makeTranslationUnitId,
+	type TranslationUnitId,
+} from "@/lib/domain/localization";
 import { itextUnitTranslationId } from "@/lib/domain/translationUnits";
 import type { Uuid } from "@/lib/domain/uuid";
 
@@ -22,6 +27,58 @@ const roles = [
 	["addFirstLabel", "field-first-add-label", "add-empty-caption"],
 	["addLabel", "field-add-label", "add-caption"],
 ] as const;
+
+/** Translations of alternative forms held on this same wire id. XPath reads
+ * the default form, while HQ's normalization compares the entire entry. */
+export function additionalItextUnitIds(field: Field, unit: ItextUnit) {
+	const fieldUnit = (slot: string) =>
+		makeTranslationUnitId("field", field.uuid, slot);
+	switch (unit.role) {
+		case "field-label":
+			return LABEL_TEXT_SLOTS.flatMap((slot) =>
+				labelTextOf(field, slot) === undefined
+					? []
+					: [{ form: slot, id: fieldUnit(slot) }],
+			);
+		case "field-hint":
+			return "extended_hint" in field && field.extended_hint !== undefined
+				? [{ form: "extended_text", id: fieldUnit("extended_hint") }]
+				: [];
+		case "field-help":
+			return "extended_help" in field && field.extended_help !== undefined
+				? [{ form: "extended_text", id: fieldUnit("extended_help") }]
+				: [];
+		case "field-validation-message":
+			return "extended_validate_msg" in field &&
+				field.extended_validate_msg !== undefined
+				? [{ form: "extended_text", id: fieldUnit("extended_validate_msg") }]
+				: [];
+		case "select-option-label": {
+			const option =
+				"optionsSource" in field && field.optionsSource.kind === "inline"
+					? field.optionsSource.options.find(
+							(option) => option.uuid === unit.option,
+						)
+					: undefined;
+			return option?.extended_text !== undefined
+				? [
+						{
+							form: "extended_text",
+							id: makeTranslationUnitId(
+								"field",
+								field.uuid,
+								"option_extended_text",
+								option.uuid,
+							),
+						},
+					]
+				: [];
+		}
+		case "field-first-add-label":
+		case "field-add-label":
+			return [];
+	}
+}
 
 /** Logical ancestry, without generated query-repeat item nodes. A hyphen an id
  * holds is written twice, so the single hyphen between two ids and before a
