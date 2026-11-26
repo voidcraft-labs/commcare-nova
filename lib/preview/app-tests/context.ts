@@ -111,7 +111,7 @@ export async function withAppTestContext<T>(
 	const identity = appTestIdentity(snapshot, state.personaUuid);
 	return withAppTestNamespace(
 		tx,
-		{ ...scope, ownerId: identity.ownerId },
+		{ ...scope, ownerId: identity.ownerId, searchFacts: snapshot.searchFacts },
 		async (store) => body(await contextFor(store, scope, snapshot, state)),
 	);
 }

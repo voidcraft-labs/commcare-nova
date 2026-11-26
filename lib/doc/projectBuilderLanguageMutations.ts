@@ -12,6 +12,7 @@ import {
 	casePropertyOptionTranslationUnitId,
 	effectiveAppLocalization,
 	FIELD_PROSE_SLOTS,
+	isOrdinaryCaseSearchConfig,
 	type LanguageTag,
 	type LocalizedValue,
 	localizeTranslationUnit,
@@ -22,7 +23,6 @@ import {
 	type TranslationUnitId,
 	translationEntryIntegrityIssue,
 	translationUnitsById,
-	type Uuid,
 } from "@/lib/domain";
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
@@ -181,17 +181,26 @@ export function projectBuilderLanguageMutations(
 						if (!hasOwn(searchPatch, slot)) continue;
 						const id = makeTranslationUnitId("module", mutation.uuid, unitSlot);
 						const value = searchPatch[slot];
-						// No title is one setting for every language, with no translation
-						// unit: the source takes turning it off, and turning it back on
-						// (a `null` while the source holds the `none` arm).
+						// Showing a title is the source's setting, in every language:
+						// the source takes turning it off, and this language drops a
+						// title of its own, so it shows none. Turning it back on clears
+						// the source's `none`, so every language shows its title again;
+						// clearing a title of this language's own over a source that
+						// shows one is a translation's clear. A brought-in language with
+						// a title of its own over the source's `none` keeps it
+						// (`searchTitleLanguages.ts`).
+						if (slot === "searchScreenTitle" && isNoSearchScreenTitle(value)) {
+							if (units.has(id)) redirectClear(id);
+							continue;
+						}
+						const stored = doc.modules[mutation.uuid]?.caseSearchConfig;
 						if (
 							slot === "searchScreenTitle" &&
-							(isNoSearchScreenTitle(value) ||
-								(value === null &&
-									isNoSearchScreenTitle(
-										sourceSearchScreenTitle(doc, mutation.uuid),
-									)))
+							value === null &&
+							isOrdinaryCaseSearchConfig(stored) &&
+							isNoSearchScreenTitle(stored.searchScreenTitle)
 						) {
+							if (units.has(id)) redirectClear(id);
 							continue;
 						}
 						let handled = false;
@@ -635,12 +644,4 @@ export function projectBuilderLanguageMutations(
 function isNoSearchScreenTitle(value: unknown): boolean {
 	const parsed = searchScreenTitleSchema.safeParse(value);
 	return parsed.success && typeof parsed.data !== "string";
-}
-
-/** The source document's stored search title of a module, if any. */
-function sourceSearchScreenTitle(doc: BlueprintDoc, moduleUuid: Uuid): unknown {
-	const config = doc.modules[moduleUuid]?.caseSearchConfig;
-	return config !== undefined && "searchScreenTitle" in config
-		? config.searchScreenTitle
-		: undefined;
 }

@@ -13,7 +13,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { runValidation } from "../../../validator/runner";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "../../index";
 import type { ReaderInput } from "../../types";
@@ -105,22 +107,36 @@ const CASES: readonly Case[] = [
 		findings: [[`${S}prompt-key-outside-nova-s-name-grammar`, "search", "_x"]],
 	},
 	{
-		title: "a name of a case attribute HQ matches by its own rule",
-		edit: (body) => renameFirst(body, "case_id"),
+		title: "a blank answer searched for on a hidden value",
+		edit: (body) => {
+			Object.assign(first(body), {
+				hidden: true,
+				exclude: true,
+				default_value: "'north'",
+				allow_blank_value: true,
+				required: { doc_type: "Assertion", test: null, text: {} },
+				validations: [],
+			});
+		},
 		findings: [
-			[
-				`${S}prompt-named-for-a-case-attribute-hq-matches-itself`,
-				"search",
-				"case_id",
-			],
+			[`${S}allow-blank-value-on-a-hidden-prompt`, "search", "case_name"],
 		],
 	},
 	{
-		title: "a blank answer searched for",
+		// HQ reads a shown owner_id prompt as the owner filter, which refuses the blank sent
+		// beside an answer (`SearchCriteria._validate_multiple_terms`).
+		title: "a search for blank beside the case owner",
 		edit: (body) => {
+			renameFirst(body, "owner_id");
 			first(body).allow_blank_value = true;
 		},
-		findings: [[`${S}allow-blank-value`, "search", "case_name"]],
+		findings: [
+			[
+				`${S}allow-blank-value-on-a-prompt-named-owner-id`,
+				"search",
+				"owner_id",
+			],
+		],
 	},
 	{
 		title: "a value received from another screen",
@@ -172,93 +188,12 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a hidden field matched by its own name",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.hidden = true;
-			prompt.default_value = "'north'";
-		},
-		findings: [
-			[
-				`${S}hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
-		title: "a hidden field with no value",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.hidden = true;
-			prompt.exclude = true;
-		},
-		findings: [
-			[
-				`${S}hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
-		title: "a hidden field with a widget",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.hidden = true;
-			prompt.exclude = true;
-			prompt.default_value = "'north'";
-			prompt.input_ = "daterange";
-		},
-		findings: [
-			[
-				`${S}hidden-on-a-prompt-that-carries-an-itemset-input-type-or`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
 		title: "a second validation",
 		edit: (body) => {
 			const validations = third(body).validations as JsonObject[];
 			validations.push({ test: "true()", text: { es: "Otra", en: "Another" } });
 		},
 		findings: [[`${S}validations-1`, "search", "status"]],
-	},
-	{
-		title: "a requirement with no message in any language",
-		edit: (body) => {
-			(first(body).required as JsonObject).text = { es: "", en: "" };
-		},
-		findings: [
-			[
-				`${S}a-required-or-validation-test-with-no-message-in-any-language`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
-		title: "a date field matched by HQ's own rule",
-		edit: (body) => {
-			first(body).input_ = "date";
-		},
-		findings: [
-			[`${S}date-prompt-matched-by-hq-s-own-rule`, "search", "case_name"],
-		],
-	},
-	{
-		title: "a checkbox field",
-		edit: (body) => {
-			const prompt = first(body);
-			prompt.input_ = "checkbox";
-			prompt.itemset = TABLE;
-		},
-		findings: [[`${S}input-checkbox-itemset`, "search", "case_name"]],
 	},
 	{
 		title: "a field whose choices come from a mobile report",
@@ -316,47 +251,36 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a starting value on a date range",
-		edit: (body) => {
-			const prompt = first(body);
-			prompt.input_ = "daterange";
-			prompt.default_value = "'2020-01-01'";
-		},
-		findings: [
-			[`${S}default-value-on-a-date-range-input`, "search", "case_name"],
-		],
-	},
-	{
-		title: "a field whose choices name no instance",
+		title: "a field whose choices read other than a table's item list",
 		edit: (body) => {
 			const prompt = first(body);
 			prompt.input_ = "select1";
-			const unnamed: JsonObject = { ...TABLE };
-			delete unnamed.instance_id;
-			prompt.itemset = unnamed;
+			prompt.itemset = itemset(
+				"",
+				"instance('casedb')/casedb/case[@case_type = 't']",
+			);
 		},
 		findings: [
 			[
-				`${S}itemset-without-the-item-list-its-instance-id-names`,
+				`${S}itemset-nodeset-other-than-a-table-s-item-list`,
 				"search",
 				"case_name",
 			],
 		],
 	},
 	{
-		title:
-			"a field whose choices read another table than the one its instance names",
+		title: "a field whose choices read below a table's items",
 		edit: (body) => {
 			const prompt = first(body);
 			prompt.input_ = "select1";
 			prompt.itemset = itemset(
 				"item-list:t",
-				"instance('item-list:u')/u_list/u",
+				"instance('item-list:t')/t_list/t/code",
 			);
 		},
 		findings: [
 			[
-				`${S}itemset-without-the-item-list-its-instance-id-names`,
+				`${S}itemset-nodeset-other-than-a-table-s-item-list`,
 				"search",
 				"case_name",
 			],
@@ -389,30 +313,6 @@ const CASES: readonly Case[] = [
 				"search",
 				"case_name",
 			],
-		],
-	},
-	{
-		// HQ's build writes the stored `input_` over the address appearance's `input="address"`,
-		// and its Case List page shows the checkbox: the checkbox's finding alone, the requirement
-		// beside it no address field's.
-		title: "an address appearance beside a checkbox",
-		edit: (body) => {
-			const prompt = first(body);
-			prompt.appearance = "address";
-			prompt.input_ = "checkbox";
-			prompt.itemset = TABLE;
-		},
-		findings: [[`${S}input-checkbox-itemset`, "search", "case_name"]],
-	},
-	{
-		title: "an address appearance beside a date matched by HQ's own rule",
-		edit: (body) => {
-			const prompt = first(body);
-			prompt.appearance = "address";
-			prompt.input_ = "date";
-		},
-		findings: [
-			[`${S}date-prompt-matched-by-hq-s-own-rule`, "search", "case_name"],
 		],
 	},
 	{
@@ -483,6 +383,250 @@ async function account(edit: (body: JsonObject) => void) {
 	);
 }
 
+describe("a Search field CommCare HQ matches by its own rule", () => {
+	// Each was a refusal until a field could take the project space's matching
+	// (`matching: "project-space"`); now each reads with no finding.
+	for (const [title, edit] of [
+		[
+			"named for a case attribute",
+			(body: JsonObject) => renameFirst(body, "case_id"),
+		],
+		[
+			"of a date",
+			(body: JsonObject) => {
+				first(body).input_ = "date";
+			},
+		],
+		[
+			"of a date over an address appearance",
+			(body: JsonObject) => {
+				const prompt = first(body);
+				prompt.appearance = "address";
+				prompt.input_ = "date";
+			},
+		],
+	] as const)
+		it(`reads one ${title} as a field the project space matches`, async () => {
+			const { doc } = await documentOf(edit);
+			const fields = Object.values(doc.modules).flatMap(
+				(module) => module.caseListConfig?.searchInputs ?? [],
+			);
+			expect(
+				fields.some(
+					(field) =>
+						field.kind === "simple" && field.matching === "project-space",
+				),
+			).toBe(true);
+		});
+});
+
+// HQ matches a prompt named for the case's name or id by the bare key, the blank sent
+// beside the answer included (`case_search/utils.py::_get_case_property_query`), so the field the
+// project space matches carries its search for blank, and the gate admits the reading.
+describe("a search for blank on a field CommCare HQ matches by its own rule", () => {
+	it.each(["name", "case_id"])(
+		"reads %s with its search for blank, and the gate admits it",
+		async (name) => {
+			const { doc } = await documentOf((body) => {
+				renameFirst(body, name);
+				first(body).allow_blank_value = true;
+			});
+			const field = Object.values(doc.modules)
+				.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+				.find((one) => one.name === name);
+			expect(field).toMatchObject({
+				kind: "simple",
+				matching: "project-space",
+				allowBlank: true,
+			});
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		},
+	);
+});
+
+// HQ's Case List page hides a field and leaves it out of the request with no starting value; Web
+// Apps holds it blank, and Android shows it empty (`RemoteQuerySessionManager.initUserAnswers`
+// seeds an answer only from a starting value), so Nova holds it as a hidden field with none.
+describe("a hidden field CommCare HQ holds with no value", () => {
+	it("reads as a hidden field with no value, and the gate admits it", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.hidden = true;
+			prompt.exclude = true;
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		expect(field).toMatchObject({ kind: "hidden", name: "case_name" });
+		expect(field && "value" in field).toBe(false);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+});
+
+// A hidden prompt that HQ matches by its name, or that carries a widget, is a Search field Web Apps
+// does not draw: Core reads no `hidden` (`QueryPromptParser` keeps it for Formplayer to hand Web
+// Apps, `query.js` hides the row with `d-none`), so it searches with its starting value as any
+// field does, and Android draws it.
+describe("a hidden Search field CommCare HQ holds", () => {
+	it("reads a hidden field matched by its own name as a simple field Web Apps hides", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.name = "region";
+			prompt.hidden = true;
+			prompt.default_value = "'north'";
+			// The second prompt's required test read the first by its old name.
+			delete (promptsOf(body)[1] as JsonObject).required;
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "region");
+		expect(field).toMatchObject({
+			kind: "simple",
+			type: "text",
+			property: "region",
+			hidden: true,
+			default: { kind: "term", term: { kind: "literal", value: "north" } },
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("reads a hidden date range left out of the request as a field Web Apps hides", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.hidden = true;
+			prompt.exclude = true;
+			prompt.input_ = "daterange";
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		expect(field).toMatchObject({ type: "date-range", hidden: true });
+		expect(field?.kind).not.toBe("hidden");
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	// An appearance other than a barcode scan or an address gives no widget (HQ's build writes it,
+	// and neither runtime draws anything of it), so a hidden prompt left out of the request with
+	// one is still a hidden value, its appearance dropped as on a shown field.
+	it("reads a hidden prompt left out of the request with an appearance that gives no widget as a hidden value", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.hidden = true;
+			prompt.exclude = true;
+			prompt.appearance = "minimal";
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		expect(field).toMatchObject({ kind: "hidden", name: "case_name" });
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+});
+
+// HQ's build writes a requirement's text blank where it is blank in every language, and no text
+// for such a check, whose worker then reads Core's own sentence (`remote_requests.py`,
+// `validation.has_text`; `QueryPrompt.getValidationMessage`). Nova holds each as it is.
+describe("a check CommCare HQ holds with no message in any language", () => {
+	it("reads a requirement with no message, and the gate admits it", async () => {
+		const { doc } = await documentOf((body) => {
+			(first(body).required as JsonObject).text = { es: "", en: "" };
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		expect(field && "required" in field ? field.required : undefined).toEqual({
+			noMessage: true,
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("reads a check with no message of its own, and the gate admits it", async () => {
+		const { doc } = await documentOf((body) => {
+			first(body).validations = [
+				{
+					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'case_name'], ''), '^[a-z]+$')",
+					text: {},
+				},
+			];
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		const validation =
+			field && "validation" in field ? field.validation : undefined;
+		expect(validation).toBeDefined();
+		expect(validation && "message" in validation).toBe(false);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	// HQ builds a check's text wherever any value of its map is a nonempty string
+	// (`models/base.py::has_text`), so a check blank in every language the app has, beside
+	// text under a language it no longer has, shows the worker a blank message; Nova's
+	// publish shows Core's own sentence, which the reading records as another message.
+	it("records that the worker reads another message where HQ shows a check's blank text", async () => {
+		const check = (text: JsonObject) => (body: JsonObject) => {
+			first(body).validations = [
+				{
+					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'case_name'], ''), '^[a-z]+$')",
+					text,
+				},
+			];
+		};
+		const seen = (respelled: readonly (readonly [string, string, string])[]) =>
+			respelled.filter(
+				([, path, register]) =>
+					path.endsWith("/validations/0/text") &&
+					register === "text-spaces-dropped",
+			);
+		const removed = await documentOf(check({ es: "", en: "", fr: "Invalide" }));
+		expect(seen(removed.respelled)).toHaveLength(1);
+		const blank = await documentOf(check({ es: "", en: "" }));
+		expect(seen(blank.respelled)).toEqual([]);
+	});
+
+	// `status`'s answer goes into the project space's search between quotes, which Nova's search
+	// guards itself, so Nova joins that guard to the field's check (`searchPrompts.ts::buildValidation`):
+	// with no message of its own, the stored check, Nova's guard and all, is its own finding.
+	it("is its own finding on a field Nova's search guards", async () => {
+		const found = await account((body) => {
+			const [validation] = third(body).validations as JsonObject[];
+			if (validation === undefined) throw new Error("status validates.");
+			validation.text = { es: "", en: "" };
+		});
+		expect(found).toEqual([
+			[
+				`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
+				"search",
+				"status",
+			],
+		]);
+	});
+
+	// HQ's own check of `status` holds no guard of Nova's: Nova's first publish would join one to
+	// it, and a check with no message has none for the guard's sentence to follow.
+	it("is the same finding where the stored check holds no guard of Nova's", async () => {
+		const found = await account((body) => {
+			third(body).validations = [
+				{
+					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'status'], ''), '^[a-z]+$')",
+					text: {},
+				},
+			];
+		});
+		expect(found).toEqual([
+			[
+				`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
+				"search",
+				"status",
+			],
+		]);
+	});
+});
+
 describe("a Search field Nova cannot hold", () => {
 	it("is no finding where nothing was edited", async () => {
 		const outcome = readHqApp(await inputFor(exportedBody(PROMPTS)));
@@ -542,29 +686,9 @@ describe("a Search field Nova cannot hold", () => {
 			}),
 		).toEqual([
 			[
-				`${S}default-properties-entry-keyed-by-a-plain-property-property-p`,
-				"search",
-				"case_name",
-			],
-			[
 				`${S}a-default-filter-and-a-search-property-sharing-one-name`,
 				"search",
 				"case_name",
-			],
-		]);
-	});
-
-	it("for a validation with no message in any language is its one finding", async () => {
-		const found = await account((body) => {
-			const [validation] = third(body).validations as JsonObject[];
-			if (validation === undefined) throw new Error("status validates.");
-			validation.text = { es: "", en: "" };
-		});
-		expect(found).toEqual([
-			[
-				`${S}a-required-or-validation-test-with-no-message-in-any-language`,
-				"search",
-				"status",
 			],
 		]);
 	});
@@ -610,6 +734,46 @@ describe("a Search field Nova cannot hold", () => {
 			prompt.input_ = "select1";
 			prompt.itemset = TABLE;
 		};
+
+		it.each(["", "address"])(
+			"reads a lookup checkbox even with a stored %s appearance",
+			async (appearance) => {
+				const body = exportedBody(PROMPTS);
+				const prompt = first(body);
+				prompt.input_ = "checkbox";
+				prompt.appearance = appearance;
+				prompt.itemset = {
+					...TABLE,
+					label: "code",
+					value: "code",
+					sort: "code",
+				};
+				const told = withTable(await inputFor(body));
+				const outcome = readHqApp({
+					...told,
+					lookup: {
+						...told.lookup,
+						definitions: new Map([[TABLE_T.id, TABLE_T]]),
+					},
+				});
+				expect(outcome.defects).toEqual([]);
+				if (outcome.kind !== "read")
+					throw new Error(JSON.stringify(outcome.findings));
+				const doc = outcome.draft.doc;
+				expect(
+					doc.modules[doc.moduleOrder[0]].caseListConfig?.searchInputs[0],
+				).toMatchObject({
+					type: "checkboxes",
+					name: "case_name",
+					options: {
+						kind: "lookup",
+						tableId: TABLE_T.id,
+						valueColumnId: TABLE_T.columns[0].id,
+						labelColumnId: TABLE_T.columns[0].id,
+					},
+				});
+			},
+		);
 
 		// A ref to a column the table lacks reads blank for every choice on a device: a read of what
 		// is not there, the expression entry's own finding, once for the field.
@@ -778,6 +942,69 @@ describe("a Search field Nova cannot hold", () => {
 			},
 		);
 
+		// Neither runtime reads `instance_id`: HQ's build writes the nodeset alone and declares each
+		// instance it reads, so the field is the table its nodeset reads, whatever the instance
+		// names, and the first publish names that table.
+		const INSTANCE = `${S}itemset-without-the-item-list-its-instance-id-names`;
+		const readTold = async (edit: (body: JsonObject) => void) => {
+			const body = exportedBody(PROMPTS);
+			overTable(body);
+			first(body).itemset = { ...TABLE, label: "code", sort: "code" };
+			edit(body);
+			const told = withTable(await inputFor(body));
+			const outcome = readHqApp({
+				...told,
+				lookup: {
+					...told.lookup,
+					definitions: new Map([[TABLE_T.id, TABLE_T]]),
+				},
+			});
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "read")
+				throw new Error(JSON.stringify(outcome.findings));
+			return {
+				doc: outcome.draft.doc,
+				respelled: outcome.draft.facts.sameStateRewrites.map(
+					(one) => [one.entry, one.path, one.register] as const,
+				),
+			};
+		};
+		it.each([
+			[
+				"names no instance",
+				(itemset: JsonObject) => delete itemset.instance_id,
+			],
+			[
+				"names a blank instance",
+				(itemset: JsonObject) => {
+					itemset.instance_id = "";
+				},
+			],
+			[
+				"names another table's instance",
+				(itemset: JsonObject) => {
+					itemset.instance_id = "item-list:u";
+				},
+			],
+		])(
+			"choices whose itemset %s read as the table the nodeset reads",
+			async (_title, edit) => {
+				const named = await readTold(() => {});
+				const other = await readTold((body) =>
+					edit(first(body).itemset as JsonObject),
+				);
+				expect(other.doc).toEqual(named.doc);
+				expect(named.respelled).not.toContainEqual(
+					expect.arrayContaining([INSTANCE]),
+				);
+				expect(other.respelled).toContainEqual([
+					INSTANCE,
+					"/modules/0/search_config/properties/0/itemset/instance_id",
+					"list-settings-respelled",
+				]);
+			},
+		);
+
 		it("a table the reading was not told of is handed off, and nothing else is a finding", async () => {
 			const body = exportedBody(PROMPTS);
 			overTable(body);
@@ -801,12 +1028,15 @@ describe("a Search field Nova cannot hold", () => {
 	it("for two causes in one prompt is a finding for each", async () => {
 		const found = await account((body) => {
 			const prompt = first(body);
-			prompt.allow_blank_value = true;
 			prompt.receiver_expression = "instance('casedb')/casedb/case/@case_id";
+			prompt.validations = [
+				{ doc_type: "Assertion", test: "true()", text: { en: "One" } },
+				{ doc_type: "Assertion", test: "true()", text: { en: "Two" } },
+			];
 		});
 		expect(new Set(found)).toEqual(
 			new Set([
-				[`${S}allow-blank-value`, "search", "case_name"],
+				[`${S}validations-1`, "search", "case_name"],
 				[`${S}receiver-expression`, "search", "case_name"],
 			]),
 		);
@@ -874,26 +1104,34 @@ describe("a Search field Nova cannot hold", () => {
 			expect(blank.doc).toEqual(hidden.doc);
 		});
 
+		// `case_name` is text in the catalog: a date range over it rides its bare key, which the
+		// project space matches by the date its index reads from the text, so it reads with the
+		// project space's matching; the address appearance beside it is read as nothing.
 		it("an address appearance beside a date range is the date range, its requirement no address field's", async () => {
-			// `case_name` is text in the catalog, so the date range is its own finding; with the
-			// address appearance beside it, that finding stands alone.
-			const range = await account((body) => {
+			const range = await documentOf((body) => {
 				first(body).input_ = "daterange";
 			});
-			expect(range).toEqual([
-				[
-					`${S}search-field-over-a-property-of-another-type`,
-					"search",
-					"case_name",
-				],
-			]);
+			const under = await documentOf((body) => {
+				const prompt = first(body);
+				prompt.input_ = "daterange";
+				prompt.appearance = "address";
+			});
+			expect(under.doc).toEqual(range.doc);
+			const doc = range.doc;
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 			expect(
-				await account((body) => {
-					const prompt = first(body);
-					prompt.input_ = "daterange";
-					prompt.appearance = "address";
-				}),
-			).toEqual(range);
+				doc.modules[doc.moduleOrder[0]].caseListConfig?.searchInputs[0],
+			).toMatchObject({
+				kind: "simple",
+				type: "date-range",
+				property: "case_name",
+				matching: "project-space",
+			});
+			expect(under.respelled).toContainEqual([
+				UNDER,
+				`${AT}/appearance`,
+				"list-settings-respelled",
+			]);
 		});
 
 		it("an address appearance beside an excluded date range reads as that date range", async () => {

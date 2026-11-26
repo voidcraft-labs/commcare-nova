@@ -86,7 +86,7 @@ import { searchPlace } from "./workflow";
 
 const S = "case-search/";
 
-/** The entry a required or validation test with no message in any language is refused under. */
+/** The entry a required or validation test with no message in any language is read under. */
 const NO_MESSAGE = `${S}a-required-or-validation-test-with-no-message-in-any-language`;
 
 export const PROMPT_CLAIMS = defineClaims("search.prompts", {
@@ -107,7 +107,7 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}a-default-filter-and-a-search-property-sharing-one-name`,
 		"schema:CaseSearchProperty.name",
 	),
-	nameAttribute: refuse(
+	nameAttribute: take(
 		`${S}prompt-named-for-a-case-attribute-hq-matches-itself`,
 		"schema:CaseSearchProperty.name",
 	),
@@ -142,7 +142,7 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		"schema:CaseSearchProperty.appearance",
 	),
 	date: take(`${S}input-date`, "schema:CaseSearchProperty.input_"),
-	dateBare: refuse(
+	dateBare: take(
 		`${S}date-prompt-matched-by-hq-s-own-rule`,
 		"schema:CaseSearchProperty.input_",
 	),
@@ -163,11 +163,15 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}input-select-multi-lookup-itemset`,
 		"schema:CaseSearchProperty.itemset",
 	),
+	itemsetCheckbox: take(
+		`${S}input-checkbox-itemset`,
+		"schema:CaseSearchProperty.itemset",
+	),
 	reports: refuse(
 		`${S}input-select1-select-commcare-reports-itemset-mobile-ucr`,
 		"schema:CaseSearchProperty.input_",
 	),
-	checkbox: refuse(
+	checkbox: take(
 		`${S}input-checkbox-itemset`,
 		"schema:CaseSearchProperty.input_",
 	),
@@ -195,8 +199,15 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}itemset-scheme-other-than-item-list-commcare-reports`,
 		"schema:Itemset.instance_id",
 	),
-	itemsetElsewhere: refuse(
+	/** An itemset whose nodeset reads a table's item list and that names no instance, or another
+	 *  item list: HQ's build writes the nodeset alone and declares the instance from it, and the
+	 *  first publish names the nodeset's (`readPrompt`). */
+	itemsetInstanceElsewhere: drop(
 		`${S}itemset-without-the-item-list-its-instance-id-names`,
+		"schema:Itemset.instance_id",
+	),
+	itemsetElsewhere: refuse(
+		`${S}itemset-nodeset-other-than-a-table-s-item-list`,
 		"schema:Itemset.nodeset",
 	),
 	/** A label, value or sort ref naming a column the told table lacks: a read of what is not
@@ -261,15 +272,19 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`,
 		"schema:CaseSearchProperty.exclude",
 	),
-	hiddenNoDefault: refuse(
+	hiddenNoDefault: take(
 		`${S}hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
 		"schema:CaseSearchProperty.hidden",
 	),
-	hiddenNoExclude: refuse(
+	hiddenNoDefaultExclude: take(
+		`${S}hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
+		"schema:CaseSearchProperty.exclude",
+	),
+	hiddenNoExclude: take(
 		`${S}hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
 		"schema:CaseSearchProperty.hidden",
 	),
-	hiddenWidget: refuse(
+	hiddenWidget: take(
 		`${S}hidden-on-a-prompt-that-carries-an-itemset-input-type-or`,
 		"schema:CaseSearchProperty.hidden",
 	),
@@ -278,8 +293,20 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		"schema:CaseSearchProperty.hidden",
 	),
 	exclude: take(`${S}exclude`, "schema:CaseSearchProperty.exclude"),
-	allowBlank: refuse(
+	allowBlank: take(
 		`${S}allow-blank-value`,
+		"schema:CaseSearchProperty.allow_blank_value",
+	),
+	/** `allow_blank_value` on a hidden prompt: what Web Apps sends then turns on whether the
+	 *  computed value begins with a blank (`readPrompt`). */
+	allowBlankHidden: refuse(
+		`${S}allow-blank-value-on-a-hidden-prompt`,
+		"schema:CaseSearchProperty.allow_blank_value",
+	),
+	/** `allow_blank_value` on a shown prompt named `owner_id` without `exclude`: HQ refuses the
+	 *  blank sent beside an owner (`readPrompt`). */
+	allowBlankOwner: refuse(
+		`${S}allow-blank-value-on-a-prompt-named-owner-id`,
 		"schema:CaseSearchProperty.allow_blank_value",
 	),
 	receiver: refuse(
@@ -307,11 +334,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		BLANK_IS_ABSENT,
 		"schema:CaseSearchProperty.required",
 	),
-	requiredNoMessage: refuse(NO_MESSAGE, "schema:CaseSearchProperty.required"),
-	validationNoMessage: refuse(
-		NO_MESSAGE,
-		"schema:CaseSearchProperty.validations",
-	),
+	/** A requirement's or a check's text blank in every language: a requirement with no message,
+	 *  a check that shows CommCare's sentence (`readPrompt`). */
+	requiredNoMessage: take(NO_MESSAGE, "schema:Assertion.text"),
+	validationNoMessage: take(NO_MESSAGE, "schema:Assertion.text"),
 	group: refuse(`${S}is-group-group-key`, "schema:CaseSearchProperty.is_group"),
 	groupMissing: refuse(
 		`${S}groups-present-and-an-input-without-group-key`,
@@ -437,11 +463,17 @@ const RECEIVER_REFUSED_APPEARANCES = new Set([
 	"checkbox",
 ]);
 
-/** Whether a prompt carries a widget: an itemset, an input type or an appearance, a blank input
- *  type or appearance being none (`readPrompt`). */
+/** Whether a prompt carries a widget: an itemset, an input type, or an appearance that gives one
+ *  (a barcode scan, an address); a blank input type is none, and any other appearance dresses no
+ *  widget Nova holds, which the reading drops (`P.appearanceOther`, `readPrompt`). */
 function carriesWidget(prompt: JsonCursor): boolean {
-	const holds = (key: string) => prompt.used(key) && prompt.peek(key) !== "";
-	return prompt.used("itemset") || holds("input_") || holds("appearance");
+	const appearance = prompt.peek("appearance");
+	return (
+		prompt.used("itemset") ||
+		(prompt.used("input_") && prompt.peek("input_") !== "") ||
+		appearance === "barcode_scan" ||
+		appearance === "address"
+	);
 }
 
 /**
@@ -543,7 +575,8 @@ function readPrompt(
 	// them. A refused prompt is still a field of the provisional document (`PromptReading.refused`),
 	// so the expressions of the other fields that read it bind; it keeps the search out of the
 	// settle.
-	const claimed = new Set<string>();
+	// Each claimed key and the refusal it stands under, if any, so a key read only beside another can stand under its refusal.
+	const claimed = new Map<string, Finding | undefined>();
 	const site = (at: JsonCursor, key: string) => `${at.pointer}\u0000${key}`;
 	let refused = false;
 	let unreadTable: string | undefined;
@@ -553,12 +586,13 @@ function readPrompt(
 		at: JsonCursor = prompt,
 		detail: { readonly name: string; readonly reason?: string } = named,
 	): Finding => {
+		const finding = manifestFindingOf(claim, place, detail);
 		if (at.used(key)) {
 			at.refuse(key, claim, detail);
-			claimed.add(site(at, key));
+			claimed.set(site(at, key), finding);
 		} else ctx.accounting.finding(claim, place, detail);
 		refused = true;
-		return manifestFindingOf(claim, place, detail);
+		return finding;
 	};
 	const unrecognizedAt = (surfaceKey: string): Finding => {
 		const detail = { name: surfaceKey };
@@ -570,7 +604,7 @@ function readPrompt(
 		for (const key of keys)
 			if (at.used(key) && !claimed.has(site(at, key))) {
 				ctx.accounting.cover({ json: at, key }, by);
-				claimed.add(site(at, key));
+				claimed.set(site(at, key), by);
 			}
 	};
 	const refusedHere = (key: string) => claimed.has(site(prompt, key));
@@ -607,7 +641,7 @@ function readPrompt(
 	] as const)
 		if (blank && prompt.used(key)) {
 			prompt.drop(key, claim);
-			claimed.add(site(prompt, key));
+			claimed.set(site(prompt, key), undefined);
 			sameState(
 				ctx,
 				claim.entry,
@@ -667,8 +701,6 @@ function readPrompt(
 			});
 		else refuseWith("group_key", P.groupMissing);
 	}
-	if (prompt.used("allow_blank_value"))
-		refuseWith("allow_blank_value", P.allowBlank);
 	if (holds("receiver_expression"))
 		refuseWith(
 			"receiver_expression",
@@ -688,35 +720,44 @@ function readPrompt(
 	// page of HQ's shows an address field, and the appearance is read as nothing.
 	const inputOverAddress =
 		input === "date" || input === "daterange" || input === "checkbox";
-	// A hidden prompt Nova cannot hold is read as a Hidden Value, and each key whose meaning the
-	// refusal names (its checks, its widget, `exclude`) stands under the refusal's finding.
+	// A hidden prompt with no widget that leaves its key out of the request is a value the search
+	// never matches by its name, Nova's hidden arm; any other hidden prompt is a Search field Web
+	// Apps does not draw (`hidden: true`), read as a shown one is. A hidden prompt Nova cannot hold
+	// is read as a Hidden Value, and each key whose meaning the refusal names (its checks, its
+	// widget, `exclude`) stands under the refusal's finding.
+	const widget = carriesWidget(prompt);
+	const hiddenArm = hidden && exclude && !widget;
 	let hiddenRefused = false;
 	let addressRefused: Finding | undefined;
-	if (hidden) {
-		const claim = checked
-			? P.hiddenChecked
-			: carriesWidget(prompt)
-				? P.hiddenWidget
-				: !exclude
-					? P.hiddenNoExclude
-					: !holds("default_value")
-						? P.hiddenNoDefault
-						: undefined;
-		if (claim !== undefined) {
-			hiddenRefused = true;
-			cover(
-				prompt,
-				[
-					"exclude",
-					"input_",
-					"itemset",
-					"appearance",
-					"validations",
-					...(requires ? ["required"] : []),
-				],
-				refuseWith("hidden", claim),
-			);
-		}
+	// Web Apps draws "Include results where … is blank" under a shown prompt whose
+	// `allow_blank_value` is on (`query/item.html`) and sends its blank before the answer
+	// (`query.js::encodeValue`); Android draws none. A hidden prompt's row is hidden whole, so the
+	// box is never ticked, but Web Apps reads a starting value that begins with a blank as ticked
+	// (`query.js::decodeValue`) and sends that blank only where the prompt allows blank: what a
+	// hidden prompt sends then turns on what it computes, which only the run decides.
+	const allowsBlank = prompt.used("allow_blank_value");
+	if (allowsBlank && hidden)
+		refuseWith("allow_blank_value", P.allowBlankHidden);
+	// A shown `owner_id` prompt without `exclude` reaches HQ as the owner filter, which refuses any
+	// second value (`case_search/models.py::SearchCriteria._validate_multiple_terms`), so a ticked
+	// box beside an answer stops the search ("Multiple values are only supported for simple text
+	// and range searches"), while the box alone searches every owner.
+	else if (allowsBlank && !exclude && name === "owner_id")
+		refuseWith("allow_blank_value", P.allowBlankOwner);
+	if (hidden && checked) {
+		hiddenRefused = true;
+		cover(
+			prompt,
+			[
+				"exclude",
+				"input_",
+				"itemset",
+				"appearance",
+				"validations",
+				...(requires ? ["required"] : []),
+			],
+			refuseWith("hidden", P.hiddenChecked),
+		);
 	} else if (appearance === "address" && !inputOverAddress)
 		addressRefused = refuseWith(
 			"appearance",
@@ -730,16 +771,16 @@ function readPrompt(
 			cover(prompt, ["validations"], addressRefused);
 		else refuseWith("validations", P.validationsLater);
 	}
-	// A check whose message is blank in every language: HQ's build shows the runtime's own
-	// sentence for a validation (`remote_requests.py` writes no text where `has_text` is false)
-	// and a blank one for a requirement, and Nova holds no check without a message of its own.
-	if (
-		!hiddenRefused &&
+	// A check whose message is blank in every language (a language with no text shows another's,
+	// `shownTexts`, so the source's is blank only where every one is): HQ's build writes a blank
+	// text for a requirement (`app_strings.py`, `clean_trans` of the map), which Nova holds as a
+	// requirement with no message (`noMessage`), and no text for a validation
+	// (`remote_requests.py`: `if validation.has_text`), whose worker reads Core's own sentence,
+	// which Nova holds as a check with no message of its own.
+	const requiredBlank =
 		requires &&
 		requiredRead.held !== undefined &&
-		sourceText(ctx, requiredMap) === ""
-	)
-		refuseWith("required", P.requiredNoMessage);
+		sourceText(ctx, requiredMap) === "";
 	const storedValidation = Array.isArray(validations)
 		? validations[0]
 		: undefined;
@@ -751,33 +792,63 @@ function readPrompt(
 		storedValidation,
 		validationRead?.texts ?? NO_ENTRIES,
 	);
-	if (
-		!hiddenRefused &&
-		!refusedHere("validations") &&
+	const validationBlank =
 		validation?.kind === "checked" &&
-		validation.rule !== undefined &&
 		validationRead?.held !== undefined &&
-		sourceText(ctx, validation.messages) === ""
-	)
-		refuseWith("validations", P.validationNoMessage);
+		sourceText(ctx, validation.messages) === "";
+	// HQ builds a check's text wherever any value of its map is a nonempty string, the app's
+	// languages or not (`models/base.py::has_text`: `any(self.text.values())`), so a check blank
+	// in every language the app has, beside text under a language it no longer has, shows the
+	// worker a blank message, where Nova's publish of a check with no message shows Core's own
+	// sentence: the worker reads another message after the next publish.
+	const validationShownBlank =
+		validationBlank &&
+		isJsonObject(storedValidation) &&
+		isJsonObject(storedValidation.text) &&
+		Object.values(storedValidation.text).some(
+			(value) => typeof value === "string" && value !== "",
+		);
 	const readsRequired = requires && !hiddenRefused && !refusedHere("required");
 	const readsValidation = !hiddenRefused && !refusedHere("validations");
 
-	let type: PromptReading["type"] = hidden ? "hidden" : "text";
+	let type: PromptReading["type"] =
+		hiddenArm || hiddenRefused ? "hidden" : "text";
+	// The hidden arm reads no widget, so an appearance that gives none is dropped here, as the
+	// widget block drops it on a shown field.
+	if (
+		hiddenArm &&
+		!hiddenRefused &&
+		typeof appearance === "string" &&
+		appearance !== ""
+	)
+		prompt.drop("appearance", P.appearanceOther);
 	let options: SearchInputLookupOptions | undefined;
 	let optionsFilterText: string | undefined;
 	let itemsetCursor: JsonCursor | undefined;
-	if (!hidden) {
+	if (type !== "hidden") {
 		if (input === "date") {
-			if (!exclude) refuseWith("input_", P.dateBare);
-			else prompt.take("input_", P.date, String).value;
+			prompt.take("input_", exclude ? P.date : P.dateBare, String).value;
 			type = "date";
 		} else if (input === "daterange") {
 			prompt.take("input_", P.dateRange, String).value;
 			type = "date-range";
-		} else if (input === "checkbox")
-			cover(prompt, ["itemset"], refuseWith("input_", P.checkbox));
-		else if (input === "select1" || input === "select") {
+		} else if (
+			input === "select1" ||
+			input === "select" ||
+			input === "checkbox"
+		) {
+			const widget =
+				input === "select1"
+					? P.select1
+					: input === "checkbox"
+						? P.checkbox
+						: P.select;
+			const binding =
+				input === "select1"
+					? P.itemset
+					: input === "checkbox"
+						? P.itemsetCheckbox
+						: P.itemsetMulti;
 			const itemset = prompt.peek("itemset");
 			const instance = isJsonObject(itemset) ? itemset.instance_id : undefined;
 			// The scheme HQ's build checks, where the itemset names an instance
@@ -789,6 +860,29 @@ function readPrompt(
 			const source = isJsonObject(itemset)
 				? itemsetSource(itemset.nodeset, suiteSources)
 				: undefined;
+			// The instance HQ's Case List page shows the field's table by (`case_claim.js::itemsetModel`:
+			// `lookupTableNodeset` reads `instance_id`), which neither runtime reads: HQ's build writes
+			// the nodeset alone (`remote_requests.py::build_query_prompts`) and declares each instance
+			// the nodeset reads (`post_process/instances.py`). Where it names no instance, or another
+			// item list, the field's table is the one its nodeset reads, and the first publish names it.
+			const namesSource =
+				source !== undefined && instance === `item-list:${source.tag}`;
+			const readInstanceElsewhere = (cursor: JsonCursor) => {
+				cursor.drop("instance_id", P.itemsetInstanceElsewhere);
+				if (scheme === "item-list")
+					ctx.accounting.claimEntry(
+						{ json: cursor, key: "instance_id" },
+						"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
+						"instance-scheme:item-list",
+						place,
+					);
+				sameState(
+					ctx,
+					P.itemsetInstanceElsewhere.entry,
+					`${cursor.pointer}/instance_id`,
+					"list-settings-respelled",
+				);
+			};
 			const ITEMSET_KEYS = [
 				"instance_id",
 				"nodeset",
@@ -805,11 +899,7 @@ function readPrompt(
 					unrecognizedAt("schema:CaseSearchProperty.itemset"),
 				);
 			else {
-				const cursor = prompt.object(
-					"itemset",
-					"Itemset",
-					input === "select1" ? P.itemset : P.itemsetMulti,
-				);
+				const cursor = prompt.object("itemset", "Itemset", binding);
 				const label = lookupReadPath(itemset.label, "stored-xml");
 				const value = lookupReadPath(itemset.value, "stored-xml");
 				const sortText = itemset.sort;
@@ -867,12 +957,9 @@ function readPrompt(
 					const raised = refuseWith("instance_id", P.itemsetScheme, cursor);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
-				} else if (
-					source === undefined ||
-					instance !== `item-list:${source.tag}`
-				) {
-					// No instance named, or a lookup table's instance whose nodeset reads elsewhere
-					// than its item list: HQ builds it, and Nova's choices are the table's item list.
+				} else if (source === undefined) {
+					// A nodeset that reads elsewhere than a table's item list: HQ builds it, and Nova's
+					// choices are a table's item list.
 					const raised = refuseWith("nodeset", P.itemsetElsewhere, cursor);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
@@ -898,15 +985,13 @@ function readPrompt(
 				} else if (table === undefined) {
 					// Project data's lookup table rules settle the read (`unreadTables`); the prompt's
 					// other keys are what Nova holds of a field over a table.
-					cursor.handOff("instance_id", "lookup-table-read", source.tag);
+					if (namesSource)
+						cursor.handOff("instance_id", "lookup-table-read", source.tag);
+					else readInstanceElsewhere(cursor);
 					ctx.facts.unreadTables.push({ tag: source.tag, place });
 					unreadTable = source.tag;
 					refused = true;
-					prompt.take(
-						"input_",
-						input === "select1" ? P.select1 : P.select,
-						String,
-					).value;
+					prompt.take("input_", widget, String).value;
 					cursor.take("nodeset", P.itemsetNodeset, String).value;
 					cursor.take("label", P.itemsetLabel, String).value;
 					cursor.take("value", P.itemsetValue, String).value;
@@ -933,20 +1018,18 @@ function readPrompt(
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
 				} else {
-					prompt.take(
-						"input_",
-						input === "select1" ? P.select1 : P.select,
-						String,
-					).value;
+					prompt.take("input_", widget, String).value;
 					itemsetCursor = cursor;
-					cursor.take("instance_id", P.itemsetInstance, String).value;
-					// The table the field's choices read, through Nova's typed carrier.
-					ctx.accounting.claimEntry(
-						{ json: cursor, key: "instance_id" },
-						"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
-						"instance-scheme:item-list",
-						place,
-					);
+					if (namesSource) {
+						cursor.take("instance_id", P.itemsetInstance, String).value;
+						// The table the field's choices read, through Nova's typed carrier.
+						ctx.accounting.claimEntry(
+							{ json: cursor, key: "instance_id" },
+							"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
+							"instance-scheme:item-list",
+							place,
+						);
+					} else readInstanceElsewhere(cursor);
 					// A filter's claim on the nodeset is the expression stage's, by the registration below.
 					if (source.filter === undefined)
 						cursor.take("nodeset", P.itemsetNodeset, String).value;
@@ -972,7 +1055,12 @@ function readPrompt(
 								: P.itemsetRichSort,
 							String,
 						).value;
-					type = input === "select1" ? "select" : "multi-select";
+					type =
+						input === "select1"
+							? "select"
+							: input === "checkbox"
+								? "checkboxes"
+								: "multi-select";
 					options = {
 						kind: "lookup",
 						tableId: table.tableId as LookupTableId,
@@ -1001,6 +1089,17 @@ function readPrompt(
 			prompt.takeDefault("input_", P.text);
 		else if (input !== "")
 			cover(prompt, ["itemset"], refuseWith("input_", P.inputUnnamed));
+		// An appearance only dresses the widget its input type gives: beside an input type Nova
+		// refuses it is no field Nova holds, so it stands under that refusal rather than claim a
+		// barcode scan (Android's scanner callout) or a respelled address for a field that is not
+		// there.
+		const widgetRefusal = claimed.get(site(prompt, "input_"));
+		if (
+			widgetRefusal !== undefined &&
+			typeof appearance === "string" &&
+			appearance !== ""
+		)
+			cover(prompt, ["appearance"], widgetRefusal);
 		if (!refusedHere("appearance")) {
 			if (appearance === "barcode_scan" && type === "text") {
 				prompt.take("appearance", P.barcode, String).value;
@@ -1017,20 +1116,17 @@ function readPrompt(
 				prompt.drop("appearance", P.appearanceOther);
 		}
 		if (!refusedHere("name")) {
-			if (!exclude && ATTRIBUTE_PROMPT_NAMES.has(name))
-				refuseWith("name", P.nameAttribute);
 			// A prompt without `exclude` matches the case property of its own name, which Nova holds
 			// as the simple field's property: a name Nova's property grammar refuses (`_x`,
 			// `date-opened`, `external-id`) names a property no document can hold.
-			else if (
+			if (
 				!exclude &&
+				!ATTRIBUTE_PROMPT_NAMES.has(name) &&
 				!authoredCasePropertyNameSchema.safeParse(name).success
 			)
 				refuseWith("name", P.nameOutside);
 		}
 	}
-	if (type === "date-range" && holds("default_value"))
-		refuseWith("default_value", P.defaultOnRange);
 
 	const uuid = ctx.accounting.identity(
 		ctx.identities.claim(
@@ -1042,7 +1138,11 @@ function readPrompt(
 	);
 	if (uuid === undefined) return undefined;
 	if (!refusedHere("name")) {
-		prompt.take("name", P.name, String).value;
+		prompt.take(
+			"name",
+			!exclude && ATTRIBUTE_PROMPT_NAMES.has(name) ? P.nameAttribute : P.name,
+			String,
+		).value;
 		if (name === "owner_id" && exclude)
 			ctx.accounting.claimEntry(
 				{ json: prompt, key: "name" },
@@ -1051,12 +1151,38 @@ function readPrompt(
 				place,
 			);
 	}
+	// A hidden field without a starting value is held as one with none: Web Apps holds it blank,
+	// and Android, which shows it, seeds no answer for it
+	// (`RemoteQuerySessionManager.initUserAnswers`).
+	const storedDefault = prompt.peek("default_value");
+	const hiddenWithValue =
+		hidden && typeof storedDefault === "string" && storedDefault.trim() !== "";
 	if (!hiddenRefused) {
-		if (exclude && hidden)
-			prompt.take("exclude", P.hiddenExclude, Boolean).value;
+		if (exclude && hiddenArm)
+			prompt.take(
+				"exclude",
+				hiddenWithValue ? P.hiddenExclude : P.hiddenNoDefaultExclude,
+				Boolean,
+			).value;
 		else if (exclude) prompt.take("exclude", P.exclude, Boolean).value;
-		if (hidden) prompt.take("hidden", P.hiddenValue, Boolean).value;
+		if (hiddenArm)
+			prompt.take(
+				"hidden",
+				hiddenWithValue ? P.hiddenValue : P.hiddenNoDefault,
+				Boolean,
+			).value;
+		else if (hidden)
+			prompt.take(
+				"hidden",
+				widget ? P.hiddenWidget : P.hiddenNoExclude,
+				Boolean,
+			).value;
 	}
+	const allowBlank =
+		!hidden &&
+		allowsBlank &&
+		!refusedHere("allow_blank_value") &&
+		prompt.take("allow_blank_value", P.allowBlank, Boolean).value === true;
 
 	// A text map spelled other than as the build shows it prints the same text, and the first
 	// publish writes it as shown.
@@ -1154,7 +1280,9 @@ function readPrompt(
 		defaultText.trim() !== "";
 	const defaultIndex = hasDefault
 		? register(
-				hidden ? "search_input_hidden_value" : "search_input_default",
+				type === "hidden"
+					? "search_input_hidden_value"
+					: "search_input_default",
 				defaultText,
 				{ json: prompt, key: "default_value" },
 				"none",
@@ -1162,13 +1290,14 @@ function readPrompt(
 			)
 		: undefined;
 	let requiredWhen: number | undefined;
-	let required: { message?: string } | undefined;
+	let required: { message?: string; noMessage?: true } | undefined;
 	if (readsRequired) {
 		const assertion = prompt.object("required", "Assertion", P.required);
 		const test = assertion.peek("test");
-		claimText(assertion, "text", P.requiredText, requiredRead);
+		const textClaim = requiredBlank ? P.requiredNoMessage : P.requiredText;
+		claimText(assertion, "text", textClaim, requiredRead);
 		const text = requiredMap;
-		respelled(assertion, "text", P.requiredText.entry, requiredRead.held);
+		respelled(assertion, "text", textClaim.entry, requiredRead.held);
 		required = {};
 		if (typeof test === "string" && test.trim() === "true()")
 			assertion.take("test", P.requiredAlways, String).value;
@@ -1185,7 +1314,8 @@ function readPrompt(
 		const novaSentence =
 			nova !== undefined &&
 			appCodes(ctx).every((code) => (text[code] ?? "") === nova.get(code));
-		if (!novaSentence) {
+		if (requiredBlank) required.noMessage = true;
+		else if (!novaSentence) {
 			required.message = message;
 			ctx.translations.set(
 				makeTranslationUnitId("search-input", uuid, "required-message"),
@@ -1201,16 +1331,19 @@ function readPrompt(
 		: [];
 	const first = validationList[0];
 	if (first !== undefined && validation !== undefined) {
+		const textClaim = validationBlank
+			? P.validationNoMessage
+			: P.validationText;
 		if (validationRead !== undefined)
-			claimText(first, "text", P.validationText, validationRead);
+			claimText(first, "text", textClaim, validationRead);
 		const whole = validationRead?.held;
 		respelled(
 			first,
 			"text",
-			P.validationText.entry,
+			textClaim.entry,
 			whole !== undefined &&
 				validation.kind === "checked" &&
-				validation.workersSeeAnother
+				(validation.workersSeeAnother || validationShownBlank)
 				? { ...whole, workersSeeAnother: true }
 				: whole,
 		);
@@ -1226,12 +1359,14 @@ function readPrompt(
 					// Whether the refusal is the rule's or the message's the settle tells.
 					validation.untold,
 				);
-			validationMessage = sourceText(ctx, validation.messages);
-			ctx.translations.set(
-				makeTranslationUnitId("search-input", uuid, "validation-message"),
-				"text",
-				translatedTexts(ctx, validation.messages),
-			);
+			if (!validationBlank) {
+				validationMessage = sourceText(ctx, validation.messages);
+				ctx.translations.set(
+					makeTranslationUnitId("search-input", uuid, "validation-message"),
+					"text",
+					translatedTexts(ctx, validation.messages),
+				);
+			}
 		}
 	}
 	const optionsFilter =
@@ -1269,12 +1404,13 @@ function readPrompt(
 					when: pendingPlaceholder("condition"),
 				}),
 				...(required.message !== undefined && { message: required.message }),
+				...(required.noMessage === true && { noMessage: true as const }),
 			},
 		}),
 		...(validationRule !== undefined && {
 			validation: {
 				rule: pendingPlaceholder("condition"),
-				message: validationMessage ?? "",
+				...(validationMessage !== undefined && { message: validationMessage }),
 			},
 		}),
 	};
@@ -1285,15 +1421,20 @@ function readPrompt(
 			name,
 			label: common.label,
 			kind: "hidden",
-			value: pendingPlaceholder("value"),
+			...(defaultIndex !== undefined && {
+				value: pendingPlaceholder("value"),
+			}),
 		};
 	else {
 		const widget = {
 			...common,
 			type,
 			...(options !== undefined && { options }),
-			...(defaultIndex !== undefined &&
-				type !== "date-range" && { default: pendingPlaceholder("value") }),
+			...(defaultIndex !== undefined && {
+				default: pendingPlaceholder("value"),
+			}),
+			...(allowBlank && { allowBlank: true as const }),
+			...(hidden && { hidden: true as const }),
 		};
 		// A refused field reads no property: it stands in the provisional document only so the
 		// expressions that read it bind.
@@ -1307,7 +1448,10 @@ function readPrompt(
 				: {
 						...widget,
 						kind: "simple",
-						property: name,
+						property: name === "name" ? "case_name" : name,
+						...((ATTRIBUTE_PROMPT_NAMES.has(name) || type === "date") && {
+							matching: "project-space",
+						}),
 						...(type === "date-range" && { mode: { kind: "range" } }),
 					}
 		) as SearchInputDef;
@@ -1319,7 +1463,9 @@ function readPrompt(
 		type,
 		exclude,
 		...(defaultIndex !== undefined &&
-			(hidden ? { hiddenValue: defaultIndex } : { default: defaultIndex })),
+			(type === "hidden"
+				? { hiddenValue: defaultIndex }
+				: { default: defaultIndex })),
 		...(requiredWhen !== undefined && { requiredWhen }),
 		...(validationRule !== undefined && { validationRule }),
 		...(optionsFilter !== undefined && { optionsFilter }),

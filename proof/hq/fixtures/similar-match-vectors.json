@@ -1,0 +1,1900 @@
+{
+	"schemaVersion": 1,
+	"property": "alias",
+	"caseType": "patient",
+	"groups": [
+		{
+			"id": "punctuation",
+			"about": "Punctuation, hyphens, apostrophes and digits stay inside a word: only whitespace separates words.",
+			"records": [
+				{
+					"id": "pun-001",
+					"value": "Mary-Jane Okafor"
+				},
+				{
+					"id": "pun-002",
+					"value": "O'Brien"
+				},
+				{
+					"id": "pun-003",
+					"value": "OBrien"
+				},
+				{
+					"id": "pun-004",
+					"value": "123-456-7890"
+				},
+				{
+					"id": "pun-005",
+					"value": "+254 700 123456"
+				},
+				{
+					"id": "pun-006",
+					"value": "A1B2-C3"
+				},
+				{
+					"id": "pun-007",
+					"value": "J.R. Smith"
+				},
+				{
+					"id": "pun-008",
+					"value": "house 12/B"
+				},
+				{
+					"id": "pun-009",
+					"value": "amina@example.org"
+				},
+				{
+					"id": "pun-010",
+					"value": "(Amina)"
+				}
+			],
+			"searches": [
+				{
+					"query": "mary-jane",
+					"matches": ["pun-001"]
+				},
+				{
+					"query": "mary",
+					"matches": []
+				},
+				{
+					"query": "maryjane",
+					"matches": ["pun-001"]
+				},
+				{
+					"query": "okafor",
+					"matches": ["pun-001"]
+				},
+				{
+					"query": "Mary-Jane Okafor",
+					"matches": ["pun-001"]
+				},
+				{
+					"query": "o'brien",
+					"matches": ["pun-002"]
+				},
+				{
+					"query": "obrien",
+					"matches": ["pun-003"]
+				},
+				{
+					"query": "o'brian",
+					"matches": ["pun-002"]
+				},
+				{
+					"query": "obrian",
+					"matches": ["pun-003"]
+				},
+				{
+					"query": "123-456-7890",
+					"matches": ["pun-004"]
+				},
+				{
+					"query": "1234567890",
+					"matches": ["pun-004"]
+				},
+				{
+					"query": "123-456-7899",
+					"matches": ["pun-004"]
+				},
+				{
+					"query": "+254",
+					"matches": ["pun-005"]
+				},
+				{
+					"query": "254",
+					"matches": []
+				},
+				{
+					"query": "700 123456",
+					"matches": ["pun-005"]
+				},
+				{
+					"query": "a1b2-c3",
+					"matches": ["pun-006"]
+				},
+				{
+					"query": "a1b2",
+					"matches": []
+				},
+				{
+					"query": "j.r.",
+					"matches": ["pun-007"]
+				},
+				{
+					"query": "smith",
+					"matches": ["pun-007"]
+				},
+				{
+					"query": "j.r. smith",
+					"matches": ["pun-007"]
+				},
+				{
+					"query": "12/b",
+					"matches": ["pun-008"]
+				},
+				{
+					"query": "amina@example.org",
+					"matches": ["pun-009"]
+				},
+				{
+					"query": "amina",
+					"matches": []
+				},
+				{
+					"query": "(amina)",
+					"matches": ["pun-010"]
+				},
+				{
+					"query": "amina)",
+					"matches": []
+				}
+			]
+		},
+		{
+			"id": "accents",
+			"about": "No accent folding: a precomposed and a decomposed accent are different words, each an edit apart.",
+			"records": [
+				{
+					"id": "acc-001",
+					"value": "José"
+				},
+				{
+					"id": "acc-002",
+					"value": "Jose\u0301"
+				},
+				{
+					"id": "acc-003",
+					"value": "JOSE"
+				},
+				{
+					"id": "acc-004",
+					"value": "Müller"
+				},
+				{
+					"id": "acc-005",
+					"value": "Muller"
+				},
+				{
+					"id": "acc-006",
+					"value": "Ñandú"
+				},
+				{
+					"id": "acc-007",
+					"value": "Émile Zola"
+				},
+				{
+					"id": "acc-008",
+					"value": "Zoë"
+				}
+			],
+			"searches": [
+				{
+					"query": "josé",
+					"matches": ["acc-001", "acc-003"]
+				},
+				{
+					"query": "jose",
+					"matches": ["acc-001", "acc-002", "acc-003"]
+				},
+				{
+					"query": "JOSÉ",
+					"matches": ["acc-001", "acc-003"]
+				},
+				{
+					"query": "jose\u0301",
+					"matches": ["acc-002", "acc-003"]
+				},
+				{
+					"query": "müller",
+					"matches": ["acc-004"]
+				},
+				{
+					"query": "muller",
+					"matches": ["acc-005"]
+				},
+				{
+					"query": "mueller",
+					"matches": ["acc-005"]
+				},
+				{
+					"query": "müler",
+					"matches": ["acc-004"]
+				},
+				{
+					"query": "ñandu",
+					"matches": ["acc-006"]
+				},
+				{
+					"query": "nandu",
+					"matches": []
+				},
+				{
+					"query": "émile",
+					"matches": ["acc-007"]
+				},
+				{
+					"query": "emile",
+					"matches": []
+				},
+				{
+					"query": "zoe",
+					"matches": ["acc-008"]
+				},
+				{
+					"query": "zoë",
+					"matches": ["acc-008"]
+				},
+				{
+					"query": "zola",
+					"matches": ["acc-007"]
+				}
+			]
+		},
+		{
+			"id": "scripts",
+			"about": "Non-Latin scripts, case mappings that differ between Java and Python, and characters outside the Basic Multilingual Plane.",
+			"records": [
+				{
+					"id": "scr-001",
+					"value": "Анна Петрова"
+				},
+				{
+					"id": "scr-002",
+					"value": "Анна-Мария"
+				},
+				{
+					"id": "scr-003",
+					"value": "राम क\u0941मार"
+				},
+				{
+					"id": "scr-004",
+					"value": "王小明"
+				},
+				{
+					"id": "scr-005",
+					"value": "Ελένη"
+				},
+				{
+					"id": "scr-006",
+					"value": "ΟΔΥΣΣΕΑΣ"
+				},
+				{
+					"id": "scr-007",
+					"value": "İstanbul"
+				},
+				{
+					"id": "scr-008",
+					"value": "ǅemal"
+				},
+				{
+					"id": "scr-009",
+					"value": "Straße"
+				},
+				{
+					"id": "scr-010",
+					"value": "😀smile"
+				},
+				{
+					"id": "scr-011",
+					"value": "smile😀"
+				}
+			],
+			"searches": [
+				{
+					"query": "анна",
+					"matches": ["scr-001"]
+				},
+				{
+					"query": "АННА",
+					"matches": ["scr-001"]
+				},
+				{
+					"query": "анн",
+					"matches": ["scr-001"]
+				},
+				{
+					"query": "петров",
+					"matches": ["scr-001"]
+				},
+				{
+					"query": "анна-мария",
+					"matches": ["scr-002"]
+				},
+				{
+					"query": "राम",
+					"matches": ["scr-003"]
+				},
+				{
+					"query": "रामा",
+					"matches": ["scr-003"]
+				},
+				{
+					"query": "क\u0941मार",
+					"matches": ["scr-003"]
+				},
+				{
+					"query": "王小明",
+					"matches": ["scr-004"]
+				},
+				{
+					"query": "王小",
+					"matches": []
+				},
+				{
+					"query": "王小名",
+					"matches": ["scr-004"]
+				},
+				{
+					"query": "ελενη",
+					"matches": ["scr-005"]
+				},
+				{
+					"query": "ελένη",
+					"matches": ["scr-005"]
+				},
+				{
+					"query": "ΕΛΈΝΗ",
+					"matches": ["scr-005"]
+				},
+				{
+					"query": "οδυσσεας",
+					"matches": ["scr-006"]
+				},
+				{
+					"query": "ΟΔΥΣΣΕΑΣ",
+					"matches": ["scr-006"]
+				},
+				{
+					"query": "ΟΔΥΣΣΕΑ",
+					"matches": ["scr-006"],
+					"preview": "fuzzy-text-unavailable"
+				},
+				{
+					"query": "istanbul",
+					"matches": ["scr-007"]
+				},
+				{
+					"query": "i\u0307stanbul",
+					"matches": []
+				},
+				{
+					"query": "İstanbul",
+					"matches": ["scr-007"]
+				},
+				{
+					"query": "İSTANBUL",
+					"matches": ["scr-007"]
+				},
+				{
+					"query": "ǆemal",
+					"matches": ["scr-008"]
+				},
+				{
+					"query": "Ǆemal",
+					"matches": ["scr-008"]
+				},
+				{
+					"query": "strasse",
+					"matches": ["scr-009"]
+				},
+				{
+					"query": "straße",
+					"matches": ["scr-009"]
+				},
+				{
+					"query": "STRASSE",
+					"matches": ["scr-009"]
+				},
+				{
+					"query": "😀smile",
+					"matches": ["scr-010"]
+				},
+				{
+					"query": "smile😀",
+					"matches": ["scr-011"]
+				},
+				{
+					"query": "smile",
+					"matches": ["scr-011"]
+				},
+				{
+					"query": "😀smil",
+					"matches": ["scr-010"]
+				}
+			]
+		},
+		{
+			"id": "whitespace",
+			"about": "Java's whitespace: no-break spaces join words, the ideographic and thin spaces and a tab separate them.",
+			"records": [
+				{
+					"id": "whi-001",
+					"value": "mary jane"
+				},
+				{
+					"id": "whi-002",
+					"value": "mary\u00a0jane"
+				},
+				{
+					"id": "whi-003",
+					"value": "mary\u3000jane"
+				},
+				{
+					"id": "whi-004",
+					"value": "mary\tjane"
+				},
+				{
+					"id": "whi-005",
+					"value": "mary\u2007jane"
+				},
+				{
+					"id": "whi-006",
+					"value": "mary\u2009jane"
+				}
+			],
+			"searches": [
+				{
+					"query": "jane",
+					"matches": ["whi-001", "whi-003", "whi-004", "whi-006"]
+				},
+				{
+					"query": "mary jane",
+					"matches": [
+						"whi-001",
+						"whi-002",
+						"whi-003",
+						"whi-004",
+						"whi-005",
+						"whi-006"
+					]
+				},
+				{
+					"query": "mary\u00a0jane",
+					"matches": ["whi-002", "whi-005"]
+				},
+				{
+					"query": "maryjane",
+					"matches": ["whi-002", "whi-005"]
+				},
+				{
+					"query": "mary\u3000jane",
+					"matches": [
+						"whi-001",
+						"whi-002",
+						"whi-003",
+						"whi-004",
+						"whi-005",
+						"whi-006"
+					]
+				},
+				{
+					"query": "mary\u2007jane",
+					"matches": ["whi-002", "whi-005"]
+				}
+			]
+		},
+		{
+			"id": "nearness",
+			"about": "Edit distance by query length, the exact two-letter prefix, no transpositions, and a whole query as one term.",
+			"records": [
+				{
+					"id": "nea-001",
+					"value": "Smith"
+				},
+				{
+					"id": "nea-002",
+					"value": "Smyth"
+				},
+				{
+					"id": "nea-003",
+					"value": "Smithers"
+				},
+				{
+					"id": "nea-004",
+					"value": "Jane"
+				},
+				{
+					"id": "nea-005",
+					"value": "Jaen"
+				},
+				{
+					"id": "nea-006",
+					"value": "Ann"
+				},
+				{
+					"id": "nea-007",
+					"value": "Anne"
+				},
+				{
+					"id": "nea-008",
+					"value": "Bob"
+				},
+				{
+					"id": "nea-009",
+					"value": "Kat"
+				},
+				{
+					"id": "nea-010",
+					"value": "Katherine"
+				},
+				{
+					"id": "nea-011",
+					"value": "Catherine"
+				},
+				{
+					"id": "nea-012",
+					"value": "Jonathan"
+				}
+			],
+			"searches": [
+				{
+					"query": "smith",
+					"matches": ["nea-001", "nea-002"]
+				},
+				{
+					"query": "smyth",
+					"matches": ["nea-001", "nea-002"]
+				},
+				{
+					"query": "smiht",
+					"matches": []
+				},
+				{
+					"query": "smit",
+					"matches": ["nea-001"]
+				},
+				{
+					"query": "sm",
+					"matches": []
+				},
+				{
+					"query": "ann",
+					"matches": ["nea-006", "nea-007"]
+				},
+				{
+					"query": "an",
+					"matches": []
+				},
+				{
+					"query": "bo",
+					"matches": []
+				},
+				{
+					"query": "bob",
+					"matches": ["nea-008"]
+				},
+				{
+					"query": "bobb",
+					"matches": ["nea-008"]
+				},
+				{
+					"query": "kat",
+					"matches": ["nea-009"]
+				},
+				{
+					"query": "kath",
+					"matches": ["nea-009"]
+				},
+				{
+					"query": "katherin",
+					"matches": ["nea-010"]
+				},
+				{
+					"query": "katerine",
+					"matches": ["nea-010"]
+				},
+				{
+					"query": "catherine",
+					"matches": ["nea-011"]
+				},
+				{
+					"query": "jonathon",
+					"matches": ["nea-012"]
+				},
+				{
+					"query": "jhonathan",
+					"matches": []
+				},
+				{
+					"query": "jane",
+					"matches": ["nea-004"]
+				},
+				{
+					"query": "jean",
+					"matches": []
+				},
+				{
+					"query": "jaen",
+					"matches": ["nea-005"]
+				},
+				{
+					"query": "felipe smith",
+					"matches": ["nea-001"]
+				},
+				{
+					"query": "smith jane",
+					"matches": ["nea-001", "nea-004"]
+				}
+			]
+		},
+		{
+			"id": "expansion-100",
+			"about": "100 words within reach of the query, the query itself among them: every one is kept.",
+			"records": [
+				{
+					"id": "exp-001",
+					"value": "XXAAAAAA"
+				},
+				{
+					"id": "exp-002",
+					"value": "zyaaaaaa"
+				},
+				{
+					"id": "exp-003",
+					"value": "xxaaaaab"
+				},
+				{
+					"id": "exp-004",
+					"value": "xxaaaaac"
+				},
+				{
+					"id": "exp-005",
+					"value": "xxaaaaad"
+				},
+				{
+					"id": "exp-006",
+					"value": "xxaaaaae"
+				},
+				{
+					"id": "exp-007",
+					"value": "xxaaaaaf"
+				},
+				{
+					"id": "exp-008",
+					"value": "xxaaaaag"
+				},
+				{
+					"id": "exp-009",
+					"value": "xxaaaaah"
+				},
+				{
+					"id": "exp-010",
+					"value": "xxaaaaai"
+				},
+				{
+					"id": "exp-011",
+					"value": "xxaaaaaj"
+				},
+				{
+					"id": "exp-012",
+					"value": "xxaaaaak"
+				},
+				{
+					"id": "exp-013",
+					"value": "xxaaaaal"
+				},
+				{
+					"id": "exp-014",
+					"value": "xxaaaaam"
+				},
+				{
+					"id": "exp-015",
+					"value": "xxaaaaan"
+				},
+				{
+					"id": "exp-016",
+					"value": "xxaaaaao"
+				},
+				{
+					"id": "exp-017",
+					"value": "xxaaaaap"
+				},
+				{
+					"id": "exp-018",
+					"value": "xxaaaaaq"
+				},
+				{
+					"id": "exp-019",
+					"value": "xxaaaaar"
+				},
+				{
+					"id": "exp-020",
+					"value": "xxaaaaas"
+				},
+				{
+					"id": "exp-021",
+					"value": "xxaaaaat"
+				},
+				{
+					"id": "exp-022",
+					"value": "xxaaaaau"
+				},
+				{
+					"id": "exp-023",
+					"value": "xxaaaaav"
+				},
+				{
+					"id": "exp-024",
+					"value": "xxaaaaaw"
+				},
+				{
+					"id": "exp-025",
+					"value": "xxaaaaax"
+				},
+				{
+					"id": "exp-026",
+					"value": "xxaaaaay"
+				},
+				{
+					"id": "exp-027",
+					"value": "xxaaaaaz"
+				},
+				{
+					"id": "exp-028",
+					"value": "xxaaaaba"
+				},
+				{
+					"id": "exp-029",
+					"value": "xxaaaaca"
+				},
+				{
+					"id": "exp-030",
+					"value": "xxaaaada"
+				},
+				{
+					"id": "exp-031",
+					"value": "xxaaaaea"
+				},
+				{
+					"id": "exp-032",
+					"value": "xxaaaafa"
+				},
+				{
+					"id": "exp-033",
+					"value": "xxaaaaga"
+				},
+				{
+					"id": "exp-034",
+					"value": "xxaaaaha"
+				},
+				{
+					"id": "exp-035",
+					"value": "xxaaaaia"
+				},
+				{
+					"id": "exp-036",
+					"value": "xxaaaaja"
+				},
+				{
+					"id": "exp-037",
+					"value": "xxaaaaka"
+				},
+				{
+					"id": "exp-038",
+					"value": "xxaaaala"
+				},
+				{
+					"id": "exp-039",
+					"value": "xxaaaama"
+				},
+				{
+					"id": "exp-040",
+					"value": "xxaaaana"
+				},
+				{
+					"id": "exp-041",
+					"value": "xxaaaaoa"
+				},
+				{
+					"id": "exp-042",
+					"value": "xxaaaapa"
+				},
+				{
+					"id": "exp-043",
+					"value": "xxaaaaqa"
+				},
+				{
+					"id": "exp-044",
+					"value": "xxaaaara"
+				},
+				{
+					"id": "exp-045",
+					"value": "xxaaaasa"
+				},
+				{
+					"id": "exp-046",
+					"value": "xxaaaata"
+				},
+				{
+					"id": "exp-047",
+					"value": "xxaaaaua"
+				},
+				{
+					"id": "exp-048",
+					"value": "xxaaaava"
+				},
+				{
+					"id": "exp-049",
+					"value": "xxaaaawa"
+				},
+				{
+					"id": "exp-050",
+					"value": "xxaaaaxa"
+				},
+				{
+					"id": "exp-051",
+					"value": "xxaaaaya"
+				},
+				{
+					"id": "exp-052",
+					"value": "xxaaaaza"
+				},
+				{
+					"id": "exp-053",
+					"value": "xxaaabaa"
+				},
+				{
+					"id": "exp-054",
+					"value": "xxaaacaa"
+				},
+				{
+					"id": "exp-055",
+					"value": "xxaaadaa"
+				},
+				{
+					"id": "exp-056",
+					"value": "xxaaaeaa"
+				},
+				{
+					"id": "exp-057",
+					"value": "xxaaafaa"
+				},
+				{
+					"id": "exp-058",
+					"value": "xxaaagaa"
+				},
+				{
+					"id": "exp-059",
+					"value": "xxaaahaa"
+				},
+				{
+					"id": "exp-060",
+					"value": "xxaaaiaa"
+				},
+				{
+					"id": "exp-061",
+					"value": "xxaaajaa"
+				},
+				{
+					"id": "exp-062",
+					"value": "xxaaakaa"
+				},
+				{
+					"id": "exp-063",
+					"value": "xxaaalaa"
+				},
+				{
+					"id": "exp-064",
+					"value": "xxaaamaa"
+				},
+				{
+					"id": "exp-065",
+					"value": "xxaaanaa"
+				},
+				{
+					"id": "exp-066",
+					"value": "xxaaaoaa"
+				},
+				{
+					"id": "exp-067",
+					"value": "xxaaapaa"
+				},
+				{
+					"id": "exp-068",
+					"value": "xxaaaqaa"
+				},
+				{
+					"id": "exp-069",
+					"value": "xxaaaraa"
+				},
+				{
+					"id": "exp-070",
+					"value": "xxaaasaa"
+				},
+				{
+					"id": "exp-071",
+					"value": "xxaaataa"
+				},
+				{
+					"id": "exp-072",
+					"value": "xxaaauaa"
+				},
+				{
+					"id": "exp-073",
+					"value": "xxaaavaa"
+				},
+				{
+					"id": "exp-074",
+					"value": "xxaaawaa"
+				},
+				{
+					"id": "exp-075",
+					"value": "xxaaaxaa"
+				},
+				{
+					"id": "exp-076",
+					"value": "xxaaayaa"
+				},
+				{
+					"id": "exp-077",
+					"value": "xxaaazaa"
+				},
+				{
+					"id": "exp-078",
+					"value": "xxaabaaa"
+				},
+				{
+					"id": "exp-079",
+					"value": "xxaacaaa"
+				},
+				{
+					"id": "exp-080",
+					"value": "xxaadaaa"
+				},
+				{
+					"id": "exp-081",
+					"value": "xxaaeaaa"
+				},
+				{
+					"id": "exp-082",
+					"value": "xxaafaaa"
+				},
+				{
+					"id": "exp-083",
+					"value": "xxaagaaa"
+				},
+				{
+					"id": "exp-084",
+					"value": "xxaahaaa"
+				},
+				{
+					"id": "exp-085",
+					"value": "xxaaiaaa"
+				},
+				{
+					"id": "exp-086",
+					"value": "xxaajaaa"
+				},
+				{
+					"id": "exp-087",
+					"value": "xxaakaaa"
+				},
+				{
+					"id": "exp-088",
+					"value": "xxaalaaa"
+				},
+				{
+					"id": "exp-089",
+					"value": "xxaamaaa"
+				},
+				{
+					"id": "exp-090",
+					"value": "xxaanaaa"
+				},
+				{
+					"id": "exp-091",
+					"value": "xxaaoaaa"
+				},
+				{
+					"id": "exp-092",
+					"value": "xxaapaaa"
+				},
+				{
+					"id": "exp-093",
+					"value": "xxaaqaaa"
+				},
+				{
+					"id": "exp-094",
+					"value": "xxaaraaa"
+				},
+				{
+					"id": "exp-095",
+					"value": "xxaasaaa"
+				},
+				{
+					"id": "exp-096",
+					"value": "xxaataaa"
+				},
+				{
+					"id": "exp-097",
+					"value": "xxaauaaa"
+				},
+				{
+					"id": "exp-098",
+					"value": "xxaavaaa"
+				},
+				{
+					"id": "exp-099",
+					"value": "xxaawaaa"
+				},
+				{
+					"id": "exp-100",
+					"value": "xxaaxaaa"
+				},
+				{
+					"id": "exp-101",
+					"value": "xxaayaaa"
+				}
+			],
+			"searches": [
+				{
+					"query": "xxaaaaaa",
+					"matches": [
+						"exp-001",
+						"exp-003",
+						"exp-004",
+						"exp-005",
+						"exp-006",
+						"exp-007",
+						"exp-008",
+						"exp-009",
+						"exp-010",
+						"exp-011",
+						"exp-012",
+						"exp-013",
+						"exp-014",
+						"exp-015",
+						"exp-016",
+						"exp-017",
+						"exp-018",
+						"exp-019",
+						"exp-020",
+						"exp-021",
+						"exp-022",
+						"exp-023",
+						"exp-024",
+						"exp-025",
+						"exp-026",
+						"exp-027",
+						"exp-028",
+						"exp-029",
+						"exp-030",
+						"exp-031",
+						"exp-032",
+						"exp-033",
+						"exp-034",
+						"exp-035",
+						"exp-036",
+						"exp-037",
+						"exp-038",
+						"exp-039",
+						"exp-040",
+						"exp-041",
+						"exp-042",
+						"exp-043",
+						"exp-044",
+						"exp-045",
+						"exp-046",
+						"exp-047",
+						"exp-048",
+						"exp-049",
+						"exp-050",
+						"exp-051",
+						"exp-052",
+						"exp-053",
+						"exp-054",
+						"exp-055",
+						"exp-056",
+						"exp-057",
+						"exp-058",
+						"exp-059",
+						"exp-060",
+						"exp-061",
+						"exp-062",
+						"exp-063",
+						"exp-064",
+						"exp-065",
+						"exp-066",
+						"exp-067",
+						"exp-068",
+						"exp-069",
+						"exp-070",
+						"exp-071",
+						"exp-072",
+						"exp-073",
+						"exp-074",
+						"exp-075",
+						"exp-076",
+						"exp-077",
+						"exp-078",
+						"exp-079",
+						"exp-080",
+						"exp-081",
+						"exp-082",
+						"exp-083",
+						"exp-084",
+						"exp-085",
+						"exp-086",
+						"exp-087",
+						"exp-088",
+						"exp-089",
+						"exp-090",
+						"exp-091",
+						"exp-092",
+						"exp-093",
+						"exp-094",
+						"exp-095",
+						"exp-096",
+						"exp-097",
+						"exp-098",
+						"exp-099",
+						"exp-100",
+						"exp-101"
+					]
+				},
+				{
+					"query": "XXAAAAAA",
+					"matches": [
+						"exp-001",
+						"exp-003",
+						"exp-004",
+						"exp-005",
+						"exp-006",
+						"exp-007",
+						"exp-008",
+						"exp-009",
+						"exp-010",
+						"exp-011",
+						"exp-012",
+						"exp-013",
+						"exp-014",
+						"exp-015",
+						"exp-016",
+						"exp-017",
+						"exp-018",
+						"exp-019",
+						"exp-020",
+						"exp-021",
+						"exp-022",
+						"exp-023",
+						"exp-024",
+						"exp-025",
+						"exp-026",
+						"exp-027",
+						"exp-028",
+						"exp-029",
+						"exp-030",
+						"exp-031",
+						"exp-032",
+						"exp-033",
+						"exp-034",
+						"exp-035",
+						"exp-036",
+						"exp-037",
+						"exp-038",
+						"exp-039",
+						"exp-040",
+						"exp-041",
+						"exp-042",
+						"exp-043",
+						"exp-044",
+						"exp-045",
+						"exp-046",
+						"exp-047",
+						"exp-048",
+						"exp-049",
+						"exp-050",
+						"exp-051",
+						"exp-052",
+						"exp-053",
+						"exp-054",
+						"exp-055",
+						"exp-056",
+						"exp-057",
+						"exp-058",
+						"exp-059",
+						"exp-060",
+						"exp-061",
+						"exp-062",
+						"exp-063",
+						"exp-064",
+						"exp-065",
+						"exp-066",
+						"exp-067",
+						"exp-068",
+						"exp-069",
+						"exp-070",
+						"exp-071",
+						"exp-072",
+						"exp-073",
+						"exp-074",
+						"exp-075",
+						"exp-076",
+						"exp-077",
+						"exp-078",
+						"exp-079",
+						"exp-080",
+						"exp-081",
+						"exp-082",
+						"exp-083",
+						"exp-084",
+						"exp-085",
+						"exp-086",
+						"exp-087",
+						"exp-088",
+						"exp-089",
+						"exp-090",
+						"exp-091",
+						"exp-092",
+						"exp-093",
+						"exp-094",
+						"exp-095",
+						"exp-096",
+						"exp-097",
+						"exp-098",
+						"exp-099",
+						"exp-100",
+						"exp-101"
+					]
+				},
+				{
+					"query": "xyaaaaaa",
+					"matches": []
+				}
+			]
+		},
+		{
+			"id": "expansion-101",
+			"about": "101 words within reach of the query, the query itself among them: the index keeps 100 and drops the last in byte order.",
+			"records": [
+				{
+					"id": "exp-001",
+					"value": "XXAAAAAA"
+				},
+				{
+					"id": "exp-002",
+					"value": "zyaaaaaa"
+				},
+				{
+					"id": "exp-003",
+					"value": "xxaaaaab"
+				},
+				{
+					"id": "exp-004",
+					"value": "xxaaaaac"
+				},
+				{
+					"id": "exp-005",
+					"value": "xxaaaaad"
+				},
+				{
+					"id": "exp-006",
+					"value": "xxaaaaae"
+				},
+				{
+					"id": "exp-007",
+					"value": "xxaaaaaf"
+				},
+				{
+					"id": "exp-008",
+					"value": "xxaaaaag"
+				},
+				{
+					"id": "exp-009",
+					"value": "xxaaaaah"
+				},
+				{
+					"id": "exp-010",
+					"value": "xxaaaaai"
+				},
+				{
+					"id": "exp-011",
+					"value": "xxaaaaaj"
+				},
+				{
+					"id": "exp-012",
+					"value": "xxaaaaak"
+				},
+				{
+					"id": "exp-013",
+					"value": "xxaaaaal"
+				},
+				{
+					"id": "exp-014",
+					"value": "xxaaaaam"
+				},
+				{
+					"id": "exp-015",
+					"value": "xxaaaaan"
+				},
+				{
+					"id": "exp-016",
+					"value": "xxaaaaao"
+				},
+				{
+					"id": "exp-017",
+					"value": "xxaaaaap"
+				},
+				{
+					"id": "exp-018",
+					"value": "xxaaaaaq"
+				},
+				{
+					"id": "exp-019",
+					"value": "xxaaaaar"
+				},
+				{
+					"id": "exp-020",
+					"value": "xxaaaaas"
+				},
+				{
+					"id": "exp-021",
+					"value": "xxaaaaat"
+				},
+				{
+					"id": "exp-022",
+					"value": "xxaaaaau"
+				},
+				{
+					"id": "exp-023",
+					"value": "xxaaaaav"
+				},
+				{
+					"id": "exp-024",
+					"value": "xxaaaaaw"
+				},
+				{
+					"id": "exp-025",
+					"value": "xxaaaaax"
+				},
+				{
+					"id": "exp-026",
+					"value": "xxaaaaay"
+				},
+				{
+					"id": "exp-027",
+					"value": "xxaaaaaz"
+				},
+				{
+					"id": "exp-028",
+					"value": "xxaaaaba"
+				},
+				{
+					"id": "exp-029",
+					"value": "xxaaaaca"
+				},
+				{
+					"id": "exp-030",
+					"value": "xxaaaada"
+				},
+				{
+					"id": "exp-031",
+					"value": "xxaaaaea"
+				},
+				{
+					"id": "exp-032",
+					"value": "xxaaaafa"
+				},
+				{
+					"id": "exp-033",
+					"value": "xxaaaaga"
+				},
+				{
+					"id": "exp-034",
+					"value": "xxaaaaha"
+				},
+				{
+					"id": "exp-035",
+					"value": "xxaaaaia"
+				},
+				{
+					"id": "exp-036",
+					"value": "xxaaaaja"
+				},
+				{
+					"id": "exp-037",
+					"value": "xxaaaaka"
+				},
+				{
+					"id": "exp-038",
+					"value": "xxaaaala"
+				},
+				{
+					"id": "exp-039",
+					"value": "xxaaaama"
+				},
+				{
+					"id": "exp-040",
+					"value": "xxaaaana"
+				},
+				{
+					"id": "exp-041",
+					"value": "xxaaaaoa"
+				},
+				{
+					"id": "exp-042",
+					"value": "xxaaaapa"
+				},
+				{
+					"id": "exp-043",
+					"value": "xxaaaaqa"
+				},
+				{
+					"id": "exp-044",
+					"value": "xxaaaara"
+				},
+				{
+					"id": "exp-045",
+					"value": "xxaaaasa"
+				},
+				{
+					"id": "exp-046",
+					"value": "xxaaaata"
+				},
+				{
+					"id": "exp-047",
+					"value": "xxaaaaua"
+				},
+				{
+					"id": "exp-048",
+					"value": "xxaaaava"
+				},
+				{
+					"id": "exp-049",
+					"value": "xxaaaawa"
+				},
+				{
+					"id": "exp-050",
+					"value": "xxaaaaxa"
+				},
+				{
+					"id": "exp-051",
+					"value": "xxaaaaya"
+				},
+				{
+					"id": "exp-052",
+					"value": "xxaaaaza"
+				},
+				{
+					"id": "exp-053",
+					"value": "xxaaabaa"
+				},
+				{
+					"id": "exp-054",
+					"value": "xxaaacaa"
+				},
+				{
+					"id": "exp-055",
+					"value": "xxaaadaa"
+				},
+				{
+					"id": "exp-056",
+					"value": "xxaaaeaa"
+				},
+				{
+					"id": "exp-057",
+					"value": "xxaaafaa"
+				},
+				{
+					"id": "exp-058",
+					"value": "xxaaagaa"
+				},
+				{
+					"id": "exp-059",
+					"value": "xxaaahaa"
+				},
+				{
+					"id": "exp-060",
+					"value": "xxaaaiaa"
+				},
+				{
+					"id": "exp-061",
+					"value": "xxaaajaa"
+				},
+				{
+					"id": "exp-062",
+					"value": "xxaaakaa"
+				},
+				{
+					"id": "exp-063",
+					"value": "xxaaalaa"
+				},
+				{
+					"id": "exp-064",
+					"value": "xxaaamaa"
+				},
+				{
+					"id": "exp-065",
+					"value": "xxaaanaa"
+				},
+				{
+					"id": "exp-066",
+					"value": "xxaaaoaa"
+				},
+				{
+					"id": "exp-067",
+					"value": "xxaaapaa"
+				},
+				{
+					"id": "exp-068",
+					"value": "xxaaaqaa"
+				},
+				{
+					"id": "exp-069",
+					"value": "xxaaaraa"
+				},
+				{
+					"id": "exp-070",
+					"value": "xxaaasaa"
+				},
+				{
+					"id": "exp-071",
+					"value": "xxaaataa"
+				},
+				{
+					"id": "exp-072",
+					"value": "xxaaauaa"
+				},
+				{
+					"id": "exp-073",
+					"value": "xxaaavaa"
+				},
+				{
+					"id": "exp-074",
+					"value": "xxaaawaa"
+				},
+				{
+					"id": "exp-075",
+					"value": "xxaaaxaa"
+				},
+				{
+					"id": "exp-076",
+					"value": "xxaaayaa"
+				},
+				{
+					"id": "exp-077",
+					"value": "xxaaazaa"
+				},
+				{
+					"id": "exp-078",
+					"value": "xxaabaaa"
+				},
+				{
+					"id": "exp-079",
+					"value": "xxaacaaa"
+				},
+				{
+					"id": "exp-080",
+					"value": "xxaadaaa"
+				},
+				{
+					"id": "exp-081",
+					"value": "xxaaeaaa"
+				},
+				{
+					"id": "exp-082",
+					"value": "xxaafaaa"
+				},
+				{
+					"id": "exp-083",
+					"value": "xxaagaaa"
+				},
+				{
+					"id": "exp-084",
+					"value": "xxaahaaa"
+				},
+				{
+					"id": "exp-085",
+					"value": "xxaaiaaa"
+				},
+				{
+					"id": "exp-086",
+					"value": "xxaajaaa"
+				},
+				{
+					"id": "exp-087",
+					"value": "xxaakaaa"
+				},
+				{
+					"id": "exp-088",
+					"value": "xxaalaaa"
+				},
+				{
+					"id": "exp-089",
+					"value": "xxaamaaa"
+				},
+				{
+					"id": "exp-090",
+					"value": "xxaanaaa"
+				},
+				{
+					"id": "exp-091",
+					"value": "xxaaoaaa"
+				},
+				{
+					"id": "exp-092",
+					"value": "xxaapaaa"
+				},
+				{
+					"id": "exp-093",
+					"value": "xxaaqaaa"
+				},
+				{
+					"id": "exp-094",
+					"value": "xxaaraaa"
+				},
+				{
+					"id": "exp-095",
+					"value": "xxaasaaa"
+				},
+				{
+					"id": "exp-096",
+					"value": "xxaataaa"
+				},
+				{
+					"id": "exp-097",
+					"value": "xxaauaaa"
+				},
+				{
+					"id": "exp-098",
+					"value": "xxaavaaa"
+				},
+				{
+					"id": "exp-099",
+					"value": "xxaawaaa"
+				},
+				{
+					"id": "exp-100",
+					"value": "xxaaxaaa"
+				},
+				{
+					"id": "exp-101",
+					"value": "xxaayaaa"
+				},
+				{
+					"id": "exp-102",
+					"value": "xxaazaaa"
+				}
+			],
+			"searches": [
+				{
+					"query": "xxaaaaaa",
+					"matches": [
+						"exp-001",
+						"exp-003",
+						"exp-004",
+						"exp-005",
+						"exp-006",
+						"exp-007",
+						"exp-008",
+						"exp-009",
+						"exp-010",
+						"exp-011",
+						"exp-012",
+						"exp-013",
+						"exp-014",
+						"exp-015",
+						"exp-016",
+						"exp-017",
+						"exp-018",
+						"exp-019",
+						"exp-020",
+						"exp-021",
+						"exp-022",
+						"exp-023",
+						"exp-024",
+						"exp-025",
+						"exp-026",
+						"exp-027",
+						"exp-028",
+						"exp-029",
+						"exp-030",
+						"exp-031",
+						"exp-032",
+						"exp-033",
+						"exp-034",
+						"exp-035",
+						"exp-036",
+						"exp-037",
+						"exp-038",
+						"exp-039",
+						"exp-040",
+						"exp-041",
+						"exp-042",
+						"exp-043",
+						"exp-044",
+						"exp-045",
+						"exp-046",
+						"exp-047",
+						"exp-048",
+						"exp-049",
+						"exp-050",
+						"exp-051",
+						"exp-052",
+						"exp-053",
+						"exp-054",
+						"exp-055",
+						"exp-056",
+						"exp-057",
+						"exp-058",
+						"exp-059",
+						"exp-060",
+						"exp-061",
+						"exp-062",
+						"exp-063",
+						"exp-064",
+						"exp-065",
+						"exp-066",
+						"exp-067",
+						"exp-068",
+						"exp-069",
+						"exp-070",
+						"exp-071",
+						"exp-072",
+						"exp-073",
+						"exp-074",
+						"exp-075",
+						"exp-076",
+						"exp-077",
+						"exp-078",
+						"exp-079",
+						"exp-080",
+						"exp-081",
+						"exp-082",
+						"exp-083",
+						"exp-084",
+						"exp-085",
+						"exp-086",
+						"exp-087",
+						"exp-088",
+						"exp-089",
+						"exp-090",
+						"exp-091",
+						"exp-092",
+						"exp-093",
+						"exp-094",
+						"exp-095",
+						"exp-096",
+						"exp-097",
+						"exp-098",
+						"exp-099",
+						"exp-100",
+						"exp-101"
+					],
+					"preview": "fuzzy-expansion-unavailable"
+				},
+				{
+					"query": "XXAAAAAA",
+					"matches": [
+						"exp-001",
+						"exp-003",
+						"exp-004",
+						"exp-005",
+						"exp-006",
+						"exp-007",
+						"exp-008",
+						"exp-009",
+						"exp-010",
+						"exp-011",
+						"exp-012",
+						"exp-013",
+						"exp-014",
+						"exp-015",
+						"exp-016",
+						"exp-017",
+						"exp-018",
+						"exp-019",
+						"exp-020",
+						"exp-021",
+						"exp-022",
+						"exp-023",
+						"exp-024",
+						"exp-025",
+						"exp-026",
+						"exp-027",
+						"exp-028",
+						"exp-029",
+						"exp-030",
+						"exp-031",
+						"exp-032",
+						"exp-033",
+						"exp-034",
+						"exp-035",
+						"exp-036",
+						"exp-037",
+						"exp-038",
+						"exp-039",
+						"exp-040",
+						"exp-041",
+						"exp-042",
+						"exp-043",
+						"exp-044",
+						"exp-045",
+						"exp-046",
+						"exp-047",
+						"exp-048",
+						"exp-049",
+						"exp-050",
+						"exp-051",
+						"exp-052",
+						"exp-053",
+						"exp-054",
+						"exp-055",
+						"exp-056",
+						"exp-057",
+						"exp-058",
+						"exp-059",
+						"exp-060",
+						"exp-061",
+						"exp-062",
+						"exp-063",
+						"exp-064",
+						"exp-065",
+						"exp-066",
+						"exp-067",
+						"exp-068",
+						"exp-069",
+						"exp-070",
+						"exp-071",
+						"exp-072",
+						"exp-073",
+						"exp-074",
+						"exp-075",
+						"exp-076",
+						"exp-077",
+						"exp-078",
+						"exp-079",
+						"exp-080",
+						"exp-081",
+						"exp-082",
+						"exp-083",
+						"exp-084",
+						"exp-085",
+						"exp-086",
+						"exp-087",
+						"exp-088",
+						"exp-089",
+						"exp-090",
+						"exp-091",
+						"exp-092",
+						"exp-093",
+						"exp-094",
+						"exp-095",
+						"exp-096",
+						"exp-097",
+						"exp-098",
+						"exp-099",
+						"exp-100",
+						"exp-101"
+					],
+					"preview": "fuzzy-expansion-unavailable"
+				},
+				{
+					"query": "xyaaaaaa",
+					"matches": []
+				}
+			]
+		}
+	]
+}

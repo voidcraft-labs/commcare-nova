@@ -82,7 +82,10 @@ import {
 	RestoreScopeNote,
 	restoreScopeEmptyCopy,
 } from "@/components/preview/shared/RestoreScopeNote";
-import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
+import {
+	type SearchFormClear,
+	SearchInputForm,
+} from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
 import { useImageReference } from "@/components/preview/shared/useImageReference";
 import { Badge } from "@/components/shadcn/badge";
@@ -119,6 +122,7 @@ import {
 	makeTranslationUnitId,
 	moduleFormsReadSearch,
 	moduleSearchWorkflow,
+	moduleShowsFormsInMenuAbove,
 	orderedColumns,
 	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
@@ -279,6 +283,7 @@ import {
 	previewSearchClearOffered,
 	previewSearchReopened,
 	previewSearchRunFollows,
+	searchAfterClear,
 } from "@/lib/preview/searchStanding";
 import { projectWorkerColumn } from "@/lib/preview/workerModule";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
@@ -765,8 +770,20 @@ export function CaseListScreen({
 	 * Preview run starts the menu's search over (its answers and hidden
 	 * values were another session's), as a device's new session holds no
 	 * query. */
+	const currentSearchScreen = useRef(current);
+	currentSearchScreen.current = current;
+	const clearFormRef = useRef<SearchFormClear>(null);
 	const searchRun = useSearchInputRunState({
-		scopeKey: `${scopeEpoch}:${previewSessionId}:${moduleUuid ?? ""}`,
+		scopeKey: JSON.stringify([
+			scopeEpoch,
+			previewSessionId,
+			moduleUuid,
+			device.searchConfiguration?.revision,
+		]),
+		rangeTarget:
+			current && appId && accessPhase === "authorized"
+				? { appId, device, personaUuid: identity?.personaUuid }
+				: undefined,
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
 		environment: searchEnvironment,
@@ -776,11 +793,11 @@ export function CaseListScreen({
 	/* The submission whose search found nothing on a phone, which keeps the
 	 * search screen with the answers as typed (`caseListStep`). */
 	const [emptySubmission, setEmptySubmission] = useState<object>();
-	/* Hidden inputs are answered by the system at submit, so only visible
-	 * prompts decide whether a worker has a Search screen to fill in; the wire
-	 * makes the same distinction in `searchWireShape`. */
-	const hasSearchInputs =
-		visibleSearchInputs(config?.searchInputs ?? []).length > 0;
+	/* Hidden inputs are answered by the system at submit, so only the
+	 * prompts the platform draws decide whether a worker has a Search screen
+	 * to fill in: Web Apps draws no field marked hidden, Android draws it
+	 * (`drawnSearchInputs`). */
+	const hasSearchInputs = visibleSearchInputs(searchRun.drawnInputs).length > 0;
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
 	/* CommCare evaluates this predicate on the case-list Search action, before
 	 * the prompt screen exists. Preview's combined Search + Results composition
@@ -835,7 +852,7 @@ export function CaseListScreen({
 			);
 		});
 	const searchActionRead =
-		searchConfig === undefined
+		searchConfig === undefined || (mod && moduleShowsFormsInMenuAbove(mod))
 			? { kind: "read" as const, value: false }
 			: readAction(searchButtonCondition, "search_button_display_condition");
 	const formActionRule =
@@ -901,9 +918,10 @@ export function CaseListScreen({
 	 * again. The answers a Search press sends, the hidden values among them,
 	 * are the ones Web Apps keeps for the query (`query.js::getAnswers` into
 	 * `utils.js::CloudcareUrl.setQueryData`); the menu's default search
-	 * (`automatic`) gives none. */
+	 * (`automatic`) uses the original answers of Core’s query manager. */
 	const submitSearch = useCallback(
 		(next: ReadonlyMap<string, string>, automatic = false) => {
+			if (!currentSearchScreen.current) return;
 			searchRun.submit(next);
 			if (moduleUuid === undefined) return;
 			const given = Object.fromEntries(next);
@@ -919,7 +937,8 @@ export function CaseListScreen({
 					: actionSearch(answers, submission, automatic)
 			) as PreviewSubmittedSearch;
 			heldSearchRef.current = submittedSearchKey(search);
-			if (formsReadSearch) awaitingSearchFetchRef.current = true;
+			sawSearchFetchRef.current = false;
+			awaitingSearchFetchRef.current = formsReadSearch;
 			setPreviewSearchState(moduleUuid, search);
 		},
 		[
@@ -955,8 +974,19 @@ export function CaseListScreen({
 		searchRun.clear();
 		heldSearchRef.current = undefined;
 		if (moduleUuid !== undefined)
-			setPreviewSearchState(moduleUuid, previewSearchAfterClear(searchState));
-	}, [searchRun, moduleUuid, searchState, setPreviewSearchState]);
+			setPreviewSearchState(
+				moduleUuid,
+				searchConfig?.searchOnClear
+					? manualSearch()
+					: previewSearchAfterClear(searchState),
+			);
+	}, [
+		searchRun,
+		moduleUuid,
+		searchState,
+		searchConfig?.searchOnClear,
+		setPreviewSearchState,
+	]);
 	/* Search again from Results opens the Search screen, including where
 	 * the menu ran its default search as it opened. */
 	const searchAgain = useCallback(() => {
@@ -1299,7 +1329,8 @@ export function CaseListScreen({
 	/* A claim is a case row the store holds, so the restore scope follows
 	 * what the worker owns and a claim never retires the choice that made
 	 * it: the device's next read holds the claimed case. */
-	const selectionScopeKey = `${stateScopeKey}\u0000${restoreScopeKey}`;
+	const standingSubmission = submittedSearchOf(searchState)?.submission ?? "";
+	const selectionScopeKey = `${standingSubmission}\u0000${stateScopeKey}\u0000${restoreScopeKey}`;
 	const [multiSelectionState, setMultiSelectionState] = useState<{
 		readonly scopeKey: string;
 		readonly choices: readonly PreviewCaseChoice[];
@@ -1599,8 +1630,14 @@ export function CaseListScreen({
 		/* What the worker owns is the list's identity; a claim re-reads the
 		 * list through the case data revision and keeps the settled rows on
 		 * screen. */
-		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
+		requestScopeKey: selectionScopeKey,
 		search: readsSearchResults,
+		/* The menu's default search sends no prompt's answer (Formplayer's
+		 * `doQuery` with `isDefaultSearch`), so a starting value narrows only
+		 * where a row or a hidden value reads it. */
+		defaultSearch:
+			activeSearchInputValues !== undefined &&
+			submittedSearchOf(searchState)?.automatic === true,
 		...(csqlRuntime !== undefined && { csqlRuntime }),
 		chosenCaseIds: stepSession.chosenCaseIds,
 		sortChoice,
@@ -1777,6 +1814,14 @@ export function CaseListScreen({
 	 * interchangeable when they are not. */
 	const clearSearch = () => {
 		resetSearch();
+		const alsoSearch = searchAfterClear(
+			searchConfig?.searchOnClear === true,
+			platformRules,
+			withNavigationWidth(device).windowWidth,
+		);
+		if (clearFormRef.current) clearFormRef.current.clear(alsoSearch);
+		else if (alsoSearch && !hasSearchInputs)
+			submitSearch(EMPTY_SEARCH_INPUT_VALUES);
 		focusFirstSearchControl();
 	};
 
@@ -2203,14 +2248,21 @@ export function CaseListScreen({
 		: message(pageLocalFilter ? "showingResults" : "resultsFound", {
 				count: visibleResultCount,
 			});
-	const sourceSearchTitle = searchScreenTitleText(searchConfig);
+	// The title as the worker's language shows it: its own text, or none
+	// where that language holds the title blank, which a search with no title
+	// in its source language may leave beside a heading in another.
+	const localizedSearchTitle =
+		(localizedValues.get(
+			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-title"),
+		) as string | undefined) ??
+		searchScreenTitleText(searchConfig) ??
+		"";
+	const workerSearchTitle =
+		(localizedValues.get(generatedWordingId(moduleUuid, "searchTitle")) as
+			| string
+			| undefined) ?? localizedSearchTitle;
 	const { title, subtitle } = searchScreenHeading(platformRules, {
-		title:
-			sourceSearchTitle === null
-				? null
-				: ((localizedValues.get(
-						generatedWordingId(moduleUuid, "searchTitle"),
-					) as string | undefined) ?? sourceSearchTitle),
+		title: workerSearchTitle === "" ? null : workerSearchTitle,
 		subtitle:
 			(localizedValues.get(
 				makeTranslationUnitId(
@@ -2447,8 +2499,8 @@ export function CaseListScreen({
 			automaticSearchToken,
 		);
 		launchedAutomaticSearchRef.current = pass.launched;
-		if (pass.launch) submitSearch(EMPTY_SEARCH_INPUT_VALUES, true);
-	}, [automaticSearchToken, current, submitSearch]);
+		if (pass.launch) submitSearch(searchRun.defaults, true);
+	}, [automaticSearchToken, current, searchRun.defaults, submitSearch]);
 	/* A case the list's address names on a parent's list whose datum names
 	 * no details screen goes on once it has loaded, as its row would
 	 * (`routeCaseAction`). The row's handler is the screen's own, which the
@@ -2950,11 +3002,19 @@ export function CaseListScreen({
 	 * with no visible field holds only its Search button. */
 	const searchPane =
 		step === "search" ||
-		(hasSearchInputs && searchActionIsRelevant && step === "browse") ? (
+		(hasSearchInputs &&
+			searchActionIsRelevant &&
+			(step === "browse" ||
+				(step === "results" &&
+					searchAfterClear(
+						searchConfig?.searchOnClear === true,
+						platformRules,
+						withNavigationWidth(device).windowWidth,
+					)))) ? (
 			<div
 				ref={searchPaneRef}
 				data-case-list-step={step}
-				className={`${split && step === "browse" ? "w-72 shrink-0" : "w-full max-w-lg"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
+				className={`${split && step !== "search" ? "w-72 shrink-0" : "w-full max-w-lg"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
 			>
 				<div>
 					{/* A search with no title draws no heading; the row stays only
@@ -3004,37 +3064,55 @@ export function CaseListScreen({
 						data-search-waiting
 						className="text-sm text-nova-text-muted"
 					>
-						{message("searchGettingReady")}
+						{searchRun.openingMessage && (
+							<span className="block">{searchRun.openingMessage}</span>
+						)}
+						{searchRun.retryOpening ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={searchRun.retryOpening}
+							>
+								{message("retrySearchStartingDates")}
+							</Button>
+						) : (
+							message("searchGettingReady")
+						)}
 					</p>
 				)}
+				{/* A screen that draws no field still sends every field's
+				 *  answer: Web Apps only hides a hidden field's row
+				 *  (`query.js` adds `d-none`) and `getAnswers` collects it, so
+				 *  the press sends the draft, each hidden field's starting value
+				 *  in it, and a cleared draft after Clear. */}
 				{accessPhase === "authorized" &&
 					!hasSearchInputs &&
+					searchRun.refusal === undefined &&
 					searchRun.pending !== true && (
 						<Button
 							type="button"
 							data-search-submit
-							onClick={() => submitSearch(EMPTY_SEARCH_INPUT_VALUES)}
+							onClick={() => submitSearch(searchRun.draft)}
 							className="h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 						>
 							<Icon icon={tablerSearch} width="15" height="15" />
 							{searchButton}
 						</Button>
 					)}
-				{accessPhase === "authorized" &&
-					hasSearchInputs &&
-					searchRun.refusal !== undefined && (
-						<PreviewDataRefusalPanel
-							surface="search"
-							reason={searchRun.refusal.reason}
-							moduleUuid={moduleUuid}
-						/>
-					)}
+				{accessPhase === "authorized" && searchRun.refusal !== undefined && (
+					<PreviewDataRefusalPanel
+						surface="search"
+						reason={searchRun.refusal.reason}
+						moduleUuid={moduleUuid}
+					/>
+				)}
 				{accessPhase === "authorized" &&
 					hasSearchInputs &&
 					searchRun.refusal === undefined &&
 					searchRun.pending !== true && (
 						<SearchInputForm
-							key={`${scopeEpoch}:${moduleUuid}`}
+							key={`${scopeEpoch}:${previewSessionId}:${moduleUuid}:${current}`}
+							clearRef={clearFormRef}
 							landmarkLabel={title ?? undefined}
 							scopeKey={moduleUuid}
 							searchInputs={config?.searchInputs ?? []}
@@ -3070,9 +3148,11 @@ export function CaseListScreen({
 							{localizeSearchValidationMessage(state.message)}
 						</p>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-							{state.repair === "inputs"
-								? message("retrySearchInformation")
-								: "Return to edit mode and review Search settings"}
+							{state.reason?.kind === "link-history-unavailable"
+								? `“${state.reason.field}” searches the “${state.reason.identifier}” link. You can change that search field or try newly created records in an isolated App Test.`
+								: state.repair === "inputs"
+									? message("retrySearchInformation")
+									: "Return to edit mode and review Search settings"}
 						</p>
 					</div>
 				)}
@@ -3473,7 +3553,20 @@ export function CaseListScreen({
 						data-search-waiting
 						className="mb-4 text-sm text-nova-text-muted"
 					>
-						{message("searchGettingReady")}
+						{searchRun.openingMessage && (
+							<span className="block">{searchRun.openingMessage}</span>
+						)}
+						{searchRun.retryOpening ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={searchRun.retryOpening}
+							>
+								{message("retrySearchStartingDates")}
+							</Button>
+						) : (
+							message("searchGettingReady")
+						)}
 					</p>
 				)}
 			{alwaysRegisterAction !== undefined &&
@@ -3517,7 +3610,7 @@ export function CaseListScreen({
 					<Button
 						type="button"
 						onClick={() => {
-							submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+							submitSearch(searchRun.draft);
 							focusNextFrame(() => resultsTitleRef.current);
 						}}
 						className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"

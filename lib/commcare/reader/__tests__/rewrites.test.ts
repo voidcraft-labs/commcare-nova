@@ -415,33 +415,6 @@ const CASES: {
 			),
 	},
 	{
-		section:
-			"12.3 (kind F), a row that reads no field and restates no list clause, on a menu whose forms read the search",
-		register: "search-filter-joined-to-list",
-		rewrites: () =>
-			listRewrites(
-				searched({ formsReadSearch: true }, notesIs("open")),
-				(app) => {
-					const rows = rowsOf(app);
-					const [first] = rows;
-					if (first !== undefined)
-						rows.push({ ...first, defaultValue: `"notes = 'other'"` });
-				},
-			),
-	},
-	{
-		section:
-			"12.3, a list clause no row restates, on a menu whose forms read the search",
-		register: "search-restates-list-filter",
-		rewrites: () =>
-			listRewrites(
-				searched({ formsReadSearch: true }, notesIs("open")),
-				(app) => {
-					firstModule(app).search_config.default_properties = [];
-				},
-			),
-	},
-	{
 		section: "12.4, a search title of `{}`",
 		register: "list-settings-respelled",
 		rewrites: () =>

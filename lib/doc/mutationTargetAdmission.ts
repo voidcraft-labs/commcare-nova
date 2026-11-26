@@ -17,6 +17,7 @@ import {
 	languageTag,
 	ownRecordValue,
 	reviewedTranslationValueMode,
+	type SearchFilter,
 	type TranslationEntry,
 	type TranslationUnitId,
 	translationEntryIntegrityIssue,
@@ -30,6 +31,18 @@ import { hasGeneratedWording } from "@/lib/domain/translationUnits";
 import { assertNever } from "@/lib/utils/assertNever";
 import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
 import { wordingSourceUnit } from "./localizationWorkspace";
+
+type SearchFilterKind = "order" | "value";
+
+function searchFilterKind(filter: SearchFilter): SearchFilterKind {
+	return "order" in filter ? "order" : "value";
+}
+
+/** The kind of row a filter edit's patch belongs to: an order patch names
+ *  `order`, a value patch its `target` or `value`. */
+function searchFilterPatchKind(patch: object): SearchFilterKind {
+	return "order" in patch ? "order" : "value";
+}
 
 /**
  * Whether any mutation in `mutations` targets an entity that no longer exists
@@ -209,6 +222,11 @@ export function mutationTargetsInvalid(
 	const columnOwners = new Map<string, string>();
 	const sortOwners = new Map<string, string>();
 	const searchInputOwners = new Map<string, string>();
+	const filterOwners = new Map<string, string>();
+	/* Each filter row's kind: an order or a value matched under a key. An
+	 * edit of one kind on a row of the other would merge into a row of
+	 * neither shape, which no reader holds. */
+	const filterKinds = new Map<string, SearchFilterKind>();
 	// Modules whose `caseListConfig` is present. `setCaseListMeta` EDITS an
 	// existing config's metadata (`filter` / `selection` / `icon` /
 	// `audioLabel`); a config a
@@ -224,6 +242,10 @@ export function mutationTargetsInvalid(
 		modulesWithConfig.add(mod.uuid);
 		for (const sort of config.calculatedSorts ?? [])
 			sortOwners.set(sort.uuid, mod.uuid);
+		for (const filter of config.searchFilters ?? []) {
+			filterOwners.set(filter.uuid, mod.uuid);
+			filterKinds.set(filter.uuid, searchFilterKind(filter));
+		}
 		for (const col of config.columns) columnOwners.set(col.uuid, mod.uuid);
 		for (const input of config.searchInputs) {
 			searchInputOwners.set(input.uuid, mod.uuid);
@@ -431,6 +453,8 @@ export function mutationTargetsInvalid(
 		for (const [columnUuid, owner] of columnOwners) {
 			if (owner === moduleUuid) columnOwners.delete(columnUuid);
 		}
+		for (const [filter, owner] of filterOwners)
+			if (owner === moduleUuid) filterOwners.delete(filter);
 		for (const [inputUuid, owner] of searchInputOwners) {
 			if (owner === moduleUuid) searchInputOwners.delete(inputUuid);
 		}
@@ -534,6 +558,10 @@ export function mutationTargetsInvalid(
 						modulesWithConfig.add(m.module.uuid);
 						for (const sort of m.module.caseListConfig.calculatedSorts ?? [])
 							sortOwners.set(sort.uuid, m.module.uuid);
+						for (const filter of m.module.caseListConfig?.searchFilters ?? []) {
+							filterOwners.set(filter.uuid, m.module.uuid);
+							filterKinds.set(filter.uuid, searchFilterKind(filter));
+						}
 						for (const column of m.module.caseListConfig.columns) {
 							columnOwners.set(column.uuid, m.module.uuid);
 						}
@@ -581,6 +609,8 @@ export function mutationTargetsInvalid(
 				if ("caseListConfig" in m.patch) {
 					for (const [id, owner] of sortOwners)
 						if (owner === m.uuid) sortOwners.delete(id);
+					for (const [filter, owner] of filterOwners)
+						if (owner === m.uuid) filterOwners.delete(filter);
 					for (const [columnUuid, owner] of columnOwners) {
 						if (owner === m.uuid) columnOwners.delete(columnUuid);
 					}
@@ -1042,6 +1072,29 @@ export function mutationTargetsInvalid(
 				// (409) rather than resurrecting the removed case list empty.
 				if (!modules.has(m.uuid) || !modulesWithConfig.has(m.uuid)) {
 					return true;
+				}
+				if (m.patch.searchFilterEdit) {
+					const edit = m.patch.searchFilterEdit;
+					const id = edit.operation === "add" ? edit.filter.uuid : edit.uuid;
+					if (
+						"after" in edit &&
+						edit.after != null &&
+						(edit.after === id || filterOwners.get(edit.after) !== m.uuid)
+					)
+						return true;
+					if (edit.operation === "add") {
+						if (filterOwners.has(id)) return true;
+						filterOwners.set(id, m.uuid);
+						filterKinds.set(id, searchFilterKind(edit.filter));
+					} else {
+						if (filterOwners.get(id) !== m.uuid) return true;
+						if (
+							edit.operation === "edit" &&
+							filterKinds.get(id) !== searchFilterPatchKind(edit.patch)
+						)
+							return true;
+						if (edit.operation === "remove") filterOwners.delete(id);
+					}
 				}
 				break;
 			// ── Granular select options (field-owned) ──────────────────

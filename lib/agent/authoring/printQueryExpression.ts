@@ -255,6 +255,9 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "term":
 				return term(value.term);
 			case "today":
+				return call(
+					value.clock === "project-space" ? "project-today" : "today",
+				);
 			case "now":
 			case "here":
 			case "acting-user":

@@ -45,7 +45,11 @@ export type {
 	LookupTableSchemas,
 } from "./compileLookup";
 export type { PredicateCompileContext } from "./compilePredicate";
-export { compilePredicate, expressionContextFor } from "./compilePredicate";
+export {
+	compileFuzzyQueries,
+	compilePredicate,
+	expressionContextFor,
+} from "./compilePredicate";
 export type {
 	CompiledRelationPath,
 	RelationPathCompileContext,
