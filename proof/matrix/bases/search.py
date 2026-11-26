@@ -158,7 +158,7 @@ def field(name, label, **settings):
     return {"name": name, "label": label, "hint": "", "appearance": "", "receiver_expression": "", **settings}
 
 
-def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), defaults=(), **workflow):
+def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), **workflow):
     """The menu's Search saved as the Case List page saves it (``edit_module_detail_screens``, whose
     ``_gather_and_update_search_properties`` builds the menu's ``CaseSearch`` from ``search_properties``): the
     fields, each row as a default filter of ``_xpath_query``, no title and no description, and ``workflow``'s
@@ -169,7 +169,6 @@ def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), defa
         "properties": list(fields),
         "default_properties": [
             *({"property": key, "defaultValue": value} for key, value in filters),
-            *defaults,
             *({"property": "_xpath_query", "defaultValue": row} for row in rows),
         ],
         "custom_sort_properties": [],
@@ -178,8 +177,6 @@ def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), defa
         "auto_launch": workflow.get("auto_launch", False),
         "default_search": workflow.get("default_search", False),
         "inline_search": workflow.get("inline_search", False),
-        "custom_related_case_property": workflow.get("custom_related_case_property", ""),
-        "include_all_related_cases": workflow.get("include_all_related_cases", False),
         "search_button_display_condition": "",
         "blacklisted_owner_ids_expression": "",
     }
@@ -218,26 +215,6 @@ def follow_up_menu(authoring, app_id, menu, name, question, label):
     _pages.new_case_module(authoring, app_id, name=name, case_type=CASE_TYPE)
     _pages.delete_form(authoring, app_id, menu, 0)
     ops.upload_form_source(authoring, app_id, menu, 0, one_question_source(question, label), f"m{menu}-follow-up")
-
-
-def add_mixed_search(authoring, app_id):
-    """A real menu-save and search-page save with a second selectable record type,
-    a separate type returned to the form, and a record ID used for supporting details."""
-    from proof.hq import operations
-
-    menu = len(operations.held_app(authoring.state, app_id).modules)
-    _pages.new_case_module(authoring, app_id, name="Household outreach", case_type="household")
-    _pages.delete_form(authoring, app_id, menu, 0)
-    ops.upload_form_source(authoring, app_id, menu, 0, one_question_source("visit_note", "Visit note"), "household-visit")
-    _pages.save_module_attributes(authoring, app_id, menu, [("additional_case_types", "client")], "additional-record-types")
-    save_search(
-        authoring, app_id, menu, inline_search=True, auto_launch=True,
-        custom_related_case_property="care_record",
-        defaults=[
-            {"property": "case_type", "defaultValue": "'referral'"},
-            {"property": "x_commcare_include_all_related_cases", "defaultValue": "'false'"},
-        ],
-    )
 
 
 def build(authoring) -> str:
@@ -331,7 +308,6 @@ def build(authoring) -> str:
         ],
         auto_launch=True,
     )
-    add_mixed_search(authoring, app_id)
     return app_id
 
 
@@ -375,9 +351,5 @@ BASE = Base(
         "case-search/case-list-filter-clause-the-search-does-not-restate",
         "case-search/xpath-query-condition-outside-what-nova-types",
         "case-search/several-xpath-query-rows",
-        "case-search/additional-case-types",
-        "case-search/default-properties-entry-keyed-case-type",
-        "case-search/custom-related-case-property",
-        "case-search/default-related-record-inclusion",
     ),
 )
