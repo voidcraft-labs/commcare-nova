@@ -27,7 +27,8 @@ def test_android_saves_a_localized_descriptor_and_reopens_the_answer(android_doc
             blobs, sent = Blobs(), []
             report = observe.app(
                 served, blobs, label="saved-form-descriptor-" + name, archive=archive,
-                commands=[], questions={}, save_incomplete="m0-f0", save_language="fr", reopen=True, sent=sent,
+                commands=[], questions={"/data/record": []}, save_incomplete="m0-f0",
+                save_language="fr", reopen=True, sent=sent,
             )
             saved = blobs.get_json(report["answer"])["savedIncomplete"]
             (record,) = [item for item in saved["records"] if item["status"] == "incomplete"]
@@ -35,6 +36,8 @@ def test_android_saves_a_localized_descriptor_and_reopens_the_answer(android_doc
             assert record["descriptor"] != record["FormRecord.getDisplayName"], saved
             reopened = saved["reopened"]
             assert reopened["screen"] == "FormEntryActivity", reopened
+            (question,) = reopened["form"]["screens"][0]["questions"]
+            assert question["answer"] == "1", reopened
             assert reopened["form"]["saved"]["finishing"] is True, reopened
             assert reopened["form"]["saved"]["descriptor"] == "Visite 1", reopened
             (instance,) = sent

@@ -1622,17 +1622,27 @@ export class EngineController {
 
 	/** Freeze the entry the Android save used. Context belongs to its original
 	 * restore, while a later mutation still uses current write authorization. */
-	async snapshotAndroidSave(entryKey: string) {
+	async snapshotAndroidSave(
+		entryKey: string,
+		kind: "incomplete" | "completed",
+	) {
 		if (!(await this.awaitSettled(entryKey)) || !this.entryReady) return;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		if (!engine || !formUuid) return;
 		const freeze = async (evaluate?: FormEngineAsyncEvaluator) => {
 			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
+			if (kind === "incomplete") {
+				// Android saves the displayed widget values before writing the
+				// incomplete instance, without enforcing required answers.
+				if (evaluate) await engine.saveScreenDatesAsync(evaluate);
+				else engine.saveScreenDates();
+			}
 			const descriptor = await engine.savedFormDescriptor(evaluate);
 			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
 			const documentState = this.reconciledDocumentState;
 			if (!documentState || this.docStore?.getState() !== documentState) return;
+			if (kind === "incomplete") this.syncAllPathsSelectively();
 			return {
 				descriptor,
 				documentState,

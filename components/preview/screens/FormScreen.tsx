@@ -1585,7 +1585,7 @@ export function FormScreen({
 				active.blur();
 			const opened = await runFormAttachmentBarrier(
 				entryKey,
-				() => controller.snapshotAndroidSave(entryKey),
+				() => controller.snapshotAndroidSave(entryKey, "incomplete"),
 				{
 					classifySlot: ({ instancePath }) =>
 						controller.attachmentPathDisposition(instancePath),
@@ -3034,7 +3034,10 @@ export function FormScreen({
 					platformRules.appHome === "device-home" &&
 					(showSavedForms || draft)
 				) {
-					const saved = await controller.snapshotAndroidSave(submittedEntryKey);
+					const saved = await controller.snapshotAndroidSave(
+						submittedEntryKey,
+						"completed",
+					);
 					if (!saved || !isCurrent()) return "stale";
 					savedDescriptor = saved.descriptor;
 				}
@@ -4173,6 +4176,7 @@ export function FormScreen({
 								disabled={
 									submitStatus.kind === "running" ||
 									clearRunning ||
+									savingDraft ||
 									!mayWriteCaseData
 								}
 								className={FORM_QUIET_ACTION_CLS}
