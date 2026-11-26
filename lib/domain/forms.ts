@@ -757,6 +757,7 @@ export type OwnCaseOperation = CaseOperationFacets & {
 export type TargetedCaseOperation = CaseOperationFacets & {
 	action: Exclude<CaseOperationAction, "own">;
 	caseType: string;
+	typeCalculation?: CaseTypeCalculation;
 	target: CaseTarget;
 	condition?: Expression;
 	ownerCondition?: Expression;
