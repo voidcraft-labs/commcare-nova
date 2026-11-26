@@ -414,7 +414,11 @@ function directHiddenDayWriter(
 	)
 		return false;
 	const form = writer.form === undefined ? undefined : doc.forms[writer.form];
-	if (form?.type !== "followup") return false;
+	if (
+		form?.type !== "followup" ||
+		form.openingAssignments?.some(({ field }) => field === writer.field)
+	)
+		return false;
 	const writes = (form.caseOperations ?? []).flatMap((operation) =>
 		(operation.writes ?? [])
 			.filter(({ value }) => writerOfValue(doc, value)?.uuid === writer.field)
