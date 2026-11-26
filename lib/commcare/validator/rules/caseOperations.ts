@@ -47,6 +47,7 @@ import {
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
 	type Form,
+	fixedCaseTypeOf,
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
 	hasUpdateOnlyCaseFacets,
@@ -634,6 +635,20 @@ function validateOperation(
 	const workerRecord = addressesWorkerRecord(ctx.form, operation);
 	if (!workerRecord || operation.caseType !== USERCASE_CASE_TYPE)
 		validateCaseType(ctx, operation, operation.caseType, errors);
+	if (
+		operation.action === "create" &&
+		operation.typeCalculation !== undefined &&
+		fixedCaseTypeOf(operation.typeCalculation) !== operation.caseType
+	)
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_TYPE_CALCULATION_MISMATCH",
+				"The case type calculation must give the case type named by this create.",
+			),
+		);
+
 	// A retype of the worker's record is refused as a facet it can't carry
 	// (`workerRecordFindings`), so no retype plan is asked of it.
 	if (operation.retype !== undefined && !workerRecord) {

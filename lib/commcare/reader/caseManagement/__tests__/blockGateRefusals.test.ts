@@ -55,9 +55,16 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { updateCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import { applyMutations } from "@/lib/doc/mutations";
+import type {
+	BlueprintDoc,
+	CaseOperation,
+	CaseTypeCalculation,
+	Uuid,
+} from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import {
@@ -830,4 +837,121 @@ it("keeps the owner condition on the create leaf of a fresh case", async () => {
 			placement: { kind: "save-to-case", path: ["nova_operations", "mk"] },
 		},
 	]);
+});
+
+describe("a Save to Case create's calculated type", () => {
+	const doc = produce(app("survey", [visitCreate()]), (draft) => {
+		delete draft.modules[draft.moduleOrder[0]].caseType;
+	});
+	const calculation: CaseTypeCalculation = {
+		kind: "concat",
+		parts: [
+			{ kind: "term", term: { kind: "literal", value: "vi" } },
+			{ kind: "term", term: { kind: "literal", value: "sit" } },
+		],
+	};
+
+	const source = (xpath: string): ExportEdits => ({
+		xml: (xml) =>
+			replaceOnce(
+				replaceOnce(
+					xml,
+					'<mk vellum:role="SaveToCase" vellum:case_type="visit">',
+					'<mk vellum:role="SaveToCase" vellum:case_type="">',
+				),
+				'nodeset="/data/nova_operations/mk/case/create/case_type" calculate="&apos;visit&apos;"',
+				`nodeset="/data/nova_operations/mk/case/create/case_type" calculate="${xpath}"`,
+			),
+		modules: (modules) => {
+			const [form] = modules[0].forms as Array<{
+				case_references_data: { save: Record<string, { case_type: string }> };
+			}>;
+			const rows = Object.entries(form.case_references_data.save).filter(
+				([path]) => path.endsWith("/mk"),
+			);
+			expect(rows).toHaveLength(1);
+			rows[0][1].case_type = "";
+			return modules;
+		},
+	});
+
+	it("keeps the fixed expression, its blank HQ metadata and the original operation identity", async () => {
+		const edits = source("concat(&apos;vi&apos;, &apos;sit&apos;)");
+		const outcome = await readBack(doc, edits);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		const saved = outcome.draft.doc;
+		const operation = saved.forms[FORM].caseOperations?.find(
+			(op) => op.id === "mk",
+		);
+		expect(operation).toMatchObject({
+			uuid: VISIT,
+			action: "create",
+			caseType: "visit",
+			typeCalculation: calculation,
+		});
+		expect(gateCodes(saved)).toEqual([]);
+		const exported = exportedBody(saved);
+		const original = exportedBody(doc, edits);
+		expect(exported._attachments).toEqual(original._attachments);
+		expect(exported.modules).toEqual(original.modules);
+
+		if (operation?.action !== "create") throw new Error("Missing the create.");
+		const { typeCalculation: _carried, ...editable } = operation;
+		const renamed = produce(saved, (draft) => {
+			applyMutations(
+				draft,
+				updateCaseOperationMutations(saved, FORM, {
+					...editable,
+					name: term(literal("Changed name")),
+				}),
+			);
+		});
+		expect(renamed.forms[FORM].caseOperations?.[0]).toMatchObject({
+			typeCalculation: calculation,
+			name: term(literal("Changed name")),
+		});
+		const changedType = produce(renamed, (draft) => {
+			applyMutations(
+				draft,
+				updateCaseOperationMutations(renamed, FORM, {
+					...editable,
+					caseType: "patient",
+				}),
+			);
+		});
+		expect(changedType.forms[FORM].caseOperations?.[0]).toMatchObject({
+			caseType: "patient",
+		});
+		expect(changedType.forms[FORM].caseOperations?.[0]).not.toHaveProperty(
+			"typeCalculation",
+		);
+		expect(gateCodes(changedType)).toEqual([]);
+		const mismatched = produce(saved, (draft) => {
+			const create = draft.forms[FORM].caseOperations?.[0];
+			if (create?.action === "create") create.caseType = "patient";
+		});
+		expect(gateCodes(mismatched)).toContain(
+			"CASE_OPERATION_TYPE_CALCULATION_MISMATCH",
+		);
+	});
+
+	it("holds a calculation depending on a form answer at its case change", async () => {
+		const outcome = await readBack(
+			doc,
+			source(
+				"if(/data/note = &apos;yes&apos;, &apos;visit&apos;, &apos;commcare-user&apos;)",
+			),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") throw new Error("Expected a finding.");
+		expect(outcome.findings).toEqual([
+			expect.objectContaining({
+				code: "questions/savetocase-case-type-given-as-an-xpath",
+				place: expect.objectContaining({ path: "nova_operations/mk" }),
+			}),
+		]);
+	});
 });

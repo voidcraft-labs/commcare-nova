@@ -1276,6 +1276,8 @@ export function buildCaseOperations(
 				? undefined
 				: operation.name
 			: operation.rename;
+		const typeCalculation =
+			operation.action === "create" ? operation.typeCalculation : undefined;
 		const closesHere =
 			operation.action === "close" ||
 			operation.closeAfter === true ||
@@ -1423,7 +1425,15 @@ export function buildCaseOperations(
 					{
 						xpath: {
 							nodeset: createPath.child("case_type").toWire(),
-							calculate: w.str(caseType),
+							calculate:
+								typeCalculation === undefined
+									? w.str(caseType)
+									: w.call(
+											"concat",
+											typeCalculation.parts.map(({ term }) =>
+												w.str(term.value),
+											),
+										),
 						},
 					},
 					context,
@@ -1870,7 +1880,11 @@ export function buildCaseOperations(
 		// block. HQ's form builder keeps a create's condition as its Open Case
 		// Condition and no condition on an update's or close's block, and a
 		// guard that ran while its operation did not would fail the submission.
-		const caseBlock = saveToCaseBlock(site.name, caseType, caseChildren);
+		const caseBlock = saveToCaseBlock(
+			site.name,
+			typeCalculation === undefined ? caseType : "",
+			caseChildren,
+		);
 		if (site.authoredPath !== undefined) {
 			const root = form.dataRootName ?? "data";
 			const parent = site.authoredPath
