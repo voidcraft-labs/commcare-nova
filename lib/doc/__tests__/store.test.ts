@@ -528,6 +528,62 @@ describe("createBlueprintDocStore", () => {
 		expect(store.getState().canUndo).toBe(false);
 	});
 
+	it("takes back a repeat's switch from a count to a query, restoring the count", () => {
+		const repeat = testUuid("store-mode-switch-repeat");
+		const doc = buildDoc({
+			caseTypes: [{ name: "household", properties: [] }],
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [
+								{
+									kind: "repeat",
+									id: "visits",
+									uuid: repeat,
+									label: proseText("Visits"),
+									repeat_mode: "count_bound",
+									repeat_count: "2",
+									children: [
+										{ kind: "text", id: "note", label: proseText("Note") },
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedDoc(doc);
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		const before = store.getState().fields[repeat];
+		apply(store, [
+			{
+				kind: "updateField",
+				uuid: repeat,
+				targetKind: "repeat",
+				patch: {
+					repeat_mode: "query_bound",
+					data_source: { ids_query: term(literal("a b")) },
+				},
+			} as Mutation,
+		]);
+		expect(store.getState().fields[repeat]).toMatchObject({
+			repeat_mode: "query_bound",
+		});
+		store.getState().undo();
+		expect(store.getState().fields[repeat]).toEqual(before);
+	});
+
 	it("applyMany() records a step, and undo returns the prior value", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeDoc({ appName: "Before" }));

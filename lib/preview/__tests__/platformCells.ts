@@ -211,6 +211,9 @@ export const PLATFORM_CELLS: Readonly<
 	/* Its only use is a Connect app's, which Web Apps refuses. */
 	"application-and-settings/45-hq-auto-gps-capture@web-apps":
 		structural("connect-app"),
+	"questions/submitted-answer-name-only-android-stores@web-apps": structural(
+		"answer-name-requires-android",
+	),
 
 	// ── Refused, expression ────────────────────────────────────────────
 	"expressions-and-data/here-in-a-case-list-calculated-column-or-sort@web-apps":
@@ -231,6 +234,12 @@ export const PLATFORM_CELLS: Readonly<
 
 	// ── Model ──────────────────────────────────────────────────────────
 	"expressions-and-data/now@web-apps": model("recalculation-every-request"),
+	// Android reads none of the presence pragmas: a form neither submits on
+	// open nor rechecks only changed answers there.
+	"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma@android":
+		model("presence-pragmas-on-web-apps-only"),
+	"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression@web-apps":
+		model("row-starting-value"),
 	"expressions-and-data/random@web-apps": model("recalculation-every-request"),
 	"expressions-and-data/uuid@web-apps": model("recalculation-every-request"),
 	"expressions-and-data/sleep@web-apps": model("recalculation-every-request"),
@@ -370,6 +379,8 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/phone-number-xsd-string-appearance-numeric@web-apps": browser(
 		"number-keypad-web-apps",
 	),
+	"questions/jr-imagedimensionscaledmax-250-500-1000px-or-another-positive@web-apps":
+		browser("image-size-web-apps"),
 	"questions/image-capture-upload-image@web-apps": browser(
 		"image-attach-web-apps",
 	),
@@ -394,6 +405,16 @@ export const PLATFORM_CELLS: Readonly<
 	),
 	"questions/hint-text@web-apps": browser("hint-markdown-web-apps"),
 	"questions/hint-text@android": browser("hint-plain-android"),
+	// A message's and a capture question's hint and help render through the
+	// question row every kind shares, which these scenarios drive.
+	"questions/hint-text-on-a-label@web-apps": browser("hint-markdown-web-apps"),
+	"questions/hint-text-on-a-label@android": browser("hint-plain-android"),
+	"questions/help-text-on-a-capture-question-or-a-label@web-apps":
+		browser("help-web-apps"),
+	"questions/help-text-on-a-capture-question-or-a-label@android":
+		browser("help-android"),
+	"questions/help-media-on-a-capture-question-or-a-label@web-apps":
+		browser("help-web-apps"),
 	"questions/choice-label-text-markdown@web-apps": browser(
 		"choice-label-markdown-web-apps",
 	),
@@ -484,6 +505,8 @@ export const PLATFORM_CELLS: Readonly<
 	"expressions-and-data/lower-case@android": stated("case-conversion"),
 	"expressions-and-data/upper-case@web-apps": stated("case-conversion"),
 	"expressions-and-data/upper-case@android": stated("case-conversion"),
+	"questions/acknowledge-label-a-trigger-whose-appearance-is-neither-exactly@web-apps":
+		stated("confirm-message"),
 	"expressions-and-data/regex@android": stated("text-pattern"),
 	"expressions-and-data/replace@android": stated("text-pattern"),
 	/* An ordinary app's and a form's location request: the builder's note

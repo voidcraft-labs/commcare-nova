@@ -205,7 +205,7 @@ describe("planContentDeclaration, by the content's platforms", () => {
 			"a Connect app whose forms read the search",
 			() =>
 				produce(fixture("forms-read-search"), (draft) => {
-					draft.connectType = "learn";
+					draft.connectRoles = ["learn"];
 				}),
 			["connect-app"],
 			["forms-read-search"],

@@ -92,6 +92,7 @@ import type { RevocationReason } from "@/lib/collab/revocationFrame";
 import { isUserActive } from "@/lib/db/api-keys";
 import {
 	AppAccessError,
+	publishedQuestionsForStream,
 	reauthorizeStreamScope,
 	type TransactionalAppScope,
 } from "@/lib/db/appAccess";
@@ -653,6 +654,7 @@ function openStream(args: {
 					 * project space. A read that faults throws out of the run,
 					 * so the pump retries it and neither frame is sent: a
 					 * failed read is no answer, and `null` is one. */
+					let announcedQuestions: string | undefined;
 					let announcedProjectSpace: string | null | undefined;
 					let announcedTargetFacts: string | undefined;
 					let announcedSearchCatalog: string | undefined;
@@ -673,6 +675,16 @@ function openStream(args: {
 								searchCatalog,
 							} = await readPreviewDeploymentAnswer(scope, true);
 							if (closed) return;
+							const questions = await publishedQuestionsForStream(
+								appId,
+								userId,
+								announcedQuestions,
+							);
+							if (closed) return;
+							if (questions !== null) {
+								announcedQuestions = questions.key;
+								send("published-questions", { questions: questions.questions });
+							}
 							if (projectSpace !== announcedProjectSpace) {
 								announcedProjectSpace = projectSpace;
 								send("preview-project-space", { projectSpace });

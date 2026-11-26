@@ -513,7 +513,7 @@ export interface PreparedMutationCandidate {
  * admissions to that over the oracle corpora.
  */
 export const APP_SCALAR_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set(
-	["setAppName", "setAppLogo", "setAppSettings", "setConnectType"],
+	["setAppName", "setAppLogo", "setAppSettings", "setConnectRoles"],
 );
 
 /**

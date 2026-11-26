@@ -5,7 +5,7 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { useConnectRoles } from "@/lib/doc/hooks/useConnectRoles";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useBuilderIsReady, useCanEdit } from "@/lib/session/hooks";
 import {
@@ -45,7 +45,7 @@ const AppSettingsPanel = dynamic(
  */
 export function AppSettingsButton() {
 	const [open, setOpen] = useState(false);
-	const connectType = useConnectTypeOrUndefined();
+	const usesConnect = useConnectRoles().length > 0;
 	const hasData = useDocHasData();
 	const isReady = useBuilderIsReady();
 	const canEdit = useCanEdit();
@@ -61,7 +61,7 @@ export function AppSettingsButton() {
 				aria-label="App settings"
 			>
 				<Icon icon={tablerSettings} width="18" height="18" />
-				{connectType && (
+				{usesConnect && (
 					<ConnectLogomark size={12} className="text-nova-violet-bright" />
 				)}
 			</Popover.Trigger>

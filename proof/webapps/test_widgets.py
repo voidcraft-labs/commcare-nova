@@ -37,6 +37,9 @@ place in its run: ``FormplayerRunner.forget_media``).
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+from lxml import etree
 
 from proof.webapps import hq as webapps_hq
 from proof.webapps import observe
@@ -130,3 +133,7 @@ def test_every_question_a_worker_answers_with_a_gesture_is_answered_in_web_apps_
     # HQ's receiver was handed the files with the walk's submission and with the client's.
     assert len(submissions) == walked + 1
     assert len(submissions[walked].files) == FILE_QUESTIONS
+    original = (Path(__file__).resolve().parents[1] / "core/captures/proof-image.jpg").read_bytes()
+    for posted in submissions:
+        (photo,) = etree.fromstring(posted.instance).xpath("./*[local-name()='photo']/text()")
+        assert dict(posted.files)[photo] == original

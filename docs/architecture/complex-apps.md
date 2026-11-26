@@ -1026,8 +1026,10 @@ reject only null/empty, and `case_id` is deliberately absent from
 
 Selects own one required discriminated `optionsSource`: either `inline`, which
 owns at least one fully UUID-identified option, or `lookup`, which owns the
-table UUID, value-column UUID, label-column UUID, and optional row filter.
-Expressions take `table-lookup` value terms and `table-column` comparison terms
+table UUID, value-column UUID, label-column UUID, optional row filter, and
+optional sort-column UUID (`<sort ref>`: Core's `ItemsetBinding.sortChoices`
+orders by the column's text as Java strings with a stable sort; absent keeps
+row order). Expressions take `table-lookup` value terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).
 Form logic stores the table and column UUIDs. The printed expression reads
 `<tag>_list/<tag>` from the instance declared for `jr://fixture/item-list:<tag>`.
@@ -3614,9 +3616,14 @@ operations in the submission. A count is a whole number: an integer
 question, an integer single select or a Hidden Value calculated as one is read
 directly, and anything else is a formula Nova keeps in `nova_count_*`, beside
 the repeat, preserving each enclosing row's context. A query repeat's rows are
-a snapshot taken when the form opens only in its model-iteration placement; in
-the count placement they follow the query, and a row past the end of the result
-is not relevant. Republishing
+a snapshot at the opening event in model iteration. Its ordered ID assignment
+runs first, then its count reads the IDs visible at that moment. Both values
+survive edits and resume. A query can use an earlier answer, a fallback or a
+worker's profile. The count placement follows later answers and hides rows
+past the result. An explicit choice of timing on an already published list
+reviews the change to the row identifiers' export addresses. The reader
+distinguishes a missing required ID, suppressed initialization and an absolute
+inner index that could select a different outer row. Republishing
 removes old `__nova_count_*` paths and their HQ export columns; expression counts
 introduce `nova_count_*` columns. No blueprint migration is needed.
 

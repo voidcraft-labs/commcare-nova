@@ -50,7 +50,7 @@ function fixtureDoc() {
 	return admittedPersisted({
 		appId: "app-1",
 		appName: "Fixture",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [{ name: "patient", properties: [] }],
 		logo: media("logo"),
@@ -222,7 +222,7 @@ function docWithCaseListEntryBesideForm() {
 	return admittedPersisted({
 		appId: "app-2",
 		appName: "Beside",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [{ name: "patient", properties: [] }],
 		moduleOrder: [moduleUuid],
@@ -274,7 +274,7 @@ function docWithDormantImageMap() {
 	return admittedPersisted({
 		appId: "app-3",
 		appName: "Dormant image",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [{ name: "patient", properties: [] }],
 		moduleOrder: [moduleUuid],

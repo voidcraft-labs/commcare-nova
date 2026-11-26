@@ -68,6 +68,7 @@ import type {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { entryPointByUuid } from "@/lib/domain/entryPoints";
+import { CONNECT_ROLES } from "@/lib/domain/fields/connectActivity";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import {
 	effectiveAppLocalization,
@@ -439,6 +440,17 @@ function narrowed(
 	};
 	for (const mutation of H) {
 		switch (mutation.kind) {
+			case "setConnectRoles": {
+				// HQ shows roles through submitted activities. Removing the last
+				// activity says nothing about the roles the Nova author selected.
+				const roles = CONNECT_ROLES.filter(
+					(role) =>
+						D.connectRoles.includes(role) || mutation.roles.includes(role),
+				);
+				if (roles.length !== D.connectRoles.length)
+					out.push({ kind: "setConnectRoles", roles });
+				break;
+			}
 			case "removeUserProperty":
 			case "updateUserProperty":
 			case "removeLocationProperty":
@@ -838,7 +850,7 @@ export function touchedBy(
 				}
 				break;
 			case "setAppName":
-			case "setConnectType":
+			case "setConnectRoles":
 			case "setAppLogo":
 			case "setAppSettings":
 			case "relabelSourceLanguage":
@@ -1266,6 +1278,36 @@ function drained<T>(steps: Steps<T>): T {
 		const step = steps.next();
 		if (step.done) return step.value;
 	}
+}
+
+/** An older reading kept the calculation and omitted an unobserved starting
+ * answer. Compare the same field identities across the paired HQ sources,
+ * the document that reading stored and the document the take will publish.
+ * A new reading, an unrelated author edit or a completed publish cannot
+ * create the historical notice: the transaction must already hold it. */
+export function stillOmitsHiddenStartingAnswer(
+	base: BlueprintDoc,
+	reference: BlueprintDoc,
+	now: BlueprintDoc,
+	candidate: BlueprintDoc,
+): boolean {
+	return Object.values(base.fields).some((field) => {
+		if (field.kind !== "hidden" || !field.default_value || !field.calculate)
+			return false;
+		const previous = ownRecordValue(reference.fields, field.uuid);
+		const inHq = ownRecordValue(now.fields, field.uuid);
+		const taken = ownRecordValue(candidate.fields, field.uuid);
+		return (
+			previous?.kind === "hidden" &&
+			!previous.default_value &&
+			inHq?.kind === "hidden" &&
+			!!inHq.default_value &&
+			!!inHq.calculate &&
+			taken?.kind === "hidden" &&
+			!taken.default_value &&
+			!!taken.calculate
+		);
+	});
 }
 
 /** Steps 4 to 12, over four documents. What the fuzz test drives. */

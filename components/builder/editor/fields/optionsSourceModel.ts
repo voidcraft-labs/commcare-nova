@@ -22,6 +22,7 @@ export interface LookupSourceDraft {
 	readonly valueColumnId?: LookupRead;
 	readonly labelColumnId?: LookupRead;
 	readonly filter?: Expression;
+	readonly sortColumnId?: LookupRead;
 }
 
 export type SourceDraft =
@@ -98,7 +99,9 @@ export function completeLookupSource(
 		draft.valueColumnId === undefined ||
 		draft.labelColumnId === undefined ||
 		!lookupReadType(lookupReadTypes(table), draft.valueColumnId) ||
-		!lookupReadType(lookupReadTypes(table), draft.labelColumnId)
+		!lookupReadType(lookupReadTypes(table), draft.labelColumnId) ||
+		(draft.sortColumnId !== undefined &&
+			!lookupReadType(lookupReadTypes(table), draft.sortColumnId))
 	)
 		return undefined;
 	return {
@@ -107,6 +110,9 @@ export function completeLookupSource(
 		valueColumnId: draft.valueColumnId,
 		labelColumnId: draft.labelColumnId,
 		...(draft.filter === undefined ? {} : { filter: draft.filter }),
+		...(draft.sortColumnId === undefined
+			? {}
+			: { sortColumnId: draft.sortColumnId }),
 	};
 }
 

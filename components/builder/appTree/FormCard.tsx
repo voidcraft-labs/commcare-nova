@@ -34,6 +34,7 @@ import { PeerBadge } from "@/components/builder/PeerBadge";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useFormHasConnectActivity } from "@/lib/doc/hooks/useConnectRoles";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
@@ -51,7 +52,6 @@ export const FormCard = memo(function FormCard({
 	collapsed,
 	toggle,
 	searchResult,
-	connectType,
 	locked,
 }: {
 	formId: Uuid;
@@ -62,11 +62,11 @@ export const FormCard = memo(function FormCard({
 	collapsed: Set<Uuid>;
 	toggle: (key: Uuid) => void;
 	searchResult: SearchResult | null;
-	connectType?: string;
 	locked?: boolean;
 }) {
 	/** Subscribe to this form's entity from the doc store. */
 	const form = useFormDoc(formId);
+	const usesConnect = useFormHasConnectActivity(formId);
 	const caseListRegistration = useIsCaseListRegistrationForm(
 		moduleUuid,
 		formId,
@@ -187,7 +187,7 @@ export const FormCard = memo(function FormCard({
 								formName
 							)}
 						</span>
-						{form.connect && connectType && (
+						{usesConnect && (
 							<ConnectLogomark
 								size={11}
 								className="text-nova-violet-bright shrink-0"

@@ -1,33 +1,8 @@
-/**
- * Connect blocks (15). The four blocks the emitter writes read back into the
- * form's Connect slots, each calculate registered for the expression stage;
- * every refusal row is held by a hand-written source, each with the one
- * finding its row names; and an app whose forms hold learn and deliver blocks
- * is the one finding at the app, its document taking the first block's kind.
- *
- * The emitted learn and deliver apps also read whole with no finding at all,
- * so a wrapper or a leaf bind left unclaimed, or a shadow that disagrees on a
- * block's bind, cannot hide behind a filter of Connect's own codes.
- *
- * Plausible failures: a deliver unit beside a task held; an app of both kinds
- * read as `unrecognized`; a learn module whose description holds
- * `instance('casedb')` read to anything but the one finding
- * `connect-block-text-read-as-an-instance`; a block of the wrong shape held.
- */
-
+/** Read the actual activity XML at its authored position. The block reader owns
+ * the editor shape. Only bound expressions can establish receiver collisions. */
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression/types";
 import type { Finding } from "@/lib/publish/hqFindings";
-import {
-	DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
-	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
-	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
-} from "../../../connectDefaults";
-import { buildConnectSlugMap } from "../../../connectSlugs";
-import { buildXForm } from "../../../xform/builder";
-import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { inputFor } from "../../__tests__/novaExport";
 import {
 	closeAfterStructure,
 	readContext,
@@ -39,18 +14,13 @@ import { readApplication } from "../../appShell";
 import type { DraftForm, ReadContext } from "../../context";
 import { readHqApp } from "../../index";
 import { readStructure } from "../../structure";
-import { connectDefaultsUnset } from "../afterBinding";
 import { readForms } from "../index";
 import { XMLNS, xformSource } from "./formReading";
 
 const Q = (id: string) => `questions/${id}`;
 
 /** Reads an app of one menu whose forms' sources are given whole, each under its own xmlns. */
-async function readApp(sources: readonly string[]): Promise<{
-	readonly ctx: ReadContext;
-	readonly forms: readonly DraftForm[];
-	readonly findings: readonly Finding[];
-}> {
+function appBody(sources: readonly string[]) {
 	const xmlns = (index: number) => `${XMLNS}-${index}`;
 	const body = {
 		...retainedSourceBody("shell/app-source"),
@@ -75,7 +45,15 @@ async function readApp(sources: readonly string[]): Promise<{
 			]),
 		),
 	};
-	const ctx = readContext(readerInput(await sourceFromBody(body)));
+	return body;
+}
+
+async function readApp(sources: readonly string[]): Promise<{
+	readonly ctx: ReadContext;
+	readonly forms: readonly DraftForm[];
+	readonly findings: readonly Finding[];
+}> {
+	const ctx = readContext(readerInput(await sourceFromBody(appBody(sources))));
 	readApplication(ctx);
 	readStructure(ctx);
 	readForms(ctx);
@@ -167,232 +145,41 @@ const withBlocks = (...blocks: { data: string; binds: string }[]) =>
 		body: '<input ref="/data/q"/>',
 	});
 
-describe("the four blocks the emitter writes", () => {
-	it("read back into a learn form's slots, each calculate registered", async () => {
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Learn",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: "lesson_one",
-									name: "Lesson one",
-									description: "The first lesson",
-									time_estimate: 3,
-								},
-								assessment: { id: "lesson_quiz" },
-							},
-							fields: [f({ kind: "int", id: "score" })],
-						},
-					],
-				},
-			],
-		});
-		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		const source = buildXForm(doc, formUuid, {
-			xmlns: XMLNS,
-			connect: buildConnectSlugMap(doc).get(formUuid),
-		});
-		const { ctx, forms, findings } = await readApp([source]);
-		expect(connectCodes(findings)).toEqual([]);
-		// Read whole, every stage claims its share of the form: no finding of any kind.
-		const whole = readHqApp(await inputFor(exportedBody(doc)));
-		expect(whole.kind === "account" ? whole.findings : []).toEqual([]);
-		expect(whole.kind).toBe("read");
-		expect(ctx.draft.connectType).toBe("learn");
-		const form = forms[0];
-		expect(
-			form?.xform?.connectBlocks.map((block) => [block.block, block.id]),
-		).toEqual([
-			["learn_module", "lesson_one"],
-			["assessment", "lesson_quiz"],
+describe("readable activity shapes", () => {
+	it("keeps the four positioned activities and their original IDs across three forms", async () => {
+		const { ctx, forms, findings } = await readApp([
+			withBlocks(learnModule("lesson"), assessment("quiz")),
+			withBlocks(deliverUnit("visit")),
+			withBlocks(task("follow")),
 		]);
-		expect(form?.form.connect).toMatchObject({
-			learn_module: {
-				id: "lesson_one",
-				name: "Lesson one",
-				description: "The first lesson",
-				time_estimate: 3,
-			},
-			assessment: { id: "lesson_quiz" },
-		});
-		expect(
-			ctx.pending
-				.list()
-				.map((one) => [one.ref.entity, "slot" in one.ref ? one.ref.slot : ""]),
-		).toContainEqual(["form", "assessment_user_score"]);
-	});
-
-	it("read back into a deliver form's slots, and a task into its own form's", async () => {
-		const doc = buildDoc({
-			connectType: "deliver",
-			modules: [
-				{
-					name: "Deliver",
-					forms: [
-						{
-							name: "Visit",
-							type: "survey",
-							connect: { deliver_unit: { id: "visit", name: "Visit" } },
-							fields: [f({ kind: "text", id: "who" })],
-						},
-						{
-							name: "Follow up",
-							type: "survey",
-							connect: {
-								task: { id: "follow", name: "Follow up", description: "Again" },
-							},
-							fields: [f({ kind: "text", id: "how" })],
-						},
-					],
-				},
-			],
-		});
-		const slugs = buildConnectSlugMap(doc);
-		const sources = doc.formOrder[doc.moduleOrder[0]].map((formUuid) =>
-			buildXForm(doc, formUuid, { xmlns: XMLNS, connect: slugs.get(formUuid) }),
-		);
-		const { ctx, forms, findings } = await readApp(sources);
 		expect(connectCodes(findings)).toEqual([]);
-		const whole = readHqApp(await inputFor(exportedBody(doc)));
-		expect(whole.kind === "account" ? whole.findings : []).toEqual([]);
-		expect(whole.kind).toBe("read");
-		expect(ctx.draft.connectType).toBe("deliver");
-		expect(forms[0]?.form.connect).toMatchObject({
-			deliver_unit: { id: "visit", name: "Visit" },
-		});
-		expect(forms[1]?.form.connect).toEqual({
-			task: { id: "follow", name: "Follow up", description: "Again" },
-		});
-		const slots = ctx.pending
-			.list()
-			.map((one) => ("slot" in one.ref ? one.ref.slot : ""))
-			.filter((slot) => slot.startsWith("deliver_"));
-		expect(slots).toEqual(["deliver_entity_id", "deliver_entity_name"]);
-	});
-});
-
-describe("a slot the emitter fills from its default", () => {
-	/** Each form's Connect config, in menu and form order. */
-	const connectsOf = (doc: BlueprintDoc): unknown[] =>
-		doc.moduleOrder.flatMap((moduleUuid) =>
-			(doc.formOrder[moduleUuid] ?? []).map(
-				(formUuid) => doc.forms[formUuid]?.connect,
+		expect(ctx.draft.connectRoles).toEqual(["learn", "deliver"]);
+		expect(
+			forms.map((form) =>
+				form.xform?.connectBlocks.map(({ block, id }) => [block, id]),
 			),
-		);
-
-	/** The Connect config of each form of a whole reading of the document's export, held to the
-	 *  document with its defaults unset: that document prints the same bytes, and the reading
-	 *  returns its member. */
-	async function readConnect(doc: BlueprintDoc): Promise<unknown[]> {
-		const unset = connectDefaultsUnset(doc);
-		expect(JSON.stringify(exportedBody(unset))).toBe(
-			JSON.stringify(exportedBody(doc)),
-		);
-		expect(connectDefaultsUnset(unset)).toBe(unset);
-		const outcome = readHqApp(await inputFor(exportedBody(doc)));
-		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
-		if (outcome.kind !== "read") throw new Error("The export did not read.");
-		const read = connectsOf(outcome.draft.doc);
-		expect(read).toEqual(connectsOf(unset));
-		return read;
-	}
-
-	it("reads unset where the document left it unset or wrote the default, and keeps an authored value", async () => {
-		const score = (value: number): Expression => ({
-			kind: "term",
-			term: { kind: "literal", value },
-		});
-		const learn = (id: string, userScore: Expression | undefined) => ({
-			name: "Lesson",
-			type: "survey" as const,
-			connect: {
-				assessment: {
-					id,
-					...(userScore !== undefined && { user_score: userScore }),
-				},
-			},
-			fields: [f({ kind: "int", id: "points" })],
-		});
-		const learnDoc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Learn",
-					forms: [
-						learn("quiz_one", undefined),
-						learn("quiz_two", DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION),
-						learn("quiz_three", score(80)),
-					],
-				},
+		).toEqual([
+			[
+				["learn_module", "lesson"],
+				["assessment", "quiz"],
 			],
-		});
-		const [unset, defaulted, authored] = (await readConnect(
-			learnDoc,
-		)) as Record<string, Record<string, unknown>>[];
-		expect(unset?.assessment).toEqual({ id: "quiz_one" });
-		expect(defaulted?.assessment).toEqual({ id: "quiz_two" });
-		expect(authored?.assessment).toEqual({
-			id: "quiz_three",
-			user_score: score(80),
-		});
-
-		const shown: Expression = {
-			kind: "term",
-			term: { kind: "literal", value: "Visit" },
-		};
-		const deliver = (
-			id: string,
-			entities: { entity_id?: Expression; entity_name?: Expression } = {},
-		) => ({
-			name: "Visit",
-			type: "survey" as const,
-			connect: { deliver_unit: { id, name: "Visit", ...entities } },
-			fields: [f({ kind: "text", id: "who" })],
-		});
-		const deliverDoc = buildDoc({
-			connectType: "deliver",
-			modules: [
-				{ name: "One", forms: [deliver("visit_one")] },
-				{
-					name: "Two",
-					forms: [
-						deliver("visit_two", {
-							entity_id: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
-							entity_name: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
-						}),
-					],
-				},
-				{
-					name: "Three",
-					forms: [
-						deliver("visit_three", {
-							entity_id: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
-							entity_name: shown,
-						}),
-					],
-				},
-			],
-		});
-		const delivered = (await readConnect(deliverDoc)) as Record<
-			string,
-			Record<string, unknown>
-		>[];
-		expect(delivered.map((connect) => connect?.deliver_unit)).toEqual([
-			{ id: "visit_one", name: "Visit" },
-			{ id: "visit_two", name: "Visit" },
-			{ id: "visit_three", name: "Visit", entity_name: shown },
+			[["deliver_unit", "visit"]],
+			[["task", "follow"]],
 		]);
 	});
 });
 
 describe("each refusal row", () => {
 	const cases: readonly [string, string, string][] = [
+		[
+			"a fixed work area id, which a form editor save would clear",
+			withBlocks(
+				deliverUnit("visit", {
+					workAreaText: "3f2c0c1e-9a4b-4c8e-8d2f-5b7a1e6c9d01",
+				}),
+			),
+			Q("connect-value-that-the-editor-clears"),
+		],
 		[
 			"a learn module id over 50 characters",
 			withBlocks(learnModule(`m${"x".repeat(50)}`)),
@@ -404,24 +191,9 @@ describe("each refusal row", () => {
 			Q("a-connect-learn-module-or-task-id-longer-than-50-characters-or"),
 		],
 		[
-			"a deliver unit id of 51 to 100 characters",
-			withBlocks(deliverUnit(`d${"x".repeat(60)}`)),
-			Q("connect-blocks-beyond-one-of-each-kind"),
-		],
-		[
 			"an id the question id grammar refuses",
 			withBlocks(learnModule("XMLmodule")),
 			Q("question-id-failing-the-grammar-or-meta-in-any-case"),
-		],
-		[
-			"two assessments",
-			withBlocks(assessment("quiz_a"), assessment("quiz_b")),
-			Q("several-connect-assessment-blocks-in-one-form-or-one-inside-a"),
-		],
-		[
-			"two learn modules",
-			withBlocks(learnModule("first"), learnModule("second")),
-			Q("connect-blocks-beyond-one-of-each-kind"),
 		],
 		[
 			"a task id over 50 characters",
@@ -429,83 +201,48 @@ describe("each refusal row", () => {
 			Q("a-connect-learn-module-or-task-id-longer-than-50-characters-or"),
 		],
 		[
-			"an assessment id of 51 to 100 characters",
-			withBlocks(assessment(`a${"x".repeat(60)}`)),
-			Q("connect-blocks-beyond-one-of-each-kind"),
-		],
-		[
-			"a time estimate of 0",
-			withBlocks(learnModule("lesson", { estimate: "0" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
-		],
-		[
 			"a time estimate that is no whole number",
 			withBlocks(learnModule("lesson", { estimate: "2.5" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
+			Q("connect-estimate-outside-receiver-range"),
 		],
 		[
-			"a learn module inside a group",
-			nested("group", learnModule("lesson", { path: "/data/rows/lesson" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
+			"a Vellum work area update whose photo the HQ forwarder drops",
+			withBlocks({
+				data: `<area vellum:role="ConnectWorkAreaUpdate"><work_area_update ${CONNECT} id="area"><work_area_id/><status/><reason/><additional_details/><photo_evidence/></work_area_update></area>`,
+				binds: `<bind nodeset="/data/area"/>${["work_area_id", "status", "reason", "additional_details", "photo_evidence"].map((leaf) => `<bind nodeset="/data/area/work_area_update/${leaf}" calculate="'value'"/>`).join("")}`,
+			}),
+			Q("connect-work-area-update-photo-not-forwarded"),
 		],
 		[
-			"a learn module inside a repeat",
-			nested("repeat", learnModule("lesson", { path: "/data/rows/lesson" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
+			"an assessment whose score has no calculation",
+			withBlocks({
+				...assessment("quiz"),
+				binds: assessment("quiz").binds.replace(' calculate="100"', ""),
+			}),
+			Q("connect-assessment-without-score"),
 		],
 		[
-			"a deliver unit inside a group",
-			nested("group", deliverUnit("visit", { path: "/data/rows/visit" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
+			"a lesson with no description, which Connect cannot store",
+			withBlocks(learnModule("lesson", { description: "" })),
+			Q("connect-estimate-outside-receiver-range"),
 		],
 		[
-			"a deliver unit inside a repeat",
-			nested("repeat", deliverUnit("visit", { path: "/data/rows/visit" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
+			"a lesson with no name",
+			withBlocks(learnModule("lesson", { name: "" })),
+			Q("connect-estimate-outside-receiver-range"),
 		],
 		[
-			"a task inside a group",
-			nested("group", task("follow", { path: "/data/rows/follow" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
+			"a lesson whose hours exceed Connect's storage",
+			withBlocks(learnModule("lesson", { estimate: "2147483648" })),
+			Q("connect-estimate-outside-receiver-range"),
 		],
 		[
-			"a task inside a repeat",
-			nested("repeat", task("follow", { path: "/data/rows/follow" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
-		],
-		[
-			"an assessment inside a group",
-			nested("group", assessment("quiz", "/data/rows/quiz")),
-			Q("connect-blocks-beyond-one-of-each-kind"),
-		],
-		[
-			"a condition on a block",
-			withBlocks(deliverUnit("visit", { relevant: "/data/q = 'x'" })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
-		],
-		[
-			"an entity id with no calculate",
-			withBlocks(deliverUnit("visit", { entityCalculate: false })),
-			Q("connect-blocks-beyond-one-of-each-kind"),
-		],
-		[
-			"a work area id expression",
-			withBlocks(deliverUnit("visit", { workArea: "/data/q" })),
-			Q("connect-deliver-unit-work-area-id-expression"),
-		],
-		[
-			"a fixed work area id, which Connect files the visit under",
-			withBlocks(
-				deliverUnit("visit", {
-					workAreaText: "3f2c0c1e-9a4b-4c8e-8d2f-5b7a1e6c9d01",
-				}),
-			),
-			Q("connect-deliver-unit-work-area-id-expression"),
-		],
-		[
-			"a deliver unit and a task in one form",
-			withBlocks(deliverUnit("visit"), task("follow")),
-			Q("connect-deliver-unit-and-task-in-one-form"),
+			"a work area request whose photo uses a different namespace than the one Vellum writes",
+			withBlocks({
+				data: `<area vellum:role="ConnectWorkAreaUpdate"><work_area_update ${CONNECT} id="area"><work_area_id/><status/><reason/><additional_details/><photo_evidence xmlns="urn:other"/></work_area_update></area>`,
+				binds: '<bind nodeset="/data/area"/>',
+			}),
+			Q("connect-work-area-update"),
 		],
 		[
 			"a work area update",
@@ -521,38 +258,101 @@ describe("each refusal row", () => {
 		expect(connectCodes(findings)).toEqual([entry]);
 	});
 
-	it("refuses two assessments whole, each bind's calculate under the one finding", async () => {
-		const { findings } = await readApp([
-			withBlocks(assessment("quiz_a"), assessment("quiz_b")),
-		]);
-		// The form's own places: the menu's keys are a later stage's, which this reading stops before.
+	it("refuses a work area update whole, with the expressions its leaves' binds hold", async () => {
+		const [, source] = cases.find(([name]) =>
+			name.startsWith("a Vellum work area update"),
+		) ?? [undefined, undefined];
+		if (source === undefined) throw new Error("Missing the work area case.");
+		const { findings } = await readApp([source]);
+		// Nothing of the form is left unrecognized: the update's binds stand
+		// under its refusal.
 		expect(
 			findings
-				.filter(
-					(finding) =>
-						finding.place.kind === "form" || finding.place.kind === "question",
-				)
-				.map((finding) => [finding.code, finding.detail.name]),
-		).toEqual([
-			[
-				Q("several-connect-assessment-blocks-in-one-form-or-one-inside-a"),
-				undefined,
-			],
-		]);
+				.filter((finding) => finding.place.kind !== "menu")
+				.map((finding) => finding.code),
+		).toEqual([Q("connect-work-area-update-photo-not-forwarded")]);
 	});
 
-	it("refuses an assessment inside a repeat", async () => {
-		const block = assessment("quiz", "/data/rows/quiz");
-		const source = xformSource({
-			data: `<rows jr:template=""><answer/>${block.data}</rows>`,
-			model: `<bind nodeset="/data/rows/answer" type="xsd:string"/>${block.binds}`,
-			body: '<group><repeat nodeset="/data/rows"><input ref="/data/rows/answer"/></repeat></group>',
-		});
-		const { findings } = await readApp([source]);
-		expect(connectCodes(findings)).toContain(
-			Q("several-connect-assessment-blocks-in-one-form-or-one-inside-a"),
-		);
-	});
+	const shapes: readonly [string, string][] = [
+		[
+			"a fixed ID expressed by the work area calculation",
+			withBlocks(
+				deliverUnit("visit", {
+					workArea: "'3f2c0c1e-9a4b-4c8e-8d2f-5b7a1e6c9d01'",
+				}),
+			),
+		],
+
+		[
+			"a deliver unit id of 51 to 100 characters",
+			withBlocks(deliverUnit(`d${"x".repeat(60)}`)),
+		],
+		["two assessments", withBlocks(assessment("quiz_a"), assessment("quiz_b"))],
+		[
+			"two learn modules",
+			withBlocks(learnModule("first"), learnModule("second")),
+		],
+		[
+			"an assessment id of 51 to 100 characters",
+			withBlocks(assessment(`a${"x".repeat(60)}`)),
+		],
+		[
+			"a time estimate of 0",
+			withBlocks(learnModule("lesson", { estimate: "0" })),
+		],
+		[
+			"a learn module inside a group",
+			nested("group", learnModule("lesson", { path: "/data/rows/lesson" })),
+		],
+		[
+			"a learn module inside a repeat",
+			nested("repeat", learnModule("lesson", { path: "/data/rows/lesson" })),
+		],
+		[
+			"a deliver unit inside a group",
+			nested("group", deliverUnit("visit", { path: "/data/rows/visit" })),
+		],
+		[
+			"a deliver unit inside a repeat",
+			nested("repeat", deliverUnit("visit", { path: "/data/rows/visit" })),
+		],
+		[
+			"a task inside a group",
+			nested("group", task("follow", { path: "/data/rows/follow" })),
+		],
+		[
+			"a task inside a repeat",
+			nested("repeat", task("follow", { path: "/data/rows/follow" })),
+		],
+		[
+			"an assessment inside a group",
+			nested("group", assessment("quiz", "/data/rows/quiz")),
+		],
+		[
+			"a condition on a block",
+			withBlocks(deliverUnit("visit", { relevant: "/data/q = 'x'" })),
+		],
+		[
+			"an entity id with no calculate",
+			withBlocks(deliverUnit("visit", { entityCalculate: false })),
+		],
+		[
+			"a work area id expression",
+			withBlocks(deliverUnit("visit", { workArea: "/data/q" })),
+		],
+		[
+			"a deliver unit and a task in one form",
+			withBlocks(deliverUnit("visit"), task("follow")),
+		],
+	];
+	it.each(shapes)(
+		"reads the editor shape for %s before resolving row multiplicity",
+		async (_, source) => {
+			const { forms, findings } = await readApp([source]);
+			expect(connectCodes(findings)).toEqual([]);
+			expect(forms[0]?.xform?.connectBlocks.length).toBeGreaterThan(0);
+		},
+	);
 
 	it("reads a learn module whose description holds instance('casedb') to the one finding", async () => {
 		const { forms, findings } = await readApp([
@@ -616,35 +416,15 @@ describe("each refusal row", () => {
 		},
 	);
 
-	it("refuses a fixed work area id whole, with no deliver unit held and nothing left unclaimed", async () => {
-		const { forms, findings } = await readApp([
-			withBlocks(
-				deliverUnit("visit", {
-					workAreaText: "3f2c0c1e-9a4b-4c8e-8d2f-5b7a1e6c9d01",
-				}),
-			),
-		]);
-		// The form's own places: the menu's keys are a later stage's, which this reading stops before.
-		expect(
-			findings
-				.filter(
-					(finding) =>
-						finding.place.kind === "form" || finding.place.kind === "question",
-				)
-				.map((finding) => finding.code),
-		).toEqual([Q("connect-deliver-unit-work-area-id-expression")]);
-		expect(forms[0]?.xform?.connectBlocks).toEqual([]);
-	});
-
-	// The block the emitter writes for the slots read is held only where it is the stored block
-	// whole: anything else the stored block holds is left unclaimed, whatever the slots read.
 	it.each([
 		[
 			"an attribute on a leaf",
+			"unrecognized",
 			(data: string) => data.replace("<name>", '<name lang="fr">'),
 		],
 		[
 			"an attribute on the wrapper",
+			"unrecognized",
 			(data: string) =>
 				data.replace(
 					'vellum:role="ConnectDeliverUnit"',
@@ -653,52 +433,79 @@ describe("each refusal row", () => {
 		],
 		[
 			"text under a calculated leaf",
+			Q("connect-value-that-the-editor-clears"),
 			(data: string) =>
 				data.replace("<entity_id/>", "<entity_id>fixed</entity_id>"),
 		],
-	])("leaves a deliver unit holding %s unclaimed", async (_, edit) => {
+	])("leaves a deliver unit holding %s unclaimed", async (_, code, edit) => {
 		const block = deliverUnit("visit");
 		const { forms, findings } = await readApp([
 			withBlocks({ ...block, data: edit(block.data) }),
 		]);
-		expect(findings.map((finding) => finding.code)).toContain("unrecognized");
+		expect(findings.map((finding) => finding.code)).toContain(code);
 		expect(forms[0]?.xform?.connectBlocks).toEqual([]);
 	});
 
-	it("leaves a block whose wrapper is not named for its id unclaimed", async () => {
+	it("locates a receiver ID that a form editor save would change", async () => {
 		const block = learnModule("lesson");
-		const { findings } = await readApp([
-			withBlocks({
-				...block,
-				data: block.data.replace('id="lesson"', 'id="other"'),
-			}),
+		const read = readHqApp(
+			await inputFor(
+				appBody([
+					withBlocks({
+						...block,
+						data: block.data.replace('id="lesson"', 'id="other"'),
+					}),
+				]),
+			),
+		);
+		expect(read.defects).toEqual([]);
+		const findings = read.kind === "account" ? read.findings : [];
+		expect(
+			findings.filter((finding) => finding.code.includes("connect")),
+		).toMatchObject([
+			{
+				code: Q("connect-unit-id-changed-by-form-editor"),
+				place: { kind: "question", path: "lesson" },
+				detail: { name: "other" },
+			},
 		]);
-		expect(findings.map((finding) => finding.code)).toContain("unrecognized");
+		expect(
+			findings.filter((finding) => finding.code === "unrecognized"),
+		).toEqual([]);
 	});
 });
 
-describe("an app of both kinds", () => {
-	it("is the one finding at the app, its document taking the first block's kind", async () => {
-		const { ctx, forms, findings } = await readApp([
-			withBlocks(learnModule("lesson")),
-			withBlocks(deliverUnit("visit")),
-		]);
-		expect(
-			findings
-				.filter((finding) => finding.code.includes("connect"))
-				.map((finding) => [finding.code, finding.place.kind]),
-		).toEqual([[Q("connect-learn-and-deliver-blocks-in-one-app"), "app"]]);
-		expect(
-			findings.filter(
-				(finding) =>
-					finding.code === "unrecognized" &&
-					(finding.place.kind === "form" || finding.place.kind === "app"),
-			),
-		).toEqual([]);
-		expect(ctx.draft.connectType).toBe("learn");
-		expect(forms[0]?.form.connect).toMatchObject({
-			learn_module: { id: "lesson" },
-		});
-		expect(forms[1]?.form.connect).toBeUndefined();
-	});
+describe("worker submission collisions after expression binding", () => {
+	it.each([
+		[
+			"two assessments",
+			withBlocks(assessment("quiz_a"), assessment("quiz_b")),
+			"several-connect-assessment-blocks-in-one-form-or-one-inside-a",
+		],
+		[
+			"an assessment in an open repeat",
+			nested("repeat", assessment("quiz", "/data/rows/quiz")),
+			"several-connect-assessment-blocks-in-one-form-or-one-inside-a",
+		],
+		[
+			"a learning module in an open repeat",
+			nested("repeat", learnModule("lesson", { path: "/data/rows/lesson" })),
+			"connect-repeats-module-completion-key",
+		],
+		[
+			"a delivery and assigned task",
+			withBlocks(deliverUnit("visit"), task("follow")),
+			"connect-deliver-unit-and-task-in-one-form",
+		],
+	] as const)(
+		"locates %s in the source question tree",
+		async (_, source, entry) => {
+			const read = readHqApp(await inputFor(appBody([source])));
+			expect(
+				read.kind === "account"
+					? read.findings.map((finding) => [finding.code, finding.place.kind])
+					: [],
+			).toContainEqual([Q(entry), "question"]);
+		},
+	);
 });

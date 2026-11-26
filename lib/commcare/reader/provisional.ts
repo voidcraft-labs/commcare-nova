@@ -265,7 +265,7 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 	const doc: PersistableDoc = {
 		appId: input.appId,
 		appName: draft.appName?.value ?? "",
-		connectType: draft.connectType,
+		connectRoles: draft.connectRoles,
 		caseTypes: draft.caseTypes,
 		...(draft.localization === undefined
 			? {}

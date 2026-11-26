@@ -43,6 +43,13 @@ export interface ReservedNames {
 	readonly exact: ReadonlySet<string>;
 }
 
+/** Bare element names used by the form designer to find its own XML elements. */
+export const FORM_SOURCE_READER_NAMES: ReadonlySet<string> = new Set([
+	"instance",
+	"bind",
+	"parsererror",
+]);
+
 /**
  * The names no question, group, repeat, section or Connect block may take.
  * The pins are kept by the controls `targeted-reserved-node-names` and
@@ -52,8 +59,8 @@ export interface ReservedNames {
  * reviewed change.
  */
 export const RESERVED_QUESTION_IDS: ReservedNames = {
-	anyCase: new Set(["meta", "case", "registration", "script"]),
-	exact: new Set(["instance", "bind", "parsererror"]),
+	anyCase: new Set(["meta", "case"]),
+	exact: FORM_SOURCE_READER_NAMES,
 };
 
 /** The names CommCare Connect's receiver keeps for itself, exact. */

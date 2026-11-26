@@ -31,7 +31,10 @@ import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { SavedCheck } from "@/components/builder/EditableTitle";
-import { InspectorSection } from "@/components/builder/inspector/inspectorChrome";
+import {
+	InspectorSection,
+	ToggleRow,
+} from "@/components/builder/inspector/inspectorChrome";
 import {
 	REJECTION_SURFACE_CLS,
 	RejectionBody,
@@ -58,12 +61,14 @@ import {
 	type FieldKind,
 	fieldRegistry,
 	getConvertibleTypes,
+	isContainer,
 } from "@/lib/domain";
 import {
 	featureForFieldKind,
 	platformPickerLine,
 	platformRefusal,
 } from "@/lib/domain/platforms";
+import { submitsWithoutQuestion } from "@/lib/domain/submissionLayout";
 import { shortcutLabel } from "@/lib/platform";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import {
@@ -87,6 +92,7 @@ import {
 	ConvertImpactDialog,
 	type ConvertImpactRequest,
 } from "./ConvertImpactDialog";
+import { FieldPlacementDialog } from "./FieldPlacementDialog";
 import { classifyRenameOutcome } from "./renameOutcome";
 
 interface FieldIdentitySectionProps {
@@ -153,6 +159,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 
 	const {
 		moveField,
+		updateField,
 		duplicateField,
 		convertField,
 		splitDatetimeQuestion,
@@ -185,6 +192,9 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	};
 	/* A conversion the plan flags as failable (`dataLossRisk`) waits here
 	 * for the consent dialog; everything else dispatches directly. */
+	const [placement, setPlacement] = useState<"screen" | "submission" | null>(
+		null,
+	);
 	const [pendingConvert, setPendingConvert] =
 		useState<ConvertImpactRequest | null>(null);
 
@@ -632,6 +642,24 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 										</SimpleTooltip>
 									)}
 
+									{/* A question's answer can stand under another group than the
+									    question: values with no question, and groups, stand where
+									    they stand on screen (`submissionLayout`). */}
+									{!submitsWithoutQuestion(field.kind) &&
+										!isContainer(field) && (
+											<>
+												<MenuItem
+													icon={tablerArrowsExchange}
+													label="Place question on screen"
+													onClick={() => setPlacement("screen")}
+												/>
+												<MenuItem
+													icon={tablerArrowsExchange}
+													label="Place submitted answer"
+													onClick={() => setPlacement("submission")}
+												/>
+											</>
+										)}
 									{/* Duplicate */}
 									<MenuItem
 										icon={tablerCopyPlus}
@@ -646,6 +674,14 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 				)}
 			</div>
 
+			{canEdit && formUuid !== undefined && placement !== null && (
+				<FieldPlacementDialog
+					form={asUuid(formUuid)}
+					field={field}
+					where={placement}
+					close={() => setPlacement(null)}
+				/>
+			)}
 			{appId !== undefined && (
 				<ConvertImpactDialog
 					appId={appId}
@@ -657,6 +693,19 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 					}}
 				/>
 			)}
+			<ToggleRow
+				label="Lock this question in CommCare HQ"
+				description="In the HQ form designer, this question can then be changed only by someone who can edit locked questions. Nova Project editors can still change it here."
+				checked={field.lockedInHq === true}
+				disabledReason={
+					canEdit
+						? undefined
+						: "View only. Ask a Project admin for edit access."
+				}
+				onChange={(next) =>
+					updateField(field.uuid, field.kind, { lockedInHq: next || null })
+				}
+			/>
 		</InspectorSection>
 	);
 }

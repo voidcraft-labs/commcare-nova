@@ -76,8 +76,8 @@ final class Answers {
      * records it (/data/items[1]/item[2]/choice[1]), else under its generic reference (/data/items/item/choice,
      * one entry for every row); null where the map names neither. A single value is a list of one.
      */
-    private static JSONArray named(FormEntryPrompt prompt) {
-        JSONObject questions = table.optJSONObject("questions");
+    static JSONArray named(FormEntryPrompt prompt) {
+        JSONObject questions = table == null ? null : table.optJSONObject("questions");
         if (questions == null) {
             return null;
         }

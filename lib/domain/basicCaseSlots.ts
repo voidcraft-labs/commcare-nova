@@ -28,7 +28,6 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import { caseWriteValueField } from "./caseWriteViews";
-import { formConnectIds } from "./connectIds";
 import type { Expression } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
 import { type Field, isCaptureField, isContainer } from "./fields";
@@ -53,6 +52,7 @@ import type {
 	SaveToCasePlacement,
 } from "./placements";
 import { isDeeplySettled, isSettled } from "./settled";
+import { submissionLayout } from "./submissionLayout";
 import type { Uuid } from "./uuid";
 
 // ── The form's facts ────────────────────────────────────────────────────
@@ -82,6 +82,7 @@ export interface CaseSlotFacts {
 	readonly closesOwn: boolean;
 	/** The repeat each field of the form stands in, innermost first; absent
 	 *  for a field in no repeat. A repeat's own entry is its parent's. */
+	readonly submittedChildren: ReadonlyMap<Uuid, readonly Uuid[]>;
 	readonly repeatOf: ReadonlyMap<Uuid, Uuid | undefined>;
 	readonly moduleCaseTypes: ReadonlySet<string>;
 }
@@ -136,9 +137,14 @@ export function caseSlotFacts(
 	const moduleUuid = owningModule(doc, formUuid);
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	const operations = orderedCaseOperations(form);
+	const submittedChildren = submissionLayout(
+		formUuid,
+		doc.fields,
+		doc.fieldOrder,
+	).children;
 	const repeatOf = new Map<Uuid, Uuid | undefined>();
 	const walk = (parent: Uuid, repeat: Uuid | undefined): void => {
-		for (const uuid of doc.fieldOrder[parent] ?? []) {
+		for (const uuid of submittedChildren.get(parent) ?? []) {
 			const field = doc.fields[uuid];
 			if (field === undefined) continue;
 			repeatOf.set(uuid, repeat);
@@ -162,6 +168,7 @@ export function caseSlotFacts(
 		closesOwn:
 			form.type === "close" ||
 			(form.type === "registration" && form.closeCondition !== undefined),
+		submittedChildren,
 		repeatOf,
 		moduleCaseTypes: moduleCaseTypesOf(doc.modules),
 	};
@@ -202,9 +209,9 @@ export function appendedNameTaken(
 	name: string,
 	repeat: Uuid | undefined,
 ): boolean {
-	for (const uuid of f.doc.fieldOrder[repeat ?? f.formUuid] ?? [])
+	for (const uuid of f.submittedChildren.get(repeat ?? f.formUuid) ?? [])
 		if (f.doc.fields[uuid]?.id === name) return true;
-	return repeat === undefined && formConnectIds(f.doc, f.formUuid).has(name);
+	return false;
 }
 
 // ── Values and conditions ───────────────────────────────────────────────

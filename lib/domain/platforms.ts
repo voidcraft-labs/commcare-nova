@@ -218,6 +218,8 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
+	"answer-name-requires-android",
+	"web-apps-form-behavior",
 	"case-list-here",
 	"worker-distance",
 	"sort-by-distance",
@@ -235,6 +237,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"location-question",
 	"barcode-question",
 	"image-question",
+	"image-size",
 	"audio-question",
 	"video-question",
 	"question-pages",
@@ -246,6 +249,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"label-inline-video",
 	"label-qr-code",
 	"label-spoken-text",
+	"row-starting-value",
+	"confirm-message",
 	"now",
 	"today",
 	"random-and-unique-id",
@@ -304,6 +309,7 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 /** The features a declaration can refuse, in `PLATFORM_FEATURE_IDS` order. */
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
+	"answer-name-requires-android",
 	"case-list-here",
 	"worker-distance",
 	"sort-by-distance",
@@ -324,6 +330,21 @@ export type RefusablePlatformFeatureId =
 export const PLATFORM_FEATURES: Readonly<
 	Record<PlatformFeatureId, PlatformFeature>
 > = {
+	"answer-name-requires-android": {
+		label: "Answer names reserved in Web Apps",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "it would read this answer as an instruction",
+			remedy: "Give the answer a different ID.",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "has an answer ID reserved in Web Apps",
+			why: "Web Apps would read this answer as an instruction when the worker submits the form.",
+			alternative: "give the answer a different ID",
+		},
+	},
 	"datetime-question": {
 		label: "Date and time questions",
 		channel: "structure",
@@ -341,6 +362,15 @@ export const PLATFORM_FEATURES: Readonly<
 			alternative: "ask for a date question and a time question instead",
 			pickerLine:
 				"Not available in Web Apps. You can ask for a date and a time as two questions, or change where this app runs in App settings.",
+		},
+	},
+	"web-apps-form-behavior": {
+		label: "Form behavior in Web Apps",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "the form opens and submits as any other form",
 		},
 	},
 	"case-list-here": {
@@ -525,7 +555,7 @@ export const PLATFORM_FEATURES: Readonly<
 			why: "Connect workers open it only in the Connect app on Android: CommCare HQ gives them no password, so they can't sign in to Web Apps.",
 			alternative: "turn Connect off",
 			closing:
-				'You can set the app to run only on Android (updateApp/update_app, runs_only_on "android"), or turn Connect off (configureConnect/configure_connect, mode null).',
+				'You can set the app to run only on Android (updateApp/update_app, runs_only_on "android"), or remove the Connect activities and clear the app’s roles (configureConnect/configure_connect, roles []).',
 			pickerLine:
 				"Not available for a Connect app. You can turn off Connect, then choose this.",
 		},
@@ -595,6 +625,15 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "runs",
 			note: "the worker takes a picture with the camera or chooses one, up to 15 MB",
+		},
+	},
+	"image-size": {
+		label: "Photo size",
+		channel: "structure",
+		webApps: { reading: "ignored", note: "the original file is sent" },
+		android: {
+			reading: "runs",
+			note: "larger JPEG and PNG photos are resized before sending",
 		},
 	},
 	"audio-question": {
@@ -698,6 +737,44 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "different",
 			note: "the speaker button shows only when the question has no audio",
+		},
+	},
+	/**
+	 * A Hidden Value in a repeat that holds both a starting value and a
+	 * calculation. The row's insertion sets the starting value, and Core runs
+	 * the row's calculations without the ones that insertion already
+	 * triggered (`FormDef.java::createNewRepeat`, `initTriggerablesRootedBy`).
+	 * Formplayer loads the form again on each request and runs every
+	 * calculation (`FormSession.initialize`); Android keeps the value until
+	 * the calculation runs again (`FormEntryActivity.saveAnswersForCurrentScreen`).
+	 */
+	"row-starting-value": {
+		label: "Starting value beside a calculation in a repeat",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note:
+				"the worker's next answer works out the calculation again, so the " +
+				"starting value is gone before the form is sent",
+		},
+		android: {
+			reading: "runs",
+			note:
+				"the starting value stays, and is sent, until the calculation runs " +
+				"again: when something it reads changes, or a screen holding an " +
+				"answer is saved",
+		},
+	},
+	"confirm-message": {
+		label: "Message confirmation",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the message is confirmed when the worker submits the form",
+		},
+		android: {
+			reading: "runs",
+			note: "the worker can check the box to confirm",
 		},
 	},
 	now: {
