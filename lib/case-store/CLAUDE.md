@@ -92,6 +92,14 @@ With no live entries the transaction skips the lookup and still checks the signe
 opening.
 App Tests supplies the corresponding snapshot from its server-held journey state.
 
+A basic single-case follow-up can write through a declared parent and then a
+literal user index. The program retains the typed route even when no routed
+answer participates. Both retained endpoint IDs and their current case types
+are authorized and locked before applying any effect. An empty routed update
+advances the reached record's timestamp and preserves its properties. A
+present blank removes the written property. Current link edits do not choose a
+different record for the opened form.
+
 Arithmetic operands are explicitly cast to `numeric`, including bound form answers, so PostgreSQL cannot select a text operator such as pg_trgm `%`. Declared integer division uses `trunc` to preserve the domain's truncation toward zero without imposing an int4/int8 limit on intermediate expressions. The committed form supplies `formFieldTypes` with its operation program; expressions retain the current case scope and lookup-column definitions. Native numeric precision and zero-division errors remain PostgreSQL behavior, independently of Core's floating-point runtime.
 
 Every `applySubmission` transaction first claims the

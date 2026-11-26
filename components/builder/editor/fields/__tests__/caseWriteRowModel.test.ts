@@ -10,6 +10,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { parentUserWriteFixture } from "@/lib/__tests__/parentUserWriteFixture";
 import { formCasePlacementView } from "@/lib/doc/casePlacements";
 import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -548,6 +549,64 @@ function committed(doc: BlueprintDoc, mutations: readonly unknown[]) {
 }
 
 describe("the cases above it", () => {
+	it("offers the declared parent then user route through the Builder gate", () => {
+		const { doc, form, note, via } = parentUserWriteFixture(undefined, false);
+		const placement = formCasePlacementView(doc, form).own?.placement.kind;
+		expect(placement).toBe("basic");
+		const choices = ancestorCaseWriteChoices(
+			doc.caseTypes ?? [],
+			"person",
+			"followup",
+			placement === "basic",
+		);
+		expect(choices).toContainEqual({
+			caseType: "household",
+			via,
+			label: "household (parent, then user)",
+		});
+		const verdict = caseWriteChoiceVerdict(
+			doc,
+			note,
+			{
+				destination: { caseType: "household", property: "linked_note", via },
+			},
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(verdict.reason);
+		const saved = committed(doc, verdict.mutations);
+		expect(rowWith(saved, note).destination).toBe(
+			"Household linked through parent, then user · Linked note",
+		);
+
+		const ambiguous = produce(doc, (draft) => {
+			draft.caseTypes
+				?.find(({ name }) => name === "family")
+				?.relations?.push({
+					identifier: "user",
+					targetType: "person",
+					relationship: "child",
+				});
+		});
+		expect(
+			ancestorCaseWriteChoices(
+				ambiguous.caseTypes ?? [],
+				"person",
+				"followup",
+				true,
+			),
+		).not.toContainEqual(expect.objectContaining({ via }));
+		expect(
+			caseWriteChoiceVerdict(
+				ambiguous,
+				note,
+				{
+					destination: { caseType: "household", property: "linked_note", via },
+				},
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
+	});
+
 	it("lists one choice per chain of links, walking an extension as parent and as host", () => {
 		const doc = aboveFixture("followup");
 		const choices = ancestorCaseWriteChoices(

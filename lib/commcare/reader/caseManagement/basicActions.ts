@@ -1570,6 +1570,40 @@ function readUpdateMap(
 	}
 	const values = parent.map("update", "ConditionalCaseUpdate", mapClaim);
 	const loads = r.type === "followup" || r.type === "close";
+	const parentUserPath = (indices: readonly string[]) =>
+		indices.length === 2 && indices[0] === "parent" && indices[1] === "user";
+	let supportsParentUserRoute: boolean | undefined;
+	const parentUserScope = (): boolean => {
+		const actions = r.form.json.peek("actions");
+		const active = isJsonObject(actions)
+			? activeActions(actions, "case")
+			: undefined;
+		const formId = r.form.json.peek("unique_id");
+		return (
+			r.type === "followup" &&
+			!active?.has("subcases") &&
+			!active?.has("usercase_update") &&
+			(r.form.xform?.saveToCaseBlocks.length ?? 0) === 0 &&
+			(r.module.module.caseListConfig?.additionalCaseTypes?.length ?? 0) ===
+				0 &&
+			!isMultiSelectMenu({
+				case_details: r.module.json.peek("case_details"),
+				search_config: r.module.json.peek("search_config"),
+			}) &&
+			[...values.keys()].every(
+				(key) =>
+					!key.includes("/") || parentUserPath(key.split("/").slice(0, -1)),
+			) &&
+			!(
+				typeof formId === "string" &&
+				r.ctx.draft.modules.some((module) =>
+					module.forms.some(
+						(form) => form.json.peek("shadow_parent_form_id") === formId,
+					),
+				)
+			)
+		);
+	};
 	for (const [key, cursor] of values) {
 		if (slot === "usercase") {
 			if (key.includes("/")) {
@@ -1589,10 +1623,12 @@ function readUpdateMap(
 		const property = segments[segments.length - 1] as string;
 		const indices = segments.slice(0, -1);
 		const directUserIndex = indices.length === 1 && indices[0] === "user";
+		const parentUserIndex = parentUserPath(indices);
+		const typedUserPath = directUserIndex || parentUserIndex;
 		let via: CaseWriteVia | undefined;
 		if (slot === "own" && indices.length > 0) {
 			const known =
-				directUserIndex ||
+				typedUserPath ||
 				indices.every((segment) => segment === "parent" || segment === "host");
 			if (!known) {
 				const users = indices.every(
@@ -1613,12 +1649,17 @@ function readUpdateMap(
 			const steps = ancestorSteps(r.ctx, r.caseType, indices);
 			if (
 				steps === undefined ||
-				(directUserIndex &&
-					steps.types.some((type) => RESERVED_CASE_OPERATION_TYPES.has(type)))
+				(typedUserPath &&
+					steps.types.some((type) =>
+						RESERVED_CASE_OPERATION_TYPES.has(type),
+					)) ||
+				(parentUserIndex &&
+					(!(supportsParentUserRoute ??= parentUserScope()) ||
+						new Set(steps.types).size !== steps.types.length))
 			) {
 				refuseEntry(
 					cursor,
-					directUserIndex ? BASIC_CLAIMS.viaUser : BASIC_CLAIMS.ancestorUnknown,
+					typedUserPath ? BASIC_CLAIMS.viaUser : BASIC_CLAIMS.ancestorUnknown,
 					key,
 				);
 				continue;
@@ -1684,7 +1725,7 @@ function readUpdateMap(
 		// The rows the own case's `update` names by its key: a key through the
 		// cases above the loaded one is its own row's.
 		const keyClaim =
-			directUserIndex && via !== undefined
+			typedUserPath && via !== undefined
 				? BASIC_CLAIMS.viaUserHeld
 				: viaFacet
 					? BASIC_CLAIMS.viaFacet

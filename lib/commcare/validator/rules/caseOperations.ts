@@ -59,6 +59,7 @@ import {
 	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
 	isFacetWriteThroughIndex,
+	isParentUserWritePath,
 	isReservedCaseOperationWrite,
 	isWritableStandardCaseProperty,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
@@ -69,6 +70,7 @@ import {
 	operationTarget,
 	orderedCaseOperations,
 	ownCaseOperationHasEffects,
+	parentUserWriteCaseTypes,
 	placementIneligibilitySentence,
 	planCaseRetype,
 	prepareCaseScalarTextValue,
@@ -1467,6 +1469,37 @@ function validateVia(
 			"Only this form's own case can save to the case above it. You can add a case change that updates that case instead.",
 		);
 	const directUserIndex = via.length === 1 && via[0].identifier === "user";
+	if (isParentUserWritePath(via)) {
+		const types = parentUserWriteCaseTypes(via, origin, ctx.caseTypes);
+		if (!types)
+			return refuse(
+				"unresolved",
+				"Saving through this path needs a different ordinary case type for each step, with one declared record type at each link.",
+			);
+		const placement = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+			operation.uuid,
+		)?.placement;
+		if (
+			ctx.form.type !== "followup" ||
+			ctx.form.caseSelections !== undefined ||
+			caseSelectionCardinality(ctx.module) === "multiple" ||
+			(ctx.module.caseListConfig?.additionalCaseTypes?.length ?? 0) > 0 ||
+			placement?.kind !== "basic" ||
+			orderedCaseOperations(ctx.form).some((other) => other.action !== "own") ||
+			(operation.links?.length ?? 0) > 0 ||
+			operation.writes?.some(
+				(other) => other.via !== undefined && !isParentUserWritePath(other.via),
+			) ||
+			Object.values(ctx.doc.forms).some(
+				(form) => form.shadowOf?.form === ctx.formUuid,
+			)
+		)
+			return refuse(
+				"placement",
+				"Save through this path on a basic follow-up that opens one case and uses a single linked update path.",
+			);
+		return types[1];
+	}
 	const step = via.find(
 		(candidate) =>
 			candidate.identifier !== "parent" &&

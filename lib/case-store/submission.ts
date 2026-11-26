@@ -154,6 +154,11 @@ export interface EnvelopeCaseOperation {
 	 * type's declared property.
 	 */
 	readonly viaCaseTypes?: ReadonlyMap<number, string>;
+	/** The required basic parent/user block persists even without a relevant leaf. */
+	readonly parentUserCaseTypes?: readonly [
+		intermediate: string,
+		terminal: string,
+	];
 }
 
 /**

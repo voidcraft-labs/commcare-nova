@@ -313,6 +313,12 @@ becomes the case's external ID once the device next syncs. The worker's own
 record keeps its `hq_user_id` in step with the worker, so a form can't save it
 there.
 
+A basic follow-up that opens one case can save to a record linked through its
+parent when both links have a single declared case type and all three types
+are different. The `user` link is a connection between cases. Both linked
+cases need to exist to submit the form. An irrelevant question leaves the
+property unchanged, and a visible blank answer clears it.
+
 When a value's condition is false, that property stays as it was. Preview skips
 the value's calculation, so unanswered inputs used only by that skipped value
 do not block submission.
