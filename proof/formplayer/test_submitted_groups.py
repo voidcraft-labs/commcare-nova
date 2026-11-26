@@ -32,7 +32,7 @@ def test_formplayer_submits_answers_under_their_data_groups(
     evidence("household", {"screen": form["tree"], "submission": submission.instance.decode()})
     root = etree.fromstring(submission.instance)
     assert [etree.QName(node).localname for node in root if etree.QName(node).localname != "meta"] == [
-        "arrival", "visit_note", "next", "household"
+        "arrival", "next", "household", "visit_note"
     ]
     assert root.findtext("{*}arrival") == "Jo"
     assert root.findtext("{*}household/{*}name") == "Chen"
@@ -56,6 +56,6 @@ def test_crossed_control_and_data_relevance_in_formplayer(
                 submission, = served.hq.submissions[start:]
                 evidence("crossed-relevance", {"screen": form["tree"], "submission": submission.instance.decode()})
                 root = etree.fromstring(submission.instance)
-                assert root.findtext("{*}result") == "reviewed"
-                assert root.find("{*}notice") is not None and root.findtext("{*}notice") == ""
+                assert root.findtext("{*}receipt/{*}result") == "reviewed"
+                assert root.find("{*}receipt/{*}notice") is not None and root.findtext("{*}receipt/{*}notice") == ""
                 assert root.find("{*}details") is None

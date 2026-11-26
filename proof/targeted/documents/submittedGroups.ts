@@ -4,8 +4,8 @@ import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
 /** The worker sees the household question between the two visit questions.
- * A submission keeps it under household and preserves the intervening
- * data-only note, as Vellum does when an author sets a Data Parent. */
+ * The answer is submitted under household. The data-only note follows
+ * the remaining screen fields in the order Vellum saves. */
 export function submittedGroups() {
 	const id = "targeted-submitted-groups";
 	const uuid = (key: string) => targetedUuid(id, key);
@@ -35,7 +35,7 @@ export function submittedGroups() {
 								kind: "text",
 								id: "name",
 								label: proseText("Household name"),
-								submissionPlacement: { parent: group, position: 0 },
+								submissionPlacement: { parent: group },
 							}),
 							f({
 								uuid: uuid("after"),
@@ -48,7 +48,6 @@ export function submittedGroups() {
 								uuid: uuid("note"),
 								kind: "hidden",
 								id: "visit_note",
-								submissionPlacement: { parent: form, position: 1 },
 							}),
 						],
 					},
@@ -77,22 +76,23 @@ export function submittedGroups() {
 										id: "result",
 										label: proseText("Review result"),
 										default_value: "'reviewed'",
-										submissionPlacement: {
-											parent: uuid("relevance"),
-											position: 1,
-										},
+										submissionPlacement: { parent: uuid("receipt") },
 									}),
 									f({
 										uuid: uuid("notice"),
 										kind: "label",
 										id: "notice",
 										label: proseText("Read the visit notes"),
-										submissionPlacement: {
-											parent: uuid("relevance"),
-											position: 2,
-										},
+										submissionPlacement: { parent: uuid("receipt") },
 									}),
 								],
+							}),
+							f({
+								uuid: uuid("receipt"),
+								kind: "group",
+								id: "receipt",
+								label: proseText("Receipt"),
+								children: [],
 							}),
 							f({
 								uuid: uuid("finding"),
@@ -100,7 +100,7 @@ export function submittedGroups() {
 								id: "finding",
 								label: proseText("Finding"),
 								default_value: "'clear'",
-								submissionPlacement: { parent: uuid("details"), position: 0 },
+								submissionPlacement: { parent: uuid("details") },
 							}),
 						],
 					},

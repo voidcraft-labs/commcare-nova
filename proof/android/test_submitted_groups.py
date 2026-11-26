@@ -29,7 +29,7 @@ def test_android_submits_answers_under_their_data_groups(android_documents, hq):
     submission, = sent
     root = etree.fromstring(submission)
     assert [etree.QName(n).localname for n in root if etree.QName(n).localname != "meta"] == [
-        "arrival", "visit_note", "next", "household",
+        "arrival", "next", "household", "visit_note",
     ]
     assert root.findtext("{*}arrival") == "Jo"
     assert root.findtext("{*}next") == "Revisit"
@@ -43,7 +43,7 @@ def test_crossed_control_and_data_relevance_in_android(android_documents, hq):
             found = observe.app(
                 served, blobs, label="crossed-relevance", archive=observe.release_archive(served),
                 commands=["m0-f1"], questions={"/data/include_details": ["no"],
-                    "/data/details/finding": ["unexpected"], "/data/result": ["unexpected"]},
+                    "/data/details/finding": ["unexpected"], "/data/receipt/result": ["unexpected"]},
                 views=True, sent=sent,
             )
             walk = blobs.get_json(found["answer"])["walks"]["m0-f1"]
@@ -53,6 +53,6 @@ def test_crossed_control_and_data_relevance_in_android(android_documents, hq):
     assert given == ["no"], form
     submission, = sent
     root = etree.fromstring(submission)
-    assert root.findtext("{*}result") == "reviewed"
-    assert root.find("{*}notice") is not None and root.findtext("{*}notice") == ""
+    assert root.findtext("{*}receipt/{*}result") == "reviewed"
+    assert root.find("{*}receipt/{*}notice") is not None and root.findtext("{*}receipt/{*}notice") == ""
     assert root.find("{*}details") is None
