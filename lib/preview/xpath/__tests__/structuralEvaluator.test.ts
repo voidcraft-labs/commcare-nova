@@ -6,6 +6,7 @@ import { proseText } from "@/lib/domain/prose";
 import { DataInstance } from "../../engine/dataInstance";
 import { buildFieldTree } from "../../engine/fieldTree";
 import { xpathNodeAtPath } from "../../engine/xpathInstances";
+import { evaluateAsync } from "../asyncEvaluator";
 import { evaluate, evaluateRuntime } from "../evaluator";
 import { isXPathNodeSet } from "../runtimeValues";
 import type { EvalContext } from "../types";
@@ -200,6 +201,18 @@ describe("structural XPath evaluation", () => {
 		).toBe(20);
 	});
 
+	it("keeps every filtered row when reading its scalar child from another row", async () => {
+		const data = repeatedInstance();
+		for (const index of [0, 1]) {
+			const within = context(data, `/data/items[${index}]/value`);
+			const all = "join('|', /data/items[true()]/value)";
+			expect(evaluate(all, within)).toBe("a|b");
+			expect(await evaluateAsync(all, within)).toBe("a|b");
+			expect(
+				evaluate("join('|', /data/items[value = 'a']/value)", within),
+			).toBe("a");
+		}
+	});
 	it("contextualizes a deeper repeat after an earlier step is explicitly bound", () => {
 		const data = nestedRepeatedInstance();
 		expect(

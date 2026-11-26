@@ -139,45 +139,12 @@ describe("time ordering findings through the complete validator", () => {
 		"keeps the %s carrier and its accepted equality neighbour",
 		(carrier) => {
 			const run = (kind: "gt" | "eq") => {
-				const doc = formFixture();
-				const comparison: Expression = {
+				const appointment = caseRead("appointment");
+				return atCarrier(carrier, {
 					kind,
-					left: {
-						kind: "term",
-						term: {
-							kind: "form-case",
-							caseType: "patient",
-							property: "appointment",
-						},
-					},
-					right: {
-						kind: "term",
-						term: {
-							kind: "form-case",
-							caseType: "patient",
-							property: "appointment",
-						},
-					},
-				};
-				if (carrier === "field") {
-					const field = doc.fields[ids.text];
-					if (field.kind !== "text")
-						throw new Error("The text question fixture is missing.");
-					field.relevant = comparison;
-				} else if (carrier === "form-link") {
-					const link = doc.forms[ids.form].formLinks?.[0];
-					if (link === undefined)
-						throw new Error("The link fixture is missing.");
-					link.condition = comparison;
-				} else {
-					doc.connectType = "deliver";
-					// A Connect app runs on Android alone.
-					doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
-					doc.forms[ids.form].connect = {
-						deliver_unit: { id: "visit", name: "Visit", entity_id: comparison },
-					};
-				}
-				return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+					left: appointment,
+					right: appointment,
+				});
 			};
 			const refused = run("gt");
 			expect(refused).toHaveLength(1);
@@ -221,12 +188,17 @@ function atCarrier(
 		if (link === undefined) throw new Error("The link fixture is missing.");
 		link.condition = expression;
 	} else {
-		doc.connectType = "deliver";
-		// A Connect app runs on Android alone.
+		const uuid = testUuid("form-logic-delivery");
+		doc.connectRoles = ["deliver"];
 		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
-		doc.forms[ids.form].connect = {
-			deliver_unit: { id: "visit", name: "Visit", entity_id: expression },
+		doc.fields[uuid] = {
+			uuid,
+			id: "visit",
+			kind: "connect_activity",
+			activity: { kind: "delivery", name: "Visit", entityId: expression },
 		};
+		doc.fieldParent[uuid] = ids.form;
+		doc.fieldOrder[ids.form].push(uuid);
 	}
 	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 }

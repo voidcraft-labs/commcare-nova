@@ -25,7 +25,7 @@ const TOUCHED_ID = "operation-touched-extension";
 const blueprint: PersistableDoc = {
 	appId: APP_ID,
 	appName: "Relationship repair",
-	connectType: null,
+	connectRoles: [],
 	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: [
 		{ name: "household", properties: [] },
@@ -306,6 +306,7 @@ describe("case parent relationship scan-then-migrate", () => {
 		await db
 			.updateTable("apps")
 			.set({
+				connect_roles: [],
 				case_types: JSON.stringify(blueprint.caseTypes),
 				app_settings: JSON.stringify(blueprint.appSettings),
 			})

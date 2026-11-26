@@ -221,6 +221,18 @@ which the schema keeps non-blank, so projections read it directly.
 `apps.localization` stores the optional app-level translation overlay as one
 root scalar. `NULL` is the canonical legacy English-only spelling; no migration
 rewrites old apps or materializes an explicit one-language shell.
+`apps.connect_roles` stores the app’s configured learning and delivery roles in
+canonical order. An empty array represents an app with neither role. Form
+activities and their positions are persisted in the ordinary field rows. The
+column is nullable while the released scalar `apps.connect_type` and the
+released per-form `connect` configuration still exist: a row whose
+`connect_roles` is NULL holds the released shape, fails the document's strict
+parse, and is converted only by the reviewed Connect conversion
+(`lib/db/releasedConnectShape.mjs`, scanned read-only by
+`scripts/scan-connect-activities.ts`). The persisted reader decodes a released
+root through the same converter only where a caller hands it one (a migration
+replaying over the rows it was written for). The fold snapshot projects the
+released scalar for such a row and the roles for a converted one.
 `apps.app_settings` is a root column holding the document's `appSettings`
 object. The DDL leaves it nullable, and every row holds an object: genesis
 writes it, a `NULL` fails the strict parse, and

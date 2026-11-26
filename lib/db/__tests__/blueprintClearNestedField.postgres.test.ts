@@ -6,12 +6,12 @@
  *
  * On Postgres a form is a `blueprint_entities` row whose `data` jsonb is written
  * with `JSON.stringify` — which DROPS `undefined` values — so a cleared slot
- * disappears from the stored row rather than lingering. Covers the four
- * form-level nullable fields (`connect`, `closeCondition`, `postSubmit`,
+ * disappears from the stored row rather than lingering. Covers the three
+ * form-level nullable fields (`closeCondition`, `postSubmit`,
  * `purpose`) driven through `commitGuardedBatch`; `completeAndSettleRun`
  * (status-only, no blueprint payload) is pinned to leave the entity rows untouched.
  *
- * Assertions check key absence (`'connect' in data === false`) on the raw entity
+ * Assertions check key absence (`'purpose' in data === false`) on the raw entity
  * `data`, not `=== undefined`: the claim is that the key is GONE from storage.
  *
  * Runs unconditionally under `npm test`.
@@ -20,11 +20,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
-import {
-	type BlueprintDoc,
-	type ConnectConfig,
-	plainColumn,
-} from "@/lib/domain";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -40,23 +36,12 @@ const FORM_UUID = testUuid("22222222-2222-4222-8222-222222222222");
 const FIELD_UUID = testUuid("33333333-3333-4333-8333-333333333333");
 const COLUMN_UUID = testUuid("44444444-4444-4444-8444-444444444444");
 
-/** A minimal legal Connect learn-module block. */
-const CONNECT: ConnectConfig = {
-	learn_module: {
-		id: "lm_1",
-		name: "Learn module 1",
-		description: "An intro module",
-		time_estimate: 5,
-	},
-};
-
 /** One module + one survey form carrying every clearable nullable field. */
 function populatedBlueprint(): BlueprintDoc {
 	const doc = {
 		appId: APP_ID,
 		appName: "Blueprint clear test app",
-		connectType: "learn" as const,
-		// A Connect app runs on Android alone.
+		connectRoles: [],
 		appSettings: {
 			showSavedForms: false,
 			showIncompleteForms: false,
@@ -83,7 +68,6 @@ function populatedBlueprint(): BlueprintDoc {
 				id: "f_form1",
 				name: "Form 1",
 				type: "close" as const,
-				connect: CONNECT,
 				closeCondition: {
 					kind: "eq" as const,
 					left: {
@@ -145,8 +129,10 @@ async function seedPopulatedApp(): Promise<void> {
 		projectId: TEST_PROJECT,
 	});
 	const seeded = await readPersistedFormData();
-	if (!("connect" in seeded)) {
-		throw new Error("Seed precondition failed: form has no `connect` key.");
+	if (!("closeCondition" in seeded)) {
+		throw new Error(
+			"Seed precondition failed: form has no `closeCondition` key.",
+		);
 	}
 }
 
@@ -160,14 +146,9 @@ describe("blueprint clear nested field", () => {
 		// undefined keys, so they vanish from the stored `data`.
 		const clearMutations: Mutation[] = [
 			{
-				kind: "setConnectType",
-				connectType: null,
-			},
-			{
 				kind: "updateForm",
 				uuid: FORM_UUID,
 				patch: {
-					connect: null,
 					closeCondition: null,
 					postSubmit: null,
 					purpose: null,
@@ -187,7 +168,6 @@ describe("blueprint clear nested field", () => {
 		expect(result.deduped).toBe(false);
 
 		const form = await readPersistedFormData();
-		expect("connect" in form).toBe(false);
 		expect("closeCondition" in form).toBe(false);
 		expect("postSubmit" in form).toBe(false);
 		expect("purpose" in form).toBe(false);
@@ -264,9 +244,9 @@ describe("blueprint clear nested field", () => {
 		expect(after?.status).toBe("complete");
 		expect(after?.error_type).toBeNull();
 		// The drain-end finish carries NO blueprint payload — the entity rows are
-		// byte-identical, so the form still carries its `connect` block.
+		// byte-identical, so the form still carries its close condition.
 		const form = await readPersistedFormData();
 		expect(form).toEqual(before);
-		expect("connect" in form).toBe(true);
+		expect("closeCondition" in form).toBe(true);
 	});
 });

@@ -36,6 +36,8 @@ DOCUMENTS = (
     "prompt-widgets",
     "search-browse",
     "targeted-menu-badges",
+    "targeted-worker-messages",
+    "targeted-repeat-invitations",
     "targeted-capture-widgets",
     "targeted-custom-tile",
     "targeted-empty-list-no-english",

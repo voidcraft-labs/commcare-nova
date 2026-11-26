@@ -1,4 +1,5 @@
 import { CSQL_LIST_ITEM_UNSAFE_PATTERN } from "@/lib/commcare/csql/segment";
+import { CONNECT_RECIPIENT_PATTERN } from "@/lib/domain/connectRecipientRule";
 import {
 	GEOPOINT_CENTER_PATTERN,
 	GEOPOINT_RAW_CENTER_PATTERN,
@@ -45,6 +46,13 @@ const GENERATED_PATTERNS = new Map<
 			{ find: new RegExp(source), replace: new RegExp(source, "g") },
 		]),
 );
+
+// The native expression is anchored to the absolute end and includes line
+// breaks. Unicode mode advances by a complete supplementary character.
+GENERATED_PATTERNS.set(CONNECT_RECIPIENT_PATTERN, {
+	find: /^.{0,255}(?!.)/su,
+	replace: /^.{0,255}(?!.)/gsu,
+});
 
 /**
  * Execute only the Java Pattern expressions Nova generates itself and has
