@@ -197,7 +197,8 @@ def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
                         if (step := form_step(run)) and step.get("xmlns") == form.xmlns and run["end"] == "submitted")
                 step = form_step(run)
                 submitted = list(etree.fromstring(step["submission"].encode()).iter(f"{{{CASE}}}case"))
-                expected = [f"member-{index}" for index in range(1, number + 1)]
+                # Core position(node) returns the selected reference’s zero-based multiplicity.
+                expected = [f"member-{index}" for index in range(number)]
                 assert [case.get("case_id") for case in submitted] == [WORKER_CASE] * number
                 assert [case.findtext(f"{{{CASE}}}update/{{{CASE}}}visits") for case in submitted] == expected
                 device = etree.fromstring(step["caseDb"].encode()).xpath(f"/*/case[@case_id='{WORKER_CASE}']")
