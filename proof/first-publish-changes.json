@@ -916,9 +916,7 @@
 	},
 	{
 		"change": "legacy-related-case-text-rekeyed",
-		"placeKinds": [
-			"menu"
-		],
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "proof2",
