@@ -334,7 +334,9 @@ kept entry is recorded with no surface key, and so is a claim that takes the
 value whole under an allowing entry with a value class, which the stage chose
 by the value it read (`no-sort-elements` for a list holding `sort_elements:
 []`), so a stage claims under such an entry only a value of its class; any
-other claim at a default records nothing (`accounting.ts::claimAtDefault`). A reading also settles, with no surface key but a file's class, what it met that
+other claim at a default records nothing (`accounting.ts::claimAtDefault`). A relation finding can locate the
+effective default it depends on. Its full claim log records the JSON pointer with no surface key
+(`accounting.ts::findingAt`). A reading also settles, with no surface key but a file's class, what it met that
 no key of the source holds: the app's id and save counter, its project space's
 profile properties, each table it holds (its tag and HQ's ids), each held file
 (its format, the media suite resource HQ's build writes for it and its `jr://file/`
