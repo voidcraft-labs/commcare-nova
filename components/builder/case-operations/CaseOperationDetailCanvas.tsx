@@ -1473,8 +1473,9 @@ function OwnerConditionSection({
 				<AddSlotButton
 					ref={addRef}
 					label="Add an owner condition"
-					disabled={!canEdit}
-					onClick={() =>
+					disabled={!canEdit || expressionContext === undefined}
+					onClick={() => {
+						if (expressionContext === undefined) return;
 						onChange(
 							firstComparisonDefault({
 								expressionContext,
@@ -1482,8 +1483,8 @@ function OwnerConditionSection({
 								...editorAxesOf(expressionContext),
 								knownInputs: [],
 							}),
-						)
-					}
+						);
+					}}
 				/>
 			) : (
 				<ConditionSlotEditor

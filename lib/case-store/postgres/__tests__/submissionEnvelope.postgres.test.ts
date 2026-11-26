@@ -1671,7 +1671,10 @@ describe("ordered selected-case batches", () => {
 			properties: { notes: "keep" },
 		});
 		await expect(
-			submitUpdate([[FLAG_FIELD, "transfer"]]),
+			submitUpdate([
+				[FLAG_FIELD, "transfer"],
+				[KEY_FIELD, ""],
+			]),
 		).rejects.toBeInstanceOf(SubmissionRejectedError);
 		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
 			owner_id: originalOwner,
