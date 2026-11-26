@@ -19,6 +19,8 @@ import {
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
 	type HqAnswer,
+	hqDomainPath,
+	hqPathOf,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 	sendHq,
@@ -456,7 +458,7 @@ async function readRestore(
 		options.previous?.sourceDigest === sourceDigest
 			? options.previous
 			: undefined;
-	const url = new URL(`${baseUrl(creds)}/a/${domain}/phone/restore/`);
+	const url = new URL(`${hqDomainPath(domain)}/phone/restore/`, baseUrl(creds));
 	if (worker.username !== creds.username)
 		url.searchParams.set("as", worker.username);
 	url.searchParams.set("overwrite_cache", "true");
@@ -470,7 +472,7 @@ async function readRestore(
 			async (signal) => {
 				let answer: HqAnswer;
 				try {
-					answer = await sendHq(creds, url.toString(), {
+					answer = await sendHq(creds, hqPathOf(url), {
 						accept: "application/xml",
 						noStore: true,
 						signal,

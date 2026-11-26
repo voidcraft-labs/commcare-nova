@@ -1,6 +1,6 @@
 import "server-only";
 
-import { baseUrl, type CommCareCredentials } from "./http";
+import { type CommCareCredentials, hqDomainPath } from "./http";
 import {
 	LookupWorkbookMismatch,
 	lookupOwnerKinds,
@@ -51,9 +51,7 @@ export async function lookupWorkbookPrincipals(
 		const list = await readHqCollection(creds, {
 			label: "lookup assignment directory",
 			firstUrl:
-				baseUrl(creds) +
-				"/a/" +
-				domain +
+				hqDomainPath(domain) +
 				"/api/" +
 				(kind === "group" ? "group/v1" : "location/v2") +
 				"/?limit=100",

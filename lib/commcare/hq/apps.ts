@@ -25,10 +25,10 @@ import { type HqAppsSeen, seenByHq } from "./appsSeen";
 import { HQ_API_ACCESS_PROBE_MAX_BYTES, HQ_APP_LIST_MAX_BYTES } from "./bounds";
 import { classifyHqFailure, type HqFailure } from "./failure";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
+	hqDomainPath,
 	INVALID_DOMAIN_SLUG,
 	isHqCount,
 	isValidDomainSlug,
@@ -65,7 +65,7 @@ export async function readHqAppListEnvelope(
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
 	const result = await readHqJson(
 		creds,
-		`${baseUrl(creds)}/a/${domain}/apps/api/list_apps/`,
+		`${hqDomainPath(domain)}/apps/api/list_apps/`,
 		"app list",
 		{ maxBytes: HQ_APP_LIST_MAX_BYTES, cancel: options.cancel },
 	);
@@ -157,7 +157,7 @@ export async function probeHqApiAccess(
 	if (!isValidDomainSlug(domain)) return failed(INVALID_DOMAIN_SLUG);
 	const result = await readHqJson(
 		creds,
-		`${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=1`,
+		`${hqDomainPath(domain)}/api/lookup_table/v1/?limit=1`,
 		"API access",
 		{ keepRefusedBody: true, maxBytes: HQ_API_ACCESS_PROBE_MAX_BYTES },
 	);

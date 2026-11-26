@@ -12,8 +12,8 @@ import { type HqAppSource, readHqAppSource } from "./appSource";
 import { HQ_BUILD_RESOURCE_MAX_BYTES } from "./bounds";
 import { hqDeadlineReached, withHqRequestDeadline } from "./deadline";
 import {
-	baseUrl,
 	type CommCareCredentials,
+	hqDomainPath,
 	isValidDomainSlug,
 	sendHq,
 } from "./http";
@@ -141,7 +141,7 @@ async function readWorkingResource<T>(
 		return;
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(remoteAppId)) return;
 	const query = profile ? `?${new URLSearchParams({ profile: profile })}` : "";
-	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${remoteAppId}/${resource}${query}`;
+	const url = `${hqDomainPath(domain)}/apps/download/${remoteAppId}/${resource}${query}`;
 	return withHqRequestDeadline(
 		async (signal) => {
 			let response: Awaited<ReturnType<typeof sendHq>>;

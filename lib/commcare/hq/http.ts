@@ -215,6 +215,43 @@ export function baseUrl(creds: CommCareCredentials): string {
 }
 
 /**
+ * `/a/<domain>`, the path every project space view sits under, for a valid
+ * slug alone: a domain holding `/`, `?` or `#` would name another resource
+ * on the server, so it is refused here, where each path is built.
+ */
+export function hqDomainPath(domain: string): string {
+	if (!isValidDomainSlug(domain))
+		throw new Error(
+			`“${domain}” is not a CommCare HQ project space name, so no request names it. Check the project space it came from.`,
+		);
+	return `/a/${domain}`;
+}
+
+/**
+ * The URL `path` names on the credentials' own CommCare HQ server, or null
+ * where it would name anything else: a path is one `/` and what follows,
+ * and the URL it makes has that server's origin and no user name or
+ * password. This is what keeps the credentials' key on their server.
+ */
+export function hqRequestUrl(
+	creds: CommCareCredentials,
+	path: string,
+): URL | null {
+	if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\"))
+		return null;
+	const base = new URL(baseUrl(creds));
+	const url = new URL(path, base);
+	if (url.origin !== base.origin || url.username !== "" || url.password !== "")
+		return null;
+	return url;
+}
+
+/** The path and query of a URL built on the credentials' server, as `sendHq` takes it. */
+export function hqPathOf(url: URL): string {
+	return `${url.pathname}${url.search}`;
+}
+
+/**
  * Build the Authorization header for CommCare HQ API key auth.
  *
  * Format: `ApiKey {username}:{api_key}` — this is CommCare HQ's custom
@@ -340,16 +377,23 @@ export interface HqRequest {
 
 /**
  * Send one request to CommCare HQ with the credentials' own header and no
- * redirect followed, and answer what came back. It rejects where `fetch`
+ * redirect followed, and answer what came back. `path` is a path on the
+ * credentials' own server (`hqRequestUrl`); anything else sends nothing and
+ * throws. It rejects where `fetch`
  * does: no answer began, or the signal ended it first; and, sending nothing,
  * with a `MemoryMeterFullError` where the request's lease has refused a
  * charge, since nothing it reads now could be kept.
  */
 export async function sendHq(
 	creds: CommCareCredentials,
-	url: string,
+	path: string,
 	request: HqRequest,
 ): Promise<HqAnswer> {
+	const url = hqRequestUrl(creds, path);
+	if (url === null)
+		throw new Error(
+			"A request to CommCare HQ named a place outside the server its credentials belong to, so nothing was sent.",
+		);
 	if (currentMemoryLease()?.exhausted === true)
 		throw new MemoryMeterFullError();
 	const headers = {
@@ -359,7 +403,7 @@ export async function sendHq(
 			"Content-Type": request.contentType,
 		}),
 	};
-	const response = await fetch(url, {
+	const response = await fetch(url.href, {
 		method: request.method ?? "GET",
 		headers,
 		...(request.body === undefined ? {} : { body: request.body }),

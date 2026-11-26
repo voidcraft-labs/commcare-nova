@@ -1,6 +1,10 @@
 import "server-only";
 import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
-import { baseUrl, type CommCareCredentials, isValidDomainSlug } from "./http";
+import {
+	type CommCareCredentials,
+	hqDomainPath,
+	isValidDomainSlug,
+} from "./http";
 import { giveBackHeld } from "./memoryMeter";
 import { isHqObject, readHqCollection } from "./readCollection";
 import { readHqJson } from "./readJson";
@@ -24,7 +28,7 @@ export async function readTargetWorkerGroup(
 	if (!isValidDomainSlug(domain) || !validId(id)) return null;
 	const response = await readHqJson(
 		creds,
-		`${baseUrl(creds)}/a/${domain}/api/group/v1/${id}/`,
+		`${hqDomainPath(domain)}/api/group/v1/${id}/`,
 		"selected worker group",
 		{ maxBytes: 1024 * 1024 },
 	);
@@ -70,7 +74,7 @@ export async function searchTargetWorkerGroups(
 	if (!isValidDomainSlug(domain)) return null;
 	const result = await readHqCollection(creds, {
 		label: "selected worker group names",
-		firstUrl: `${baseUrl(creds)}/a/${domain}/api/group/v1/?limit=100`,
+		firstUrl: `${hqDomainPath(domain)}/api/group/v1/?limit=100`,
 		maxBytes: 8 * 1024 * 1024,
 		maxRows: 50_000,
 		maxPages: 500,

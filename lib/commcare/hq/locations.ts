@@ -49,6 +49,7 @@ import {
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
 	type HqAnswer,
+	hqDomainPath,
 	hqTextFacts,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
@@ -239,7 +240,7 @@ export async function listHqLocationTypes(
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
 	const list = await readHqCollection(creds, {
 		label: "location type list",
-		firstUrl: `${baseUrl(creds)}/a/${domain}/api/location_type/v1/?limit=${LEVEL_PAGE_SIZE}`,
+		firstUrl: `${hqDomainPath(domain)}/api/location_type/v1/?limit=${LEVEL_PAGE_SIZE}`,
 		maxPages: MAX_LEVEL_PAGES,
 		maxRows: HQ_LOCATION_TYPE_LIST_MAX_ROWS,
 		maxBytes: HQ_LOCATION_TYPE_LIST_MAX_BYTES,
@@ -398,7 +399,7 @@ export async function listHqLocations(
 		label: "location list",
 		parse: parseLocationJson,
 		digestRow: exactLocationJson,
-		firstUrl: `${baseUrl(creds)}/a/${domain}/api/location/v2/?limit=${PLACE_PAGE_SIZE}`,
+		firstUrl: `${hqDomainPath(domain)}/api/location/v2/?limit=${PLACE_PAGE_SIZE}`,
 		maxPages: MAX_PLACE_PAGES,
 		maxRows: stopPast ?? HQ_LOCATION_INVENTORY_MAX_ROWS,
 		maxBytes: HQ_LOCATION_LIST_MAX_BYTES,
@@ -514,7 +515,7 @@ export async function listHqLocationObservations(
 	try {
 		const list = await readHqCollection(creds, {
 			label: "place external IDs",
-			firstUrl: `${baseUrl(creds)}/a/${domain}/api/location/v1/?limit=1000`,
+			firstUrl: `${hqDomainPath(domain)}/api/location/v1/?limit=1000`,
 			maxPages: Math.ceil(HQ_LOCATION_INVENTORY_MAX_ROWS / 1000) + 1,
 			maxRows: HQ_LOCATION_INVENTORY_MAX_ROWS,
 			maxBytes: HQ_LOCATION_LIST_MAX_BYTES,
@@ -595,7 +596,7 @@ export async function readHqPlaceExternalId(
 		return malformedInventory("place detail id");
 	const result = await readHqJson(
 		creds,
-		`${baseUrl(creds)}/a/${domain}/api/location/v1/${encodeURIComponent(id)}/`,
+		`${hqDomainPath(domain)}/api/location/v1/${encodeURIComponent(id)}/`,
 		"place external ID",
 		{ cancel, maxBytes: HQ_LOCATION_LIST_MAX_BYTES },
 	);
@@ -678,16 +679,12 @@ export async function patchHqLocations(
 	return withHqRequestDeadline(async (signal) => {
 		let res: HqAnswer;
 		try {
-			res = await sendHq(
-				creds,
-				`${baseUrl(creds)}/a/${domain}/api/location/v2/`,
-				{
-					method: "PATCH",
-					contentType: "application/json",
-					body,
-					signal,
-				},
-			);
+			res = await sendHq(creds, `${hqDomainPath(domain)}/api/location/v2/`, {
+				method: "PATCH",
+				contentType: "application/json",
+				body,
+				signal,
+			});
 		} catch (error) {
 			log.warn("[commcare] location push unreachable", {
 				domain,

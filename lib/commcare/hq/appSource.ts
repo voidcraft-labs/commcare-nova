@@ -28,10 +28,10 @@ import { log } from "@/lib/logger";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
+	hqDomainPath,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 } from "./http";
@@ -217,7 +217,7 @@ export async function readHqAppSource(
 ): Promise<HqAppSourceRead> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId))
 		return INVALID_DOMAIN_SLUG;
-	const url = `${baseUrl(creds)}/a/${domain}/apps/source/${encodeURIComponent(appId)}/`;
+	const url = `${hqDomainPath(domain)}/apps/source/${encodeURIComponent(appId)}/`;
 	const result = await readHqJson(creds, url, "app source", {
 		maxBytes: options.maxBytes ?? HQ_APP_SOURCE_MAX_BYTES,
 		deadlineMs: options.deadlineMs,

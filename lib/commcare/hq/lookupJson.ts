@@ -54,11 +54,11 @@ import { log } from "@/lib/logger";
 import { HQ_LOOKUP_DETAIL_MAX_BYTES } from "./bounds";
 import { withHqRequestDeadline } from "./deadline";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
 	type HqAnswer,
+	hqDomainPath,
 	isValidDomainSlug,
 	logAndReturnError,
 	readAnswerJson,
@@ -109,8 +109,8 @@ export type HqLookupJsonWrite<T> =
 	/** It may have landed. Only a read of the exact resource tells. */
 	| { readonly kind: "uncertain"; readonly error: CommCareApiError };
 
-function root(creds: CommCareCredentials, domain: string): string {
-	return `${baseUrl(creds)}/a/${domain}/api`;
+function root(domain: string): string {
+	return `${hqDomainPath(domain)}/api`;
 }
 
 function validSortKey(value: number): boolean {
@@ -253,7 +253,7 @@ export async function createHqLookupTableJson(
 	return write(
 		creds,
 		"lookup table create",
-		`${root(creds, domain)}/lookup_table/v1/`,
+		`${root(domain)}/lookup_table/v1/`,
 		"POST",
 		definitionBody(definition),
 		async (answer) =>
@@ -274,7 +274,7 @@ export async function updateHqLookupTableJson(
 	return write(
 		creds,
 		"lookup table update",
-		`${root(creds, domain)}/lookup_table/v1/${tableId}/`,
+		`${root(domain)}/lookup_table/v1/${tableId}/`,
 		"PUT",
 		definitionBody(definition),
 		async (answer) =>
@@ -307,7 +307,7 @@ export async function createHqLookupRowJson(
 	return write(
 		creds,
 		"lookup row create",
-		`${root(creds, domain)}/lookup_table_item/v2/`,
+		`${root(domain)}/lookup_table_item/v2/`,
 		"POST",
 		rowBody(tableId, row),
 		async (answer) => {
@@ -352,7 +352,7 @@ export async function updateHqLookupRowJson(
 	return write(
 		creds,
 		"lookup row update",
-		`${root(creds, domain)}/lookup_table_item/v2/${rowId}/`,
+		`${root(domain)}/lookup_table_item/v2/${rowId}/`,
 		"PUT",
 		rowBody(tableId, row),
 		async (answer) =>
@@ -374,7 +374,7 @@ export async function deleteHqLookupRowJson(
 	return write(
 		creds,
 		"lookup row delete",
-		`${root(creds, domain)}/lookup_table_item/v2/${rowId}/`,
+		`${root(domain)}/lookup_table_item/v2/${rowId}/`,
 		"DELETE",
 		null,
 		async (answer) =>

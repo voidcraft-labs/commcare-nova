@@ -114,9 +114,11 @@ type Pass<T> =
 /** The URL of the page at `offset`: the first URL as given, or it with `offset` set. */
 function pageUrl(firstUrl: string, offset: number): string {
 	if (offset === 0) return firstUrl;
-	const url = new URL(firstUrl);
+	// The first URL is a path on the credentials' server (`sendHq`); only its
+	// query moves, on a placeholder origin that never leaves this function.
+	const url = new URL(firstUrl, "https://hq.invalid");
 	url.searchParams.set("offset", String(offset));
-	return url.toString();
+	return `${url.pathname}${url.search}`;
 }
 
 /**

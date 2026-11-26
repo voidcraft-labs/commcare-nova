@@ -22,7 +22,6 @@ import { log } from "@/lib/logger";
 import type { HqMediaType } from "./appSource";
 import { withHqRequestDeadline } from "./deadline";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
@@ -32,6 +31,7 @@ import {
 	sendHq,
 	unansweredRead,
 } from "./http";
+import { HQ_MEDIA_TYPES } from "./mediaMap";
 
 export { HQ_MEDIA_IN_FLIGHT_MAX_BYTES } from "./bounds";
 
@@ -143,8 +143,14 @@ async function readMedia<T>(
 		signal: AbortSignal,
 	) => Promise<T>,
 ): Promise<T | FileFailure> {
-	if (!/^[\w-]+$/.test(multimediaId)) return { success: false, status: 400 };
-	const url = `${baseUrl(creds)}/hq/multimedia/file/${mediaType}/${multimediaId}/`;
+	// Both are path segments: the type is held to HQ's own list at run time,
+	// beside the id, wherever it was read from.
+	if (
+		!/^[\w-]+$/.test(multimediaId) ||
+		!(HQ_MEDIA_TYPES as readonly string[]).includes(mediaType)
+	)
+		return { success: false, status: 400 };
+	const url = `/hq/multimedia/file/${mediaType}/${multimediaId}/`;
 	return withHqRequestDeadline(
 		async (signal) => {
 			const ask = () => readOnce(creds, url, signal, read);

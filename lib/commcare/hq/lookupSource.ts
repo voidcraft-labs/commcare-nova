@@ -17,6 +17,8 @@ import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
+	hqDomainPath,
+	hqPathOf,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 } from "./http";
@@ -71,8 +73,8 @@ async function readWithinBudget(
 	return read;
 }
 
-function sourceRoot(creds: CommCareCredentials, domain: string) {
-	return `${baseUrl(creds)}/a/${domain}/api`;
+function sourceRoot(domain: string) {
+	return `${hqDomainPath(domain)}/api`;
 }
 
 async function checkDefinition(
@@ -111,7 +113,7 @@ export async function verifyHqLookupDefinition(
 		return INVALID_DOMAIN_SLUG;
 	return withHqRequestDeadline(
 		(signal) =>
-			checkDefinition(creds, sourceRoot(creds, domain), table, {
+			checkDefinition(creds, sourceRoot(domain), table, {
 				signal,
 				requests: 1,
 				remaining: HQ_LOOKUP_DEFINITION_MAX_BYTES,
@@ -220,7 +222,7 @@ export async function readSelectedLookupDetails(
 	return withHqRequestDeadline(
 		async (signal) => {
 			const budget = { remaining: maxBytes, requests: ids.length, signal };
-			const root = sourceRoot(creds, domain);
+			const root = sourceRoot(domain);
 			const rows: DetailedRow[] = [];
 			let bytes = 0;
 			let kept = false;
@@ -323,12 +325,12 @@ async function streamPass(
 	let previous: Pick<DetailedRow, "sortKey" | "id"> | undefined;
 	for (;;) {
 		await budget.authorizePage?.();
-		const url = new URL(`${root}/fixture/v1/`);
+		const url = new URL(`${root}/fixture/v1/`, baseUrl(creds));
 		url.searchParams.set("fixture_type_id", table.id);
 		if (offset > 0) url.searchParams.set("offset", String(offset));
 		const answer = await readWithinBudget(
 			creds,
-			url.toString(),
+			hqPathOf(url),
 			HQ_LOOKUP_PAGE_MAX_BYTES,
 			budget,
 		);
@@ -460,7 +462,7 @@ export async function streamHqLookupTable(
 	)
 		return WORK_LIMIT;
 	const forceDetail = requireDetail || hasRichDefinition(table);
-	const root = sourceRoot(creds, domain);
+	const root = sourceRoot(domain);
 	const definitionDigest = lookupSourceDefinitionDigest(creds, domain, table);
 	return withHqRequestDeadline(
 		async (signal) => {
@@ -599,7 +601,7 @@ export async function inspectSelectedHqRowAt(
 		return HQ_MALFORMED_ANSWER;
 	return withHqRequestDeadline(
 		async (signal) => {
-			const root = sourceRoot(creds, domain),
+			const root = sourceRoot(domain),
 				budget = {
 					remaining:
 						HQ_LOOKUP_PAGE_MAX_BYTES +
@@ -610,13 +612,13 @@ export async function inspectSelectedHqRowAt(
 				};
 			const initial = await checkDefinition(creds, root, table, budget);
 			if (initial) return initial;
-			const url = new URL(`${root}/fixture/v1/`);
+			const url = new URL(`${root}/fixture/v1/`, baseUrl(creds));
 			url.searchParams.set("fixture_type_id", table.id);
 			url.searchParams.set("limit", "1");
 			url.searchParams.set("offset", String(expected.ordinal));
 			const page = await readWithinBudget(
 				creds,
-				url.toString(),
+				hqPathOf(url),
 				HQ_LOOKUP_PAGE_MAX_BYTES,
 				budget,
 			);
@@ -674,7 +676,7 @@ export async function probeHqInventoryRead(
 	tag: string,
 ) {
 	if (!isValidDomainSlug(domain) || !REMOTE_ID.test(id)) return false;
-	const root = sourceRoot(creds, domain);
+	const root = sourceRoot(domain);
 	return withHqRequestDeadline(async (signal) => {
 		const budget: ReadBudget = {
 			signal,

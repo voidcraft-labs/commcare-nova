@@ -248,6 +248,7 @@ async function readAnswer(
 
 /** The project space a `/a/<domain>/…` URL names, for a log line; null for any other path. */
 function domainOf(url: string): string | null {
-	const segments = new URL(url).pathname.split("/");
+	// `url` is a path on the credentials' server (`sendHq`).
+	const segments = new URL(url, "https://hq.invalid").pathname.split("/");
 	return segments[1] === "a" && segments[2] ? segments[2] : null;
 }

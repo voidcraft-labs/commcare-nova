@@ -42,10 +42,10 @@ import {
 	HQ_LOOKUP_UPLOAD_ACK_MAX_BYTES,
 } from "./bounds";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	type HqAnswer,
+	hqDomainPath,
 	hqTextFacts,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
@@ -201,7 +201,7 @@ export async function listHqLookupTables(
 
 	const list = await readHqCollection(creds, {
 		label: "lookup table list",
-		firstUrl: `${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
+		firstUrl: `${hqDomainPath(domain)}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
 		maxPages: MAX_LOOKUP_TABLE_PAGES,
 		maxRows: HQ_LOOKUP_TABLE_LIST_MAX_ROWS,
 		maxBytes: HQ_LOOKUP_TABLE_LIST_MAX_BYTES,
@@ -322,7 +322,7 @@ export async function readHqLookupTableRows(
 		return INVALID_DOMAIN_SLUG;
 	const read = await readHqCollection(creds, {
 		label: "lookup table rows",
-		firstUrl: `${baseUrl(creds)}/a/${domain}/api/fixture/v1/?fixture_type_id=${encodeURIComponent(table.id)}`,
+		firstUrl: `${hqDomainPath(domain)}/api/fixture/v1/?fixture_type_id=${encodeURIComponent(table.id)}`,
 		maxPages: MAX_FIXTURE_ROW_PAGES,
 		maxRows: options.maxRows,
 		maxBytes: options.maxBytes,
@@ -478,23 +478,19 @@ export async function uploadLookupTableWorkbook(
 	return withHqRequestDeadline(async (signal) => {
 		let res: HqAnswer;
 		try {
-			res = await sendHq(
-				creds,
-				`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`,
-				{
-					method: "POST",
-					...multipartFileStream(
-						workbook instanceof Uint8Array
-							? (async function* () {
-									yield workbook;
-								})()
-							: workbook,
-						signal,
-						options.replace ? "replace" : "append",
-					),
+			res = await sendHq(creds, `${hqDomainPath(domain)}/fixtures/fixapi/`, {
+				method: "POST",
+				...multipartFileStream(
+					workbook instanceof Uint8Array
+						? (async function* () {
+								yield workbook;
+							})()
+						: workbook,
 					signal,
-				},
-			);
+					options.replace ? "replace" : "append",
+				),
+				signal,
+			});
 		} catch (error) {
 			log.error("[commcare] lookup table upload unreachable", undefined, {
 				domain,

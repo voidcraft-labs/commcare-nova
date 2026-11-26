@@ -50,12 +50,12 @@ import {
 import { type HqReadDeadline, withHqRequestDeadline } from "./hq/deadline";
 import { classifyHqFailure, type HqFailure } from "./hq/failure";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
 	HQ_MALFORMED_ANSWER,
 	type HqAnswer,
+	hqDomainPath,
 	hqTextFacts,
 	isEdgeRefusal,
 	isHqCount,
@@ -151,7 +151,7 @@ async function listDomainsMatching(
 	if (featureFlag) query.set("feature_flag", featureFlag);
 	const list = await readHqCollection(creds, {
 		label: "project space list",
-		firstUrl: `${baseUrl(creds)}/api/user_domains/v1/?${query.toString()}`,
+		firstUrl: `/api/user_domains/v1/?${query.toString()}`,
 		maxPages: 51,
 		maxRows: HQ_PROJECT_SPACE_LIST_MAX_ROWS,
 		maxBytes: HQ_PROJECT_SPACE_LIST_MAX_BYTES,
@@ -430,7 +430,7 @@ async function probeCaseSearchRuntime(
 	try {
 		return await runBoundedCompatibilityProbe(async ({ signal }) => {
 			const query = new URLSearchParams({ case_type: CASE_SEARCH_PROBE_TYPE });
-			const url = `${baseUrl(creds)}/a/${domain}/phone/search/?${query.toString()}`;
+			const url = `${hqDomainPath(domain)}/phone/search/?${query.toString()}`;
 			const response = await getResendingUnanswered(
 				() => sendHq(creds, url, { signal }),
 				signal,
@@ -856,8 +856,7 @@ export async function importApp(
 	) {
 		return { success: false, status: 400 };
 	}
-	const base = baseUrl(creds);
-	const url = `${base}/a/${domain}/apps/api/import_app/`;
+	const url = `${hqDomainPath(domain)}/apps/api/import_app/`;
 	const appFile = JSON.stringify(appJson);
 
 	/* Multipart form: waf_padding (see WAF_PADDING) + app_name (string) +
@@ -1124,7 +1123,7 @@ export async function uploadAppMediaBundle(
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
-	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
+	const base = `${hqDomainPath(domain)}/apps/api/${appId}/multimedia`;
 	const controller = new AbortController();
 	const timer = setTimeout(
 		() => controller.abort(),
@@ -1204,7 +1203,7 @@ export async function readAppMediaBundleStatus(
 		!/^[\w-]+$/.test(processingId)
 	)
 		return "unknown";
-	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
+	const base = `${hqDomainPath(domain)}/apps/api/${appId}/multimedia`;
 	const status = await pollMediaBundleStatus(
 		creds,
 		domain,
@@ -1387,7 +1386,7 @@ export async function readAppVersions(
 ): Promise<HqAppVersions | CommCareApiError> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
 		return { success: false, status: 400 };
-	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
+	const url = `${hqDomainPath(domain)}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
 	const result = await readHqJson(creds, url, "app versions", {
 		maxBytes: HQ_APP_VERSIONS_MAX_BYTES,
 		cancel: options.cancel,
@@ -1487,7 +1486,7 @@ export async function readBuildXml(
 	const send = () =>
 		sendHq(
 			creds,
-			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
+			`${hqDomainPath(domain)}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
 			{ accept: "application/xml", noStore: true, signal: controller.signal },
 		);
 	try {
