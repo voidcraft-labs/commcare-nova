@@ -33,6 +33,7 @@ import {
 	useEditorVocabulary,
 } from "../editorContext";
 import { relatedCaseDataInScope } from "../editorSchemas";
+import { replacePropertyRelation } from "../relatedPathEdit";
 import { resolveRelationDestination } from "../relationDestination";
 import { relationSummary } from "../relationSummary";
 import { searchOnlyPropertyChoices } from "../termEditorModel";
@@ -226,11 +227,13 @@ function PropertyRefEditor({
 					<CollapsibleContent className="pt-2">
 						<RelationPathBuilder
 							value={relation}
-							onChange={(next) => onChange({ ...value, via: next })}
+							onChange={(next) =>
+								onChange(replacePropertyRelation(value, next))
+							}
 							invalid={invalid}
 							allowSelf
 							admitChange={(next) =>
-								admitChange?.({ ...value, via: next }) ?? {
+								admitChange?.(replacePropertyRelation(value, next)) ?? {
 									admitted: true,
 								}
 							}
