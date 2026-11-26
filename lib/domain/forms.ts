@@ -1022,6 +1022,18 @@ export const formSchema = z.strictObject({
 	audioLabel: mediaAssetIdSchema.optional(),
 });
 export type Form = z.infer<typeof formSchema>;
+/** Authored effect slots, excluding the timestamp of an emitted bare own block. */
+export function ownCaseOperationHasEffects(
+	operation: Extract<CaseOperation, { action: "own" }>,
+): boolean {
+	return (
+		operation.name !== undefined ||
+		operation.owner !== undefined ||
+		(operation.writes?.length ?? 0) > 0 ||
+		(operation.links?.length ?? 0) > 0
+	);
+}
+
 /** A guarded or repeated change binds its worker target to the opened case database. */
 export function workerUpdateUsesOpeningCase(operation: CaseOperation): boolean {
 	return (

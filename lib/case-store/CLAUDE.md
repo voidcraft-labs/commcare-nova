@@ -86,8 +86,10 @@ executor locks that same ID and checks the live worker mapping before applying
 any effect. An absent, closed or replaced row requires a fresh opening. A false
 condition skips target lookup and leaves the signed opening requirement in force.
 One update in an ordinary repeat locks the same retained case when there are live
-entries. Those entries write in row order. With no live entries the transaction
-skips the lookup and still checks the signed opening.
+entries. Those entries write in row order. A direct answer excluded by relevance
+omits its write for that entry. A present empty answer still clears the property.
+With no live entries the transaction skips the lookup and still checks the signed
+opening.
 App Tests supplies the corresponding snapshot from its server-held journey state.
 
 Arithmetic operands are explicitly cast to `numeric`, including bound form answers, so PostgreSQL cannot select a text operator such as pg_trgm `%`. Declared integer division uses `trunc` to preserve the domain's truncation toward zero without imposing an int4/int8 limit on intermediate expressions. The committed form supplies `formFieldTypes` with its operation program; expressions retain the current case scope and lookup-column definitions. Native numeric precision and zero-division errors remain PostgreSQL behavior, independently of Core's floating-point runtime.

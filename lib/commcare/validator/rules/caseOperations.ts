@@ -68,6 +68,7 @@ import {
 	operationSavesOnlyChanged,
 	operationTarget,
 	orderedCaseOperations,
+	ownCaseOperationHasEffects,
 	placementIneligibilitySentence,
 	planCaseRetype,
 	prepareCaseScalarTextValue,
@@ -79,7 +80,10 @@ import {
 	type Uuid,
 	userPropertiesOf,
 } from "@/lib/domain";
-import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
+import {
+	entryOperationCaseType,
+	menuEmittedAdvanced,
+} from "@/lib/domain/advancedEntryDatums";
 import {
 	isKeyedRootCreate,
 	isWorkerRecordUpdate,
@@ -262,7 +266,12 @@ export function sharedEntryWriteFindings(
 	);
 	for (const { op, actual } of changed) {
 		const worker = actual === USERCASE_CASE_TYPE;
-		if (worker && repeatedWorker !== undefined && op !== repeatedWorker)
+		if (
+			worker &&
+			repeatedWorker !== undefined &&
+			op !== repeatedWorker &&
+			hasWorkerRecordEffect(ctx, op)
+		)
 			errors.push(workerRecordTwiceFinding(ctx, op, repeatedWorker));
 		if (worker && op.action === "own") {
 			validateOwnWorkerFacets(ctx, op, errors);
@@ -1762,6 +1771,21 @@ function isRepeatedWorkerUpdate(operation: CaseOperation): boolean {
 	return isWorkerRecordUpdate(operation) && operation.forEach !== undefined;
 }
 
+function hasWorkerRecordEffect(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+): boolean {
+	// An empty advanced load has no submitted block. A basic or retained
+	// Save to Case block still advances the case timestamp.
+	return (
+		operation.action !== "own" ||
+		ctx.form.type !== "followup" ||
+		ownCaseOperationHasEffects(operation) ||
+		operation.placement?.kind === "save-to-case" ||
+		!menuEmittedAdvanced(ctx.doc, ctx.moduleUuid)
+	);
+}
+
 function workerRecordTwiceFinding(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
@@ -1797,7 +1821,11 @@ function workerRecordFindings(
 			continue;
 		// A repeated direct block cannot also reach the worker through an
 		// own case, a worker selection, or another direct worker change.
-		if (repeatedWorker !== undefined && operation !== repeatedWorker)
+		if (
+			repeatedWorker !== undefined &&
+			operation !== repeatedWorker &&
+			hasWorkerRecordEffect(ctx, operation)
+		)
 			errors.push(workerRecordTwiceFinding(ctx, operation, repeatedWorker));
 		if (operation.action === "own") continue;
 		if (

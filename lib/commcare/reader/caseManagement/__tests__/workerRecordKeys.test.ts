@@ -27,6 +27,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { sharedWorkerRepeat } from "@/lib/__tests__/sharedWorkerRepeat";
 import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { withIdentityMoves } from "@/lib/doc/identityMoves";
@@ -572,6 +573,28 @@ describe("operation-level execution of a Save to Case worker update", () => {
 		).not.toContainEqual(
 			expect.objectContaining({ reason: "worker-record-twice" }),
 		);
+	});
+
+	it("allows an input-only worker load at a shared entry and refuses a second worker write", () => {
+		const { doc, shared, own } = sharedWorkerRepeat(true);
+		const readsOnly = mutationCommitVerdict(
+			sharedWorkerRepeat(false).doc,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(readsOnly.ok ? [] : readsOnly.findings).toEqual([]);
+		const writesAlso = mutationCommitVerdict(
+			doc,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(writesAlso.ok ? [] : writesAlso.findings).toEqual([
+			expect.objectContaining({
+				code: "CASE_OPERATION_TARGET_INVALID",
+				location: expect.objectContaining({ formUuid: shared, field: own }),
+				details: expect.objectContaining({ reason: "worker-record-twice" }),
+			}),
+		]);
 	});
 
 	it("still refuses a guarded update in a repeat at its exact block", async () => {

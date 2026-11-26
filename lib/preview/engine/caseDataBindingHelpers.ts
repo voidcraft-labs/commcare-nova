@@ -36,11 +36,13 @@ import { workerDistanceValueId } from "@/lib/domain";
 import {
 	entryOperationCaseType,
 	formEntryRecord,
+	menuEmittedAdvanced,
 	sharedWorkerTarget,
 } from "@/lib/domain/advancedEntryDatums";
 import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
 import { formContentUuid } from "@/lib/domain/formEntryCases";
+import { firstModuleListingForm } from "@/lib/domain/formMembership";
 import type { FormOpeningProjection } from "./formOpeningSnapshot";
 import { restoreOpeningCases } from "./formOpeningSnapshot";
 import {
@@ -130,6 +132,7 @@ import {
 	type Module,
 	orderedCaseOperations,
 	organizationLevelsOf,
+	ownCaseOperationHasEffects,
 	type PersistableDoc,
 	searchInputRuntimeValueType,
 	suppliedCreationIssue,
@@ -2642,19 +2645,28 @@ export function buildCaseOperationProgramFromDoc(args: {
 		ordinaryFormType: form.type,
 	};
 	const committed = committedProgramForm(doc, formUuid);
-	// An unused own load may be omitted from a shared entry. Its empty
-	// follow-up arm has no case to touch. The other operations still run.
+	const entryMenu = firstModuleListingForm(doc.formOrder, entryUuid);
+	const noOwnSelection =
+		!!doc.forms[entryUuid]?.shadowOf && !record.requiresCase;
+	const readsWorkerAlongsideRepeat =
+		record.caseType === USERCASE_CASE_TYPE &&
+		entryMenu !== undefined &&
+		menuEmittedAdvanced(doc, entryMenu) &&
+		committed.operations.some(
+			(op) =>
+				op.action === "update" &&
+				op.target.kind === "worker-record" &&
+				op.forEach !== undefined,
+		);
+	// An omitted own load or an input-only advanced worker load has no
+	// submitted case block. The ordinary entry selection stays authorized.
 	const operations =
-		doc.forms[entryUuid]?.shadowOf &&
-		!record.requiresCase &&
-		form.type === "followup"
+		form.type === "followup" && (noOwnSelection || readsWorkerAlongsideRepeat)
 			? committed.operations.filter(
 					(op) =>
 						op.action !== "own" ||
-						op.name ||
-						op.owner ||
-						op.writes?.length ||
-						op.links?.length,
+						ownCaseOperationHasEffects(op) ||
+						(!noOwnSelection && op.placement?.kind === "save-to-case"),
 				)
 			: committed.operations;
 	if (operations.length === 0 && mutation.entrySupplies === undefined)

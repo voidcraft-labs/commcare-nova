@@ -13,6 +13,7 @@ import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { sharedWorkerRepeat } from "@/lib/__tests__/sharedWorkerRepeat";
 import type { CaseStore, LookupTableSchemas } from "@/lib/case-store";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import { SubmissionRejectedError } from "@/lib/case-store/errors";
@@ -417,6 +418,95 @@ describe("engine → builder → executor acceptance", () => {
 		const [worker] = await workerRows();
 		expect(worker.case_id).toBe(SECOND_SESSION_CASE);
 		expect(worker.properties).not.toHaveProperty("visit_note");
+	});
+
+	it("does not stamp the selected worker for a shared form with no live repeat rows", async () => {
+		const { doc, shared } = sharedWorkerRepeat(false, APP_ID);
+		const store = makeStore(true);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "commcare-user",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: SESSION_CASE,
+				case_type: "commcare-user",
+				case_name: "Worker",
+				status: "open",
+				properties: { hq_user_id: ACTOR, visit_note: "before" },
+			},
+		});
+		await sql`UPDATE cases SET modified_on = '2024-01-01T00:00:00Z' WHERE app_id = ${APP_ID}`.execute(
+			dbHandle.db,
+		);
+		const workers = () =>
+			store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "commcare-user",
+			});
+		const baseline = await workers();
+		const audience = {
+			app: APP_ID,
+			project: PROJECT,
+			actor: ACTOR,
+			worker: ACTOR,
+			session: "shared-opening",
+			persona: null,
+			device: webAppsDevice(),
+			module: doc.moduleOrder[1],
+			form: shared,
+			entry: ENTRY_KEY,
+			run: ENTRY_KEY,
+			revision: 0,
+			blueprintDigest: "0".repeat(64),
+		};
+		const secret = "synthetic shared worker opening key";
+		const signed = await signFormOpening(secret, audience, {
+			cases: openingCaseData({ rows: baseline, indices: [] }),
+			lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+			choices: [],
+			primaryCaseIds: [SESSION_CASE],
+			datums: {},
+			resolvedEntries: {},
+			sessionData: {},
+			complete: true,
+		});
+		const input = buildEngineInput(doc, shared, null);
+		if (!input) throw new Error("Expected the shared worker form");
+		const mutation = new FormEngine(input).computeSubmissionMutation({
+			caseIds: [SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		const projection = validateCaptureSubmissionProjection(mutation);
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection,
+			identity: IDENTITY,
+			opening: await verifyFormOpening(secret, audience, signed),
+		});
+		const result = await store.applySubmission(
+			submissionEnvelopeArgs(mutation, APP_ID, {
+				...built,
+				submissionReceipt: {
+					...buildSubmissionReceiptIdentity({
+						appId: APP_ID,
+						identity: IDENTITY,
+						mutation,
+						projection,
+					}),
+					expectedAppMutationSeq: 0,
+					blueprintDigest: audience.blueprintDigest,
+				},
+			}),
+		);
+		expect(result.primaryCaseIds).toEqual([SESSION_CASE]);
+		expect(result.operations).toEqual([]);
+		expect(await workers()).toEqual(baseline);
 	});
 
 	it("applies a root worker update only on the committed condition to the scoped row", async () => {
