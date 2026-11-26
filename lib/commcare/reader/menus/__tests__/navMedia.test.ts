@@ -667,7 +667,7 @@ describe("an override of a generated media key in `translations`", () => {
 
 	it("keeps an override equal to the full-app fallback for a limited installation", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
-			json.langs.push("fr");
+			json.langs = [...(json.langs as string[]), "fr"];
 			const menu = json.modules[0];
 			menu.media_image = { en: MENU_ICON, es: OTHER_ICON };
 			(menu.forms[0] as Record<string, unknown>).media_image = {
