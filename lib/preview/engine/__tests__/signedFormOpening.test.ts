@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type {
 	FormOpeningAudience,
 	FormOpeningProjection,
 } from "../formOpeningSnapshot";
 import { serverPreviewDevice } from "../previewDevice";
-import { signFormOpening, verifyFormOpening } from "../signedFormOpening";
+import {
+	openingCarryScope,
+	signFormOpening,
+	verifyFormOpening,
+} from "../signedFormOpening";
 
 const audience: FormOpeningAudience = {
 	app: "visit",
@@ -35,6 +40,34 @@ const projection: FormOpeningProjection = {
 const secret = "synthetic entry signing secret";
 
 describe("the authorized running form's immutable opening", () => {
+	it("keeps existing Web Apps and Android receipt scopes", () => {
+		const { app, project, actor, session, worker, persona, run } = audience;
+		const androidDeviceId = testUuid("receipt install");
+		for (const [platform, persistedInstallId] of [
+			["web-apps", null],
+			["android", androidDeviceId],
+		] as const) {
+			const device = serverPreviewDevice({
+				platform,
+				appLanguage: "en",
+				androidDeviceId,
+			});
+			expect(openingCarryScope({ ...audience, device })).toBe(
+				canonicalJsonDigest({
+					app,
+					project,
+					actor,
+					session,
+					worker,
+					persona,
+					run,
+					platform,
+					androidDeviceId: persistedInstallId,
+				}),
+			);
+		}
+	});
+
 	it("rehydrates its exact opening and rejects cross-session, cross-entry, cross-project and changed payloads", async () => {
 		const signed = await signFormOpening(secret, audience, projection);
 		await expect(verifyFormOpening(secret, audience, signed)).resolves.toEqual(

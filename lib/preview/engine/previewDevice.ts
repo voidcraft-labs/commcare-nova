@@ -16,7 +16,8 @@
 // with no browser window builds one with `serverPreviewDevice`.
 //
 // Like `lib/preview/platform.ts`, this file may choose by platform: its input
-// parse, `serverPreviewDevice` and `withNavigationWidth` are per platform.
+// parse, receipt install identity, `serverPreviewDevice` and `withNavigationWidth`
+// are per platform.
 
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
@@ -103,6 +104,11 @@ export function previewDeviceInput(value: unknown): PreviewDevice {
 		appLanguage,
 		...(windowWidth !== undefined && { windowWidth }),
 	};
+}
+
+/** The install UUID for device-local receipts, supplied only on Android. */
+export function previewAndroidInstallId(device: PreviewDevice): string | null {
+	return device.platform === "android" ? device.androidDeviceId : null;
 }
 
 /** The session context values this device supplies. Web Apps: `deviceid`

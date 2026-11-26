@@ -17,6 +17,7 @@ import type {
 	FormOpeningProjection,
 	SignedFormOpening,
 } from "./formOpeningSnapshot";
+import { previewAndroidInstallId } from "./previewDevice";
 
 const purpose = "nova:worker-form-opening:v1\u0000";
 const reopen =
@@ -53,8 +54,7 @@ export function openingCarryScope(
 		persona,
 		run,
 		platform: device.platform,
-		androidDeviceId:
-			device.platform === "android" ? device.androidDeviceId : null,
+		androidDeviceId: previewAndroidInstallId(device),
 	});
 }
 
