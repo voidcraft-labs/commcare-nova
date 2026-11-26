@@ -128,6 +128,7 @@
 		"hq-case-lists/markdown-column",
 		"hq-case-lists/menu-without-unique-id",
 		"hq-case-lists/multi-select-above-a-hundred",
+		"hq-case-lists/multi-select-exceeds-runtime-integer",
 		"hq-case-lists/multi-select-unbounded",
 		"hq-case-lists/name-column-with-a-filter-xpath",
 		"hq-case-lists/name-column-with-advanced-text",

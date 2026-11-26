@@ -296,6 +296,16 @@ def multi_select_above_a_hundred(authoring, app_id):
     )
 
 
+def multi_select_exceeds_runtime_integer(authoring, app_id):
+    """Patients' list holds the first maximum outside Core's signed integer range."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/multi_select", True),
+        ("/modules/0/case_details/short/max_select_value", 2_147_483_648),
+    )
+
+
 def multi_select_of_none(authoring, app_id):
     """Households' list choosing several households, at most none."""
     _set_each(

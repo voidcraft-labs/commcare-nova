@@ -11081,6 +11081,21 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/multi-select-exceeds-runtime-integer",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-max-select-value-above-2147483647",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "multi_select_exceeds_runtime_integer"
+		}
+	},
+	{
 		"id": "hq-case-lists/multi-select-unbounded",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
