@@ -261,13 +261,8 @@ def suite_validation_test_change(difference):
     )
 
 
-def redundant_search_quote_guard(before, after):
-    """Only an exact same-answer conjunction that leaves the lowercase check unchanged."""
-    from proof.checks.xpath_tree import tree
-
-    if not isinstance(before, str) or not isinstance(after, str):
-        return None
-    original = tree(before)
+def lowercase_search_answer(original):
+    """The answer path and field read by the anchored plain lowercase check, from a parsed XPath tree."""
     match original:
         case ("call", "regex", (answer, ("str", "^[a-z]+$"))):
             pass
@@ -289,6 +284,20 @@ def redundant_search_quote_guard(before, after):
                 return None
         case _:
             return None
+    return answer, field
+
+
+def redundant_search_quote_guard(before, after):
+    """Only an exact same-answer conjunction that leaves the lowercase check unchanged."""
+    from proof.checks.xpath_tree import tree
+
+    if not isinstance(before, str) or not isinstance(after, str):
+        return None
+    original = tree(before)
+    checked = lowercase_search_answer(original)
+    if checked is None:
+        return None
+    answer, field = checked
     parts = (
         ("call", "count", (answer,)),
         ("call", "contains", (answer, ("str", "'"))),
