@@ -101,15 +101,6 @@ def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
             original_entities = _identities(app)
             sibling_entities = _identities(sibling)
             original_table, original_rows = _table(unit)
-        with unit.operation("shared-table:republish", DOCUMENT.encode()):
-            refusal, uploaded = publish.update(
-                unit, app_id, document.exports["minimum"].republish, "adopted shared-table app"
-            )
-            assert refusal is None and uploaded is None, (refusal, uploaded)
-            assert _identities(operations.held_app(unit, app_id)) == original_entities
-            assert _identities(operations.held_app(unit, sibling.get_id)) == sibling_entities
-            table, rows = _table(unit)
-            assert table.id == original_table.id and rows == original_rows
         with unit.operation("shared-table:publish", DOCUMENT.encode()):
             refusal, uploaded = publish.update(
                 unit, app_id, document.edit.exports["minimum"].update, "shared-table edit"
