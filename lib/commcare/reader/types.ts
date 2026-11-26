@@ -60,6 +60,11 @@ export interface ReaderInput {
 	readonly source: HqAppSource;
 	/** The aligned menus, each form's real id and HQ's own question summary. */
 	readonly modules: readonly HqAlignedModule[];
+	/**
+	 * Nova's fixed-point emission prints listed-form references under the source
+	 * read's IDs. Real HQ source holds the application resource's actual IDs.
+	 */
+	readonly listedFormsUseReadIds?: true;
 	/** Source project facts observed by this reading, independent of the publish target. */
 	readonly sourceProjectFactories?: Pick<
 		InstanceFactories,

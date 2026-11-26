@@ -832,6 +832,7 @@ function* fixedPointCheck(
 					target: input.reader.target,
 					source: read.source,
 					modules: read.modules,
+					listedFormsUseReadIds: true,
 					resolver,
 					lookup: input.reader.lookup,
 					organization: input.reader.organization,
