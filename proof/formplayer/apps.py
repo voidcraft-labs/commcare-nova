@@ -298,12 +298,14 @@ def generated_menu_icon(holder, scenario):
         assert image in app.multimedia_map
         if scenario == "other-language":
             app.langs = ["en", "fr"]
-            app.build_langs = ["en", "fr"]
             app.modules[0].forms[0].media_image = {"fr": image}
+        if scenario == "unmapped":
+            del app.multimedia_map[image]
         app.set_translations("en", {**app.translations.get("en", {}), key: image})
         app.save()
         app = operations.held_app(holder.unit, holder.app_id)
-        assert app.translations["en"][key] == image and image in app.multimedia_map
+        assert app.translations["en"][key] == image
+        assert (image in app.multimedia_map) == (scenario != "unmapped")
         assert (image in app.all_media_paths()) == (scenario == "other-language")
         assert image not in app.all_media_paths(lang="en")
         stored.clear()

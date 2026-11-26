@@ -105,7 +105,7 @@ def test_web_apps_shows_a_player_for_a_missing_sound_and_a_broken_picture_in_the
     assert set(drawn) == {True, False}, drawn
 
 
-@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "other-language"])
+@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "unmapped", "other-language"])
 def test_generated_navigation_icon_needs_a_file_in_the_web_apps_release(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence, scenario
 ):
@@ -117,14 +117,14 @@ def test_generated_navigation_icon_needs_a_file_in_the_web_apps_release(
             formplayer_runner, change=apps.generated_menu_icon(project, scenario)
         ) as release:
             in_map = any(path.endswith("/" + expected_name) for path in release.doc["multimedia_map"])
-            assert in_map == (scenario != "orphan")
+            assert in_map == (scenario not in ("orphan", "unmapped"))
             run = Session(release, editor_driver).run([*steps.open_app("Missing media"), steps.SCREEN])
 
     evidence("screens", run.screens)
     assert not run.page_errors, run.page_errors
     (menu,) = run.screens
     (visit,) = [item for item in menu["commands"] if item["text"] == "Visits"]
-    if scenario == "orphan":
+    if scenario in ("orphan", "unmapped"):
         assert visit["image"] is None, visit
     else:
         assert visit["image"].endswith("/" + expected_name), visit
