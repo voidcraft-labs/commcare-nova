@@ -12,6 +12,7 @@ import { caseMappingTextUnit } from "./caseMappingRows";
 import { columnPropertyCaseType } from "./columnRelation";
 import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
+import { FIELD_ITEXT_SLOTS } from "./expression/types";
 import type { Field } from "./fields";
 import { isContainer } from "./fields";
 import {
@@ -67,6 +68,8 @@ export const translationUnitRoles = [
 	"field-extended-text",
 	"field-qr-code",
 	"field-spoken-text",
+	"field-first-add-label",
+	"field-add-label",
 	"select-option-label",
 	"case-detail-tab-title",
 	"case-list-header",
@@ -307,16 +310,17 @@ export function collectTranslationCoverageDiagnostics(
 				"These labels are record data. App translations don't change their saved wording.",
 			affectedCount: caseChoices,
 		});
-	const connectForms = Object.values(doc.forms).filter(
-		(form) => form.connect !== undefined,
+	const connectActivities = Object.values(doc.fields).filter(
+		(field) =>
+			field.kind === "connect_activity" && field.activity.kind !== "assessment",
 	).length;
-	if (connectForms > 0) {
+	if (connectActivities > 0) {
 		diagnostics.push({
 			code: "connect-text-has-no-locale-carrier",
 			title: "CommCare Connect names stay in one language",
 			explanation:
 				"CommCare Connect stores learn and delivery content in a single language, so names and descriptions there can't be translated per language.",
-			affectedCount: connectForms,
+			affectedCount: connectActivities,
 		});
 	}
 	const mediaRefs = collectAssetRefs(doc).size;
@@ -418,6 +422,8 @@ function fieldUnits(
 				| "field-hint"
 				| "field-help"
 				| "field-validation-message"
+				| "field-first-add-label"
+				| "field-add-label"
 				| LabelTextRole
 			>,
 			slot: string,
@@ -451,6 +457,11 @@ function fieldUnits(
 			"validate_msg",
 			"validate_msg" in field ? field.validate_msg : undefined,
 		);
+
+		if (field.kind === "repeat") {
+			addProse("field-first-add-label", "addFirstLabel", field.addFirstLabel);
+			addProse("field-add-label", "addLabel", field.addLabel);
+		}
 
 		if ("optionsSource" in field && field.optionsSource.kind === "inline") {
 			for (const option of field.optionsSource.options) {
@@ -1195,13 +1206,7 @@ export function itextUnitTranslationId(unit: ItextUnit): TranslationUnitId {
 	return makeTranslationUnitId(
 		"field",
 		unit.field,
-		unit.role === "field-label"
-			? "label"
-			: unit.role === "field-hint"
-				? "hint"
-				: unit.role === "field-help"
-					? "help"
-					: "validate_msg",
+		FIELD_ITEXT_SLOTS[unit.role],
 	);
 }
 
@@ -1319,8 +1324,14 @@ export function translationUnitProseSlot(
 			return { entity: "field", uuid: owner.fieldUuid, slot: "hint" };
 		case "field-help":
 			return { entity: "field", uuid: owner.fieldUuid, slot: "help" };
+		case "field-first-add-label":
+		case "field-add-label":
 		case "field-validation-message":
-			return { entity: "field", uuid: owner.fieldUuid, slot: "validate_msg" };
+			return {
+				entity: "field",
+				uuid: owner.fieldUuid,
+				slot: FIELD_ITEXT_SLOTS[unit.role],
+			};
 		case "field-extended-text":
 		case "field-qr-code":
 		case "field-spoken-text":

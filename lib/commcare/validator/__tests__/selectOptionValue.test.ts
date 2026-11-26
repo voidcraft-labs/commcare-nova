@@ -101,30 +101,17 @@ describe("SELECT_OPTION_VALUE_INVALID", () => {
 		});
 	});
 
-	it("admits one kind of quote mark, which a string literal spells between the other", () => {
+	it("admits one or both kinds of quote mark in the same value", () => {
 		expect(
 			fieldFindings(
 				select("single_select", [
 					["don't_know", "Don't know"],
+					[`it's_"x"`, "It's x"],
 					['say"hi"', "Say hi"],
 					["back`tick", "Backtick"],
 				]),
 			),
 		).toEqual([]);
-	});
-
-	it("refuses a value holding both quote marks, which no rule's text can name", () => {
-		const findings = fieldFindings(
-			select("single_select", [
-				[`it's_"x"`, "It's x"],
-				["yes", "Yes"],
-			]),
-		);
-		expect(findings).toHaveLength(1);
-		expect(findings[0]?.details).toMatchObject({ problem: "both-quotes" });
-		expect(findings[0]?.message).toContain(
-			"Nova can't yet write a rule that names a choice holding both an apostrophe and a double quote. Keeping one kind of quote mark, or neither, works.",
-		);
 	});
 
 	it("refuses a value CommCare HQ's build reads as a data source, and admits the word alone", () => {

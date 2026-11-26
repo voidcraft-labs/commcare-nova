@@ -1,8 +1,7 @@
 // lib/domain/fields/video.ts
 //
 // Video capture field. Emits `<upload mediatype="video/*">` over a
-// `binary` bind. Cannot be calculated or validated — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema. A case
+// `binary` bind. Its starting value, constraint and help are shared with other questions. A case
 // operation saves a link to the captured file through a `capture-link`
 // write value, never the file itself.
 //
@@ -16,15 +15,12 @@ import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { displaySchemas } from "../questionDisplaySchemas";
-import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
+import { checkedInputFieldBaseSchema } from "./base";
 
-export const videoFieldSchema = fieldBaseSchema.extend({
+export const videoFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("video"),
 	sendTopics: displaySchemas.sendTopics.optional(),
 	captureSource: z.literal("camera").optional(),
-	hint: proseTemplateSchema.optional(),
-	required: formLogicSchema.optional(),
-	relevant: formLogicSchema.optional(),
 });
 
 export type VideoField = z.infer<typeof videoFieldSchema>;
@@ -37,7 +33,7 @@ export const videoFieldMetadata: FieldKindMetadata<"video"> = {
 	label: "Video",
 	isStructural: false,
 	isContainer: false,
-	carriesValidation: false,
+	carriesValidation: true,
 	saDocs:
 		'Video attachment. Name what to capture, such as "Video of the demonstration", rather than how.',
 	convertTargets: ["image", "audio", "signature", "file"],

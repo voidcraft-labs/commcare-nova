@@ -267,21 +267,26 @@ it("joins case-backed Connect calculations and HQ dependency paths to the select
 	doc.forms[formUuid].caseOperations = [
 		{ uuid: testUuid("connect-own-visit"), id: "visit", action: "own" },
 	];
-	doc.forms[formUuid].connect = {
-		deliver_unit: {
-			id: "vendor_visit",
-			name: "Visit",
-			entity_id: term({
-				kind: "form-case",
-				caseType: "visit",
-				property: "beneficiary_id",
-			}),
-			entity_name: term({
-				kind: "form-case",
-				caseType: "visit",
-				property: "case_name",
-			}),
-		},
+	const delivery = Object.values(doc.fields).find(
+		(field) =>
+			field.kind === "connect_activity" && field.activity.kind === "delivery",
+	);
+	if (delivery?.kind !== "connect_activity")
+		throw new Error("Missing delivery activity.");
+	delivery.id = "vendor_visit";
+	delivery.activity = {
+		kind: "delivery",
+		name: "Visit",
+		entityId: term({
+			kind: "form-case",
+			caseType: "visit",
+			property: "beneficiary_id",
+		}),
+		entityName: term({
+			kind: "form-case",
+			caseType: "visit",
+			property: "case_name",
+		}),
 	};
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);

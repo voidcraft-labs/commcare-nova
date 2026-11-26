@@ -171,7 +171,7 @@ export function makeMinimalDoc(): BlueprintDoc {
 	return {
 		appId: "test-app",
 		appName: "",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
@@ -197,7 +197,7 @@ export function makeCanonicalGenesisDoc(
 	const empty: BlueprintDoc = {
 		appId,
 		appName: "",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},

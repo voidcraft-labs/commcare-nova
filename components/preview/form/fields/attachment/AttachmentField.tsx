@@ -30,6 +30,7 @@ import {
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { AudioRecorder } from "./AudioRecorder";
+import { androidPhotoForUpload } from "./androidPhoto";
 import {
 	type AttachmentCommitResult,
 	AttachmentRejected,
@@ -255,6 +256,10 @@ function AttachmentControl({
 	const drawsSignature =
 		field.kind === "signature" ||
 		(field.kind === "image" && field.webSignature && rules.combinedSignature);
+	const androidImageLimit =
+		rules.capture === "device" && field.kind === "image"
+			? field.maxDimension
+			: undefined;
 	const projectProse = useProseProjection();
 	const mayWrite = mayEdit && accessPhase === "authorized";
 	const inputId = useId();
@@ -459,12 +464,25 @@ function AttachmentControl({
 			let confirmed: StagedAttachment | undefined;
 			let adopted = false;
 			try {
+				const upload =
+					androidImageLimit === undefined
+						? file
+						: await androidPhotoForUpload(
+								file,
+								androidImageLimit,
+								context.signal,
+							);
+				if (!context.isCurrent() || !hasWriteAuthority()) return "canceled";
+				if (rules.capture === "device" && upload.size > limits.maxBytes)
+					throw new AttachmentRejected(
+						`This file is bigger than ${Math.floor(limits.maxBytes / 1_000_000)} MB. You can choose a smaller one.`,
+					);
 				const next = await stageAttachment({
 					appId,
 					entryKey,
 					fieldUuid: field.uuid,
 					instancePath: uploadPath,
-					file,
+					file: upload,
 					platform,
 					signal: context.signal,
 				});
@@ -494,6 +512,20 @@ function AttachmentControl({
 						});
 						adopted = true;
 						setStaged(next);
+						if (
+							rules.capture === "device" &&
+							(field.kind === "image" ||
+								field.kind === "audio" ||
+								field.kind === "video")
+						) {
+							setLargeAttached(
+								limits.warnAboveBytes !== undefined &&
+									upload.size > limits.warnAboveBytes,
+							);
+							setChosenPhotoUrl(
+								field.kind === "image" ? URL.createObjectURL(file) : undefined,
+							);
+						}
 						if (
 							previous !== undefined &&
 							previous.attachmentId !== next.attachmentId
@@ -552,6 +584,7 @@ function AttachmentControl({
 			appId,
 			entryKey,
 			drawsSignature,
+			field.kind,
 			field.uuid,
 			slotKey,
 			currentPath,
@@ -560,6 +593,9 @@ function AttachmentControl({
 			setIntent,
 			hasWriteAuthority,
 			platform,
+			androidImageLimit,
+			limits,
+			rules.capture,
 		],
 	);
 
@@ -793,20 +829,14 @@ function AttachmentControl({
 	 *  large-file line follow the file only once it becomes the answer, so a
 	 *  refused, failed or canceled pick leaves the current answer's alone. */
 	const pickOnDevice = async (file: File) => {
-		if (file.size > limits.maxBytes) {
+		if (androidImageLimit === undefined && file.size > limits.maxBytes) {
 			setError(
 				`This file is bigger than ${Math.floor(limits.maxBytes / 1_000_000)} MB. You can choose a smaller one.`,
 			);
 			return;
 		}
 		setError(undefined);
-		if ((await stage(file)) !== "committed") return;
-		setLargeAttached(
-			limits.warnAboveBytes !== undefined && file.size > limits.warnAboveBytes,
-		);
-		setChosenPhotoUrl(
-			field.kind === "image" ? URL.createObjectURL(file) : undefined,
-		);
+		await stage(file);
 	};
 
 	const hasAnswer = state.value !== "";
@@ -1123,7 +1153,7 @@ function AttachmentControl({
 								: hasAnswer
 									? (slotDraft?.file.name ??
 										staged?.originalFilename ??
-										"File attached")
+										(state.edited ? "File attached" : state.value))
 									: (slotDraft?.file.name ?? "No file attached.")}
 				</p>
 			) : null}

@@ -79,7 +79,7 @@ export const setFormSectionsInputSchema = formAddressSchema
 					fields: z
 						.array(uuidSchema)
 						.describe(
-							"The page's top-level questions, in page order: the form's root fields, or direct children of a current section. A group or repeat moves with everything inside it, so name the group, never a field inside it.",
+							"The page's top-level questions, in page order: the form's root fields, or direct children of a current section. Leave Connect activities out of the page lists. Nova keeps their submitted locations and order. A group or repeat moves with everything inside it, so name the group, never a field inside it.",
 						),
 				}),
 			)

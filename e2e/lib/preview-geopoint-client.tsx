@@ -38,7 +38,7 @@ const MODULE = testUuid("native-geopoint-module"),
 const doc = admittedControllerDoc({
 	appId: "native-geopoint",
 	appName: "Location",
-	connectType: null,
+	connectRoles: [],
 	appSettings: {
 		showSavedForms: false,
 		showIncompleteForms: false,

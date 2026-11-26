@@ -128,9 +128,14 @@ const RULES: readonly ForbiddenImportRule[] = [
 	},
 	{
 		/* Deployment writes reach CommCare HQ. A staged candidate has no
-		 * business touching a remote project space. */
+		 * business touching a remote project space. The one read it may make
+		 * is which of the app's questions a project space already holds
+		 * (`publishedQuestions`), which the gate needs to review a moved
+		 * answer; it reads this app's own rows and writes nothing. */
 		what: "the HQ deployment writers",
-		matches: (s) => s.includes("lib/deployment"),
+		matches: (s) =>
+			s.includes("lib/deployment") &&
+			!s.endsWith("lib/deployment/publishedQuestions"),
 		allowedFiles: [],
 	},
 	{

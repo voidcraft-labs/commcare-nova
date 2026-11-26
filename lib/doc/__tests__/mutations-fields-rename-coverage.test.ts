@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { planConnectTargetState } from "@/lib/doc/connectTargetState";
 import { projectFormExpression } from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -408,43 +407,47 @@ describe("field reference projection after rename and move", () => {
 		).toBe("/data/age > 17");
 	});
 	it.each(["learn", "deliver"] as const)(
-		"projects %s Connect expressions established by the real whole-app planner",
+		"projects %s expressions from their authored activity after moving the referenced question",
 		(mode) => {
 			// A Connect app runs on Android alone, so the app declares it before
 			// Connect is turned on.
 			const base = commit(fixture(), [
 				{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
 			]);
-			const connect =
+			const activity =
 				mode === "learn"
 					? {
-							assessment: {
-								id: "quiz",
-								user_score: arith(
-									"*",
-									term({ ...formField(Q("age")), spelling: "absolute" }),
-									term(literal(10)),
-								),
-							},
+							kind: "assessment" as const,
+							score: arith(
+								"*",
+								term({ ...formField(Q("age")), spelling: "absolute" }),
+								term(literal(10)),
+							),
 						}
 					: {
-							deliver_unit: {
-								id: "delivery",
-								name: "Delivery",
-								entity_id: concat(
-									term(formField(Q("age"))),
-									term(literal("-")),
-									today(),
-								),
-								entity_name: term(formField(Q("age"))),
-							},
+							kind: "delivery" as const,
+							name: "Delivery",
+							entityId: concat(
+								term(formField(Q("age"))),
+								term(literal("-")),
+								today(),
+							),
+							entityName: term(formField(Q("age"))),
 						};
-			const plan = planConnectTargetState(base, {
-				mode,
-				participants: [{ formUuid: Q("form"), connect }],
-			});
-			if (!plan.ok) throw new Error(plan.messages.join("; "));
-			const enabled = commit(base, plan.mutations);
+			const activityUuid = Q("submitted_activity");
+			const enabled = commit(base, [
+				{ kind: "setConnectRoles", roles: [mode] },
+				{
+					kind: "addField",
+					parentUuid: Q("form"),
+					field: {
+						kind: "connect_activity",
+						id: mode === "learn" ? "quiz" : "delivery",
+						uuid: activityUuid,
+						activity,
+					},
+				},
+			]);
 			const renamed = commit(enabled, [
 				{
 					kind: "updateField",
@@ -461,29 +464,27 @@ describe("field reference projection after rename and move", () => {
 					after: null,
 				},
 			]);
-			expect(moved.forms[Q("form")].connect).toEqual(
-				enabled.forms[Q("form")].connect,
-			);
+			expect(moved.fields[activityUuid]).toEqual(enabled.fields[activityUuid]);
 			if (mode === "learn")
 				expect(
 					projectSlot(moved, {
-						entity: "form",
-						uuid: Q("form"),
+						entity: "field",
+						uuid: activityUuid,
 						slot: "assessment_user_score",
 					}),
 				).toBe("/data/group/score * 10");
 			else {
 				expect(
 					projectSlot(moved, {
-						entity: "form",
-						uuid: Q("form"),
+						entity: "field",
+						uuid: activityUuid,
 						slot: "deliver_entity_id",
 					}),
 				).toBe("concat(#form/group/score, '-', today())");
 				expect(
 					projectSlot(moved, {
-						entity: "form",
-						uuid: Q("form"),
+						entity: "field",
+						uuid: activityUuid,
 						slot: "deliver_entity_name",
 					}),
 				).toBe("#form/group/score");

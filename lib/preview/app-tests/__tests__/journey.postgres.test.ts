@@ -37,6 +37,7 @@ import {
 	mapLayerColumn,
 	mapLocationColumn,
 	NEW_APP_SETTINGS,
+	PLATFORMS,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -2797,6 +2798,16 @@ it("visits form pages using retained entry state before allowing submission", {
 			(field) => field.id === "second",
 		);
 		if (!first || !second) throw new Error("Missing sections");
+		const question = testUuid("follow-up-question-on-second-screen");
+		doc.fields[question] = {
+			uuid: question,
+			kind: "text",
+			id: "follow_up",
+			label: proseText("Follow-up question"),
+			submissionPlacement: { parent: first.uuid },
+		};
+		doc.fieldOrder[second.uuid].push(question);
+		doc.fieldParent[question] = second.uuid;
 		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 		await h.seedAppWithBlueprint(doc, {
 			id: scope.appId,
@@ -2865,6 +2876,14 @@ it("visits form pages using retained entry state before allowing submission", {
 			completed: false,
 			error: "Open that section before answering its questions.",
 		});
+		await expect(
+			step({
+				kind: "answer",
+				answers: [{ path: "first/follow_up", value: "too early" }],
+			}),
+		).resolves.toMatchObject({
+			error: "Open that section before answering its questions.",
+		});
 		const opened = await step({ kind: "pageNext" });
 		expect(opened).toMatchObject({
 			canSubmit: true,
@@ -2879,6 +2898,22 @@ it("visits form pages using retained entry state before allowing submission", {
 				}),
 			]),
 		});
+		expect(
+			(
+				await step({
+					kind: "answer",
+					answers: [{ path: "first/follow_up", value: "returned" }],
+				})
+			).questions,
+		).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					path: "first/follow_up",
+					value: "returned",
+					onCurrentPage: true,
+				}),
+			]),
+		);
 		await step({
 			kind: "answer",
 			answers: [{ path: "second/rounds[0]/assets[0]/note", value: "retained" }],
@@ -5114,3 +5149,126 @@ it("routes the offered form as any form when it is opened from its own menu", as
 	});
 	await step({ kind: "finish" });
 });
+
+for (const platform of PLATFORMS) {
+	it(`persists only actual worker message commitments through an ordinary ${platform} journey`, {
+		timeout: 15_000,
+	}, async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Checklist",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									id: "start",
+									fieldList: true,
+									children: [
+										f({ kind: "text", id: "note" }),
+										f({
+											kind: "label",
+											id: "instruction",
+											label: "Read the visit notes",
+										}),
+									],
+								}),
+								f({
+									kind: "group",
+									id: "end",
+									fieldList: true,
+									children: [
+										f({
+											kind: "label",
+											id: "confirm",
+											label: "Check the visit",
+											askForConfirmation: true,
+										}),
+										f({
+											kind: "text",
+											id: "follow_up",
+											relevant: "#form/end/confirm = 'OK'",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		const moduleUuid = doc.moduleOrder[0],
+			formUuid = doc.formOrder[moduleUuid][0];
+		let current = await startAppTest(scope, {
+				requestId: "start",
+				expectedBlueprintSeq: 0,
+				input: { purpose: "Read and confirm the visit", platform },
+			}),
+			request = 0;
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `message-${++request}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		await step({ kind: "continue" });
+		await step({ kind: "menu", moduleUuid });
+		const opened = await step({ kind: "form", formUuid });
+		const edited = await step({
+			kind: "answer",
+			answers: [{ path: "start/note", value: "At the visit" }],
+		});
+		for (const observation of [opened, edited]) {
+			expect(observation.questions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "start/instruction", value: "" }),
+				]),
+			);
+			if (platform === "web-apps")
+				expect(observation.questions).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ path: "end/confirm", value: "" }),
+						expect.objectContaining({ path: "end/follow_up", visible: false }),
+					]),
+				);
+		}
+		if (platform === "android") {
+			expect((await step({ kind: "pageNext" })).questions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "end/confirm", value: "" }),
+				]),
+			);
+			expect((await step({ kind: "pagePrevious" })).questions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "start/instruction", value: "OK" }),
+				]),
+			);
+			await step({ kind: "pageNext" });
+			expect(
+				(
+					await step({
+						kind: "answer",
+						answers: [{ path: "end/confirm", value: "OK" }],
+					})
+				).questions,
+			).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "end/follow_up", visible: true }),
+				]),
+			);
+		}
+		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+	});
+}

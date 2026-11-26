@@ -15,6 +15,8 @@ export interface LookupChoice {
 
 /** Per-field reactive state tracked by the form engine. */
 export interface FieldState {
+	/** Last nonblank worker answer accepted by Web Apps when checking only changes. */
+	acceptedAnswer?: string;
 	path: string;
 	value: string;
 	/** What an Android date widget displays while its instance is blank.
@@ -28,6 +30,8 @@ export interface FieldState {
 	touched: boolean;
 	/** A user supplied an answer, including clearing it, before or after blur. */
 	edited?: boolean;
+	/** The file the worker selected for this capture slot, or empty after clearing it. */
+	captureFileName?: string;
 	/** The shown answer is one the worker typed and the platform's number
 	 *  keypad refused: the instance keeps the earlier answer, and the
 	 *  question shows the keypad's message. Only set on a Text question with
@@ -42,6 +46,9 @@ export interface FieldState {
 	/** The label's other texts (`lib/domain/labelForms.ts`) with refs
 	 *  evaluated to runtime values, by slot. Only set when one contains refs. */
 	resolvedLabelTexts?: Readonly<Partial<Record<LabelTextSlot, string>>>;
+	/** Evaluated repeating-group button text for the empty and populated states. */
+	resolvedAddFirstLabel?: string;
+	resolvedAddLabel?: string;
 	/** Structural option-label refs evaluated by stable option uuid. */
 	resolvedOptionLabels?: Readonly<Record<string, string>>;
 	/** Live instance count for repeat fields. Only set on `repeat` kinds —
@@ -122,11 +129,15 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.valid === b.valid &&
 		a.touched === b.touched &&
 		a.edited === b.edited &&
+		a.captureFileName === b.captureFileName &&
+		a.acceptedAnswer === b.acceptedAnswer &&
 		a.errorMessage === b.errorMessage &&
 		a.resolvedLabel === b.resolvedLabel &&
 		a.resolvedHint === b.resolvedHint &&
 		a.resolvedHelp === b.resolvedHelp &&
 		stringRecordsEqual(a.resolvedLabelTexts, b.resolvedLabelTexts) &&
+		a.resolvedAddFirstLabel === b.resolvedAddFirstLabel &&
+		a.resolvedAddLabel === b.resolvedAddLabel &&
 		stringRecordsEqual(a.resolvedOptionLabels, b.resolvedOptionLabels) &&
 		a.repeatCount === b.repeatCount &&
 		a.insertRefusal === b.insertRefusal &&

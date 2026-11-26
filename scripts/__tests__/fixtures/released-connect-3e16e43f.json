@@ -1,0 +1,560 @@
+[
+	{
+		"name": "learn-default",
+		"released": {
+			"appId": "test-app",
+			"appName": "learn-default",
+			"connectType": "learn",
+			"caseTypes": null,
+			"appSettings": {
+				"showSavedForms": false,
+				"showIncompleteForms": false,
+				"runsOnlyOn": "android"
+			},
+			"modules": {
+				"6a5b391d-9a03-5321-aa57-124fd448370d": {
+					"uuid": "6a5b391d-9a03-5321-aa57-124fd448370d",
+					"id": "work",
+					"name": "Work"
+				}
+			},
+			"forms": {
+				"fd94c651-9b7f-50cd-a641-5c8bc4505761": {
+					"uuid": "fd94c651-9b7f-50cd-a641-5c8bc4505761",
+					"id": "activity",
+					"name": "Activity",
+					"type": "survey",
+					"connect": {
+						"learn_module": {
+							"id": "lesson",
+							"name": "Health & care <雪>",
+							"description": "Read 'A' then \"B\"",
+							"time_estimate": 5
+						},
+						"assessment": {
+							"id": "quiz"
+						}
+					}
+				}
+			},
+			"fields": {
+				"509f8dad-005d-54c1-a373-17e3dd812f1d": {
+					"uuid": "509f8dad-005d-54c1-a373-17e3dd812f1d",
+					"kind": "int",
+					"id": "score",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 42
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Score"
+							}
+						]
+					}
+				},
+				"499f82a8-015d-5654-a873-1fc2d6812418": {
+					"uuid": "499f82a8-015d-5654-a873-1fc2d6812418",
+					"kind": "text",
+					"id": "feedback",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "Clinic & child"
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Feedback"
+							}
+						]
+					}
+				}
+			},
+			"moduleOrder": ["6a5b391d-9a03-5321-aa57-124fd448370d"],
+			"formOrder": {
+				"6a5b391d-9a03-5321-aa57-124fd448370d": [
+					"fd94c651-9b7f-50cd-a641-5c8bc4505761"
+				]
+			},
+			"fieldOrder": {
+				"fd94c651-9b7f-50cd-a641-5c8bc4505761": [
+					"509f8dad-005d-54c1-a373-17e3dd812f1d",
+					"499f82a8-015d-5654-a873-1fc2d6812418"
+				]
+			}
+		},
+		"xforms": {
+			"fd94c6519b7f50cda6415c8bc4505761.xml": "<?xml version=\"1.0\"?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>Activity</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/FD94C651-9B7F-50CD-A641-5C8BC4505761\" xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" uiVersion=\"1\" version=\"1\" name=\"Activity\"><score/><feedback/><lesson vellum:role=\"ConnectLearnModule\"><module xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"lesson\"><name>Health &amp; care &lt;&#38634;&gt;</name><description>Read &apos;A&apos; then &quot;B&quot;</description><time_estimate>5</time_estimate></module></lesson><quiz vellum:role=\"ConnectAssessment\"><assessment xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"quiz\"><user_score/></assessment></quiz></data></instance><bind type=\"xsd:int\" vellum:nodeset=\"#form/score\" nodeset=\"/data/score\"/><bind type=\"xsd:string\" vellum:nodeset=\"#form/feedback\" nodeset=\"/data/feedback\"/><bind vellum:nodeset=\"#form/lesson\" nodeset=\"/data/lesson\"/><bind vellum:nodeset=\"#form/quiz\" nodeset=\"/data/quiz\"/><bind nodeset=\"/data/quiz/assessment/user_score\" calculate=\"100\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/score\" ref=\"/data/score\" value=\"42\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/feedback\" ref=\"/data/feedback\" value=\"&apos;Clinic &amp; child&apos;\"/><itext><translation lang=\"en\" default=\"\"><text id=\"score-label\"><value>Score</value><value form=\"markdown\">Score</value></text><text id=\"feedback-label\"><value>Feedback</value><value form=\"markdown\">Feedback</value></text></translation></itext></model></h:head><h:body><input ref=\"/data/score\"><label ref=\"jr:itext(&apos;score-label&apos;)\"/></input><input ref=\"/data/feedback\"><label ref=\"jr:itext(&apos;feedback-label&apos;)\"/></input></h:body></h:html>"
+		}
+	},
+	{
+		"name": "learn-custom",
+		"released": {
+			"appId": "test-app",
+			"appName": "learn-custom",
+			"connectType": "learn",
+			"caseTypes": null,
+			"appSettings": {
+				"showSavedForms": false,
+				"showIncompleteForms": false,
+				"runsOnlyOn": "android"
+			},
+			"modules": {
+				"665b32d1-9e03-596d-a657-0c03d04830c1": {
+					"uuid": "665b32d1-9e03-596d-a657-0c03d04830c1",
+					"id": "work",
+					"name": "Work"
+				}
+			},
+			"forms": {
+				"0194cc9d-977f-5a81-aa41-62d7c8505dad": {
+					"uuid": "0194cc9d-977f-5a81-aa41-62d7c8505dad",
+					"id": "activity",
+					"name": "Activity",
+					"type": "survey",
+					"connect": {
+						"learn_module": {
+							"id": "lesson",
+							"name": "Health & care <雪>",
+							"description": "Read 'A' then \"B\"",
+							"time_estimate": 5
+						},
+						"assessment": {
+							"id": "quiz",
+							"user_score": {
+								"kind": "term",
+								"term": {
+									"kind": "field",
+									"uuid": "4c9f8761-045d-5b0d-a773-1e2fd98128d1"
+								}
+							}
+						}
+					}
+				}
+			},
+			"fields": {
+				"4c9f8761-045d-5b0d-a773-1e2fd98128d1": {
+					"uuid": "4c9f8761-045d-5b0d-a773-1e2fd98128d1",
+					"kind": "int",
+					"id": "score",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 42
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Score"
+							}
+						]
+					}
+				},
+				"459f7c5c-f55d-5370-ac73-260ed2811dcc": {
+					"uuid": "459f7c5c-f55d-5370-ac73-260ed2811dcc",
+					"kind": "text",
+					"id": "feedback",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "Clinic & child"
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Feedback"
+							}
+						]
+					}
+				}
+			},
+			"moduleOrder": ["665b32d1-9e03-596d-a657-0c03d04830c1"],
+			"formOrder": {
+				"665b32d1-9e03-596d-a657-0c03d04830c1": [
+					"0194cc9d-977f-5a81-aa41-62d7c8505dad"
+				]
+			},
+			"fieldOrder": {
+				"0194cc9d-977f-5a81-aa41-62d7c8505dad": [
+					"4c9f8761-045d-5b0d-a773-1e2fd98128d1",
+					"459f7c5c-f55d-5370-ac73-260ed2811dcc"
+				]
+			}
+		},
+		"xforms": {
+			"0194cc9d977f5a81aa4162d7c8505dad.xml": "<?xml version=\"1.0\"?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>Activity</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/0194CC9D-977F-5A81-AA41-62D7C8505DAD\" xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" uiVersion=\"1\" version=\"1\" name=\"Activity\"><score/><feedback/><lesson vellum:role=\"ConnectLearnModule\"><module xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"lesson\"><name>Health &amp; care &lt;&#38634;&gt;</name><description>Read &apos;A&apos; then &quot;B&quot;</description><time_estimate>5</time_estimate></module></lesson><quiz vellum:role=\"ConnectAssessment\"><assessment xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"quiz\"><user_score/></assessment></quiz></data></instance><bind type=\"xsd:int\" vellum:nodeset=\"#form/score\" nodeset=\"/data/score\"/><bind type=\"xsd:string\" vellum:nodeset=\"#form/feedback\" nodeset=\"/data/feedback\"/><bind vellum:nodeset=\"#form/lesson\" nodeset=\"/data/lesson\"/><bind vellum:nodeset=\"#form/quiz\" nodeset=\"/data/quiz\"/><bind nodeset=\"/data/quiz/assessment/user_score\" calculate=\"/data/score\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/score\" ref=\"/data/score\" value=\"42\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/feedback\" ref=\"/data/feedback\" value=\"&apos;Clinic &amp; child&apos;\"/><itext><translation lang=\"en\" default=\"\"><text id=\"score-label\"><value>Score</value><value form=\"markdown\">Score</value></text><text id=\"feedback-label\"><value>Feedback</value><value form=\"markdown\">Feedback</value></text></translation></itext></model></h:head><h:body><input ref=\"/data/score\"><label ref=\"jr:itext(&apos;score-label&apos;)\"/></input><input ref=\"/data/feedback\"><label ref=\"jr:itext(&apos;feedback-label&apos;)\"/></input></h:body></h:html>"
+		}
+	},
+	{
+		"name": "deliver-default",
+		"released": {
+			"appId": "test-app",
+			"appName": "deliver-default",
+			"connectType": "deliver",
+			"caseTypes": null,
+			"appSettings": {
+				"showSavedForms": false,
+				"showIncompleteForms": false,
+				"runsOnlyOn": "android"
+			},
+			"modules": {
+				"625b2c85-9203-5689-a257-1ee7cc482a75": {
+					"uuid": "625b2c85-9203-5689-a257-1ee7cc482a75",
+					"id": "work",
+					"name": "Work"
+				}
+			},
+			"forms": {
+				"f5927b22-937d-559e-a23f-17a83c4d42b2": {
+					"uuid": "f5927b22-937d-559e-a23f-17a83c4d42b2",
+					"id": "activity",
+					"name": "Activity",
+					"type": "survey",
+					"connect": {
+						"deliver_unit": {
+							"id": "visit",
+							"name": "Home & clinic <雪>"
+						}
+					}
+				},
+				"89043841-b8a4-5f7d-af41-ceab244828b1": {
+					"uuid": "89043841-b8a4-5f7d-af41-ceab244828b1",
+					"id": "record_&_review",
+					"name": "Record & review",
+					"type": "survey",
+					"connect": {
+						"task": {
+							"id": "follow_up",
+							"name": "Record & review",
+							"description": "Ask <then> listen"
+						}
+					}
+				}
+			},
+			"fields": {
+				"52a1cf6a-025f-567e-a975-5fec5f843a5a": {
+					"uuid": "52a1cf6a-025f-567e-a975-5fec5f843a5a",
+					"kind": "int",
+					"id": "score",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 42
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Score"
+							}
+						]
+					}
+				},
+				"51a1cdd7-015f-54eb-ac75-64a55e8438c7": {
+					"uuid": "51a1cdd7-015f-54eb-ac75-64a55e8438c7",
+					"kind": "text",
+					"id": "feedback",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "Clinic & child"
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Feedback"
+							}
+						]
+					}
+				},
+				"c23aca13-df3d-5fe7-a00f-c4999d7f1f43": {
+					"uuid": "c23aca13-df3d-5fe7-a00f-c4999d7f1f43",
+					"kind": "label",
+					"id": "note",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Ask <then> listen"
+							}
+						]
+					}
+				}
+			},
+			"moduleOrder": ["625b2c85-9203-5689-a257-1ee7cc482a75"],
+			"formOrder": {
+				"625b2c85-9203-5689-a257-1ee7cc482a75": [
+					"f5927b22-937d-559e-a23f-17a83c4d42b2",
+					"89043841-b8a4-5f7d-af41-ceab244828b1"
+				]
+			},
+			"fieldOrder": {
+				"f5927b22-937d-559e-a23f-17a83c4d42b2": [
+					"52a1cf6a-025f-567e-a975-5fec5f843a5a",
+					"51a1cdd7-015f-54eb-ac75-64a55e8438c7"
+				],
+				"89043841-b8a4-5f7d-af41-ceab244828b1": [
+					"c23aca13-df3d-5fe7-a00f-c4999d7f1f43"
+				]
+			}
+		},
+		"xforms": {
+			"f5927b22937d559ea23f17a83c4d42b2.xml": "<?xml version=\"1.0\"?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>Activity</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/F5927B22-937D-559E-A23F-17A83C4D42B2\" xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" uiVersion=\"1\" version=\"1\" name=\"Activity\"><score/><feedback/><visit vellum:role=\"ConnectDeliverUnit\"><deliver xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"visit\"><name>Home &amp; clinic &lt;&#38634;&gt;</name><entity_id/><entity_name/><work_area_id/></deliver></visit></data></instance><instance src=\"jr://instance/casedb\" id=\"casedb\"/><instance src=\"jr://instance/session\" id=\"commcaresession\"/><bind type=\"xsd:int\" vellum:nodeset=\"#form/score\" nodeset=\"/data/score\"/><bind type=\"xsd:string\" vellum:nodeset=\"#form/feedback\" nodeset=\"/data/feedback\"/><bind vellum:nodeset=\"#form/visit\" nodeset=\"/data/visit\"/><bind nodeset=\"/data/visit/deliver/entity_id\" calculate=\"concat(instance(&apos;casedb&apos;)/casedb/case[@case_type = &apos;commcare-user&apos;][hq_user_id = instance(&apos;commcaresession&apos;)/session/context/userid]/username, &apos;-&apos;, today())\"/><bind nodeset=\"/data/visit/deliver/entity_name\" calculate=\"instance(&apos;casedb&apos;)/casedb/case[@case_type = &apos;commcare-user&apos;][hq_user_id = instance(&apos;commcaresession&apos;)/session/context/userid]/username\"/><bind nodeset=\"/data/visit/deliver/work_area_id\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/score\" ref=\"/data/score\" value=\"42\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/feedback\" ref=\"/data/feedback\" value=\"&apos;Clinic &amp; child&apos;\"/><itext><translation lang=\"en\" default=\"\"><text id=\"score-label\"><value>Score</value><value form=\"markdown\">Score</value></text><text id=\"feedback-label\"><value>Feedback</value><value form=\"markdown\">Feedback</value></text></translation></itext></model></h:head><h:body><input ref=\"/data/score\"><label ref=\"jr:itext(&apos;score-label&apos;)\"/></input><input ref=\"/data/feedback\"><label ref=\"jr:itext(&apos;feedback-label&apos;)\"/></input></h:body></h:html>",
+			"89043841b8a45f7daf41ceab244828b1.xml": "<?xml version=\"1.0\"?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>Record &amp; review</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/89043841-B8A4-5F7D-AF41-CEAB244828B1\" xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" uiVersion=\"1\" version=\"1\" name=\"Record &amp; review\"><note/><follow_up vellum:role=\"ConnectTask\"><task xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"follow_up\"><name>Record &amp; review</name><description>Ask &lt;then&gt; listen</description></task></follow_up></data></instance><bind vellum:nodeset=\"#form/note\" nodeset=\"/data/note\"/><bind vellum:nodeset=\"#form/follow_up\" nodeset=\"/data/follow_up\"/><itext><translation lang=\"en\" default=\"\"><text id=\"note-label\"><value>Ask &lt;then&gt; listen</value><value form=\"markdown\">Ask &lt;then&gt; listen</value></text></translation></itext></model></h:head><h:body><trigger appearance=\"minimal\" ref=\"/data/note\"><label ref=\"jr:itext(&apos;note-label&apos;)\"/></trigger></h:body></h:html>"
+		}
+	},
+	{
+		"name": "deliver-custom",
+		"released": {
+			"appId": "test-app",
+			"appName": "deliver-custom",
+			"connectType": "deliver",
+			"caseTypes": null,
+			"appSettings": {
+				"showSavedForms": false,
+				"showIncompleteForms": false,
+				"runsOnlyOn": "android"
+			},
+			"modules": {
+				"d05e1846-a005-5b2a-ac59-540c3a4b1636": {
+					"uuid": "d05e1846-a005-5b2a-ac59-540c3a4b1636",
+					"id": "work",
+					"name": "Work"
+				}
+			},
+			"forms": {
+				"f19274d6-977d-5bea-a63f-1df4384d3c66": {
+					"uuid": "f19274d6-977d-5bea-a63f-1df4384d3c66",
+					"id": "activity",
+					"name": "Activity",
+					"type": "survey",
+					"connect": {
+						"deliver_unit": {
+							"id": "visit",
+							"name": "Home & clinic <雪>",
+							"entity_id": {
+								"kind": "concat",
+								"parts": [
+									{
+										"kind": "term",
+										"term": {
+											"kind": "literal",
+											"value": "visit-"
+										}
+									},
+									{
+										"kind": "term",
+										"term": {
+											"kind": "field",
+											"uuid": "4ea1c91e-065f-5cca-a575-59a05b84340e"
+										}
+									}
+								]
+							},
+							"entity_name": {
+								"kind": "term",
+								"term": {
+									"kind": "field",
+									"uuid": "4da1c78b-055f-5b37-a875-5e595a84327b"
+								}
+							}
+						}
+					}
+				},
+				"8c0ec579-6136-53ad-a728-bc0fed1479e9": {
+					"uuid": "8c0ec579-6136-53ad-a728-bc0fed1479e9",
+					"id": "record_&_review",
+					"name": "Record & review",
+					"type": "survey",
+					"connect": {
+						"task": {
+							"id": "follow_up",
+							"name": "Record & review",
+							"description": "Ask <then> listen"
+						}
+					}
+				}
+			},
+			"fields": {
+				"4ea1c91e-065f-5cca-a575-59a05b84340e": {
+					"uuid": "4ea1c91e-065f-5cca-a575-59a05b84340e",
+					"kind": "int",
+					"id": "score",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 42
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Score"
+							}
+						]
+					}
+				},
+				"4da1c78b-055f-5b37-a875-5e595a84327b": {
+					"uuid": "4da1c78b-055f-5b37-a875-5e595a84327b",
+					"kind": "text",
+					"id": "feedback",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "Clinic & child"
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Feedback"
+							}
+						]
+					}
+				},
+				"2866860b-0f5f-5a97-a751-e905a534eb7b": {
+					"uuid": "2866860b-0f5f-5a97-a751-e905a534eb7b",
+					"kind": "label",
+					"id": "note",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Ask <then> listen"
+							}
+						]
+					}
+				}
+			},
+			"moduleOrder": ["d05e1846-a005-5b2a-ac59-540c3a4b1636"],
+			"formOrder": {
+				"d05e1846-a005-5b2a-ac59-540c3a4b1636": [
+					"f19274d6-977d-5bea-a63f-1df4384d3c66",
+					"8c0ec579-6136-53ad-a728-bc0fed1479e9"
+				]
+			},
+			"fieldOrder": {
+				"f19274d6-977d-5bea-a63f-1df4384d3c66": [
+					"4ea1c91e-065f-5cca-a575-59a05b84340e",
+					"4da1c78b-055f-5b37-a875-5e595a84327b"
+				],
+				"8c0ec579-6136-53ad-a728-bc0fed1479e9": [
+					"2866860b-0f5f-5a97-a751-e905a534eb7b"
+				]
+			}
+		},
+		"xforms": {
+			"f19274d6977d5beaa63f1df4384d3c66.xml": "<?xml version=\"1.0\"?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>Activity</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/F19274D6-977D-5BEA-A63F-1DF4384D3C66\" xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" uiVersion=\"1\" version=\"1\" name=\"Activity\"><score/><feedback/><visit vellum:role=\"ConnectDeliverUnit\"><deliver xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"visit\"><name>Home &amp; clinic &lt;&#38634;&gt;</name><entity_id/><entity_name/><work_area_id/></deliver></visit></data></instance><bind type=\"xsd:int\" vellum:nodeset=\"#form/score\" nodeset=\"/data/score\"/><bind type=\"xsd:string\" vellum:nodeset=\"#form/feedback\" nodeset=\"/data/feedback\"/><bind vellum:nodeset=\"#form/visit\" nodeset=\"/data/visit\"/><bind nodeset=\"/data/visit/deliver/entity_id\" calculate=\"concat(&apos;visit-&apos;, /data/score)\"/><bind nodeset=\"/data/visit/deliver/entity_name\" calculate=\"/data/feedback\"/><bind nodeset=\"/data/visit/deliver/work_area_id\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/score\" ref=\"/data/score\" value=\"42\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/feedback\" ref=\"/data/feedback\" value=\"&apos;Clinic &amp; child&apos;\"/><itext><translation lang=\"en\" default=\"\"><text id=\"score-label\"><value>Score</value><value form=\"markdown\">Score</value></text><text id=\"feedback-label\"><value>Feedback</value><value form=\"markdown\">Feedback</value></text></translation></itext></model></h:head><h:body><input ref=\"/data/score\"><label ref=\"jr:itext(&apos;score-label&apos;)\"/></input><input ref=\"/data/feedback\"><label ref=\"jr:itext(&apos;feedback-label&apos;)\"/></input></h:body></h:html>",
+			"8c0ec579613653ada728bc0fed1479e9.xml": "<?xml version=\"1.0\"?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>Record &amp; review</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/8C0EC579-6136-53AD-A728-BC0FED1479E9\" xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" uiVersion=\"1\" version=\"1\" name=\"Record &amp; review\"><note/><follow_up vellum:role=\"ConnectTask\"><task xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"follow_up\"><name>Record &amp; review</name><description>Ask &lt;then&gt; listen</description></task></follow_up></data></instance><bind vellum:nodeset=\"#form/note\" nodeset=\"/data/note\"/><bind vellum:nodeset=\"#form/follow_up\" nodeset=\"/data/follow_up\"/><itext><translation lang=\"en\" default=\"\"><text id=\"note-label\"><value>Ask &lt;then&gt; listen</value><value form=\"markdown\">Ask &lt;then&gt; listen</value></text></translation></itext></model></h:head><h:body><trigger appearance=\"minimal\" ref=\"/data/note\"><label ref=\"jr:itext(&apos;note-label&apos;)\"/></trigger></h:body></h:html>"
+		}
+	},
+	{
+		"name": "absent",
+		"released": {
+			"appId": "test-app",
+			"appName": "absent",
+			"connectType": null,
+			"caseTypes": null,
+			"appSettings": {
+				"showSavedForms": false,
+				"showIncompleteForms": false
+			},
+			"modules": {
+				"d45e1e92-9c05-54de-a859-4dc03e4b1c82": {
+					"uuid": "d45e1e92-9c05-54de-a859-4dc03e4b1c82",
+					"id": "work",
+					"name": "Work"
+				}
+			},
+			"forms": {
+				"fd9287ba-8b7d-5906-aa3f-0b10444d4f4a": {
+					"uuid": "fd9287ba-8b7d-5906-aa3f-0b10444d4f4a",
+					"id": "activity",
+					"name": "Activity",
+					"type": "survey"
+				}
+			},
+			"fields": {
+				"4aa1c2d2-fa5f-59e6-a175-6c8457842dc2": {
+					"uuid": "4aa1c2d2-fa5f-59e6-a175-6c8457842dc2",
+					"kind": "int",
+					"id": "score",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 42
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Score"
+							}
+						]
+					}
+				},
+				"39a3e6a6-8962-599a-a86d-f24446865196": {
+					"uuid": "39a3e6a6-8962-599a-a86d-f24446865196",
+					"kind": "text",
+					"id": "feedback",
+					"default_value": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "Clinic & child"
+						}
+					},
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Feedback"
+							}
+						]
+					}
+				}
+			},
+			"moduleOrder": ["d45e1e92-9c05-54de-a859-4dc03e4b1c82"],
+			"formOrder": {
+				"d45e1e92-9c05-54de-a859-4dc03e4b1c82": [
+					"fd9287ba-8b7d-5906-aa3f-0b10444d4f4a"
+				]
+			},
+			"fieldOrder": {
+				"fd9287ba-8b7d-5906-aa3f-0b10444d4f4a": [
+					"4aa1c2d2-fa5f-59e6-a175-6c8457842dc2",
+					"39a3e6a6-8962-599a-a86d-f24446865196"
+				]
+			}
+		},
+		"xforms": {
+			"fd9287ba8b7d5906aa3f0b10444d4f4a.xml": "<?xml version=\"1.0\"?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>Activity</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/FD9287BA-8B7D-5906-AA3F-0B10444D4F4A\" xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" uiVersion=\"1\" version=\"1\" name=\"Activity\"><score/><feedback/></data></instance><bind type=\"xsd:int\" vellum:nodeset=\"#form/score\" nodeset=\"/data/score\"/><bind type=\"xsd:string\" vellum:nodeset=\"#form/feedback\" nodeset=\"/data/feedback\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/score\" ref=\"/data/score\" value=\"42\"/><setvalue event=\"xforms-ready\" vellum:ref=\"#form/feedback\" ref=\"/data/feedback\" value=\"&apos;Clinic &amp; child&apos;\"/><itext><translation lang=\"en\" default=\"\"><text id=\"score-label\"><value>Score</value><value form=\"markdown\">Score</value></text><text id=\"feedback-label\"><value>Feedback</value><value form=\"markdown\">Feedback</value></text></translation></itext></model></h:head><h:body><input ref=\"/data/score\"><label ref=\"jr:itext(&apos;score-label&apos;)\"/></input><input ref=\"/data/feedback\"><label ref=\"jr:itext(&apos;feedback-label&apos;)\"/></input></h:body></h:html>"
+		}
+	}
+]

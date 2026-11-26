@@ -1,11 +1,19 @@
 import type { BlueprintDoc } from "../blueprint";
 import type { FieldKind, RepeatMode } from "../fields";
-import { type FormLinkTarget, type FormType, formLinkEntries } from "../forms";
+import type { ConnectActivity } from "../fields/connectActivity";
+import {
+	type FormBehaviorTexts,
+	type FormLinkTarget,
+	type FormType,
+	formBehaviorTextsOf,
+	formLinkEntries,
+} from "../forms";
 import type { LookupTableId } from "../lookupIds";
 import { moduleUuidOfForm } from "../postSubmit";
-import type { QueryRepeatPlacement } from "../queryRepeatPlacement";
+import type { QueryRepeatPlacement, RowTiming } from "../queryRepeatPlacement";
 import { ownRecordValue } from "../records";
 import { expressionSlotValue } from "../referenceSlots";
+import { submissionLayout } from "../submissionLayout";
 import type { Uuid } from "../uuid";
 import type {
 	Expression,
@@ -33,34 +41,31 @@ export interface FormStructureField {
 	readonly kind: FieldKind;
 	readonly parent: Uuid;
 	readonly repeatMode?: RepeatMode;
+	readonly activityKind?: ConnectActivity["kind"];
 	/** A query repeat's held placement (its stored `placement`), absent where
 	 * it holds none. */
 	readonly heldQueryPlacement?: QueryRepeatPlacement;
-	/** A Hidden Value's value slot, absent where it holds neither. A field
-	 * holding both (`HIDDEN_VALUE_BOTH_SOURCES` refuses it) reads `calculate`,
-	 * the value it ends with. */
+	readonly rowTiming?: RowTiming;
+	/** A Hidden Value's value slot, absent where it holds neither. Where both slots are present, the calculation supplies the final answer. */
 	readonly hiddenValueSource?: "calculate" | "default_value";
 	readonly choices?: FormStructureChoices;
-	readonly proseSlots?: readonly ("label" | "hint" | "help" | "validate_msg")[];
+	readonly proseSlots?: readonly (
+		| "label"
+		| "hint"
+		| "help"
+		| "validate_msg"
+		| "addFirstLabel"
+		| "addLabel"
+	)[];
 }
 
-export type FormStructureConnect = Readonly<
-	Partial<
-		Record<
-			"learn_module" | "assessment" | "deliver_unit" | "task",
-			{ readonly id: string }
-		>
-	>
->;
-
-export interface FormStructure {
+export interface FormStructure extends FormBehaviorTexts {
+	readonly dataRootName?: string;
 	readonly formUuid: Uuid;
 	readonly moduleUuid: Uuid;
 	readonly type: FormType;
 	readonly fields: ReadonlyMap<Uuid, FormStructureField>;
 	readonly fieldOrder: ReadonlyMap<Uuid, readonly Uuid[]>;
-	/** Only blocks active in the saved or pending app mode. */
-	readonly connect: FormStructureConnect;
 	/** Every link of the form (`forms.ts::formLinkEntries`): its
 	 *  destinations, and the otherwise when it is a link (`role:
 	 *  "otherwise"`, which has no condition slot). */
@@ -91,14 +96,15 @@ export function formStructure(
 	const form = ownRecordValue(doc.forms, formUuid);
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	if (form === undefined || moduleUuid === undefined) return undefined;
+	const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
 	const fields = new Map<Uuid, FormStructureField>();
-	const fieldOrder = new Map<Uuid, readonly Uuid[]>();
+
 	const visiting = new Set<Uuid>();
 	const visit = (parent: Uuid): void => {
 		if (visiting.has(parent)) return;
 		visiting.add(parent);
 		const ordered = ownRecordValue(doc.fieldOrder, parent) ?? [];
-		fieldOrder.set(parent, ordered);
+
 		for (const uuid of ordered) {
 			const field = ownRecordValue(doc.fields, uuid);
 			if (field === undefined || fields.has(uuid)) continue;
@@ -108,7 +114,10 @@ export function formStructure(
 				uuid,
 				id: field.id,
 				kind: field.kind,
-				parent,
+				...(field.kind === "connect_activity" && {
+					activityKind: field.activity.kind,
+				}),
+				parent: layout.parents.get(uuid) ?? parent,
 				proseSlots: [
 					...("label" in field && field.label !== undefined
 						? ["label" as const]
@@ -119,6 +128,12 @@ export function formStructure(
 					...("help" in field && field.help !== undefined
 						? ["help" as const]
 						: []),
+					...(field.kind === "repeat" && field.addFirstLabel !== undefined
+						? ["addFirstLabel" as const]
+						: []),
+					...(field.kind === "repeat" && field.addLabel !== undefined
+						? ["addLabel" as const]
+						: []),
 					...("validate_msg" in field && field.validate_msg !== undefined
 						? ["validate_msg" as const]
 						: []),
@@ -128,6 +143,11 @@ export function formStructure(
 				field.repeat_mode === "query_bound" &&
 				field.placement !== undefined
 					? { heldQueryPlacement: field.placement }
+					: {}),
+				...(field.kind === "repeat" &&
+				field.repeat_mode === "query_bound" &&
+				field.rowTiming !== undefined
+					? { rowTiming: field.rowTiming }
 					: {}),
 				...(field.kind === "hidden"
 					? field.calculate !== undefined
@@ -151,33 +171,14 @@ export function formStructure(
 		}
 	};
 	visit(formUuid);
-	const connect: Partial<
-		Record<keyof FormStructureConnect, { readonly id: string }>
-	> = {};
-	if (doc.connectType === "learn" && form.connect !== undefined) {
-		if (
-			"learn_module" in form.connect &&
-			form.connect.learn_module !== undefined
-		)
-			connect.learn_module = { id: form.connect.learn_module.id };
-		if ("assessment" in form.connect && form.connect.assessment !== undefined)
-			connect.assessment = { id: form.connect.assessment.id };
-	} else if (doc.connectType === "deliver" && form.connect !== undefined) {
-		if (
-			"deliver_unit" in form.connect &&
-			form.connect.deliver_unit !== undefined
-		)
-			connect.deliver_unit = { id: form.connect.deliver_unit.id };
-		if ("task" in form.connect && form.connect.task !== undefined)
-			connect.task = { id: form.connect.task.id };
-	}
 	const result: FormStructure = {
 		formUuid,
+		...(form.dataRootName !== undefined && { dataRootName: form.dataRootName }),
 		moduleUuid,
 		type: form.type,
+		...formBehaviorTextsOf(form),
 		fields,
-		fieldOrder,
-		connect,
+		fieldOrder: layout.children,
 		links: new Map(
 			formLinkEntries(form).map(({ role, link }) => [
 				link.uuid,

@@ -57,7 +57,7 @@ interface RuntimeProbePersistedAppRow {
 	readonly project_id: string;
 	readonly mutation_seq: string | number;
 	readonly app_name: string;
-	readonly connect_type: PersistableDoc["connectType"];
+	readonly connect_roles: PersistableDoc["connectRoles"] | null;
 	readonly logo: PersistableDoc["logo"];
 	readonly case_types_text: string | null;
 	readonly localization_text: string | null;
@@ -695,7 +695,7 @@ async function readRuntimeProbeCarriers(
 	readonly projectId: string;
 	readonly mutationSeq: string | number;
 	readonly appName: string;
-	readonly connectType: PersistableDoc["connectType"];
+	readonly connectRoles: PersistableDoc["connectRoles"] | null;
 	readonly logo: PersistableDoc["logo"];
 	readonly caseTypesText: string | null;
 	readonly localizationText: string | null;
@@ -709,7 +709,7 @@ async function readRuntimeProbeCarriers(
 			"project_id",
 			"mutation_seq",
 			"app_name",
-			"connect_type",
+			"connect_roles",
 			"logo",
 		])
 		.select(
@@ -747,7 +747,7 @@ async function readRuntimeProbeCarriers(
 		projectId: root.project_id,
 		mutationSeq: root.mutation_seq,
 		appName: root.app_name,
-		connectType: root.connect_type,
+		connectRoles: root.connect_roles,
 		logo: root.logo,
 		caseTypesText: root.case_types_text,
 		localizationText: root.localization_text,
@@ -767,7 +767,7 @@ function decodeRuntimeProbeCarriers(
 		appId,
 		{
 			app_name: carriers.appName,
-			connect_type: carriers.connectType,
+			connect_roles: carriers.connectRoles,
 			case_types_text: carriers.caseTypesText,
 			localization_text: carriers.localizationText,
 			app_settings_text: carriers.appSettingsText,

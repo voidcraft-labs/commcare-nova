@@ -15,20 +15,25 @@ describe("stored expression profile admission", () => {
 		uuid: ids.hidden,
 		slot: "calculate",
 	});
-	it.each([true, null, `both ' and "`])(
-		"refuses an unspellable form literal %s",
-		(value) => {
-			expect(
-				checkExpression({ kind: "term", term: { kind: "literal", value } }, ctx)
-					.errors,
-			).toContainEqual(
-				expect.objectContaining({
-					code: "arm-unavailable",
-					reason: "literal-not-spellable",
-				}),
-			);
-		},
-	);
+	it.each([true, null])("refuses an unspellable form literal %s", (value) => {
+		expect(
+			checkExpression({ kind: "term", term: { kind: "literal", value } }, ctx)
+				.errors,
+		).toContainEqual(
+			expect.objectContaining({
+				code: "arm-unavailable",
+				reason: "literal-not-spellable",
+			}),
+		);
+	});
+	it("admits a form literal holding both quote marks, which prints as a concat", () => {
+		expect(
+			checkExpression(
+				{ kind: "term", term: { kind: "literal", value: `both ' and "` } },
+				ctx,
+			).errors,
+		).toEqual([]);
+	});
 	it("presents the held here arm through the shared checker", () => {
 		expect(formLogicFindings({ kind: "here" }, ctx)).toContainEqual(
 			expect.objectContaining({

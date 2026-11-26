@@ -130,7 +130,13 @@ async function evaluateAsyncNode(
 			throw new Error("XPath path root did not evaluate to a nodeset.");
 		}
 		const selected = step ? applyStructuralStep(base, step, source) : base;
-		return contextualizeAbsolutePathSelection(node, source, context, selected);
+		return contextualizeAbsolutePathSelection(
+			node,
+			step,
+			source,
+			context,
+			selected,
+		);
 	}
 	if (type === "UnaryNegativeExpr") {
 		const [operand] = getBinaryOperands(node);

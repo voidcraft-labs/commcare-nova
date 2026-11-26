@@ -1,4 +1,8 @@
 import {
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+} from "@/lib/commcare/xform/connectActivity";
+import {
 	type FormNodeProjection,
 	formNodeProjection,
 } from "@/lib/commcare/xpath/formNodeProjection";
@@ -23,6 +27,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { expressionAt } from "@/lib/domain/expressionSource";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
@@ -852,7 +857,8 @@ export class TriggerDag {
 				// Repeat children register index-free — `materialize` expands
 				// them over live instances at query time.
 				this.repeatPaths.add(path);
-				if (f.repeat_mode === "query_bound") this.registerQueryWrapper(path);
+				if (f.repeat_mode === "query_bound")
+					this.registerQueryWrapper(path, this.countPlaced(f.uuid));
 				if (node.children) this.collectExpressions(node.children, path);
 			} else {
 				this.registerExpressions(path, f);
@@ -866,7 +872,7 @@ export class TriggerDag {
 	 * placement (its guard), and the rows give the wrapper's
 	 * `@current_index`, which counts the relevant ones. The nodes hold no
 	 * expression of their own; a read of any of them is an edge from it. */
-	private registerQueryWrapper(path: string): void {
+	private registerQueryWrapper(path: string, countPlaced: boolean): void {
 		this.queryRepeatPaths.add(path);
 		const ids = `${path}/@ids`;
 		const count = `${path}/@count`;
@@ -875,12 +881,15 @@ export class TriggerDag {
 		for (const node of [path, ids, count, position, rowId])
 			if (!this.nodes.has(node))
 				this.nodes.set(node, { path: node, expressions: [] });
-		const follows: ReadonlyArray<readonly [string, readonly string[]]> = [
-			[count, [ids]],
-			[rowId, [ids, count]],
-			[path, [count]],
-			[position, [path]],
-		];
+		const follows: ReadonlyArray<readonly [string, readonly string[]]> =
+			countPlaced
+				? [
+						[count, [ids]],
+						[rowId, [ids, count]],
+						[path, [count]],
+						[position, [path]],
+					]
+				: [[position, [path]]];
 		for (const [node, sources] of follows) {
 			this.derivedNodes.set(node, sources);
 			for (const source of sources) this.addEdge(source, node);
@@ -917,13 +926,46 @@ export class TriggerDag {
 					this.settleFreeEdges.push([dependency, path]);
 			}
 		};
+		if (field.kind === "connect_activity") {
+			const content = activityWireContent(field.activity);
+			const shape = CONNECT_BLOCK_SHAPES[content.block];
+			const blockPath = `${path}/${shape.element}`;
+			// References to an activity's ID, literal wording and calculated values all
+			// lose their nodes when the activity or its containing row becomes irrelevant.
+			this.addEdge(path, blockPath);
+			this.addEdge(blockPath, `${blockPath}/@id`);
+			for (const leaf of shape.leaves)
+				this.addEdge(blockPath, `${blockPath}/${leaf}`);
+			for (const { slot, leaf, expression } of content.calculations) {
+				if (!expression) continue;
+				const target = `${blockPath}/${leaf}`;
+				const ref = { entity: "field", uuid: field.uuid, slot } as const;
+				const dependencies = formReadPaths(
+					expression,
+					runtime.projection,
+					runtime.readPath,
+				);
+				this.recordFilteredReads(target, expression);
+				this.nodes.set(target, {
+					path: target,
+					expressions: [
+						{
+							type: "calculate",
+							expr: runtime.lower(expression, ref),
+							dependencies,
+						},
+					],
+				});
+				for (const dependency of dependencies) this.addEdge(dependency, target);
+			}
+		}
 		add("relevant", "relevant", "trigger");
 		add("calculate", "calculate", "trigger");
 		add("required", "required", "metadata");
 		add("validate", "validation", "settle-free");
-		const templates = FIELD_PROSE_SLOTS.map((slot) =>
-			fieldProseTemplate(field, slot),
-		);
+		const templates = (
+			[...FIELD_PROSE_SLOTS, "addFirstLabel", "addLabel"] as const
+		).map((slot) => fieldProseTemplate(field, slot));
 		if (
 			(field.kind === "single_select" || field.kind === "multi_select") &&
 			field.optionsSource.kind === "inline"
@@ -1130,6 +1172,9 @@ export class TriggerDag {
 				if (ref.slot === "relevant" || ref.slot === "calculate") {
 					const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
 					if (target !== undefined) add(expression, target, ref.slot);
+				} else if (field.kind === "connect_activity") {
+					const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
+					if (target !== undefined) add(expression, target, "calculate");
 				} else if (!countFeedback && ref.slot === "default_value")
 					add(expression, row, "calculate", false);
 				else if (ref.slot === "lookup_options_source")
@@ -1239,19 +1284,6 @@ export class TriggerDag {
 				descend(row);
 			}
 		}
-		for (const { ref, expression } of expressionSlotValues(doc, {
-			entity: "form",
-			uuid: formUuid,
-		})) {
-			if (
-				ref.slot !== "assessment_user_score" &&
-				ref.slot !== "deliver_entity_id" &&
-				ref.slot !== "deliver_entity_name"
-			)
-				continue;
-			const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
-			if (target !== undefined) add(expression, target, "calculate");
-		}
 		for (const [uuid, field] of form.fields) {
 			if (field.kind !== "group" && field.kind !== "repeat") continue;
 			const ref = { entity: "field", uuid, slot: "relevant" } as const;
@@ -1292,7 +1324,7 @@ export class TriggerDag {
 		tree: FieldTreeNode[],
 		doc: BlueprintDoc,
 		formUuid: Uuid,
-		prefix = "/data",
+		prefix = `/${formRootName(doc.forms[formUuid])}`,
 	): CycleReport[] {
 		return [
 			...this.reportGraphCycles(tree, doc, formUuid, prefix, false),
