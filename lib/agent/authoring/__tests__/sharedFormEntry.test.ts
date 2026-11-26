@@ -126,3 +126,36 @@ it("says which side of a shared entry can't be made, and what to change", async 
 		),
 	});
 });
+
+it("reads a shared entry as asking for the location where the form it opens does", async () => {
+	const { doc } = advancedFixture({
+		formType: "followup",
+		operations: () => [own()],
+	});
+	const h = makeAuthoringHarness({}, doc);
+	await expect(
+		h.call("createForm", {
+			moduleUuid: "Households",
+			name: "Morning visit",
+			shared_form_uuid: "Households/Under test",
+		}),
+	).resolves.toMatchObject({ ok: true });
+	const entry = { formUuid: "Morning visit" };
+	await expect(h.call("getForm", entry)).resolves.toMatchObject({
+		form: { captures_device_location_on_android: false },
+	});
+	await expect(
+		h.call("updateForm", {
+			moduleUuid: "Households",
+			formUuid: "Under test",
+			capture_location: true,
+		}),
+	).resolves.toMatchObject({ ok: true });
+	// The entry holds no request of its own and reads the opened form's.
+	await expect(h.call("getForm", entry)).resolves.toMatchObject({
+		form: {
+			capture_location: false,
+			captures_device_location_on_android: true,
+		},
+	});
+});
