@@ -263,6 +263,39 @@ def _generated_detail_tab_title(use, held):
                 yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
 
 
+def _generated_menu_badge(use, held):
+    """HQ's first ordinary text badge supplies the menu's own badge locale."""
+    if use.key != "schema:Application.translations" or use.at is None:
+        return
+    translations = use.at.value
+    langs = use.at.owner.get("langs")
+    menus = use.at.owner.get("modules")
+    if not isinstance(translations, dict) or not isinstance(langs, list) or not isinstance(menus, list):
+        return
+    entry = next((entry for entry in held.entries[use.key]
+                  if entry.id == "application-and-settings/translations-generated-wording"), None)
+    if entry is None:
+        return
+    for index, menu in enumerate(menus):
+        icons = menu.get("custom_icons") if isinstance(menu, dict) else None
+        if not isinstance(icons, list) or not icons or not isinstance(icons[0], dict):
+            continue
+        icon = icons[0]
+        text = icon.get("text")
+        if icon.get("form") != "badge" or icon.get("xpath") or not isinstance(text, dict):
+            continue
+        key = f"modules.m{index}.badge"
+        for code in langs:
+            if not isinstance(code, str) or not isinstance(translations.get(code), dict):
+                continue
+            base = text.get(code)
+            badge = translations[code].get(key)
+            if not isinstance(base, str) or not base or not isinstance(badge, str) or badge == base:
+                continue
+            if badge and badge.isascii() and badge.isprintable() and badge.strip() == badge and "\\" not in badge:
+                yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
+
+
 def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     """Each use of ``found`` (``manifest_usage.Uses``) the lane decides, with its standing, and the count of the
     others by key."""
@@ -272,6 +305,7 @@ def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
         standing, entries = manifest_usage.standing(held, use)
         decided.extend(_generated_case_title(use, held))
         decided.extend(_generated_detail_tab_title(use, held))
+        decided.extend(_generated_menu_badge(use, held))
         if decides(held, use, standing, entries):
             decided.append(Decided(use, standing, tuple(entries)))
             if standing == manifest_usage.HELD:

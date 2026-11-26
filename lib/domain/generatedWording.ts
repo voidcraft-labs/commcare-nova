@@ -39,6 +39,7 @@ export const generatedWordingRoles = {
 	appDisplayName: "App name workers see",
 	homescreenTitle: "Home screen title",
 	menuTitle: "Menu title",
+	menuBadgeText: "Menu badge wording",
 	formTitle: "Form menu label",
 	submitButton: "Submit button",
 	caseListEntry: "Case list menu label",
@@ -193,6 +194,18 @@ export function generatedWordingUnits(
 		const path = [doc.appName, mod.name];
 		const name = makeTranslationUnitId("module", moduleUuid, "name");
 		add(false, owner, moduleUuid, "menuTitle", path, mod.name, name);
+		const badge = mod.badge?.kind === "text" ? mod.badge.text : undefined;
+		add(
+			badge === undefined,
+			owner,
+			moduleUuid,
+			"menuBadgeText",
+			path,
+			badge ?? "",
+			badge === undefined
+				? undefined
+				: makeTranslationUnitId("module", moduleUuid, "badge"),
+		);
 		const search = effectiveCaseSearchConfig(mod);
 		const noCases = !mod.caseListConfig && !mod.caseType;
 		// A list's own text is the default its per-output wording follows.
