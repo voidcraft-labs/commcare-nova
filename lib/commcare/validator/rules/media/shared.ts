@@ -76,6 +76,8 @@ function locationName(location: MediaRefLocation): string {
 			return `the case-list icon on module "${location.moduleName}"`;
 		case "case_list_audio_label":
 			return `the case-list audio label on module "${location.moduleName}"`;
+		case "case_list_lookup_icon":
+			return `the lookup button icon on module "${location.moduleName}"'s case list`;
 		case "case_list_registration_icon":
 			return `the Register button icon on module "${location.moduleName}"'s case list`;
 		case "case_list_registration_audio_label":
@@ -112,6 +114,7 @@ export function scopeFor(location: MediaRefLocation): ValidationError["scope"] {
 		case "case_list_audio_label":
 		case "case_list_registration_icon":
 		case "case_list_registration_audio_label":
+		case "case_list_lookup_icon":
 		case "image_map_mapping":
 			return "module";
 		case "form_icon":
@@ -161,6 +164,12 @@ export function validationLocationFor(
 				moduleUuid: location.moduleUuid,
 				moduleName: location.moduleName,
 				field: "caseListAudioLabel",
+			};
+		case "case_list_lookup_icon":
+			return {
+				moduleUuid: location.moduleUuid,
+				moduleName: location.moduleName,
+				field: "deviceLookup",
 			};
 		case "case_list_registration_icon":
 			return {

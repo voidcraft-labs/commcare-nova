@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
@@ -344,33 +344,50 @@ describe("CommCare HQ's column formats", () => {
 			}
 		},
 	);
-	it.each([
-		// The worker's record in a list slot is that read's own row, not held yet.
-		[
-			"user/district",
-			"forms-and-case-writes/user-prop-in-module-filter-form-filter-case-list-slots-the",
-		],
-		// HQ's `owner_name` read over the groups fixture.
-		[
-			"parent/#owner_name",
-			"expressions-and-data/groups-jr-fixture-user-groups",
-		],
-	])(
-		"names translated text over %s by the read the calculation cannot hold, never as an empty calculation",
-		async (field, code) => {
-			const reading = await readDetails((short, long) => {
-				for (const detail of [short, long])
-					Object.assign(detail.columns[1], {
-						format: "translatable-enum",
-						field,
-						useXpathExpression: false,
-						enum: [{ key: "north", value: { en: "North" } }],
-					});
-			}, false);
-			// One finding a detail: the list's column and the case detail's.
-			expect(closedCodes(reading)).toEqual([code, code]);
-		},
-	);
+	async function readTranslatedProperty(field: string) {
+		return readDetails((short, long) => {
+			for (const detail of [short, long])
+				Object.assign(detail.columns[1], {
+					format: "translatable-enum",
+					field,
+					useXpathExpression: false,
+					enum: [{ key: "north", value: { en: "North" } }],
+				});
+		}, false);
+	}
+	it("binds translated text over a worker record to the worker property", async () => {
+		const reading = await readTranslatedProperty("user/district");
+		expect(closedCodes(reading)).toEqual([]);
+		const column = listOf(reading).columns.find(
+			(one) => one.header === "Notes",
+		);
+		if (column?.kind !== "calculated")
+			throw new Error("Missing worker calculation.");
+		const terms: unknown[] = [];
+		walkExpressionTerms(column.expression, (term) => {
+			if (term.kind === "session-user" || term.kind === "session-user-property")
+				terms.push(term);
+		});
+		const district = reading.ctx.draft.userProperties.find(
+			(property) => property.slug === "district",
+		);
+		expect(district).toBeDefined();
+		expect(terms).toEqual([
+			{
+				kind: "session-user-property",
+				userPropertyUuid: district?.uuid,
+				source: "worker-record",
+			},
+		]);
+		expect(column.texts?.map(({ label }) => label)).toEqual(["North"]);
+	});
+	it("refuses the parent owner-name calculation at each detail as an unsupported value expression", async () => {
+		const reading = await readTranslatedProperty("parent/#owner_name");
+		expect(closedCodes(reading)).toEqual([
+			`${M}usexpathexpression-field-xpath-outside-valueexpression`,
+			`${M}usexpathexpression-field-xpath-outside-valueexpression`,
+		]);
+	});
 	it("keeps a distance order on a translated saved property bound to the real row", async () => {
 		const read = await readDetails((short, long) => {
 			for (const detail of [short, long])
@@ -1097,6 +1114,42 @@ describe("a detail's callout and tabs", () => {
 			extras: [{ name: "mode", value: `Worker's "visit"` }],
 			responses: ["first", "second"],
 		});
+	});
+
+	it("brings in a lookup image through the Project media index", async () => {
+		const path = "jr://file/commcare/image/case-lookup.png";
+		const assetId = testMediaAssetId("case-lookup");
+		const read = await readLists(twoColumns(), {
+			edit: (app) => {
+				Object.assign(app.modules[0].case_details.short, {
+					lookup_enabled: true,
+					lookup_action: "org.example.SCAN",
+					lookup_name: "Scan",
+					lookup_image: path,
+					lookup_extras: [{ key: "mode", value: "'scan'" }],
+					lookup_responses: [{ key: "first" }],
+				});
+			},
+			input: (input) => ({
+				...input,
+				media: {
+					resolve: (ref) =>
+						ref === path
+							? { kind: "asset", assetId, mediaKind: "image" }
+							: { kind: "no-entry" },
+				},
+			}),
+		});
+		expect(closedCodes(read)).toEqual([]);
+		expect(listOf(read).deviceLookup?.icon).toBe(assetId);
+		expect(read.ctx.facts.mediaReferences).toContainEqual(
+			expect.objectContaining({
+				path,
+				assetId,
+				slot: "case_list_lookup_icon",
+				mediaKind: "image",
+			}),
+		);
 	});
 
 	it("raises a callout on the list as one finding, each of its keys claimed under it", async () => {

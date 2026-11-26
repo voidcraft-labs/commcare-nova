@@ -1698,6 +1698,12 @@ export function projectCaseListForHq(
 		pair.short.lookup_enabled = true;
 		pair.short.lookup_action = deviceLookup.action;
 		pair.short.lookup_name = deviceLookup.label;
+		if (deviceLookup.icon !== undefined && assets !== undefined)
+			pair.short.lookup_image = requireAssetRef(
+				deviceLookup.icon,
+				assets,
+				"case-list lookup icon",
+			);
 		pair.short.lookup_autolaunch = deviceLookup.automatic === true;
 		pair.short.lookup_extras = deviceLookup.extras.map(({ name, value }) => ({
 			key: name,

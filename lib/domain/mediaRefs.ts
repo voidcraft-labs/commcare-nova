@@ -32,6 +32,8 @@
 // the entry: CCHQ emits the case list menu command they land on exactly then.
 // The `always` arm's `caseListRegistrationForm.icon` / `audioLabel` are walked
 // wherever the module holds that arm: they land on its Register action.
+// The optional lookup button image is also a Project asset, carried by the
+// Android companion lookup on the short case-list detail.
 
 import { produce } from "immer";
 import type { BlueprintDoc, PersistableDoc } from "./blueprint";
@@ -107,6 +109,11 @@ export type MediaRefLocation = {
 	  }
 	| {
 			readonly kind: "case_list_audio_label";
+			readonly moduleUuid: Uuid;
+			readonly moduleName: string;
+	  }
+	| {
+			readonly kind: "case_list_lookup_icon";
 			readonly moduleUuid: Uuid;
 			readonly moduleName: string;
 	  }
@@ -281,6 +288,14 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 				{ kind: "case_list_registration_icon", ...menu },
 				{ kind: "case_list_registration_audio_label", ...menu },
 			);
+		}
+		const lookupIcon = mod.caseListConfig?.deviceLookup?.icon;
+		if (lookupIcon !== undefined) {
+			yield {
+				assetId: lookupIcon,
+				slotKind: "image",
+				location: { kind: "case_list_lookup_icon", ...menu },
+			};
 		}
 		const columns = mod.caseListConfig?.columns ?? [];
 		for (const column of columns) {
@@ -661,6 +676,8 @@ export function remapAssetRefs(
 			if (!mod) continue;
 			remapNavigation(mod);
 			remapNavigation(mod.caseListMenuItem);
+			const lookup = mod.caseListConfig?.deviceLookup;
+			if (lookup?.icon !== undefined) lookup.icon = remapUploaded(lookup.icon);
 			if (mod.caseListRegistrationForm?.kind === "always")
 				remapNavigation(mod.caseListRegistrationForm);
 			for (const column of mod.caseListConfig?.columns ?? []) {
@@ -770,6 +787,8 @@ function carrierName(ref: AssetRef): string {
 			return `the case-list icon on module "${loc.moduleName}"`;
 		case "case_list_audio_label":
 			return `the case-list audio label on module "${loc.moduleName}"`;
+		case "case_list_lookup_icon":
+			return `the lookup button icon on module "${loc.moduleName}"`;
 		case "case_list_registration_icon":
 		case "case_list_registration_audio_label":
 			return `the Register button on ${loc.moduleName}'s case list`;

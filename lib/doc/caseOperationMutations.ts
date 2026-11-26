@@ -211,6 +211,9 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
 					: {}),
+				...(!deepEqual(before.ownerCondition, after.ownerCondition)
+					? { ownerCondition: clearable(after.ownerCondition) }
+					: {}),
 				...flagPatch("ownerOnlyIfChanged", before, after),
 				...(!deepEqual(before.closeAfter, after.closeAfter)
 					? { closeAfter: after.closeAfter ?? null }
@@ -253,6 +256,9 @@ function scalarOperationUpdate(
 					? { nameOnlyIfChanged: null }
 					: {}),
 				...(before.owner !== undefined ? { owner: null } : {}),
+				...(before.ownerCondition !== undefined
+					? { ownerCondition: null }
+					: {}),
 				...(before.ownerOnlyIfChanged !== undefined
 					? { ownerOnlyIfChanged: null }
 					: {}),

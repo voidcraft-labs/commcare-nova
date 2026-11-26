@@ -48,6 +48,7 @@ import {
 	caseListColumnTextShows,
 	columnSortLabelShows,
 } from "@/lib/domain/modules";
+import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
@@ -91,6 +92,7 @@ import { sourceFactories } from "../sourceFactories";
 import { recordSyntaxKey, sameXPathText } from "../syntaxCompare";
 import { sharedFormSyntax } from "../syntaxRead";
 import type { SameStateRegister } from "../types";
+import { readMediaMap } from "../xform/media";
 import { storedColumnKind } from "./columnIdentity";
 import {
 	appCodes,
@@ -450,6 +452,7 @@ const TEXT_LOOKUP_FIELD_ENTRIES = new Map<string, string>([
 	["lookup_autolaunch", "lookup-autolaunch"],
 	["lookup_responses", "lookup-responses-key"],
 	["lookup_extras", "lookup-extras-fixed-text"],
+	["lookup_image", "lookup-image-jr"],
 ]);
 
 const TEXT_LOOKUP_KEYS = defineClaims(
@@ -477,7 +480,7 @@ function textDeviceLookup(
 	const rawExtras = detail.peek("lookup_extras");
 	const rawResponses = detail.peek("lookup_responses");
 	if (
-		(image !== undefined && image !== null && image !== "") ||
+		(image !== undefined && image !== null && typeof image !== "string") ||
 		(results !== undefined && results !== null && results !== false) ||
 		(automatic !== undefined &&
 			automatic !== null &&
@@ -1403,9 +1406,30 @@ function readDetailKeys(
 			}
 			ok = false;
 		} else if (wording && lookup !== undefined) {
+			const image = detail.peek("lookup_image");
+			if (typeof image === "string" && image !== "") {
+				const ref = readMediaMap(
+					ctx,
+					recordFromEntries(appCodes(ctx).map((language) => [language, image])),
+					{
+						site: { json: detail, key: "lookup_image" },
+						place: detail.place,
+						slot: "case_list_lookup_icon",
+						mediaKind: "image",
+					},
+				);
+				if (ref.kind === "asset") {
+					const assetId = mediaAssetIdSchema.safeParse(ref.assetId);
+					if (assetId.success) lookup.icon = assetId.data;
+				}
+			}
 			for (const key of CALLOUT_KEYS) {
 				const claim = TEXT_LOOKUP_KEYS[key];
-				if (claim !== undefined && detail.used(key))
+				if (
+					claim !== undefined &&
+					detail.used(key) &&
+					(key !== "lookup_image" || lookup.icon !== undefined || !image)
+				)
 					wording.deviceLookup = detail.take(key, claim, () => lookup).value;
 			}
 		} else {

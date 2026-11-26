@@ -12,7 +12,7 @@ CASE = "http://commcarehq.org/case/transaction/v2"
 VELLUM = "http://commcarehq.org/xforms/vellum"
 
 
-def _save_with_link(editor_driver, name, *, action_present=None):
+def _save_with_link(editor_driver, name, *, action_present=None, expect_load=True):
     document = corpus_document("case-operation-query")
     with _published(document, "VELLUM_SAVE_TO_CASE", True) as opened:
         form = _form(
@@ -77,7 +77,8 @@ def _save_with_link(editor_driver, name, *, action_present=None):
         run = vellum.fresh_open_and_save(
             editor_driver, opened.state, opened.app_id, form.unique_id
         )
-        assert run.loaded, run.load_error
+        if expect_load:
+            assert run.loaded, run.load_error
         return run, path
 
 
@@ -107,6 +108,13 @@ def test_period_in_save_to_case_link_cannot_keep_its_calculation(
         )
     else:
         assert run.save_refusal, run
+
+
+@pytest.mark.parametrize("name", ["instance", "parsererror"])
+def test_form_designer_cannot_open_a_link_named_as_a_source_element(hq, core_runner, editor_driver, name):
+    run, _ = _save_with_link(editor_driver, name, expect_load=False)
+    assert not run.loaded
+    assert run.load_error
 
 
 @pytest.mark.parametrize("name", ["create", "close"])

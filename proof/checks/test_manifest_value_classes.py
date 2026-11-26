@@ -5989,59 +5989,20 @@ CASE_PROPERTY_COLLISION_FORM = _form(
 
 
 def _save_to_case_effects():
-    bind_relevant = "xform:model/bind@relevant"
-    bind_calculate = "xform:model/bind@calculate"
-    setvalue = "xform:setvalue@value"
     role = "{http://example.org/t}op[1]/@vellum:role"
     create = "<create><owner_id/></create>"
-    create_owner = "/data/op/case/create/owner_id"
-    case_id = "/data/op/case/@case_id"
-
-    def block(actions, model="", *, in_repeat=False):
-        data = (
-            f'<op vellum:role="SaveToCase" vellum:case_type="patient">'
-            f'<case xmlns="{CASE_NS}" case_id="" date_modified="" user_id="">{actions}</case></op>'
-        )
-        if in_repeat:
-            return _form(
-                data=f'<rows jr:template="">{data}</rows><rows>{data}</rows>',
-                model=model.replace("/data/op/", "/data/rows/op/"),
-                body='<group><repeat nodeset="/data/rows"/></group>',
-            )
-        return _form(data=data, model=model)
-
-    def ready(value):
-        return f'<setvalue ref="{case_id}" event="xforms-ready" value="{value}"/>'
-
-    def calculate(value):
-        return f'<bind nodeset="{case_id}" calculate="{value}"/>'
 
     def with_link(name, actions):
-        return block(
-            f'{actions}<index><{name} case_type="household" relationship="child"/></index>',
-            f'<bind nodeset="/data/op/case/index/{name}" calculate="\'household-01\'"/>',
+        return _form(
+            data=(
+                f'<op vellum:role="SaveToCase" vellum:case_type="patient">'
+                f'<case xmlns="{CASE_NS}" case_id="" date_modified="" user_id="">{actions}'
+                f'<index><{name} case_type="household" relationship="child"/></index></case></op>'
+            ),
+            model=f'<bind nodeset="/data/op/case/index/{name}" calculate="\'household-01\'"/>',
         )
 
-    close_condition = '<bind nodeset="/data/op/case/close" relevant="true()"/>'
-    owner_condition = f'<bind nodeset="{create_owner}" calculate="\'team\'" relevant="true()"/>'
-    relevance = "bind[1]/@relevant"
-    calculation = "bind[1]/@calculate"
-    ready_value = "setvalue[1]/@value"
     return {
-        "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under": [
-            refused("form", block("<update/><close/>", close_condition), bind_relevant, relevance),
-            accepted("form", block("<close/>", close_condition), bind_relevant, relevance),
-        ],
-        "questions/savetocase-case-id-expression-on-a-create": [
-            refused("form", block(create, ready("'patient-01'")), setvalue, ready_value),
-            accepted("form", block(create, ready("uuid()")), setvalue, ready_value),
-            refused("form", block(create, calculate("'patient-01'"), in_repeat=True), bind_calculate, calculation),
-            accepted("form", block(create, calculate("uuid()"), in_repeat=True), bind_calculate, calculation),
-        ],
-        "questions/savetocase-owner-id-condition": [
-            refused("form", block(create, owner_condition + ready("uuid()")), bind_relevant, relevance),
-            accepted("form", block(create, owner_condition + ready("'patient-01'")), bind_relevant, relevance),
-        ],
         "questions/savetocase-link-name-changes-actions-on-save": [
             refused("form", with_link("close", create), ROLE, role),
             refused("form", with_link("create", "<update/>"), ROLE, role),
@@ -7228,7 +7189,36 @@ def _held_new():
         body="""<select1 ref="/data/s"><item><value>a'b"c</value></item><item><value>a'b</value></item></select1>""",
     )
     named = _form(data="<q/>").replace(b"<data ", b'<visit uiVersion="1" ').replace(b"</data>", b"</visit>")
+    def owner_form(create, leaf, case_id, *, case_type="household"):
+        start = "<create><owner_id/></create>" if create and leaf == "create" else (
+            "<create><case_type/></create>" if create else ""
+        )
+        update = "<update><owner_id/></update>" if leaf == "update" else ""
+        return _form(
+            data=f'<q/><change vellum:role="SaveToCase" vellum:case_type="{case_type}">{case}{start}{update}</case></change>',
+            model=f'<bind nodeset="/data/change/case/{leaf}/owner_id" relevant="/data/q &gt; 5" calculate="/data/q"/>'
+                  + (f'<setvalue event="xforms-ready" ref="/data/change/case/@case_id" value="{case_id}"/>'
+                     if create else f'<bind nodeset="/data/change/case/@case_id" calculate="{case_id}"/>'),
+        )
+
+    alias = owner_form(True, "create", "'household-01'")
+    fresh = owner_form(True, "create", "uuid()")
+    update_owner = owner_form(False, "update", "'household-01'")
+    create_owner_update = owner_form(True, "update", "uuid()")
+    worker_owner = owner_form(False, "update", "'worker-01'", case_type="commcare-user")
+    owner_key, owner_site = "xform:model/bind@relevant", "bind[1]/@relevant"
     return {
+        "questions/savetocase-owner-condition-on-an-aliased-create": (
+            refused("form", alias, owner_key, owner_site),
+            accepted("form", fresh, owner_key, owner_site),
+            accepted("form", update_owner, owner_key, owner_site),
+        ),
+        "questions/savetocase-update-owner-condition": (
+            refused("form", create_owner_update, owner_key, owner_site),
+            refused("form", worker_owner, owner_key, owner_site),
+            accepted("form", fresh, owner_key, owner_site),
+            accepted("form", update_owner, owner_key, owner_site),
+        ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             refused("app", own_update("größe"), update_map, updates),
             refused("app", child_update("größe"), child_map, children),
@@ -7956,10 +7946,6 @@ def _case_list_lookup_shapes():
         "menus-and-case-lists/lookup-extras-key-value": (
             use(refused, "lookup_extras", lookup_extras=dynamic),
             use(accepted, "lookup_extras"),
-        ),
-        "menus-and-case-lists/lookup-image-jr": (
-            use(refused, "lookup_image", lookup_image="jr://file/icon.png"),
-            use(accepted, "lookup_image", lookup_image="jr://file/icon.png", lookup_enabled=False),
         ),
         "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
             use(refused, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=True),

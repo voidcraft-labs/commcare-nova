@@ -1089,6 +1089,35 @@ export const PLATFORM_MODEL_CHECKS = {
 		).toBe(1);
 	},
 
+	"search-headings-android": () => {
+		const first = {
+			...simpleSearchInputDef(
+				testUuid("heading-area"),
+				"area",
+				"Area",
+				"text",
+				"area",
+			),
+			group: testUuid("search-heading-location"),
+		};
+		const second = {
+			...simpleSearchInputDef(
+				testUuid("heading-identifier"),
+				"identifier",
+				"Identifier",
+				"text",
+				"identifier",
+			),
+			group: testUuid("search-heading-identification"),
+		};
+		expect(ANDROID.searchFieldGroups).toBe(false);
+		expect(drawnSearchInputs([first, second], ANDROID)).toEqual([
+			first,
+			second,
+		]);
+		expect(WEB_APPS.searchFieldGroups).toBe(true);
+	},
+
 	/* Android reads no `hidden`: it draws a hidden value, with or without a
 	 * starting value, and a field Web Apps does not draw, as ordinary fields;
 	 * Web Apps draws none of them (`SearchInputForm` reads the same rule). */

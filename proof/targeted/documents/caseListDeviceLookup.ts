@@ -1,5 +1,10 @@
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	mediaIds,
+	mediaManifest,
+} from "@/lib/commcare/__tests__/mediaWireFixtures";
 import { plainColumn, proseText } from "@/lib/domain";
+import { uploadedMedia } from "../../corpus/documents";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 import { answerHeld } from "./echo";
@@ -9,8 +14,12 @@ const uuid = (name: string) => targetedUuid(ID, name);
 
 export function caseListDeviceLookup() {
 	const visit = uuid("visit");
+	const icon = mediaManifest().get(mediaIds.icon);
+	if (!icon?.bytes) throw new Error("Missing case lookup icon.");
+	const media = uploadedMedia(new Map([[mediaIds.icon, icon]]));
 	return targetedDocument({
 		id: ID,
+		...(media && { media }),
 		rows: [
 			"Android case list lookup keeps the companion action and text response order",
 		],
@@ -28,6 +37,7 @@ export function caseListDeviceLookup() {
 						deviceLookup: {
 							action: "org.nova.proof.CASE_LOOKUP",
 							label: "Find a visit",
+							icon: mediaIds.icon,
 							automatic: true,
 							extras: [
 								{ name: "visit_mode", value: "followup" },

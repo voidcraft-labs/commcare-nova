@@ -641,7 +641,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("update"),
-		ownerCondition: z.never().optional(),
+		ownerCondition: conditionSchema.optional(),
 		closeAfter: z.literal(true).optional(),
 		target: updateCaseTargetSchema,
 		name: z.never().optional(),

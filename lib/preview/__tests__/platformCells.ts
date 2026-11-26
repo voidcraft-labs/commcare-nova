@@ -203,6 +203,9 @@ export const PLATFORM_CELLS: Readonly<
 		structural("several-cases"),
 	"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr@android":
 		structural("several-cases"),
+	"menus-and-case-lists/detail-auto-select-multi-select@android":
+		structural("several-cases"),
+	"case-search/is-group-group-key@android": model("search-headings-android"),
 	"case-search/input-date@android": structural("search-field-single-date"),
 	/* Web Apps can't go on from a list that chose its one record before a
 	 * confirmation screen, so the gate keeps that list off Web Apps. */
@@ -229,6 +232,9 @@ export const PLATFORM_CELLS: Readonly<
 		"case-list-android-lookup",
 	),
 	"menus-and-case-lists/lookup-autolaunch@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-image-jr@web-apps": stated(
 		"case-list-android-lookup",
 	),
 	"menus-and-case-lists/lookup-name@web-apps": stated(

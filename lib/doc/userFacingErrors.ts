@@ -2103,8 +2103,16 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A case operation refers to a case that isn't created yet. Move the create operation before this one.",
 	CASE_OPERATION_EXECUTION_ORDER: () =>
 		"These case operations use an order the running form can't preserve. Put authored-ID creates before updates and closes, and keep each repeating section's operations together in form order.",
-	CASE_OPERATION_OWNER_CONDITION_INVALID: () =>
-		"A case with a conditional owner needs a new ID on each submission.",
+	CASE_OPERATION_OWNER_CONDITION_INVALID: (e) => {
+		switch (det(e, "reason", "")) {
+			case "missing-owner":
+				return "Choose the new owner before setting when to change it.";
+			case "worker-record":
+				return "A change to the worker's record keeps its owner. Remove the owner condition.";
+			default:
+				return "A case with a conditional owner needs a new ID on each submission.";
+		}
+	},
 	CASE_OPERATION_CLOSE_ACTION_REQUIRED: () =>
 		"A close change can save these properties and close the case.",
 	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: () =>
