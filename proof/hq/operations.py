@@ -1004,7 +1004,9 @@ def source_factory_answers(state, app_id, credential, source):
     for resource, profile in sorted(resources):
         query = "?" + urlencode({"profile": profile}) if profile else ""
         path = f"/a/{state.domain}/apps/download/{app_id}/{resource}{query}"
-        yield path, api_request(state, "GET", path, credential=credential)
+        # An edited app can fail HQ's suite generation while its source is
+        # still readable. Retain Django's actual response to the client.
+        yield path, client_request(state, "GET", path, credential=credential)
     if resources:
         yield "source-check", source_read(state, app_id, credential)
 
@@ -1027,9 +1029,8 @@ def client_request(state, method: str, path: str, *, credential: ApiCredential |
     exception is answered by HQ's ``handler500``, and what the middleware
     leaves on the thread (the request field audit keeps, the active language)
     is put back after it, as a server's next request would replace it. The
-    answer is built as ``api_request`` builds one. Used for the one read whose
-    answer may depend on what the middleware does with the key: a superuser's
-    read without the plan's API access."""
+    answer is built as ``api_request`` builds one. Use the full path for reads
+    whose response depends on middleware or on HQ's HTTP error handlers."""
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer.client import HqRequest
 
