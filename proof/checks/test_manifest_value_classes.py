@@ -3865,6 +3865,15 @@ def _search_and_menus():
                 "schema:CaseSearchProperty.label",
                 f"{prompts}/label",
             ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"fr": "Groupe"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
+            ),
         ),
         "case-search/allow-blank-value-on-a-hidden-prompt": (
             refused(

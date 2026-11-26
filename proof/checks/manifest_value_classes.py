@@ -5169,10 +5169,19 @@ def search_group_heading_unreadable(use, manifest):
         return True
     app = at.nearest("Application", "LinkedApplication") or {}
     languages = app.get("langs") or ["en"]
-    stored = [labels.get(language) for language in languages]
-    if any(word is not None and not isinstance(word, str) for word in stored):
+    # HQ picks each requested language before the first build language with
+    # a stored value. With neither, _trans takes the first stored language.
+    fallback = next(
+        (labels[code] for code in languages if labels.get(code) is not None),
+        labels[min(labels)] if labels else "",
+    )
+    chosen = [fallback if labels.get(code) is None else labels[code] for code in languages]
+    if any(word is not None and not isinstance(word, (str, bool)) for word in chosen):
         return True
-    return not any(word.strip() for word in stored if word)
+    texts = [str(word) for word in chosen]
+    # An empty locale entry falls back to the merged default table.
+    source = texts[0] or next((text for text in texts if text.strip()), "")
+    return not source.strip()
 
 
 # The input types HQ's Case List page shows over an address appearance (``case_claim.js::_getAppearance`` tests them
