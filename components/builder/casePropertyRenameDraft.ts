@@ -1,4 +1,5 @@
 import {
+	CASE_LOCATION_PROPERTY,
 	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseType,
 	humanizeId,
@@ -15,13 +16,16 @@ export interface CasePropertyRenameDraftRow
 	readonly to: string;
 }
 
-/** Complete visible inventory: authored/effective properties plus row scalars. */
+/** Complete visible inventory: authored/effective properties plus the row
+ *  scalars every case carries. The case's own location is a row scalar only
+ *  where the app saves or declares it, so it is listed as a property then. */
 export function casePropertyInventoryNames(
 	caseType: CaseType,
 ): readonly string[] {
 	const names = caseType.properties.map((property) => property.name);
 	const present = new Set(names);
 	for (const scalar of CASE_SCALAR_PROPERTY_NAMES) {
+		if (scalar === CASE_LOCATION_PROPERTY) continue;
 		if (!present.has(scalar)) names.push(scalar);
 	}
 	return names;

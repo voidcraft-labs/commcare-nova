@@ -29,7 +29,7 @@ import {
 	formLinkProjectionContext,
 } from "@/lib/commcare/formLinkProjection";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { derivedFormXmlns } from "@/lib/commcare/wireIdentity";
+import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import {
@@ -123,7 +123,7 @@ describe("the entry facts over the corpus", () => {
 			for (const moduleUuid of context.moduleOrder) {
 				for (const formUuid of context.formOrder[moduleUuid] ?? []) {
 					const xmlns = derivedFormXmlns(formUuid);
-					const form = facts.forms.get(xmlns);
+					const form = facts.forms.get(derivedUniqueId(formUuid));
 					expect(form, `${document.id}: ${xmlns}`).toBeDefined();
 					if (form === undefined) continue;
 					const ported = datumIdsFromFacts(form, facts);

@@ -3,7 +3,13 @@ import {
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
 import { entryPointInventory, uuidSchema } from "@/lib/domain";
+import {
+	formCaseSelections,
+	namedEntrySupplies,
+} from "@/lib/domain/advancedEntryDatums";
+import { openingAssignmentName } from "@/lib/domain/formOpeningAssignments";
 import { routeContainsForm } from "@/lib/domain/listedForms";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
 	type AuthoringScopeOptions,
 	enclosingAuthoringTable,
@@ -121,26 +127,41 @@ export function bindNamedIdentity(args: {
 			if (toolName === "createModule")
 				candidates.push(...declarations([input], "moduleUuid", "name"));
 			break;
-		case "form":
-			// A menu listing another menu's forms names the forms it shows; an
-			// ordinary menu, the forms it owns.
+		case "form": {
+			const parentSlot =
+				slot.path.at(-1) === "shared_form_uuid" ||
+				slot.path.at(-1) === "parentFormUuid";
 			candidates = named(
-				Object.values(doc.forms).filter(
-					(item) =>
-						!moduleUuid || routeContainsForm(doc, moduleUuid, item.uuid),
+				Object.values(doc.forms).filter((item) =>
+					parentSlot
+						? !item.shadowOf
+						: !moduleUuid || routeContainsForm(doc, moduleUuid, item.uuid),
 				),
-				(item) => [item.name],
+				(item) => {
+					const owner = moduleUuidOfForm(doc, item.uuid);
+					return [
+						item.name,
+						...(parentSlot && owner
+							? [`${doc.modules[owner].name}/${item.name}`]
+							: []),
+					];
+				},
 			);
-			if (toolName === "createForm")
+			if (toolName === "createForm" && !parentSlot)
 				candidates.push(...declarations([input], "formUuid", "name"));
 			break;
+		}
 		case "field": {
+			const contentParent =
+				toolName === "editFormEntry" && formUuid
+					? doc.forms[formUuid]?.shadowOf?.form
+					: undefined;
 			const fields =
-				scope.fields ??
+				(contentParent ? undefined : scope.fields) ??
 				Object.values(doc.fields).flatMap((item) => {
 					if (
 						formUuid === undefined ||
-						findContainingForm(doc, item.uuid) !== formUuid
+						findContainingForm(doc, item.uuid) !== (contentParent ?? formUuid)
 					)
 						return [];
 					const path = computeFieldPath(doc, item.uuid);
@@ -188,6 +209,30 @@ export function bindNamedIdentity(args: {
 				scope.inputs ?? module?.caseListConfig?.searchInputs ?? [],
 				(item) => [item.name],
 			);
+			break;
+		case "form-opening-assignment":
+			candidates = formUuid
+				? named(doc.forms[formUuid]?.openingAssignments ?? [], (row) => [
+						openingAssignmentName(doc, formUuid, row),
+					])
+				: [];
+			break;
+		case "form-entry-supply":
+			if (
+				record(input.edit)?.operation === "restore-shared-choice" &&
+				slot.path.at(-1) === "uuid" &&
+				formUuid &&
+				doc.forms[formUuid]?.shadowOf
+			) {
+				candidates = named(
+					formCaseSelections(doc, doc.forms[formUuid].shadowOf.form),
+					(row) => [row.name],
+				);
+				break;
+			}
+			candidates = formUuid
+				? named(namedEntrySupplies(doc, formUuid), (row) => [row.name])
+				: [];
 			break;
 		case "case-operation":
 			candidates = named(scope.operations ?? [], (item) => [item.name]);

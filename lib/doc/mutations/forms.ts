@@ -2,11 +2,17 @@ import type { Draft } from "immer";
 import { caseWriteIdOf, caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { caseOperationSchema, type Form, type Uuid } from "@/lib/domain";
+import {
+	CASE_FACET_OF_ONLY_IF_CHANGED,
+	caseOperationSchema,
+	type Form,
+	type Uuid,
+} from "@/lib/domain";
 import { routeContainsForm } from "@/lib/domain/listedForms";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { replaceMediaLanguageEntry } from "@/lib/domain/multimedia";
 import { editNavigationInLanguage } from "@/lib/domain/navigationMedia";
+import { applyFormEntryChange } from "../formEntryMutations";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 import { postSubmitBefore, reconcilePostSubmitWithMenuShape } from "./modules";
 
@@ -289,6 +295,8 @@ export function applyFormMutation(
 			return;
 		}
 		case "updateForm": {
+			if (mut.entryChange)
+				applyFormEntryChange(draft, mut.uuid, mut.entryChange);
 			const form = draft.forms[mut.uuid];
 			if (!form) return;
 			// Apply the patch key-by-key: a `null` (the wire representation of a
@@ -332,7 +340,20 @@ export function applyFormMutation(
 							...current,
 							action: semantic.targetAction,
 						} as Record<string, unknown>;
-						applyPatch(prospective, semantic.patch as Record<string, unknown>);
+						const patch = semantic.patch as Record<string, unknown>;
+						applyPatch(prospective, patch);
+						// Saving a name or owner only when changed means nothing once
+						// the patch stops saving that name or owner. A flag the patch
+						// itself sets stays for the gate to judge.
+						for (const [flag, facet] of Object.entries(
+							CASE_FACET_OF_ONLY_IF_CHANGED,
+						))
+							if (
+								Object.hasOwn(patch, facet) &&
+								(patch[facet] === null || patch[facet] === undefined) &&
+								patch[flag] !== true
+							)
+								delete prospective[flag];
 						const parsed = caseOperationSchema.safeParse(prospective);
 						if (!parsed.success) {
 							console.warn(

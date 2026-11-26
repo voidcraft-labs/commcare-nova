@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
+import { sharedFormMutations, sharedFormRefusal } from "@/lib/doc/scaffolds";
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import {
 	asUuid,
@@ -40,11 +41,17 @@ export const createFormInputSchema = moduleAddressSchema
 			.describe(
 				"Stable UUID for the new form. Omit when nothing in this call references the form.",
 			),
+		shared_form_uuid: uuidSchema
+			.optional()
+			.describe(
+				"Open the questions and run the record changes of this existing form. The new entry owns its label, opening choices, and what happens after submission. Both menus need advanced form settings.",
+			),
 		name: z.string().min(1).describe("Form display name"),
 		type: z
 			.enum(FORM_TYPES)
+			.optional()
 			.describe(
-				'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
+				'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone. Omit when this entry opens an existing form.',
 			),
 		purpose: z
 			.string()
@@ -103,7 +110,7 @@ export const createFormTool = {
 			moduleUuid: rawModuleUuid,
 			formUuid: requestedFormUuid,
 			name,
-			type,
+			type: requestedType,
 			purpose,
 			post_submit,
 			capture_location,
@@ -122,6 +129,18 @@ export const createFormTool = {
 				};
 			}
 			const { moduleUuid } = address;
+			const type =
+				requestedType ??
+				(input.shared_form_uuid && doc.forms[input.shared_form_uuid]?.type);
+			if (!type)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: {
+						error:
+							"Choose a form type or an existing form for this entry to open.",
+					},
+				};
 
 			const formUuid = requestedFormUuid ?? asUuid(crypto.randomUUID());
 			if (findAuthoredBlueprintIdentity(doc, formUuid) !== undefined) {
@@ -160,17 +179,48 @@ export const createFormTool = {
 					},
 				};
 			}
-			const formMutations = addFormMutations(doc, moduleUuid, {
-				uuid: formUuid,
-				name,
-				type: type as FormType,
-				...(purpose != null && { purpose }),
-				...(post_submit && {
-					postSubmit: post_submit as PostSubmitDestination,
-				}),
-				...(capture_location === true && { captureLocation: true }),
-				...(plain_text === true && { plainText: true }),
-			});
+			const shared =
+				input.shared_form_uuid === undefined
+					? undefined
+					: sharedFormMutations(doc, moduleUuid, input.shared_form_uuid, {
+							uuid: formUuid,
+							name,
+							...(purpose && { purpose }),
+							...(post_submit && { postSubmit: post_submit }),
+						});
+			if (input.shared_form_uuid) {
+				const parent = doc.forms[input.shared_form_uuid];
+				const refusal =
+					sharedFormRefusal(doc, moduleUuid, input.shared_form_uuid) ??
+					(parent && type !== parent.type
+						? `“${parent.name}” is a ${parent.type} form, and an entry opens it as one. You can leave type out or set it to ${parent.type}.`
+						: plain_text === true
+							? `“${parent?.name ?? "The shared form"}” keeps its own text formatting, which its entries use. You can leave plain_text out.`
+							: capture_location === true
+								? `“${parent?.name ?? "The shared form"}” decides whether its entries ask for the device location. You can leave capture_location out and set it on that form.`
+								: shared
+									? undefined
+									: "This form can't be shared from this menu.");
+				if (refusal !== undefined)
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: { error: refusal },
+					};
+			}
+			const formMutations =
+				shared?.mutations ??
+				addFormMutations(doc, moduleUuid, {
+					uuid: formUuid,
+					name,
+					type: type as FormType,
+					...(purpose != null && { purpose }),
+					...(post_submit && {
+						postSubmit: post_submit as PostSubmitDestination,
+					}),
+					...(capture_location === true && { captureLocation: true }),
+					...(plain_text === true && { plainText: true }),
+				});
 			// The registration from the case list is the module's slot, set on
 			// the document that holds the new form; it turns on Forms read the
 			// search in the same batch (`caseListRegistrationForm.ts`).

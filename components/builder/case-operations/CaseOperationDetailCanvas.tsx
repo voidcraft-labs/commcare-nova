@@ -123,6 +123,7 @@ import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { managedPlacesContext } from "../app-setup/organizationUi";
+import { ToggleRow } from "../inspector/inspectorChrome";
 import { CaseOperationLinks } from "./CaseOperationLinks";
 import { useCaseTargetDraft } from "./CaseTargetDraftContext";
 import {
@@ -139,6 +140,11 @@ import {
 	caseOperationTextConstraint,
 	RUNTIME_TARGET_OPERATION_SCOPE,
 } from "./editorScope";
+import {
+	type FacetOnlyIfChangedSwitch,
+	facetOnlyIfChangedSwitch,
+	withOwner,
+} from "./facetOnlyIfChangedModel";
 import { operationFormFieldDecls } from "./formFieldScope";
 import {
 	casePropertyLabel,
@@ -309,6 +315,25 @@ export function CaseOperationDetailCanvas({
 					verdict: view.editVerdict,
 				})
 			: undefined;
+	/* Whether the rename and the owner are saved only when changed: offered
+	 * where CommCare HQ applies the mode to them (`facetOnlyIfChangedModel`). */
+	const facetSwitch = (facet: "name" | "owner") =>
+		operationCanEdit
+			? facetOnlyIfChangedSwitch({
+					facet,
+					operation,
+					formType,
+					inSaveToCase:
+						(own
+							? placements.own?.home
+							: placements.operations.find(
+									(entry) => entry.operationUuid === operation.uuid,
+								)?.entry.home) === "save-to-case",
+					verdict: view.editVerdict,
+				})
+			: undefined;
+	const nameSwitch = facetSwitch("name");
+	const ownerSwitch = facetSwitch("owner");
 	/** The case type a write lands on: the operation's, or the one its `via`
 	 *  reaches from the form's case. */
 	const writeCaseType = (write: CaseOperationWrite): string => {
@@ -576,6 +601,14 @@ export function CaseOperationDetailCanvas({
 						onChange={(name) => commit({ ...operation, name })}
 						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
+						footer={
+							nameSwitch !== undefined && (
+								<FacetOnlyIfChangedToggle
+									toggle={nameSwitch}
+									onCommit={commit}
+								/>
+							)
+						}
 					/>
 				)}
 
@@ -599,6 +632,14 @@ export function CaseOperationDetailCanvas({
 						onChange={(rename) => commit({ ...operation, rename })}
 						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
+						footer={
+							nameSwitch !== undefined && (
+								<FacetOnlyIfChangedToggle
+									toggle={nameSwitch}
+									onCommit={commit}
+								/>
+							)
+						}
 					/>
 				)}
 
@@ -619,8 +660,16 @@ export function CaseOperationDetailCanvas({
 						}
 						value={operation.owner}
 						canEdit={operationCanEdit}
-						onChange={(owner) => commit({ ...operation, owner })}
+						onChange={(owner) => commit(withOwner(operation, owner, formType))}
 						editorScope={editorScope}
+						footer={
+							ownerSwitch !== undefined && (
+								<FacetOnlyIfChangedToggle
+									toggle={ownerSwitch}
+									onCommit={commit}
+								/>
+							)
+						}
 					/>
 				)}
 
@@ -784,6 +833,7 @@ export function CaseOwnerSection({
 	canEdit,
 	onChange,
 	editorScope,
+	footer,
 }: {
 	readonly action: "create" | "update";
 	readonly slot: ExpressionSlotRef;
@@ -791,6 +841,8 @@ export function CaseOwnerSection({
 	readonly canEdit: boolean;
 	readonly onChange: (next: Expression | undefined) => void;
 	readonly editorScope: EditorScope;
+	/** Shown under the owner, such as its Save only if changed switch. */
+	readonly footer?: React.ReactNode;
 }) {
 	const appId = useAppId();
 	const organization = useOrganization(appId ?? "");
@@ -1185,6 +1237,7 @@ export function CaseOwnerSection({
 					)}
 				</div>
 			)}
+			{footer}
 		</Section>
 	);
 }
@@ -1292,6 +1345,7 @@ function OptionalExpressionSection({
 	onChange,
 	constraint,
 	editorScope,
+	footer,
 }: {
 	readonly slot: ExpressionSlotRef;
 	readonly title: string;
@@ -1306,6 +1360,8 @@ function OptionalExpressionSection({
 	readonly onChange: (next: Expression | undefined) => void;
 	readonly constraint: ReturnType<typeof storageAssignmentConstraint>;
 	readonly editorScope: EditorScope;
+	/** Shown under the value, such as its Save only if changed switch. */
+	readonly footer?: React.ReactNode;
 }) {
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 	return (
@@ -1343,6 +1399,7 @@ function OptionalExpressionSection({
 					{...editorScope}
 				/>
 			)}
+			{value !== undefined && footer}
 		</Section>
 	);
 }
@@ -1510,6 +1567,29 @@ function WriteRow({
 					</div>
 				)}
 			</div>
+		</div>
+	);
+}
+
+/** The Save only if changed switch under a new name or an owner. */
+function FacetOnlyIfChangedToggle({
+	toggle,
+	onCommit,
+}: {
+	readonly toggle: FacetOnlyIfChangedSwitch;
+	readonly onCommit: (next: CaseOperation) => boolean;
+}) {
+	return (
+		<div className="mt-3" data-facet-only-if-changed={toggle.on ? "on" : "off"}>
+			<ToggleRow
+				label={toggle.label}
+				description={toggle.line}
+				checked={toggle.on}
+				{...(toggle.disabledReason !== undefined && {
+					disabledReason: toggle.disabledReason,
+				})}
+				onChange={() => onCommit(toggle.next)}
+			/>
 		</div>
 	);
 }

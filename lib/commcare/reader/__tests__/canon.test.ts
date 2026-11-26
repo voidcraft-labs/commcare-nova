@@ -2185,6 +2185,8 @@ const NAMED_ELSEWHERE: Readonly<Record<string, string>> = {
 		"lib/commcare/__tests__/heldPlacementEmission.test.ts",
 	"expression-print-collisions":
 		"lib/commcare/reader/expressions/__tests__/printCollisions.test.ts",
+	"starting-values-in-question-order":
+		"lib/commcare/__tests__/openingAssignmentRunOrder.test.ts",
 };
 
 describe("each canonicalization's pair", () => {

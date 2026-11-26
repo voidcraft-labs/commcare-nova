@@ -14,7 +14,7 @@ import type { BlueprintDoc } from "./blueprint";
 import { rootSelectionAlignment } from "./entryDatumSupplies";
 import { effectiveFilterForEmission } from "./expression/simplify";
 import { substituteUnansweredSearchInputs } from "./expression/walk";
-import { operationCaseType } from "./forms";
+import { operationCaseType, usesFormEntryActions } from "./forms";
 import { menuWithInheritedCaseSettings } from "./listedForms";
 import {
 	caseSelectionCardinality,
@@ -398,7 +398,7 @@ function parentSelectionChain(
 /** How the menu's own case list, shown as a menu item, is narrowed, the
  *  first of filter, hidden owners and a case chosen before it; `undefined`
  *  where it lists every open case of its type. */
-function caseListNarrowing(
+export function caseListNarrowing(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): "filter" | "hidden-owners" | "chosen-before" | undefined {
@@ -439,7 +439,15 @@ export function advancedKindBlockers(
 	if (moduleFormsReadSearch(module))
 		blockers.push({ kind: "forms-read-search" });
 	if (module.menuLayout === "grid") blockers.push({ kind: "individual-grid" });
-	if (moduleHasCaseListMenuItem(module)) {
+	const formEntryList =
+		module.heldKind === "advanced" ||
+		module.autoSelectSingle ||
+		module.caseType === "commcare-user" ||
+		(doc.formOrder[moduleUuid] ?? []).some((id) => {
+			const form = doc.forms[id];
+			return form !== undefined && usesFormEntryActions(form);
+		});
+	if (moduleHasCaseListMenuItem(module) && !formEntryList) {
 		const why = caseListNarrowing(doc, moduleUuid);
 		if (why !== undefined)
 			blockers.push({ kind: "case-list-menu-item-narrowed", why });

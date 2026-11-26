@@ -2,6 +2,7 @@
  * rules and native held classes share the same lexical contexts and cache. */
 
 import type { CasePropertyDataType } from "../casePropertyTypes";
+import { caseDataTypeForFieldKind } from "../caseTypes";
 import { reachedPropertyType } from "../columnRelation";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
 import {
@@ -21,6 +22,7 @@ import {
 } from "../platforms";
 import { isPortableName } from "../portableName";
 import {
+	isDeviceOnlyCaseProperty,
 	isSearchOnlyCaseProperty,
 	SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
 	type SearchOnlyCaseProperty,
@@ -73,6 +75,7 @@ import {
 	coercedEquality,
 	describe,
 	type EqualityOperand,
+	isAnswerWriteAssignable,
 	isDateOrDatetime,
 	isNumeric,
 	isValueStorageAssignable,
@@ -206,6 +209,7 @@ export type CheckErrorCode =
 	| "datetime-literal-precision"
 	| "format-date-pattern-not-fixed"
 	| "closed-on-not-on-device"
+	| "location-not-in-search"
 	| "case-type-ordering"
 	| "epoch-fraction-on-device"
 	| "runtime-selected-value-type"
@@ -496,7 +500,7 @@ function infer(
 		// A read stands as a condition by what it holds, so the verdict reads
 		// the node's type once the walk has settled it.
 		const verdict = recordPositionVerdict(
-			expression.kind,
+			expression,
 			position,
 			holdsOneYesNo(type) ||
 				("profile" in ctx &&
@@ -519,7 +523,7 @@ function infer(
 					verdict.reason === "value-expected"
 						? "This position takes a value."
 						: expression.kind === "term"
-							? "This position takes a condition, and this reads a value that isn't a yes or no. You can compare it with something, such as = 'yes', or read a Hidden Value calculated as a condition."
+							? "This position takes a condition, and this reads a value that isn't a yes or no. You can compare it with something, such as = 'yes', write boolean(...) around a question to mean it was answered at all (a number answered 0 counts as not), or read a Hidden Value calculated as a condition."
 							: "This position takes a condition. Compare this value with something.",
 			});
 	}
@@ -957,6 +961,29 @@ function refusal(
 		...(reason === undefined ? {} : { reason }),
 	};
 }
+/**
+ * A record condition that reads one form answer as CommCare reads it alone:
+ * `boolean(...)` of a question, true wherever the answer is not empty
+ * (`FunctionUtils.toBoolean`), the condition a CommCare HQ case action holds
+ * as `boolean_true` over an answer that is no yes or no
+ * (`xform.py::XForm.action_relevance` prints the question's path, which
+ * `XPathConditional.eval` reads through `toBoolean`). The one call a record
+ * rule admits, as a condition alone.
+ */
+function effectiveBooleanOfAnswer(
+	expression: Expression,
+	position: RecordPosition | undefined,
+): boolean {
+	return (
+		expression.kind === "call" &&
+		expression.fn === "boolean" &&
+		position === "condition" &&
+		expression.args.length === 1 &&
+		expression.args[0]?.kind === "term" &&
+		expression.args[0].term.kind === "field"
+	);
+}
+
 function admission(
 	expression: Expression,
 	ctx: TypingContext,
@@ -1205,7 +1232,8 @@ function admission(
 		)
 			return undefined;
 		if (
-			["call", "project", "worker-groups"].includes(expression.kind) ||
+			(["call", "project", "worker-groups"].includes(expression.kind) &&
+				!effectiveBooleanOfAnswer(expression, position)) ||
 			(!tabCollection &&
 				(expression.kind === "cases" || expression.kind === "table-rows")) ||
 			(expression.kind === "count" && !isRelationPath(expression.via))
@@ -1706,7 +1734,8 @@ function chosenCaseAdmission(
 		ctx.slot.slot === "case_operation_target_expression" ||
 		ctx.slot.slot === "case_operation_link_target_expression"
 	)
-		return datum.kind === "selected-case" &&
+		return (datum.kind === "selected-case" ||
+			datum.kind === "form-selection") &&
 			ctx.supplies.refs.some(
 				(supply) =>
 					supply.scalar && datumRefKey(supply.ref) === datumRefKey(datum),
@@ -3805,6 +3834,8 @@ function propertyType(
 	);
 	if (declared === undefined && isSearchOnlyCaseProperty(property))
 		return searchOnlyProperty(property, ctx, fail, root);
+	if (isDeviceOnlyCaseProperty(property) && readByServerSearch(ctx, root))
+		return fail("location-not-in-search", LOCATION_NOT_IN_SEARCH_MESSAGE);
 	if (declared === undefined)
 		return fail(
 			"unknown-property",
@@ -3820,6 +3851,26 @@ function propertyType(
 		property,
 		root ?? "",
 	);
+}
+export const LOCATION_NOT_IN_SEARCH_MESSAGE =
+	"A case's location ID is kept on the device but not in CommCare's server search, so a search can't read it. A property of your own can hold the same value for searching.";
+/**
+ * Whether CommCare HQ's case search, rather than a device, answers this
+ * read: a slot HQ's search evaluates (`CS`), or a row of a search's results,
+ * which HQ builds from its search index. A device-only value
+ * (`standardCaseProperties.ts::DEVICE_ONLY_CASE_PROPERTIES`) has no entry
+ * there, so a read of it would find nothing on HQ while the case store, which
+ * holds the column, would find the row.
+ */
+function readByServerSearch(
+	ctx: TypingContext,
+	root: string | undefined,
+): boolean {
+	if (root === "results" || root === "results:inline") return true;
+	// A chosen case is the device's own row, which a device reads even in a
+	// search (the query carries the value it found).
+	if (root === "casedb") return false;
+	return "profile" in ctx && ctx.profile.targets.has("CS");
 }
 export const CLOSED_ON_NOT_ON_DEVICE_MESSAGE =
 	"Date closed is known only to CommCare's server search, so it can't be read here. Case status shows whether a case is closed.";
@@ -3936,11 +3987,25 @@ function assignmentErrors(
 		const type = scalarDataType(node?.data);
 		if (type === undefined || type === ANY_TYPE) return;
 		const isoDateText = isIsoDateText(output);
+		// A question's answer saved as it is (`ruleSets.ts::isAnswerWriteAssignable`):
+		// a date-and-time question saved to a day.
+		const answerKind =
+			output.kind === "term" &&
+			output.term.kind === "field" &&
+			output.term.filters === undefined &&
+			output.term.role === undefined
+				? ctx.form?.fields.get(output.term.uuid)?.kind
+				: undefined;
+		const answerType =
+			answerKind === undefined || answerKind === "hidden"
+				? undefined
+				: caseDataTypeForFieldKind(answerKind);
 		for (const destination of new Set(destinations))
 			if (
 				identifierText
 					? !isValueStorageAssignable(type, destination)
-					: !isWriteAssignable(type, destination, isoDateText)
+					: !isWriteAssignable(type, destination, isoDateText) &&
+						!(answerType === type && isAnswerWriteAssignable(type, destination))
 			)
 				errors.push({
 					path,

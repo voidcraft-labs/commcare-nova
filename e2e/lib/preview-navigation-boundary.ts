@@ -154,3 +154,9 @@ export const FormLinkDetailCanvas = refuseUnvisitedScreen;
 export const FormLinksCanvas = refuseUnvisitedScreen;
 export const ProjectDataWorkspace = refuseUnvisitedScreen;
 export const CaseListWorkspaceCanvas = refuseUnvisitedScreen;
+
+// A form that opens through a signed opening asks the server for it; no form
+// in this peer does.
+export async function readFormOpeningAction(): Promise<never> {
+	throw new Error("Unexpected form opening request in navigation evidence");
+}

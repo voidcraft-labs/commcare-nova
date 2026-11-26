@@ -433,6 +433,9 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		"record-type": [0, 0],
 		"chosen-case": [1, 1],
 		"chosen-case-property": [2, 2],
+		// A record or value the form opens with, by the name the form gives it.
+		"opening-record": [1, 1],
+		"opening-value": [1, 1],
 		// Several values a case value is compared with by `=` or `!=`, in a
 		// slot CommCare's server search alone reads.
 		list: [1, -1],

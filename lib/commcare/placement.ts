@@ -33,7 +33,10 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CasePlacement,
+	type FormCaseSelection,
 	formConnectIds,
+	opensWithWorkerValue,
+	operationSavesOnlyChanged,
 	type PlacementIneligibility,
 	type SaveToCasePlacement,
 	sameCasePlacement,
@@ -44,9 +47,12 @@ import {
 	advancedLoadChain,
 	advancedLoadOf,
 	carriedCreates,
+	explicitFormCaseSelections,
+	heldImplicitSelectionTag,
 	loadClause,
 	openActionClause,
 	opensCase,
+	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
 import {
 	appendedNameTaken,
@@ -203,7 +209,7 @@ function saveToCaseReasons(
 			: undefined;
 	const reasons: PlacementIneligibility[] = [];
 	const writes = operation?.writes ?? [];
-	if (writes.some((write) => write.onlyIfChanged === true))
+	if (operation !== undefined && operationSavesOnlyChanged(operation))
 		reasons.push({ reason: "only-if-changed" });
 	if (writes.some((write) => write.via !== undefined))
 		reasons.push({ reason: "via" });
@@ -586,19 +592,31 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 	for (const [createUuid, close] of sharers)
 		sharedBy.set(close.uuid, createUuid);
 
+	const explicit = explicitFormCaseSelections(f.doc, f.formUuid);
 	const loads: Array<
 		ActionState & {
 			readonly caseType: string;
 			readonly worker: boolean;
 			readonly listModule: Uuid | null;
 			readonly identifier?: string;
+			readonly selection?: FormCaseSelection;
 		}
-	> = chain.map((load) => ({
-		caseType: load.caseType,
-		worker: false,
-		listModule: load.moduleUuid,
-		...(load.identifier !== undefined && { identifier: load.identifier }),
-	}));
+	> =
+		explicit?.map((selection) => ({
+			caseType: selection.caseType,
+			worker: selection.source.kind === "worker-record",
+			listModule:
+				selection.source.kind === "choose" ? selection.source.module : null,
+			held: selection.tag,
+			selection,
+		})) ??
+		chain.map((load) => ({
+			caseType: load.caseType,
+			worker: false,
+			listModule: load.moduleUuid,
+			held: heldImplicitSelectionTag(f.doc, f.formUuid, load.moduleUuid),
+			...(load.identifier !== undefined && { identifier: load.identifier }),
+		}));
 	const opens: Array<
 		ActionState & {
 			readonly operationUuid: Uuid;
@@ -611,7 +629,16 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		Uuid,
 		{ readonly repeat: Uuid | undefined; readonly indexed: boolean }
 	>();
-	const usedHeld = new Set<string>();
+	const heldWorkerTag = heldImplicitSelectionTag(
+		f.doc,
+		f.formUuid,
+		"worker-record",
+	);
+	const usedHeld = new Set(
+		[...loads.map((load) => load.held), heldWorkerTag].filter(
+			(tag) => tag !== undefined,
+		),
+	);
 	const onAction = new Map<
 		Uuid,
 		{ readonly slot: AdvancedSlot; readonly sharesWith?: Uuid }
@@ -649,11 +676,15 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 			loads.push({
 				caseType: USERCASE_CASE_TYPE,
 				worker: true,
+				held: heldWorkerTag,
 				listModule: null,
 			});
 		}
 		return workerLoad;
 	};
+
+	if (f.form.caseSelections === undefined && opensWithWorkerValue(f.form))
+		loadIndex({ kind: "worker" });
 
 	for (const op of f.operations) {
 		const createUuid = sharedBy.get(op.uuid);
@@ -733,18 +764,31 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		...(open.repeat !== undefined && { repeat: open.repeat }),
 		row: open.repeat !== undefined && (indexedIn.get(open.repeat) ?? 0) < 2,
 	}));
+	const ownIndex = ownFormSelectionIndex(f.doc, f.formUuid);
 	const plannedLoads: PlannedLoad[] = loads.map((load, index) => {
+		const source = load.selection?.source;
+		const under = source?.kind === "choose" ? source.under : undefined;
 		const previous =
-			index > 0 && !load.worker ? tags.loads[index - 1] : undefined;
+			load.selection === undefined
+				? index > 0 && !load.worker
+					? tags.loads[index - 1]
+					: undefined
+				: loads.find((row) => row.selection?.uuid === under?.selection)?.held;
+		const identifier = under?.identifier ?? load.identifier;
 		return {
 			tag: tags.loads[index] ?? "",
 			caseType: load.caseType,
 			listModule: load.listModule,
+			...(load.selection && { selection: load.selection }),
 			...(previous !== undefined &&
-				load.identifier !== undefined && {
-					index: { tag: previous, identifier: load.identifier },
+				identifier !== undefined && {
+					index: {
+						tag: previous,
+						identifier,
+						...(under?.relationship && { relationship: under.relationship }),
+					},
 				}),
-			own: !load.worker && index === chain.length - 1,
+			own: index === ownIndex,
 			worker: load.worker,
 		};
 	});

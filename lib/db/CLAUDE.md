@@ -1534,3 +1534,8 @@ incident. A previously retained attachment or server-selected source failing
 admission is an invariant failure reported with its original cause, thread and
 asset identity. Client responses contain actionable copy only. Rejected claims
 roll back their thread, holder and credit changes together.
+
+
+## Temporary form opening data
+
+A form's signed opening manifest carries the authorized case and table data inline up to 256 KiB after optional compression. Larger projections store one compressed immutable byte sequence in `form_opening_data`. Each lookup verifies the authenticated audience and digest and joins the active app, Project and session. Runtime has SELECT and INSERT on this table. Sign-out and app deletion delete dependent rows. Opening and the scheduled cleanup job reclaim expired rows through a zero-argument function limited to 32 rows per call, with a 24-hour expiry. Successful submission receipts remain independent of this cache. A missing or expired projection asks the worker to reopen.

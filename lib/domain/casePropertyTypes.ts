@@ -134,15 +134,20 @@ export const CASTING_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> =
  * The types whose values a text property holds as the text a device submits
  * for them, so writers of these types that agree on no one type are saved as
  * text. A device submits a whole number as its digits, a decimal as Java's
- * `Double.toString` of it and a date as `yyyy-MM-dd`
+ * `Double.toString` of it, a date as `yyyy-MM-dd`
  * (`XFormAnswerDataSerializer.serializeAnswerData` over the data
- * `Recalculate.wrapData` holds), and CommCare HQ stores that text as it
- * comes. A date and time, a time and a location stay out: their text is
- * rewritten on the way (HQ's `adjust_datetimes`) or carries a storage rule of
- * its own, and several choices are a list.
+ * `Recalculate.wrapData` holds) and a location as its four numbers, each
+ * Java's `Double.toString`, space-separated (`GeoPointData.getDisplayText`,
+ * which a case leaf's calculate copies, and which Preview's location value
+ * already spells, `preview/engine/geopointValue.ts`), and CommCare HQ stores
+ * that text as it comes: its `adjust_datetimes` rewrites only text that
+ * starts with a date. A date and time and a time stay out: HQ rewrites a
+ * moment's text to UTC on the way, and a time's text carries the device's
+ * offset, so neither is the text a later reader gets; several choices are a
+ * list.
  */
 export const TEXT_JOINED_DATA_TYPES: ReadonlySet<CasePropertyDataType> =
-	new Set(["text", "single_select", "int", "decimal", "date"]);
+	new Set(["text", "single_select", "int", "decimal", "date", "geopoint"]);
 
 // ── Per-shape predicates ──────────────────────────────────────────
 //
