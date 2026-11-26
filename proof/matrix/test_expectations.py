@@ -122,7 +122,11 @@ def _native_screen_only(row):
     if steps:
         steps[-1] = steps[-1].partition(":")[0]
     if reader == "webapps":
-        return steps == ["home", "releaseListed"] or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
+        return (
+            steps == ["home", "releaseListed"]
+            or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
+            or (steps[:-1] == ["runs", "*", "screens", "*", "form", "questions", "*", "media", "*"] and steps[-1] == "src")
+        )
     if reader == "formplayer" and steps[:4] == ["runs", "*", "steps", "*"]:
         content = steps[4:]
         if content in (["response", "commands", "*", "displayText"], ["response", "headers", "*"]):
@@ -537,6 +541,8 @@ def test_native_screen_differences_do_not_require_values_core_cannot_observe():
     assert not shown("webapps", "/home/tiles/incomplete")
     assert not shown("webapps", "/home/releaseListed")
     assert shown("webapps", "/runs/*/screens/*/form/label")
+    assert not shown("webapps", "/runs/*/screens/*/form/questions/*/media/*/src:renamed-file")
+    assert shown("webapps", "/runs/*/screens/*/form/questions/*/answer")
     assert not shown("formplayer", "/runs/*/steps/*/tree/*/caption_image:renamed-file")
     assert not shown("formplayer", "/runs/*/steps/*/response/commands/*/displayText:trimmed")
     assert not shown("formplayer", "/runs/*/steps/*/response/headers/*:trimmed")

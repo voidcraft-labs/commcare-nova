@@ -397,24 +397,22 @@ def _hq_plain_source():
 
 
 def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_base_again():
-    """Contract: ``parity.added_uses`` gives the uses the lane decides in a variant's source that its base's source
-    does not decide alike: exactly the decided use of the one value a row sets (a badge on a form, which the manifest
-    holds, ``forms-and-case-writes/custom-icons-0``), and none for the base's source over itself.
-    The plausible failure: an identity or an extraction that reads a variant's use as already seen in its base, so
-    every row's judged uses come back empty and the join judges nothing (``proof/matrix/parity-decided.json`` then
-    fails by name in the lane; this holds the function without HQ)."""
+    """A variant contributes its own collection and leaves, once, with the class of each changed value."""
     base = _hq_plain_source()
     assert parity.added_uses(base, copy.deepcopy(base)) == []
     variant = copy.deepcopy(base)
     variant["modules"][0]["forms"][1]["custom_icons"] = [
-        {"doc_type": "CustomIcon", "form": "badge", "text": {"en": "New"}, "xpath": ""}
+        {"doc_type": "CustomIcon", "form": "other", "text": {"en": "New"}, "xpath": ""}
     ]
-    [added] = parity.added_uses(base, variant)
-    assert added.use == Use("schema:Form.custom_icons", "app.json", "/modules/0/forms/1/custom_icons")
-    assert (added.standing, [entry.id for entry in added.entries]) == (
-        manifest_usage.HELD,
-        ["forms-and-case-writes/custom-icons-0"],
-    )
+    where = "/modules/0/forms/1/custom_icons"
+    assert [(row.use, row.standing, [entry.id for entry in row.entries]) for row in parity.added_uses(base, variant)] == [
+        (Use("schema:Form.custom_icons", "app.json", where), manifest_usage.HELD, []),
+        (Use("schema:CustomIcon.form", "app.json", where + "/0/form"), manifest_usage.REFUSED,
+         ["menus-and-case-lists/custom-icon-form-other-than-badge"]),
+        (Use("schema:CustomIcon.text", "app.json", where + "/0/text"), manifest_usage.HELD, []),
+        (Use("schema:CustomIcon.xpath", "app.json", where + "/0/xpath"), manifest_usage.HELD, []),
+    ]
+    assert parity.added_uses(variant, copy.deepcopy(variant)) == []
 
 
 def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():

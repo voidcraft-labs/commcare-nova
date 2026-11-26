@@ -202,11 +202,11 @@
 	],
 	"hq-media": ["hq-media/form-media-for-every-language"],
 	"hq-menus": [
-		"hq-menus/browse-households-with-a-picture",
 		"hq-menus/after-submit-to-the-parent-menu",
 		"hq-menus/badge",
 		"hq-menus/badge-prefers-calculation-over-old-text",
 		"hq-menus/badge-unsupported-display-form",
+		"hq-menus/browse-households-with-a-picture",
 		"hq-menus/case-list-action-badge-unread",
 		"hq-menus/case-list-item-badge-unread",
 		"hq-menus/case-list-optimizations",
