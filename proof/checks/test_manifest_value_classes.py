@@ -5270,6 +5270,10 @@ def _data_binds_and_itext():
           <group ref="/data/h"><input ref="/data/g/inner"/></group>
           <group ref="/data/c"><group ref="/data/g/moved"/></group>""",
     )
+    iteration_parent = form(
+        data='<iterations vellum:role="Repeat"><item jr:template=""/></iterations>',
+        body='<group ref="/data/iterations"><repeat nodeset="/data/iterations/item"/></group>',
+    )
     inline = form(data="<q/>", model='<instance id="inline"><root><row/></root></instance>')
     unnamed = form(data="<q/>", model="<instance><extra/></instance>")
     # A data node named instance: Vellum's second unnamed instance, an element of the main instance's content.
@@ -5862,6 +5866,7 @@ def _data_binds_and_itext():
         ),
         "questions/data-parent-on-a-group-or-repeat": (
             refused("form", held_parents, "xform:group@ref", "body[1]/group[3]/group[1]/@ref"),
+            accepted("form", iteration_parent, "xform:repeat@nodeset", "group[1]/repeat[1]/@nodeset"),
             accepted("form", held_parents, "xform:group@ref", "body[1]/group[1]/@ref"),
         ),
         "expressions-and-data/inline-instance-content-inside-instance-no-src": (

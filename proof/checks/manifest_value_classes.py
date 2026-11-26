@@ -9662,6 +9662,19 @@ def _placed_control(use):
     path = element.get(attribute).strip()
     screen = f"/{_local(form.data_root)}"
     node = element.getparent()
+    if (
+        attribute == "nodeset"
+        and _local(node) == "group"
+        and (node.get("appearance") or "").lower() != "field-list"
+        and [child for child in _children(node) if _local(child) in QUESTION_CONTROLS] == [element]
+    ):
+        # A repeat's wrapping group gives it a label, not a screen parent.
+        # A model iteration's native nodeset is its inner item. Its authored
+        # Data Parent belongs to the enclosing model-iteration data node.
+        container = path.removesuffix("/item")
+        if container != path and any(form.paths[repeat] == container for repeat in form.model_repeats):
+            path = container
+        node = node.getparent()
     while node is not None and node is not form.body:
         if _local(node) == "repeat" and node.get("nodeset"):
             screen = node.get("nodeset").strip()
