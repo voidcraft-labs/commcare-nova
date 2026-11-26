@@ -63,6 +63,7 @@ sort, whose choices Formplayer hands in row order.
 from __future__ import annotations
 
 import dataclasses
+import json
 
 import pytest
 from lxml import etree
@@ -324,9 +325,16 @@ def test_empty_search_registration_returns_to_its_results_or_selects_its_created
             assert created.findtext(f"{case_ns}create/{case_ns}case_name") == corrected
             case_id = created.attrib["case_id"]
             next_screen = submitted["nextScreen"]
-            assert screen_kind(next_screen) == landing, next_screen
+            # Every request Formplayer made of HQ in the run, with the status HQ answered, so a landing that
+            # differs says what the return frame asked (the case fixture keyed to the created case).
+            asked = "\n".join(
+                f"{exchange.method} {exchange.path} {exchange.status} {exchange.refusal or ''}"
+                for exchange in served.hq.exchanges
+            )
+            landed = f"{json.dumps(next_screen)[:1500]}\nFormplayer asked HQ:\n{asked}"
+            assert screen_kind(next_screen) == landing, landed
             if landing == "entities":
-                assert [row["id"] for row in next_screen["entities"]] == [case_id], next_screen
+                assert [row["id"] for row in next_screen["entities"]] == [case_id], landed
             else:
                 assert case_id in next_screen["selections"], next_screen
                 assert [command["displayText"] for command in next_screen["commands"]] == ["Visit"], next_screen
