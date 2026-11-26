@@ -221,6 +221,8 @@ def test_generated_navigation_icon_needs_a_file_in_the_full_release(
             with ZipFile(BytesIO(archive)) as files:
                 locale = parse_app_strings(files.read("en/app_strings.txt").decode())
                 assert locale["modules.m0.icon"].endswith("/" + expected_name)
+                if scenario == "unmapped":
+                    assert locale["modules.m0.icon"] == apps.UNMAPPED_GENERATED_ICON
                 assert any(name.endswith("/" + expected_name) for name in files.namelist()) == expected_file
             blobs = Blobs()
             observed = nav(served, blobs, label=f"generated-icon-{scenario}", archive=archive, paths=[[]])
@@ -233,4 +235,6 @@ def test_generated_navigation_icon_needs_a_file_in_the_full_release(
     assert "raised" not in walk, walk
     (visit,) = [item for item in walk["steps"][-1]["menu"]["items"] if item["id"] == VISITS]
     assert visit["image"]["uri"].endswith("/" + expected_name), visit
+    if scenario == "unmapped":
+        assert visit["image"]["uri"] == apps.UNMAPPED_GENERATED_ICON, visit
     assert visit["image"]["held"] == expected_file, visit

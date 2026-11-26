@@ -116,6 +116,8 @@ def test_generated_navigation_icon_needs_a_file_in_the_web_apps_release(
         with project.released(
             formplayer_runner, change=apps.generated_menu_icon(project, scenario)
         ) as release:
+            if scenario == "unmapped":
+                assert release.doc["translations"]["en"]["modules.m0.icon"] == apps.UNMAPPED_GENERATED_ICON
             in_map = any(path.endswith("/" + expected_name) for path in release.doc["multimedia_map"])
             assert in_map == (scenario not in ("orphan", "unmapped"))
             run = Session(release, editor_driver).run([*steps.open_app("Missing media"), steps.SCREEN])

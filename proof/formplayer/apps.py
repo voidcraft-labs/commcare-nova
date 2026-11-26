@@ -235,6 +235,7 @@ MISSING_MEDIA_UNMAPPED = (
     "4aebda3a657a0d8f532d11ceacb1679081d7bdf7d7d301a53f1096af3580be91.wav",
 )
 MISSING_MEDIA_DELETED = "c5f74c6dda51d3941b4d17d05991f900debbf387ff748eda65d2f03dda227b2e.png"
+UNMAPPED_GENERATED_ICON = f"jr://file/commcare/image/data/{MISSING_MEDIA_UNMAPPED[0]}"
 
 
 def with_missing_media(holder, *, delete_file=True):
@@ -299,15 +300,16 @@ def generated_menu_icon(holder, scenario):
         if scenario == "other-language":
             app.langs = ["en", "fr"]
             app.modules[0].forms[0].media_image = {"fr": image}
+        override = UNMAPPED_GENERATED_ICON if scenario == "unmapped" else image
         if scenario == "unmapped":
             del app.multimedia_map[image]
-        app.set_translations("en", {**app.translations.get("en", {}), key: image})
+        app.set_translations("en", {**app.translations.get("en", {}), key: override})
         app.save()
         app = operations.held_app(holder.unit, holder.app_id)
-        assert app.translations["en"][key] == image
-        assert (image in app.multimedia_map) == (scenario != "unmapped")
-        assert (image in app.all_media_paths()) == (scenario == "other-language")
-        assert image not in app.all_media_paths(lang="en")
+        assert app.translations["en"][key] == override
+        assert (override in app.multimedia_map) == (scenario != "unmapped")
+        assert (override in app.all_media_paths()) == (scenario == "other-language")
+        assert override not in app.all_media_paths(lang="en")
         stored.clear()
         stored.update(app.to_json())
 
