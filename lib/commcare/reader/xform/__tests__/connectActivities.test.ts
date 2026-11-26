@@ -59,10 +59,9 @@ describe("Connect activities across a form submission", () => {
 			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		}
 		const body = exportedBody(doc);
-		const [file, xml] = Object.entries(
-			body._attachments as Record<string, string>,
-		)[0];
-		body._attachments[file] = xml
+		const attachments = body._attachments as Record<string, string>;
+		const [file, xml] = Object.entries(attachments)[0];
+		attachments[file] = xml
 			.replaceAll("/data/practice", "/data/module")
 			.replaceAll("#form/practice", "#form/module")
 			.replaceAll("<practice>", "<module>")
