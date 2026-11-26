@@ -937,10 +937,11 @@ def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
 def test_canonical_search_group_save_leaves_the_legacy_override_behind(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence, dormant_heading,
 ):
-    from urllib.parse import parse_qs
+    from urllib.parse import parse_qsl
 
-    from proof.editors.hq import HQAnswers, editor_build
-    from proof.hq import operations
+    from django.urls import resolve
+
+    from proof.hq import operations, requests
     from proof.matrix import ops
     from proof.matrix.authoring import Authoring
 
@@ -981,28 +982,24 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         assert before[old_key] == old_heading and before.get(current_key) == dormant_heading
         original = worker_headings(project, "legacy-search-heading")
 
-        # Add and remove a blank property with the page's controls to run
-        # the same native array changes as sorting. Group membership stays put.
+        # Use the actual saved Case List request as the starting point.
+        # Apply only the key update its sortable array emits for this group.
         page = pages.CASE_LIST
-        path, save_path = pages._urls(state, page, app_id, project.module_id(0))
-        editor_build()
-        answers = HQAnswers(state)
-        action, selector = page.arm
-        run = editor_driver.run([
-            {"goto": path},
-            {"until": "pages/ready", "arg": {"bar": page.bar}},
-            {"click": 'button[data-bind="click: addProperty"]'},
-            {"click": 'tbody[data-bind*="sortableList: search_properties"] tr:last-child [data-bind="click: $parent.removeProperty"]'},
-            {"until": "pages/armed", "arg": {"action": action, "selector": selector, "bar": page.bar}},
-            {"click": f"{page.bar} > .btn:not(.disabled)"},
-            {"awaitRequest": {"method": "POST", "pathname": save_path}, "orDialog": True},
-            {"until": "pages/saved", "arg": page.bar, "unlessUnsent": True},
-        ], answer=answers, deadline=35)
-        answers.check()
-        assert not run["pageErrors"], run["pageErrors"]
-        [save] = [exchange for exchange in answers.exchanges if exchange.method == "POST" and exchange.path == save_path]
-        assert save.status == 200, save.response
-        posted = json.loads(parse_qs(save.body.decode("utf-8"))["search_properties"][0])["properties"]
+        stable = pages.fresh_section_save(editor_driver, state, page, app_id, project.module_id(0))
+        assert stable.save and stable.save.status == 200 and not stable.refused, stable.alerts
+        pairs = parse_qsl(stable.save.body.decode("utf-8"), keep_blank_values=True)
+        fields = dict(pairs)
+        search = json.loads(fields["search_properties"])
+        posted = search["properties"]
+        assert posted[0]["name"] == posted[1]["group_key"] == old_group
+        posted[0].update({"name": current_group, "group_key": current_group})
+        posted[1]["group_key"] = current_group
+        save_path = stable.save_path
+        body = [(name, json.dumps(search) if name == "search_properties" else value) for name, value in pairs]
+        request = requests.form_post(state, save_path, body, lang="en")
+        view = resolve(save_path)
+        result = view.func(request, *view.args, **view.kwargs)
+        assert result.status_code == 200, result.content
         saved = operations.held_app(state, app_id)
         actual = [(row.name, row.group_key, row.is_group) for row in saved.get_module(0).search_config.properties]
         expected = [(row["name"], row["group_key"], row["is_group"]) for row in properties]
