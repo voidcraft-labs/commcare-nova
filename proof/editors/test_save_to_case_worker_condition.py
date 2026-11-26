@@ -108,3 +108,87 @@ def test_vellum_and_native_workers_keep_one_conditional_worker_record_update(hq,
             assert admission["admitted"], admission["problems"]
             for decision, worker_present in (("keep", False), ("keep", True), ("save", True)):
                 _observe(state, core_runner, admission["app"], form, decision, worker_present)
+
+
+REPEATED_WORKER_PATH = "/data/members/nova_operations/worker/case"
+MEMBER_NAME = "current()/../../../../../member_name"
+
+
+def _repeated_worker_form_source(xmlns):
+    return f'''<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="{XFORMS}"
+      xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum"
+      xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+      <h:head><h:title>Members</h:title><model>
+        <instance><data xmlns="{xmlns}" name="Members" version="1" uiVersion="1">
+          <members jr:template=""><note/><member_name/>
+            <nova_operations><worker vellum:role="SaveToCase" vellum:case_type="commcare-user">
+              <case xmlns="{CASE}" case_id="" date_modified="" user_id=""><update><visits/></update></case>
+            </worker></nova_operations>
+          </members>
+        </data></instance>
+        <instance src="jr://instance/casedb" id="casedb"/>
+        <instance src="jr://instance/session" id="commcaresession"/>
+        <bind nodeset="/data/members/note" type="xsd:string"/>
+        <bind nodeset="/data/members/member_name" calculate="concat('member-', position(..))"/>
+        <bind nodeset="{REPEATED_WORKER_PATH}/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
+        <bind nodeset="{REPEATED_WORKER_PATH}/@user_id" calculate="/data/meta/userID"/>
+        <bind nodeset="{REPEATED_WORKER_PATH}/@case_id" calculate="{TARGET}"/>
+        <bind nodeset="{REPEATED_WORKER_PATH}/update/visits" calculate="{MEMBER_NAME}" relevant="count({MEMBER_NAME}) &gt; 0"/>
+        <itext><translation lang="en" default="">
+          <text id="members-label"><value>Members</value></text>
+          <text id="note-label"><value>Note</value></text>
+        </translation></itext>
+      </model></h:head>
+      <h:body><group ref="/data/members"><label ref="jr:itext('members-label')"/>
+        <repeat nodeset="/data/members">
+          <input ref="/data/members/note"><label ref="jr:itext('note-label')"/></input>
+          <group ref="/data/members/nova_operations"/>
+        </repeat></group></h:body>
+    </h:html>'''
+
+
+def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(hq, core_runner, editor_driver, tmp_path):
+    with hq_check(Configuration(privileges={"VELLUM_SAVE_TO_CASE", "USERCASE"})) as (state, record):
+        app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
+        form = operations.held_app(state, app_id).modules[0].forms[0]
+        _patched(state, app_id, form.unique_id, _repeated_worker_form_source(form.xmlns), "repeated worker save")
+        saved = vellum.fresh_open_and_save(editor_driver, state, app_id, form.unique_id)
+        assert saved.loaded and saved.saved, (saved.load_error, saved.save_refusal, saved.form_errors)
+        root = etree.fromstring(saved.stored_source.encode())
+        binds = {bind.get("nodeset"): bind for bind in root.iter(f"{{{XFORMS}}}bind")}
+        assert binds[f"{REPEATED_WORKER_PATH}/@case_id"].get("calculate") == TARGET
+        row = binds[f"{REPEATED_WORKER_PATH}/update/visits"]
+        assert row.get("calculate") == MEMBER_NAME
+        assert row.get("relevant") == f"count({MEMBER_NAME}) > 0"
+        built = compare.build(state, app_id, record)
+        assert not built.errors, built.errors
+        with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
+            assert admission["admitted"], admission["problems"]
+            for number, worker_present in ((0, False), (0, True), (2, True)):
+                restore = etree.fromstring(TEMPLATE_RESTORE.read_bytes())
+                known = []
+                if worker_present:
+                    restore.append(etree.fromstring(_initial().encode()))
+                    initial = operations.process_case_blocks(state, _submission(_initial()))
+                    assert initial.refusal is None
+                    known = [initial.touched[WORKER_CASE].case]
+                table = load_answer_table()
+                table["repeats"]["add"] = number
+                trace = core_runner.session(admission["app"], restore=etree.tostring(restore), answer_table=table)
+                run, = (run for run in trace["runs"]
+                        if (step := form_step(run)) and step.get("xmlns") == form.xmlns and run["end"] == "submitted")
+                step = form_step(run)
+                submitted = list(etree.fromstring(step["submission"].encode()).iter(f"{{{CASE}}}case"))
+                expected = [f"member-{index}" for index in range(1, number + 1)]
+                assert [case.get("case_id") for case in submitted] == [WORKER_CASE] * number
+                assert [case.findtext(f"{{{CASE}}}update/{{{CASE}}}visits") for case in submitted] == expected
+                device = etree.fromstring(step["caseDb"].encode()).xpath(f"/*/case[@case_id='{WORKER_CASE}']")
+                assert [case.findtext("visits") for case in device] == (expected[-1:] or (["before"] if worker_present else []))
+                submission, _ = unmarked_submission(run)
+                applied = operations.process_case_blocks(state, submission, cases=known)
+                assert applied.refusal is None
+                if number:
+                    assert list(applied.touched) == [WORKER_CASE]
+                    assert applied.touched[WORKER_CASE].case.case_json["visits"] == expected[-1]
+                else:
+                    assert not applied.touched
