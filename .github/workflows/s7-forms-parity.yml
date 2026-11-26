@@ -1,0 +1,16 @@
+name: S7 retained Forms proof
+on:
+  push:
+    branches: ['s7/ci/codex-forms-retained-roster-1']
+permissions:
+  contents: read
+jobs:
+  retained:
+    strategy:
+      fail-fast: false
+      matrix:
+        base: [hq-advanced, hq-case-management, hq-case-lists]
+    uses: ./.github/workflows/proof-slice.yml
+    with:
+      readers: '0'
+      selectors: proof/matrix/test_retained.py -k ${{ matrix.base }}
