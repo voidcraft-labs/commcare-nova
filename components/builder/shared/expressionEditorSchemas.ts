@@ -41,6 +41,7 @@ import type { ComponentType } from "react";
 import type { CaseType, UserProperty, Uuid } from "@/lib/domain";
 import {
 	caseListSearchTextReachable,
+	choiceCandidatePositionAvailable,
 	type Expression,
 	type ExpressionContext,
 	type ExpressionOfKind,
@@ -72,6 +73,7 @@ import {
 } from "./cards/expression/FormatDateCard";
 import {
 	CaseListSearchTextCard,
+	ChoicePositionCard,
 	HereCard,
 	NegateCard,
 	ValueListCard,
@@ -148,14 +150,13 @@ export interface OperationValueScope {
  * Contextual availability lives in isAuthorableExpressionKind and the actual
  * slot-choice planner in ExpressionPicker, without a parallel type oracle.
  */
-export type CardValueKind = Exclude<
-	ValueArm["kind"],
-	"call" | "itext" | "choice-name"
->;
+export type CardValueKind = Exclude<ValueArm["kind"], "itext" | "choice-name">;
 
 export function isCardValue(
 	value: Expression,
 ): value is ExpressionOfKind<CardValueKind> {
+	if (value.kind === "call")
+		return value.fn === "position" && value.args.length === 0;
 	return Object.hasOwn(expressionCardSchemas, value.kind);
 }
 
@@ -189,6 +190,14 @@ export interface ExpressionCardSchema<K extends CardValueKind> {
 export const expressionCardSchemas: {
 	readonly [K in CardValueKind]: ExpressionCardSchema<K>;
 } = {
+	call: {
+		kind: "call",
+		label: "Source row position",
+		icon: tablerHash,
+		description: "The candidate’s place in the source before sorting",
+		component: ChoicePositionCard,
+		defaultValue: () => ({ kind: "call", fn: "position", args: [] }),
+	},
 	negate: {
 		kind: "negate",
 		label: "Negative of",
@@ -430,10 +439,14 @@ export function isAuthorableExpressionKind(
 			ctx?.expressionContext !== undefined &&
 			serverOnlySearchSlot(ctx.expressionContext.profile)
 		);
-	// The worker's location has a handler only in a case list's calculated
-	// column, which the slot's profile says (`SlotProfile.here`).
+	if (kind === "call")
+		return (
+			ctx?.expressionContext !== undefined &&
+			choiceCandidatePositionAvailable(ctx.expressionContext)
+		);
 	if (kind === "case-text")
 		return Boolean(ctx?.expressionContext?.caseTexts?.length);
+	// The worker's location has a handler only in a case list's calculated column.
 	if (kind === "here") return ctx?.expressionContext?.profile.here === true;
 	// A case list's search text reaches a form's questions and Connect
 	// settings after exactly one case list

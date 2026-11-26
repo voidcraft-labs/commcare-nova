@@ -1142,9 +1142,7 @@ function admission(
 			expression.kind === "call" &&
 			expression.fn === "position" &&
 			expression.args.length === 0 &&
-			ctx.slot.entity === "field" &&
-			ctx.slot.slot === "lookup_options_source" &&
-			ctx.rows.length === 1
+			choiceCandidatePositionAvailable(ctx)
 		)
 			return undefined;
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
@@ -1358,6 +1356,17 @@ function caseListSearchTextAdmission(
  */
 export function caseListSearchTextReachable(ctx: ExpressionContext): boolean {
 	return caseListSearchTextAdmission(ctx) === undefined;
+}
+
+/** Whether the rule is evaluating the current choice candidate of a form question. */
+export function choiceCandidatePositionAvailable(
+	ctx: ExpressionContext,
+): boolean {
+	return (
+		ctx.slot.entity === "field" &&
+		ctx.slot.slot === "lookup_options_source" &&
+		ctx.rows.length === 1
+	);
 }
 
 /**

@@ -60,6 +60,15 @@ export function HereCard(_props: GeneralValueCardProps<"here">) {
 	);
 }
 
+export function ChoicePositionCard() {
+	return (
+		<p className="text-[13px] text-nova-text-muted">
+			The candidate’s place in the source, starting at 1. The choice order
+			applies after the filter.
+		</p>
+	);
+}
+
 export function CaseListSearchTextCard(
 	_props: GeneralValueCardProps<"case-list-search-text">,
 ) {
