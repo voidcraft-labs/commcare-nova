@@ -174,10 +174,7 @@ export const FINDING_COPY: Readonly<
 	"app-settings": {
 		never: "This uses an app setting, which Nova doesn't bring in.",
 	},
-	"auto-select": {
-		"not-yet":
-			"This uses a setting that chooses a case for the worker, which Nova can't hold yet.",
-	},
+	"auto-select": {},
 	"blank-form": {},
 	"build-profiles": {},
 	"call-center-indicators": {
@@ -272,13 +269,9 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"This form's case management is set up in a way Nova can't hold yet.",
 	},
-	"form-settings": {
-		"not-yet": "This uses a form setting, which Nova can't hold yet.",
-	},
+	"form-settings": {},
 	"form-answer-addresses": {},
-	"form-source": {
-		"not-yet": "A form's source here is built in a way Nova can't hold yet.",
-	},
+	"form-source": {},
 	"hand-written-content": {
 		never:
 			"This uses hand-written XML or settings that no CommCare HQ page edits, which Nova doesn't bring in.",
@@ -326,7 +319,6 @@ export const FINDING_COPY: Readonly<
 	},
 	"question-appearance": {
 		never: "This uses a display style, which Nova doesn't bring in.",
-		"not-yet": "A question here has a display style Nova can't hold yet.",
 	},
 	"question-choices": {
 		"not-yet":
@@ -337,17 +329,11 @@ export const FINDING_COPY: Readonly<
 			"Two questions here share one place in the form's data, so Nova can't tell them apart.",
 	},
 	"question-logic": {},
-	"question-media": {
-		"not-yet":
-			"A question here carries a kind of media or label form Nova can't hold yet.",
-	},
+	"question-media": {},
 	"question-text": {
 		"not-yet": "This uses a kind of question text, which Nova can't hold yet.",
 	},
-	"question-types": {
-		"not-yet":
-			"A question here is of a kind, or is set up in a way, that Nova can't hold yet.",
-	},
+	"question-types": {},
 	repeats: {},
 	"save-to-case": {
 		"not-yet": "This uses a Save to Case question, which Nova can't hold yet.",
@@ -362,6 +348,8 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "This uses a search expression, which Nova can't hold yet.",
 	},
 	"search-fields": {
+		never:
+			"Nova couldn’t read this Search group or its heading. In CommCare HQ, give the group a heading and check that each field is assigned to the right group. Then bring the app in again.",
 		"not-yet": "A search field here is set up in a way Nova can't hold yet.",
 	},
 	"search-setup": {
