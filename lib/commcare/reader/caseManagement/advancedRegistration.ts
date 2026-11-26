@@ -40,6 +40,7 @@ export function registrationOpenIndex(
 		return -1;
 	const manual = loads.map(object).filter((action) => !action.auto_select);
 	if (!manual.length) return only;
+	if (manual.some((action) => action.case_type === caseType)) return -1;
 	const indexed = parents(rows[only]);
 	if (!indexed.length) return -1;
 	const byTag = new Map(

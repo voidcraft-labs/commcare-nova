@@ -96,7 +96,6 @@ import {
 	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
-import type { TargetedCaseOperation } from "@/lib/domain/forms";
 import {
 	caseOperationIdNameProblem,
 	caseOperationLinkNameProblem,

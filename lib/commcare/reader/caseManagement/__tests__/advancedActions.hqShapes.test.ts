@@ -1527,11 +1527,12 @@ describe("an open action's index beside the menus' parent selection", () => {
 			);
 			if (!reading.doc) throw new Error("Expected a held read");
 			const form = formNamed(reading.doc, "Under test");
-			const own = form.caseOperations?.find(
-				(operation) => operation.action === "own",
+			expect(form.type).toBe("followup");
+			const create = form.caseOperations?.find(
+				(operation) => operation.action === "create",
 			);
 			const targetType = relationship === "child" ? "member" : "household";
-			expect(own?.links).toMatchObject([
+			expect(create?.links).toMatchObject([
 				{ identifier: "parent", relationship, targetType },
 			]);
 			const wire = planFormCaseWire(reading.doc, form.uuid);
