@@ -22981,20 +22981,18 @@
 	{
 		"id": "hq-lookups/itemset-over-cases",
 		"base": "hq-lookups",
-		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Farm survey",
-			"formName": "Survey",
-			"path": "district"
-		},
+		"entry": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
 		"change": {
 			"op": "named",
 			"name": "itemset_over_cases"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["district"]],
+				"pointer": "/optionsSource",
+				"value": { "kind": "available-cases" }
+			}
+		]
 	},
 	{
 		"id": "hq-lookups/itemset-sort",

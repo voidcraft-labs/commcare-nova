@@ -100,9 +100,9 @@ export function OptionsSourceEditor<
 	const completeSource =
 		active.kind === "lookup" ? completeLookupSource(active, table) : active;
 	const expressionContext = useExpressionSlotContext(
-		completeSource === undefined || completeSource.kind === "inline"
-			? undefined
-			: { entity: "field", uuid: field.uuid, slot: "lookup_options_source" },
+		completeSource?.kind === "cases" || completeSource?.kind === "lookup"
+			? { entity: "field", uuid: field.uuid, slot: "lookup_options_source" }
+			: undefined,
 		completeSource === undefined
 			? undefined
 			: {
@@ -199,6 +199,8 @@ export function OptionsSourceEditor<
 								if (selected === INLINE) return "Options in this question";
 								if (selected === "cases")
 									return "Cases available to the worker";
+								if (selected === "available-cases")
+									return "All available case types";
 								const selectedTable = tables.find(
 									(candidate) => candidate.id === selected,
 								);
@@ -216,6 +218,9 @@ export function OptionsSourceEditor<
 					<SelectContent>
 						<SelectItem value={INLINE}>Options in this question</SelectItem>
 						<SelectItem value="cases">Cases available to the worker</SelectItem>
+						<SelectItem value="available-cases">
+							All available case types
+						</SelectItem>
 						{/* Keep a missing saved identity represented. Base UI otherwise
 						 * treats catalog removal as a value change and restores the initial
 						 * inline option, which would incorrectly stage a new source. */}
@@ -327,6 +332,34 @@ export function OptionsSourceEditor<
 						setRejection(null);
 					}}
 				/>
+			) : active.kind === "available-cases" ? (
+				<div className="space-y-3">
+					<p className="text-sm text-nova-text-secondary">
+						Offer every case restored for the worker, across all case types. The
+						choices show case names and save case IDs.
+					</p>
+					{draft?.kind === "available-cases" ? (
+						<div className="flex justify-end gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setDraft(null);
+									setRejection(null);
+								}}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="button"
+								disabled={!canEdit}
+								onClick={() => commit(active)}
+							>
+								Use these cases
+							</Button>
+						</div>
+					) : null}
+				</div>
 			) : table === undefined ? (
 				catalog.kind === "ready" ? (
 					<p

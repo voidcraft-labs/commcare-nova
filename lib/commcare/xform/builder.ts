@@ -1,6 +1,10 @@
 import { lookupReadSteps } from "@/lib/commcare/lookup/read";
 import { declaresWebApps } from "@/lib/domain/platforms";
-import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
+import {
+	availableCasesNodeset,
+	caseOptionsNodeset,
+	fieldTakesCaseChoices,
+} from "../caseOptions";
 import { caseTypeHopMap } from "../caseTypeDepths";
 import { assertAnswerDataReachesReceiver } from "./submittedData";
 /**
@@ -1721,38 +1725,47 @@ function buildFieldParts(
 		: undefined;
 	let caseItemset: Element | undefined;
 	if (caseSource) {
-		const nodeset = caseOptionsNodeset(
-			caseSource,
-			expressions.context({
-				entity: "field",
-				uuid: fieldUuid,
-				slot: "lookup_options_source",
-			}),
-			{
-				formFields: lookupSelects?.filterFieldPaths(nodePath),
-				formCaseProperty: lookupSelects?.formCaseProperty,
-				userPropertySlugs: userPropertySlugsByUuid(doc),
-				...(lookupSelects?.naming && {
-					lookup: {
-						naming: lookupSelects.naming,
-						instanceScope: "xform" as const,
-					},
-				}),
-			},
-			expressions.projection,
-		);
+		const nodeset =
+			caseSource.kind === "available-cases"
+				? availableCasesNodeset()
+				: caseOptionsNodeset(
+						caseSource,
+						expressions.context({
+							entity: "field",
+							uuid: fieldUuid,
+							slot: "lookup_options_source",
+						}),
+						{
+							formFields: lookupSelects?.filterFieldPaths(nodePath),
+							formCaseProperty: lookupSelects?.formCaseProperty,
+							userPropertySlugs: userPropertySlugsByUuid(doc),
+							...(lookupSelects?.naming && {
+								lookup: {
+									naming: lookupSelects.naming,
+									instanceScope: "xform" as const,
+								},
+							}),
+						},
+						expressions.projection,
+					);
 		caseItemset = xel("itemset", { xpath: { nodeset } }, context, [
 			xel(
 				"label",
 				{
 					xpath: {
-						ref: w.context([casePropertyStep(caseSource.labelProperty)]),
+						ref: w.context([
+							casePropertyStep(
+								caseSource.kind === "cases"
+									? caseSource.labelProperty
+									: "case_name",
+							),
+						]),
 					},
 				},
 				context,
 			),
 			xel("value", { xpath: { ref: w.context([w.attr("case_id")]) } }, context),
-			...(caseSource.sortProperty === undefined
+			...(caseSource.kind !== "cases" || caseSource.sortProperty === undefined
 				? []
 				: [
 						xel(

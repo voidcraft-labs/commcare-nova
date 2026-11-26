@@ -1,3 +1,4 @@
+import { isDeviceCaseOptionsSource } from "./fields/selectOptionsSource";
 // lib/domain/translationUnits.ts
 //
 // The one inventory and effective-value resolver for every static
@@ -301,7 +302,9 @@ export function collectTranslationCoverageDiagnostics(
 		});
 	}
 	const caseChoices = Object.values(doc.fields).filter(
-		(field) => "optionsSource" in field && field.optionsSource.kind === "cases",
+		(field) =>
+			"optionsSource" in field &&
+			isDeviceCaseOptionsSource(field.optionsSource),
 	).length;
 	if (caseChoices > 0)
 		diagnostics.push({

@@ -3134,7 +3134,7 @@
 		],
 		"valueClass": "advanced-data-source",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources; the case choices Nova writes (`optionsSource: cases`) are the row of their own shape",
+		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources; the case choices Nova writes are the row of their own shape",
 		"subject": "question-choices",
 		"owner": "xform",
 		"platforms": {
@@ -3157,7 +3157,7 @@
 		"id": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
 		"area": "questions",
 		"section": "Question types",
-		"item": "itemset over `casedb` whose value is `@case_id`, whose label is one property or attribute, and whose nodeset is the case query Nova writes for a question's case choices (`caseOptions.ts::caseOptionsNodeset`)",
+		"item": "itemset over `casedb` whose value is `@case_id`, over a specified case type or over all of the worker's restored cases with the case name as label",
 		"surfaceKeys": [
 			"mug:SelectDynamic",
 			"mug:MSelectDynamic",
@@ -3174,7 +3174,7 @@
 		],
 		"valueClass": "case-choices",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource: cases`",
+		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
