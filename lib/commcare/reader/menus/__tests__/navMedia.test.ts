@@ -596,6 +596,43 @@ describe("an override of a generated media key in `translations`", () => {
 		expect(body.translations?.en["modules.m0.icon"]).toBe(OTHER_ICON);
 	});
 
+	it("keeps an override equal to the full-app fallback for a limited installation", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			json.langs.push("fr");
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON, es: OTHER_ICON };
+			(menu.forms[0] as Record<string, unknown>).media_image = {
+				fr: MENU_ICON,
+			};
+			json.translations = { fr: { "modules.m0.icon": MENU_ICON } };
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		const doc = outcome.draft.doc;
+		const menu = doc.modules[doc.moduleOrder[0]];
+		const localization = effectiveAppLocalization(doc.localization);
+		expect(menu.mediaByLanguage?.fra?.iconOverride).toBe(
+			testMediaAssetId("menu-icon"),
+		);
+		expect(
+			navigationFilesInLanguage(menu, "fra", localization, ["fra", "spa"]).icon,
+		).toBe(testMediaAssetId("menu-icon"));
+	});
+
+	it("counts media stored on a case list's ordinary menu item", async () => {
+		const outcome = await readWithMedia(caseListApp(), (json) => {
+			json.modules[0].media_image = { en: MENU_ICON };
+			listBlocks(json).item.media_image = { en: OTHER_ICON };
+			overriding(json, { "modules.m0.icon": OTHER_ICON });
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		expect(
+			outcome.draft.doc.modules[outcome.draft.doc.moduleOrder[0]]
+				.mediaByLanguage?.eng?.iconOverride,
+		).toBe(testMediaAssetId("other-icon"));
+	});
+
 	it("keeps a form's generated spoken label on that form and locale", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
 			const menu = json.modules[0] as AppJson["modules"][number];
@@ -623,6 +660,22 @@ describe("an override of a generated media key in `translations`", () => {
 		expect(findings(outcome)).toEqual([
 			"application-and-settings/translations-generated-navigation-file-not-packaged",
 		]);
+	});
+
+	it("refuses to keep a resolved override whose ordinary carrier was lost", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0];
+			menu.media_image = {
+				en: "jr://file/commcare/image/no-ordinary-file.png",
+			};
+			(menu.forms[0] as Record<string, unknown>).media_image = {
+				en: OTHER_ICON,
+			};
+			overriding(json, { "modules.m0.icon": OTHER_ICON });
+		});
+		expect(findings(outcome)).toContain(
+			"application-and-settings/translations-generated-navigation-file-not-packaged",
+		);
 	});
 
 	it("holds an override of media no language shows as inert: no screen reads the key", async () => {

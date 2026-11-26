@@ -9,7 +9,10 @@ import {
 	type MediaKind,
 } from "@/lib/domain";
 import type { IconRef } from "@/lib/domain/builtinIcons";
-import { ordinaryNavigationAsset } from "@/lib/domain/navigationMedia";
+import {
+	navigationMediaOverride,
+	ordinaryNavigationAsset,
+} from "@/lib/domain/navigationMedia";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { applicationReading, type HeldTranslationKey } from "../appShell";
@@ -293,29 +296,57 @@ const acceptedOverrides = new WeakMap<
 		language: string;
 		role: "icon" | "audioLabel";
 		path: string;
+		place: HqPlace;
+		carrierClass: string;
 		assetId?: IconRef;
 	}
 >();
 
 export function accountNavigationMediaOverride(
+	ctx: ReadContext,
 	doc: BlueprintDoc,
 	held: HeldTranslationKey,
 ): boolean {
 	const override = acceptedOverrides.get(held);
 	if (override === undefined) return false;
-	if (
-		override.assetId !== undefined &&
-		!ordinaryNavigationAsset(
-			doc,
-			effectiveAppLocalization(doc.localization),
-			override.role,
-			override.language,
-			override.assetId,
-		)
-	) {
-		held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
-	} else
-		held.json.take(held.key, generatedMediaClaim, () => override.path).value;
+	if (override.assetId !== undefined) {
+		const { place, carrierClass, role, language, assetId } = override;
+		const menu =
+			"menu" in place
+				? ctx.draft.modules.find((one) => one.index === place.menu)
+				: undefined;
+		const module = menu === undefined ? undefined : doc.modules[menu.uuid];
+		const form =
+			place.kind === "form"
+				? menu?.forms.find((one) => one.index === place.form)
+				: undefined;
+		const registration = module?.caseListRegistrationForm;
+		const carrier =
+			form !== undefined
+				? doc.forms[form.uuid]
+				: carrierClass === "CaseList"
+					? module?.caseListMenuItem
+					: carrierClass === "CaseListForm"
+						? registration?.kind === "always"
+							? registration
+							: undefined
+						: module;
+		if (
+			carrier === undefined ||
+			navigationMediaOverride(carrier, role, language) !== assetId ||
+			!ordinaryNavigationAsset(
+				doc,
+				effectiveAppLocalization(doc.localization),
+				role,
+				language,
+				assetId,
+			)
+		) {
+			held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
+			return true;
+		}
+	}
+	held.json.take(held.key, generatedMediaClaim, () => override.path).value;
 	return true;
 }
 
@@ -335,7 +366,9 @@ function navigationLocale(
 function readOverrides(
 	ctx: ReadContext,
 	locale: string,
+	carrierClass: string,
 	shown: Readonly<Record<string, string>>,
+	strictFile: (code: string) => unknown,
 	mediaKind: MediaKind,
 	slot: string,
 	place: HqPlace,
@@ -349,7 +382,7 @@ function readOverrides(
 			held.key !== key ||
 			typeof held.value !== "string" ||
 			!held.value ||
-			held.value === shown[held.language]
+			held.value === strictFile(held.language)
 		)
 			continue;
 		const tag = app?.languages.tagOf.get(held.language);
@@ -385,6 +418,8 @@ function readOverrides(
 			language: tag,
 			role: mediaKind === "image" ? "icon" : "audioLabel",
 			path,
+			place,
+			carrierClass,
 			...(resolution.kind === "asset" && {
 				assetId: resolution.assetId as IconRef,
 			}),
@@ -422,7 +457,16 @@ function readMap(
 	const overrides =
 		locale === undefined
 			? undefined
-			: readOverrides(ctx, locale, shown, mediaKind, slot, place);
+			: readOverrides(
+					ctx,
+					locale,
+					node.cls,
+					shown,
+					(code) => stored[all ? (codes[0] ?? "en") : code],
+					mediaKind,
+					slot,
+					place,
+				);
 	const resolved = new Map<string, string>();
 	const missing = new Set<string>();
 	for (const path of new Set(Object.values(shown))) {

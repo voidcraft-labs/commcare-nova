@@ -229,6 +229,15 @@ export function ordinaryNavigationAsset(
 			const module = doc.modules[uuid];
 			return (
 				used(module) ||
+				used(module?.caseListMenuItem) ||
+				(module?.caseListRegistrationForm?.kind === "always" &&
+					used(module.caseListRegistrationForm)) ||
+				(role === "icon" &&
+					module?.caseListConfig?.columns.some(
+						(column) =>
+							column.kind === "image-map" &&
+							column.mapping.some((entry) => entry.assetId === asset),
+					)) ||
 				doc.formOrder[uuid]?.some((form) => used(doc.forms[form]))
 			);
 		})

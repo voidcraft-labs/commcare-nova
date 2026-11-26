@@ -169,7 +169,12 @@ export function commCareLocalization(
 		languages: plan.languages,
 		defaultLanguage: plan.defaultLanguage,
 		navigationMedia(code, carrier) {
-			return navigationFilesInLanguage(carrier, tagFor(code), effective);
+			return navigationFilesInLanguage(
+				carrier,
+				tagFor(code),
+				effective,
+				profileUuid === undefined ? undefined : order,
+			);
 		},
 		menuMediaOverride(code, carrier) {
 			const tag = tagFor(code);
