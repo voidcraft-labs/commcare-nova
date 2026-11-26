@@ -5373,7 +5373,11 @@ it("automatically opens and atomically closes the whole ordered case datum", {
 					selection: { kind: "multiple", maximum: 51, autoSelect: true },
 				},
 				forms: [
-					{ name: "Read batch", type: "followup", fields: [] },
+					{
+						name: "Read batch",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
 					{
 						name: "Close batch",
 						type: "close",

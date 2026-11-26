@@ -221,7 +221,7 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
 
         return configure
 
-    def choose_command(web, response, title):
+    def choose_command(response, title):
         assert screen_kind(response) == 'commands', response
         titles = [command['displayText'] for command in response['commands']]
         return [*response.get('selections', []), str(titles.index(title))]
@@ -233,13 +233,14 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
                              database=replace(database, cases=batch)) as served, served.run(name):
                 web = apps.web(formplayer_runner, served)
                 top = web.navigate()
-                menu = choose_command(web, top, MENU)
+                menu = choose_command(top, MENU)
+                form_path = None
                 try:
                     response = web.navigate(menu, cases_per_page=7)
                     if screen_kind(response) == 'commands':
                         # Case-first menus can already contain the automatic
                         # selection before we choose the form's command.
-                        form_path = choose_command(web, response, EVERY_TIME)
+                        form_path = choose_command(response, EVERY_TIME)
                         response = web.navigate(form_path, cases_per_page=7)
                 except FormplayerRefused as refusal:
                     assert name == 'overflow', refusal
@@ -247,6 +248,7 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
                     observations[name] = {'status': exchange.response.status,
                                           'body': exchange.response.body.decode()}
                     assert '101' in str(refusal) and '100' in str(refusal), refusal
+                    assert not served.hq.submissions
                     continue
                 observations[name] = {'screen': screen_kind(response), 'selection': response.get('selections')}
                 if name == 'overflow':
@@ -262,6 +264,15 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
                                 if (case.get('case_id') or '').startswith('auto-')]
                     assert len(restored) == len(cases)
                     assert restored != [case.case_id for case in sorted(cases, key=lambda case: case.name)]
+                    assert form_path is not None, response
+                    # As the Web Apps breadcrumb does, trim the form command.
+                    # The retained batch leads straight back to its command menu.
+                    previous = web.navigate(form_path[:-1], cases_per_page=7)
+                    assert screen_kind(previous) == 'commands', previous
+                    first = web.navigate([], cases_per_page=7)
+                    assert screen_kind(first) == 'commands', first
+                    assert MENU in [command['displayText'] for command in first['commands']], first
+                    response = web.navigate(choose_command(previous, EVERY_TIME), cases_per_page=7)
                     result = web.submit(response['session_id'], {})
                     assert result['status'] == 'success', result
                     (submission,) = served.hq.submissions

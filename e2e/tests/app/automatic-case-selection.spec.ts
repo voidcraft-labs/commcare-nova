@@ -12,7 +12,9 @@ test("automatically selects the whole case datum and submits one atomic close", 
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const openMenu = (name: string) => page.getByRole("button", { name }).click();
 	await openMenu("No batch cases");
-	await expect(page.getByTestId("case-list-empty-text")).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "No cases yet" }),
+	).toBeVisible();
 	await page.goBack();
 	await openMenu("Too many batch cases");
 	await expect(
@@ -26,6 +28,12 @@ test("automatically selects the whole case datum and submits one atomic close", 
 	await expect(
 		page.getByRole("heading", { name: "51 cases selected" }),
 	).toBeVisible();
+	await page.getByRole("button", { name: "Back", exact: true }).click();
+	await expect(
+		page.getByRole("button", { name: "All batch cases" }),
+	).toBeVisible();
+	await openMenu("All batch cases");
+
 	await page.getByRole("button", { name: "Close group" }).click();
 	await expect(
 		page.getByRole("heading", { name: "Close group" }),
