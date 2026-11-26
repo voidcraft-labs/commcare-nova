@@ -348,6 +348,7 @@ export const MEDIA_REFERENCE_PATHS: readonly string[] = [
 	"/modules/*/forms/*/media_image/*",
 	"/modules/*/forms/*/media_audio/*",
 	"/modules/*/case_details/*/columns/*/enum/*/value/*",
+	"/modules/*/case_details/short/lookup_image",
 	"/logo_refs/*",
 ];
 

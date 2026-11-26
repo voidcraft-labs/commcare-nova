@@ -699,6 +699,7 @@ describe("the register", () => {
 			choice: ["/_attachments/*"],
 			"unheld-itext": ["/_attachments/*"],
 			"list-image": ["/modules/*/case_details/*/columns/*/enum/*/value/*"],
+			"lookup-action": ["/modules/*/case_details/short/lookup_image"],
 			tile: [
 				"/modules/*/media_image/*",
 				"/modules/*/media_audio/*",
