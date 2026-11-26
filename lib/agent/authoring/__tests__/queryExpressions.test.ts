@@ -718,6 +718,31 @@ it("takes a value as a distance, a unit and a selected choice, and refuses a uni
 
 // --- The chosen case -------------------------------------------------------
 
+it("round-trips a property of the restored row when the surrounding case has the same property", () => {
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "district", label: "District" }],
+			},
+			{
+				name: "household",
+				properties: [{ name: "district", label: "District" }],
+			},
+		],
+		modules: [],
+	});
+	const scope = new AuthoringScope({ doc, currentCaseType: "household" });
+	const expression: Expression = {
+		kind: "project",
+		of: parseQueryValue("cases('patient')", scope),
+		value: { kind: "prop", caseType: "patient", property: "district" },
+	};
+	const printed = queryPrinter(scope).value(expression);
+	expect(printed).toBe("row-value(cases('patient'), #case/district)");
+	expect(parseQueryValue(printed, scope)).toEqual(expression);
+});
+
 const householdType: CaseType = {
 	name: "Household",
 	properties: [
