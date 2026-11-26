@@ -743,6 +743,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} reads the window width, which Android doesn't have.`,
 		alternative: "take it out",
 	},
+	"raw-grouped-tile-body-field": {
+		lead: (subject) =>
+			`${subject} is visible below the group heading in Web Apps even when marked to show only on Android.`,
+		alternative: "move it into the heading or take it out of the tile",
+	},
 } as const satisfies Readonly<
 	Record<RefusablePlatformFeatureId, PlatformBuilderCopy>
 >;
