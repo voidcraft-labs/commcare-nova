@@ -40,6 +40,7 @@ DOCUMENTS = (
     "targeted-repeat-invitations",
     "targeted-face-photo",
     "search-named-parent",
+    "search-grouped-prompts",
     "targeted-capture-widgets",
     "targeted-custom-tile",
     "targeted-empty-list-no-english",

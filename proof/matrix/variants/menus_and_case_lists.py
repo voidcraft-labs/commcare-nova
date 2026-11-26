@@ -34,7 +34,12 @@ def advanced_menu_with_a_narrowed_case_list_item(authoring, app_id):
 
 
 def auto_select_on_a_multi_select_list(authoring, app_id):
-    """Households' list choosing several households, every one chosen at once."""
+    """The existing Household follow-up applies a new shared answer, without a scalar case preload."""
+    def shared_start(root, _form):
+        start, = root.xpath("//*[local-name()='setvalue'][@ref='/data/members']")
+        start.getparent().remove(start)
+
+    ops.set_form_source(authoring, app_id, 0, 1, shared_start, what="shared members answer")
     _set_each(
         authoring,
         app_id,
@@ -347,6 +352,17 @@ def fixed_text_callout_with_worker_name(authoring, app_id):
         {"key": "mode", "value": "'scan'"},
         {"key": "worker", "value": "instance('commcaresession')/session/context/username"},
     ])
+
+
+def fixed_text_callout_with_confidence(authoring, app_id):
+    """Patients' lookup matches the returned IDs to the cases and has a visible confidence heading."""
+    fixed_text_callout(authoring, app_id)
+    _set_each(
+        authoring, app_id,
+        ("/modules/0/case_details/short/lookup_display_results", True),
+        ("/modules/0/case_details/short/lookup_field_template", "@case_id"),
+        ("/modules/0/case_details/short/lookup_field_header", {"en": "Confidence"}),
+    )
 
 
 def fixed_text_callout_with_icon(authoring, app_id):

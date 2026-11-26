@@ -30,6 +30,7 @@ function edit(value?: CaseListDeviceLookup) {
 		action: value?.action ?? "",
 		label: value?.label ?? "",
 		icon: value?.icon,
+		resultHeading: value?.resultHeading,
 		automatic: value?.automatic,
 		extras: value?.extras.map((extra) =>
 			"value" in extra
@@ -43,6 +44,7 @@ function edit(value?: CaseListDeviceLookup) {
 interface Props {
 	readonly moduleUuid: Uuid;
 	readonly disabled: boolean;
+	readonly allowConfidence: boolean;
 	readonly value: CaseListDeviceLookup | undefined;
 	readonly canEdit: boolean;
 	readonly onChange: (lookup: CaseListDeviceLookup | null) => CommitOutcome;
@@ -51,6 +53,7 @@ interface Props {
 export function CaseListDeviceLookupSetting({
 	moduleUuid,
 	disabled,
+	allowConfidence,
 	value,
 	canEdit,
 	onChange,
@@ -113,6 +116,9 @@ export function CaseListDeviceLookupSetting({
 							action: draft.action,
 							label: draft.label,
 							...(draft.icon !== undefined && { icon: draft.icon }),
+							...(draft.resultHeading !== undefined && {
+								resultHeading: draft.resultHeading,
+							}),
 							...(draft.automatic !== undefined && {
 								automatic: draft.automatic,
 							}),
@@ -129,6 +135,10 @@ export function CaseListDeviceLookupSetting({
 							),
 							responses: draft.responses.map(({ name }) => name),
 						});
+						if (draft.resultHeading?.trim() === "") {
+							setError("Add a heading for the match confidence column.");
+							return;
+						}
 						if (!parsed.success) {
 							setError(
 								"Add an action and a lookup name. Give each sent value and each response its own name.",
@@ -175,6 +185,34 @@ export function CaseListDeviceLookupSetting({
 						/>
 						Open the companion automatically
 					</label>
+					{(allowConfidence || draft.resultHeading !== undefined) && (
+						<>
+							<label className="flex gap-2 text-sm text-nova-text">
+								<input
+									type="checkbox"
+									checked={draft.resultHeading !== undefined}
+									onChange={(event) =>
+										setDraft({
+											...draft,
+											resultHeading: event.currentTarget.checked
+												? ""
+												: undefined,
+										})
+									}
+								/>
+								Show match confidence
+							</label>
+							{draft.resultHeading !== undefined && (
+								<LookupInput
+									label="Confidence column heading"
+									value={draft.resultHeading}
+									onChange={(resultHeading) =>
+										setDraft({ ...draft, resultHeading })
+									}
+								/>
+							)}
+						</>
+					)}
 					<LookupRows
 						kind="extras"
 						rows={draft.extras}

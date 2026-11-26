@@ -1,7 +1,10 @@
 import { singleChoiceLayoutSchema } from "@/lib/domain/choicePresentation";
 import { androidAppAnswerSchema } from "@/lib/domain/fields/androidApp";
 import { connectActivitySchema } from "@/lib/domain/fields/connectActivity";
-import { caseOptionsSourceSchema as storedCaseOptionsSourceSchema } from "@/lib/domain/fields/selectOptionsSource";
+import {
+	availableCasesOptionsSourceSchema,
+	caseOptionsSourceSchema as storedCaseOptionsSourceSchema,
+} from "@/lib/domain/fields/selectOptionsSource";
 import { displaySchemas } from "@/lib/domain/questionDisplaySchemas";
 
 const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
@@ -125,6 +128,11 @@ const FIELD_DOCS = {
 	label: "Visible wording. Empty labels hide group chrome or repeat titles.",
 	hint: "Short guidance below the question.",
 	help: "Longer guidance opened on demand.",
+	extended_hint: "Alternate hint shown in place of the ordinary hint.",
+	extended_help:
+		"Alternate help shown in Web Apps. Android uses it when Format text is off for the help.",
+	extended_validate_msg:
+		"Alternate message shown when this question's validation fails.",
 	extended_text:
 		"Text shown in place of the label where the label shows exactly as typed (plain_label, or a form with plain_text). Android also reads it aloud where the worker turned text to speech on and the question has no spoken_text. A formatted label shows itself instead. null removes it.",
 	qr_code:
@@ -140,7 +148,7 @@ const FIELD_DOCS = {
 	default_value:
 		"Starting value evaluated when the form opens. Use calculate for a value that should keep updating.",
 	optionsSource:
-		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs. labelProperty defaults to case_name. sortProperty orders choices by a property of the chosen case type. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record.",
+		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs. labelProperty defaults to case_name. sortProperty orders choices by a property of the chosen case type. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record. A single-select can use available-cases to show all case types restored for the worker by name. The answer is an exact ID without a named case type.",
 	caseWrite:
 		"Save this answer to a case property. The module's case type saves it to this form's case, and with via to a case above it; a declared child type saves it to a new child case, which needs a question saving its case_name; commcare-user saves it to the worker's own record. A capture saves a link to its file. A value replaces every place this question saves to, and null stops it saving anywhere; when it saves to several places, change them with updateCaseOperation instead. On a follow-up or close form that opens one case, a question saving to this form's case is given a default_value reading that case's value, which you can replace or remove. Use recordName for the case's name.",
 	field_list:
@@ -303,6 +311,12 @@ export const projectedSelectOptionSchema = z.strictObject({
 	label: proseTemplateSchema.describe(
 		"What people read for this choice. Put the wording here, never in `value`.",
 	),
+	extended_text: proseTemplateSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Alternate wording on platforms that read a choice's extended text. Omit to keep it on an existing choice. Null clears it.",
+		),
 	plain_label: z
 		.boolean()
 		.optional()
@@ -324,6 +338,7 @@ export const projectedOptionsSourceSchema = z
 		}),
 		lookupOptionsSourceSchema,
 		caseOptionsSourceSchema,
+		availableCasesOptionsSourceSchema,
 	])
 	.describe(FIELD_DOCS.optionsSource);
 
@@ -513,6 +528,9 @@ const ADD_GATED_KEYS = [
 	"choiceLayout",
 	"label",
 	"extended_text",
+	"extended_hint",
+	"extended_help",
+	"extended_validate_msg",
 	"qr_code",
 	"spoken_text",
 	"hint",
@@ -756,6 +774,18 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			androidApp: androidAppField(),
 			hint: hintField(),
 			help: helpField(),
+			extended_hint: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_hint),
+			extended_help: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_help),
+			extended_validate_msg: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_validate_msg),
 			addFirstLabel: proseTemplateSchema
 				.nullable()
 				.optional()
@@ -899,6 +929,18 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			androidApp: androidAppField(),
 			hint: hintField(),
 			help: helpField(),
+			extended_hint: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_hint),
+			extended_help: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_help),
+			extended_validate_msg: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_validate_msg),
 			addFirstLabel: proseTemplateSchema
 				.nullable()
 				.optional()

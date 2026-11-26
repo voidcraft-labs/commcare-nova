@@ -1625,7 +1625,7 @@ function printSlotWith(
 					? (field.optionsSource as SelectOptionsSource | undefined)
 					: undefined;
 			const path = projection.path({ kind: "field", uuid: ref.uuid });
-			if (choices === undefined || choices.kind === "inline" || !path)
+			if ((choices?.kind !== "cases" && choices?.kind !== "lookup") || !path)
 				throw new Error(
 					`The question ${ref.uuid} takes no choices from a table or from cases.`,
 				);

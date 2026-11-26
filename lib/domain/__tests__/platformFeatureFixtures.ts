@@ -1793,6 +1793,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.searchInputs[0].type",
 		),
 	},
+	"search-field-groups": {
+		with: () => {
+			const group = testUuid("platform-fixture-search-group");
+			return caseApp({
+				searchInputs: [{ ...input("text"), group }],
+				list: (config) => {
+					config.searchInputGroups = [
+						{ uuid: group, label: "Personal details" },
+					];
+				},
+			});
+		},
+		without: () => caseApp({ searchInputs: [input("text")] }),
+		use: slotUse(
+			"search-field-groups",
+			MODULE_OWNER,
+			"caseListConfig.searchInputGroups",
+		),
+	},
 	"search-for-blank": {
 		with: () =>
 			caseApp({

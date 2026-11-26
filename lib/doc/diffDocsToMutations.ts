@@ -3196,6 +3196,7 @@ function diffCaseListMeta(
 		filter?: CaseListConfig["filter"] | null;
 		additionalCaseTypes?: CaseListConfig["additionalCaseTypes"] | null;
 		listCondition?: CaseListConfig["filter"] | null;
+		searchInputGroups?: CaseListConfig["searchInputGroups"] | null;
 		searchCondition?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
 		tile?: CaseListConfig["tile"] | null;
@@ -3207,6 +3208,10 @@ function diffCaseListMeta(
 		optimizations?: true | null;
 		deviceLookup?: CaseListConfig["deviceLookup"] | null;
 	} = {};
+	if (!deepEqual(prev.searchInputGroups, next.searchInputGroups))
+		patch.searchInputGroups = next.searchInputGroups
+			? cloneEntity(next.searchInputGroups)
+			: null;
 	if (!deepEqual(prev.deviceLookup, next.deviceLookup))
 		patch.deviceLookup = next.deviceLookup ?? null;
 	if (prev.optimizations !== next.optimizations)

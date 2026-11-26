@@ -45,6 +45,7 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"caseListSort",
 	"caseDetailTab",
 	"searchInput",
+	"searchInputGroup",
 	"searchFilter",
 	"projectSearch",
 	"projectSearchParameter",
@@ -228,6 +229,21 @@ export const externalKey = {
 	},
 	projectSearch(endpointId: number): ExternalKey {
 		return { kind: "projectSearch", parts: [endpointId] };
+	},
+	/** Populated groups retain identity when the Case List editor renumbers their keys. */
+	searchInputGroup(
+		moduleUniqueId: string,
+		inputNames: readonly string[],
+		emptyPosition: number,
+	): ExternalKey {
+		const member = [...inputNames].sort()[0];
+		return {
+			kind: "searchInputGroup",
+			parts: [
+				moduleUniqueId,
+				member === undefined ? ["empty", emptyPosition] : ["member", member],
+			],
+		};
 	},
 	searchInput(moduleUniqueId: string, name: string): ExternalKey {
 		return { kind: "searchInput", parts: [moduleUniqueId, name] };

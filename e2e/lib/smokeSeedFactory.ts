@@ -59,6 +59,7 @@ import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	asUuid,
 	type BlueprintDoc,
+	NEW_APP_SETTINGS,
 	organizationLevelSchema,
 } from "@/lib/domain";
 import {
@@ -1062,6 +1063,61 @@ export async function createSmokeBuilders(
 		},
 		workspace: async () => {
 			return { caseWorkspace: await seedCaseWorkspace(seedProjectId) };
+		},
+		"automatic-case-selection": async () => {
+			const name = "Batch case selection";
+			const menus = [
+				{ name: "All batch cases", maximum: 51, type: "member" },
+				{ name: "Too many batch cases", maximum: 50, type: "member" },
+				{ name: "No batch cases", maximum: 50, type: "vacancy" },
+			];
+			const appId = await seedRuntimeApp(name, (appId) =>
+				buildDoc({
+					appId,
+					appName: name,
+					appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+					caseTypes: [
+						{ name: "member", properties: [] },
+						{ name: "vacancy", properties: [] },
+					],
+					modules: menus.map(({ name, maximum, type }) => ({
+						name,
+						caseType: type,
+						caseListConfig: {
+							...caseListConfig([{ field: "case_name", header: "Name" }]),
+							selection: { kind: "multiple", maximum, autoSelect: true },
+						},
+						forms: [
+							{
+								name: "Review group",
+								type: "followup",
+								fields: [f({ kind: "text", id: "review", label: "Review" })],
+							},
+							{
+								name: "Close group",
+								type: "close",
+								fields: [
+									f({ kind: "hidden", id: "ready", calculate: "'yes'" }),
+								],
+							},
+						],
+					})),
+				}),
+			);
+			const caseIds: string[] = [];
+			for (let index = 0; index < 51; index++) {
+				const saved = await caseStore.insert({
+					appId,
+					row: {
+						case_type: "member",
+						case_name: `Member ${51 - index}`,
+						status: "open",
+						properties: {},
+					},
+				});
+				caseIds.push(saved.caseId);
+			}
+			return { automaticCaseSelection: { appId, caseIds } };
 		},
 		"case-changes": async () => {
 			const { appId: caseChangesAppId, baseSeq: caseChangesGenesisSeq } =

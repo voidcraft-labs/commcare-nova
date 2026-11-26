@@ -1673,9 +1673,12 @@ export function compileCczParts(
 						? localization.navigationMedia(language, menuFile.carrier)[
 								menuFile.role
 							]
-						: localization.storedMenuMedia(language, menuFile.carrier)[
+						: (localization.menuMediaOverride(language, menuFile.carrier)[
 								menuFile.role
-							];
+							] ??
+							localization.storedMenuMedia(language, menuFile.carrier)[
+								menuFile.role
+							]);
 				if (value && value !== "blank")
 					table.set(
 						localeId,

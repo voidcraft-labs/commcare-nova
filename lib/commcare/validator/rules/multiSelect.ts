@@ -20,6 +20,7 @@ import {
 	fieldReferenceSlotsFor,
 	formLinkEntries,
 	formLinkSelectionIsCompatible,
+	isOrdinaryCaseSearchConfig,
 	type Module,
 	moduleIsBareCaseList,
 	readSlotValues,
@@ -34,6 +35,7 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	expressionSlotValues,
 	translatedFieldProse,
@@ -71,9 +73,23 @@ export function multiSelectTopology(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	if (!isMultiple(module)) return [];
-
 	const errors: ValidationError[] = [];
+	if (
+		isOrdinaryCaseSearchConfig(module.caseSearchConfig) &&
+		module.caseSearchConfig.searchOnClear === true &&
+		menuWithInheritedCaseSettings(doc, moduleUuid)?.caseListConfig?.selection
+			?.autoSelect === true
+	) {
+		errors.push(
+			validationError(
+				"MULTI_SELECT_SEARCH_ON_CLEAR",
+				"module",
+				"Turn off searching when the worker clears Search before choosing matching cases automatically.",
+				{ moduleUuid, moduleName: module.name },
+			),
+		);
+	}
+	if (!isMultiple(module)) return errors;
 	if (module.caseListConfig?.tile?.persistOnForms === true) {
 		errors.push(
 			validationError(

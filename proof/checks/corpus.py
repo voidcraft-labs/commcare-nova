@@ -691,6 +691,11 @@ class Edit:
         return path if path.exists() else None
 
     @property
+    def import_file(self):
+        path = self.root / "import-file.zip"
+        return path if path.exists() else None
+
+    @property
     def local_refusal(self):
         """The refusal D' states in place of its local archive (``edit/local-refused.json``), or None."""
         return _local_refusal(self.root)

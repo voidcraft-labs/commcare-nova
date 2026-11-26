@@ -440,3 +440,25 @@ def test_vellum_keeps_typed_case_choice_sort_and_refs(hq, editor_driver):
 
         assert "position() < 3" in limited(form.source)
         assert limited(run.stored_source) == limited(form.source)
+
+
+
+def test_vellum_keeps_an_unfiltered_case_itemset(hq, editor_driver):
+    from proof.observe import visible_case_choice as visible
+
+    document = corpus_document(visible.DOCUMENT)
+    with _published(document, "LOOKUP_TABLES", True) as opened:
+        app = operations.held_app(opened.state, opened.app_id)
+        (form,) = app.get_forms()
+        form.source = visible.unfiltered_source(form.source)
+        app.save()
+        run = vellum.fresh_open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id)
+        assert run.loaded and run.saved, (run.load_error, run.save_refusal)
+        assert not run.question_errors(), run.question_errors()
+        rebuilt = etree.fromstring(run.stored_source.encode())
+        (itemset,) = rebuilt.xpath(
+            "//*[local-name()='select1' and @ref='/data/clinic']/*[local-name()='itemset']"
+        )
+        assert itemset.get("nodeset") == visible.NODESET
+        assert itemset.xpath("./*[local-name()='label']/@ref") == ["case_name"]
+        assert itemset.xpath("./*[local-name()='value']/@ref") == ["@case_id"]

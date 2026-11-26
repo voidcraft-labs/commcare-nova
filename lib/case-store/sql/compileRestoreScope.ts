@@ -174,8 +174,9 @@ export function buildRestoreScope(
 	});
 }
 
-/** HQ uses the same live-case algorithm for search, seeded by the IDs of
- * the primary hits and explicit related records in this response. */
+/** HQ seeds the same live-case algorithm with every search hit and
+ * explicitly related record. Those roots are treated as open for traversal
+ * even when a related record was closed. Returned rows keep their status. */
 export function searchRelatedLiveScope(
 	db: Kysely<Database>,
 	tenant: Pick<RestoreScopeArgs, "appId" | "projectId">,
@@ -195,13 +196,15 @@ function buildLiveCaseScope(
 	const scoped = db
 		.withRecursive("avail(case_id, is_open)", (qb) =>
 			qb
-				// Seed: the worker's own open cases. `owner_id` seeds the fixpoint;
-				// it is not a filter on the result.
+				// Restore supplies the worker's open cases. Search supplies its
+				// selected IDs, including closed explicit related records.
 				.selectFrom("cases as seed")
 				.select((eb) => ["seed.case_id", eb.lit<boolean>(true).as("is_open")])
 				.where("seed.app_id", "=", appId)
 				.where("seed.project_id", "=", projectId)
-				.where("seed.status", "is distinct from", CLOSED)
+				.$if(seed.column === "seed.owner_id", (owned) =>
+					owned.where("seed.status", "is distinct from", CLOSED),
+				)
 				.where(
 					sql<boolean>`${sql.ref(seed.column)} = any(${seed.values}::text[])`,
 				)
@@ -341,7 +344,7 @@ function buildLiveCaseScope(
 							(lateral) =>
 								lateral
 									.selectFrom("cases as next_case")
-									.select("next_case.status")
+									.select(["next_case.case_id", "next_case.status"])
 									.where((eb) =>
 										eb(eb.ref("next_case.case_id"), "=", nextCaseId(eb)),
 									)
@@ -358,9 +361,12 @@ function buildLiveCaseScope(
 								// parent and a live extension pulls in its host even when
 								// that ancestor is closed.
 								inner(inner.ref("ci.case_id"), "=", inner.ref("live.case_id")),
-								// Downward requires the extension itself to be open —
-								// HQ's `extensions_by_host` only ever holds open ones.
+								// HQ treats every explicit search seed as open for
+								// traversal. Other extension rows must really be open.
 								inner("nxt.status", "is distinct from", CLOSED),
+								...(seed.column === "seed.case_id"
+									? [sql<boolean>`nxt.case_id = any(${seed.values}::text[])`]
+									: []),
 							]),
 						),
 				),

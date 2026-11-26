@@ -222,6 +222,64 @@ describe("configureCaseList", () => {
 		expect(list()?.columns.some((one) => "loadBehavior" in one)).toBe(false);
 	});
 
+	it("commits Search headings, moves their fields, and removes the grouping without removing answers", async () => {
+		const h = makeCaseListFixture();
+		const group = "87a78526-307d-4739-906f-b65bae608863";
+		const other = "e464ccdc-b2d2-4abf-891b-f687232c3e6a";
+		const result = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [
+				{
+					searchInputUuid: NAME_SEARCH,
+					kind: "simple",
+					name: "patient_name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+			searchGroups: [
+				{
+					groupUuid: group,
+					label: "Personal details",
+					searchInputUuids: [NAME_SEARCH],
+				},
+				{ groupUuid: other, label: "Other details", searchInputUuids: [] },
+			],
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.result.searchGroupUuids).toEqual([group, other]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		const layout = () => h.currentDoc().modules[MOD_A].caseListConfig;
+		expect(layout()?.searchInputs[0]?.group).toBe(group);
+		const moved = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			searchGroups: [
+				{
+					groupUuid: other,
+					label: "Other details",
+					searchInputUuids: [NAME_SEARCH],
+				},
+			],
+		});
+		if ("error" in moved.result) throw new Error(moved.result.error);
+		expect(layout()?.searchInputs[0]?.group).toBe(other);
+		expect(layout()?.searchInputGroups).toEqual([
+			{ uuid: other, label: "Other details" },
+		]);
+		const flat = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			searchGroups: [],
+		});
+		if ("error" in flat.result) throw new Error(flat.result.error);
+		expect(layout()?.searchInputGroups).toBeUndefined();
+		expect(layout()?.searchInputs[0]).toMatchObject({
+			uuid: NAME_SEARCH,
+			name: "patient_name",
+		});
+		expect(layout()?.searchInputs[0]?.group).toBeUndefined();
+	});
+
 	it("lands one coherent configuration as granular mutations", async () => {
 		const h = makeCaseListFixture();
 		const result = await h.runTool(configureCaseListTool, {

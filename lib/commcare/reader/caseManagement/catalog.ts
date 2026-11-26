@@ -604,19 +604,24 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				if (caseType === undefined) continue;
 				noteType(caseTypes, caseType);
 				const destination = block.retype ?? caseType;
-				noteType(caseTypes, destination);
+				const destinations =
+					block.typeChoice === undefined
+						? [destination]
+						: [destination, block.typeChoice.otherwise];
+				for (const type of destinations) noteType(caseTypes, type);
 				for (const write of block.writes) {
 					// A value that is one question's answer is that question's write.
 					const field =
 						write.value.kind === "text"
 							? write.value.readsField
 							: write.value.field;
-					writes.push({
-						caseType: destination,
-						property: write.property,
-						...(field !== undefined && { field }),
-						...(boundDateTime(form, field) && { dateTime: true }),
-					});
+					for (const type of destinations)
+						writes.push({
+							caseType: type,
+							property: write.property,
+							...(field !== undefined && { field }),
+							...(boundDateTime(form, field) && { dateTime: true }),
+						});
 				}
 				for (const link of block.links) {
 					noteType(caseTypes, link.targetType);
@@ -1073,7 +1078,11 @@ export function catalogAsRead(
 				if (caseType === undefined) continue;
 				noteType(caseTypes, caseType);
 				const destination = (op.action === "update" && op.retype) || caseType;
-				noteType(caseTypes, destination);
+				const destinations =
+					op.action === "create" && op.typeChoice !== undefined
+						? [destination, op.typeChoice.otherwise]
+						: [destination];
+				for (const type of destinations) noteType(caseTypes, type);
 				for (const write of op.writes ?? []) {
 					// A write through an index saves to a case above; its type is the
 					// expression stage's to note, by the read it binds.
@@ -1083,17 +1092,18 @@ export function catalogAsRead(
 						value.kind === "term" && value.term.kind === "field"
 							? doc.fields[value.term.uuid]
 							: undefined;
-					writes.push({
-						caseType: destination,
-						property: write.property,
-						kind: field?.kind ?? "expression",
-						...(field !== undefined &&
-							isSelect(field.kind) && {
-								options: inlineOptions(
-									field as unknown as Readonly<Record<string, unknown>>,
-								),
-							}),
-					});
+					for (const type of destinations)
+						writes.push({
+							caseType: type,
+							property: write.property,
+							kind: field?.kind ?? "expression",
+							...(field !== undefined &&
+								isSelect(field.kind) && {
+									options: inlineOptions(
+										field as unknown as Readonly<Record<string, unknown>>,
+									),
+								}),
+						});
 				}
 				for (const link of op.links ?? []) {
 					noteType(caseTypes, link.targetType);

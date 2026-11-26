@@ -1003,6 +1003,36 @@ describe("where each change stands", () => {
 		}
 	});
 
+	it("reports unshown inline video by wire form and keeps a shared path on its question label", async () => {
+		const id = "unshown-form-media-removed";
+		const itext = "/form/0.0/xform/data/note/:itext/hint/en/video-inline";
+		const path = HINT_VIDEO;
+		const onlyHint = factsOf(
+			await readUnshownHint("hint", null, "video-inline"),
+		);
+		expect(firstPublishChangePlaces(onlyHint, [id])).toEqual([
+			{
+				id,
+				places: [
+					placeOf("app", "multimedia_map", path),
+					placeOf("form", "0.0", "media", path),
+					itext,
+				],
+			},
+		]);
+		for (const sharing of ["label-and-hint", "shared-text"] as const) {
+			const shared = factsOf(
+				await readUnshownHint(sharing, null, "video-inline"),
+			);
+			expect(shared.facts.mediaReferences.map((ref) => ref.path)).toEqual([
+				path,
+			]);
+			expect(firstPublishChangePlaces(shared, [id])).toEqual([
+				{ id, places: [itext] },
+			]);
+		}
+	});
+
 	it("discloses only a missing file after rereading a Web Apps hint whose HQ download returned 404", async () => {
 		const first = await readUnshownHint();
 		const runsOn = ["web-apps"] as const;
@@ -2603,12 +2633,15 @@ async function missingMediaFacts(
 }
 
 const HINT_IMAGE = "jr://file/commcare/image/hint.png";
+const HINT_VIDEO = "jr://file/commcare/video/hint.mp4";
 
 async function readUnshownHint(
 	usage: "hint" | "label-and-hint" | "shared-text" = "hint",
 	plan: ReadingMediaPlan | null = null,
+	form: "image" | "video-inline" = "image",
 ): Promise<RegisterReading> {
-	const path = HINT_IMAGE;
+	const path = form === "image" ? HINT_IMAGE : HINT_VIDEO;
+	const mediaType = form === "image" ? "CommCareImage" : "CommCareVideo";
 	const doc = buildDoc({
 		modules: [
 			{
@@ -2633,10 +2666,14 @@ async function readUnshownHint(
 	return readAs(
 		doc,
 		{
-			root: { multimedia_map: { [path]: mediaMapItem("hint") } },
+			root: {
+				multimedia_map: {
+					[path]: { ...mediaMapItem("hint"), media_type: mediaType },
+				},
+			},
 			xml: (xml) => {
 				const hint = "<value>Keep this hint</value>";
-				const mediaValue = `<value form="image">${path}</value>`;
+				const mediaValue = `<value form="${form}">${path}</value>`;
 				const withHint = xml.replace(hint, `${hint}${mediaValue}`);
 
 				if (usage === "shared-text")
@@ -2662,7 +2699,7 @@ async function readUnshownHint(
 						{
 							path,
 							multimediaId: "hint",
-							mediaType: "CommCareImage",
+							mediaType,
 							unreadable: false,
 						},
 					],

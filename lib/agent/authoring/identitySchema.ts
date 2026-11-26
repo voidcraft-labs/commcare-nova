@@ -24,6 +24,7 @@ export const NAMED_IDENTITY_FAMILIES = {
 	"case-list-sort": "Default order calculation name",
 	"case-detail-tab": "Details tab title",
 	"search-input": "Search input name",
+	"search-input-group": "Search heading name",
 	"project-search": "Project search name",
 	"worker-property": "Worker property name",
 	"user-type": "Role name",

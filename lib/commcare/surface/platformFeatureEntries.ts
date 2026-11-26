@@ -28,6 +28,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/lookup-autolaunch",
 		"menus-and-case-lists/lookup-extras-fixed-text",
 		"menus-and-case-lists/lookup-extras-worker-context",
+		"menus-and-case-lists/lookup-case-id-confidence",
 		"menus-and-case-lists/lookup-responses-key",
 	],
 	"case-list-icon-actions": [
@@ -58,6 +59,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
+		"menus-and-case-lists/detail-auto-select-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
 		"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr",
 	],
@@ -303,6 +305,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"search-starting-dates": ["case-search/default-value-on-a-date-range-input"],
 	"barcode-search-field": ["case-search/appearance-barcode-scan"],
+	"search-field-groups": ["case-search/is-group-group-key"],
 	"search-for-blank": ["case-search/allow-blank-value"],
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",

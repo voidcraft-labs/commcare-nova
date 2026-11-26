@@ -1007,7 +1007,17 @@ A form behavior (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `valid
 
 ### Markdown itext
 
-A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`, and a help text unless its question holds `plainHelp`; a form holding `plainText` writes none and carries `vellum:ignore="markdown"`. A hint and a validation message never write one: no runtime reads it. CommCare holds markdown per text across every language, so no setting is per language. A question's extended text, QR code and spoken text (`lib/domain/labelForms.ts`) are written after the label's markdown form as its `long`, `qrcode` and `tts` forms, in every language, wherever the field holds them, a blank one included (`xform/builder.ts::addItext`); the reader holds them back on a question's label (`reader/xform/prose.ts::readLabelTexts`), refuses one the form's default language lacks, leaves a `long` form on any other text not yet held (both runtimes show it in place of a group's label, a hint, a help text, a validation message its alert names, or a choice: `FormEntryCaption.getQuestionText`, `FormEntryPrompt.getSelectItemText`), and drops a `qrcode` or `tts` form on any other text as inert. A question label's inline video (`label_media.videoInline`) is written as its `video-inline` form after the label's other media (`multimedia/itextMedia.ts`), which HQ's `xform.py::video_references` collects beside `video`, so its file ships; the reader holds it as the label's media (`reader/xform/media.ts`, one file, a file per language, and the media refusals), and leaves one on any other text not yet held (`prose.ts::heldMediaForm`): Android asks a question's label alone for it.
+Group, repeat and section labels can carry localized `extended_text`. Both
+workers use the long caption where the label has no Markdown form. Core
+always reads the long title when it generates repeat add and delete captions.
+For inline video outside question labels, the reader records the exact itext
+recipient, language and wire form as unshown. First-publish review removes
+that reference and keeps shared files or mappings wherever a held slot still
+uses them.
+
+A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`. Help uses `plainHelp`. A form holding `plainText` writes no Markdown forms and carries `vellum:ignore="markdown"`. Hints and validation messages have no Markdown form. Ordinary and extended wording have separate translated prose slots. The writer places extended wording on the same text's `long` form for labels, hints, help, validation messages and inline choices. It uses the selected long wording to compose protected validation messages. Core's ordinary reader prefers the long form. Android asks for explicit Markdown first on formatted help, ordinary choices and headers. Custom repeat action captions read the default value, while generated repeat actions use the title's long form. Only a question label holds `qrcode` and `tts`.
+
+A question label's inline video (`label_media.videoInline`) writes `video-inline` beside ordinary media. HQ collects both kinds, so their files ship. Android renders inline video in a question's label pane. Formplayer sends no inline video. The importer accounts for unused inline video on other text in the first-publish review and keeps a file referred to by any live media slot. A blank Android help element kept alive solely by an inline-video form remains a separate admission boundary because removing the element also removes the help button.
 
 `xform/builder.ts::buildLabelNodes` protects authored whitespace-only runs with
 outputs that carry no Vellum shadow. Core's `XFormParser::getXMLDocument` removes
@@ -1553,6 +1563,14 @@ records of its type. Its forms' manual lists retain their configured filter.
 - **capture relevance**: the URL sibling has `relevant="count(<capture>) > 0"`. Hiding a capture therefore removes its URL update from the submitted case transaction; an active blank capture still submits a blank property. A child-only followup retains the empty primary case block and its selected case ID so child indices can resolve their parent.
 
 ### Authored case-operation emission
+
+A create with a calculated type keeps the empty type metadata Vellum writes.
+A fixed concatenation must resolve to the declared operation type. An imported
+conditional can choose between two distinct declared types for a fresh case
+when the saved scalar property shapes agree and no other case change consumes
+the result. The generated guard writes the resolved create type to the same
+case. Preview resolves it inside the submission transaction before writing
+the case or its properties.
 
 A write to an effective datetime property, by the operation's destination type
 after retyping, is an untyped leaf whose calculate is
@@ -2609,7 +2627,7 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 - Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
-- A Save to Case question at an authored position, a late flag column, a search filter the case list does not share on a menu whose forms do not read the search, a preload held at the end of the load, saving only a changed answer anywhere but a follow-up form's own update, an advanced tag or an index name with a hyphen (each a manifest HELD-NEW row the reader raises).
+- A Save to Case question whose position or guards the form cannot preserve, a late flag column, a search filter the case list does not share on a menu whose forms do not read the search, a preload held at the end of the load, saving only a changed answer anywhere but a follow-up form's own update, an advanced tag or an index name with a hyphen (each a manifest HELD-NEW row the reader raises).
 
 ### Named entry points
 
@@ -2739,7 +2757,10 @@ A case-list lookup sends fixed text and the typed active worker username or ID
 before any case is chosen. Local suites and HQ JSON lower those reads through
 the same session-context path as other typed expressions. The reader accepts
 these two preselection fields from native source and retains its unsupported
-finding for other calculations. Browser Preview has no companion return channel.
+finding for other calculations. A plain case list can hold a translated
+confidence heading. Its wire template keys the companion's scores by the
+existing case ID. Android displays those scores for matching cases in the
+device's eligible list. The browser Preview has no companion return channel.
 
 ## Case-backed question choices
 
@@ -2841,3 +2862,7 @@ The first element of the model's unnamed instance is the submitted answer envelo
 The named installation reader uses `ApplicationResource.dehydrate(extras=true)` against a specific build ID. Validate the envelope and stored domain, working app, build, version, released state and complete selected profile. Inspect lengths at exact `external_blobs["files/<key>/…"]` paths. Keep only the verdict; the raw application and blob identifiers are private. A cold named download, including HEAD, calls `create_build_files` and saves the build. The named working suite validates the chosen account. The ordinary working suite lists the enabled forms independently of which attachments were stored. Only an unchanged working save equal to the identified build version binds its generated form inventory. Preparing an actual nonempty named restore depends separately on the build’s effective practice privilege.
 
 An Android app question emits one head action whose ID is its question ID. Ordinary questions can invoke that action by UUID and keep their own bind types. The target form owns its input expressions and result destinations. The writer lowers inputs before collecting secondary instances and prints destination paths from the current document. On read, the question ID must agree with the definition Vellum will attach to the mug. A print question, quick action and unmapped definition keep their separate findings. Publishing selects HQ's built-in or custom action privilege from the action string.
+
+### Generated navigation media
+
+A generated icon or spoken-label override keeps its resolved Project asset beside the carrier's ordinary language map. The current menu or form position supplies the generated locale key. HQ only packages an asset when its ordinary media surfaces discover it in the build languages, so Nova admits an override when an ordinary menu or form carries that file in the same language. An override cannot activate a media locale when the selected installation uses no ordinary file for it. Local archives and Preview apply the locale override after selecting the ordinary language files.

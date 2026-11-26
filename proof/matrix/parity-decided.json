@@ -95,6 +95,7 @@
 		"hq-case-lists/empty-list-text",
 		"hq-case-lists/filter-column",
 		"hq-case-lists/fixed-text-callout",
+		"hq-case-lists/fixed-text-callout-confidence",
 		"hq-case-lists/fixed-text-callout-extras",
 		"hq-case-lists/fixed-text-callout-icon",
 		"hq-case-lists/fixed-text-callout-name",
@@ -296,7 +297,10 @@
 		"hq-lookups/itemset-copy",
 		"hq-lookups/itemset-property-as-label"
 	],
-	"hq-media": ["hq-media/form-media-for-every-language"],
+	"hq-media": [
+		"hq-media/form-media-for-every-language",
+		"hq-media/video-inline-as-only-help"
+	],
 	"hq-menus": [
 		"hq-menus/after-submit-to-the-parent-menu",
 		"hq-menus/badge",
@@ -381,6 +385,7 @@
 		"hq-plain/after-submit-to-the-first-menu",
 		"hq-plain/auto-capture-location",
 		"hq-plain/auto-capture-location-every-form",
+		"hq-plain/auto-select-on-a-multi-select-list",
 		"hq-plain/child-case-in-a-shared-multi-select-menu",
 		"hq-plain/computed-endpoint-argument",
 		"hq-plain/custom-instance",
@@ -414,10 +419,10 @@
 		"hq-plain/update-from-a-label",
 		"hq-plain/update-never-alone"
 	],
-	"hq-project-languages": [],
-	"hq-question-display": [],
 	"hq-project-database-search": [],
+	"hq-project-languages": [],
 	"hq-project-search": [],
+	"hq-question-display": [],
 	"hq-questions": [
 		"hq-questions/action-inside-control",
 		"hq-questions/android-answer-name",
@@ -506,6 +511,7 @@
 		"hq-questions/long-form",
 		"hq-questions/long-form-on-group-label",
 		"hq-questions/long-form-on-help",
+		"hq-questions/long-form-on-repeat-action-caption",
 		"hq-questions/model-iteration-container-condition",
 		"hq-questions/model-iteration-nested",
 		"hq-questions/no-add-remove-without-count",
@@ -534,10 +540,13 @@
 		"hq-questions/save-to-case-block-relevance",
 		"hq-questions/save-to-case-child-link",
 		"hq-questions/save-to-case-create-and-close",
+		"hq-questions/save-to-case-declared-type-choice",
 		"hq-questions/save-to-case-hyphenated-link-name",
 		"hq-questions/save-to-case-hyphenated-property",
+		"hq-questions/save-to-case-index-close-adds-action",
 		"hq-questions/save-to-case-leaf-constraint",
 		"hq-questions/save-to-case-leaf-type",
+		"hq-questions/save-to-case-link-name-outside-grammar",
 		"hq-questions/save-to-case-live-id",
 		"hq-questions/save-to-case-open-condition",
 		"hq-questions/save-to-case-owner-condition",
@@ -618,7 +627,6 @@
 		"hq-search/field-matching-the-owner",
 		"hq-search/field-named-by-a-parent-path",
 		"hq-search/field-named-include-closed",
-		"hq-search/field-outside-the-groups",
 		"hq-search/field-validation",
 		"hq-search/grouped-fields",
 		"hq-search/hidden-choice-field",
@@ -634,6 +642,8 @@
 		"hq-search/registration-after-an-empty-search-offered-again",
 		"hq-search/registration-after-an-empty-search-to-home",
 		"hq-search/registry-workflow-with-no-registry",
+		"hq-search/related-case-property",
+		"hq-search/related-cases-included",
 		"hq-search/related-property-twice",
 		"hq-search/removed-search-key",
 		"hq-search/required-address-field",
@@ -655,6 +665,7 @@
 		"hq-search/visits-form-reads-a-search-field",
 		"hq-search/visits-form-reads-the-inline-results"
 	],
+	"hq-shared-table-journey": [],
 	"starter-agriculture": [],
 	"starter-health": [],
 	"starter-wash": []

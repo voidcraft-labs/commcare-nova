@@ -142,7 +142,10 @@ import {
 	defaultPostSubmitAbsent,
 	searchLinkGuardsAreCarriedValues,
 } from "./menus/afterSubmit";
-import { shownBlockMedia } from "./menus/navMedia";
+import {
+	accountNavigationMediaOverride,
+	shownBlockMedia,
+} from "./menus/navMedia";
 import {
 	parentFollowUpsReturnToTheList,
 	registrationFormLast,
@@ -1725,6 +1728,7 @@ function decideGeneratedKeys(
 	const findings = ctx.accounting.findings();
 	const left: { held: HeldTranslationKey; target: KeyTarget }[] = [];
 	for (const held of reading.generatedKeys) {
+		if (accountNavigationMediaOverride(ctx, doc, held)) continue;
 		const target = keyTarget(ctx, doc, held.key);
 		const finding = coveringFinding(ctx, findings, held, target);
 		if (finding !== undefined) {

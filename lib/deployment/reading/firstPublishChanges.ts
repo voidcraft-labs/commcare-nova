@@ -488,6 +488,8 @@ export const RESPELLED_FORM_PARTS = [
 
 /** A Search field's keys a reading takes as spelled another way (`search/prompts.ts`). */
 const SEARCH_FIELD_RESPELLED_KEYS: readonly string[] = [
+	"name",
+	"group_key",
 	"label",
 	"hint",
 	"receiver_expression",
@@ -1083,7 +1085,7 @@ function unshownMediaPlaces(facts: FirstPublishFacts): string[] {
 		const position = `${place.menu}.${place.form}` as const;
 		const places = [
 			nodePlace(position, `/data/${place.path}`) +
-				placeOf(":itext", ref.role, ref.languageCode, ref.mediaKind),
+				placeOf(":itext", ...ref.role, ref.languageCode, ref.form),
 		];
 		if (!retained.has(ref.path))
 			places.push(placeOf("app", "multimedia_map", ref.path));
@@ -1493,7 +1495,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			places: (facts) =>
 				recordedPlaces(facts, "legacy-related-case-text-rekeyed"),
 		},
-		paths: [],
+		paths: [
+			"/modules/*/case_details/short/columns/*",
+			"/modules/*/case_details/long/columns/*",
+		],
 	},
 	/**
 	 * A case list's, a search's or a menu's stored setting or text map Nova
@@ -2706,7 +2711,7 @@ function mediaSubjects(
 		} else subjects.set(base, place);
 	};
 	for (const ref of facts.facts.unheldMedia)
-		add("unshown-form-media-removed", ref, ref.mediaKind);
+		add("unshown-form-media-removed", ref, ref.form);
 	for (const claim of facts.mediaClaims)
 		add(
 			claim.brokenPicture

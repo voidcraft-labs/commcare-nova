@@ -294,6 +294,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"search-starting-dates",
 	"barcode-search-field",
 	"search-for-blank",
+	"search-field-groups",
 	"hidden-search-field",
 	"search-first",
 	"search",
@@ -1202,6 +1203,15 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "ignored",
 			note: "the Search screen shows the field alone",
+		},
+	},
+	"search-field-groups": {
+		label: "Search headings",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "the Search screen shows the fields in order",
 		},
 	},
 	"hidden-search-field": {

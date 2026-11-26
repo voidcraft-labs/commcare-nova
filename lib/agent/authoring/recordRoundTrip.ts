@@ -81,6 +81,8 @@ function formReadSite(
 			return site([...at, "name"]);
 		case "case_operation_owner":
 			return site([...at, "owner"]);
+		case "case_operation_type_condition":
+			return site([...at, "typeChoice", "condition"]);
 		case "case_operation_owner_condition":
 			return site([...at, "ownerCondition"]);
 		case "case_operation_rename":

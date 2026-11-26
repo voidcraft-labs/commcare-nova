@@ -24,7 +24,8 @@ import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
-import { useId, useMemo, useState } from "react";
+import { Fragment, useId, useMemo, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import {
 	type SearchableChoice,
@@ -37,14 +38,18 @@ import {
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import type { SearchGroupLayout } from "@/lib/doc/searchInputGroupMutations";
 import {
+	asUuid,
 	type CaseProperty,
 	type CaseSearchConfig,
 	type CaseType,
 	isStandardCaseListProperty,
 	type SearchInputDef,
+	type SearchInputGroup,
 	type SearchWorkflow,
 	searchInputDefault,
+	searchInputGroupsWithMembers,
 	searchScreenTitleText,
 	type Uuid,
 	visibleSearchInputs,
@@ -71,9 +76,14 @@ import type { WorkspaceSelection } from "../workspaceSelection";
 import { CaseListRegistrationSetting } from "./CaseListRegistrationSetting";
 import { AddGhostButton, AuthoredDragPreviewLabel } from "./canvasChrome";
 import { ProjectSearchFieldAdder } from "./ProjectSearchFieldAdder";
+import { SearchGroupHeading } from "./SearchGroupHeading";
 
 export interface SearchCanvasProps {
 	readonly searchInputs: readonly SearchInputDef[];
+	readonly searchInputGroups?: readonly SearchInputGroup[];
+	readonly onUpdateSearchGroups?: (
+		groups: readonly SearchGroupLayout[],
+	) => void;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
@@ -112,6 +122,8 @@ export interface SearchCanvasProps {
 
 export function SearchCanvas({
 	searchInputs,
+	searchInputGroups,
+	onUpdateSearchGroups,
 	searchConfig,
 	caseTypes,
 	currentCaseType,
@@ -159,6 +171,61 @@ export function SearchCanvas({
 	// array, and reorder drag indices all key off it, so an SA/MCP
 	// `moveSearchInput` reflects here and a drag computes correct indices.
 	const orderedInputs = useMemo(() => [...searchInputs], [searchInputs]);
+	const rowPositions = new Map(
+		orderedInputs.map(({ uuid }, index) => [uuid, index]),
+	);
+
+	const searchGroups = searchInputGroupsWithMembers({
+		searchInputs,
+		searchInputGroups,
+	});
+	const layout: SearchGroupLayout[] = searchGroups.map(
+		({ uuid, label, inputs }) => ({
+			uuid,
+			label,
+			inputs: inputs.map((input) => input.uuid),
+		}),
+	);
+	const addGroup = () =>
+		onUpdateSearchGroups?.([
+			...layout,
+			{
+				uuid: asUuid(uuidv4()),
+				label: layout.length ? "New heading" : "Search fields",
+				inputs: layout.length ? [] : searchInputs.map((input) => input.uuid),
+			},
+		]);
+	const moveGroup = (index: number, target: number) => {
+		const reordered = [...layout];
+		const [group] = reordered.splice(index, 1);
+		reordered.splice(target, 0, group);
+		onUpdateSearchGroups?.(reordered);
+	};
+	const removeGroup = (index: number) => {
+		const next = [...layout];
+		const [removed] = next.splice(index, 1);
+		const siblingIndex = Math.min(index, next.length - 1);
+		const sibling = next[siblingIndex];
+		if (sibling)
+			next[siblingIndex] = {
+				...sibling,
+				inputs:
+					index < next.length
+						? [...removed.inputs, ...sibling.inputs]
+						: [...sibling.inputs, ...removed.inputs],
+			};
+		onUpdateSearchGroups?.(next);
+	};
+	const moveFieldToGroup = (uuid: Uuid, groupUuid: Uuid) =>
+		onUpdateSearchGroups?.(
+			layout.map((group) => ({
+				...group,
+				inputs:
+					group.uuid === groupUuid
+						? [...group.inputs, uuid]
+						: group.inputs.filter((one) => one !== uuid),
+			})),
+		);
 
 	const resolved = useMemo(
 		() => resolveRows(orderedInputs, caseTypes, currentCaseType, projectProse),
@@ -229,6 +296,58 @@ export function SearchCanvas({
 	const openSearchSettings = () => {
 		if (onConfigureSearchAction !== undefined) onConfigureSearchAction();
 		else onSelect({ type: "search-panel" });
+	};
+	const renderInput = (input: SearchInputDef, i: number) => {
+		const hasError =
+			resolved[i] !== undefined && rowHasStructuralError(resolved[i]);
+		return (
+			<li key={input.uuid}>
+				<ReorderableRow
+					index={i}
+					itemKey={input.uuid}
+					containerKey={containerKey}
+					containerKind="search-canvas-inputs"
+					pendingDrop={pendingDrop}
+					preview={<InputDragPreview input={input} />}
+				>
+					{({
+						wrapperRef,
+						setHandleEl,
+						closestEdge,
+						previewPortal,
+						beingMoved,
+					}) => (
+						<div
+							ref={wrapperRef}
+							className={`relative ${beingMoved ? "opacity-50" : ""}`}
+						>
+							{closestEdge !== null && (
+								<div
+									aria-hidden="true"
+									className="absolute left-0 right-0 h-0.5 bg-nova-violet rounded-full z-10"
+									style={{
+										top: closestEdge === "top" ? -2 : undefined,
+										bottom: closestEdge === "bottom" ? -2 : undefined,
+									}}
+								/>
+							)}
+							<InputRow
+								input={input}
+								selected={selectedInputUuid === input.uuid}
+								hasError={hasError}
+								canEdit={canEdit}
+								position={i + 1}
+								total={orderedInputs.length}
+								setHandleEl={setHandleEl}
+								onMove={(key) => moveByKeyboard(i, key)}
+								onClick={() => onSelect({ type: "input", uuid: input.uuid })}
+							/>
+							{previewPortal}
+						</div>
+					)}
+				</ReorderableRow>
+			</li>
+		);
 	};
 	return (
 		<ContentFrame width="3xl" className="px-6 pt-8 pb-24">
@@ -393,63 +512,56 @@ export function SearchCanvas({
 								aria-labelledby="search-fields-heading"
 								className="mt-2 flex list-none flex-col gap-2 p-0"
 							>
-								{orderedInputs.map((input, i) => {
-									const hasError =
-										resolved[i] !== undefined &&
-										rowHasStructuralError(resolved[i]);
-									return (
-										<li key={input.uuid}>
-											<ReorderableRow
-												index={i}
-												itemKey={input.uuid}
-												containerKey={containerKey}
-												containerKind="search-canvas-inputs"
-												pendingDrop={pendingDrop}
-												preview={<InputDragPreview input={input} />}
-											>
-												{({
-													wrapperRef,
-													setHandleEl,
-													closestEdge,
-													previewPortal,
-													beingMoved,
-												}) => (
-													<div
-														ref={wrapperRef}
-														className={`relative ${beingMoved ? "opacity-50" : ""}`}
-													>
-														{closestEdge !== null && (
-															<div
-																aria-hidden="true"
-																className="absolute left-0 right-0 h-0.5 bg-nova-violet rounded-full z-10"
-																style={{
-																	top: closestEdge === "top" ? -2 : undefined,
-																	bottom:
-																		closestEdge === "bottom" ? -2 : undefined,
-																}}
-															/>
+								{searchGroups.length === 0
+									? orderedInputs.map(renderInput)
+									: searchGroups.map((group, index) => (
+											<Fragment key={group.uuid}>
+												<li>
+													<SearchGroupHeading
+														label={group.label}
+														canEdit={
+															canEdit && onUpdateSearchGroups !== undefined
+														}
+														onRename={(label) =>
+															onUpdateSearchGroups?.(
+																layout.map((item) =>
+																	item.uuid === group.uuid
+																		? { ...item, label }
+																		: item,
+																),
+															)
+														}
+														onMoveUp={
+															index === 0
+																? undefined
+																: () => moveGroup(index, index - 1)
+														}
+														onMoveDown={
+															index === searchGroups.length - 1
+																? undefined
+																: () => moveGroup(index, index + 1)
+														}
+														onRemove={() => removeGroup(index)}
+														availableFields={orderedInputs.filter(
+															(input) => input.group !== group.uuid,
 														)}
-														<InputRow
-															input={input}
-															selected={selectedInputUuid === input.uuid}
-															hasError={hasError}
-															canEdit={canEdit}
-															position={i + 1}
-															total={orderedInputs.length}
-															setHandleEl={setHandleEl}
-															onMove={(key) => moveByKeyboard(i, key)}
-															onClick={() =>
-																onSelect({ type: "input", uuid: input.uuid })
-															}
-														/>
-														{previewPortal}
-													</div>
+														onMoveField={(uuid) =>
+															moveFieldToGroup(uuid, group.uuid)
+														}
+													/>
+												</li>
+												{group.inputs.map((input) =>
+													renderInput(input, rowPositions.get(input.uuid) ?? 0),
 												)}
-											</ReorderableRow>
-										</li>
-									);
-								})}
+											</Fragment>
+										))}
 							</ol>
+						)}
+
+						{canEdit && !!onUpdateSearchGroups && searchEnabled && (
+							<Button type="button" variant="ghost-action" onClick={addGroup}>
+								Add Search heading
+							</Button>
 						)}
 
 						{canEdit &&

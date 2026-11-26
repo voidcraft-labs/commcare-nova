@@ -1145,7 +1145,10 @@ function draftExpressionRef(
 				member: expression.androidAppInput,
 			}
 		);
-	if (expression.slot !== "option_label")
+	if (
+		expression.slot !== "option_label" &&
+		expression.slot !== "option_extended_text"
+	)
 		return { entity: "field", uuid, slot: expression.slot } as SlotContextRef;
 	const source = field.field.optionsSource as
 		| { options?: readonly { uuid?: Uuid }[] }
@@ -1156,7 +1159,7 @@ function draftExpressionRef(
 			: source?.options?.[expression.option]?.uuid;
 	return optionUuid === undefined
 		? undefined
-		: { entity: "field", uuid, slot: "option_label", member: { optionUuid } };
+		: { entity: "field", uuid, slot: expression.slot, member: { optionUuid } };
 }
 
 function sourceNames(

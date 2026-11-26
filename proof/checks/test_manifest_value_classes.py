@@ -5988,6 +5988,73 @@ CASE_PROPERTY_COLLISION_FORM = _form(
 )
 
 
+def _save_to_case_effects():
+    bind_relevant = "xform:model/bind@relevant"
+    bind_calculate = "xform:model/bind@calculate"
+    setvalue = "xform:setvalue@value"
+    role = "{http://example.org/t}op[1]/@vellum:role"
+    create = "<create><owner_id/></create>"
+    create_owner = "/data/op/case/create/owner_id"
+    case_id = "/data/op/case/@case_id"
+
+    def block(actions, model="", *, in_repeat=False):
+        data = (
+            f'<op vellum:role="SaveToCase" vellum:case_type="patient">'
+            f'<case xmlns="{CASE_NS}" case_id="" date_modified="" user_id="">{actions}</case></op>'
+        )
+        if in_repeat:
+            return _form(
+                data=f'<rows jr:template="">{data}</rows><rows>{data}</rows>',
+                model=model.replace("/data/op/", "/data/rows/op/"),
+                body='<group><repeat nodeset="/data/rows"/></group>',
+            )
+        return _form(data=data, model=model)
+
+    def ready(value):
+        return f'<setvalue ref="{case_id}" event="xforms-ready" value="{value}"/>'
+
+    def calculate(value):
+        return f'<bind nodeset="{case_id}" calculate="{value}"/>'
+
+    def with_link(name, actions):
+        return block(
+            f'{actions}<index><{name} case_type="household" relationship="child"/></index>',
+            f'<bind nodeset="/data/op/case/index/{name}" calculate="\'household-01\'"/>',
+        )
+
+    close_condition = '<bind nodeset="/data/op/case/close" relevant="true()"/>'
+    owner_condition = f'<bind nodeset="{create_owner}" calculate="\'team\'" relevant="true()"/>'
+    relevance = "bind[1]/@relevant"
+    calculation = "bind[1]/@calculate"
+    ready_value = "setvalue[1]/@value"
+    return {
+        "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under": [
+            refused("form", block("<update/><close/>", close_condition), bind_relevant, relevance),
+            accepted("form", block("<close/>", close_condition), bind_relevant, relevance),
+        ],
+        "questions/savetocase-case-id-expression-on-a-create": [
+            refused("form", block(create, ready("'patient-01'")), setvalue, ready_value),
+            accepted("form", block(create, ready("uuid()")), setvalue, ready_value),
+            refused("form", block(create, calculate("'patient-01'"), in_repeat=True), bind_calculate, calculation),
+            accepted("form", block(create, calculate("uuid()"), in_repeat=True), bind_calculate, calculation),
+        ],
+        "questions/savetocase-owner-id-condition": [
+            refused("form", block(create, owner_condition + ready("uuid()")), bind_relevant, relevance),
+            accepted("form", block(create, owner_condition + ready("'patient-01'")), bind_relevant, relevance),
+        ],
+        "questions/savetocase-link-name-changes-actions-on-save": [
+            refused("form", with_link("close", create), ROLE, role),
+            refused("form", with_link("create", "<update/>"), ROLE, role),
+            accepted("form", with_link("close", create + "<close/>"), ROLE, role),
+            accepted("form", with_link("create", create), ROLE, role),
+        ],
+        "questions/savetocase-link-bind-lost-on-save": [
+            refused("form", with_link("par.ent", create), ROLE, role),
+            accepted("form", with_link("par-ent", create), ROLE, role),
+        ],
+    }
+
+
 def _data_binds_and_itext():
     """The shapes of the classes read on a form's data nodes, binds, model iterations, itext and appearances, and of
     the keys a class does not declare."""
@@ -7079,40 +7146,22 @@ def _label_texts():
             <text id="q2"><value>B</value></text></translation></itext>""",
         body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
     )
-    owned = _form(
-        data="<q/><g/><r/><s/>",
+    video = _form(
+        data="<q/><r/>",
         model="""<itext><translation lang="en" default="">
-            <text id="q"><value>A</value><value form="long">Question</value></text>
-            <text id="g"><value>B</value><value form="long">Group</value></text>
-            <text id="r"><value>C</value><value form="long">Repeat</value></text>
-            <text id="h"><value>D</value><value form="long">Help</value></text>
-            <text id="m"><value>E</value><value form="long">Message</value></text>
-            <text id="a"><value>F</value><value form="long">Alert</value></text>
-            <text id="c"><value>G</value><value form="long">Choice</value></text>
-            <text id="n"><value>H</value><value form="long">Hint</value></text>
-            <text id="nested"><value>I</value><value form="long">Expression only</value></text>
-            </translation></itext>
-            <bind nodeset="/data/q" jr:constraintMsg="jr:itext('m')"/>""",
-        body="""<input ref="/data/q"><label ref="jr:itext('q')"/>
-            <hint ref="jr:itext('n')"/><help ref="jr:itext('h')"/><alert ref="jr:itext('a')"/></input>
-            <group ref="/data/g"><label ref="jr:itext( &quot;g&quot; )"/></group>
-            <repeat nodeset="/data/r"><label ref="jr:itext('r')"/></repeat>
-            <select1 ref="/data/s"><label ref="concat(jr:itext('nested'), 'suffix')"/>
-            <item><label ref="jr:itext('c')"/><value>one</value></item></select1>""",
+          <text id="blank"><value/><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          <text id="ordinary"><value>Help</value><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          <text id="caption"><value/><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          </translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('caption')"/><help ref="jr:itext('blank')"/></input>
+          <input ref="/data/r"><help ref="jr:itext('ordinary')"/></input>""",
     )
-    long = "itext-form:core/long"
-
-    def value_at(index):
-        return f"translation[1]/text[{index}]/value[2]/@form"
-
+    inline = "itext-form:android/video-inline"
     return {
-        "questions/long-form-on-a-group-or-repeat-label": (
-            *(refused("form", owned, long, value_at(index)) for index in (2, 3)),
-            *(accepted("form", owned, long, value_at(index)) for index in (1, 4, 9)),
-        ),
-        "questions/long-form-on-a-hint-help-text-validation-message-or-choice": (
-            *(refused("form", owned, long, value_at(index)) for index in range(4, 9)),
-            *(accepted("form", owned, long, value_at(index)) for index in (1, 2, 9)),
+        "questions/video-inline-as-the-only-content-of-a-help-text": (
+            refused("form", video, inline, "translation[1]/text[1]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[2]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[3]/value[2]/@form"),
         ),
         "questions/long-qrcode-or-tts-form-missing-in-default-language": (
             refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),
@@ -7915,7 +7964,11 @@ def _case_list_lookup_shapes():
             ]),
         ),
         "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
+            use(refused, "lookup_field_template", lookup_field_template="external_id",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
             use(refused, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=True),
+            use(accepted, "lookup_field_template", lookup_field_template="@case_id",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
             use(accepted, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=False),
         ),
     }
@@ -7929,6 +7982,7 @@ SHAPES = {
     **_advanced_actions(),
     **_search_and_menus(),
     **_data_binds_and_itext(),
+    **_save_to_case_effects(),
     **_localized_media(),
     **_per_rows(),
     **_label_texts(),
@@ -8036,6 +8090,8 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
             kind, held = manifest_usage.standing(manifest, use)
             if shape.verdict and entry.disposition == "HELD-NEW":
                 assert kind == manifest_usage.HELD_NEW and entry in held, f"{entry_id} stands {kind} at {shape.where}"
+            elif shape.verdict and entry.disposition == "HELD":
+                assert kind == manifest_usage.HELD, f"{entry_id} stands {kind} at {shape.where}"
             elif shape.verdict:
                 refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
                 assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held

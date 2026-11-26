@@ -609,6 +609,12 @@ const caseTypeCalculationSchema = z.strictObject({
 });
 export type CaseTypeCalculation = z.infer<typeof caseTypeCalculationSchema>;
 
+const caseTypeChoiceSchema = z.strictObject({
+	condition: conditionSchema,
+	otherwise: z.string(),
+});
+export type CaseTypeChoice = z.infer<typeof caseTypeChoiceSchema>;
+
 export function fixedCaseTypeOf(calculation: CaseTypeCalculation): string {
 	return calculation.parts.map(({ term }) => term.value).join("");
 }
@@ -619,6 +625,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		...caseOperationCommonShape,
 		action: z.literal("create"),
 		typeCalculation: caseTypeCalculationSchema.optional(),
+		typeChoice: caseTypeChoiceSchema.optional(),
 		ownerCondition: conditionSchema.optional(),
 		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
@@ -758,6 +765,7 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	action: Exclude<CaseOperationAction, "own">;
 	caseType: string;
 	typeCalculation?: CaseTypeCalculation;
+	typeChoice?: CaseTypeChoice;
 	target: CaseTarget;
 	condition?: Expression;
 	ownerCondition?: Expression;

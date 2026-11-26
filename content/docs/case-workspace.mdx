@@ -55,12 +55,15 @@ show the person chosen for this visit.
 In **Results**, **Add lookup** connects a case list to a companion app on the
 worker’s Android device. Set its Android action, lookup name, the text it
 receives, and the response names it can return. Each named value can be
-fixed text, the worker’s username, or the worker’s ID. The Android toolbar calls
-the action **Scan Barcode**. You can attach a Project image to identify it.
-When a companion sends the primary text answer, CommCare searches the
-current list. When it returns a
-blank primary marker, CommCare uses the first named response it receives in
-your configured order.
+fixed text, the worker’s username, or the worker’s ID. The Android toolbar
+calls the action **Scan Barcode**. You can attach a Project image to identify
+it. When a companion sends the primary text answer, CommCare searches the
+current list. If it declares a text response without a primary value,
+CommCare uses the first returned value in your response-name order.
+
+In a list with rows, **Show match confidence** adds a confidence column. Use this for a
+companion that returns case IDs with confidence levels. Android shows the
+matches it finds in the worker’s cases, with the confidence beside each one.
 
 You can open the companion when the list first appears or let workers open
 it when they need it. The worker’s device needs the companion installed,
@@ -383,6 +386,11 @@ stay in their original order while the worker searches, changes pages, opens
 Details, or goes Back. A changed maximum never removes a choice silently.
 Continue waits and states how many cases need to be removed.
 
+**Choose matching cases automatically** opens the shared form or the menu of
+forms with every eligible case, even when the list would show them on several
+pages. If more cases match than the maximum allows, the app stops before opening
+the form. An empty list still offers its usual search or registration options.
+
 Use several-case selection only when a follow-up or close form can run over the
 complete set. That form can belong to the module itself. A parent menu that is
 only its case list can also carry the set into a child that uses the same case type, also chooses
@@ -436,6 +444,16 @@ Android and your browser supports scanning, and typed codes on both. A scan
 replaces the current answer; cancelling keeps it.
 
 On Android, an answer that holds both `'` and `"` finds nothing.
+
+### Group Search fields
+
+Choose **Add Search heading** on the Search tab, then give the heading a
+name. You can move fields to another heading and change the order of the
+headings. Removing a heading keeps its fields. You can translate a heading
+in **Languages**.
+
+In Web Apps, workers can collapse each group and keep the answers they
+entered. Android shows the same fields in order and omits the headings.
 
 ### Search filters and project space matching
 
