@@ -220,11 +220,19 @@ class Change:
         if self.change == "search-order-direction-signs-respelled":
             return search_order_signs_respelled(difference)
         if self.change == "search-value-guards" and difference.kind == "changed":
-            if suite_validation_test_change(difference) or (
+            if suite_validation_test_change(difference):
+                return redundant_search_quote_guard(difference.before, difference.after) is not None
+            if (
                 difference.check == "source" and difference.artifact == "app.json"
                 and _shaped("/modules/*/search_config/properties/*/validations/*/test", difference.path)
+                and isinstance(difference.before, str)
             ):
-                return redundant_search_quote_guard(difference.before, difference.after) is not None
+                from proof.checks.xpath_tree import tree
+
+                # A generated source guard can already acquire another clause.
+                # Only the newly admitted authored lowercase test needs this certificate here.
+                if lowercase_search_answer(tree(difference.before)) is not None:
+                    return redundant_search_quote_guard(difference.before, difference.after) is not None
         # Formplayer's Java String.trim removes boundary U+0000 through U+0020 (caseScalarTextValueCalculation).
         if (
             self.change == "case-names-checked"
