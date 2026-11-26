@@ -562,7 +562,8 @@ async function prepareWithRegistry(
 			!input.jsonDestinationTableIds?.has(definition.id) &&
 			input.workbookLookupTags?.get(definition.id)?.has(tableNaming.tag);
 		const direct = input.mode === "hq-upload";
-		const jsonAllowed = direct || input.manualLookupInstaller;
+		const jsonAllowed =
+			direct || (input.mode === "hq-json" && input.manualLookupInstaller);
 		let issue: string;
 		let code: ValidationError["code"] = "LOOKUP_WORKER_SOURCE_UNAVAILABLE";
 		let delivery: string = carrier.kind;

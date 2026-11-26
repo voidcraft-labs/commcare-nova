@@ -249,7 +249,8 @@ export function exportCarrierFindings(
 	);
 	const leftOutIds = new Set(leftOut.map((definition) => definition.id));
 	const jsonLookupTables =
-		(mode === "hq-upload" || input.manualLookupInstaller) &&
+		(mode === "hq-upload" ||
+			(mode === "hq-json" && input.manualLookupInstaller)) &&
 		naming !== undefined
 			? referenced.flatMap((definition) => {
 					if (

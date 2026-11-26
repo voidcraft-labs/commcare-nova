@@ -113,6 +113,25 @@ async function retained() {
 	if (!("artifact" in result)) throw new Error("Expected a private download.");
 	return result.artifact;
 }
+it("retains a small manual lookup plan only while the requesting editor can download it", async () => {
+	const result = await deliverExport(
+		(async function* () {
+			yield Buffer.from("manual package");
+		})(),
+		() => ({ actor, spec: { ...spec, manualLookupInstaller: true } }),
+		{ protected: true },
+	);
+	if (!("artifact" in result)) throw new Error("Expected a private download.");
+	const file = result.artifact;
+	expect(await readExportManifest(actor, file.id)).toEqual(file);
+	await sql`UPDATE auth_member SET role='viewer' WHERE "userId"=${actor.userId} AND "organizationId"=${projectId}`.execute(
+		h.db(),
+	);
+	await expect(readExportManifest(actor, file.id)).rejects.toMatchObject({
+		status: 404,
+	});
+});
+
 it("stops a live range before reading its next object after membership revocation", async () => {
 	const file = await retained();
 	const from = EXPORT_PART_BYTES - 3;

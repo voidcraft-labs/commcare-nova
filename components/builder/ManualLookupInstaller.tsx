@@ -53,10 +53,11 @@ export function ManualLookupInstaller({
 			const result = await response.json();
 			if (!response.ok) {
 				setReview(undefined);
+				setResume(false);
 				setMessage(
-					result.error?.message ??
-						result.message ??
-						"Nova could not install the lookup data.",
+					typeof result.error === "string"
+						? result.error
+						: "Nova could not install the lookup data.",
 				);
 			} else if (result.status === "review") {
 				setReview(result);
@@ -96,15 +97,17 @@ export function ManualLookupInstaller({
 					disabled={working}
 					onChange={async (event) => {
 						reset();
-						const file = event.currentTarget.files?.[0];
+						const input = event.currentTarget;
+						const file = input.files?.[0];
 						setManifest(undefined);
 						try {
 							if (!file || file.size > 2048) throw new Error();
-							setManifest(
-								manualLookupManifestSchema.parse(JSON.parse(await file.text())),
+							const parsed = manualLookupManifestSchema.parse(
+								JSON.parse(await file.text()),
 							);
+							if (input.files?.[0] === file) setManifest(parsed);
 						} catch {
-							if (file)
+							if (file && input.files?.[0] === file)
 								setMessage(
 									`Choose "${MANUAL_LOOKUP_MANIFEST}" from your import ZIP.`,
 								);
