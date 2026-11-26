@@ -57,7 +57,7 @@ def _form_source(xmlns, action):
 
 def _restore():
     root = etree.fromstring(person_cases(TEMPLATE_RESTORE.read_bytes(), [CASE_ID]))
-    case, = root.iter(f"{{{CASE}}}case")
+    case, = (case for case in root.iter(f"{{{CASE}}}case") if case.get("case_id") == CASE_ID)
     case.find(f"{{{CASE}}}create/{{{CASE}}}owner_id").text = "old-owner"
     return etree.tostring(root)
 
