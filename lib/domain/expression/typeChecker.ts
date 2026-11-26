@@ -1135,6 +1135,18 @@ function admission(
 		);
 
 	if (ctx.ruleSet === "record") {
+		// A question's itemset filter runs against the current source row.
+		// Only its zero-argument position reads that context. A nested query
+		// introduces a separate row scope and keeps its own admission rules.
+		if (
+			expression.kind === "call" &&
+			expression.fn === "position" &&
+			expression.args.length === 0 &&
+			ctx.slot.entity === "field" &&
+			ctx.slot.slot === "lookup_options_source" &&
+			ctx.rows.length === 1
+		)
+			return undefined;
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
 		if (

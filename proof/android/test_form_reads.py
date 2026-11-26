@@ -822,7 +822,14 @@ def test_android_sorts_filtered_case_choices_by_text_and_keeps_ties(android_docu
             }
             natural = [choice["value"] for choice in by_question["/data/source_order[1]"]]
             ordered = by_question["/data/sorted[1]"]
+            type_order = [choice["value"] for choice in by_question["/data/type_order[1]"]]
+            assert set(type_order) == set(names)
             assert set(natural) == expected
+            limited_ids = sorted((case_id for case_id in type_order[:2] if case_id in expected), key=ranks.__getitem__)
+            assert by_question["/data/limited[1]"] == [
+                {"value": case_id, "label": names[case_id], "index": i}
+                for i, case_id in enumerate(limited_ids)
+            ]
             ordered_ids = sorted(natural, key=ranks.__getitem__)
             assert ordered == [
                 {"value": case_id, "label": names[case_id], "index": i}

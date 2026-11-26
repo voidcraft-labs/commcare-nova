@@ -420,3 +420,13 @@ def test_vellum_keeps_typed_case_choice_sort_and_refs(hq, editor_driver):
 
         expected = {"value": ["@case_id"], "label": ["case_name"], "sort": ["rank"]}
         assert choices(form.source) == choices(run.stored_source) == expected
+
+        def limited(source):
+            root = etree.fromstring(source.encode())
+            (nodeset,) = root.xpath(
+                "//*[local-name()='select1' and @ref='/data/limited']/*[local-name()='itemset']/@nodeset"
+            )
+            return nodeset
+
+        assert "position() < 3" in limited(form.source)
+        assert limited(run.stored_source) == limited(form.source)

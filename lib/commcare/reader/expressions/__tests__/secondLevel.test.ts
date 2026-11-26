@@ -477,6 +477,21 @@ describe("a case choices filter held at the second level", () => {
 		});
 	}
 
+	it("holds the position of the current choice candidate as a typed integer", () => {
+		const { reading, prints, tree } = readSlot(
+			choicesDoc(),
+			(doc) => ({
+				entity: "field",
+				uuid: fieldNamed(doc, "pick"),
+				slot: "lookup_options_source",
+			}),
+			"position() < 3 and kind = current()/../k",
+		);
+		expect(reading.circumstances).toEqual([]);
+		expect(JSON.stringify(tree)).toContain('"fn":"position","args":[]');
+		expect(prints?.own).toBe("position() < 3 and kind = current()/../k");
+	});
+
 	it("holds a filter keyed by its repeat's answer by the absolute path, reporting its relocation", () => {
 		const text = "kind = /data/r/k";
 		const { reading, prints } = readSlot(
