@@ -89,7 +89,7 @@ def test_hq_declares_no_instance_for_what_only_the_search_buttons_condition_read
     with hq_check(Configuration()) as (state, _):
         bare = _built_suite(state.domain)
         filtered = _built_suite(state.domain, SESSION_FILTER)
-        returning = _built_suite(state.domain, workflow="previous")
+        returning = _built_suite(state.domain, workflow="previous_screen")
 
     action, entry = _action_and_entry(bare)
     assert action.get("relevant") == SESSION_READ

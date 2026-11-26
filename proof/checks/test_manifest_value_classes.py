@@ -3183,7 +3183,7 @@ def _search_and_menus():
             ),
         ),
         "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load": (
-            refused("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[1]/action/@relevant"),
+            refused("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[1]/action[1]/@relevant"),
             accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[1]/@relevant"),
             # another action of the list (a registration form's) is no Search button
             accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[2]/@relevant"),
