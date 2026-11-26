@@ -271,6 +271,47 @@ def with_missing_media(holder, *, delete_file=True):
     return change
 
 
+def generated_menu_icon(holder, scenario):
+    """A released locale replaces the ordinary Visits icon with the Remarks image."""
+    from lxml import etree
+
+    from proof.hq import operations
+
+    image_name, icon_name, _ = MISSING_MEDIA_UNMAPPED
+    key = "modules.m0.icon"
+
+    def change(stored):
+        paths = {path.rsplit("/", 1)[-1]: path for path in stored["multimedia_map"]}
+        image = paths[image_name]
+        assert stored["modules"][0]["media_image"]["en"] == paths[icon_name]
+        if scenario == "ordinary":
+            return
+
+        def remove_original_carrier(source):
+            root = etree.fromstring(source.encode())
+            (carrier,) = root.xpath("//*[local-name()='value' and @form='image' and text()=$image]", image=image)
+            carrier.getparent().remove(carrier)
+            return etree.tostring(root, encoding="unicode")
+
+        form_written(holder, {"0.0": remove_original_carrier})(stored)
+        app = operations.held_app(holder.unit, holder.app_id)
+        assert image in app.multimedia_map
+        if scenario == "other-language":
+            app.langs = ["en", "fr"]
+            app.build_langs = ["en", "fr"]
+            app.modules[0].forms[0].media_image = {"fr": image}
+        app.set_translations("en", {**app.translations.get("en", {}), key: image})
+        app.save()
+        app = operations.held_app(holder.unit, holder.app_id)
+        assert app.translations["en"][key] == image and image in app.multimedia_map
+        assert (image in app.all_media_paths()) == (scenario == "other-language")
+        assert image not in app.all_media_paths(lang="en")
+        stored.clear()
+        stored.update(app.to_json())
+
+    return change
+
+
 @contextmanager
 def served(published: Published, runner, *, label="A", change=None, database=None):
     """The published app (as it stands where this is entered) served to ``runner`` by HQ's own views

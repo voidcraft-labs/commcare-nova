@@ -193,3 +193,44 @@ def test_android_prompts_for_a_questions_missing_image_and_offers_the_missing_so
         ),
     ]
     assert image not in str([item for item in items if item["image"] is not None]), items
+
+
+@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "other-language"])
+def test_generated_navigation_icon_needs_a_file_in_the_full_release(
+    hq, android_documents, android_walk_evidence, scenario
+):
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from proof.android import observe
+    from proof.android.navigation import nav
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.formplayer import hq as formplayer_hq
+    from proof.observe.record import Blobs
+    from proof.rules.conftest import published
+
+    image, icon, _ = apps.MISSING_MEDIA_UNMAPPED
+    expected_name = icon if scenario == "ordinary" else image
+    expected_file = scenario != "orphan"
+    document = android_documents[DOCUMENT]
+    with published(document, None) as app:
+        with formplayer_hq.serve(
+            app.unit, document, app.app_id, change=apps.generated_menu_icon(app, scenario)
+        ) as served:
+            archive = observe.release_archive(served)
+            with ZipFile(BytesIO(archive)) as files:
+                locale = parse_app_strings(files.read("en/app_strings.txt").decode())
+                assert locale["modules.m0.icon"].endswith("/" + expected_name)
+                assert any(name.endswith("/" + expected_name) for name in files.namelist()) == expected_file
+            blobs = Blobs()
+            observed = nav(served, blobs, label=f"generated-icon-{scenario}", archive=archive, paths=[[]])
+            answer = blobs.get_json(observed["answer"])
+
+    android_walk_evidence(answer)
+    assert answer["install"] == "Installed", answer
+    assert answer["signIn"].startswith("Success("), answer
+    walk = answer["navs"][FIRST_MENU]
+    assert "raised" not in walk, walk
+    (visit,) = [item for item in walk["steps"][-1]["menu"]["items"] if item["id"] == VISITS]
+    assert visit["image"]["uri"].endswith("/" + expected_name), visit
+    assert visit["image"]["held"] == expected_file, visit
