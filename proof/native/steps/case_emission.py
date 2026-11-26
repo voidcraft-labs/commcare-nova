@@ -26,7 +26,7 @@ EXTENSION_SCENARIOS = ["registration", "followup", "repeat", "query", "multiple"
 # The extension scenarios Core opens from their suites (``CaseOperationRuntimeTest``), HQ's beside Nova's.
 SUITE_RUN_SCENARIOS = ["followup", "repeat"]
 # The targeted documents the family emits whole (``proof/native/producers/emit-case-evidence.ts``).
-WHOLE_DOCUMENTS = ["advanced-module", "root-case-block-names", "datetime-saved"]
+WHOLE_DOCUMENTS = ["advanced-module", "independent-form-choices", "shared-visit-entries", "root-case-block-names", "datetime-saved"]
 # What HQ answers an advanced document's build on: Save to Case blocks, child cases and the worker's record.
 WHOLE_PRIVILEGES = {"VELLUM_SAVE_TO_CASE", "CHILD_CASES", "USERCASE"}
 WORKER_SCENARIOS = ["worker-survey", "worker-followup"]
@@ -146,6 +146,7 @@ def _whole(exports, name):
     advanced form, what ``test_advanced_emission.py`` holds to the local archive: HQ's advanced case blocks alone
     (``XForm._create_casexml_advanced``), its datums and assertions (``get_datum_meta_assertions_advanced`` with the
     new-case datums ``configure_entry_advanced_form`` adds) and ``validate_app``'s errors."""
+    from corehq.apps.app_manager import id_strings
     from corehq.apps.app_manager.suite_xml.sections.entries import EntriesHelper
     from corehq.apps.app_manager.xform import XForm
 
@@ -160,19 +161,22 @@ def _whole(exports, name):
     for module_index, module in enumerate(app.get_modules()):
         for form_index, form in enumerate(module.get_forms()):
             stem = f"{name}.m{module_index}f{form_index}"
-            (exports / f"{stem}.hq.xml").write_bytes(regenerate_form(form, DOMAIN))
-            if form.form_type != "advanced_form":
-                continue
-            blocks = XForm(form.source, domain=DOMAIN)
-            blocks._create_casexml_advanced(form)
+            content = {}
+            if form.form_type != "shadow_form":
+                (exports / f"{stem}.hq.xml").write_bytes(regenerate_form(form, DOMAIN))
+                if form.form_type != "advanced_form":
+                    continue
+                blocks = XForm(form.source, domain=DOMAIN)
+                blocks._create_casexml_advanced(form)
+                content = {"native": etree.tostring(blocks.xml), "local": (exports / f"{stem}.xml").read_bytes()}
             datums, assertions = helper.get_datum_meta_assertions_advanced(module, form)
             datums = [*datums, *EntriesHelper.get_new_case_id_datums_meta(form)]
             forms.append(
                 {
                     "form": stem,
                     "xmlns": form.xmlns,
-                    "native": etree.tostring(blocks.xml),
-                    "local": (exports / f"{stem}.xml").read_bytes(),
+                    "command": id_strings.form_command(form, module),
+                    **content,
                     "datums": [_datum(meta.datum) for meta in datums],
                     "assertions": [str(assertion.test) for assertion in assertions],
                 }

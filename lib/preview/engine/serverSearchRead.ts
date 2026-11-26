@@ -23,7 +23,11 @@ import { caseListStep } from "../caseListPhase";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
 import { previewMenuCaseContext } from "../menuProjection";
 import { previewPlatformRules } from "../platform";
-import { projectWorkerModule } from "../workerModule";
+import {
+	projectWorkerModule,
+	type WorkerListPurpose,
+	workerListFor,
+} from "../workerModule";
 import type { readCases } from "./caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "./caseListOrder";
 import { completedSearchRequest } from "./completedSearchRequest";
@@ -69,6 +73,12 @@ export interface ServerSearchWorld {
 /** What the worker did on the records screen. */
 export interface ServerSearchRequest {
 	readonly completeForForm?: boolean;
+	readonly advancedListItem?: boolean;
+	readonly formEntry?: {
+		readonly chosenCaseIds: Readonly<Record<string, string>>;
+		readonly sessionData: Readonly<Record<string, string>>;
+		readonly under?: { caseId: string; caseType: string; identifier: string };
+	};
 	readonly moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
 	readonly submitted?: readonly { name: string; value: string }[];
@@ -123,17 +133,25 @@ export async function serverRecordsRead(
 	request: ServerSearchRequest,
 	refuse: (reason: "no-record-list" | "parent-required") => Error,
 ) {
-	const mod = projectWorkerModule(
+	const menu = projectWorkerModule(
 		world.doc,
 		world.language,
 		request.moduleUuid,
 	);
+	const listPurpose: WorkerListPurpose | undefined = request.formEntry
+		? "form-selection"
+		: request.advancedListItem
+			? "advanced-list-item"
+			: undefined;
+	const mod = workerListFor(menu, listPurpose);
 	if (!mod?.caseType) throw refuse("no-record-list");
 	const caseType = mod.caseType;
 	const search = await evaluateSearch(
 		world.doc,
 		{
 			moduleUuid: request.moduleUuid,
+			listPurpose,
+			registeredResult: request.registeredCaseId !== undefined,
 			language: world.language,
 			submitted: request.submitted,
 			entry: request.entry,
@@ -170,7 +188,8 @@ export async function serverRecordsRead(
 		request.moduleUuid,
 		world.selections,
 	);
-	if (caseContext.requiredParentCase) throw refuse("parent-required");
+	if (!listPurpose && caseContext.requiredParentCase)
+		throw refuse("parent-required");
 	/* A completed or submitted search's Results read HQ's search population,
 	 * as the browser's do; a browse list reads the session's restore. */
 	const searched = recordsReadSearch(mod, {
@@ -200,7 +219,7 @@ export async function serverRecordsRead(
 					caseListConfig: searchConfig,
 					answers: search.inputValues,
 					session,
-					sessionData: step.data,
+					sessionData: request.formEntry?.sessionData ?? step.data,
 					caseDatabase: world.deviceCases,
 					lookup,
 				})
@@ -263,11 +282,21 @@ export async function serverRecordsRead(
 							world.language,
 						),
 					}),
-					parentCase: parentCaseConstraint(
-						world.doc,
-						request.moduleUuid,
-						caseContext.parentCase,
-					),
+					parentCase: request.formEntry
+						? request.formEntry.under
+							? {
+									caseType: request.formEntry.under.caseType,
+									caseIds: [request.formEntry.under.caseId],
+									index: request.formEntry.under.identifier,
+								}
+							: undefined
+						: request.advancedListItem
+							? undefined
+							: parentCaseConstraint(
+									world.doc,
+									request.moduleUuid,
+									caseContext.parentCase,
+								),
 					inputValues: registeredCaseId ? undefined : search.inputValues,
 					...(searchCsql !== undefined && { searchCsql }),
 					bindings: {
@@ -278,7 +307,8 @@ export async function serverRecordsRead(
 							search.expressionValues,
 							world.timeZone,
 						),
-						chosenCaseIds: step.chosenCaseIds,
+						chosenCaseIds:
+							request.formEntry?.chosenCaseIds ?? step.chosenCaseIds,
 					},
 					lookupTableSchemas: workerLookupSchemas(
 						world.projectId,

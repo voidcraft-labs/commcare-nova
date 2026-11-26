@@ -1,7 +1,7 @@
 /** Real app birth, authorization, worker materialization and form submission.
  * Only the authenticated request session is supplied at its external boundary. */
 import { sql } from "kysely";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildCaseTypeMap,
@@ -19,10 +19,14 @@ import {
 } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
-import { USERCASE_CASE_TYPE } from "@/lib/domain";
+import { type BlueprintDoc, USERCASE_CASE_TYPE } from "@/lib/domain";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
+import type { SubmissionMutation } from "@/lib/preview/engine/caseDataBindingTypes";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
+import { readFormOpeningAction } from "@/lib/preview/engine/formOpeningAction";
 import { resolveAuthorizedPreviewContext } from "@/lib/preview/engine/previewAuthorization";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { syncUsercaseRow } from "../syncUsercaseRow";
@@ -56,6 +60,7 @@ const h = setupAppStateTestDb("usercase_identity_", {
 	poolMax: 4,
 });
 beforeEach(async () => {
+	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic worker opening secret");
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
 	await h.seedProjectMember(ACTOR, OTHER_PROJECT, "owner");
 	// The live browser session every Project data read locks.
@@ -63,6 +68,79 @@ beforeEach(async () => {
 		VALUES ('worker-in-many-apps-session','usercase-token',${ACTOR},now()+interval '1 hour',now(),now())
 		ON CONFLICT (id) DO NOTHING`.execute(h.db());
 });
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
+
+/** A form saving to the worker's record opens as the browser opens it: the
+ * server signs the restore it read, and the submission carries that opening. */
+async function openedSubmission(
+	appId: string,
+	doc: BlueprintDoc,
+	fill: (engine: FormEngine) => void,
+): Promise<SubmissionMutation> {
+	const form = Object.values(doc.forms)[0];
+	const module = moduleUuidOfForm(doc, form.uuid);
+	if (!module) throw new Error("The starter form has no menu");
+	const run = crypto.randomUUID();
+	const entry = crypto.randomUUID();
+	const opening = await readFormOpeningAction(
+		{
+			app: appId,
+			module,
+			form: form.uuid,
+			run,
+			entry,
+			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
+		},
+		webAppsDevice(),
+	);
+	if (opening.kind !== "opening")
+		throw new Error(`Form opening failed: ${JSON.stringify(opening)}`);
+	const preview = await resolveAuthorizedPreviewContext({
+		appId,
+		required: "edit",
+		loadBlueprint: true,
+	});
+	if (preview.kind !== "ready")
+		throw new Error(`Preview refused: ${preview.kind}`);
+	const engine = new FormEngine(
+		{
+			doc,
+			form,
+			formUuid: form.uuid,
+			fields: doc.fields,
+			fieldOrder: doc.fieldOrder,
+			caseTypes: doc.caseTypes ?? [],
+			userProperties: doc.userProperties,
+		},
+		undefined,
+		undefined,
+		preview.identity,
+	);
+	fill(engine);
+	return {
+		...engine.computeSubmissionMutation({ entryKey: entry }),
+		formOpening: { module, run, evidence: opening.evidence },
+	};
+}
+
+function submitOpened(
+	mutation: SubmissionMutation,
+	appId: string,
+	doc: BlueprintDoc,
+) {
+	return submitFormAction(
+		mutation,
+		appId,
+		canonicalJsonDigest(toPersistableDoc(doc)),
+		undefined,
+		undefined,
+		undefined,
+		webAppsDevice(),
+	);
+}
+
 async function create(projectId = PROJECT) {
 	const birth = await createExplicitBlankApp(
 		ACTOR,
@@ -170,38 +248,11 @@ async function workerSubmissionArgs(app: Awaited<ReturnType<typeof create>>) {
 }
 
 async function submit(app: Awaited<ReturnType<typeof create>>, answer: string) {
-	const preview = await resolveAuthorizedPreviewContext({
-		appId: app.appId,
-		required: "edit",
-		loadBlueprint: true,
-	});
-	if (preview.kind !== "ready")
-		throw new Error(`Preview refused: ${preview.kind}`);
-	const form = Object.values(app.doc.forms)[0];
-	const engine = new FormEngine(
-		{
-			doc: app.doc,
-			form,
-			formUuid: form.uuid,
-			fields: app.doc.fields,
-			fieldOrder: app.doc.fieldOrder,
-			caseTypes: app.doc.caseTypes ?? [],
-			userProperties: app.doc.userProperties,
-		},
-		undefined,
-		undefined,
-		preview.identity,
-	);
 	const field = app.doc.fields[app.fieldUuid];
-	engine.setValue(`/data/${field.id}`, answer);
-	const mutation = engine.computeSubmissionMutation({
-		entryKey: crypto.randomUUID(),
-	});
-	const result = await submitFormAction(
-		mutation,
-		app.appId,
-		canonicalJsonDigest(toPersistableDoc(app.doc)),
+	const mutation = await openedSubmission(app.appId, app.doc, (engine) =>
+		engine.setValue(`/data/${field.id}`, answer),
 	);
+	const result = await submitOpened(mutation, app.appId, app.doc);
 	expect(result.kind).toBe("survey");
 	if (result.kind !== "survey") throw new Error(JSON.stringify(result));
 	expect(result.caseDatabasePatch?.rows).toHaveLength(1);
@@ -236,13 +287,9 @@ it.each([PROJECT, OTHER_PROJECT])(
 		expect(a.saved.project_id).toBe(PROJECT);
 		expect(b.saved.project_id).toBe(secondProject);
 		expect((await rows(first.appId))[0].properties.visits).toBe("7");
-		expect(
-			await submitFormAction(
-				a.mutation,
-				first.appId,
-				canonicalJsonDigest(toPersistableDoc(first.doc)),
-			),
-		).toEqual(a.result);
+		expect(await submitOpened(a.mutation, first.appId, first.doc)).toEqual(
+			a.result,
+		);
 	},
 );
 
@@ -411,25 +458,18 @@ it("does not write a normal case whose id happens to equal the worker id", async
 			properties: { visits: "unchanged" },
 		},
 	});
-	const form = Object.values(doc.forms)[0];
-	const engine = new FormEngine({
-		doc,
-		form,
-		formUuid: form.uuid,
-		fields: doc.fields,
-		fieldOrder: doc.fieldOrder,
-		caseTypes: doc.caseTypes ?? [],
-		userProperties: doc.userProperties,
-	});
-	engine.setValue(`/data/${doc.fields[app.fieldUuid].id}`, "must-not-land");
-	const mutation = engine.computeSubmissionMutation({
-		entryKey: crypto.randomUUID(),
-	});
-	const result = await submitFormAction(
-		mutation,
-		app.appId,
-		canonicalJsonDigest(toPersistableDoc(doc)),
+	const mutation = await openedSubmission(app.appId, doc, (engine) =>
+		engine.setValue(`/data/${doc.fields[app.fieldUuid].id}`, "must-not-land"),
 	);
+	// Opening the form materializes the worker's record. Without it, the
+	// write has no target, and the patient whose id is the worker's is no
+	// stand-in for it.
+	await h
+		.pool()
+		.query("DELETE FROM cases WHERE app_id=$1 AND case_type='commcare-user'", [
+			app.appId,
+		]);
+	const result = await submitOpened(mutation, app.appId, doc);
 	expect(result.kind).toBe("case-not-found");
 	expect(await rows(app.appId)).toEqual([]);
 	const actual = await store.query({

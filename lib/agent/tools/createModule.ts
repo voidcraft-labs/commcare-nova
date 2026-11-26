@@ -1,7 +1,10 @@
 /** Create a module in the private candidate; forms and list refinements are separate operations. */
 
 import { z } from "zod";
-import { listedFormMenuMutations } from "@/lib/doc/scaffolds";
+import {
+	declareCaseTypeMutations,
+	listedFormMenuMutations,
+} from "@/lib/doc/scaffolds";
 import { withListedMenuHierarchy } from "@/lib/doc/sharedMenuHierarchy";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -67,7 +70,7 @@ export const createModuleInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Record type for this module. A new name declares the type; null for surveys.",
+				"Record type this module lists. Use commcare-user for the worker’s own record, a new name to declare a business record type, or null for surveys.",
 			),
 		purpose: z
 			.string()
@@ -174,6 +177,26 @@ export const createModuleTool = {
 					]
 				: [];
 			const mutations: Mutation[] = [
+				...(case_type ? declareCaseTypeMutations(doc, case_type) : []),
+				...addModuleMutations({
+					uuid: moduleUuid,
+					name,
+					...(parentModuleUuid !== undefined && { parentModuleUuid }),
+					...(parentCaseModuleUuid !== undefined && { parentCaseModuleUuid }),
+					...(case_type && { caseType: case_type }),
+					...(case_list_menu_item !== undefined && {
+						caseListMenuItem: caseListMenuItemFromInput(case_list_menu_item),
+					}),
+					...(purpose != null && { purpose }),
+					...(columns.length > 0 && {
+						caseListConfig: {
+							columns,
+							listColumnOrder: columns.map((column) => column.uuid),
+							detailColumnOrder: columns.map((column) => column.uuid),
+							searchInputs: [],
+						},
+					}),
+				}),
 				...(case_type && !doc.caseTypes?.some((type) => type.name === case_type)
 					? [{ kind: "declareCaseType" as const, caseType: case_type }]
 					: []),

@@ -593,7 +593,8 @@ function addOwnCases(doc: BlueprintDoc): void {
 		if (caseType === undefined) continue;
 		for (const formUuid of formUuids) {
 			const form = doc.forms[formUuid];
-			if (form === undefined || form.type === "survey") continue;
+			if (form === undefined || form.shadowOf || form.type === "survey")
+				continue;
 			const operations = form.caseOperations ?? [];
 			if (operations.some((operation) => operation.action === "own")) continue;
 			form.caseOperations = [
