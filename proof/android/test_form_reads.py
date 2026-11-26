@@ -668,20 +668,24 @@ def test_android_app_returns_update_only_the_invoking_row(android_documents, hq)
                 {"register": "registered", "simprints": "overridden", "primary": "ignored"},
                 {"verify": "verified", "primary": "ignored"},
                 {"identify": "best", "primary": "ignored"},
-            ], [{"missingHandler": True}]],
+            ], [
+                {"primary": "two", "named": {"measurement": "015"}},
+                {"missingHandler": True},
+            ]],
             "verify": [[{"primary": "012", "named": {"measurement": "08"}}], [{"invalid": True}]],
         })
         samples = _app_samples(walk)
-        assert len(samples) == 11, samples
-        first, cancelled, cleared, empty, simprints, registration, verification, identification, auxiliary, sibling, invalid = samples
+        assert len(samples) == 12, samples
+        (first, cancelled, cleared, empty, simprints, registration, verification,
+         identification, auxiliary, second, missing_handler, invalid) = samples
         assert first["action"] == "org.example.MEASURE"
         assert first["sent"] == {"odk_intent_data": "previous", "unit": "litres"}
         first_rows = _result_rows(first, "after")
-        assert len(first_rows) == 2
+        # Android materializes the second counted row when the worker advances to it.
+        assert len(first_rows) == len(_result_rows(first, "before")) == 1
         assert first_rows[0]["meter"] == "one"
         assert (first_rows[0]["description"], first_rows[0]["reading"]) == ("calibrated", "7")
         assert first_rows[0]["attachment"] == "synthetic-meter-reading.txt" and first["copied"] == "from meter"
-        assert first_rows[1] == _result_rows(first, "before")[1]
         assert cancelled["sent"]["odk_intent_data"] == "one"
         assert _result_rows(cancelled, "after") == _result_rows(cancelled, "before")
         after_clear = _result_rows(cleared, "after")[0]
@@ -704,8 +708,18 @@ def test_android_app_returns_update_only_the_invoking_row(android_documents, hq)
         assert auxiliary["sent"]["odk_intent_data"] == "9"
         altered = _result_rows(auxiliary, "after")[0]
         assert (altered["verify"], altered["meter"], altered["reading"], altered["description"]) == ("12", "★★★★", "8", "08")
-        assert sibling["missingHandler"]
-        assert _result_rows(sibling, "after") == _result_rows(sibling, "before")
+        before_second = _result_rows(second, "before")
+        after_second = _result_rows(second, "after")
+        assert len(before_second) == len(after_second) == 2
+        assert after_second[0] == before_second[0]
+        assert after_second[1] == {
+            **before_second[1],
+            "meter": "two",
+            "description": "015",
+            "reading": "15",
+        }
+        assert missing_handler["missingHandler"]
+        assert _result_rows(missing_handler, "after") == _result_rows(missing_handler, "before")
         assert _result_rows(invalid, "after") == _result_rows(invalid, "before")
 
 
