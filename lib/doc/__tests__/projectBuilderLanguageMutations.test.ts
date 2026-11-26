@@ -8,6 +8,7 @@ import { applyMutations } from "@/lib/doc/mutations";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	collectLocalizedTranslationUnits,
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	isOrdinaryCaseSearchConfig,
@@ -603,6 +604,49 @@ describe("projectBuilderLanguageMutations", () => {
 						?.caseSearchConfig,
 				),
 			).not.toBeNull();
+	});
+
+	// A translation taken from the title the source had translates nothing once
+	// the source shows none, and nothing can bring it up to date, so turning the
+	// title off removes it: no language counts a title out of date that Translate
+	// can't repair.
+	it("drops other languages' translations of a title the source turns off", () => {
+		const doc = fixture();
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
+		const before = localized?.caseSearchConfig;
+		if (before === undefined) throw new Error("Expected a localized search.");
+		const translated = apply(
+			doc,
+			project(
+				doc,
+				caseSearchConfigPatchMutations(MODULE, before, {
+					...before,
+					searchScreenTitle: "Encontrar pacientes",
+				}),
+			),
+		);
+		const unit = makeTranslationUnitId("module", MODULE, "search-title");
+		expect(
+			effectiveAppLocalization(translated.localization).translations.spa?.[
+				unit
+			],
+		).toBeDefined();
+		const off = apply(translated, [
+			{
+				kind: "updateModule",
+				uuid: MODULE,
+				patch: {},
+				caseSearchConfigPatch: { searchScreenTitle: NO_SEARCH_SCREEN_TITLE },
+			} as Mutation,
+		]);
+		expect(
+			effectiveAppLocalization(off.localization).translations.spa?.[unit],
+		).toBeUndefined();
+		expect(
+			collectLocalizedTranslationUnits(off, "spa").find(
+				(one) => one.id === unit,
+			)?.status,
+		).toBe("ready");
 	});
 
 	it("leaves source-lens mutations canonical and refuses a removed target", () => {
