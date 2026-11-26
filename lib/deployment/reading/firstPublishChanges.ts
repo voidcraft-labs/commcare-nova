@@ -1777,6 +1777,24 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/translations/*/homescreen.title",
 		],
 	},
+	"badge-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("badge-respelled"),
+		at: {
+			kinds: ["menu", "form"],
+			places: (facts) => recordedPlaces(facts, "badge-respelled"),
+		},
+		paths: [
+			"/modules/*/custom_icons",
+			"/modules/*/custom_icons/0/text",
+			"/modules/*/custom_icons/0/xpath",
+			"/modules/*/forms/*/custom_icons",
+			"/modules/*/forms/*/custom_icons/0/text",
+			"/modules/*/forms/*/custom_icons/0/xpath",
+		],
+	},
+
 	/**
 	 * A navigation media map Nova writes with other paths than HQ stores:
 	 * one read under a "use for all" switch, written as each language's file
@@ -1823,6 +1841,8 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/search_config/properties/*/hint",
 			"/modules/*/search_config/properties/*/required/text",
 			"/modules/*/search_config/properties/*/validations/*/text",
+			"/modules/*/custom_icons/0/text",
+			"/modules/*/forms/*/custom_icons/0/text",
 		],
 	},
 	/**

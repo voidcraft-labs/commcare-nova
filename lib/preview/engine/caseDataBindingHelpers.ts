@@ -79,6 +79,7 @@ import {
 	caseOperationExpressionSnapshotTypes,
 	caseOperationMultiplicityScopes,
 } from "@/lib/doc/caseOperationOrder";
+import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -100,6 +101,8 @@ import {
 	caseWriteValueField,
 	columnPropertyCaseType,
 	columnRelationPath,
+	creationLaunchSchema,
+	entryPointByUuid,
 	type Form,
 	type FormType,
 	isCaptureFieldKind,
@@ -109,6 +112,7 @@ import {
 	organizationLevelsOf,
 	type PersistableDoc,
 	searchInputRuntimeValueType,
+	suppliedCreationIssue,
 	TIME_SINCE_UNIT_DAYS,
 	type Uuid,
 } from "@/lib/domain";
@@ -2081,6 +2085,38 @@ export function buildCaseOperationProgramFromDoc(args: {
 	};
 	const committed = committedProgramForm(doc, formUuid);
 	const operations = committed.operations;
+	if (operations.length === 0 && mutation.entrySupplies === undefined)
+		return ordinaryStructure;
+	const entryCaseKeys = entryNamedCreates(doc, formUuid);
+	const suppliedCaseIds = new Map<Uuid, string>();
+	if (mutation.entrySupplies !== undefined) {
+		const parsed = creationLaunchSchema.safeParse(mutation.entrySupplies);
+		if (!parsed.success)
+			throw new CaptureSubmissionRejectedError(
+				"These deep link case IDs are incomplete. Open the link again.",
+			);
+		const launch = parsed.data;
+		const target = entryPointByUuid(doc, launch.entryPointUuid)?.target;
+		if (target?.kind !== "form" || target.formUuid !== formUuid)
+			throw new CaptureSubmissionRejectedError(
+				"The deep link no longer opens this form. Open its current link and try again.",
+			);
+		const requirements = entryPointRequirements(doc, target);
+		if (!requirements.available)
+			throw new CaptureSubmissionRejectedError(requirements.message);
+		const issue = suppliedCreationIssue(
+			requirements.requiredCreations,
+			launch.creations,
+		);
+		if (issue) throw new CaptureSubmissionRejectedError(issue);
+		for (const creation of launch.creations) {
+			if (!entryCaseKeys.has(creation.operationUuid))
+				throw new CaptureSubmissionRejectedError(
+					"The form no longer creates a case named by this deep link. Open the current link and try again.",
+				);
+			suppliedCaseIds.set(creation.operationUuid, creation.caseId);
+		}
+	}
 	if (operations.length === 0) return ordinaryStructure;
 	/* A client that sent no answers sent none for any question: a form whose
 	 * operations read none (an own case that only touches the case it
@@ -2277,7 +2313,6 @@ export function buildCaseOperationProgramFromDoc(args: {
 		throw new CaptureSubmissionRejectedError(
 			"This form needs one group to own its new cases. You can check this worker's groups and places, then open it again.",
 		);
-	const entryCaseKeys = entryNamedCreates(doc, formUuid);
 	return {
 		...ordinaryStructure,
 		program: {
@@ -2293,6 +2328,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 						revisions: args.workerScopeRevision,
 					},
 				}),
+			...(suppliedCaseIds.size > 0 && { suppliedCaseIds }),
 			scopes,
 			...(mutation.kind === "followup" || mutation.kind === "close"
 				? { sessionCaseIds: mutation.caseIds }

@@ -5254,7 +5254,8 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		profileFeatures === null ||
 		typeof stored.autoGpsCapture !== "boolean" ||
 		(stored.caseSharing !== undefined &&
-			typeof stored.caseSharing !== "boolean")
+			typeof stored.caseSharing !== "boolean") ||
+		(stored.menuLayouts !== undefined && stored.menuLayouts !== true)
 	)
 		return null;
 	return {
@@ -5264,6 +5265,7 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		...(profileFeatures !== undefined && { profileFeatures }),
 		autoGpsCapture: stored.autoGpsCapture,
 		...(stored.caseSharing === true && { caseSharing: true }),
+		...(stored.menuLayouts === true && { menuLayouts: true as const }),
 	};
 }
 

@@ -226,3 +226,51 @@ def test_an_item_off_the_menu_is_listed_nowhere_and_opens_from_a_link_or_entry_p
     assert landed["To inside"] == {"kind": "commands", "title": "Hidden menus", "commands": ["Start", "Targets"]}
     # Rows 5 and 6, and the shown form's entry point.
     assert entered == ENTRY_POINTS
+
+
+def test_shared_forms_keep_their_route_and_the_links_respect_each_routes_conditions(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    with apps.published(formplayer_documents["targeted-listed-forms"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served:
+            menus = {}
+            for menu, path in (("Visits", ["0"]), ("Clinic", ["1"])):
+                with served.run(menu):
+                    menus[menu] = _landing(apps.web(formplayer_runner, served).navigate(path))
+            entered = {}
+            for endpoint in ("visit", "clinic_visit", "private_notes", "clinic_private"):
+                with served.run(endpoint):
+                    opened = apps.web(formplayer_runner, served).navigate(
+                        [], route="get_endpoint", endpoint_id=endpoint, endpoint_args={}
+                    )
+                    entered[endpoint] = _landing(opened)
+    evidence("listed-forms", {"menus": menus, "entries": entered})
+    assert menus["Visits"] == {
+        "kind": "commands",
+        "title": "Visits",
+        "commands": ["Archive", "Visit notes", "Check supplies"],
+    }
+    assert menus["Clinic"] == {"kind": "commands", "title": "Clinic", "commands": ["Visit notes", "Check supplies"]}
+    assert entered["visit"] == entered["clinic_visit"] == {"kind": "form", "title": "Visit notes", "commands": []}
+    assert entered["private_notes"] == {"kind": "form", "title": "Private notes", "commands": []}
+    assert entered["clinic_private"] == menus["Clinic"]
+
+
+def test_previous_on_a_deep_linked_first_menu_form_rebuilds_a_fresh_case_choice(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    document = formplayer_documents["targeted-forms-in-menu-above-one-case"]
+    with apps.published(document, core_runner) as published:
+        with apps.served(published, formplayer_runner) as served, served.run("first-menu-patient"):
+            web = apps.web(formplayer_runner, served)
+            form = web.navigate([], route="get_endpoint", endpoint_id="patient_visit", endpoint_args={"case_id": "patient-2"})
+            assert _landing(form)["title"] == "Visit", form
+            (note,) = [node for node in form["tree"] if node["type"] == "question"]
+            submitted = web.submit(form["session_id"], {note["ix"]: "Reviewed"})
+            assert submitted["status"] == "success", submitted
+            returned = submitted["nextScreen"]
+            assert screen_kind(returned) == "commands", returned
+            check = next(index for index, row in enumerate(returned["commands"]) if row["displayText"] == "Check")
+            selected = web.navigate([str(check)])
+            assert screen_kind(selected) == "entities", selected
+            evidence("first-menu-patient", {"opened": _landing(form), "returned": _landing(returned), "next": _landing(selected)})

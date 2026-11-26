@@ -730,32 +730,25 @@ condition slot), validated by
 `lib/commcare/validator/rules/displayConditions.ts` and emitted through
 `lib/commcare/suite/displayConditions.ts`.
 
-The validator's restrictions are wire-forced, not stylistic:
+A visibility condition evaluates while the worker chooses a menu or form.
+A menu can query restored case rows and data tables before the worker
+selects a case. A form can use the chosen case, including its linked rows,
+when the physical screen has selected that case and HQ can apply the filter
+to that command. HQ excludes the worker's own restored record from its
+forms-first restriction on case queries. Sign-in values and worker-record
+properties have distinct typed sources. In a case-list filter the case store
+binds a worker-record read to the authorized worker and Project.
 
-- A relevancy expression that throws at render takes down the **entire** Web Apps
-  menu screen, not just the offending item — `MenuLoader::getMenuDisplayables`
-  catches and `MenuScreen::init` rethrows at screen level. Every condition is
-  therefore boolean by construction and checker-gated.
-- HQ rejects any casedb reference in a form filter whose module does not
-  guarantee a selected case (`menus.py`, via `xpath_references_case` after
-  interpolation). Module filters skip that check but hard-reject `#case`,
-  `#parent`, `#host`, **and** bare-dot case shorthand
-  (`app_manager/xpath.py::_ensure_no_case_references`), so an emitted module
-  filter must be dot-free as well as hashtag-free.
-- Counts, `exists`/`missing`, and non-self reads are refused.
-
-The form-condition evaluation locus for a case-first module is the case-list
-screen after selection — including whether a form chosen before the case opens;
-the module screen's form list is a gating site only for the forms-first flow.
-That locus is a product requirement as well as a validator rule, because it
-decides what the editor may offer: `CaseDataScope` is `per-case` (case rows
-and their relatives), `selected-case` (one chosen case's own properties —
-relationship walks, counts, and presence tests withheld with the scope's own
-explanation), or `global` (no case at all). A module condition and a
-forms-first form condition are `global`; a case-first form condition is
-`selected-case`. `PredicateEditProvider` reads the slot's profile
-(`editorAxesForSlot`), so no surface can silently offer a read the commit gate
-would reject.
+A badge on a menu or form has either localizable text or a typed calculation
+in the item's display context. HQ's editor replaces its first custom icon.
+The suite reads its locale key or evaluates its expression. Core requests the
+badge when it lists the item. Web Apps displays its whole text. Android hides
+an empty badge and the exact string `0`. A value over three UTF-16 units
+displays as `999+` if Java can parse it as a 32-bit integer. Other long values
+display their first three units followed by two dots. Case-list commands and
+registration buttons ignore the inherited badge field on their HQ models.
+The publish plan asks for the badge privilege and for worker-record capability
+where the chosen expression reads that record.
 
 A second, independent axis governs **Never match**.
 A navigation condition that is, or starts with, `match-none` is refused by a
@@ -1795,17 +1788,39 @@ returns to Home (`menuForms.ts::caseListRegistrationReturnOf`).
 (`CASE_LIST_REGISTRATION_FORM_NOT_FOUND`); a form that is no registration form of the host's
 type, or holds more than one registration of it (`CASE_LIST_REGISTRATION_NOT_REGISTRATION`);
 a host that shows its forms above (`CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE`); a host
-some form of which needs no case (`CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST`); and a host
-or a named form in an advanced menu (`CASE_LIST_REGISTRATION_ADVANCED_MENU`).
+some form of which needs no case (`CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST`); and an
+advanced host one of whose forms breaks a case-list-module rule
+(`CASE_LIST_REGISTRATION_ADVANCED_MENU`, naming that form).
+
+**Advanced menus.** A named form in an advanced menu is offered like any other: its one open of
+the host's type outside a repeat is the action's case, and the return frame reads that open's
+`case_session_var` (`workflow.py::CaseListFormWorkflow._get_source_session_var`). An advanced host
+offers only a registration, since an `AdvancedModule` has no parent selection to follow up on
+(`views/modules.py::_case_list_form_options`). CommCare HQ's build holds such a host to six rules
+over each form's loads that select no case on their own
+(`helpers/validators.py::AdvancedModuleValidator.validate_with_raise`): every form loads the same
+case types, loads at least one, each load after the first is indexed to the one before it, the
+last is the host's type, every form keeps the last under one case tag, and the last chooses from
+the host's own list. `caseListRegistration.ts::advancedCaseListHostBreak` checks them over the
+loads Nova's export writes (`advancedSelections.ts::advancedFormLoads`), so a form moved into the
+host, or a tag a publish keeps, is refused with that form named. The Register action and both
+return frames are HQ's for the shape (`tests/data/case_list_form/case-list-form-advanced.xml`):
+the action pushes the form's command and its new case's `uuid()` datum, and the `default` frame
+puts the new case into the host's load datum (`case_id_<tag>`).
 
 **A label with no text.** Where a block made in CommCare HQ holds a label that yields no text
-in a language, HQ's build writes "Create a new Case" there
+in a language, HQ's build writes its fallback words there
 (`app_strings.py::_create_case_list_form_app_strings`): in every language where no language
-holds text, and in each language whose value is an empty string. A label Nova writes always
-holds text: the slot's `label`, else the form's name. The reader of CommCare HQ's apps reads
-such a label as the text HQ's build writes, "Create a new Case" in each of those languages
-(`lib/commcare/reader/menus/registration.ts`, through `modules.ts::labelAsBuilt`), and records
-the spelling the first publish writes in its place under the register row
+holds text, and in each language whose value is an empty string. The words follow the project
+space's FOLLOWUP_FORMS_AS_CASE_LIST_FORM setting: with it on, "Continue To <form name>" (the
+form's name as HQ's build reads it in that language); without it, "Create a new Case". A label
+Nova writes always holds text: the slot's `label`, else the form's name. The reader of CommCare
+HQ's apps reads such a label as the words HQ's build writes for the project space it came from,
+in each of those languages (`lib/commcare/reader/menus/registration.ts::emptyLabelText`, from
+the reading's `caseListActionsApplied`, through `modules.ts::labelAsBuilt`). A reading asks the
+project space for that setting wherever a button's label falls back in some language
+(`lib/commcare/hq/caseListActionSetting.ts::sourceUsesCaseListActionSetting`). The reader
+records the spelling the first publish writes in its place under the register row
 `registration-label-fixed`.
 
 **The button by platform.** Web Apps draws the action's text alone
@@ -3092,11 +3107,11 @@ gate enforces the
 one-tier topology; `lib/domain/CLAUDE.md` and `lib/doc/CLAUDE.md` own the
 topology, mutation, replay, and deletion contracts.
 
-Menu parentage organizes navigation; case-type parentage selects related data.
-The two may coincide, but neither implies the other. Preview keeps menu-scoped
-case selections separately from its menu tree, reuses a selected case only for
-a same-case-type child, and runs the existing parent-case-first flow for a
-different child case type. Home shows roots, a parent menu shows its own content
+Menu nesting organizes navigation. A separate menu identity determines whether
+a worker chooses another record before this menu lists its cases. A basic list
+follows the saved records' direct non-extension indexes to that choice; an
+advanced list follows its named index. A menu with no forms contributes no
+form datums to its child. Home shows roots, a parent menu shows its own content
 plus child-menu tiles, and UUID-addressed screens, breadcrumbs, search, recovery,
 and Builder placement controls keep their identity through reorder or reparent.
 `components/builder/CLAUDE.md`, `lib/routing/CLAUDE.md`,
@@ -3118,6 +3133,21 @@ run the same case workflow. Child conditions remain their own menu conditions;
 containment supplies the parent gate. `lib/commcare/CLAUDE.md` owns the lowering
 and its pinned HQ fixture provenance, and `content/docs/nested-menus.mdx` is the
 user-facing guide.
+
+#### Menu layouts
+
+The first menu and the other menus each have their own layout. Other menus can all
+use lists, all use grids, or use individual choices. App settings hold the policies.
+Each ordinary menu keeps its individual grid choice when the app-wide policy changes.
+A new app and a menu without an individual choice start with lists.
+
+A layout belongs to the screen the worker sees. HQ assigns a style to each menu
+contribution by its actual suite id. On a shared screen, Core ignores absent styles,
+so a grid contribution from a child showing forms above also lays out the parent's
+choices as a grid. HQ adds an empty styled first menu if the first menu has no
+explicit contribution. The local package follows both rules. Android workers hold
+a tile to hear its spoken label. Web Apps offers the player on list rows and omits
+it on grid tiles. Both keep each choice's name, image and navigation.
 
 #### Forms in the menu above
 
@@ -3283,15 +3313,7 @@ Preview replays the collection over the suite's datums
 (`lib/preview/engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`), and
 `proof/native/core/MenuScreensRuntimeTest.java` holds Preview's listing to Core's.
 
-**No chosen case ahead of a command.** Core keeps what a frame collected (`syncState`), and an
-entry's next question is its first datum whose id the session lacks (`getFirstMissingDatum`).
-A frame that held a chosen case and no command would leave that case on the first menu, where
-the next form that asks under the same datum id would take it without asking. Formplayer
-rebuilds its session from empty (`MenuSessionFactory.rebuildSessionFromFrame`), so Web Apps
-keeps nothing there. Nova writes no such frame: the previous screen is not offered to a form
-listed on the first menu, a submenu whose screen would open with the first menu's shared case
-is not offered as its forms' own module after submit, and a link, an entry point or a Register
-return that would open with that case is refused at its source.
+**A chosen case on the first menu.** Core retains a commandless Previous frame’s selected datum. Choosing a form or another menu whose command requests that datum reuses the case. Formplayer rebuilds the first menu with a fresh case choice. Nova offers Previous for forms listed on the first menu and describes the difference alongside the destination. An Android command that would load another record type under the same datum needs a fresh first-menu choice. The gate places that finding on the form. Links, menu endpoints and Register actions whose frames would put the first menu’s shared case before their first command retain their own eligibility checks.
 
 ### Multi-select case workflows
 
@@ -3572,6 +3594,13 @@ selection. A leading empty multi-select token fails during initialization.
 The pinned evidence and retained regression are recorded in
 `docs/research/inline-choice-starting-values.md`.
 
+## Forms listed in another menu
+
+One form may appear under several menus. A route refers to the source menu and forms by UUID. Both menus open the same form identity, namespace, edits and case writes. A route can exclude source forms and own separate deep links, case details and search. Child routes follow the source hierarchy while retaining their own settings. HQ `models/modules.py::ShadowModule`, `views/utils.py::handle_shadow_child_modules`, `suite_xml/sections/entries.py::get_datum_meta_module` and `suite_xml/post_process/endpoints.py` define the wire behavior. The reader binds stored exclusions and endpoint references to real source IDs from the application API and keeps those deployment identities through subsequent reads.
+
+### Case creation IDs supplied by deep links
+
+A source form can choose case creations whose IDs an external link supplies. Each choice names a case operation UUID. HQ stores these choices even when the source form has no deep link of its own. `entryPointProjection.ts` resolves the UUID on the actual ordered frame after parent alignment. The writers put the resulting argument ID in HQ's form and the suite. A computed ID replaces its own value on the navigation frame. Only eligible selection arguments create claim frames. The deployment manifest retains this argument order with the verified suite signature. Preview validates the operations and checks ID availability in the app and Project before installing selections or writing claims. The case transaction allocates a supplied ID only for the creation the committed form exposes, refuses an occupied ID, and replays the receipt for the same submission.
 ### Automatic location on submitted forms
 
 Ordinary apps can request an Android device location for all forms, or on

@@ -583,7 +583,7 @@ FormEngine and non-writing form evaluator retain their boolean validation APIs.
 
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
-those selectors in case-type order, then replaces the selector with that exact
+those selectors in the order the app requests, then replaces the selector with that exact
 original location. A selector is entered at its case list
 (`screenProjection.ts::parentCaseSelectorLocation`), never at its menu, so a
 selector whose forms show in the menu above, which has no screen of its own,
@@ -591,11 +591,10 @@ still chooses its case; a selector that needs a parent case of its own enters
 through its module screen (`previewRunningScreenForLocation` keeps it). Selector
 URLs are replace-driven and their ephemeral request clears on cancel, browser
 Back, or any location other than the selector's case list. Menu nesting never
-implies case ancestry: the required selector comes from `CaseType.parent_type`
+implies case ancestry: the required selector comes from `Module.parentCaseModuleUuid`
 and may be a structurally unrelated module. Once selected, a direct same-type
-child Form binds the exact inherited menu case; a different-type child lookup
-is constrained by the selected parent and must never fall back to an
-unfiltered first row. Direct Results records are checked against that same
+child Form binds the exact inherited menu case; a different-type submenu opens its own case list. An explicit case selector
+constrains that list to the cases linked to the chosen parent. Direct Results records are checked against that same
 parent before their detail is shown.
 
 A menu asks for its parent case before it lists its screen only where Core
@@ -1169,6 +1168,13 @@ ghosted "Hidden items (N)" reveal with `summarizeFilter` summaries; edit
 mode never hides. A condition is evaluated as stored
 (`displayConditionForEmission`): nothing inside it is absorbed, so
 `x and never` still waits for `x`'s data.
+
+Menu choices use `menuScreenLayout` on the current screen, including the
+forms offered after a case selection. Grid and list presentations preserve
+command order, button names, keyboard activation and the current case.
+Web Apps grids omit spoken labels. Android grids play a label on hold and
+Preview also offers a keyboard-accessible player. A list offers the player
+beside its choice on either platform.
 
 An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
 read, and a module off the menu takes its forms off with it, and its child
@@ -2234,7 +2240,15 @@ with menu forms records the new case on the module's state
 (`recordRegisteredCase`: the same attempt, now completed with one match and
 `registeredCaseId`, which also closes the registration door) and opens the case
 list, where Results reads only that case (`useCases({ caseIds })`, the
-answers no longer narrowing it), mirroring the `case_fixture` frame. A host
+answers no longer narrowing it), mirroring the `case_fixture` frame. Where
+the frame ends on that search (the `case-list` return), Results read no row
+(`listsNoRow`): Formplayer rebuilds a frame counting no query step toward a
+full entity screen (`MenuSessionFactory.rebuildSessionFromFrame`), and Core
+lists no reference on a screen it did not fully build
+(`EntityScreen.initListSubScreen`), so Web Apps shows the list empty and,
+the results instance holding the case, no Register. Nova's publish and the
+same journey made on HQ's own pages land there alike
+(`proof/formplayer/test_search.py`, `proof/webapps/test_empty_search_registration.py`). A host
 without menu forms has a frame of the host command alone, so its context
 retires and the module opens on Search again (or its default search's Results). The
 form is on no menu:
@@ -2261,7 +2275,7 @@ resuming that form, are on it), whatever moved there, and `FormScreen` ends
 it when the submission lands; the form reads it only where it names that form
 in that menu. So the same form reached later by any route, the app tree and
 browser history included, is an ordinary form. After submit,
-`alwaysOfferedRegistrationReturn` decides the landing before ordinary routing
+`caseListActionReturn` decides the landing before ordinary routing
 (`FormScreen.dispatchAfterSubmit`, `app-tests/submission.ts`): undefined, which
 is ordinary routing, where there is no launch, where the host no longer offers
 the form, or where the form's own after-submit is in force
@@ -2275,10 +2289,12 @@ search, `CaseListFormReturnFrame.newCaseSearchModuleUuids`), that menu's search
 state is `recordRegisteredCase` of it, one match where the form created the
 case and none where it did not, so Results and the forms' `results:inline`
 read that case alone, as the frame's `case_fixture` query does; App Tests carry
-the same `registeredCaseId` on that menu's records screen. So `case-list`
-lands on the host's screen with no case chosen, `new-case` with a created
-case lands there with that case chosen, and a bare case list lands on its list
-under either value. The form opened any other way is an ordinary form. App
+the same `registeredCaseId` on that menu's records screen. Where the frame ends
+on that search (`RegistrationReturnLanding.endsOnSearchOf`), Results read no row
+(`listsNoRow`, above), on the records screen too. So `case-list`
+lands on the host's screen with no case chosen and no row, `new-case` with a
+created case lands there with that case chosen, and a bare case list lands on
+its list under either value. The form opened any other way is an ordinary form. App
 Tests reach the action as a worker does: a records read of the host returns
 the form as `registration`, and the form screen carries the launch; Back to a
 form opens a fresh entry without it (`app-tests/navigation.ts::appTestBackScreen`).
@@ -2311,6 +2327,8 @@ with its selections applied to the menus that supply them, then the form its
 form command names. An entry point refuses a form whose entries are off the
 menu (`entryPointLaunch.ts::moduleEntriesOffTheMenu`). App Tests list and admit
 choices by the same projection.
+
+A deep link, form link or list action can supply a case before the frame's first command. `frameLanding.ts::firstMenuCases` records the physical datum ID and the menus whose entries read the same type and cardinality at that ID. The destination receives its selection immediately. On Android, Back to the first menu retains this case for every compatible command. Web Apps opens a fresh first menu. A new worker, app or Preview session starts with fresh selections on both platforms. A static menu return reads the submitting form’s exact session value and transaction-captured case snapshot. Register uses the chosen list action’s return case and preserves any earlier selections the return frame names; each of those is matched to the form’s own datums, so a case the form creates replaces the earlier selection of its type (`CaseListFormReturnFrame.createdSelections`). A deep link’s Android carry is its first claimed case, whatever menu the destination is in (`EntryPointProjection.homeFrame`, `lib/commcare/CLAUDE.md` § Named entry points), and it stands for a menu or case list destination only: on Android the first form of a visit a deep link opened ends the visit, submitted (`FormScreen.dispatchAfterSubmit`, before any after-submit or form link) or left by Back or a crumb (`BreadcrumbStrip`), on the phone's home screen and a new session (`previewEntryPointVisit`, `SessionLaunchDelegate.kt::exitFromExternalLaunch`), so a form destination's launch installs no first-menu history entry (`useEntryPointLaunch.ts`).
 
 ## Case-data Server Action wire shape (edge-WAF constraint)
 
@@ -2448,8 +2466,9 @@ choice; ordinary bare-module navigation follows the module-landing rule (`module
 An explicitly authored `postSubmit: "firstMenu"` on a case list registration
 returns to the home screen and retires that search/form/parent request, matching
 HQ's empty root frame. It never records the newly registered scalar case as a
-completed-search result. With no explicit override it returns to Results showing
-the registered case (§ The completed-search context); admission excludes that
+completed-search result. With no explicit override it returns to Results, keyed
+to the registered case and listing no row (§ The completed-search context,
+`listsNoRow`); admission excludes that
 implicit return for a multiple-selection host.
 
 Unexpected lookup-preview, filter-preview, sample-data, and submission failures return stable retry copy. Typed domain refusals keep their actionable payloads; unexpected exception details stay in server telemetry.
@@ -2636,3 +2655,16 @@ A worker sees their own cases and the eligible case owners from their restore. G
 Lookup rows and group names and details read trimmed, as Core's `TreeElementParser` reads every fixture text, so a cell HQ serves as ` 007 ` reads `007` on every platform; the stored value keeps HQ's spelling. A row detail and a value detail are attributes there and read as stored. A select's choice labels and sort text follow the same reading (`lookupEvaluation.ts::deviceChoiceText`), and so does the SQL that decides a list's rows, counts and targets (`lib/case-store/sql/compileLookup.ts::lookupCellRead`, Java's trim through `btrim`), so Preview's list, Preview's form and a device agree on a padded cell.
 
 App Tests bind group fixtures and lookup rows to each authorized Preview identity. A test-only place assignment may replace the journey's local place groups. The classic groups keep their verified membership.
+## Forms listed in another menu
+
+When a menu lists forms from another menu, Preview carries both the route menu UUID and the source form UUID. The route supplies the visible menu, case list and navigation history. The source supplies questions and case writes. The same source form can have independent deep links through its own menu and another menu. A listed form whose menu link or visibility has been turned off keeps its link ID and its entry point explains how to turn it on again.
+
+### Home with a retained case
+
+A commandless Previous frame lands on Home. Formplayer rebuilds the menu with fresh choices. Android keeps each selected datum and makes it available to any form or case-list command with the matching datum. The retained choice and its record properties belong to the corresponding browser history entry and worker. A fresh Home starts empty. An unrelated selector still asks for its own case.
+
+The same navigation evaluator reads a menu or form's calculated badge.
+A restored-record count waits for the signed-in worker's snapshot even when
+no form or display condition reads cases. Text badges use the owner's
+translation unit. Android's menu adapter formats a long badge after the
+expression has evaluated. Web Apps renders the value as text.

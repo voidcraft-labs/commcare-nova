@@ -358,3 +358,5 @@ A final accepted response may complete at the exact allowance.
 ### Question display in shared tools
 
 `toolSchemaGenerator.ts::questionDisplayFields` projects one set of optional display settings into both `addFields` and `editField`. The flat tool schema carries the union of choices and validates each field's values through its kind-specific patch schema. A null clears a setting on an edit. Structured choice layouts, counts, channels and returned fields go to the same mutation slots the visual inspector uses.
+
+The deep-link inventory includes the case creation operations a form can expose and which are supplied. Adding or updating a form link can choose these operation UUIDs in the same gated batch. The source form keeps its choices when its ordinary deep link is removed.

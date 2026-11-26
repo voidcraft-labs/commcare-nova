@@ -19,6 +19,10 @@
 		"reason": "hq-never-serves-the-value",
 		"note": "CommCare HQ's source read pops external_blobs (models/applications.py::Application.export_json), so no app's source carries it; the row hq-new-app/external-blobs holds that on every run."
 	},
+	"application-and-settings/menu-layout-outside-editor-choices": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's wrap of an Application refuses a use_grid_menus that is no boolean and a grid_form_menus outside none, all and some (BadValueError: models/applications.py declares a BooleanProperty and a StringProperty with those choices), so no app's source carries one; the row hq-new-app/form-menu-unknown-layout holds that outcome."
+	},
 	"application-and-settings/profile-and-suite-skeleton": {
 		"reason": "only-in-a-build",
 		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
@@ -239,10 +243,6 @@
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): the class stands only beside an address column on the same detail, which 8-address refuses, so no reading holds it and the reading counts it beside that finding."
 	},
-	"menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
 	"menus-and-case-lists/a-stored-tab-without-istab": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): every stored tab is refused by its kind, so no reading holds one."
@@ -250,10 +250,6 @@
 	"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.2): a slot of a template tile stands under the template's own finding, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/custom-icons-1": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 8.2): the badges after a menu's first stand only beside the first badge, which custom-icons-0-badge-localized-text-or-xpath refuses, and are counted beside that finding, so no reading holds what this entry names."
 	},
 	"menus-and-case-lists/hq-computed-datums-case-id-new-type-n-usercase-id-datum-parent": {
 		"reason": "only-in-a-build",
@@ -286,34 +282,6 @@
 	"menus-and-case-lists/lookup-responses-key": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
-	"menus-and-case-lists/shadowmodule-case-list-show-false": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-case-list-show-true": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-case-type-stored-key": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-excluded-form-ids-empty": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-excluded-form-ids-non-empty": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-form-session-endpoints-empty": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
 	},
 	"menus-and-case-lists/unknown-module-doc-type": {
 		"reason": "hq-never-serves-the-value",

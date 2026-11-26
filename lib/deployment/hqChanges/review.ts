@@ -5,6 +5,8 @@ import {
 } from "@/lib/commcare/androidAppDependencies";
 import "server-only";
 
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
+
 /**
  * A review of the changes made in CommCare HQ to an app Nova publishes
  * there: what changed, read as two readings of two of CommCare HQ's own
@@ -27,7 +29,7 @@ import "server-only";
 import { v7 as uuidv7 } from "uuid";
 import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
+import { createHqSourceFlagReader } from "@/lib/commcare/client";
 import {
 	HQ_BRING_IN_APP_MAX_BYTES,
 	type HqAlignedModule,
@@ -433,6 +435,7 @@ export interface FetchedHqChanges extends HqChangesBasis {
 	 *  (`androidRequirementsPrivilegeLost`). */
 	readonly androidPrivilegeLost?: true;
 	readonly saveOnlyEditedApplied?: boolean;
+	readonly caseListActionsApplied?: boolean;
 	/** The Project's data, bound with no answer of the person's. */
 	readonly data: ReadingProjectData;
 }
@@ -1374,6 +1377,18 @@ async function computeWith(
 		logUnavailable(scope, operation, "base-too-large");
 		return answer(unavailable("base-too-large", since));
 	}
+	const readFlag = createHqSourceFlagReader(creds, target.domain, { cancel });
+	let caseListActionsApplied: boolean | undefined;
+	if (
+		sourceUsesCaseListActionSetting(source.raw) ||
+		sourceUsesCaseListActionSetting(baseSource.raw)
+	) {
+		const flag = await readFlag("no-matches-registration");
+		if (flag.kind === "not-a-member")
+			return answer({ kind: "stop", finding: atApp("not-a-member") });
+		if (flag.kind === "failed") return answer(failedRead(flag.failure));
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	const holdsEditMode = await editModeTest(pieces, [source, baseSource]);
 	if (holdsEditMode === "fault") {
@@ -1384,9 +1399,7 @@ async function computeWith(
 		return answer(unavailable("nova-defect", since));
 	}
 	if (holdsEditMode) {
-		const flag = await readHqSaveOnlyEditedAnswers(creds, target.domain, {
-			cancel,
-		});
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member")
 			return answer({ kind: "stop", finding: atApp("not-a-member") });
 		if (flag.kind === "failed") return answer(failedRead(flag.failure));
@@ -1431,6 +1444,7 @@ async function computeWith(
 		comparisonSource,
 		...(androidPrivilegeLost && { androidPrivilegeLost: true }),
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		data: projectData.data,
 	};
 
@@ -1620,6 +1634,9 @@ function readingsWith(
 		data,
 		...(fetched.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: fetched.saveOnlyEditedApplied,
+		}),
+		...(fetched.caseListActionsApplied !== undefined && {
+			caseListActionsApplied: fetched.caseListActionsApplied,
 		}),
 		reference: fetched.reference,
 		overrides: fetched.targetIdentity.entities,

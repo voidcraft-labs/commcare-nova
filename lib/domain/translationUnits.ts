@@ -54,6 +54,7 @@ export const translationUnitRoles = [
 	"app-name",
 	"module-name",
 	"form-name",
+	"menu-badge",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"field-label",
@@ -186,6 +187,7 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"app-name",
 	"module-name",
 	"form-name",
+	"menu-badge",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"case-list-sort-label",
@@ -604,6 +606,18 @@ export function collectTranslationUnits(
 				context: { moduleName: module.name },
 			}),
 		);
+		if (module.badge?.kind === "text")
+			out.push(
+				unit({
+					id: makeTranslationUnitId("module", moduleUuid, "badge"),
+					valueKind: "text",
+					role: "menu-badge",
+					source: module.badge.text,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "Badge"],
+					context: { moduleName: module.name },
+				}),
+			);
 		// The case list menu entry's own label, when authored; the wire falls
 		// back to the module-name unit when it is not.
 		if (module.caseListMenuItem?.label !== undefined) {
@@ -659,6 +673,18 @@ export function collectTranslationUnits(
 					context: { moduleName: module.name, formName: form.name },
 				}),
 			);
+			if (form.badge?.kind === "text")
+				out.push(
+					unit({
+						id: makeTranslationUnitId("form", formUuid, "badge"),
+						valueKind: "text",
+						role: "menu-badge",
+						source: form.badge.text,
+						owner: { kind: "form", moduleUuid, formUuid },
+						breadcrumb: [...moduleBreadcrumb, form.name, "Badge"],
+						context: { moduleName: module.name, formName: form.name },
+					}),
+				);
 			// The Register action's label on Results, when authored; the
 			// wire falls back to the form-name unit when it is not. The
 			// module owns it, beside the form its slot names.

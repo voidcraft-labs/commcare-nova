@@ -353,8 +353,13 @@ export function parseHqAppSource(
 			return refuse("modules[]");
 		}
 		const uniqueId = moduleUniqueId(module.unique_id, admitAny);
-		const caseType = textOrNull(module.case_type, admitAny);
 		const docType = docTypeOf(module.doc_type, admitAny);
+		// HQ derives a second menu's case type from its source. A Nova upload omits
+		// the inert stored property; HQ's source of that upload serializes it as null.
+		const caseType =
+			docType === "ShadowModule" && module.case_type == null
+				? null
+				: textOrNull(module.case_type, admitAny);
 		if (uniqueId === undefined || caseType === undefined || docType === null) {
 			return refuse("modules[]");
 		}

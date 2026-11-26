@@ -404,10 +404,10 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 				return `${form} goes to the parent module ${when}, but ${q(parentName)} is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
 			case "menu-forms-in-menu-above":
 				return `${form} goes to its module ${when}, but ${module} shows its forms in the menu above, so it has no screen of its own to land on.`;
+			case "previous-carries-other-case-type":
+				return `${form} would return to the first menu with a chosen case on Android. Another menu could open that case as a different record type. You can choose First menu to start with a fresh case choice.`;
 			case "parent-forms-in-menu-above":
 				return `${form} goes to the parent module ${when}, but ${q(parentName)} shows its forms in the menu above, so it has no screen of its own to land on.`;
-			case "menu-forms-on-first-menu":
-				return `${form} goes to the previous screen ${when}, but ${module} shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
 			default:
 				return `${form} goes somewhere ${when} that ${module} doesn't offer.`;
 		}
@@ -435,6 +435,10 @@ function alwaysNotRegistrationSentence(e: ValidationError): string {
 	const form = q(registrationFormName(e));
 	const caseType = q(det(e, "caseType", ""));
 	switch (det(e, "reason", "")) {
+		case "action-target":
+			return `${form} needs one case change that creates a ${caseType} record outside a repeat. You can choose that change or another form on ${host}.`;
+		case "selected-parent":
+			return `${form} needs the parent record chosen before ${host}. You can choose the parent list that supplies it or choose another form.`;
 		case "form-type":
 			return `${host} offers ${form} on its case list, so ${form} needs to register a new ${caseType} case, and it is a ${det(e, "formType", "")} form. You can choose a registration form, or stop offering it there.`;
 		case "case-type":
@@ -444,12 +448,12 @@ function alwaysNotRegistrationSentence(e: ValidationError): string {
 		case "several-registrations":
 			return `${host} offers ${form} on its case list, but ${form} registers more than one ${caseType} case, and CommCare HQ offers a form from a case list only where it registers one. You can move the other ${caseType} case into a repeat or to another form, or stop offering ${form} there.`;
 		default:
-			return `${host} offers ${form} on its case list, but ${form} opens only after a search finds nothing in ${q(det(e, "formModuleName", ""))}, so it is on no menu to offer from. You can choose a registration form that is on a menu, or stop offering it there.`;
+			return `${host} needs a form that registers a ${caseType} case. You can choose a different form for this list.`;
 	}
 }
 
 export function firstMenuSharedCaseSentence(aboveModuleName: string): string {
-	return `Every form listed on the app's first menu from a menu like ${q(aboveModuleName)} opens one chosen case, and CommCare would keep that case on the first menu. You can give ${q(aboveModuleName)} its own screen again to use this.`;
+	return `The first menu could carry a record into a form that needs a different selection. Giving ${q(aboveModuleName)} its own screen lets people choose the record that form needs.`;
 }
 
 const ENTRY_POINT_ID_PROBLEMS: ReadonlySet<string> =
@@ -856,6 +860,46 @@ function queryRepeatModelIterationSentence(e: ValidationError): string {
 	}
 }
 
+/** A menu listing another menu's forms, said from the names its finding
+ *  carries (`validator/rules/menuFormSources.ts`). */
+function menuFormSourceLine(e: ValidationError): string {
+	const route = e.location.moduleName ? q(e.location.moduleName) : "this menu";
+	const subject = route === "this menu" ? "This menu" : route;
+	const owner = e.details?.owner ? q(e.details.owner) : "the menu it lists";
+	const child = e.details?.child ? q(e.details.child) : "its submenu";
+	const form = e.details?.form ? q(e.details.form) : "a form";
+	switch (e.details?.reason) {
+		case "parent-lists-forms":
+			return `${subject} sits in a menu that lists another menu's forms. Move it to a menu that owns its forms.`;
+		case "source-owns-no-forms":
+			return `Choose a menu that owns its forms for ${route} to list.`;
+		case "owns-forms":
+			return `${subject} has forms of its own. Move them to another menu before it lists another menu's forms.`;
+		case "case-settings":
+			return `${subject} takes its case type and how many cases a worker picks from ${owner}. Change them in ${owner}.`;
+		case "parent":
+			return `${subject} needs the same parent as ${owner}, or the menu that lists that parent's forms.`;
+		case "submenu-missing":
+			return `${child === "its submenu" ? "A submenu" : child} appears in ${route} because ${owner} has it. Hide its forms in ${route}, or remove ${child} from ${owner}.`;
+		case "exclusions":
+			return `Choose forms to hide in ${route} from the forms ${owner} lists now.`;
+		case "form-links":
+			return `Each deep link in ${route} needs its own form from ${owner}.`;
+		case "survey-form-links":
+			return `CommCare HQ can't save ${route} while it holds deep links to single forms and ${owner} tracks no cases. You can give each form its deep link in ${owner} instead.`;
+		case "stranded-submenu":
+			return `Show a form in ${route} so workers can reach ${child} inside it.`;
+		case "case-list-item":
+			return `${subject} opens its case list when a worker picks a form, so it has no separate case list item. Remove that item.`;
+		case "hidden-link-target":
+			return `Show ${e.details?.target ? q(e.details.target) : "the linked form"} in ${route} so workers can follow the link after ${form}.`;
+		case "empty-link-target":
+			return `Show a form in ${route} so the link after ${form} has a menu to open.`;
+		default:
+			return `${subject} lists another menu's forms in a way that menu no longer matches. Check its source menu, its submenus and the forms it shows.`;
+	}
+}
+
 const USER_MESSAGE_BY_CODE: Record<
 	UserFacingValidationCode,
 	UserMessageBuilder
@@ -1006,6 +1050,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
 		`${q(formName(e))} assigns new cases to one particular place, and the exported rule names that place by Nova's own id, which CommCare HQ doesn't recognize, so the rule would match nobody. Assign to a place beneath the current case owner instead, or remove this owner rule.`,
+	MENU_FORM_SOURCE_INVALID: menuFormSourceLine,
 	ENTRY_POINT_INVALID: (e) => {
 		switch (e.details?.reason) {
 			case "duplicate-id":
@@ -1035,7 +1080,7 @@ const USER_MESSAGE_BY_CODE: Record<
 
 	// ── Module-level ─────────────────────────────────────────────────
 	CASE_PARENT_SELECTION_INVALID: (e) =>
-		`${q(modName(e))} needs a compatible parent list. Choose a module for its parent record type, or turn off parent selection.`,
+		`${q(modName(e))} needs a compatible parent list. Choose a menu that uses a different record type, or turn off parent selection.`,
 	CASE_PARENT_SELECTION_CONFLICT: (e) =>
 		`${q(modName(e))} would reuse a different parent selected in its containing menu. Choose that containing module as the parent selector, or move this module out of the submenu.`,
 	NO_CASE_TYPE: (e) =>
@@ -1053,8 +1098,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		const root = q(det(e, "rootModuleName", ""));
 		return `${q(formName(e))} creates a new ${caseType} case, and ${q(modName(e))} sits under ${root}, whose first form opens a chosen ${caseType} case. CommCare HQ would give the new case that chosen case's place, so the form couldn't open. Move ${q(formName(e))} to a menu outside ${root}, or start ${root} with a form that doesn't open a chosen ${caseType} case.`;
 	},
-	NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM: (e) =>
-		`${q(modName(e))} uses a different case type from its parent, and that parent only shows Results. Add a form to the parent, use the same case type, or make this module top-level.`,
 	INVALID_CASE_TYPE_FORMAT: (e) =>
 		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} holds a character a case type can't. Letters, numbers, underscores and hyphens all work.`,
 	CASE_TYPE_TOO_LONG: (e) =>
@@ -1063,6 +1106,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} needs at least one result field so people can tell cases apart. Add a name or another identifying field; if you're replacing the last one, add its replacement first.`,
 	MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`${q(modName(e))} is shown before a case is chosen, so its display condition can't use case information. Use current-user information or a fixed value.`,
+	MENU_BADGE_EXPRESSION: (e) =>
+		recordFindingCopy(
+			e,
+			`The badge for ${q(e.scope === "form" ? formName(e) : modName(e))}`,
+		) ??
+		`The badge for ${q(e.scope === "form" ? formName(e) : modName(e))} can't show this value on the worker's menu. Open it and choose a value the menu can read.`,
 	MODULE_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The display condition for ${q(modName(e))}`) ??
 		`The display condition for ${q(modName(e))} compares values that don't go together. Open it and adjust the comparison.`,
@@ -1440,6 +1489,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} opens on its case list first, so its forms can't read the search. You can open it on Search first or on its results, or turn off Forms read the search.`,
 	CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH: (e) =>
 		`${q(modName(e))} offers ${q(registrationFormName(e))} when a search finds nothing, but its forms don't read the search. You can turn on Forms read the search, or stop offering the form there.`,
+	CASE_LIST_ACTION_CONDITION_INVALID: (e) =>
+		recordFindingCopy(
+			e,
+			`The condition for offering ${q(registrationFormName(e))} on ${q(modName(e))}'s case list`,
+		) ??
+		`The condition for offering ${q(registrationFormName(e))} on ${q(modName(e))}'s case list can't run there. You can change or clear the button condition.`,
 	CASE_LIST_REGISTRATION_NOT_REGISTRATION: (e) =>
 		det(e, "kind", "") === "always"
 			? alwaysNotRegistrationSentence(e)
@@ -1467,9 +1522,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `${q(modName(e))} shows its forms in the menu above, and CommCare offers no Register on the case list of such a menu, so ${q(registrationFormName(e))} would never be offered. You can give ${q(modName(e))} its own screen again, or stop offering ${q(registrationFormName(e))} there.`
 			: `${q(modName(e))} is under ${q(det(e, "aboveModuleName", "its parent"))}, which shows its forms on the app's first menu, where every form listed that way opens one chosen case. CommCare HQ would put that case ahead of ${q(modName(e))} when a worker returns from ${q(registrationFormName(e))}. You can give ${q(det(e, "aboveModuleName", "its parent"))} its own screen again, or stop offering ${q(registrationFormName(e))} there.`,
 	CASE_LIST_REGISTRATION_ADVANCED_MENU: (e) =>
-		det(e, "reason", "") === "host"
-			? `${q(modName(e))} is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering ${q(registrationFormName(e))} there.`
-			: `${q(registrationFormName(e))} is in ${q(det(e, "formModuleName", "its menu"))}, which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
+		`${q(modName(e))} offers ${q(registrationFormName(e))} on its case list, but ${q(det(e, "offendingFormName", "one of its forms"))} chooses its records differently from the menu's other forms. CommCare HQ keeps ${q(modName(e))} as an advanced menu, and offers a form from such a menu's case list only where every form of the menu chooses the same records the same way. You can move ${q(det(e, "offendingFormName", "that form"))} to another menu, or stop offering ${q(registrationFormName(e))} there.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
@@ -1910,6 +1963,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
 	INVALID_SEARCH_REF: (e) => {
 		switch (e.details?.reason) {
+			case "another-list":
+				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer its other case list cannot supply. You can ask for the value in the form or stop offering the form from that list.`;
 			case "not-forms-read-search":
 				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form in a menu whose forms read the search can read that menu's Search fields. You can turn Forms read the search back on, or read a question or a case property instead.`;
 			case "form-link":

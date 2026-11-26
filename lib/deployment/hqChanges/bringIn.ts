@@ -67,6 +67,7 @@ import {
 } from "../hqMedia";
 import { removalLedgerPaths } from "../hqSourceBaseline";
 import { hqImportApplicationSteps } from "../importApplication";
+import { observedMenuLayoutOwnership } from "../legacyMenuLayouts";
 import { movedBindingCount } from "../reading/create";
 import {
 	firstPublishListToStore,
@@ -868,17 +869,27 @@ async function takenFor(
 			outcome: hqChangesGateRefusal(boundary.violations),
 		};
 	const seeds = basis.live.ownership === "adopted" ? "target" : "nova";
-	const { ownership } = await pieces.at("the next publish's ownership").steps(
-		hqImportApplicationSteps({
-			prepared: boundary.prepared,
-			target,
-			compatibility: { advisories: [] },
-			update: { appId: basis.live.remoteId, source: basis.source },
-			identity: exported.identity,
-			languageNames: seeds,
-			seeds,
-			keyedCaseIdPrefixes: exported.keyedCaseIdPrefixes,
-		}),
+	const { ownership: bodyOwnership } = await pieces
+		.at("the next publish's ownership")
+		.steps(
+			hqImportApplicationSteps({
+				prepared: boundary.prepared,
+				target,
+				compatibility: { advisories: [] },
+				update: { appId: basis.live.remoteId, source: basis.source },
+				identity: exported.identity,
+				languageNames: seeds,
+				seeds,
+				keyedCaseIdPrefixes: exported.keyedCaseIdPrefixes,
+			}),
+		);
+	/* The layouts are accounted for only where the document taken holds
+	 * every choice this read shows (`legacyMenuLayouts.ts`). */
+	const ownership = observedMenuLayoutOwnership(
+		bodyOwnership,
+		doc,
+		exported.identity,
+		basis.source,
 	);
 
 	/* The file at each path the app publishes: reported by no upload, learned by

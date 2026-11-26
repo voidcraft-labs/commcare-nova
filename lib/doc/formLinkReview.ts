@@ -42,6 +42,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { FormLinkDatumName } from "@/lib/domain/expression/types";
+import {
+	menuWithInheritedCaseSettings,
+	routeContainsForm,
+} from "@/lib/domain/listedForms";
 import { possibleFinalSessionCaseTypes } from "./caseOperationOrder";
 import { afterSubmitPlan } from "./formLinkMutations";
 
@@ -165,12 +169,16 @@ function formLinkTargetVerdictForDatumMode(
 	target: FormLinkTarget,
 	hasAuthoredDatums: boolean,
 ): FormLinkTargetVerdict {
-	if (target.type === "form" && target.formUuid === formUuid) {
+	if (
+		target.type === "form" &&
+		target.formUuid === formUuid &&
+		target.moduleUuid === moduleUuidOfForm(doc, formUuid)
+	) {
 		return { ok: false, reason: "self-target" };
 	}
 	const resolved = resolveFormLinkTarget(doc, formUuid, target);
 	if (resolved === undefined) return { ok: false, reason: "target-not-found" };
-	const mod = doc.modules[resolved.moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, resolved.moduleUuid);
 	if (mod === undefined) return { ok: false, reason: "target-not-found" };
 	const sourceModuleUuid = moduleUuidOfForm(doc, formUuid);
 
@@ -197,7 +205,7 @@ function formLinkTargetVerdictForDatumMode(
 	const targetForm = doc.forms[resolved.formUuid];
 	if (
 		targetForm === undefined ||
-		!(doc.formOrder[resolved.moduleUuid] ?? []).includes(resolved.formUuid)
+		!routeContainsForm(doc, resolved.moduleUuid, resolved.formUuid)
 	) {
 		return { ok: false, reason: "target-not-found" };
 	}

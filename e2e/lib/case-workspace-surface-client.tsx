@@ -31,6 +31,7 @@ import {
 	and,
 	dateLiteral,
 	eq,
+	gt,
 	input,
 	literal,
 	lt,
@@ -55,6 +56,8 @@ const nameId = uuidSchema.parse("00000000-0000-7000-8000-000000006001"),
 	dobId = uuidSchema.parse("00000000-0000-7000-8000-000000006002"),
 	searchId = uuidSchema.parse("00000000-0000-7000-8000-000000006003");
 const siblingId = uuidSchema.parse("00000000-0000-7000-8000-000000006004");
+const registerFormId = uuidSchema.parse("00000000-0000-7000-8000-000000006005");
+const viewer = scenario.endsWith("-viewer");
 const caseTypes: CaseType[] = [
 	{
 		name: "patient",
@@ -214,8 +217,49 @@ const source = buildDoc({
 				},
 			],
 		},
+		// A menu holding the registration a list action offers on Clients.
+		{
+			name: "Registration",
+			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					uuid: registerFormId,
+					name: "Register client",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "client_name",
+							label: proseText("Client name"),
+							caseWrite: { caseType: "patient", property: "case_name" },
+						},
+					],
+				},
+			],
+		},
 	],
 });
+// Clients' list offers Registration's form, with a condition a viewer reads.
+if (scenario.startsWith("list-action"))
+	source.modules[source.moduleOrder[0]].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: registerFormId,
+		afterSubmit: "case-list",
+		...(scenario === "list-action-viewer" && {
+			showWhen: {
+				kind: "condition" as const,
+				// The list reads the worker's records, so its button may count them.
+				condition: gt(
+					{
+						kind: "count",
+						via: { kind: "cases", source: "casedb", where: [] },
+					},
+					literal(0),
+				),
+			},
+		}),
+	};
 const gate = evaluateCommit({
 	nextDoc: structuredClone(source),
 	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
@@ -408,13 +452,13 @@ createRoot(root).render(
 			appId,
 			projectId: "native-project",
 			role: "owner",
-			canEdit: scenario !== "selection-viewer",
+			canEdit: !viewer,
 		}}
 	>
 		<BlueprintDocProvider
 			initialDoc={persisted}
 			appId={appId}
-			canEdit={scenario !== "selection-viewer"}
+			canEdit={!viewer}
 		>
 			<CaseListWorkspaceProvider
 				controllerComponent={CaseListWorkspaceControllerBridge}

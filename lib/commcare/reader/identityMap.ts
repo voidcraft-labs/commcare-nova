@@ -94,6 +94,19 @@ export function externalIdentityMap(
 				externalKey.entryPoint("module", uniqueId, "case-list"),
 				module.caseListEntryPoint.uuid,
 			);
+		for (const { formUuid, entryPoint: endpoint } of module.formsFromMenu
+			?.entryPoints ?? []) {
+			const form = doc.forms[formUuid];
+			if (form)
+				add(
+					externalKey.entryPoint(
+						"shared-form",
+						uniqueId,
+						identity.formXmlns(form),
+					),
+					endpoint.uuid,
+				);
+		}
 		const config = module.caseListConfig;
 		if (config !== undefined) {
 			const columnCounts = new Map<string, number>();
@@ -256,7 +269,13 @@ function linkTargetKey(
 				throw new Error(
 					`Nova could not map an after-submit link to form ${target.formUuid}: the document holds no such form. A document the commit gate admits links only to its own forms.`,
 				);
-			return ["form", identity.formXmlns(targetForm)];
+			return doc.modules[target.moduleUuid]?.formsFromMenu
+				? [
+						"form-in-menu",
+						identity.moduleUniqueId(target.moduleUuid),
+						identity.formXmlns(targetForm),
+					]
+				: ["form", identity.formXmlns(targetForm)];
 		}
 		case "module":
 			return ["module", identity.moduleUniqueId(target.moduleUuid)];

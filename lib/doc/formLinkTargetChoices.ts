@@ -20,6 +20,7 @@ import {
 	postSubmitNotOfferedReason,
 	type Uuid,
 } from "@/lib/domain";
+import { menuFormUuidsOf } from "@/lib/domain/listedForms";
 import {
 	type FormLinkTargetVerdict,
 	formLinkTargetVerdict,
@@ -87,25 +88,27 @@ export function formLinkTargetChoices(
 		if (mod === undefined) return [];
 		const target = { type: "module", moduleUuid } as const;
 		const verdict = formLinkTargetVerdict(doc, formUuid, target);
-		const forms = (doc.formOrder[moduleUuid] ?? []).flatMap(
-			(candidate): FormLinkFormChoice[] => {
-				const form = doc.forms[candidate];
-				if (form === undefined) return [];
-				const formTarget = {
-					type: "form",
-					moduleUuid,
-					formUuid: candidate,
-				} as const;
-				return [
-					{
-						uuid: candidate,
-						name: form.name,
-						target: formTarget,
-						verdict: formLinkTargetVerdict(doc, formUuid, formTarget),
-					},
-				];
-			},
-		);
+		const forms = (
+			mod.formsFromMenu
+				? menuFormUuidsOf(doc, moduleUuid)
+				: (doc.formOrder[moduleUuid] ?? [])
+		).flatMap((candidate): FormLinkFormChoice[] => {
+			const form = doc.forms[candidate];
+			if (form === undefined) return [];
+			const formTarget = {
+				type: "form",
+				moduleUuid,
+				formUuid: candidate,
+			} as const;
+			return [
+				{
+					uuid: candidate,
+					name: form.name,
+					target: formTarget,
+					verdict: formLinkTargetVerdict(doc, formUuid, formTarget),
+				},
+			];
+		});
 		const offered =
 			sourceModuleUuid === undefined
 				? verdict.ok
@@ -157,15 +160,15 @@ export interface MenuAboveWithheldDestination {
 	readonly reason:
 		| "menu-forms-in-menu-above"
 		| "parent-forms-in-menu-above"
-		| "menu-forms-on-first-menu"
-		| "menu-opens-with-first-menu-case";
+		| "menu-opens-with-first-menu-case"
+		| "previous-carries-other-case-type";
 }
 
 const MENU_ABOVE_WITHHELD: readonly MenuAboveWithheldDestination[] = [
+	{ destination: "previous", reason: "previous-carries-other-case-type" },
 	{ destination: "module", reason: "menu-forms-in-menu-above" },
 	{ destination: "module", reason: "menu-opens-with-first-menu-case" },
 	{ destination: "parentMenu", reason: "parent-forms-in-menu-above" },
-	{ destination: "previous", reason: "menu-forms-on-first-menu" },
 ];
 
 /** Each withheld destination by `<destination>:<reason>`, so a hook can

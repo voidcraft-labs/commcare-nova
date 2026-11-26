@@ -385,6 +385,9 @@ export type AppTestScreen =
 			taskCases?: CaseDatabaseSnapshot;
 			searchEntry?: SearchEvaluationInput["entry"];
 			registeredCaseId?: string;
+			/** The return frame ended on this search: its list shows no row
+			 *  (`PreviewSearchState`'s `listsNoRow`). */
+			listsNoRow?: true;
 			searchAnswers?: readonly { name: string; value: string }[];
 			offset?: number;
 	  }

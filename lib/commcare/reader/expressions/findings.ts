@@ -59,6 +59,26 @@ export type SlotName = SlotContextRef["slot"];
  * for INERT, `refuse` for HELD-NEW and REFUSED.
  */
 export const EXPRESSION_CLAIMS = defineClaims("expressions", {
+	"case-list-action-condition": take(
+		"menus-and-case-lists/case-list-form-relevancy-expression-with-followup-forms-as-case",
+		"schema:CaseListForm.relevancy_expression",
+	),
+	"navigation-condition-outside-typed-worker-context": refuse(
+		"menus-and-case-lists/navigation-condition-outside-typed-worker-context",
+		"schema:Module.module_filter",
+	),
+	"form-badge": take(
+		"forms-and-case-writes/custom-icons-0",
+		"schema:CustomIcon.xpath",
+	),
+	"module-badge": take(
+		"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+		"schema:CustomIcon.xpath",
+	),
+	"badge-calculation-outside-typed-values": refuse(
+		"menus-and-case-lists/badge-calculation-outside-typed-values",
+		"schema:CustomIcon.xpath",
+	),
 	"search-button-display-condition-lifting-into-predicate": take(
 		"case-search/search-button-display-condition-lifting-into-predicate",
 		"schema:CaseSearch.search_button_display_condition",
@@ -1203,7 +1223,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"forms-and-case-writes/form-filter-lifting-into-predicate-a-direct-own-case-property-in",
 		"schema:Form.form_filter",
 	),
-	"form-filter-outside-predicate-parent-host-user-usercase-reads": refuse(
+	"form-filter-outside-predicate-parent-host-user-usercase-reads": take(
 		"forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads",
 		"schema:Form.form_filter",
 	),
@@ -1256,7 +1276,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
 		"schema:Form.actions",
 	),
-	"user-prop-in-module-filter-form-filter-case-list-slots-the": refuse(
+	"user-prop-in-module-filter-form-filter-case-list-slots-the": take(
 		"forms-and-case-writes/user-prop-in-module-filter-form-filter-case-list-slots-the",
 		"schema:Form.form_filter",
 	),
@@ -1272,7 +1292,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"menus-and-case-lists/form-filter-false-or-false-and-rest-form-reached-only-by-links",
 		"schema:Form.form_filter",
 	),
-	"module-filter-value-outside-predicate-any-xpath-hq-s-validator": refuse(
+	"module-filter-value-outside-predicate-any-xpath-hq-s-validator": take(
 		"menus-and-case-lists/module-filter-value-outside-predicate-any-xpath-hq-s-validator",
 		"parser:MenuParser/menu@relevant",
 	),
@@ -1465,16 +1485,37 @@ function fixed(held: string | undefined, refused: string): SlotRow {
 function displayCondition(
 	held: string,
 	offTheMenu: string,
-	refused: string,
+	restoredRecords: string,
 ): SlotRow {
 	return {
 		held: (_doc, _ref, bound) =>
 			bound.kind === "match-none" ||
 			(bound.kind === "and" && bound.clauses[0]?.kind === "match-none")
 				? offTheMenu
-				: held,
-		refused: () => refused,
+				: readsNavigationData(bound)
+					? restoredRecords
+					: held,
+		refused: () => C["navigation-condition-outside-typed-worker-context"].entry,
 	};
+}
+function readsNavigationData(bound: Expression): boolean {
+	let found = false;
+	walkExpression(bound, {
+		visitExpression(node) {
+			if (
+				["cases", "table-rows", "project", "table-lookup"].includes(node.kind)
+			)
+				found = true;
+		},
+		visitTerm(term) {
+			if (term.kind === "prop" && term.via && term.via.kind !== "self")
+				found = true;
+		},
+		visitRelation(via) {
+			if (via.kind !== "self") found = true;
+		},
+	});
+	return found;
 }
 /** A form slot: a refusal takes M2 or M3 by its code. */
 function formSlot(held: string | undefined): SlotRow {
@@ -1622,6 +1663,14 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	qr_code: PROSE,
 	spoken_text: PROSE,
 	option_label: PROSE,
+	form_badge: fixed(
+		C["form-badge"].entry,
+		C["badge-calculation-outside-typed-values"].entry,
+	),
+	module_badge: fixed(
+		C["module-badge"].entry,
+		C["badge-calculation-outside-typed-values"].entry,
+	),
 	form_display_condition: displayCondition(
 		C["form-filter-lifting-into-predicate-a-direct-own-case-property-in"].entry,
 		C["form-filter-false-or-false-and-rest-form-reached-only-by-links"].entry,
@@ -1701,6 +1750,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	case_list_column_expression: fixed(
 		C["usexpathexpression-field-xpath-lifting-into-valueexpression"].entry,
 		C["usexpathexpression-field-xpath-outside-valueexpression"].entry,
+	),
+	case_list_action_condition: fixed(
+		C["case-list-action-condition"].entry,
+		"unrecognized",
 	),
 	search_button_display_condition: fixed(
 		C["search-button-display-condition-lifting-into-predicate"].entry,
@@ -2429,21 +2482,6 @@ function sessionUserDataName(
 		: undefined;
 }
 
-/** The worker-record leaf a node is or ends at. */
-function workerRecordLeaf(node: Expression | Term | undefined): boolean {
-	const term =
-		node === undefined
-			? undefined
-			: "term" in node && node.kind === "term"
-				? node.term
-				: (node as Term);
-	return (
-		term !== undefined &&
-		(term.kind === "session-user" || term.kind === "session-user-property") &&
-		term.source === "worker-record"
-	);
-}
-
 /** The untyped relation identifier a refused `project` reads through, where
  *  its rows are reached by an index that is not `parent` and names no type. */
 function untypedRelation(
@@ -2663,11 +2701,6 @@ export function checkErrorEntry(
 			C[
 				"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:date_opened"
 			].entry,
-		);
-	const recordSlot = searchRow || !inFormLogic(ref);
-	if (recordSlot && workerRecordLeaf(node))
-		return answer(
-			C["user-prop-in-module-filter-form-filter-case-list-slots-the"].entry,
 		);
 	if (error.code === "arm-unavailable" && error.reason === "project") {
 		const identifier = untypedRelation(node);

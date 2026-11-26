@@ -474,6 +474,11 @@ export interface DeploymentRemoteChange {
 	 */
 	readonly canBringIn: boolean;
 	readonly requiresReview?: true;
+	/**
+	 * The parts begin with menu layouts CommCare HQ holds that no baseline
+	 * accounts for and this publish would replace (`legacyMenuLayouts.ts`).
+	 */
+	readonly replacesMenuLayouts?: true;
 }
 
 /**
@@ -778,6 +783,12 @@ export type DeploymentIdentityOverride = WireIdentityOverride;
 
 /** What Nova's upload owned inside the overlay keys when a baseline was recorded. */
 export interface AppOwnership {
+	/**
+	 * The baseline's read holds no menu layout the document lacks, so the
+	 * layouts Nova writes are accounted for (`legacyMenuLayouts.ts`). Absent
+	 * on every baseline written before Nova wrote them.
+	 */
+	readonly menuLayouts?: true;
 	readonly addOns: readonly string[];
 	readonly profileProperties: readonly string[];
 	readonly profileCustomProperties: readonly string[];

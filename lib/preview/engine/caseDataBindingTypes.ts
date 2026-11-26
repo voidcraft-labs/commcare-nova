@@ -512,6 +512,7 @@ export interface SubmissionAttachmentReference {
  * injection — which is also why the bytes never travel this way at all.
  */
 interface SubmissionProtocol {
+	readonly entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
 	readonly locationFix?: DeviceLocation;
 	readonly formUuid: string;
 	readonly entryKey: string;

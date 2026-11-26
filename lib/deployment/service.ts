@@ -136,6 +136,7 @@ import {
 	hqImportApplication,
 } from "./importApplication";
 import { readLookupReceipt } from "./largeLookupReceipt";
+import { observedMenuLayoutOwnership } from "./legacyMenuLayouts";
 import type { PlannedPlacePush } from "./locationResourcePlan";
 import {
 	hqLookupJsonPort,
@@ -2059,7 +2060,19 @@ export async function publishAppToHq(
 				origin: extraSave ? "observed" : "push",
 				remoteAppId: result.appId,
 				read: forwardRead,
-				ownership,
+				/* The layouts are accounted for once the read after the import
+				 * shows only choices the document holds (`legacyMenuLayouts.ts`). */
+				ownership:
+					forwardRead !== null &&
+					!("success" in forwardRead) &&
+					forwardRead.kind === "source-at"
+						? observedMenuLayoutOwnership(
+								ownership,
+								prepared.doc,
+								identity,
+								forwardRead.source,
+							)
+						: ownership,
 				novaRevision: seq,
 				discard:
 					appDiscard === undefined

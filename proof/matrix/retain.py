@@ -265,6 +265,10 @@ def app_reads(authoring, app_id, credential):
         ("currentVersion", lambda: operations.current_version_read(state, app_id, credential)),
         ("projectSpaces:all", lambda: operations.project_spaces_read(state, credential)),
         (
+            "projectSpaces:caseListActions",
+            lambda: operations.project_spaces_read(state, credential, feature_flag=toggles.FOLLOWUP_FORMS_AS_CASE_LIST_FORM.slug),
+        ),
+        (
             "projectSpaces:flagged",
             lambda: operations.project_spaces_read(
                 state, credential, feature_flag=toggles.SAVE_ONLY_EDITED_FORM_FIELDS.slug
@@ -350,6 +354,7 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
         "projectSpaces": {
             "all": app_id_answers["projectSpaces:all"].retained(),
             "flagged": app_id_answers["projectSpaces:flagged"].retained(),
+            "caseListActions": app_id_answers["projectSpaces:caseListActions"].retained(),
         },
         "projectData": {
             "lookupTables": project_answers["lookupTables"].retained(),
@@ -485,9 +490,12 @@ def keep_answers(retained, answers, project_answers, media, asked=None):
     }
     if factory_reads:
         retained.keep("source-factories", factory_reads)
-    if wanted("projectSpaces:all") and (wanted("projectSpaces:flagged") or factory_reads):
+    if wanted("projectSpaces:all"):
         retained.keep("project-spaces", answers["projectSpaces:all"])
+    if wanted("projectSpaces:flagged"):
         retained.keep("project-spaces-flag", answers["projectSpaces:flagged"])
+    if wanted("projectSpaces:caseListActions"):
+        retained.keep("project-spaces-case-list-actions", answers["projectSpaces:caseListActions"])
     for name, file_name in (
         ("lookupTables", "lookup-tables"),
         ("locationTypes", "location-types"),

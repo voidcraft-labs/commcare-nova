@@ -13,6 +13,7 @@ import {
 	generatedWordingId,
 } from "@/lib/domain/generatedWording";
 import { languageDirection } from "@/lib/domain/languageRegistry";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	effectiveAppLocalization,
 	parseLanguageTag,
@@ -35,6 +36,7 @@ import type {
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { caseListMenuItemDetailAction } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
+import { caseListActionChoices } from "../caseListRegistration";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
@@ -218,7 +220,11 @@ async function appTestFormContext(
 			lookup: context.lookup,
 			entry: screen.entry,
 			captureEntry: true,
-			session: { appId: scope.appId, menuSelections: state.selections },
+			session: {
+				appId: scope.appId,
+				menuSelections:
+					screen.caseListRegistrationLaunch?.selections ?? state.selections,
+			},
 			...(searchResults === undefined ? {} : { searchResults }),
 		},
 	};
@@ -328,7 +334,8 @@ async function observeScreen(
 								};
 					})(),
 					recordsAvailable:
-						context.doc.modules[screen.moduleUuid].caseType !== undefined,
+						menuWithInheritedCaseSettings(context.doc, screen.moduleUuid)
+							?.caseType !== undefined,
 					selected: appTestMenuSelection(context, state, screen.moduleUuid)
 						?.cases,
 				},
@@ -1065,7 +1072,7 @@ async function advanceAppTestOnScreen(
 			if (
 				(listedEntry === undefined &&
 					!(screen.kind === "menu" && named === screen.moduleUuid)) ||
-				!context.doc.modules[named]?.caseType
+				!menuWithInheritedCaseSettings(context.doc, named)?.caseType
 			)
 				throw new AppTestActionError(
 					"That case list is not available on the current screen.",
@@ -1143,6 +1150,12 @@ async function advanceAppTestOnScreen(
 					throw new AppTestActionError(
 						"This form is not offered by the current record list.",
 					);
+				const supplied = caseListActionChoices(
+					context.doc,
+					screen.moduleUuid,
+					action.formUuid,
+					state.selections,
+				);
 				/* A form offered after an empty search reads that search; a form
 				 * the list always offers opens in its own menu, carrying the
 				 * launch that decides where it returns. */
@@ -1157,15 +1170,21 @@ async function advanceAppTestOnScreen(
 									caseIds: [],
 									entryCases: state.deviceCases,
 									searchAnswers: read.search.submitted,
+									caseListRegistrationLaunch: {
+										hostModuleUuid: screen.moduleUuid,
+									},
 								}
 							: {
 									kind: "form",
 									moduleUuid: registration.moduleUuid,
 									formUuid: action.formUuid,
-									caseIds: [],
+									caseIds: (supplied[registration.moduleUuid]?.cases ?? []).map(
+										(choice) => choice.caseId,
+									),
 									entryCases: state.deviceCases,
 									caseListRegistrationLaunch: {
 										hostModuleUuid: screen.moduleUuid,
+										selections: supplied,
 									},
 								},
 					history: [
@@ -1434,7 +1453,8 @@ function screenFormsObservation(
 	parent: Uuid | null,
 ) {
 	return appTestScreenForms(context, state, parent).map(
-		({ form, moduleUuid, visibility }) => ({
+		({ form, moduleUuid, visibility, badge }) => ({
+			...(badge && { badge }),
 			uuid: form.uuid,
 			name: controlText(context, form.uuid, "formTitle"),
 			menuUuid: moduleUuid,

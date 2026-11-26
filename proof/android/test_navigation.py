@@ -24,12 +24,17 @@ Android's own home activity reads the session each navigation leaves (``proof.an
   phone lacks, which Core's ``CaseXmlParser.loadCase`` refuses as the form saves, so the device quarantines the
   form, sends nothing and tells the worker "Form Record Quarantined". Preview running as Android saves nothing for
   such a form and says so (``lib/preview/platform.ts``, ``entryPointUnheldCaseSubmit``).
+- ``targeted-forms-in-menu-above-one-case``: the entry point ``patient_visit`` (after-submit Previous) completed,
+  then opened again and left through Back's quit dialog (Discard). Either way home, launched from outside, resets the session and finishes,
+  handing RESULT_CANCELED back to the app that opened the link (``SessionLaunchDelegate.kt::exitFromExternalLaunch``),
+  so no after-submit runs and the next visit starts fresh.
 
 The plausible failures: a destination HQ builds as another (``root`` as the app's home, ``parent_module`` as
 the form's own menu); a device that opens a menu selecting several cases, so a destination there would be one a
 worker reaches; a form off the menu a link or an entry point no longer opens, which would make what Nova says
 of Android untrue; a hidden menu a link opens as anything but an empty screen; and a form for a case the phone
-lacks that reaches HQ, which would make Preview's refusal to save it untrue.
+lacks that reaches HQ, which would make Preview's refusal to save it untrue; and a deep link's form whose end
+keeps the visit going, which would make Preview's return to the phone's home screen untrue.
 """
 
 from __future__ import annotations
@@ -51,6 +56,8 @@ FORM_RECORD_QUARANTINED = "Form Record Quarantined"
 FORM_ENTRY = "FormEntryActivity"
 MENU = "MenuActivity"
 LIST = "EntitySelectActivity"
+# Android's Activity.RESULT_CANCELED, which home hands back to the app that opened a deep link once its form ends.
+RESULT_CANCELED = 0
 # Core's name for what a session needs where a menu selects several cases (SessionFrame.STATE_MULTIPLE_DATUM_VAL).
 SELECTED_ENTITIES = "SELECTED_ENTITIES"
 
@@ -213,3 +220,101 @@ def test_an_entry_point_to_a_case_the_phone_lacks_opens_blank_and_its_completion
     assert status["answer"] is None, status
     assert sent == [], sent
     assert FORM_RECORD_QUARANTINED in record["landed"]["notifications"], record["landed"]
+
+
+def test_reaching_shared_forms_by_android_intent_keeps_each_routes_command_and_breadcrumb(android_documents, hq):
+    routes = {
+        "visit": ("m0-f1", "Visits", "Visit notes"),
+        "clinic_visit": ("m1-f1", "Clinic", "Visit notes"),
+        "private_notes": ("m0-f3", "Visits", "Private notes"),
+        "clinic_private": ("m1-f3", "Clinic", "Private notes"),
+    }
+    navs = _navs(
+        android_documents["targeted-listed-forms"], "listed-forms", endpoints=[{"id": key} for key in routes]
+    )
+    for endpoint, (command, menu, title) in routes.items():
+        record = navs[f"endpoint:{endpoint}"]
+        assert record["handedHome"]["endpoint"] == endpoint, record
+        opened = record["landed"]["steps"][0]
+        assert opened["screen"] == FORM_ENTRY and opened["session"]["command"] == command, (endpoint, opened)
+        assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (endpoint, opened)
+        assert opened["form"]["FormEntryActivity.getHeaderString"] == f"Field visits > {menu} > {title}", opened
+
+
+def test_a_form_a_deep_link_opened_ends_the_visit_submitted_or_left(android_documents, hq):
+    """Android finishes a visit a deep link opened when its first form ends, submitted or left, before any
+    after-submit runs: home resets the session and hands RESULT_CANCELED back to the app that opened the link
+    (``SessionLaunchDelegate.kt::exitFromExternalLaunch``, ``ccodk_exit_after_form_submission`` true unless the
+    caller says otherwise). ``patient_visit``'s after-submit is Previous, which Web Apps follows to the first
+    menu; Preview running as Android shows the phone's home screen on a new session
+    (``lib/session/store.ts::previewEntryPointVisit``)."""
+    doc = android_documents["targeted-forms-in-menu-above-one-case"]
+    navs = _navs(
+        doc,
+        "first-menu-patient",
+        endpoints=[{"id": "patient_visit", "arguments": ["patient-2"], "complete": True}],
+        paths=[["m1-f0"]],
+    )
+    submitted = navs["endpoint:patient_visit"]
+    assert "raised" not in submitted, submitted
+    opened, returned = _after_form(submitted["landed"])
+    assert opened["session"]["command"] == "m0-f0", opened
+    assert opened["session"]["selectedCase"] == "patient-2", opened
+    assert returned["screen"] == "home" and returned["session"]["command"] is None, returned
+    assert "selectedCase" not in returned["session"], returned
+    assert submitted["landed"]["finished"] is True, submitted["landed"]
+    assert submitted["landed"]["resultCode"] == RESULT_CANCELED, submitted["landed"]
+    left = _navs(
+        doc,
+        "first-menu-patient-left",
+        endpoints=[{"id": "patient_visit", "arguments": ["patient-2"], "leave": True}],
+    )["endpoint:patient_visit"]
+    assert "raised" not in left, left
+    assert any(step["screen"] == FORM_ENTRY for step in _steps(left["landed"])), left
+    assert left["landed"]["finished"] is True, left["landed"]
+    assert left["landed"]["resultCode"] == RESULT_CANCELED, left["landed"]
+    fresh = _steps(navs["path:m1-f0"])
+    assert any(step["screen"] == LIST for step in fresh), fresh
+
+
+def test_list_actions_open_the_parent_form_or_the_form_creating_a_member(android_documents, hq):
+    paths = [
+        ["m2", "@case:household-2", "@action:0"],
+        ["m1", "@case:household-2", "@action:0"],
+    ]
+    navs = _navs(android_documents["case-list-action-basic"], "list-action-roles", paths=paths)
+    for path, command in zip(paths, ("m3-f0","m3-f1"), strict=True):
+        steps = _steps(navs["path:"+"/".join(path)])
+        forms = [step for step in steps if step["screen"] == FORM_ENTRY]
+        assert forms and forms[0]["session"]["command"] == command, steps
+        assert any((step.get("list") or {}).get("took") == 0 for step in steps), steps
+
+
+def test_menu_badges_are_read_and_shortened_on_the_installed_android_app(android_documents, hq):
+    walks = _navs(android_documents["targeted-menu-badges"], "menu-badges", paths=[["m0"]])
+    screens = [step["menu"] for step in _steps(walks["path:m0"]) if step.get("menu")]
+    menu = next(screen for screen in screens if screen["id"] == "m0")
+    assert [(item["id"], item.get("badge")) for item in menu["items"]] == [
+        ("m0-f0", None), ("m0-f1", ""), ("m0-f2", "999+"),
+        ("m0-f3", "999+"), ("m0-f4", "214.."), ("m0-f5", "Équ.."),
+    ]
+
+
+def test_a_worker_can_hold_a_grid_label_to_hear_it_and_choose_that_command(android_documents, hq):
+    navs = _navs(
+        android_documents["targeted-menu-layouts"],
+        "menu-layouts",
+        paths=[[], ["m0"], ["m2"], ["m0", "m1-f0"]],
+        hold_spoken_label="4aebda3a657a0d8f532d11ceacb1679081d7bdf7d7d301a53f1096af3580be91",
+    )
+    root = _steps(navs["path:"])[-1]["menu"]
+    assert root["view"] == "GridView"
+    assert [(item["id"], item["playedOnHold"]) for item in root["items"]] == [("m0", True), ("m2", False)]
+    shared = _steps(navs["path:m0"])[-1]["menu"]
+    assert shared["view"] == "GridView"
+    assert [(item["id"], item["playedOnHold"]) for item in shared["items"]] == [("m0-f0", False), ("m1-f0", True)]
+    listed = _steps(navs["path:m2"])[-1]["menu"]
+    assert listed["view"] == "ListView"
+    assert [item["id"] for item in listed["items"]] == ["m2-f0", "m2-f1"]
+    assert listed["items"][0]["audio"]["held"] is True
+    assert any(step.get("screen") == FORM_ENTRY for step in _steps(navs["path:m0/m1-f0"]))

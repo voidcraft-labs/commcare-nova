@@ -22,12 +22,13 @@ import { createHash } from "node:crypto";
 import { Immer } from "immer";
 import { v7 } from "uuid";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
-import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
+import { createHqSourceFlagReader } from "@/lib/commcare/client";
 import {
 	type HqAlignedModule,
 	type HqAppReading,
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { hqReadCircumstance } from "@/lib/commcare/hq/failure";
 import {
 	publishedCaseBlocks,
@@ -145,7 +146,8 @@ export interface LaneReadInput {
 	readonly sourceFactoryReads?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
-		readonly flagged: RetainedHqAnswer;
+		readonly flagged?: RetainedHqAnswer;
+		readonly caseListActions?: RetainedHqAnswer;
 	};
 	/** Required for `identity: "mint"`: HQ's own project data answers, and its files. */
 	readonly projectData?: {
@@ -315,6 +317,17 @@ export type LaneReading =
 // ---------------------------------------------------------------------------
 // Developer messages
 // ---------------------------------------------------------------------------
+
+/** A reading that asked for a request the lane retained no answer for (`noRetainedAnswer` is its message). */
+export class NoRetainedAnswer extends Error {
+	constructor(
+		readonly path: string,
+		message: string,
+	) {
+		super(message);
+		this.name = "NoRetainedAnswer";
+	}
+}
 
 /** A request the lane holds no retained answer for. `base` is the app the reading is of: a base's id, or a corpus document's app id. */
 export function noRetainedAnswer(path: string, base: string): string {
@@ -965,9 +978,18 @@ async function readBack(
 	if (reading.kind !== "read") return account(readingStop(reading));
 	const { source, modules } = reading;
 
+	const readFlag = createHqSourceFlagReader(creds, LANE_TARGET.domain);
+	let caseListActionsApplied: boolean | undefined;
+	if (sourceUsesCaseListActionSetting(source.raw)) {
+		const flag = await readFlag("no-matches-registration");
+		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
+		if (flag.kind === "failed")
+			return account(atApp(hqReadCircumstance(flag.failure)));
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	if (sourceHoldsEditMode(publishedCaseBlocks(source.raw))) {
-		const flag = await readHqSaveOnlyEditedAnswers(creds, LANE_TARGET.domain);
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
 		if (flag.kind === "failed")
 			return account(atApp(hqReadCircumstance(flag.failure)));
@@ -995,6 +1017,7 @@ async function readBack(
 		appStrings: readingAppStrings(stored.lookup),
 		recordDialect: recordDialectRoundTrip,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		knownCaseTypes: knownCaseTypesOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};

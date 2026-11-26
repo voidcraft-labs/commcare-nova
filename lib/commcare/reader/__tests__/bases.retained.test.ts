@@ -84,8 +84,13 @@ function retainedAnswers(base: RetainedHqApp): Map<string, string> {
 		const flaggedAmongFactories = Object.keys(
 			base.sourceFactoryReads ?? {},
 		).some((path) => path.includes("feature_flag="));
-		if (!flaggedAmongFactories)
+		if (!flaggedAmongFactories && base.projectSpaces.flagged !== undefined)
 			answers.set("projectSpaces:flagged", "project-spaces-flag.json");
+		if (base.projectSpaces.caseListActions !== undefined)
+			answers.set(
+				"projectSpaces:caseListActions",
+				"project-spaces-case-list-actions.json",
+			);
 	}
 	for (const tag of Object.keys(base.fixtureRows ?? {}))
 		answers.set(`fixtureRows:${tag}`, `fixture-rows-${tag}.json`);

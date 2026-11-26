@@ -438,6 +438,8 @@ parents never become roots. All pages of one pass of an inventory share one
 `HQ_LOCATION_LIST_MAX_BYTES`; past either it is `too-large`, never a short
 list.
 
+An HQ source with a conditional case-list form button or a form working on the selected parent requires the source project’s authenticated case-list button setting. The read asks for it only when the source uses it, through the unfiltered membership and filtered project lists. Both initial adoption and a later review of HQ changes carry the answer with the source. A failed read cannot stand in for the setting being off.
+
 Project-space compatibility is derived from what the app actually uses. A
 missing or unverified required capability blocks before Nova writes any remote
 resource, because the imported app would not run as authored. The Search
@@ -1049,6 +1051,24 @@ names each resource back with the digest of HQ's state as the refusal showed
 it, so a state HQ has since left is asked about again. A save in an HQ editor
 that changes no value can still be listed: HQ's pages write keys Nova does
 not, and the form builder re-spells XML.
+
+Menu layouts a deployment made before Nova wrote them are listed whatever
+the baseline (`legacyMenuLayouts.ts`). HQ's update merges the body over the
+stored app, so `use_grid_menus` and `grid_form_menus` a person saved in HQ
+stayed through every earlier publish, and both reads can agree on them. Until
+a baseline's `ownership.menuLayouts` accounts for them, preflight compares
+HQ's choices, by this target's menu ids and including a dormant grid and a
+menu the document lost, with the document's, and lists each replacement as
+the first parts of the app's change (`appRemoteChange.ts`, at most six lines,
+one per kind of change, naming at most ten menus each), with
+`replacesMenuLayouts` and a note on matching them in Nova. The lines are a
+function of the head, the target's identity and the read the digest names,
+so the ordinary app discard binds them, and the ordinary second-read and
+confirmed-source checks guard them. A create baseline accounts for none: a
+choice made on a shell before its first complete upload is listed too. A
+baseline accounts for the layouts once the read it records shows only
+choices the document holds (`observedMenuLayoutOwnership`): the read after a
+publish, an adoption's or a bring-in's. No migration rewrites old baselines.
 
 A shell is exempt except for its menus. While the app baseline's origin is
 `create`, the app comparison reads only `modules`, so a menu added in HQ stops
@@ -2679,6 +2699,7 @@ The MCP tools page HQ birth and change reviews against 80,000 characters of the 
 
 A continuation commits to the display inputs as well as the underlying approval. The birth approval includes the complete review except its read timestamp; add the Project display name and target domain to its page identity. The later approval includes every table, while change sentences and contributor names are resolved separately; bind those rendered inputs to its continuation. If a Project name, contributor, or displayed change moves, restart the pages without changing the underlying write decision. The prior cursor also restarts after the page layout changes version. Paged rename evidence is lossless, with one bounded recovery sentence based on name reuse across the entire review.
 
+A generated link binds external case selections and scalar creation IDs from its published manifest. Creation suppliers are addressed by operation UUID. The manifest retains argument order where an endpoint exposes both kinds. Older published manifests without creation arguments continue to accept their original selections.
 ### Ordinary apps’ automatic location
 
 An ordinary app and each basic or advanced form own their independent switches.

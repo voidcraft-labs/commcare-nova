@@ -17,6 +17,7 @@ import {
 	translationKeyOwner,
 } from "../appStringKeys";
 import type { NovaOwnedDerivedProfilePropertyKey } from "../derivedProfile";
+import { sourceMenuLayouts } from "../hq/menuLayout";
 import { isLocaleFileKey } from "../localeFile";
 import { type SourceTable, tableOf } from "../sourceKeys";
 import { inventoryIndex } from "../surface/inventory";
@@ -223,6 +224,19 @@ const CLAIMS = defineClaims("appShell", {
 		key("_attachments"),
 	),
 	caseSharing: take(`${A}/39-hq-case-sharing`, key("case_sharing")),
+	firstMenuLayout: take(`${A}/46-hq-use-grid-menus`, key("use_grid_menus")),
+	formMenuLayout: take(
+		`${A}/47-hq-grid-form-menus-none-all-some`,
+		key("grid_form_menus"),
+	),
+	invalidFirstMenuLayout: refuse(
+		`${A}/menu-layout-outside-editor-choices`,
+		key("use_grid_menus"),
+	),
+	invalidFormMenuLayout: refuse(
+		`${A}/menu-layout-outside-editor-choices`,
+		key("grid_form_menus"),
+	),
 	cloudcareEnabled: take(
 		`${A}/40-hq-cloudcare-enabled`,
 		key("cloudcare_enabled"),
@@ -1357,6 +1371,36 @@ export function readApplication(ctx: ReadContext): void {
 	);
 	ctx.facts.webAppsOnInHq = cloudcare.value;
 	const generatedKeys = readTranslations(ctx, languages, name);
+	const { firstMenuLayout, formMenuLayout } = sourceMenuLayouts({
+		use_grid_menus: app.peek("use_grid_menus"),
+		grid_form_menus: app.peek("grid_form_menus"),
+	});
+	if (firstMenuLayout === "unreadable")
+		app.refuse("use_grid_menus", CLAIMS.invalidFirstMenuLayout);
+	else {
+		const layout = app.take(
+			"use_grid_menus",
+			CLAIMS.firstMenuLayout,
+			() => firstMenuLayout,
+		).value;
+		if (layout === "grid")
+			ctx.writeDraft(() => {
+				ctx.draft.appSettings.firstMenuLayout = layout;
+			});
+	}
+	if (formMenuLayout === "unreadable")
+		app.refuse("grid_form_menus", CLAIMS.invalidFormMenuLayout);
+	else {
+		const layout = app.take(
+			"grid_form_menus",
+			CLAIMS.formMenuLayout,
+			() => formMenuLayout,
+		).value;
+		if (layout !== "list")
+			ctx.writeDraft(() => {
+				ctx.draft.appSettings.formMenuLayout = layout;
+			});
+	}
 	readProfile(ctx);
 	readBuildSpec(ctx);
 	readLogos(ctx);

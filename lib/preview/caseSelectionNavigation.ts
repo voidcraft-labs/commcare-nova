@@ -1,6 +1,7 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
 import { advancedChainIndex } from "@/lib/domain/advancedModule";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import type { ParentCaseSelection } from "./engine/caseDataBindingTypes";
 
@@ -50,11 +51,13 @@ export function parentCaseIndex(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): string | undefined {
-	const module = doc.modules[moduleUuid];
+	const module = menuWithInheritedCaseSettings(doc, moduleUuid);
 	const parentUuid = module?.parentCaseModuleUuid;
 	const childType = module?.caseType;
 	const parentType =
-		parentUuid === undefined ? undefined : doc.modules[parentUuid]?.caseType;
+		parentUuid === undefined
+			? undefined
+			: menuWithInheritedCaseSettings(doc, parentUuid)?.caseType;
 	if (!childType || !parentType) return undefined;
 	if (!menuEmittedAdvanced(doc, moduleUuid)) return undefined;
 	const index = advancedChainIndex(doc, childType, parentType);

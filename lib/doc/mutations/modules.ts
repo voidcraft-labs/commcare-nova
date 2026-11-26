@@ -19,6 +19,7 @@ import {
 	otherwiseDestinationsOffered,
 	type PostSubmitDestination,
 	postSubmitDestinationsOffered,
+	postSubmitNotOfferedReason,
 	type Uuid,
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
@@ -275,6 +276,24 @@ export function applyModuleMutation(
 		case "updateModule": {
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
+			if (mut.listedForm) {
+				const { sourceUuid, formUuid, included } = mut.listedForm;
+				const source = mod.formsFromMenu;
+				if (
+					source?.menuUuid !== sourceUuid ||
+					!draft.formOrder[sourceUuid]?.includes(formUuid)
+				)
+					return;
+				const excluded = new Set(source.excludedFormUuids);
+				if (included) excluded.delete(formUuid);
+				else excluded.add(formUuid);
+				if (excluded.size > 0)
+					source.excludedFormUuids = (draft.formOrder[sourceUuid] ?? []).filter(
+						(uuid) => excluded.has(uuid),
+					);
+				else delete source.excludedFormUuids;
+				return;
+			}
 			const before = postSubmitBefore(
 				draft,
 				formsOfModuleAndChildren(draft, mut.uuid),
@@ -301,6 +320,12 @@ export function applyModuleMutation(
 				entries.push(["caseSearchConfig", undefined]);
 			}
 			for (const [key, value] of entries) {
+				// Repeating the current source preserves all separately authored route settings.
+				if (
+					key === "formsFromMenu" &&
+					mod.formsFromMenu?.menuUuid === mut.patch.formsFromMenu?.menuUuid
+				)
+					continue;
 				if (key === "caseListConfig" && mut.ensureCaseListConfig) {
 					ensureCaseListConfig(draft, mut.uuid);
 					continue;
@@ -861,6 +886,17 @@ export function reconcilePostSubmitWithMenuShape(
 		const form = draft.forms[formUuid];
 		if (!form) continue;
 		const otherwise = form.otherwise;
+		// A new physical collision could open another record type on Android.
+		// Keep the author's selection for the gate to place the finding. An
+		// explicitly chosen replacement in this same batch can clear it.
+		if (
+			(form.postSubmit === "previous" ||
+				(otherwise?.kind === "destination" &&
+					otherwise.destination === "previous")) &&
+			postSubmitNotOfferedReason(draft, formUuid, "previous", firstMenuCase) ===
+				"previous-carries-other-case-type"
+		)
+			continue;
 		if (otherwise?.kind === "destination") {
 			const offered = otherwiseDestinationsOffered(
 				draft,

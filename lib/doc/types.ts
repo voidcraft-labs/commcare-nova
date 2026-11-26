@@ -494,6 +494,7 @@ const userDataValuePatchSchema = z.strictObject({
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 	.omit({
+		formsFromMenu: true,
 		entryPoint: true,
 		caseListEntryPoint: true,
 		id: true,
@@ -511,6 +512,8 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		heldKind: true,
 	})
 	.extend({
+		/** Source changes never replace the route’s form links or per-form visibility. */
+		formsFromMenu: z.strictObject({ menuUuid: uuidSchema }).nullish(),
 		/** Whole config snapshots have granular owners. These null-only slots are
 		 * the direct structural teardown payloads. */
 		caseListConfig: z.null().optional(),
@@ -1070,6 +1073,13 @@ function createMutationSchema({
 				kind: z.literal("updateModule"),
 				uuid: uuidSchema,
 				patch: mutationModuleUpdatePatchSchema,
+				listedForm: z
+					.strictObject({
+						sourceUuid: uuidSchema,
+						formUuid: uuidSchema,
+						included: z.boolean(),
+					})
+					.optional(),
 				ensureCaseListConfig: z.literal(true).optional(),
 				caseSearchConfigOperation: z
 					.enum([
@@ -1084,6 +1094,18 @@ function createMutationSchema({
 				caseSearchConfigPatch: mutationCaseSearchConfigPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
+				if (
+					mutation.listedForm &&
+					(Object.keys(mutation.patch).length ||
+						mutation.ensureCaseListConfig ||
+						mutation.caseSearchConfigOperation ||
+						mutation.caseSearchConfigPatch)
+				)
+					ctx.addIssue({
+						code: "custom",
+						path: ["listedForm"],
+						message: "Changing which form is shown is a complete edit.",
+					});
 				if (
 					mutation.ensureCaseListConfig &&
 					Object.hasOwn(mutation.patch, "caseListConfig")

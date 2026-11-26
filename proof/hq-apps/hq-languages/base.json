@@ -2,7 +2,9 @@
 	"id": "hq-languages",
 	"configuration": {
 		"flags": [],
-		"namedPrivileges": [],
+		"namedPrivileges": [
+			"CUSTOM_ICON_BADGES"
+		],
 		"commcareVersion": "2.57.0",
 		"commtrack": false,
 		"syncCasesOnFormEntry": false,

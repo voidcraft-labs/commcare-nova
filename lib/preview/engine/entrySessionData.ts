@@ -59,6 +59,7 @@ export interface EntrySessionInput {
 	/** The saved app the entry's `uuid()` datums are minted in. An app not
 	 *  saved yet has no ids to mint, so those datums stay unvalued. */
 	readonly appId: string | undefined;
+	readonly entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
 	/** The cases the form is bound to, in selection order: the case target. */
 	readonly boundCases: readonly PreviewCaseChoice[];
 	/** The menu's case selections, keyed by the module that chose them. */
@@ -204,7 +205,14 @@ export function entrySessionData(
 				? newCaseKey(ref)
 				: entryDatumCaseKey(undefined, datum.id);
 		if (args.appId === undefined) continue;
-		const value = entryDatumCaseId(args.appId, args.entryKey, key);
+		const supplied =
+			row.caseCreationOperationUuid === undefined
+				? undefined
+				: args.entrySupplies?.creations.find(
+						(input) => input.operationUuid === row.caseCreationOperationUuid,
+					);
+		const value =
+			supplied?.caseId ?? entryDatumCaseId(args.appId, args.entryKey, key);
 		if (ref?.kind === "new-case") newCaseId = value;
 		hold(datum.id, { value });
 	}

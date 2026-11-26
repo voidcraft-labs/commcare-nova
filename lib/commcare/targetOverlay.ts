@@ -58,6 +58,8 @@ export type DerivedProfileTargetState =
  * `lib/deployment/types.ts::AppOwnership`.
  */
 export interface TargetOwnership {
+	/** A complete app whose menu settings this authoring model has accounted for. */
+	readonly menuLayouts?: true;
 	readonly addOns: readonly string[];
 	readonly profileProperties: readonly string[];
 	readonly profileCustomProperties: readonly string[];
@@ -332,6 +334,7 @@ export function projectApplicationForTarget(
 	return {
 		application: body,
 		ownership: {
+			menuLayouts: true,
 			addOns: [...neededAddOns(application)].sort(),
 			profileProperties: [...OWNED_PROFILE_PROPERTY_KEYS],
 			profileFeatures: ["dependencies"],

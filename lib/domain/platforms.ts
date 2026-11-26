@@ -256,6 +256,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"entry-points",
 	"case-list-menu-item",
 	"case-list-registration-media",
+	"menu-badge",
 	"tile-grouping",
 	"tile-alignment",
 	"tile-border-and-shading",
@@ -270,7 +271,9 @@ export const PLATFORM_FEATURE_IDS = [
 	"search",
 	"skip-to-results",
 	"after-submit-home",
+	"first-menu-previous",
 	"after-submit-several-destinations",
+	"menu-layout",
 	"app-logo",
 	"required-android-apps",
 	"saved-forms",
@@ -756,6 +759,15 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "ignored", note: "the button shows its text only" },
 		android: { reading: "runs" },
 	},
+	"menu-badge": {
+		label: "Menu badges",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "a badge that is empty or reads 0 is hidden, and one longer than three characters shows as 999+ when it reads as a whole number, otherwise as its first three characters and two dots",
+		},
+	},
 	"tile-grouping": {
 		label: "Grouped tiles",
 		channel: "structure",
@@ -882,6 +894,18 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "after submit, App home opens the CommCare home screen, and First menu opens the app's first menu",
 		},
 	},
+	"first-menu-previous": {
+		label: "Selected case on the first menu",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "returning to the first menu opens it with a fresh case choice",
+		},
+		android: {
+			reading: "different",
+			note: "returning to the first menu keeps the chosen case for the next form that uses it",
+		},
+	},
 	"after-submit-several-destinations": {
 		label: "Several after-submit destinations",
 		channel: "structure",
@@ -890,6 +914,18 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "after submit, only the first destination that applies opens, and when the otherwise applies it opens instead of any destination set to run every time",
 		},
 		android: { reading: "runs" },
+	},
+	"menu-layout": {
+		label: "Menu layout",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "grids show text and icons without spoken labels",
+		},
+		android: {
+			reading: "runs",
+			note: "workers can press and hold a grid tile to hear its spoken label",
+		},
 	},
 	"app-logo": {
 		label: "App logo",

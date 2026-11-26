@@ -413,6 +413,14 @@ const tiled =
 const SKIP_FILTER = eq(prop("patient", "status"), literal("open"));
 
 export const PLATFORM_FEATURE_FIXTURES = {
+	"menu-layout": {
+		with: () =>
+			survey([], {
+				appSettings: { ...NEW_APP_SETTINGS, firstMenuLayout: "grid" },
+			}),
+		without: () => survey([]),
+		use: slotUse("menu-layout", { kind: "app" }, "appSettings.firstMenuLayout"),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"case-list-here": {
 		with: () =>
@@ -1025,6 +1033,18 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListRegistrationForm.icon",
 		),
 	},
+	"menu-badge": {
+		with: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				configure: (doc) => {
+					const form = doc.forms[FIXTURE_FORM];
+					if (form !== undefined) form.badge = { kind: "text", text: "New" };
+				},
+			}),
+		without: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })]),
+		use: slotUse("menu-badge", FORM_OWNER, "badge"),
+	},
 	"tile-grouping": {
 		with: () =>
 			caseApp({
@@ -1221,6 +1241,20 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				postSubmit: "firstMenu",
 			}),
 		use: slotUse("after-submit-home", FORM_OWNER, "postSubmit"),
+	},
+	"first-menu-previous": {
+		with: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].formsInMenuAbove = true;
+			doc.forms[FIXTURE_FORM].postSubmit = "previous";
+			return doc;
+		},
+		without: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].formsInMenuAbove = true;
+			return doc;
+		},
+		use: slotUse("first-menu-previous", FORM_OWNER, "postSubmit"),
 	},
 	"after-submit-several-destinations": {
 		with: () =>

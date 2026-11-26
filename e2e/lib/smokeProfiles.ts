@@ -28,6 +28,7 @@ export const SMOKE_PROFILES = [
 	"search-results",
 	"search-standing",
 	"search-start-refused",
+	"android-deep-link-visit",
 	"search-choices-refused",
 	"search-choice",
 	"search-value-list",

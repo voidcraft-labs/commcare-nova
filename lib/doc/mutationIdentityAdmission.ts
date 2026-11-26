@@ -5,6 +5,8 @@ import {
 	type BlueprintAuthoredIdentity,
 	type BlueprintAuthoredIdentityKind,
 	type BlueprintDoc,
+	type EntryPointTarget,
+	entryPointByUuid,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -23,7 +25,11 @@ function nestedModuleIdentities(
 ): BlueprintAuthoredIdentity[] {
 	return [
 		{ uuid: module.uuid, kind: "module" },
-		...[module.entryPoint, module.caseListEntryPoint].flatMap((e) =>
+		...[
+			module.entryPoint,
+			module.caseListEntryPoint,
+			...(module.formsFromMenu?.entryPoints ?? []).map((row) => row.entryPoint),
+		].flatMap((e) =>
 			e
 				? [
 						{
@@ -549,7 +555,37 @@ export function mutationIdentityAdmissionIssue(
 		Uuid,
 		{ readonly formUuid: Uuid; readonly role: FormLinkRole }
 	>();
+	// A saved HQ edit can move a form to another owner and change the source of
+	// its secondary route together. Its external link still names exactly the
+	// same (route, form). Keep only links explicitly removed before that move.
+	const removedRoutePoints = new Map<
+		Uuid,
+		Extract<EntryPointTarget, { kind: "form" }>
+	>();
+	const movedTo = new Map<Uuid, Uuid>();
+	const changedSource = new Map<Uuid, Uuid>();
+
 	for (const [mutationIndex, mutation] of mutations.entries()) {
+		if (mutation.kind === "removeEntryPoint") {
+			const before = entryPointByUuid(doc, mutation.entryPointUuid);
+			if (
+				before?.target.kind === "form" &&
+				doc.modules[before.target.moduleUuid]?.formsFromMenu
+			) {
+				removedRoutePoints.set(before.entryPoint.uuid, before.target);
+			}
+		} else if (mutation.kind === "moveForm") {
+			movedTo.set(mutation.uuid, mutation.toModuleUuid);
+		} else if (
+			mutation.kind === "updateModule" &&
+			mutation.patch.formsFromMenu
+		) {
+			const next = mutation.patch.formsFromMenu.menuUuid;
+			if (doc.modules[mutation.uuid]?.formsFromMenu?.menuUuid !== next)
+				changedSource.set(mutation.uuid, next);
+			else changedSource.delete(mutation.uuid);
+		}
+
 		// Duplicate claims inside one payload are collisions. A later atomic
 		// replacement may still preserve identities continuously owned here.
 		const claimedInMutation = new Set<Uuid>();
@@ -652,6 +688,26 @@ export function mutationIdentityAdmissionIssue(
 					continue;
 				}
 			}
+			if (
+				mutation.kind === "addEntryPoint" &&
+				mutation.target.kind === "form"
+			) {
+				const { moduleUuid, formUuid } = mutation.target;
+				const removed = removedRoutePoints.get(identity.uuid);
+				const next = changedSource.get(moduleUuid);
+				if (
+					removed?.moduleUuid === moduleUuid &&
+					removed.formUuid === formUuid &&
+					next !== undefined &&
+					movedTo.get(formUuid) === next
+				) {
+					removedRoutePoints.delete(identity.uuid);
+					live.set(identity.uuid, { ...identity, ownerUuid: moduleUuid });
+					claimedInMutation.add(identity.uuid);
+					continue;
+				}
+			}
+
 			const removedLink = removedLinks.get(identity.uuid);
 			const reclaimsRemovedLink =
 				claim.reclaimsRemovedLink !== undefined &&

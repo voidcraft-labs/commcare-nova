@@ -170,6 +170,17 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		describe:
 			"the search screen shows no title, description or field hints, and its heading is the search action's label",
 	},
+	"menu-grid-web-apps": {
+		platform: "web-apps",
+		fixture: "home",
+		describe: "a grid choice keeps its name and has no spoken label player",
+	},
+	"menu-grid-android": {
+		platform: "android",
+		fixture: "home",
+		describe:
+			"holding a grid choice plays its spoken label, and letting go opens it",
+	},
 	"logo-android": {
 		platform: "android",
 		fixture: "home",

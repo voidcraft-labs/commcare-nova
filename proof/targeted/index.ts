@@ -15,6 +15,7 @@ import {
 	advancedModule,
 	commtrackAdvanced,
 	extensionCarried,
+	parentIndexAgainstSelection,
 	rootCaseBlockNames,
 } from "./documents/advancedModules";
 import { ancestorIndexNames } from "./documents/ancestorIndexNames";
@@ -82,6 +83,7 @@ import {
 	hqChangesLocationList,
 	hqChangesMedia,
 	hqChangesMenu,
+	hqChangesMenuLayouts,
 	hqChangesOrder,
 	hqChangesQuestions,
 	hqChangesResave,
@@ -95,11 +97,14 @@ import { instanceReads } from "./documents/instanceReads";
 import { keptValues } from "./documents/keptValues";
 import { labelContent } from "./documents/labelContent";
 import { labelSort } from "./documents/labelSort";
+import { listedForms } from "./documents/listedForms";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupNames } from "./documents/lookupNames";
 import { lookupNonAsciiNames } from "./documents/lookupNonAsciiNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
+import { menuBadges } from "./documents/menuBadges";
+import { menuLayouts } from "./documents/menuLayouts";
 import {
 	migrationAttachment,
 	migrationCaseWrites,
@@ -218,6 +223,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	datetimeOperands,
 	datetimeEquality,
 	caseIdColumn,
+	menuBadges,
 	attributeDisplayCondition,
 	gpsQuestion,
 	blankLabels,
@@ -225,6 +231,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hiddenCalculatedColumn,
 	tileHiddenOrder,
 	hiddenFromMenu,
+	listedForms,
 	listFirstPlaces,
 	sessionReads,
 	expressionRenames,
@@ -258,6 +265,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	extensionCarried,
 	advancedChildModule,
 	advancedHeldKind,
+	parentIndexAgainstSelection,
 	rootCaseBlockNames,
 	sameTypeChild,
 	supplyPointText,
@@ -293,6 +301,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	datetimeSaved,
 	formsInMenuAbove,
 	formsInMenuAboveNested,
+	menuLayouts,
 	formsInMenuAboveRegistrationOnly,
 	formsInMenuAboveOneCase,
 	registerFromCaseList,
@@ -307,6 +316,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hqChangesFormSetting,
 	hqChangesCaseManagement,
 	hqChangesMenu,
+	hqChangesMenuLayouts,
 	hqChangesForms,
 	hqChangesOrder,
 	hqChangesLocationList,

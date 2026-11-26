@@ -140,13 +140,13 @@ export function createNavigateActions(port: NavigationPort): NavigateActions {
 
 	/** Push a new location (history entry). Use for screen changes. */
 	const push = (next: Location, opts?: { replace?: boolean }): void => {
-		const url = buildUrl(getBasePath(), next);
+		const url = buildUrl(getBasePath(), next, port.getDoc());
 		port.write(url, opts?.replace);
 	};
 
 	/** Replace the current location (no history entry). */
 	const replace = (next: Location): void => {
-		const url = buildUrl(getBasePath(), next);
+		const url = buildUrl(getBasePath(), next, port.getDoc());
 		port.write(url, true);
 	};
 
@@ -220,7 +220,11 @@ export function createNavigateActions(port: NavigationPort): NavigateActions {
 				session,
 			),
 		stepBackTo: (next, leave, session) =>
-			port.stepBackTo(buildUrl(getBasePath(), next), leave, session),
+			port.stepBackTo(
+				buildUrl(getBasePath(), next, port.getDoc()),
+				leave,
+				session,
+			),
 		back: () => port.back(),
 		up: () => {
 			const current = parsePathToLocation(port.getSegments(), port.getDoc());
@@ -334,7 +338,7 @@ export function createSelectAction(
 			formUuid: current.formUuid,
 			selectedUuid: uuid,
 		};
-		const url = buildUrl(getBasePath(), next);
+		const url = buildUrl(getBasePath(), next, port.getDoc());
 		port.write(url, true);
 	};
 }

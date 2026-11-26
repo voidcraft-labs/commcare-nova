@@ -1,3 +1,4 @@
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 /**
  * Validation runner — single entry point for structured blueprint validation.
  *
@@ -107,6 +108,7 @@ export interface RunValidationOptions {
  * locations (`formUuid` always present).
  */
 const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
+	"MENU_FORM_SOURCE_INVALID",
 	"ENTRY_POINT_INVALID",
 	// APP_RULES products.
 	"CASE_PARENT_SELECTION_CONFLICT",
@@ -308,7 +310,8 @@ export function* structuralValidationSteps(
 
 	const entryPlan = entryPlanContext(doc);
 	for (const moduleUuid of doc.moduleOrder) {
-		const mod = doc.modules[moduleUuid];
+		const mod =
+			menuWithInheritedCaseSettings(doc, moduleUuid) ?? doc.modules[moduleUuid];
 		const inModuleScope = scopeHasModule(scope, moduleUuid);
 
 		// The scope filter restricts WHICH entities are walked — the perf

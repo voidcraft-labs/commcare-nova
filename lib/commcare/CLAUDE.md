@@ -1141,12 +1141,10 @@ refuses an otherwise outside the same set less `app_home`
 refuses is unoffered (`previous` where exactly one of the menu and its parent
 selects several cases, `previous` in a menu whose forms read the search, `parentMenu`
 with no parent, `module` in a menu that shows its forms above, `parentMenu`
-under one, and `previous` for a form listed on the first menu, which is Nova's
-own narrowing, as is `module` in a submenu that keeps its screen under a
-top-level menu above while every form of every menu above opens one chosen
-case, `menu-opens-with-first-menu-case`, whose finding is the app rule
-`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`), so the one rule covers the editor
-and the build. The SA only
+under one). A static destination through the shared first menu requires a compatible
+selection in the submitting entry. Android keeps that datum when the worker
+steps back, so another reachable command must consume it with the same type
+and multiplicity. Web Apps rebuilds the chosen command path and starts Home fresh. The SA only
 sets `post_submit` when overriding the default.
 
 ### Ordinary nested menus
@@ -1160,6 +1158,14 @@ true exactly where the module shows its forms in the menu above
 the conjoined condition of a submenu that shows above (`compiler.ts`), as
 `id_strings.py::menu_id` and `menus.py::_generate_menu` do. No other menu's
 condition is conjoined, and nothing is projected as `ShadowModule`.
+
+`use_grid_menus` applies to every suite contribution with id `root`.
+`grid_form_menus=all` applies to every other id, while `some` reads
+`display_style=grid` only from ordinary modules. A default list omits the
+suite style. If a grid first menu has no contribution, HQ's
+`GridMenuHelper` appends a styled empty `root` menu with a text child.
+The local compiler emits the same root, and both HQ settings are written
+explicitly so a later publish can return an existing target to lists.
 
 A menu that shows its forms in the menu above (`Module.formsInMenuAbove`) is
 HQ's `put_in_root: true`, which adds the `menu_mode` add-on; the HQ JSON keeps
@@ -1175,14 +1181,16 @@ has none. Several `<menu>` elements share an id; the suite oracle admits that
 and the root id `root`.
 
 HQ's `add_parent_datums` aligns a child entry against the root module's first
-form. A bare case list root (a case list menu item and no forms) therefore
-admits only same-case-type children: they reuse the one `case_id` and need no alignment. A different-type
-child is rejected by `NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM` at the commit
-gate; it needs a form-bearing root so HQ can keep the two selections distinct.
+form. A root with no forms contributes no datums, renames none and aligns
+none (`_get_first_forms_datums` is empty, so `return datums`): a child of a
+different case type keeps `case_id` (and `parent_id` for its parent
+selection) even when its parent lists cases, and the form reads those ids. A
+same-type selection the domain matches to such a root still answers for the
+root's chosen case under the child's own id.
 
 `formLinkProjection.ts::entrySessionDatums` owns the entry namespace shared by
 the suite, XForm, form links, and post-submit frames. First it builds the
-parent-select chain from case-type relationships. Then, for a child menu, it
+parent-select chain from the explicitly selected menus. Then, for a child menu, it
 mirrors HQ's `add_parent_datums` against the root module's first form datums:
 same-case selections at the same remaining position reuse the root id; an id
 collision for a different case type becomes `case_id_<case-type>`; computed
@@ -1312,13 +1320,19 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   datums in the target module → form command → the target form's remaining
   datums. The module command is the menu id (`menuIdOf`); where it is `root`
   there is none, and the prefix runs over the form entries of every menu that
-  shows its forms above (`_root_module_datums`). The parent prepend drops
-  every child whose id, a command's or a datum's, the parent part holds. No
-  frame of an admitted document holds a selection ahead of its first command
-  (`frameLeadsWithSelection`): `previous` is not offered to a form listed on
-  the first menu, `module` is not offered in a submenu whose screen opens with
-  the first menu's shared case, and a link, an entry point or a Register return
-  whose frame would open with that case is refused (`firstMenuSharedCase`). A single-form module's whole datum list is that prefix, so its
+  shows its forms above (`_root_module_datums`). HQ's endpoint builder is the
+  one exception (`FrameBuilder` `endpoint`, `rootListsSeenBy`):
+  `EndpointsHelper` builds its `WorkflowHelper` over the `app.get_modules()`
+  generator, which the entry pass's detail lookup reads to its end once any
+  form entry selects a case, so a deep link toward a first-menu form carries
+  no root prefix, `[command, datum…]`; entry stacks, links and returns keep it.
+  The parent prepend drops
+  every child whose id, a command's or a datum's, the parent part holds. `homeSelectionConsumers` reads each physical selection before the first
+  command. A link, deep link, static module return or list action installs
+  the selection for the destination that consumes that ID. On Android, Back
+  to Home also carries the datum to each command requesting it. On Web Apps,
+  Home starts fresh. A conflicting kind or count of records refuses at the
+  authoring slot. A single-form module's whole datum list is that prefix, so its
   selection datum is hoisted AHEAD of the form command. For a child target HQ
   prepends the root module frame and its common user selections; a module target
   carries that root path plus the child command, while a form target carries the
@@ -2210,12 +2224,26 @@ one form. `compiler.ts` and `expander.ts` consume the plan, so `m{N}` /
 `unique_id` / `owningModuleOf` agree on both paths. The lowering is emitted
 only when `hostLowersCaseListRegistration(host)` (the host's forms read the
 search and it has a case type); a slot whose module fails that is a validator
-finding, not a partial emission. The `always` arm writes the block for a form
-that stays on its own menu, with no synthetic module and no
-`relevancy_expression`, the Register action on both short details, and one
-return frame for `case-list` or two for `new-case`, only where the form's own
-after-submit is Home. `formLinkProjection.ts::caseListFormReturnFrames` builds
-them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
+finding, not a partial emission. An ordinary list action names the form in the physical menu that holds it. A
+second host may name a form already lifted for its first host. The host
+keeps its own button text, media, visibility and return destination.
+`case-list/actionCondition.ts` prints a typed condition in the list step’s
+scope. An empty-search rule reads the completed query. Confirm the source
+space’s `FOLLOWUP_FORMS_AS_CASE_LIST_FORM` before interpreting either a
+nonblank condition or a selected parent’s follow-up. HQ ignores a condition
+with that setting off. A pure parent follow-up gets the selected parent from
+the host’s first entry when exactly one selection has that type. It uses the
+target’s own navigation after submit. A registration by a child open binds
+the actual operation UUID on read and derives its physical datum from the
+form’s held placement on export. `formLinkProjection.ts::caseListFormReturnFrames`
+builds one return frame for `case-list` and two for `new-case`, only where
+the form follows its host. Every selection on a return frame is matched to
+the form's own datums as a link's are (`matchChildrenToSource`, HQ's
+`_get_datums_matched_to_source`), so a case the form creates takes the place
+of the earlier selection of its type: a members list under a chosen
+household, offered a form registering a household and a member, returns
+under the new household (`CaseListFormReturnFrame.createdSelections`). The hidden empty-search placement can choose
+either return. The compiler builds them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
 a submenu host's parent's `get_frame_children`, then the host's, each pass
 matched on its own and each adding to the cut frame up to its first matched
 selection; in `new-case` the host pass drops every id the frame carrying the
@@ -2253,7 +2281,11 @@ and App Tests record as that search.
   `<create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm{N}'">`
   with the host command plus the `case_fixture` query child
   (`formLinkProjection.ts::caseListFormReturnFrames`), so the worker lands on
-  Results showing exactly the case they registered; HQ regenerates the same
+  Results keyed to exactly the case they registered, which Formplayer shows
+  with no row: it rebuilds the frame counting no query step toward a full
+  entity screen (`MenuSessionFactory.rebuildSessionFromFrame`,
+  `EntityScreen.initListSubScreen`), for this frame and for HQ's own of the
+  same journey (`proof/formplayer/test_search.py`); HQ regenerates the same
   frame from `post_form_workflow: case_list`
   (`test_form_linking_to_inline_search_module_from_registration_form`). A
   host without menu forms has no common datum prefix (HQ reads form entries
@@ -2522,13 +2554,33 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 `entryPointProjection.ts` shares the form-link frame machinery and projects
 against the emission document, so hidden case list registration forms never change the
 common selection prefix. Module endpoints include the destination's common
-selections; case-list endpoints omit only the final selection, and are refused
+selections; a menu listing another menu's forms takes that prefix over its
+source's entries (`get_frame_children` reads `get_module_datums(source)` for a
+`ShadowModule`). Case-list endpoints omit only the final selection, and are refused
 when that does not faithfully open a list. A formless module keeps its actual
 module command. A case list registration form never admits an endpoint.
 
 `entryPointSuite.ts` mirrors HQ `EndpointsHelper`: one argument per selectable
 case datum, ordered claim push frames and resolvable remote-request commands,
-then a navigation push. Collection arguments use the selected-entities instance;
+then a navigation push. Because each claim push comes before the navigation,
+Android's Back pops the navigation, then each posted claim with every case
+claimed after the first, and stops on Home with the first claimed case still
+chosen, whatever menu the destination is in (`CommCareSession.stepBack`,
+witnessed by `proof/native/core/EndpointRuntimeTest.java`). That Back is a menu
+or case list destination's: the first form of a visit a deep link opened ends
+the visit on Android, submitted or left, before any after-submit runs. Home,
+launched from outside, resets the session and hands `RESULT_CANCELED` back to
+the app that opened the link (`SessionLaunchDelegate.kt::exitFromExternalLaunch`,
+`ccodk_exit_after_form_submission`, true unless the caller says otherwise;
+witnessed by `proof/android/test_navigation.py`), which Preview plays as the
+phone's home screen (`lib/session/store.ts::previewEntryPointVisit`).
+`EntryPointProjection.homeFrame` is that carry (the endpoint frame itself
+with inline search, which claims nothing), and it gives each menu reading that
+case under the same id, type and count its `firstMenuConsumers` for
+Preview's Android launch. The first-menu rules and the reader read
+`firstMenuFrame` instead, the workflow frame, which leads with a selection
+only where the destination opens with the first menu's shared case.
+Collection arguments use the selected-entities instance;
 computed datums remain owned by their entry. Only form endpoints can bypass
 relevancy. Inline-search destinations hydrate a known case through the selected
 target's case-fixture URL and reuse their entry's claim behavior. Current HQ
@@ -2646,3 +2698,13 @@ The importer classifies a source appearance on its actual control and bind in `r
 `hq/lookupRestore.ts` extracts a single table from an authenticated OpenRosa response. The XML parser binds token, registration, project, principal, fixture tag and worker. It retains no cases, registration password or other fixtures. A previously verified full observation can supply a missing fixture in a continuous delta for the same scope. Worker-visible rows have no administrative IDs. The current worker entry acquires a fresh full observation.
 
 `hq/lookupWorkbook.ts` compares a selected HQ download against that table's independently read ordered rows. It checks the literal header and value projection of `fixtures/download.py::_prepare_fixture`, including blank padding and propertyless fields with multiple occurrences. It never promotes the workbook's lossy cell view to canonical source values. Group and place directories are read under the editor's own approved source grant only when their names occur on the workbook. Only matching owner identities and names survive the check.
+
+## Forms listed in another menu
+
+For a source-backed menu, the emitted command identifies the route menu and the physical ordinal of the source form, including earlier excluded forms. Both commands use the same source-form title and namespace. Export includes one physical XForm per owned form. The HQ output uses a version 2 ShadowModule with the deployment's menu and form IDs. The reader resolves exclusions and form endpoints through the aligned application resource's real form IDs. Downloaded form IDs can change independently. Relevance bypass belongs to an ordinary form endpoint. A mirror form endpoint runs only while the menu has an endpoint and lists the form. Its reserved ID survives either setting being turned off.
+
+### First-menu Previous frames
+
+The reader binds `previous_screen` to the form’s explicit Previous choice wherever the form’s menu offers it. The frame projector uses the actual ordered entries to distinguish a commandless Home frame from a form command that still needs a selection. For Android, the projected Home frame includes each other form and browse command that reads the same selected datum and record type. A shared datum that an unrelated command uses for a different record type raises a placed finding.
+
+HQ’s `function_datum_endpoints` stores computed datum names on each source form independently of `session_endpoint_id`. `availableEntryCaseCreations` joins the actual frame’s function datums to the case operations whose XForms use them. An exposed creation becomes one scalar argument and a bound stack datum on that form’s endpoint. It contributes no claim request. Source order and repeated choices survive an HQ read and publish. HQ tests membership as it walks the frame, so a repeated choice still yields one argument. The reader places a finding when a purported supply has no unique case creation on its frame.

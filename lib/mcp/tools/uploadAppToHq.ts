@@ -481,6 +481,9 @@ export function makeRemoteChangesError(
 			 * usable pair, and never a table's or a place's. */
 			can_bring_in: change.canBringIn,
 			...(change.requiresReview && { requires_review: true }),
+			/* The parts begin with menu layouts CommCare HQ holds that this
+			 * publish would replace, there since before Nova wrote them. */
+			...(change.replacesMenuLayouts && { replaces_menu_layouts: true }),
 		})),
 		...answer,
 	};

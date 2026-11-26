@@ -135,7 +135,7 @@ describe("the claims a reading counts", () => {
 		);
 	});
 
-	it("accounts each of a menu's badges after the first under its entry, beside the first's refusal", async () => {
+	it("accounts each of a menu's badges after the first under its entry, beside the first it holds", async () => {
 		const badge = (text: string) => ({
 			doc_type: "CustomIcon",
 			form: "badge",
@@ -147,21 +147,29 @@ describe("the claims a reading counts", () => {
 			if (menu !== undefined)
 				menu.custom_icons = [badge("1"), badge("2"), badge("3")];
 		});
-		expect(findingCodes(outcome)).toEqual([
-			"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
-		]);
+		expect(findingCodes(outcome)).toEqual([]);
+		expect(
+			records(outcome).some(
+				(one) =>
+					one.entry ===
+						"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath" &&
+					one.where === "/modules/0/custom_icons/0/text",
+			),
+		).toBe(true);
 		expect(
 			records(outcome).filter(
 				(one) => one.entry === "menus-and-case-lists/custom-icons-1",
 			),
 		).toEqual([
 			expect.objectContaining({
-				where: "/modules/0/custom_icons",
-				key: "schema:Module.custom_icons",
+				where: "/modules/0/custom_icons/1",
+				key: "schema:CustomIcon",
+				standing: "inert",
 			}),
 			expect.objectContaining({
-				where: "/modules/0/custom_icons",
-				key: "schema:Module.custom_icons",
+				where: "/modules/0/custom_icons/2",
+				key: "schema:CustomIcon",
+				standing: "inert",
 			}),
 		]);
 	});

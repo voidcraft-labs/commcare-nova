@@ -51,6 +51,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"unshown-form-media-removed",
 	"unused-media-entries-removed",
 	"names-respelled",
+	"badge-respelled",
 	"media-maps-respelled",
 	"text-spaces-dropped",
 	"form-text-characters-written-as-outputs",
@@ -124,6 +125,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"unused-media-entries-removed": false,
 	"names-respelled": false,
 	"media-maps-respelled": false,
+	"badge-respelled": false,
 	"text-spaces-dropped": true,
 	"form-text-characters-written-as-outputs": false,
 	"hidden-value-defaults-dropped": false,
@@ -150,6 +152,7 @@ export const FIRST_PUBLISH_SAID_BY = {
 	"question-display-respelled": "forms-and-settings-rewritten",
 	"names-respelled": "forms-and-settings-rewritten",
 	"media-maps-respelled": "forms-and-settings-rewritten",
+	"badge-respelled": "forms-and-settings-rewritten",
 } as const satisfies Partial<
 	Record<FirstPublishChangeId, FirstPublishChangeId>
 >;

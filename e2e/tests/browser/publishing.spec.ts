@@ -3434,6 +3434,84 @@ test("a change made in CommCare HQ to the app that Nova can bring in shows the c
 	}
 });
 
+test("menu layouts CommCare HQ holds that a publish replaces are listed with their tick where Nova can bring in changes, and the tick publishes over them", async ({
+	page,
+}) => {
+	const layoutLine =
+		"The first menu shows a grid in CommCare HQ, and a list after publishing";
+	const layoutNote =
+		"Nova now publishes menu layouts. You can keep these choices by matching them in App settings and in each menu's settings, or publish over them.";
+	const sent: Record<string, unknown>[] = [];
+	const reviews: unknown[] = [];
+	const layouts = {
+		...appChanged,
+		refusal: {
+			...appChanged.refusal,
+			remoteChanges: appChanged.refusal.remoteChanges.map((change) => ({
+				...change,
+				parts: [layoutLine],
+				note: layoutNote,
+				replacesMenuLayouts: true,
+				canBringIn: true,
+			})),
+		},
+	} satisfies PublishResponseBody;
+	const landed = {
+		success: true,
+		hq_app_action: "updated",
+		app_preview_note: APP_PREVIEW_NOTE,
+		url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+		warnings: [],
+		deployment: null,
+		preview_project_space: "alpha",
+	} satisfies PublishResponseBody;
+	await page.route("**/api/commcare/upload", (route) => {
+		sent.push(route.request().postDataJSON());
+		return route.fulfill({ json: sent.length === 1 ? layouts : landed });
+	});
+	/* The review compares HQ's reading with the last one, which hold the
+	 * same layouts: it has nothing to show. */
+	await page.route("**/api/commcare/changes/review", (route) => {
+		reviews.push(route.request().postDataJSON());
+		return route.fulfill({
+			status: 200,
+			contentType: "application/x-ndjson",
+			body: `${JSON.stringify({
+				type: "done",
+				answer: {
+					kind: "nothing",
+					since: { kind: "published" },
+					publishChanges: [],
+				},
+			})}\n`,
+		});
+	});
+	await open(page, "role=admin");
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(page.getByText(layoutLine, { exact: true })).toBeVisible();
+	await expect(page.getByText(layoutNote, { exact: true })).toBeVisible();
+	const tick = page.getByRole("checkbox", {
+		name: "Publish over this Clinic visits",
+	});
+	await expect(tick).toBeVisible();
+	/* Nothing publishes again until the person answers the layouts. */
+	expect(sent).toHaveLength(1);
+	await tick.check();
+	await page
+		.getByRole("button", { name: "Publish over these changes", exact: true })
+		.click();
+	await expect(page.getByText(APP_PREVIEW_NOTE, { exact: true })).toBeVisible();
+	expect(sent).toHaveLength(2);
+	expect(sent[1]?.discard_remote_changes).toEqual([
+		{
+			kind: "app",
+			novaResourceId: "native-publishing",
+			observedDigest: "digest-app",
+		},
+	]);
+	expect(reviews).toEqual([]);
+});
+
 test("publishing a brought-in app to a second project space says it makes a new app there", async ({
 	page,
 }) => {

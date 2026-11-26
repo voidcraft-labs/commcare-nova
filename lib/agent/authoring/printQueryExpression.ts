@@ -5,6 +5,7 @@ import {
 import type { RecordQueryContext } from "@/lib/domain/expression/context";
 import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
 import {
 	type Expression,
 	isExpression,
@@ -21,6 +22,7 @@ import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
 export interface QueryPrintContext {
 	typeContext: RecordQueryContext;
 	forRelation(relation: RelationPath): QueryPrintContext;
+	forDeviceRecords(caseType?: string): QueryPrintContext;
 	forTable(tableId: string): QueryPrintContext;
 	reference(term: Term): string | undefined;
 	choiceValues(
@@ -115,6 +117,18 @@ export function queryPrinter(context: QueryPrintContext) {
 			base = call("value-detail", base, member(read.columnId, read.propertyId));
 		return base;
 	}
+	function printerForRows(
+		rows: Extract<Expression, { kind: "cases" | "table-rows" }>,
+	) {
+		if (rows.kind === "table-rows")
+			return queryPrinter(context.forTable(rows.tableId));
+		const scope = expressionRowScope(rows, context.typeContext);
+		return queryPrinter(
+			context.forDeviceRecords(
+				scope?.kind === "case" ? scope.caseType : undefined,
+			),
+		);
+	}
 	function term(value: Term): string {
 		const reference = context.reference(value);
 		if (reference !== undefined) return reference;
@@ -151,9 +165,14 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "field":
 				return call("field", quote(value.uuid));
 			case "session-user":
-				return call("external-user", quote(value.field));
+				return call(
+					value.source === "worker-record" ? "worker-record" : "external-user",
+					quote(value.field),
+				);
 			case "session-user-property":
-				return call("user", quote(value.userPropertyUuid));
+				return value.source === "worker-record"
+					? call("worker-record", call("user", quote(value.userPropertyUuid)))
+					: call("user", quote(value.userPropertyUuid));
 			case "session-context":
 				return call("session", quote(value.field));
 			case "table-column":
@@ -245,7 +264,7 @@ export function queryPrinter(context: QueryPrintContext) {
 				);
 			case "count":
 				if (!isRelationPath(value.via))
-					throw new Error("A record count needs a relationship.");
+					return call("count", expression(value.via));
 				return call(
 					value.kind,
 					relation(value.via),
@@ -265,6 +284,19 @@ export function queryPrinter(context: QueryPrintContext) {
 						? quote(value.pattern)
 						: expression(value.pattern),
 				);
+			case "cases":
+				if (value.source !== "casedb")
+					throw new Error("This menu reads the device's own records.");
+				return call(
+					"device-records",
+					...value.where.map(printerForRows(value).predicate),
+				);
+			case "table-rows":
+				return call(
+					"table-rows",
+					identity("table", value.tableId),
+					...value.where.map(printerForRows(value).predicate),
+				);
 			case "project": {
 				const chosen = readChosenCaseProperty(value);
 				if (chosen !== undefined)
@@ -273,15 +305,21 @@ export function queryPrinter(context: QueryPrintContext) {
 						identity("module", chosen.module),
 						quote(chosen.property),
 					);
-				throw new Error(
-					"The saved record read has no record value spelling: only a property of the case chosen in a menu has one.",
+				const row =
+					value.of.kind === "table-rows" || value.of.kind === "cases"
+						? printerForRows(value.of)
+						: undefined;
+				return call(
+					"row-value",
+					expression(value.of),
+					row ? row.term(value.value) : term(value.value),
 				);
 			}
 			case "value-list":
 				return call("list", ...value.items.map(expression));
 			default:
-				// The device-data reads (`cases`, `table-rows`, `locations`,
-				// `selected-cases`, a `project` that is no chosen case's property)
+				// The remaining device-data reads (such as `locations` and
+				// `selected-cases`)
 				// have no record spelling. No authoring surface stores one and the
 				// reader of CommCare HQ's apps refuses the search values that hold
 				// one (`lib/commcare/reader/expressions/csqlRead.ts`), so none

@@ -108,15 +108,21 @@
 		}));
 	}
 
-	const commands = all(menu, ".menus-container > tr");
+	const commands = all(menu, ".menus-container > .formplayer-request");
 	if (one(menu, ".module-menu-container")) {
+		screen.menuLayout = one(menu, ".row.menus-container") ? "grid" : "list";
+		screen.menuAudio = commands
+			.filter((row) => one(row, ".js-module-audio-play"))
+			.map((row) => text(one(row, ".module-column-name")));
 		screen.commands = commands.map((row) => ({
 			text: text(one(row, ".module-column-name")),
 			icon:
 				[...(one(row, "i.module-icon")?.classList ?? [])].find(
 					(name) => name.startsWith("fa-") && name !== "fa-solid",
 				) ?? null,
-			image: background(one(row, ".module-icon-image")),
+			image: background(
+				one(row, ".module-icon-image, .gridicon:not(.gridicon-circle)"),
+			),
 			badge: text(one(row, "#module-badge")),
 		}));
 	}

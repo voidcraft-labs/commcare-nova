@@ -427,3 +427,33 @@ def test_a_save_hq_answers_with_a_redirect_is_followed_and_the_held_sections_are
     for held, alone in zip(view.sections, fresh, strict=True):
         assert pages.section_differences(held, alone) == [], held.page.name
         assert held.bar_state == SAVED
+
+
+def test_hq_menu_settings_preserve_the_real_source_form_ids_and_each_own_link(hq, core_runner, editor_driver):
+    from corehq.apps.app_manager.models import ShadowModule
+    from corehq.apps.app_manager.models.modules import ShadowFormEndpoint
+    from proof.editors.conftest import save_section
+
+    configuration = Configuration(flags={"APP_BUILDER_SHADOW_MODULES", "SESSION_ENDPOINTS"}, privileges={"CLOUDCARE"})
+    with hq_check(configuration) as (state, _):
+        app_id = suite_app(state)
+        app = operations.held_app(state, app_id)
+        owner = app.modules[0]
+        registration, visit = owner.forms[:2]
+        visit.session_endpoint_id = "visit"
+        second = app.add_module(ShadowModule.new_module("At home", "en"))
+        second.source_module_id = owner.unique_id
+        second.shadow_module_version = 2
+        second.session_endpoint_id = "home"
+        second.excluded_form_ids = [registration.unique_id]
+        second.form_session_endpoints = [ShadowFormEndpoint(form_id=visit.unique_id, session_endpoint_id="home-visit")]
+        app.save()
+        app.ensure_module_unique_ids(should_save=True)
+        saved = save_section(editor_driver, state, pages.MODULE_SETTINGS, app_id, second.unique_id)
+        actual = operations.held_app(state, app_id)
+        after = actual.get_module_by_unique_id(second.unique_id)
+        assert saved.bar_state == SAVED, saved
+        assert after.source_module_id == owner.unique_id and after.session_endpoint_id == "home"
+        assert after.excluded_form_ids == [registration.unique_id]
+        assert [(link.form_id, link.session_endpoint_id) for link in after.form_session_endpoints] == [(visit.unique_id, "home-visit")]
+        assert actual.get_module_by_unique_id(owner.unique_id).forms[1].session_endpoint_id == "visit"

@@ -50,7 +50,11 @@ export function authoredBlueprintIdentities(
 	const identities: BlueprintAuthoredIdentity[] = [];
 	for (const module of Object.values(doc.modules)) {
 		identities.push({ uuid: module.uuid, kind: "module" });
-		for (const entryPoint of [module.entryPoint, module.caseListEntryPoint])
+		for (const entryPoint of [
+			module.entryPoint,
+			module.caseListEntryPoint,
+			...(module.formsFromMenu?.entryPoints ?? []).map((row) => row.entryPoint),
+		])
 			if (entryPoint)
 				identities.push({
 					uuid: entryPoint.uuid,

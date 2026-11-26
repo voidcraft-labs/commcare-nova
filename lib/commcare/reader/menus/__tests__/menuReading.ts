@@ -40,6 +40,7 @@ export interface MenuReading {
 export async function readMenusOf(
 	doc: BlueprintDoc,
 	edit: (app: AppJson) => void = () => {},
+	caseListActionsApplied = true,
 ): Promise<MenuReading> {
 	const emitted = expandDoc(doc);
 	const app = JSON.parse(
@@ -52,7 +53,11 @@ export async function readMenusOf(
 	) as AppJson;
 	edit(app);
 	const input = readerInput(await sourceFromBody(app));
-	const outcome = readHqApp({ ...input, recordDialect: () => undefined });
+	const outcome = readHqApp({
+		...input,
+		caseListActionsApplied,
+		recordDialect: () => undefined,
+	});
 	return {
 		outcome,
 		doc: outcome.kind === "read" ? outcome.draft.doc : undefined,
@@ -104,6 +109,7 @@ export async function stagesOver(
 	edit(app);
 	const ctx = readContext({
 		...readerInput(await sourceFromBody(app)),
+		caseListActionsApplied: true,
 		recordDialect: () => undefined,
 	});
 	for (const stage of STAGES.slice(0, count)) stage(ctx);

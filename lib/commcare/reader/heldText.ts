@@ -393,11 +393,12 @@ function readHeldText(
  *  worker meets, and the one that touches workers. */
 export type TextRespellingRegister = Extract<
 	SameStateRegister,
-	"names-respelled" | "list-settings-respelled"
+	"names-respelled" | "list-settings-respelled" | "badge-respelled"
 >;
 
 const TEXT_REGISTERS: ReadonlySet<SameStateRegister> = new Set([
 	"names-respelled",
+	"badge-respelled",
 	"list-settings-respelled",
 	"text-spaces-dropped",
 ]);

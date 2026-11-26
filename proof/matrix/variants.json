@@ -1627,14 +1627,6 @@
 		"id": "hq-advanced/member-opened-under-a-member-against-the-menu-s-household",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/open_cases",
@@ -1675,7 +1667,26 @@
 					"doc_type": "AdvancedOpenCaseAction"
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/links/0",
+				"value": {
+					"identifier": "parent",
+					"targetType": "member",
+					"relationship": "child",
+					"target": {
+						"kind": "session"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/member-opened-under-a-member-in-one-repeat",
@@ -12082,12 +12093,6 @@
 		"id": "hq-case-lists/registration-on-an-advanced-list",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Follow-ups"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1",
@@ -12469,7 +12474,29 @@
 				"use_default_audio_for_all": false,
 				"comment": ""
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/heldKind",
+				"value": "advanced"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListRegistrationForm/kind",
+				"value": "always"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/registration-returning-with-a-new-case-to-a-multi-select-list",
@@ -16322,19 +16349,43 @@
 		"id": "hq-case-management/form-condition-reading-casedb-in-a-case-only-menu",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/form_filter",
 			"value": "count(instance('casedb')/casedb/case[@case_type = 'member']) > 1"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/displayCondition/left/via/source",
+				"value": "casedb"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/displayCondition/left/via/where/0/right/term/caseType",
+				"value": "member"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/displayCondition/right/term/value",
+				"value": 1
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/inline-search-under-a-parent-selection",
@@ -16361,17 +16412,33 @@
 		"id": "hq-case-management/list-filter-worker-property-alone",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/user-prop-in-module-filter-form-filter-case-list-slots-the",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/case_details/short/filter",
 			"value": "#user/district"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/filter/term/source",
+				"value": "worker-record"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/filter/term/userPropertyUuid",
+				"value": "c5a87ddc-f33c-5351-af5a-47df65a5efe9"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/load-from-a-gone-question",
@@ -16542,7 +16609,7 @@
 					}
 				],
 				"pointer": "/parentCaseModuleUuid",
-				"value": "7d6e5ba7-70d4-573f-a5d8-3208d7d9dcb1"
+				"value": "f022cf07-7260-598a-a070-b770bbd0efc5"
 			}
 		]
 	},
@@ -16768,16 +16835,22 @@
 		"id": "hq-case-management/parent-selection-outside-the-parent-type",
 		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/parent-select-naming-a-module-outside-the-declared-parent-type",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "named",
 			"name": "parent_selection_outside_the_parent_type"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/parentCaseModuleUuid",
+				"value": "d29787b1-067a-577e-b82d-cdd9040238d7"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/parent-write-on-a-registration",
@@ -17080,16 +17153,22 @@
 		"id": "hq-case-management/registration-by-a-parent-follow-up",
 		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/case-list-form-pointing-at-a-follow-up-form-of-the-parent-case",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "named",
 			"name": "registration_by_a_parent_follow_up"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListRegistrationForm/target/kind",
+				"value": "chosen-parent"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/registration-closing-its-case",
@@ -17143,19 +17222,25 @@
 		"id": "hq-case-management/registration-of-a-child-case",
 		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/case_list_form/form_id",
 			"value": {
 				"$form": [0, 0]
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListRegistrationForm/target/kind",
+				"value": "created-case"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/registration-preload",
@@ -17306,8 +17391,8 @@
 	{
 		"id": "hq-case-management/return-to-the-screen-before-a-first-menu-form",
 		"base": "hq-case-management",
-		"entry": "forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
-		"standing": "not-yet",
+		"entry": "forms-and-case-writes/any-other-post-form-workflow-outside-the-offered-set-previous",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -17781,6 +17866,22 @@
 				"comment": ""
 			}
 		}
+	},
+	{
+		"id": "hq-case-management/return-to-the-screen-before-a-first-menu-form-sharing-no-case",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
+		"change": {
+			"op": "named",
+			"name": "previous_on_a_first_menu_with_no_shared_case"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/postSubmit",
+				"value": "previous"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/root-question-usercase",
@@ -22298,12 +22399,6 @@
 		"id": "hq-menus/badge",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 2,
-			"name": "Follow-ups"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/custom_icons",
@@ -22317,7 +22412,237 @@
 					"xpath": ""
 				}
 			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/badge",
+				"value": {
+					"kind": "text",
+					"text": "New"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-menus/badge-future-form-answer",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/badge-calculation-outside-typed-values",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {},
+					"xpath": "/data/future"
+				}
+			]
+		},
+		"standing": "never",
+		"place": {
+			"kind": "menu",
+			"menu": 2,
+			"name": "Follow-ups"
 		}
+	},
+	{
+		"id": "hq-menus/badge-ignores-later-icons",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/custom-icons-1",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null
+				},
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "Old"
+					},
+					"xpath": null
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/badge",
+				"value": {
+					"kind": "text",
+					"text": "New"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-menus/badge-prefers-calculation-over-old-text",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "Old"
+					},
+					"xpath": "4"
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/badge",
+				"value": {
+					"kind": "calculation",
+					"expression": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 4
+						}
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-menus/badge-unsupported-display-form",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/custom-icon-form-other-than-badge",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "caption",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null
+				}
+			]
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 2,
+			"name": "Follow-ups"
+		}
+	},
+	{
+		"id": "hq-menus/badge-without-text-or-calculation",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/badge-missing-localized-text",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {},
+					"xpath": null
+				}
+			]
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 2,
+			"name": "Follow-ups"
+		}
+	},
+	{
+		"id": "hq-menus/case-list-action-badge-unread",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/case-list-action-badges",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/case_list_form/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/badge",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-menus/case-list-item-badge-unread",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/case-list-item-badges",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/case_list/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/badge",
+				"value": null
+			}
+		]
 	},
 	{
 		"id": "hq-menus/browse-households-with-a-picture",
@@ -24744,72 +25069,49 @@
 	{
 		"id": "hq-menus/child-mirror-menu",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 5,
-			"name": "Tools mirror"
-		},
+		"entry": "menus-and-case-lists/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow",
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/5",
-			"value": {
-				"doc_type": "ShadowModule",
-				"name": {
-					"en": "Tools mirror"
-				},
-				"unique_id": "5adc0de0000000000000000000000003",
-				"source_module_id": {
-					"$menu": 3
-				},
-				"shadow_module_version": 2,
-				"case_type": null,
-				"forms": []
-			}
+			"op": "named",
+			"name": "child_menus_listing_the_same_forms"
 		},
-		"second": {
-			"entry": "menus-and-case-lists/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow",
-			"standing": "not-yet",
-			"place": {
-				"kind": "menu",
-				"menu": 6,
-				"name": "Calculators mirror"
+		"holds": [
+			{
+				"key": ["module", "5adc0de0000000000000000000000003"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "29eb10f5-ec7a-559f-bee6-9b95819e4de1"
 			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/6",
-				"value": {
-					"doc_type": "ShadowModule",
-					"name": {
-						"en": "Calculators mirror"
-					},
-					"unique_id": "5adc0de0000000000000000000000004",
-					"source_module_id": {
-						"$menu": 4
-					},
-					"shadow_module_version": 2,
-					"case_type": null,
-					"forms": [],
-					"root_module_id": "5adc0de0000000000000000000000003"
-				}
+			{
+				"key": ["module", "5adc0de0000000000000000000000004"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "dd960abb-746c-5a88-86b1-9e16a361f14c"
+			},
+			{
+				"key": ["module", "5adc0de0000000000000000000000004"],
+				"pointer": "/parentModuleUuid",
+				"value": "76a67f55-1bc0-5fcb-be81-2396a6bbee1e"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-menus/child-of-another-type-under-a-formless-parent",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/child-menu-of-another-case-type-under-a-parent-with-no-forms",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 4,
-			"name": "Calculators"
-		},
 		"change": {
 			"op": "named",
 			"name": "child_of_another_type_under_a_formless_parent"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 4
+					}
+				],
+				"pointer": "/parentModuleUuid",
+				"value": "29eb10f5-ec7a-559f-bee6-9b95819e4de1"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/clickable-icon",
@@ -25442,7 +25744,29 @@
 		"id": "hq-menus/link-through-a-first-menu-sharing-one-case",
 		"base": "hq-menus",
 		"entry": "forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
-		"standing": "not-yet",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/put_in_root",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/formLinks/0/target/type",
+				"value": "form"
+			}
+		]
+	},
+	{
+		"id": "hq-menus/link-through-a-first-menu-with-different-case-types",
+		"base": "hq-menus",
+		"entry": "forms-and-case-writes/first-menu-selection-used-for-different-records",
+		"standing": "never",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -25451,9 +25775,23 @@
 			"name": "Followup Form"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/2/put_in_root",
-			"value": true
+			"op": "named",
+			"name": "link_through_a_first_menu_with_different_case_types"
+		}
+	},
+	{
+		"id": "hq-menus/form-links-on-a-menu-listing-survey-forms",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 5,
+			"name": "Tools mirror"
+		},
+		"change": {
+			"op": "named",
+			"name": "form_links_on_a_menu_listing_survey_forms"
 		}
 	},
 	{
@@ -25636,16 +25974,58 @@
 		"id": "hq-menus/menu-filter-outside-predicate",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/module-filter-value-outside-predicate-any-xpath-hq-s-validator",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 3,
-			"name": "Tools"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/3/module_filter",
 			"value": "count(instance('casedb')/casedb/case[@case_type = 'household']) > 0"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 3
+					}
+				],
+				"pointer": "/displayCondition/left/via/source",
+				"value": "casedb"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 3
+					}
+				],
+				"pointer": "/displayCondition/left/via/where/0/right/term/caseType",
+				"value": "household"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 3
+					}
+				],
+				"pointer": "/displayCondition/right/term/value",
+				"value": 0
+			}
+		]
+	},
+	{
+		"id": "hq-menus/menu-filter-reading-a-form-answer",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/navigation-condition-outside-typed-worker-context",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/3/module_filter",
+			"value": "/data/answer = 'yes'"
+		},
+		"standing": "never",
+		"place": {
+			"kind": "menu",
+			"menu": 3,
+			"name": "Tools"
 		}
 	},
 	{
@@ -25665,10 +26045,10 @@
 		}
 	},
 	{
-		"id": "hq-menus/menu-grid-under-some-grid-menus",
+		"id": "hq-menus/menu-display-unknown-layout",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/module-layout-outside-editor-choices",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "menu",
 			"menu": 2,
@@ -25677,20 +26057,34 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/display_style",
-			"value": "grid"
-		},
-		"second": {
-			"entry": "application-and-settings/47-hq-grid-form-menus-none-all-some",
-			"standing": "not-yet",
-			"place": {
-				"kind": "app"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/grid_form_menus",
-				"value": "some"
-			}
+			"value": "columns"
 		}
+	},
+	{
+		"id": "hq-menus/menu-grid-under-some-grid-menus",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
+		"change": {
+			"op": "named",
+			"name": "choose_one_grid_menu"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/menuLayout",
+				"value": "grid"
+			},
+			{
+				"key": ["app"],
+				"pointer": "/appSettings/formMenuLayout",
+				"value": "individual"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/menu-under-a-mirror",
@@ -26164,10 +26558,10 @@
 			}
 		},
 		"second": {
-			"entry": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
-			"standing": "not-yet",
+			"entry": "menus-and-case-lists/short-columns-empty-on-a-module-that-needs-case-details",
+			"standing": "fix-in-hq",
 			"place": {
-				"kind": "menu",
+				"kind": "case-list",
 				"menu": 4,
 				"name": "Household mirror"
 			},
@@ -26225,10 +26619,10 @@
 	{
 		"id": "hq-menus/mirror-menu",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/short-columns-empty-on-a-module-that-needs-case-details",
+		"standing": "fix-in-hq",
 		"place": {
-			"kind": "menu",
+			"kind": "case-list",
 			"menu": 5,
 			"name": "Household mirror"
 		},
@@ -26302,6 +26696,21 @@
 				"case_type": null,
 				"forms": []
 			}
+		}
+	},
+	{
+		"id": "hq-menus/missing-listed-submenu",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/shared-form-menus-with-incomplete-submenus",
+		"change": {
+			"op": "named",
+			"name": "listed_menu_missing_its_required_child"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 5,
+			"name": "Tools mirror"
 		}
 	},
 	{
@@ -26571,23 +26980,50 @@
 		"id": "hq-menus/registration-shown-when",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/case-list-form-relevancy-expression-with-followup-forms-as-case",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Households"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/case_list_form/relevancy_expression",
 			"value": "count(instance('casedb')/casedb/case[@case_type = 'household']) = 0"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListRegistrationForm/showWhen/kind",
+				"value": "condition"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/registration-under-a-display-only-menu-sharing-its-case",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "registration_under_a_display_only_menu_sharing_its_case"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListRegistrationForm/kind",
+				"value": "always"
+			}
+		]
+	},
+	{
+		"id": "hq-menus/registration-under-a-first-menu-with-different-case-types",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case",
+		"standing": "never",
 		"place": {
 			"kind": "case-list",
 			"menu": 2,
@@ -26595,7 +27031,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "registration_under_a_display_only_menu_sharing_its_case"
+			"name": "registration_under_a_first_menu_with_different_case_types"
 		}
 	},
 	{
@@ -27325,32 +27761,53 @@
 		}
 	},
 	{
-		"id": "hq-new-app/grid-form-menus",
+		"id": "hq-new-app/form-menu-unknown-layout",
 		"base": "hq-new-app",
-		"entry": "application-and-settings/47-hq-grid-form-menus-none-all-some",
-		"standing": "not-yet",
+		"entry": "application-and-settings/menu-layout-outside-editor-choices",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "app"
 		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/grid_form_menus",
-			"value": "all"
+			"value": "columns"
+		},
+		"hqNeverServes": {
+			"raised": "BadValueError"
 		}
+	},
+	{
+		"id": "hq-new-app/grid-form-menus",
+		"base": "hq-new-app",
+		"entry": "application-and-settings/47-hq-grid-form-menus-none-all-some",
+		"change": {
+			"op": "named",
+			"name": "choose_grid_form_menus"
+		},
+		"holds": [
+			{
+				"key": ["app"],
+				"pointer": "/appSettings/formMenuLayout",
+				"value": "grid"
+			}
+		]
 	},
 	{
 		"id": "hq-new-app/grid-menus",
 		"base": "hq-new-app",
 		"entry": "application-and-settings/46-hq-use-grid-menus",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/use_grid_menus",
-			"value": true
-		}
+			"op": "named",
+			"name": "choose_grid_first_menu"
+		},
+		"holds": [
+			{
+				"key": ["app"],
+				"pointer": "/appSettings/firstMenuLayout",
+				"value": "grid"
+			}
+		]
 	},
 	{
 		"id": "hq-new-app/hierarchical-location-fixture-only",
@@ -27893,8 +28350,8 @@
 	{
 		"id": "hq-plain/computed-endpoint-argument",
 		"base": "hq-plain",
-		"entry": "forms-and-case-writes/function-datum-endpoints",
-		"standing": "not-yet",
+		"entry": "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier",
+		"standing": "never",
 		"place": {
 			"kind": "form",
 			"menu": 0,
@@ -28072,14 +28529,6 @@
 		"id": "hq-plain/form-badge",
 		"base": "hq-plain",
 		"entry": "forms-and-case-writes/custom-icons-0",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/1/custom_icons",
@@ -28093,7 +28542,22 @@
 					"xpath": ""
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/badge",
+				"value": {
+					"kind": "text",
+					"text": "New"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-plain/form-comment",
@@ -28176,6 +28640,162 @@
 			"name": "head_prefixes_naming_the_worker"
 		},
 		"holds": []
+	},
+	{
+		"id": "hq-plain/listed-menu-empty-links",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-form-session-endpoints-empty",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-exclusion",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-excluded-form-ids-non-empty",
+		"change": {
+			"op": "named",
+			"name": "some_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			},
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/excludedFormUuids/0",
+				"value": "49a3f76e-5630-5ddb-9af2-2cba3c00f32e"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-hidden-list-item",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-case-list-show-false",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-inherited-type",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-case-type-stored-key",
+		"change": {
+			"op": "named",
+			"name": "listed_menu_storing_its_source_case_type"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-link",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty",
+		"change": {
+			"op": "named",
+			"name": "some_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			},
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/entryPoints/0/formUuid",
+				"value": "f8122808-5253-5357-b567-c3f9c7d0e371"
+			},
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/entryPoints/0/entryPoint/id",
+				"value": "home-followup"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-missing-form",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form",
+		"change": {
+			"op": "named",
+			"name": "unavailable_form_on_a_menu_listing_source_forms"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 1,
+			"name": "At home"
+		}
+	},
+	{
+		"id": "hq-plain/listed-menu-no-exclusions",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-excluded-form-ids-empty",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-separate-list-item",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-case-list-show-true",
+		"change": {
+			"op": "named",
+			"name": "list_item_on_a_menu_listing_source_forms"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 1,
+			"name": "At home"
+		}
+	},
+	{
+		"id": "hq-plain/listed-menu-spaced-link",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding",
+		"change": {
+			"op": "named",
+			"name": "spaced_link_on_a_menu_listing_source_forms"
+		},
+		"standing": "never",
+		"place": {
+			"kind": "menu",
+			"menu": 1,
+			"name": "At home"
+		}
 	},
 	{
 		"id": "hq-plain/long-detail-with-no-column",
@@ -28440,6 +29060,53 @@
 			"op": "named",
 			"name": "preload_in_a_multi_select_menu"
 		}
+	},
+	{
+		"id": "hq-plain/registration-case-id-from-a-link",
+		"base": "hq-plain",
+		"entry": "forms-and-case-writes/function-datum-endpoints",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/function_datum_endpoints",
+			"value": ["case_id_new_household_0"]
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/entryCaseCreations",
+				"value": ["0f16f349-efe7-51b1-aa62-a921f4820b82"]
+			}
+		]
+	},
+	{
+		"id": "hq-plain/registration-case-id-repeated-on-source",
+		"base": "hq-plain",
+		"entry": "forms-and-case-writes/function-datum-endpoints",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/function_datum_endpoints",
+			"value": ["case_id_new_household_0", "case_id_new_household_0"]
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/entryCaseCreations",
+				"value": [
+					"0f16f349-efe7-51b1-aa62-a921f4820b82",
+					"0f16f349-efe7-51b1-aa62-a921f4820b82"
+				]
+			}
+		]
 	},
 	{
 		"id": "hq-plain/registration-on-a-list-beside-a-registration",
@@ -29287,6 +29954,22 @@
 			"pointer": "/modules/0/forms/1/show_count",
 			"value": true
 		}
+	},
+	{
+		"id": "hq-plain/source-backed-menu",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
 	},
 	{
 		"id": "hq-plain/submit-label",
@@ -35902,7 +36585,7 @@
 							"kind": "term",
 							"term": {
 								"kind": "input",
-								"searchInputUuid": "eee708ea-4763-578f-a0a3-dc4222f1e93e"
+								"searchInputUuid": "d97f4887-c095-50cd-9d53-df069c7337c0"
 							}
 						},
 						"right": {
@@ -36654,7 +37337,7 @@
 					"kind": "when-input-present",
 					"input": {
 						"kind": "input",
-						"searchInputUuid": "d5c93f75-4290-5dc8-88a8-435a75702847"
+						"searchInputUuid": "8b158870-0aad-5b09-b672-b44d2c5f686e"
 					},
 					"clause": {
 						"kind": "eq",
@@ -37140,31 +37823,53 @@
 		"id": "hq-search/registration-after-an-empty-search-offered-again",
 		"base": "hq-search",
 		"entry": "menus-and-case-lists/case-list-form-naming-a-form-another-list-offers-after-an-empty-search",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "named",
 			"name": "registration_after_an_empty_search_offered_again"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListRegistrationForm/kind",
+				"value": "always"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListRegistrationForm/kind",
+				"value": "after-empty-search"
+			}
+		]
 	},
 	{
 		"id": "hq-search/registration-after-an-empty-search-to-home",
 		"base": "hq-search",
 		"entry": "menus-and-case-lists/case-list-form-post-form-workflow-default-on-the-hidden-module-shape",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "named",
 			"name": "registration_after_an_empty_search_to_home"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListRegistrationForm/afterSubmit",
+				"value": "new-case"
+			}
+		]
 	},
 	{
 		"id": "hq-search/registry-workflow-with-no-registry",

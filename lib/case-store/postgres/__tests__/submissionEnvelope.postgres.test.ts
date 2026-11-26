@@ -3139,6 +3139,44 @@ describe("the form's own case", () => {
 		expect((await patientRow(store, taken))?.case_name).toBe("Already here");
 	});
 
+	it("creates the externally named case once and rejects a second entry with the same supplied ID", async () => {
+		const store = makeStore();
+		const caseId = "registration-record-224";
+		const program = (name: string): CaseOperationProgram => ({
+			...ownProgram("registration", [ownOp({ name: term(literal(name)) })]),
+			entryCaseKeys: new Map([[OWN_UUID, "new-case"]]),
+			suppliedCaseIds: new Map([[OWN_UUID, caseId]]),
+		});
+		const receipt = (entryKey: string): SubmissionReceiptClaim => ({
+			entryKey,
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
+			requestDigest: `${entryKey}-request`,
+		});
+		const first = {
+			appId: APP_ID,
+			ordinary: { kind: "registration" as const },
+			operations: program("Amina"),
+			submissionReceipt: receipt("first-supplied-entry"),
+		};
+		expect((await submit(store, first)).primaryCaseIds).toEqual([caseId]);
+		expect((await submit(store, first)).primaryCaseIds).toEqual([caseId]);
+		const other = await rejection(
+			submit(store, {
+				...first,
+				operations: program("Second entry"),
+				submissionReceipt: receipt("second-supplied-entry"),
+			}),
+		);
+		expect(other.rejection).toMatchObject({
+			kind: "new-case",
+			reason: "case-id-taken",
+			caseId,
+		});
+		expect((await patientRow(store, caseId))?.case_name).toBe("Amina");
+	});
+
 	it("creates every case the entry gives a datum under its own minted id, an advanced open action's extension included", async () => {
 		// An advanced registration: its own case and two visits made as its
 		// extensions, each an open action outside a repeat with a datum of its

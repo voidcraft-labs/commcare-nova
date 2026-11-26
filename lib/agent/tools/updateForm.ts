@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
 import { formLogicSchema } from "@/lib/domain/expression/types";
+import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import {
 	refineFormConnectMutations,
@@ -90,6 +91,12 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"Refine this already-participating form after the app has a Connect mode: omitted sub-configs keep their current value, null removes one sub-config only while another remains, and a stated one replaces it. Use configureConnect/configure_connect for enable, mode switch, participant-set changes, or disable; whole-slot null is refused here.",
 			),
+		badge: menuBadgeSchema
+			.nullable()
+			.optional()
+			.describe(
+				"A short label beside this item on the worker’s menu. Give it text or a calculation. A null value removes the badge.",
+			),
 		displayCondition: conditionSchema
 			.nullable()
 			.optional()
@@ -144,7 +151,7 @@ export type UpdateFormResult =
 
 export const updateFormTool = {
 	description:
-		"Edit a form's name, purpose, record naming rule, open and close conditions, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
+		"Edit a form's name, purpose, record naming rule, open and close conditions, visibility, menu badge, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -161,6 +168,7 @@ export const updateFormTool = {
 			close_condition,
 			post_submit,
 			connect,
+			badge,
 			displayCondition,
 			hiddenFromMenu,
 			capture_location,
@@ -229,6 +237,10 @@ export const updateFormTool = {
 					(hiddenFromMenu === undefined && existing.hiddenFromMenu === true)
 						? ["hiddenFromMenu"]
 						: []),
+					...(badge != null ||
+					(badge === undefined && existing.badge !== undefined)
+						? ["badge"]
+						: []),
 					...((existing.formLinks?.length ?? 0) > 0
 						? ["after-submit links"]
 						: []),
@@ -238,7 +250,7 @@ export const updateFormTool = {
 						kind: "mutate" as const,
 						mutations: [],
 						result: {
-							error: `Form "${existing.name}" can't be its menu's registration from the case list while it carries ${carried.join(", ")}: that form returns to the results or goes to the first menu, and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, hiddenFromMenu: null, remove_form_link) in this call or before, then set case_list_registration.`,
+							error: `Form "${existing.name}" can't be its menu's registration from the case list while it carries ${carried.join(", ")}: that form returns to the results or goes to the first menu, and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, hiddenFromMenu: null, badge: null, remove_form_link) in this call or before, then set case_list_registration.`,
 						},
 					};
 				}
@@ -320,6 +332,11 @@ export const updateFormTool = {
 			// the shared context so both surfaces write the same stream +
 			// log + Postgres trio.
 			const mutations = [
+				...(badge === undefined
+					? []
+					: [
+							{ kind: "updateForm" as const, uuid: formUuid, patch: { badge } },
+						]),
 				...updateFormMutations(doc, formUuid, patch),
 				...(refinedConnect === undefined
 					? []

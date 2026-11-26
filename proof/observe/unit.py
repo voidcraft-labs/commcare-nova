@@ -955,8 +955,8 @@ class _Unit:
         review it holds to them.
 
         Returns ``{"source", "application", "currentVersion", "projectSpaces":
-        {"all", "flagged"}, "projectData"?: {"lookupTables", "fixtureRows":
-        {<tag>: ...}, "lookupDefinitions"?, "fixtureDetails"?, "locationTypes", "locations"}, "media"?: [{"path",
+        {"all", "flagged", "caseListActions"}, "projectData"?: {"lookupTables", "fixtureRows":
+        {<tag>: ...}, "locationTypes", "locations"}, "media"?: [{"path",
         "mediaType", "multimediaId", "status", "sha256", "length"}]}``, each
         answer a blob of it as ``HqAnswer.retained`` writes it, a file's bytes
         never: at ``authored`` they are the document's own (``authored/media/``),
@@ -1010,6 +1010,13 @@ class _Unit:
                     "flagged": kept(
                         operations.project_spaces_read(
                             unit, credential, feature_flag=toggles.SAVE_ONLY_EDITED_FORM_FIELDS.slug
+                        )
+                    ),
+                    # A reading asks it for a list action's condition, a parent's follow-up or an empty button
+                    # (``lib/commcare/hq/caseListActionSetting.ts``).
+                    "caseListActions": kept(
+                        operations.project_spaces_read(
+                            unit, credential, feature_flag=toggles.FOLLOWUP_FORMS_AS_CASE_LIST_FORM.slug
                         )
                     ),
                 }

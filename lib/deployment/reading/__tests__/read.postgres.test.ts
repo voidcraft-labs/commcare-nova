@@ -35,6 +35,7 @@ import {
 } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { hqPrivateFeatureFlag } from "@/lib/commcare/projectSpaceCompatibility";
 import { readHqAppSteps, STAGES } from "@/lib/commcare/reader";
+import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
@@ -121,6 +122,7 @@ const PATHS = {
 	levels: `/a/${DOMAIN}/api/location_type/v1/?limit=1000`,
 	places: `/a/${DOMAIN}/api/location/v2/?limit=5000`,
 	spaces: "/api/user_domains/v1/?limit=100",
+	caseListActions: `/api/user_domains/v1/?limit=100&feature_flag=${domainFeatureFlag("FOLLOWUP_FORMS_AS_CASE_LIST_FORM").slug}`,
 	flagged: `/api/user_domains/v1/?limit=100&feature_flag=${hqPrivateFeatureFlag("save-only-edited-answers").slug}`,
 	media: (id: string) => `/hq/multimedia/file/CommCareImage/${id}/`,
 };
@@ -162,6 +164,15 @@ function changed(answer: RetainedHqAnswer, change: (body: Body) => Body) {
 		body: JSON.stringify(change(structuredClone(retainedBodyJson(answer)))),
 	};
 }
+
+const projectSpaces = (name: Parameters<typeof retainedReadingRead>[0]) =>
+	changed(retainedReadingRead(name), (body) => ({
+		...body,
+		objects: (body.objects as Body[]).map((space) => ({
+			...space,
+			domain_name: DOMAIN,
+		})),
+	}));
 
 const application = () => retainedReadingRead("application");
 const source = () => retainedGroupRead("navigation-base/app-source");
@@ -1503,14 +1514,6 @@ describe("readHqAppForReview", () => {
 	});
 
 	it("asks for the flag once where the source holds a write saved only if changed, hands the reader its answer, and never asks where the source holds none", async () => {
-		const spaces = (name: Parameters<typeof retainedReadingRead>[0]) =>
-			changed(retainedReadingRead(name), (body) => ({
-				...body,
-				objects: (body.objects as Body[]).map((space) => ({
-					...space,
-					domain_name: DOMAIN,
-				})),
-			}));
 		const editMode = withFirstForm(source(), (form) => {
 			const actions = structuredClone(form.actions) as Body;
 			const update = actions.update_case as Body;
@@ -1521,8 +1524,8 @@ describe("readHqAppForReview", () => {
 		vi.mocked(readHqAppSteps).mockClear();
 		const flagged = await read((peer) => {
 			serveApp(peer, { source: editMode });
-			serve(peer, PATHS.spaces, spaces("project-spaces"));
-			serve(peer, PATHS.flagged, spaces("project-spaces-flag-on"));
+			serve(peer, PATHS.spaces, projectSpaces("project-spaces"));
+			serve(peer, PATHS.flagged, projectSpaces("project-spaces-flag-on"));
 		});
 		expect(
 			flagged.requests.filter((path) => path.startsWith("/api/user_domains/")),
@@ -1537,8 +1540,8 @@ describe("readHqAppForReview", () => {
 
 		const unflagged = await read((peer) => {
 			serveApp(peer, { source: editMode });
-			serve(peer, PATHS.spaces, spaces("project-spaces"));
-			serve(peer, PATHS.flagged, spaces("project-spaces-flag-off"));
+			serve(peer, PATHS.spaces, projectSpaces("project-spaces"));
+			serve(peer, PATHS.flagged, projectSpaces("project-spaces-flag-off"));
 		});
 		expect(unflagged.answer.kind).not.toBe("stop");
 		expect(new Set(handed())).toEqual(new Set([false]));
@@ -1551,6 +1554,54 @@ describe("readHqAppForReview", () => {
 			plain.requests.some((path) => path.startsWith("/api/user_domains/")),
 		).toBe(false);
 	});
+
+	it.each([true, false])(
+		"passes a project’s confirmed case-list action setting through an authenticated read (%s)",
+		async (enabled) => {
+			// A conditional action is what makes the reading ask; the menus stay
+			// as the application resource summarizes them.
+			const withAction = changed(source(), (raw) => {
+				const [menu, ...rest] = raw.modules as Body[];
+				const [, registration] = menu.forms as Body[];
+				return {
+					...raw,
+					modules: [
+						{
+							...menu,
+							case_list_form: {
+								form_id: registration.unique_id,
+								relevancy_expression: "true()",
+								post_form_workflow: "case_list",
+							},
+						},
+						...rest,
+					],
+				};
+			});
+			vi.mocked(readHqAppSteps).mockClear();
+			const result = await read((peer) => {
+				serveApp(peer, { source: withAction });
+				serve(peer, PATHS.spaces, projectSpaces("project-spaces"));
+				serve(
+					peer,
+					PATHS.caseListActions,
+					projectSpaces(
+						enabled ? "project-spaces-flag-on" : "project-spaces-flag-off",
+					),
+				);
+			});
+			expect(
+				result.requests.filter((path) => path.startsWith("/api/user_domains/")),
+			).toEqual([PATHS.spaces, PATHS.caseListActions]);
+			expect(
+				new Set(
+					vi
+						.mocked(readHqAppSteps)
+						.mock.calls.map(([input]) => input.caseListActionsApplied),
+				),
+			).toEqual(new Set([enabled]));
+		},
+	);
 
 	it("stops at the request in flight when the read is cancelled, and sends no later request", async () => {
 		const actor = await authorizeBringIn(ACTOR, PROJECT);

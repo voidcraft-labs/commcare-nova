@@ -166,7 +166,6 @@ function answerFor(
 	}
 	if (at === "/api/user_domains/v1/" && answers.projectSpaces !== undefined) {
 		const flag = url.searchParams.get("feature_flag");
-		if (flag !== null && flag !== "save-only-edited-form-fields") return;
 		if (flag === null && asked.includes("projectSpaces:all") && extra) {
 			const repeat = Object.keys(extra).find(
 				(key) =>
@@ -175,15 +174,21 @@ function answerFor(
 			if (repeat)
 				return { name: `factory:${repeat}`, answer: served(extra[repeat]) };
 		}
-		return flag !== null
-			? {
-					name: "projectSpaces:flagged",
-					answer: served(answers.projectSpaces.flagged),
-				}
-			: {
-					name: "projectSpaces:all",
-					answer: served(answers.projectSpaces.all),
-				};
+		if (flag === null)
+			return {
+				name: "projectSpaces:all",
+				answer: served(answers.projectSpaces.all),
+			};
+		const key =
+			flag === "save-only-edited-form-fields"
+				? "flagged"
+				: flag === "followup_forms_as_case_list_form"
+					? "caseListActions"
+					: undefined;
+		const retained = key === undefined ? undefined : answers.projectSpaces[key];
+		if (key !== undefined && retained !== undefined)
+			return { name: `projectSpaces:${key}`, answer: served(retained) };
+		return undefined;
 	}
 	const data = answers.projectData;
 	if (data === undefined) return undefined;

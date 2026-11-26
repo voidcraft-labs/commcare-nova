@@ -279,3 +279,33 @@ def test_without_lookup_tables_vellum_reports_each_question_whose_choices_are_ca
         True: {"itemsets": 3, "reported": 0, "kept": 3},
         False: {"itemsets": 3, "reported": 3, "kept": 3},
     }, json.dumps(found)
+
+
+def test_menu_and_form_settings_keep_the_visible_badge_when_the_worker_app_is_saved(hq, core_runner, editor_driver):
+    """Save each active badge type through the owning HQ page, and check the
+    privilege-negative form save on the same published input."""
+    document = corpus_document("targeted-menu-badges")
+    for granted in (True, False):
+        with _published(document, "CUSTOM_ICON_BADGES", granted) as opened:
+            def owners():
+                app = operations.held_app(opened.state, opened.app_id)
+                module = next(module for module in app.get_modules() if module.name.get("en") == "Visit forms")
+                form = next(form for form in module.get_forms() if form.name.get("en") == "Visits due")
+                return module, form
+
+            module, form = owners()
+            pages_to_save = [(pages.FORM_SETTINGS, form, "xpath", "1234")]
+            if granted:
+                pages_to_save.append((pages.MODULE_SETTINGS, module, "text", "New"))
+            for page, target, kind, expected in pages_to_save:
+                saved = pages.fresh_section_save(editor_driver, opened.state, page, opened.app_id, target.unique_id)
+                assert saved.save is not None and saved.save.status == 200 and not saved.refused
+                fields = dict(parse_qsl((saved.save.body or b"").decode("utf-8"), keep_blank_values=True))
+                if granted:
+                    assert fields["custom_icon_type"] == kind
+                    assert fields["custom_icon_text_body" if kind == "text" else "custom_icon_xpath"] == expected
+                else:
+                    assert "custom_icon_type" not in fields
+            saved_menu, saved_form = owners()
+            assert dict(saved_menu.custom_icon.text) == {"en": "New"}
+            assert saved_form.custom_icon.xpath == "1234"

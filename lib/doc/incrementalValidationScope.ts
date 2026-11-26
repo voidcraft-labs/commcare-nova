@@ -48,6 +48,7 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	afterEmptySearchRegistrationFormOf,
+	firstMenuCaseOpensAnotherType,
 	firstMenuOpensOneCase,
 	formLinkEntries,
 	menuScreenContributors,
@@ -240,7 +241,9 @@ export function incrementalValidationScope(
 	if (
 		nextDoc !== doc &&
 		(inferenceFingerprint(doc) !== inferenceFingerprint(nextDoc) ||
-			firstMenuOpensOneCase(doc) !== firstMenuOpensOneCase(nextDoc))
+			firstMenuOpensOneCase(doc) !== firstMenuOpensOneCase(nextDoc) ||
+			firstMenuCaseOpensAnotherType(doc) !==
+				firstMenuCaseOpensAnotherType(nextDoc))
 	)
 		return undefined;
 	addScreenContributors(doc, nextDoc, scope);
@@ -365,7 +368,13 @@ function mutationFootprint(
 				 * submenus to another screen, which every screen's case-first
 				 * answer, every link and entry point into it, and the first
 				 * menu's shared case read. */
-				if (Object.hasOwn(mutation.patch, "formsInMenuAbove")) return undefined;
+				if (
+					Object.hasOwn(mutation.patch, "formsInMenuAbove") ||
+					Object.hasOwn(mutation.patch, "formsFromMenu") ||
+					Object.hasOwn(mutation.patch, "menuLayout") ||
+					mutation.listedForm
+				)
+					return undefined;
 				/* A module case-type/mode change alters the session requirements seen
 				 * by form links elsewhere in the app. Turning Forms read the search
 				 * on or off gives or takes its search instance from a submenu or a

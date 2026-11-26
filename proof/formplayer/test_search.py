@@ -63,6 +63,10 @@ sort, whose choices Formplayer hands in row order.
 from __future__ import annotations
 
 import dataclasses
+import json
+
+import pytest
+from lxml import etree
 
 from proof.formplayer import apps
 from proof.formplayer.walk import screen_kind
@@ -291,3 +295,151 @@ def test_formplayer_runs_the_default_search_unless_search_again_forces_its_scree
     assert screen_kind(searched) == "entities", searched
     assert len(sent_when_searched) == 2
     assert _carries(sent_when_searched[1], TYPED)
+
+
+def _register_from_an_empty_search(web, served, *, prefilled):
+    """Search for a name no case holds, take the list's one action into "Register patient", submit it under another
+    name, and return the case HQ's receiver created and the screen Formplayer answers the submission with. Where
+    ``prefilled``, the form's Name starts as the name searched for."""
+    search = web.navigate(SEARCH)
+    assert screen_kind(search) == "query", search
+    given = "Empty search patient"
+    data = _query_data(search["queryKey"], {"patient_name": given})
+    results = web.navigate(SEARCH, query_data=data)
+    assert screen_kind(results) == "entities" and results["entities"] == [], results
+    assert len(results["actions"]) == 1, results
+    form = web.navigate([*results["selections"], "action 0"], query_data=data)
+    assert screen_kind(form) == "form" and form["title"] == "Register patient", form
+    (name,) = [node for node in form["tree"] if node.get("caption") == "Name"]
+    if prefilled:
+        assert name.get("answer") == given, name
+    corrected = "Name on the case"
+    submitted = web.submit(form["session_id"], {name["ix"]: corrected})
+    assert submitted["status"] == "success", submitted
+    (receipt,) = served.hq.submissions
+    case_ns = "{http://commcarehq.org/case/transaction/v2}"
+    (created,) = etree.fromstring(receipt.instance).findall(f"{case_ns}case")
+    assert created.findtext(f"{case_ns}create/{case_ns}case_name") == corrected
+    return created.attrib["case_id"], submitted["nextScreen"]
+
+
+def _asked(served):
+    """Every request Formplayer made of HQ in the run, with the status HQ answered."""
+    return "\n".join(
+        f"{exchange.method} {exchange.path} {exchange.status} {exchange.refusal or ''}" for exchange in served.hq.exchanges
+    )
+
+
+@pytest.mark.parametrize(("scenario", "landing"), [("basic", "entities"), ("new-case", "commands")])
+def test_empty_search_registration_returns_to_its_results_or_selects_its_created_case(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence, scenario, landing
+):
+    """The two case-list settings on the same hidden physical form, through real submission and HQ's case fixture."""
+    with apps.published(formplayer_documents[f"no-matches-{scenario}"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served, served.run("empty-search"):
+            web = apps.web(formplayer_runner, served)
+            case_id, next_screen = _register_from_an_empty_search(web, served, prefilled=True)
+            # Every request Formplayer made of HQ in the run, with the status HQ answered, so a landing that
+            # differs says what the return frame asked (the case fixture keyed to the created case).
+            landed = f"{json.dumps(next_screen)[:1500]}\nFormplayer asked HQ:\n{_asked(served)}"
+            assert screen_kind(next_screen) == landing, landed
+            if landing == "entities":
+                # The return frame ends on the search keyed to the new case, and Formplayer rebuilds it counting no
+                # query step toward a full entity screen (``MenuSessionFactory.rebuildSessionFromFrame``), so Core
+                # lists no reference (``EntityScreen.initListSubScreen``): the list is empty though HQ's case fixture
+                # answered with the case, as it is for the same journey made on HQ's own pages (below).
+                assert next_screen["entities"] == [], landed
+            else:
+                assert case_id in next_screen["selections"], next_screen
+                assert [command["displayText"] for command in next_screen["commands"]] == ["Visit"], next_screen
+            fixture_reads = [asked.status for asked in served.hq.exchanges if asked.url_name == "case_fixture"]
+            assert fixture_reads and all(status == 200 for status in fixture_reads), fixture_reads
+            evidence("registered-case", {"case": case_id, "landing": landing, "caseFixture": fixture_reads})
+
+
+def _landing(screen):
+    """What a worker lands on: the screen's kind, the rows it lists and the commands it offers."""
+    return {
+        "kind": screen_kind(screen),
+        "rows": [row["id"] for row in screen.get("entities") or []],
+        "commands": [command["displayText"] for command in screen.get("commands") or []],
+    }
+
+
+def test_an_app_made_in_hq_lands_where_novas_publish_lands_after_registering_from_an_empty_search(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    """``hq-empty-search`` is the journey of ``no-matches-basic`` made on CommCare HQ's own pages
+    (``proof/matrix/bases/empty_search.py``): a search that finds nothing offers "Register patient", which returns to
+    the case list. Contract: after the registration, Formplayer lands a worker on the same screen, listing the same
+    rows, on HQ's build of either, the created case standing where the other's does. Plausible failure: a landing
+    that differs, which names a member of the two apps Nova writes otherwise than HQ's pages save it."""
+    from proof.hq.check import hq_check
+    from proof.observe import publish
+    from proof.webapps import hq as webapps_hq
+
+    landed = {}
+    document = formplayer_documents["hq-empty-search"]
+    export = document.exports["minimum"]
+    with hq_check(export.configuration.hq()) as (unit, _):
+        with unit.operation("formplayer:authored", document.id.encode()):
+            app_id, _, _ = publish.create_authored(unit, document)
+        project = webapps_hq.Project(document, export, unit, app_id)
+        with project.released(formplayer_runner, label="hq-made") as served, served.run("empty-search"):
+            web = apps.web(formplayer_runner, served)
+            case_id, screen = _register_from_an_empty_search(web, served, prefilled=False)
+            landed["hq"] = {"created": case_id, **_landing(screen), "asked": _asked(served)}
+    with apps.published(formplayer_documents["no-matches-basic"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served, served.run("empty-search"):
+            web = apps.web(formplayer_runner, served)
+            case_id, screen = _register_from_an_empty_search(web, served, prefilled=True)
+            landed["nova"] = {"created": case_id, **_landing(screen), "asked": _asked(served)}
+    evidence("landings", landed)
+
+    def shown(one):
+        return {
+            "kind": one["kind"],
+            "rows": ["the created case" if row == one["created"] else row for row in one["rows"]],
+            "commands": one["commands"],
+        }
+
+    assert shown(landed["hq"]) == shown(landed["nova"]), json.dumps(landed, indent=1)
+
+
+def test_a_list_button_updates_the_selected_household_and_a_second_button_creates_the_member(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    case_ns = "{http://commcarehq.org/case/transaction/v2}"
+    with apps.published(formplayer_documents["case-list-action-basic"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served:
+            records = {}
+            for index, title in [("2", "Edit household"), ("1", "Register household and member")]:
+                with served.run(title):
+                    web = apps.web(formplayer_runner, served)
+                    parents = web.navigate([index])
+                    assert screen_kind(parents) == "entities", parents
+                    assert any(row["id"] == "household-2" for row in parents["entities"]), parents
+                    members = web.navigate([*parents["selections"], "household-2"])
+                    assert screen_kind(members) == "entities" and len(members["actions"]) == 1, members
+                    form = web.navigate([*members["selections"], "action 0"])
+                    assert screen_kind(form) == "form" and form["title"] == title, form
+                    answers = {node["ix"]: node["caption"] for node in form["tree"] if node["type"] == "question"}
+                    posted = len(served.hq.submissions)
+                    result = web.submit(form["session_id"], answers)
+                    assert result["status"] == "success", result
+                    (saved,) = served.hq.submissions[posted:]
+                    cases = list(etree.fromstring(saved.instance).iter(f"{case_ns}case"))
+                    records[title] = [row.attrib["case_id"] for row in cases]
+                    if index == "2":
+                        assert records[title] == ["household-2"], records
+                        assert cases[0].findtext(f"{case_ns}update/{case_ns}last_note") == "Note"
+                        assert cases[0].find(f"{case_ns}create") is None
+                    else:
+                        types = {row.findtext(f"{case_ns}create/{case_ns}case_type"):row.attrib["case_id"] for row in cases}
+                        assert set(types) == {"household","person"}, types
+                        assert types["person"] in result["nextScreen"]["selections"], result
+                        # The return opens the members of the household the form created, not the one chosen
+                        # before the list (``workflow.py::_find_best_match`` keys the household datum to it).
+                        assert types["household"] in result["nextScreen"]["selections"], result
+                        assert "household-2" not in result["nextScreen"]["selections"], result
+            evidence("list-action-records", records)

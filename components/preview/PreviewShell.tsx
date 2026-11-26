@@ -62,10 +62,12 @@ import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScree
 import { usePreviewSearchArrival } from "@/lib/preview/hooks/usePreviewSearchArrival";
 import { usePreviewSelectionsArrival } from "@/lib/preview/hooks/usePreviewSelectionsArrival";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { previewPlatformRules } from "@/lib/preview/platform";
 import { continuesPreviewTask } from "@/lib/preview/taskContinuation";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection } from "@/lib/routing/types";
+import { readCurrentPreviewSelections } from "@/lib/routing/useClientPath";
 import {
 	useClearPreviewNavigation,
 	useEditMode,
@@ -76,6 +78,7 @@ import {
 	usePreviewInstalledAndroidApps,
 	usePreviewParentCaseRequest,
 	usePreviewPlatform,
+	usePreviewSessionId,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
 	useSetPreviewAndroidAppInstalled,
@@ -316,10 +319,26 @@ function BuilderScreens() {
 		setCaseListRegistrationEntry,
 	]);
 
+	const previewDevice = usePreviewDevice();
+	const previewSessionId = usePreviewSessionId();
 	const clearPreviewNavigation = useClearPreviewNavigation();
 	useLayoutEffect(() => {
-		if (mode === "preview" && loc.kind === "home") clearPreviewNavigation();
-	}, [mode, loc.kind, clearPreviewNavigation]);
+		if (mode !== "preview" || loc.kind !== "home") return;
+		// Android's Home keeps the session as it stands, a case a frame left
+		// before its first command included; Web Apps' Home starts fresh.
+		const held =
+			previewPlatformRules(previewDevice.platform).poppedEntrySelections ===
+			"session"
+				? readCurrentPreviewSelections(previewSessionId)?.menu
+				: undefined;
+		clearPreviewNavigation(held);
+	}, [
+		mode,
+		loc.kind,
+		previewDevice.platform,
+		previewSessionId,
+		clearPreviewNavigation,
+	]);
 	/* Each entry records the cases it was shown with; Back or Forward past
 	 * Home puts them back on Web Apps, as a popped address's selections are
 	 * replayed. Before the search arrival, which reads them. */
@@ -395,7 +414,6 @@ function BuilderScreens() {
 	 * provider's (a child's before its parent's), so a language change
 	 * rebuilds the entry once, with the new device's values, and a platform
 	 * change restarts it (`EngineController.setPreviewDevice`). */
-	const previewDevice = usePreviewDevice();
 	const engineController = useBuilderFormEngine();
 	useLayoutEffect(() => {
 		engineController.setPreviewDevice(previewDevice);

@@ -396,6 +396,11 @@ id is an entry of `lib/deployment/reading/firstPublishChanges.ts::FIRST_PUBLISH_
 `applies` reads that record, the two lists together are every such entry, and the lane holds each id
 to a retained base whose `expected.json` lists it (`entryCoverage.test.ts`, rule 3).
 
+The app shell reads both menu layout policies. An ordinary module keeps its
+individual grid choice even while a global policy is active. Its HQ editor
+keeps that choice and can make it effective again. Unsupported layout values
+produce a finding with the menu display settings that can recover the read.
+
 ## What the reader is told
 
 `ReaderInput` (`types.ts`) is everything a reading takes. Beside the source as HQ serves it and
@@ -988,6 +993,18 @@ The first-publish comparison carries the actual source that a registered change 
 
 Proof locations describe where an export changes, including the resulting case property. A review binds the source question, case operation and write slot or the earlier date/time row the reader recognized. Native source exports can rekey form attachment IDs on every call. Those IDs and unrelated actions never enter a case consequence. Stored object-valued settings use a fixed-size digest of their recorded operand.
 
+A version-two menu listing another menu’s forms resolves its source menu through the app’s actual menu ID. The HQ source download can regenerate a form’s ID while the secondary menu’s exclusions and deep links continue to name the ID held on the application resource. Read the aligned owning form’s namespace before binding those references. Missing or ambiguous source forms, and a missing required source submenu, receive a finding on the secondary menu. Never synthesize the absent submenu or a second XForm while reading.
+
+### Menus reached through a selected case on Home
+
+Form links, deep links and Register can carry a case before the first menu command. The reader resolves the finished menu and form structure through the wire frame projector. It accounts the original feature on the physical field that supplied the route. A first menu that would let one datum name different records has a separate, placed refusal. Changing the menu structure or the destination in HQ allows the person to retry the read.
+
+A module's or form's first badge comes from its `custom_icons` list. Its
+nonempty XPath takes precedence over its localized text. A case-list item
+and its registration button inherit the storage field but their suite
+commands never read it. `reader/menus/modules.ts` accounts for each carrier
+at its source pointer. The expression reader binds badge calculations in
+the navigation slot with no HQ hashtag interpolation.
 A generated Search check has a stable wording unit even while no current filter
 would produce it. A hidden case list entry, disabled registration action, registration form taken off its hidden menu, column hidden from a view and disabled Search keep
 their saved wording under the same owner. Only the wire comparison erases

@@ -114,6 +114,7 @@ export interface HqChangeReadingsInput {
 	readonly data: ReadingProjectData;
 	/** The flag answer where the source now holds a write saved only if changed. */
 	readonly saveOnlyEditedApplied?: boolean;
+	readonly caseListActionsApplied?: boolean;
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
 	/** The entities of the deployment's target-identity record (`store.ts::readTargetIdentity`). */
 	readonly overrides: readonly WireIdentityOverride[];
@@ -325,6 +326,9 @@ export function* makeHqChangeReadingsSteps(
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
 		...(input.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: input.saveOnlyEditedApplied,
+		}),
+		...(input.caseListActionsApplied !== undefined && {
+			caseListActionsApplied: input.caseListActionsApplied,
 		}),
 	} satisfies Omit<ReaderInput, "source" | "modules" | "media">;
 

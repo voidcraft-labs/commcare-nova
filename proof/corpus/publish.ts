@@ -108,6 +108,7 @@ import { gunzipSync } from "node:zlib";
 import type { HqApplication, HqApplicationProfile } from "@/lib/commcare";
 import {
 	type CommCareCredentials,
+	createHqSourceFlagReader,
 	importApp,
 	probeHqProjectSpaceCompatibility,
 	readHqSaveOnlyEditedAnswers,
@@ -125,6 +126,7 @@ import {
 	HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 } from "@/lib/commcare/hq/bounds";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
 import {
 	type HqFixtureRow,
@@ -253,6 +255,10 @@ import {
 	matchesRecordedLookup,
 	readLookupReceipt,
 } from "@/lib/deployment/largeLookupReceipt";
+import {
+	legacyMenuLayoutLines,
+	observedMenuLayoutOwnership,
+} from "@/lib/deployment/legacyMenuLayouts";
 import {
 	type LookupTableConflict,
 	type LookupTableUnsupported,
@@ -2023,6 +2029,7 @@ function appEdge(
 	current: { readonly normalized: unknown; readonly digest: string },
 	media: SettledMedia | null,
 	languageNames: LanguageNames,
+	layoutReplacements: readonly string[],
 ): DeploymentRemoteChange | null {
 	const remoteRevision = peer.saveCounter();
 	if (remoteRevision === null)
@@ -2061,6 +2068,7 @@ function appEdge(
 			bulkUploadAssets(prepared.export.doc, prepared.export.assets),
 		),
 		canBringIn: ledger.app.origin !== "create",
+		layoutReplacements,
 	});
 }
 
@@ -2397,7 +2405,18 @@ async function sendContent(
 				: {
 						app: {
 							normalized: readBack.normalized,
-							ownership,
+							/* As `service.ts` records it over the read after the import. */
+							ownership:
+								afterImport !== null &&
+								!("success" in afterImport) &&
+								afterImport.kind === "source-at"
+									? observedMenuLayoutOwnership(
+											ownership,
+											prepared.export.doc,
+											identity,
+											afterImport.source,
+										)
+									: ownership,
 							origin: "push",
 							digest: readBack.digest,
 							bytes: readBack.bytes,
@@ -2605,6 +2624,12 @@ async function updateStep(
 		current,
 		media,
 		languageNames,
+		legacyMenuLayoutLines({
+			doc: prepared.export.doc,
+			identity,
+			source: read,
+			ownership: ledger.app.origin === "create" ? null : ledger.app.ownership,
+		}),
 	);
 	const verdict = decideRemoteChanges({
 		observed: [...(app === null ? [] : [app]), ...(edge?.observed ?? [])],
@@ -3040,6 +3065,23 @@ async function reviewOverPeer(input: {
 
 	/* The flag a write saved only if changed needs. */
 	const baseSource = sourceFromBaseline(baseline.source);
+	let caseListActionsApplied: boolean | undefined;
+	if (
+		sourceUsesCaseListActionSetting(source.raw) ||
+		sourceUsesCaseListActionSetting(baseSource.raw)
+	) {
+		const flag = await createHqSourceFlagReader(
+			CREDENTIALS,
+			domain,
+		)("no-matches-registration");
+		if (flag.kind === "not-a-member")
+			throw new Error(
+				"The project space was inaccessible for the case-list action check.",
+			);
+		if (flag.kind === "failed")
+			throw new Error("The case-list action setting could not be read.");
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	if (
 		sourceHoldsEditMode(publishedCaseBlocks(source.raw)) ||
@@ -3088,6 +3130,7 @@ async function reviewOverPeer(input: {
 			},
 		},
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		data: projectData.data,
 	};
 
@@ -3099,6 +3142,7 @@ async function reviewOverPeer(input: {
 		now: { source, modules: alignment.modules },
 		data: projectData.data,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		reference,
 		overrides: input.targetIdentity.entities,
 		media: { published, base: null, now: null },

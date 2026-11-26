@@ -407,6 +407,13 @@ export const FIELD_REFERENCE_SLOTS = [
 export const FORM_REFERENCE_SLOTS = [
 	{
 		entity: "form",
+		slot: "form_badge",
+		path: "badge.expression",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "form_display_condition",
 		path: "displayCondition",
 		kind: "expression",
@@ -653,6 +660,24 @@ export const FORM_REFERENCE_SLOTS = [
 export const MODULE_REFERENCE_SLOTS = [
 	{
 		entity: "module",
+		slot: "listed_forms_source",
+		path: "formsFromMenu.menuUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "unlisted_source_form",
+		path: "formsFromMenu.excludedFormUuids[]",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "listed_form_link",
+		path: "formsFromMenu.entryPoints[].formUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
 		slot: "module_case_parent",
 		path: "parentCaseModuleUuid",
 		kind: "entity-uuid",
@@ -667,6 +692,30 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "module_case_list_registration_form",
 		path: "caseListRegistrationForm.formUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "case_list_action_condition",
+		path: "caseListRegistrationForm.showWhen.condition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "module_badge",
+		path: "badge.expression",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_list_action_created_case",
+		path: "caseListRegistrationForm.target.operationUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "case_list_action_chosen_parent",
+		path: "caseListRegistrationForm.target.moduleUuid",
 		kind: "entity-uuid",
 	},
 	{
@@ -975,7 +1024,9 @@ function expressionRefForEntry(
 		const mod = ownRecordValue(doc.modules, uuid);
 		if (mod === undefined) return undefined;
 		switch (entry.slot) {
+			case "module_badge":
 			case "module_display_condition":
+			case "case_list_action_condition":
 			case "case_list_filter":
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
@@ -1016,6 +1067,7 @@ function expressionRefForEntry(
 	const form = ownRecordValue(doc.forms, uuid);
 	if (form === undefined) return undefined;
 	switch (entry.slot) {
+		case "form_badge":
 		case "form_display_condition":
 		case "form_open_condition":
 		case "form_close_condition":
@@ -1627,7 +1679,14 @@ function walkSlotValues(
 	if (fanOut) {
 		if (!Array.isArray(value)) return;
 		value.forEach((element, index) => {
-			walkSlotValues(element, rest, [...indices, index], visit);
+			if (rest.length === 0)
+				visit(
+					value as unknown as Record<string, unknown>,
+					String(index),
+					element,
+					[...indices, index],
+				);
+			else walkSlotValues(element, rest, [...indices, index], visit);
 		});
 		return;
 	}
@@ -1728,6 +1787,11 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",
 	"entryPoint.ignoreDisplayConditions": "config",
+	// The form's own case creations whose IDs a deep link supplies: UUIDs of
+	// this form's case operations, like a column order's column UUIDs. No
+	// rename follows them; the commit gate places a finding on one that no
+	// longer names a creation on the form's frame.
+	"entryCaseCreations[]": "identity",
 	id: "declaration",
 	name: "display-text",
 	type: "discriminator",
@@ -1777,11 +1841,17 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	audioLabel: "media",
 	mediaByLanguage: "media",
 	mediaByFormerCode: "media",
+	// A badge's kind selects text or a calculation; its text is display text
+	// with its own translation unit. The calculation is the `form_badge` slot.
+	"badge.kind": "discriminator",
+	"badge.text": "display-text",
 };
 
 export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	Record<string, NonReferenceReason>
 > = {
+	"formsFromMenu.entryPoints[].entryPoint.uuid": "identity",
+	"formsFromMenu.entryPoints[].entryPoint.id": "declaration",
 	uuid: "identity",
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",
@@ -1791,6 +1861,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	name: "display-text",
 	hiddenFromMenu: "config",
 	formsInMenuAbove: "config",
+	menuLayout: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
 	purpose: "display-text",
@@ -1798,6 +1869,10 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	audioLabel: "media",
 	mediaByLanguage: "media",
 	mediaByFormerCode: "media",
+	// A badge's kind selects text or a calculation; its text is display text
+	// with its own translation unit. The calculation is the `module_badge` slot.
+	"badge.kind": "discriminator",
+	"badge.text": "display-text",
 	// The case list menu entry: its label is plain display text (the
 	// module's name when absent), its icon and spoken label media.
 	"caseListMenuItem.label": "display-text",
@@ -1810,6 +1885,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	// are media, `afterSubmit` is where a worker goes after registering, and
 	// `formUuid` is the `module_case_list_registration_form` reference slot.
 	"caseListRegistrationForm.kind": "discriminator",
+	"caseListRegistrationForm.target.kind": "discriminator",
+	"caseListRegistrationForm.showWhen.kind": "discriminator",
 	"caseListRegistrationForm.label": "display-text",
 	"caseListRegistrationForm.icon": "media",
 	"caseListRegistrationForm.audioLabel": "media",

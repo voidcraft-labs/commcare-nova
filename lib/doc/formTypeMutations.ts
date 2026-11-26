@@ -25,6 +25,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
+import { entryCaseCreationsLeftBy } from "./entryCaseCreationCascade";
 import { findContainingForm } from "./mutations/helpers";
 import {
 	bareFieldRead,
@@ -142,6 +143,14 @@ export function planFormTypeChange(
 				patch: {},
 				caseOperationChange: { operation: "remove", uuid: own.uuid },
 			});
+			mutations.push(
+				...entryCaseCreationsLeftBy(
+					form,
+					(form.caseOperations ?? []).filter(
+						(operation) => operation.uuid !== own.uuid,
+					),
+				),
+			);
 		}
 		return { ok: true, mutations };
 	}

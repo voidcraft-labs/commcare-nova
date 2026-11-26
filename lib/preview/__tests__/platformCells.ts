@@ -265,6 +265,10 @@ export const PLATFORM_CELLS: Readonly<
 	"forms-and-case-writes/session-endpoint-id@android": model(
 		"entry-point-android",
 	),
+	"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty@web-apps":
+		model("entry-point-web-apps"),
+	"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty@android":
+		model("entry-point-android"),
 	"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true@web-apps":
 		model("case-list-menu-item-web-apps"),
 	"menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms@web-apps":
@@ -274,6 +278,9 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/case-list-form-media-image-media-audio@web-apps": model(
 		"register-action-media",
 	),
+	"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath@android":
+		model("menu-badge-android"),
+	"forms-and-case-writes/custom-icons-0@android": model("menu-badge-android"),
 	"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows@android":
 		model("tiles-flat-android"),
 	"menus-and-case-lists/show-border-show-shading@android": model(
@@ -305,6 +312,18 @@ export const PLATFORM_CELLS: Readonly<
 		model("skip-to-results-android"),
 	"case-search/workflow-search-first-auto-launch-true-default-search-false@android":
 		model("search-first-android"),
+	"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case@web-apps":
+		model("first-menu-entry-point-web-apps"),
+	"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case@android":
+		model("first-menu-entry-point-android"),
+	"menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case@web-apps":
+		model("first-menu-registration-web-apps"),
+	"menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case@android":
+		model("first-menu-registration-android"),
+	"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu@web-apps":
+		model("first-menu-previous-web-apps"),
+	"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu@android":
+		model("first-menu-previous-android"),
 	"forms-and-case-writes/post-form-workflow-default@web-apps": model(
 		"after-submit-home-web-apps",
 	),

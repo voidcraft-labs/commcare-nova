@@ -288,7 +288,7 @@ BASE = Base(
     id="hq-search",
     build=build,
     configuration=Configuration(
-        flags=frozenset({"SYNC_SEARCH_CASE_CLAIM", "CASE_SEARCH_ADVANCED"}),
+        flags=frozenset({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM", "SYNC_SEARCH_CASE_CLAIM", "CASE_SEARCH_ADVANCED"}),
         privileges=frozenset({"LOOKUP_TABLES"}),
         case_search_enabled=True,
     ),

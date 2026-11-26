@@ -80,6 +80,7 @@ DOCUMENTS = (
     "targeted-custom-tile",
     "targeted-supply-point-text",
     "targeted-plain-help",
+    "targeted-menu-badges",
 )
 
 _TIMINGS: dict[str, list[float]] = {}

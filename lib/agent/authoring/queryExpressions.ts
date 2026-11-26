@@ -60,6 +60,7 @@ export interface QueryBindings {
 	): LookupMemberId;
 	chosenCaseMenu(name: string): { module: Uuid; caseType: string };
 	forRelation(relation: RelationPath): QueryBindings;
+	forDeviceRecords(caseType?: string): QueryBindings;
 	forTable(tableId: string): QueryBindings;
 }
 
@@ -295,6 +296,25 @@ function readSelector(
 		);
 	return result.data;
 }
+/** A case query sets its own row. Only a direct type equality narrows it,
+ * just as the semantic checker narrows a restored-case row. */
+function guardedRecordType(nodes: readonly Node[]): string | undefined {
+	for (const node of nodes) {
+		if (node.kind !== "binary" || node.operator !== "=") continue;
+		for (const [left, right] of [
+			[node.left, node.right],
+			[node.right, node.left],
+		] as const) {
+			if (
+				isCall(left, "record-type") &&
+				right.kind === "literal" &&
+				typeof right.value === "string"
+			)
+				return right.value;
+		}
+	}
+	return undefined;
+}
 function compiler(bindings: QueryBindings) {
 	function term(node: Node): ObjectValue {
 		if (node.kind === "reference")
@@ -341,6 +361,20 @@ function compiler(bindings: QueryBindings) {
 				return { kind: "session-context", field: string(args[0]) };
 			}
 			if (name === "record-type") return { kind: "case-row-type" };
+			if (name === "worker-record") {
+				const property = term(args[0]);
+				if (property.kind === "session-user-property")
+					return { ...property, source: "worker-record" };
+				if (property.kind === "literal" && typeof property.value === "string")
+					return {
+						kind: "session-user",
+						field: property.value,
+						source: "worker-record",
+					};
+				throw new AuthoringInputError(
+					"worker-record() takes a worker property or a saved field name.",
+				);
+			}
 			if (name === "external-user") {
 				return { kind: "session-user", field: string(args[0]) };
 			}
@@ -553,8 +587,56 @@ function compiler(bindings: QueryBindings) {
 				fallback: value(args[args.length - 1]),
 			};
 		}
+		if (name === "device-records") {
+			arity(name, args);
+			return {
+				kind: "cases",
+				source: "casedb",
+				where: args.map(
+					compiler(bindings.forDeviceRecords(guardedRecordType(args)))
+						.predicate,
+				),
+			};
+		}
+		if (name === "table-rows") {
+			arity(name, args);
+			const tableId = bindings.identity("table", string(args[0]));
+			return {
+				kind: "table-rows",
+				tableId,
+				where: args
+					.slice(1)
+					.map(compiler(bindings.forTable(tableId)).predicate),
+			};
+		}
+		if (name === "row-value") {
+			arity(name, args);
+			const rows = value(args[0]);
+			const source = args[0];
+			const rowBindings =
+				rows.kind === "table-rows"
+					? bindings.forTable(String(rows.tableId))
+					: source.kind === "call" && source.name === "device-records"
+						? bindings.forDeviceRecords(guardedRecordType(source.args))
+						: bindings;
+			return {
+				kind: "project",
+				of: rows,
+				value: compiler(rowBindings).term(args[1]),
+			};
+		}
 		if (name === "count") {
 			arity(name, args);
+			if (
+				args[0]?.kind === "call" &&
+				["device-records", "table-rows"].includes(args[0].name)
+			) {
+				if (args.length !== 1)
+					throw new AuthoringInputError(
+						"Put the condition inside the records or table rows being counted.",
+					);
+				return { kind: "count", via: value(args[0]) };
+			}
 			const via = relation(args[0]);
 			return {
 				kind: name,
@@ -613,7 +695,11 @@ function compiler(bindings: QueryBindings) {
 		}
 		// A read stands as a condition where its slot's checker finds it holds a
 		// yes or no, such as a Hidden Value calculated by a condition.
-		if (node.kind === "reference" || isCall(node, "field"))
+		if (
+			node.kind === "reference" ||
+			isCall(node, "field") ||
+			isCall(node, "worker-record")
+		)
 			return { kind: "term", term: term(node) };
 		if (node.kind !== "call")
 			throw new AuthoringInputError(

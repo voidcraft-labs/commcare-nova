@@ -99,6 +99,29 @@ describe("updateApp", () => {
 		},
 	);
 
+	it("switches menu policies independently and restores the default list", async () => {
+		const harness = makeToolWorkspaceHarness(fixture());
+		const grids = await harness.runTool(updateAppTool, {
+			first_menu_layout: "grid",
+			form_menu_layout: "individual",
+		});
+		expect(grids.result).toEqual({
+			ok: true,
+			summary: { menuLayouts: { first: "grid", forms: "individual" } },
+		});
+		const list = await harness.runTool(updateAppTool, {
+			first_menu_layout: "list",
+		});
+		expect(list.result).toEqual({
+			ok: true,
+			summary: { menuLayouts: { first: "list" } },
+		});
+		expect(harness.currentDoc().appSettings).toEqual({
+			...NEW_APP_SETTINGS,
+			formMenuLayout: "individual",
+		});
+	});
+
 	it.each([true, false])(
 		"sets whether every form requests the device location to %s and names it in the summary",
 		async (on) => {

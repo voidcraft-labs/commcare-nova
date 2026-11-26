@@ -30,9 +30,11 @@
 // `tests/data/suite/reports_module_menu_multimedia.xml`.
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import { el, xel } from "@/lib/commcare/elementBuilders";
 import type { IconRef } from "@/lib/domain/builtinIcons";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import type { ProjectedMenuBadge } from "../menuBadge";
+import type { InstanceSink } from "../xpath/wire/instances";
 import { type AssetManifest, requireAssetRef } from "./assetWirePath";
 
 /** The HQ-shell media dicts a carrier needs stamped. Empty objects when
@@ -151,6 +153,7 @@ export function buildNavMenuNode(
 	audioLabel: MediaAssetId | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
+	badge?: { value: ProjectedMenuBadge; instances: InstanceSink },
 ): NavMenuNode {
 	const mainText = el("text", {}, [el("locale", { id: textLocaleId })]);
 	const media = mediaTextsOf(
@@ -160,13 +163,25 @@ export function buildNavMenuNode(
 		manifest,
 		where,
 	);
-	if (media.texts.length === 0) {
+	const texts = [...media.texts];
+	if (badge !== undefined) {
+		const content =
+			badge.value.kind === "text"
+				? el("locale", { id: `${mediaLocaleBase}.badge` })
+				: xel(
+						"xpath",
+						{ xpath: { function: badge.value.expression } },
+						{ mode: { target: "suite" }, instances: badge.instances },
+					);
+		texts.push(el("text", { form: "badge" }, [content]));
+	}
+	if (texts.length === 0) {
 		// No media — the carrier keeps the bare `<text>` child Nova has
 		// always emitted; no `<display>` wrapper, no extra app_strings.
 		return { node: mainText, strings: {} };
 	}
 	return {
-		node: el("display", {}, [mainText, ...media.texts]),
+		node: el("display", {}, [mainText, ...texts]),
 		strings: media.strings,
 	};
 }

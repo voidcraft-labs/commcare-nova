@@ -16,6 +16,7 @@ import {
 } from "./expression/types";
 import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
+import { menuBadgeSchema } from "./menuBadge";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
 	formerNavigationMediaSchema,
@@ -799,6 +800,9 @@ export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z.strictObject({
 	entryPoint: formEntryPointSchema.optional(),
+	/** Case creations whose IDs a caller supplies when opening this form through a deep link.
+	 * The source form owns these choices even when only a second menu offers the link. */
+	entryCaseCreations: z.array(uuidSchema).min(1).optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),
@@ -810,6 +814,7 @@ export const formSchema = z.strictObject({
 	 * terms are meaningful for this form's navigation position.
 	 */
 	displayCondition: conditionSchema.optional(),
+	badge: menuBadgeSchema.optional(),
 	/**
 	 * Present when the form is off the menu: no menu lists it, whatever
 	 * `displayCondition` says. The condition keeps applying once the form

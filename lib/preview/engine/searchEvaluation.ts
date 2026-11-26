@@ -16,6 +16,7 @@ import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClien
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import { readPreviewScreen } from "./dataRefusal";
+import { caseListStepSession } from "./entrySessionData";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import { previewSessionValues } from "./identity";
@@ -94,6 +95,8 @@ async function searchSnapshot(
 		input.moduleUuid,
 		lookup.naming,
 	);
+	const slot = mod.caseListRegistrationForm;
+	const rule = slot?.kind === "always" ? slot.showWhen : undefined;
 	const actionCondition = search?.searchButtonDisplayCondition;
 	const relevant =
 		search !== undefined &&
@@ -223,6 +226,33 @@ async function searchSnapshot(
 		}) === "results"
 	)
 		run = changeSearchRunDraft(run, run, new Map(), true);
+	const listVisible =
+		caseListStep({
+			workflow,
+			formsReadSearch,
+			searchRelevant: relevant,
+			hasSubmitted: run.hasSubmitted,
+			rules,
+		}) !== "search";
+	const formActionRelevant =
+		listVisible &&
+		(rule?.kind !== "condition" ||
+			readingSurfaceNow("list", () =>
+				evaluatePreviewSearchPredicate(
+					rule.condition,
+					expressions({ slot: "case_list_action_condition" }),
+					{
+						...environment,
+						sessionData: caseListStepSession(doc, input.moduleUuid, {
+							menuSelections: context.session?.menuSelections ?? {},
+							caseDatabase: context.cases,
+							session,
+						}).data,
+					},
+					[],
+					session,
+				),
+			));
 	const values = relevant
 		? withHiddenValues(run.submitted, run.submittedHidden)
 		: new Map<string, string>();
@@ -255,6 +285,7 @@ async function searchSnapshot(
 	}));
 	return {
 		relevant,
+		formActionRelevant,
 		/** The Search pane's refusal on a list that opens first: the screen
 		 *  refused data the worker's device lacks as it opened, so the list
 		 *  holds no search and a Search press is refused. Plain data, so it

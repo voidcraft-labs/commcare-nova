@@ -100,6 +100,14 @@ export function applyAppMutation(
 				draft.appSettings.showIncompleteForms =
 					mut.settings.showIncompleteForms;
 			}
+			if (mut.settings.firstMenuLayout === null)
+				delete draft.appSettings.firstMenuLayout;
+			else if (mut.settings.firstMenuLayout !== undefined)
+				draft.appSettings.firstMenuLayout = mut.settings.firstMenuLayout;
+			if (mut.settings.formMenuLayout === null)
+				delete draft.appSettings.formMenuLayout;
+			else if (mut.settings.formMenuLayout !== undefined)
+				draft.appSettings.formMenuLayout = mut.settings.formMenuLayout;
 			if (mut.settings.requiredAndroidApps !== undefined) {
 				if (mut.settings.requiredAndroidApps.length === 0)
 					delete draft.appSettings.requiredAndroidApps;

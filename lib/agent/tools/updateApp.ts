@@ -51,7 +51,7 @@ import type {
 
 /** The refusal a call that names nothing to change reads. */
 export const UPDATE_APP_EMPTY_INPUT_MESSAGE =
-	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms), whether forms request the device location (capture_location), whether a new case goes to the worker's case-sharing group (case_sharing), where the app runs (runs_only_on), and which apps workers need on Android (required_android_apps). A call needs at least one change.";
+	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms), whether forms request the device location (capture_location), whether a new case goes to the worker's case-sharing group (case_sharing), where the app runs (runs_only_on), which apps workers need on Android (required_android_apps), and the layouts of the first and other menus (first_menu_layout, form_menu_layout). A call needs at least one change.";
 
 export const updateAppInputSchema = z
 	.strictObject({
@@ -61,6 +61,16 @@ export const updateAppInputSchema = z
 			.optional()
 			.describe(
 				"App display name (the title users see on devices). Leave it out to keep the current name.",
+			),
+		first_menu_layout: z
+			.enum(["list", "grid"])
+			.optional()
+			.describe("Layout of the first menu workers open."),
+		form_menu_layout: z
+			.enum(["list", "grid", "individual"])
+			.optional()
+			.describe(
+				"Layout for all other menus. Choose individual to set a menu’s layout with update_module. Web Apps grids show icons and text; Android grids also play spoken labels.",
 			),
 		capture_location: z
 			.boolean()
@@ -137,6 +147,18 @@ function changedSettings(
 		settings.showIncompleteForms = input.show_incomplete_forms;
 	}
 	if (
+		input.first_menu_layout !== undefined &&
+		input.first_menu_layout !== (current.firstMenuLayout ?? "list")
+	)
+		settings.firstMenuLayout =
+			input.first_menu_layout === "list" ? null : "grid";
+	if (
+		input.form_menu_layout !== undefined &&
+		input.form_menu_layout !== (current.formMenuLayout ?? "list")
+	)
+		settings.formMenuLayout =
+			input.form_menu_layout === "list" ? null : input.form_menu_layout;
+	if (
 		input.required_android_apps !== undefined &&
 		(input.required_android_apps.length !==
 			(current.requiredAndroidApps?.length ?? 0) ||
@@ -198,7 +220,7 @@ function declarationAfter(
 
 export const updateAppTool = {
 	description:
-		"Set the app's display name, whether groups automatically own new cases, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location, where it runs, and which apps workers need on Android. Anything left out keeps its value.",
+		"Set the app's display name, its menu layouts, whether groups automatically own new cases, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location, where it runs, and which apps workers need on Android. Anything left out keeps its value.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(
@@ -257,6 +279,17 @@ export const updateAppTool = {
 				}),
 				...(input.name !== undefined && { subject: input.name, nameChange }),
 				...(platforms !== undefined && { platforms }),
+				...((settings.firstMenuLayout !== undefined ||
+					settings.formMenuLayout !== undefined) && {
+					menuLayouts: {
+						...(settings.firstMenuLayout !== undefined && {
+							first: settings.firstMenuLayout ?? "list",
+						}),
+						...(settings.formMenuLayout !== undefined && {
+							forms: settings.formMenuLayout ?? "list",
+						}),
+					},
+				}),
 				...(settings.captureLocation !== undefined && {
 					captureLocation: settings.captureLocation === true,
 				}),

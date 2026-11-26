@@ -162,11 +162,19 @@ session over as Android's reset does
 `AndroidSessionWrapper.reset` → `CommCareSession.clearAllState`: a new
 frame and an empty frame stack): it clears every navigation fact (the case
 target, the Register launch, the task continuation, the after-submit stack,
-an entry point's launch, the selected case, the menu selections, a parent
-case request, the searches) and mints a new `previewSessionId`, so a held
-form menu the browser's history kept no longer stands. The worker, the
-platform, the last sync and the device id are the device's and stay; Start
-opens the app on that new session. `previewDeviceSyncedAt` is this Preview run's
+an entry point's launch and its Android visit, the selected case, the menu
+selections, a parent case request, the searches) and mints a new
+`previewSessionId`, so a held form menu the browser's history kept no longer
+stands. The worker, the platform, the last sync and the device id are the
+device's and stay; Start opens the app on that new session.
+`previewEntryPointVisit` is an Android visit an entry point opened, set by
+`installEntryPointLaunch` on Android and kept when ordinary navigation retires
+the launch's bypass (`clearEntryPointLaunch`): Android ends such a visit when
+its first form ends, submitted or left
+(`SessionLaunchDelegate.kt::exitFromExternalLaunch`), so `FormScreen`'s
+submission and `BreadcrumbStrip`'s Back and crumbs on a form land on the
+phone's home screen through `setPreviewAtDeviceHome(true)`, which clears it
+with every other navigation fact. `previewDeviceSyncedAt` is this Preview run's
 last sync on Android, set when Preview starts on Android, by a change of worker
 or an entry-point launch there, and by Sync with server; it clears on leaving
 Preview. `previewAndroidDeviceId` is the UUID of Android's `deviceid`, minted
@@ -482,3 +490,7 @@ Search bindings; the UI navigation replaces the prior form route. Choosing a
 worker never changes the member who authorizes access to Project data.
 
 The Preview phone's installed Android apps belong to its simulated installation. Switching workers or platforms keeps the phone’s selection. App settings own the ordered requirements independently.
+
+### First-menu selection after submission
+
+The home screen normally clears the worker’s selections. On Android a Previous task that returns directly to Home carries the case datums from its actual frame. The browser history entry records these for this Preview session. Starting a fresh Home, changing worker or changing platform creates a fresh case choice.

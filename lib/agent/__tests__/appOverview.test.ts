@@ -1,6 +1,13 @@
 import { expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
+	REGISTER,
+	ROUTE,
+	SOURCE,
+	twoMenus,
+	VISIT,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
+import {
 	PLATFORM_FEATURE_IDS,
 	PLATFORM_FEATURES,
 	PLATFORMS,
@@ -71,6 +78,8 @@ it("holds the form lists and ordered Android apps a settings edit can replace", 
 		},
 	});
 	expect(appOverview(doc).settings).toEqual({
+		firstMenuLayout: "list",
+		formMenuLayout: "list",
 		showSavedForms: true,
 		showIncompleteForms: false,
 		requiredAndroidApps: [
@@ -145,3 +154,25 @@ it.each([
 			);
 	},
 );
+
+it("names the menu that supplies a listing menu's forms, its case type and the forms it shows", () => {
+	const doc = twoMenus();
+	const clinic = appOverview(doc).modules.find(
+		(module) => module.uuid === ROUTE,
+	);
+	expect(clinic).toMatchObject({
+		name: "Clinic",
+		caseType: "patient",
+		formsFromMenu: {
+			menuUuid: SOURCE,
+			name: "Patients",
+			excludedFormUuids: [REGISTER],
+		},
+		forms: [{ uuid: VISIT, name: "Visit", type: "followup" }],
+	});
+	const patients = appOverview(doc).modules.find(
+		(module) => module.uuid === SOURCE,
+	);
+	expect(patients).not.toHaveProperty("formsFromMenu");
+	expect(patients?.forms.map((form) => form.uuid)).toEqual([REGISTER, VISIT]);
+});

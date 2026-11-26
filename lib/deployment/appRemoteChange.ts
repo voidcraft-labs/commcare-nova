@@ -17,6 +17,7 @@ import {
 	removedHqFiles,
 	unapprovedHqFiles,
 } from "./hqSourceBaseline";
+import { MENU_LAYOUT_REPLACEMENT_NOTE } from "./legacyMenuLayouts";
 import {
 	boundedParts,
 	describeAppChange,
@@ -72,6 +73,14 @@ export function appRemoteChange(input: {
 	readonly published: readonly { readonly wirePath: string }[];
 	/** Whether the deployment has a usable pair (`hqChanges/reference.ts::usablePair`). */
 	readonly canBringIn: boolean;
+	/**
+	 * Menu layouts on CommCare HQ no baseline accounts for that this publish
+	 * would replace (`legacyMenuLayouts.ts::legacyMenuLayoutLines`). They are
+	 * a function of the document at the head the authority names, the
+	 * target's menu ids and the read the digest names, so the digest a
+	 * person confirms already binds them. Listed first, whatever the baseline.
+	 */
+	readonly layoutReplacements?: readonly string[];
 }): DeploymentRemoteChange | null {
 	const { baseline } = input;
 	const files = {
@@ -85,9 +94,13 @@ export function appRemoteChange(input: {
 	/* The reading the person last accepted, where Nova holds one. */
 	const earlier =
 		baseline !== null && baseline.origin !== "unread" ? baseline.source : null;
-	const lines = removed.map((file) =>
-		removedHqFileLine(file, removedHqFileReplaced(file, earlier)),
-	);
+	const layouts = input.layoutReplacements ?? [];
+	const lines = [
+		...layouts,
+		...removed.map((file) =>
+			removedHqFileLine(file, removedHqFileReplaced(file, earlier)),
+		),
+	];
 	const change = (
 		parts: readonly string[],
 		baselineKnown: boolean,
@@ -122,11 +135,14 @@ export function appRemoteChange(input: {
 			identity: input.remoteAppId,
 			parts: shown,
 			...(needsReview && { requiresReview: true }),
+			...(layouts.length > 0 && { replacesMenuLayouts: true }),
 			note: needsReview
 				? input.canBringIn
 					? "You can review the complete list of files before publishing here."
 					: REQUIRED_FIRST_PUBLISH_RECOVERY
-				: null,
+				: layouts.length > 0
+					? MENU_LAYOUT_REPLACEMENT_NOTE
+					: null,
 			observedDigest: reviewed
 				? complete
 				: hqDiscardDigest(input.authority, input.current.digest, removed),
@@ -172,7 +188,7 @@ export function appRemoteChange(input: {
 	if (input.locationChange !== undefined)
 		descriptions.unshift(input.locationChange);
 	return descriptions.length === 0 &&
-		removed.length === 0 &&
+		lines.length === 0 &&
 		input.legacyLanguageRemoval === undefined
 		? null
 		: change(descriptions, true);

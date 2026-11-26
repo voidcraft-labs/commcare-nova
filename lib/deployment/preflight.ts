@@ -86,6 +86,7 @@ import {
 	organizationLevelsOf,
 } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { menusUsingWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { getLookupDefinitions } from "@/lib/lookup/service";
@@ -147,6 +148,7 @@ import {
 	matchesRecordedLookup,
 	observeLargeLookup,
 } from "./largeLookupReceipt";
+import { legacyMenuLayoutLines } from "./legacyMenuLayouts";
 import {
 	ambiguousReverseHopsOnTarget,
 	authoredReverseHops,
@@ -906,6 +908,12 @@ export async function runDeploymentPreflight(
 	// Lookup tables and an owner beneath the current case owner both pass
 	// now, the first because this publish pushes them and the second
 	// because it never carried a Nova identity to begin with.
+	/* Where this target keeps the app's entities: the files' paths below,
+	 * and the menu ids the layouts CommCare HQ holds are matched by. */
+	const targetExport = exportIdentityOf(
+		input.doc,
+		input.compiledIdentity ?? (await readTargetIdentity(input.access, target)),
+	);
 	const boundary = await prepareExportBoundary({
 		mode: "hq-upload",
 		streamMedia: true,
@@ -934,11 +942,7 @@ export async function runDeploymentPreflight(
 		/* The paths CommCare HQ keeps this target's files under, for an app
 		 * brought in from it: the bulk upload's entries and every reference
 		 * of the body name them. Empty everywhere else. */
-		heldMediaPaths: exportIdentityOf(
-			input.doc,
-			input.compiledIdentity ??
-				(await readTargetIdentity(input.access, target)),
-		).heldMediaPaths,
+		heldMediaPaths: targetExport.heldMediaPaths,
 		// A publish knows its target exactly: it IS this server and this
 		// project space. So it never consults the deployment record the
 		// download paths fall back on — the record describes where the app
@@ -2283,6 +2287,19 @@ export async function runDeploymentPreflight(
 				input.inPlaceUpdate,
 				await greatestFoldBaselineSeq(await getAppDb(), input.access.appId),
 			),
+			/* A shell's baseline accounts for nothing a person chose there
+			 * before its first complete upload. */
+			layoutReplacements: legacyMenuLayoutLines({
+				doc: boundary.prepared.doc,
+				identity: targetExport.identity,
+				source: read.source,
+				ownership:
+					appBaseline === null ||
+					appBaseline.origin === "unread" ||
+					appBaseline.origin === "create"
+						? null
+						: appBaseline.ownership,
+			}),
 		});
 		if (change !== null) observed.push(change);
 		checks.push({
@@ -2469,14 +2486,17 @@ export async function runDeploymentPreflight(
 	// A restored worker record is not observable through the API key. The
 	// plan half (user cases) is a confirmation of `plan-features`; this edge
 	// keeps the device half.
-	const workerRecordForms = formsUsingWorkerRecord(boundary.prepared.doc);
+	const workerRecordForms = [
+		...menusUsingWorkerRecord(boundary.prepared.doc),
+		...formsUsingWorkerRecord(boundary.prepared.doc),
+	];
 	checks.push({
 		id: "worker-record-access",
 		title: workerRecordSetup.title,
 		status: workerRecordForms.length === 0 ? "passed" : "attention",
 		detail:
 			workerRecordForms.length === 0
-				? "No form in this app reads or saves to the worker's own record."
+				? "This app does not use the worker's own record."
 				: `${workerRecordSetup.detail} ${workerRecordSetup.consequences}`,
 		items: workerRecordForms.map((form) => form.name),
 	});

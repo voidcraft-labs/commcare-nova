@@ -285,6 +285,15 @@ export function sourceIdentity(application: unknown): SourceIdentity {
 		}
 	}
 
+	/* A listing menu's case type is its source's: HQ's `ShadowModule.case_type`
+	 * is a property read from the source module, and the stored key is inert. */
+	const storedCaseType = new Map(
+		modules.flatMap((module) =>
+			isObject(module) && typeof module.unique_id === "string"
+				? [[module.unique_id, stringOr(module.case_type, null)] as const]
+				: [],
+		),
+	);
 	const menus = modules.map((module, menu) => {
 		const moduleForms =
 			isObject(module) && Array.isArray(module.forms) ? module.forms : [];
@@ -295,7 +304,13 @@ export function sourceIdentity(application: unknown): SourceIdentity {
 		return {
 			uniqueId: isObject(module) ? stringOr(module.unique_id, "") : "",
 			docType: isObject(module) ? stringOr(module.doc_type, "") : "",
-			caseType: isObject(module) ? stringOr(module.case_type, null) : null,
+			caseType: !isObject(module)
+				? null
+				: module.doc_type === "ShadowModule"
+					? typeof module.source_module_id === "string"
+						? (storedCaseType.get(module.source_module_id) ?? null)
+						: null
+					: stringOr(module.case_type, null),
 			forms: moduleForms.map((form: unknown) => storedXmlns(form) ?? ""),
 		};
 	});
