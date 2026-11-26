@@ -213,8 +213,7 @@ def build_sites(files, source=None, *, profile=None):
                 commands = children(element, "command")
                 place = changes.command_place(commands[0].get("id") if commands else None)
                 top = f"{element_name}[{position}]"
-                if profile is None:
-                    built[(artifact, top)] = place or None
+                built[(artifact, top)] = place or None
                 if place and source is not None:
                     menu = place[1].split(".")[0]
                     modules = source.get("modules") or []
@@ -304,12 +303,13 @@ def document_sites(document, records):
     """``build_sites`` of each build proof 2 compares on one document, A's and B's aligned to A under each
     configuration, and ``header_sites`` of the two stored apps they are built from, as one
     (``changes.merged_sites``: an element two builds place apart is no place)."""
-    from proof.checks import changes, observations, xform_parts
+    from proof.checks import changes, observations, search_group_wording, xform_parts
     from proof.checks.compare.build_files import artifact_for
 
     found = []
     for name in sorted(document.exports):
         observed = observations.republish_view(records, name)
+        found.append(search_group_wording.source_sites(document, records, name))
         if observed.a is not None and observed.a.build is not None:
             found.append(build_sites(observed.a.build.files, observed.a.doc))
             found.extend(

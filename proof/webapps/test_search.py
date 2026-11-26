@@ -933,6 +933,149 @@ def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
         assert run.page_errors == []
 
 
+@pytest.mark.parametrize("dormant_heading", [None, "Previously saved words"], ids=["fallback", "dormant-override"])
+def test_canonical_search_group_save_leaves_the_legacy_override_behind(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, dormant_heading,
+):
+    from urllib.parse import parse_qsl
+
+    from django.urls import resolve
+
+    from proof.checks import changes, source
+    from proof.hq import operations, requests
+    from proof.matrix import ops
+    from proof.matrix.authoring import Authoring
+
+    document = webapps_documents["search-grouped-prompts"]
+    old_group = "g"
+    current_group = "group_header_0"
+    old_key = f"search_property.m0.{old_group}"
+    current_key = f"search_property.m0.{current_group}"
+    old_heading = "Find a client"
+    database = casedata.document_case_database(document)
+    case = next(row for row in database.cases if row.case_type == "patient")
+    wanted = dataclasses.replace(case, name="River", properties=(("first_name", "North"),))
+    excluded = dataclasses.replace(
+        wanted, case_id="55810dad8a87487bb8f49d3a35e8ce4c", name="Other",
+    )
+    database = dataclasses.replace(database, cases=(wanted, excluded))
+
+    def worker_search(project, label):
+        opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+        with project.released(formplayer_runner, label=label, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *opening,
+                {"eval": """() => [...document.querySelectorAll('.search-query-group-header-label')]
+                    .map(label => label.textContent.trim())"""},
+                *steps.type_prompt(0, "North"),
+                *steps.type_prompt(1, "River"),
+                *steps.run_search(),
+                steps.SCREEN,
+            ])
+        assert not run.page_errors and not run.dialogs
+        inputs = [
+            entry["inputs"]
+            for request in _menu_requests(run)
+            if request["searched"]
+            for entry in request["queryData"].values()
+            if isinstance(entry, dict) and entry.get("execute")
+        ]
+        return {
+            "headings": run.value(len(opening)),
+            "inputs": inputs,
+            "matches": [row["id"] for row in run.screens[-1]["list"]["rows"]],
+        }
+
+    with webapps_hq.project(document) as project:
+        state, app_id = project.unit, project.app_id
+        app = operations.held_app(state, app_id)
+        properties = [prop.to_json() for prop in app.get_module(0).search_config.properties]
+        assert properties[0]["name"] == properties[1]["group_key"] == current_group
+        properties[0].update({"name": old_group, "group_key": old_group})
+        properties[1]["group_key"] = old_group
+        authoring = Authoring(state, {}, "legacy-search-group-canonical-save", operation=state.operation)
+        ops.set_json(authoring, app_id, "/modules/0/search_config/properties", properties)
+        with state.operation("upload-legacy-search-heading", document.id.encode()):
+            ops.upload_commcare_translation(state, app_id, old_key, old_heading)
+        if dormant_heading:
+            with state.operation("upload-dormant-search-heading", document.id.encode()):
+                ops.upload_commcare_translation(state, app_id, current_key, dormant_heading)
+        before_app = operations.held_app(state, app_id)
+        before = dict(before_app.translations["en"])
+        source_before = before_app.to_json()
+        assert before[old_key] == old_heading and before.get(current_key) == dormant_heading
+        original = worker_search(project, "legacy-search-heading")
+
+        # Use the actual saved Case List request as the starting point.
+        # Apply only the key update its sortable array emits for this group.
+        page = pages.CASE_LIST
+        stable = pages.fresh_section_save(editor_driver, state, page, app_id, project.module_id(0))
+        assert stable.save and stable.save.status == 200 and not stable.refused, stable.alerts
+        pairs = parse_qsl(stable.save.body.decode("utf-8"), keep_blank_values=True)
+        fields = dict(pairs)
+        search = json.loads(fields["search_properties"])
+        posted = search["properties"]
+        assert posted[0]["name"] == posted[1]["group_key"] == old_group
+        posted[0].update({"name": current_group, "group_key": current_group})
+        posted[1]["group_key"] = current_group
+        save_path = stable.save_path
+        body = [(name, json.dumps(search) if name == "search_properties" else value) for name, value in pairs]
+        request = requests.form_post(state, save_path, body, lang="en")
+        view = resolve(save_path)
+        result = view.func(request, *view.args, **view.kwargs)
+        assert result.status_code == 200, result.content
+        saved = operations.held_app(state, app_id)
+        actual = [(row.name, row.group_key, row.is_group) for row in saved.get_module(0).search_config.properties]
+        expected = [(row["name"], row["group_key"], row["is_group"]) for row in properties]
+        expected[0] = (current_group, current_group, True)
+        expected[1] = (expected[1][0], current_group, False)
+        assert actual == expected
+        assert [(row["name"], row["group_key"], row["is_group"]) for row in posted] == expected
+        assert dict(saved.translations["en"]) == before
+        saved_heading = worker_search(project, "canonical-search-heading")
+        migrated_heading = None
+        rekey_differences = []
+        if dormant_heading is None:
+            # The paired source rewrite Nova emits for a unique heading.
+            translations = dict(saved.translations)
+            canonical_words = dict(translations["en"])
+            canonical_words[current_key] = canonical_words.pop(old_key)
+            translations["en"] = canonical_words
+            ops.set_json(authoring, app_id, "/translations", translations)
+            rekeyed = operations.held_app(state, app_id)
+            assert dict(rekeyed.translations["en"]) == canonical_words
+            assert old_key not in rekeyed.translations["en"]
+            migrated_heading = worker_search(project, "rekeyed-search-heading")
+            register = changes.load()
+            capture = {changes.LEGACY_SEARCH_GROUP_WORDING: (
+                "/menu/0/search_config/properties/0/group_key",
+                f"/app/translations/en/{old_key}",
+                f"/app/translations/en/{current_key}",
+            )}
+            source_changes = source.compare_sources(document.id, source_before, rekeyed.to_json())
+            rekey_differences = [
+                row.at for row in source_changes if changes.holders(row, register, capture, siblings=source_changes)
+            ]
+            assert rekey_differences == [f"/translations/en/{old_key}", f"/translations/en/{current_key}"]
+
+    evidence("canonical-search-heading", {
+        "before": original, "afterStockSave": saved_heading, "afterRekey": migrated_heading, "oldKey": old_key,
+        "canonicalKey": current_key, "translations": before, "savedRows": actual, "firstPublishPair": rekey_differences,
+    })
+    expected_query = {
+        "inputs": [{"first_name": "North", "case_name": "River"}],
+        "matches": [f"row-{wanted.case_id}"],
+    }
+    assert original == {**expected_query, "headings": [old_heading, "Case details"]}
+    assert saved_heading == {
+        **expected_query, "headings": [dormant_heading or "Personal details", "Case details"],
+    }
+    if dormant_heading is None:
+        assert migrated_heading == original
+    else:
+        assert migrated_heading is None
+
+
 @pytest.mark.parametrize("hidden_member", [False, True], ids=["shown-member", "hidden-only-group"])
 def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence, hidden_member,

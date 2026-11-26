@@ -145,6 +145,13 @@ def translation_overrides_a_saved_legacy_search_group_heading(authoring, app_id)
     _translation_overrides_a_search_group_heading(authoring, app_id, "g")
 
 
+def translation_competes_with_a_saved_legacy_search_group_heading(authoring, app_id):
+    """The old active heading also has separate wording stored under its dormant current key."""
+    translation_overrides_a_saved_legacy_search_group_heading(authoring, app_id)
+    with authoring.step("variant:dormant-canonical-heading-wording"):
+        ops.upload_commcare_translation(authoring.state, app_id, "search_property.m0.group_header_0", "Other saved words")
+
+
 def _translation_overrides_a_search_group_heading(authoring, app_id, group):
     from lxml import etree
 

@@ -445,6 +445,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"registration-label-fixed",
 	"names-respelled",
 	"text-spaces-dropped",
+	"legacy-search-group-wording-rekeyed",
 	"media-maps-respelled",
 	"badge-respelled",
 	"form-text-characters-written-as-outputs",

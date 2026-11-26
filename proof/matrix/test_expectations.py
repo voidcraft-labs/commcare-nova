@@ -134,6 +134,11 @@ def _native_screen_only(row):
         content = steps[4:]
         if content in (["response", "commands", "*", "displayText"], ["response", "headers", "*"]):
             return True
+        query = content[2:] if content[:2] == ["response", "queryResponse"] else content[1:]
+        if content[:1] == ["response"] and query in (["displays", "*", "groupKey"], ["groupHeaders", "*"]):
+            # The Formplayer client uses these identities to group Search inputs; Core's form evaluator
+            # never reads them. The paired native observation compares the heading value independently.
+            return True
         tree = content[:2] == ["response", "tree"] or content[:1] == ["tree"]
         return tree and content[-1] in {"caption_image", "caption_audio", "caption_video"}
     if reader in ("android", "android-tablet") and steps[:5] == ["walks", "*", "steps", "*", "form"]:

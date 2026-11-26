@@ -113,6 +113,8 @@ TRACE_DATA_MAPS = frozenset(
         "/runs/*/reviewedDateTime",
         "/runs/*/steps/*/response/entities",
         "/runs/*/steps/*/response/translations",
+        "/runs/*/steps/*/response/groupHeaders",
+        "/runs/*/steps/*/response/queryResponse/groupHeaders",
         "/runs/*/steps/*/request/query_data",
         "/runs/*/steps/*/request/query_data/*/inputs",
         "/runs/*/steps/*/submit/nextScreen/entities",

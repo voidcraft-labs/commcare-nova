@@ -1795,7 +1795,7 @@ def document_sites(document, records, differences=(), *, native_sites=None):
     on A, and each other build's runs with their generated ids named as the comparison names them
     (``compare.trace.generated_labels``), as one (``changes.merged_sites``: a run, a step or a case two of them
     place apart is no place)."""
-    from proof.checks import changes, observations
+    from proof.checks import changes, observations, search_group_wording
     from proof.checks.compare.trace import relabelled
 
     if differences and native_sites is None:
@@ -1805,6 +1805,7 @@ def document_sites(document, records, differences=(), *, native_sites=None):
         document_behavior(document, records, native_sites=native_sites)
     found = list(native_sites or ())
     for name in sorted(document.exports):
+        found.append(search_group_wording.source_sites(document, records, name))
         sessions = observations.sessions_record(records, name)
         if not sessions or "baseline" not in sessions:
             continue

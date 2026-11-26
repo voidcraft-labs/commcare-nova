@@ -10,7 +10,7 @@ import re
 
 from lxml import etree
 
-from proof.checks import formplayer_case_names
+from proof.checks import formplayer_case_names, search_group_wording
 from proof.checks.changes import command_place, unescaped
 from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
 from proof.checks.served import comparable_trace
@@ -65,6 +65,9 @@ def _xml_place(xml, path, namespaces):
 
 def _place(step, previous, rest, namespaces):
     response = step.get("response") or {}
+    search = search_group_wording.formplayer_site(response, rest)
+    if search:
+        return search
     xml = (response.get("instanceXml") or {}).get("output")
     if rest[:3] == ["response", "instanceXml", "output"]:
         return _xml_place(xml, rest[3:], namespaces)
