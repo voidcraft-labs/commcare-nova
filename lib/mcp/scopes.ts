@@ -78,6 +78,8 @@ export const SCOPES = {
 	hqRead: "nova.hq.read",
 	hqWrite: "nova.hq.write",
 	hqImport: "nova.hq.import",
+	previewSearchRead: "nova.preview.search.read",
+	previewSearchWrite: "nova.preview.search.write",
 	projectsRead: "nova.projects.read",
 	projectsWrite: "nova.projects.write",
 	projectDataExport: "nova.projects.data.export",
@@ -100,6 +102,11 @@ export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
  * CommCare HQ's rows in.
  */
 export const TOOL_SCOPES = {
+	get_preview_search_settings: [SCOPES.previewSearchRead],
+	set_preview_search_settings: [
+		SCOPES.previewSearchRead,
+		SCOPES.previewSearchWrite,
+	],
 	get_hq_connection: [SCOPES.hqRead],
 	check_project_space_compatibility: [SCOPES.hqRead],
 	get_deployment: [SCOPES.hqRead],
@@ -127,6 +134,10 @@ export const TOOL_SCOPES = {
 
 /** A tool `TOOL_SCOPES` names. */
 export type ScopedToolName = keyof typeof TOOL_SCOPES;
+
+export function isScopedToolName(name: string): name is ScopedToolName {
+	return Object.hasOwn(TOOL_SCOPES, name);
+}
 
 /** Scopes knowable from the request before consulting the app. A normal
  * deployment refresh only observes the build; the kept-settings mode imports

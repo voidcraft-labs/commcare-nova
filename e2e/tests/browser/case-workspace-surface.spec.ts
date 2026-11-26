@@ -457,6 +457,7 @@ test("native last Search field removal reviews copy and preserves independent as
 test("native Search date-range conversion keeps the saved default until confirmation", async ({
 	page,
 }) => {
+	await page.clock.setFixedTime(new Date(2024, 2, 15, 12));
 	await page.goto(`${peer.origin}?scenario=search-date`);
 	await selectSearchInput(page);
 	const before = await savedModule(page);
@@ -483,10 +484,54 @@ test("native Search date-range conversion keeps the saved default until confirma
 		mode: { kind: "range" },
 		default: undefined,
 	});
+	await page.getByRole("button", { name: "Choose dates" }).click();
+	await page.getByLabel("Start date", { exact: true }).click();
+	await page.getByRole("button", { name: /March 1st, 2024/ }).click();
 	await expect(
-		page.getByRole("button", { name: /starting value for search field/ }),
-	).toHaveCount(0);
+		page.getByRole("button", { name: "Use these dates" }),
+	).toBeDisabled();
+	expect(
+		(await savedModule(page)).caseListConfig.searchInputs[0].default,
+	).toBeUndefined();
+	await page.getByLabel("End date", { exact: true }).click();
+	await page.getByRole("button", { name: /March 31st, 2024/ }).click();
+	await page.getByRole("button", { name: "Use these dates" }).click();
+	await expect
+		.poll(
+			async () =>
+				(await savedModule(page)).caseListConfig.searchInputs[0].default,
+		)
+		.toEqual({
+			kind: "term",
+			term: { kind: "literal", value: "__range__2024-03-01__2024-03-31" },
+		});
+	await expect(
+		page.getByText("2024-03-01 to 2024-03-31", { exact: true }),
+	).toBeVisible();
 });
+test("a human-readable date calculation keeps its worker-zone dates when the picker closes", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-calendar-calculation`);
+	await selectSearchInput(page);
+	const source = (await savedModule(page)).caseListConfig.searchInputs[0]
+		.default;
+	await expect(page.getByRole("button", { name: "Change dates" })).toHaveCount(
+		0,
+	);
+	await page.getByRole("button", { name: "Choose dates" }).click();
+	await expect(
+		page.getByRole("button", { name: "Use these dates" }),
+	).toBeDisabled();
+	await page.getByRole("button", { name: "Cancel", exact: true }).click();
+	expect(
+		(await savedModule(page)).caseListConfig.searchInputs[0].default,
+	).toEqual(source);
+	await expect(
+		page.getByRole("button", { name: "Choose dates" }),
+	).toBeVisible();
+});
+
 test("native compatible Search type edit preserves its saved match and starting value", async ({
 	page,
 }) => {
@@ -988,9 +1033,14 @@ test("native clearing availability confirms once and preserves Search and assign
 	).toBeFocused();
 	const after = await savedModule(page);
 	expect(after.caseSearchConfig).toEqual(before.caseSearchConfig);
-	const { filter: ignored, ...expected } = before.caseListConfig;
-	expect(ignored).toBeDefined();
-	expect(after.caseListConfig).toEqual(expected);
+	const { filter: cleared, ...expected } = before.caseListConfig;
+	expect(cleared).toBeDefined();
+	// The Device list surface is the one cleared: the online search keeps
+	// the condition it sent, now stored as its own.
+	expect(after.caseListConfig).toEqual({
+		...expected,
+		searchCondition: cleared,
+	});
 	await page.getByRole("button", { name: "Search", exact: true }).click();
 	await expect(
 		page.getByText("Search is available from Results", { exact: true }),

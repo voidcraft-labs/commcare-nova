@@ -238,6 +238,27 @@ export function syncOnFormEntry() {
 	});
 }
 
+/** With its own screen omitted, a searching menu still carries its form's claim on HQ. */
+export function searchWithFormsAbove() {
+	const id = "targeted-search-forms-above";
+	const { doc, form } = claimedVisits(id);
+	const moduleId = targetedUuid(id, "module");
+	const module = doc.modules[moduleId];
+	if (!module) throw new Error("The witness needs its Visits menu.");
+	return targetedDocument({
+		id,
+		rows: ["ordinary search where the menu shows its forms above"],
+		doc: {
+			...doc,
+			modules: {
+				...doc.modules,
+				[moduleId]: { ...module, formsInMenuAbove: true },
+			},
+		},
+		expected: noteHeld(form),
+	});
+}
+
 export function syncOnFormEntryWebApps() {
 	const id = "targeted-sync-on-form-entry-web-apps";
 	const { doc, form } = claimedVisits(id);

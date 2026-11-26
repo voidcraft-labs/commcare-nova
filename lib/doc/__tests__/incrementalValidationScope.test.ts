@@ -39,6 +39,7 @@ import {
 	not,
 	now,
 	prop,
+	sessionContext,
 	term,
 } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
@@ -1770,5 +1771,75 @@ describe("menus that list forms on one screen", () => {
 			}
 		}
 		expect(scoped).toBeGreaterThan(20);
+	});
+});
+
+// A Search button condition that reads the session holds only where every
+// entry showing the list declares it, which a follow-up returning to the list
+// with its case does (`suite/case-search/buttonCondition.ts`). Sending that
+// form home instead is an edit of the form alone, yet it refuses the menu's
+// condition, so the scoped gate refuses it as the whole-document gate does.
+describe("a Search button condition's menu in every footprint", () => {
+	const VISIT_MENU = asUuid("00000000-0000-4000-8000-000000000301");
+	const VISIT = asUuid("00000000-0000-4000-8000-000000000302");
+	const doc = buildDoc({
+		appName: "Search button scopes",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Register",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+			{
+				uuid: VISIT_MENU,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				caseSearchConfig: {
+					searchButtonDisplayCondition: eq(
+						sessionContext("username"),
+						literal("A"),
+					),
+				},
+				forms: [
+					{
+						uuid: VISIT,
+						name: "Visit",
+						type: "followup",
+						postSubmit: "previous",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
+				],
+			},
+		],
+	});
+
+	it("re-runs the menu's rules when a form showing its list is sent home", () => {
+		const mutations: Mutation[] = [
+			{ kind: "updateForm", uuid: VISIT, patch: { postSubmit: "app_home" } },
+		];
+		expect(
+			incrementalValidationScope(doc, mutations)?.moduleUuids?.has(VISIT_MENU),
+		).toBe(true);
+		expect(expectCommitParity(doc, mutations)).toMatchObject({ ok: false });
 	});
 });

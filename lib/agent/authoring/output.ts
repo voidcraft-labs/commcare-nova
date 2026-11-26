@@ -6,7 +6,10 @@ import {
 	formLinkProjectionContext,
 	formLinkTargetDatumIds,
 } from "@/lib/commcare/formLinkProjection";
-import { projectFormExpression } from "@/lib/doc/expressionText";
+import {
+	fixedSearchRangeDates,
+	projectFormExpression,
+} from "@/lib/doc/expressionText";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
@@ -419,6 +422,7 @@ const readProjectors: {
 	readSource: passthrough,
 	getUsers: passthrough,
 	getOrganization: passthrough,
+	getPreviewSearchSettings: passthrough,
 	getAutomations: (data, { project, scope }) =>
 		data.map((item) => ({
 			...item,
@@ -528,6 +532,29 @@ const readProjectors: {
 	},
 	getModule(data, { project, scope }) {
 		const options = scope(undefined, data.uuid);
+		const list = data.case_list_config;
+		const projectedList =
+			list && record.parse(project(caseListConfigSchema, list, options));
+		if (
+			list &&
+			projectedList &&
+			list.searchInputs.some(
+				(field) =>
+					field.kind !== "hidden" &&
+					field.type === "date-range" &&
+					fixedSearchRangeDates(field.default),
+			)
+		) {
+			const searchInputs = records.parse(projectedList.searchInputs);
+			projectedList.searchInputs = searchInputs.map((field, index) => {
+				const input = list.searchInputs[index];
+				const dates =
+					input.kind !== "hidden" &&
+					input.type === "date-range" &&
+					fixedSearchRangeDates(input.default);
+				return dates ? { ...field, default: dates } : field;
+			});
+		}
 		return {
 			...data,
 			icon: project(moduleIconRefSchema.nullable(), data.icon, options),
@@ -537,11 +564,7 @@ const readProjectors: {
 				data.display_condition,
 				options,
 			),
-			case_list_config: project(
-				caseListConfigSchema.nullable(),
-				data.case_list_config,
-				options,
-			),
+			case_list_config: projectedList,
 			case_search_config: project(
 				caseSearchConfigSchema.nullable(),
 				data.case_search_config,

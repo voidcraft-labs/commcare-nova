@@ -99,6 +99,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/expression";
+import { takesMultipleSearchChoices } from "@/lib/domain/modules";
 import { emitCasePropertyWirePath } from "../../casePropertyWire";
 
 /**
@@ -163,6 +164,7 @@ import { emitCasePropertyWirePath } from "../../casePropertyWire";
 export function simpleArmNeedsXPathQueryEmission(
 	authored: SimpleSearchInputDef,
 ): boolean {
+	if (authored.matching === "project-space") return false;
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
 	const via = authored.via;
 	const viaIsSelfOrAbsent = via === undefined || via.kind === "self";
@@ -239,7 +241,7 @@ export function deriveSimpleArmPredicate(
 			`The wire emitter called \`deriveSimpleArmPredicate\` on a simple-arm input ("${authored.name}", property "${authored.property}", mode "${authored.mode?.kind ?? "default"}", via "${authored.via?.kind ?? "absent"}") that rides on the bare \`<prompt>\` slot, no \`_xpath_query\` predicate should be derived for it. The emission gate \`simpleArmNeedsXPathQueryEmission\` must be consulted first; check the call site for a missing gate or a stale cached result.`,
 		);
 	}
-	if (authored.type === "multi-select") {
+	if (takesMultipleSearchChoices(authored.type)) {
 		// A multiple-choice answer is one `#,#`-joined string in the
 		// search-input instance; only the bare-prompt route splits it into
 		// an any-of match. `searchInputViaModeCompatibility` rejects every

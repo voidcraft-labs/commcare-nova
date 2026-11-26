@@ -12,6 +12,7 @@
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
@@ -22,6 +23,8 @@ import {
 	CASE_CLAIM_CASE_TYPE,
 	CASE_CLAIM_HOST_INDEX,
 	type CaseType,
+	NEW_APP_SETTINGS,
+	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
 	CASEDB_READING,
@@ -34,6 +37,10 @@ import {
 	readCaseDatabaseSnapshot,
 	readCases,
 } from "../caseDataBindingHelpers";
+
+import { previewAsMe } from "../identity";
+import { type ServerSearchWorld, serverRecordsRead } from "../serverSearchRead";
+import { androidDevice } from "./fixtures/previewDevices";
 
 const APP_ID = "app-search-population";
 const PROJECT = "project-search-population";
@@ -145,6 +152,76 @@ function heldById(
 }
 
 describe("a search's population", () => {
+	it("keeps an Android browse inside the restore until the worker submits the default-results Search action", async () => {
+		const moduleUuid = testUuid("search-population-list-first");
+		const list = caseListConfig([{ field: "case_name", header: "Name" }]);
+		list.searchInputs = [
+			simpleSearchInputDef(
+				testUuid("search-population-name"),
+				"name_query",
+				"Name",
+				"text",
+				"case_name",
+			),
+		];
+		const doc = assertAdmittedPreviewDoc(
+			buildDoc({
+				appId: APP_ID,
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+				caseTypes: [PATIENT],
+				modules: [
+					{
+						uuid: moduleUuid,
+						name: "Patients",
+						caseType: PATIENT.name,
+						caseListMenuItem: {},
+						caseListConfig: list,
+						caseSearchConfig: { workflow: "listFirstWithDefaultResults" },
+						forms: [],
+					},
+				],
+			}),
+		);
+		const identity = previewAsMe({ id: WORKER, name: "Worker" }, doc);
+		if (!identity) throw new Error("The app has no worker.");
+		const world: ServerSearchWorld = {
+			projectId: PROJECT,
+			doc: { ...doc, caseTypes: doc.caseTypes ?? [] },
+			appId: APP_ID,
+			language: "eng",
+			identity,
+			device: androidDevice(),
+			deviceCases: { rows: [], indices: [] },
+			lookup: { projectRevision: "1", definitions: [], rowsByTable: new Map() },
+			caseTypeSchemas: buildCaseTypeMap(doc),
+			timeZone: "UTC",
+			restoreScope: OWNED,
+			selections: {},
+		};
+		const store = storeAs(WORKER);
+		const rowsAt = async (
+			answers?: readonly { name: string; value: string }[],
+		) => {
+			const { read } = await serverRecordsRead(
+				world,
+				{ moduleUuid, answers },
+				(reason) => new Error(reason),
+			);
+			if (!read) throw new Error("The worker cannot read this screen.");
+			const rows = await readCases(store, {
+				...read,
+				page: { offset: 0, limit: 10 },
+			});
+			if (rows.kind !== "rows") throw new Error(rows.kind);
+			return rows.rows;
+		};
+		expect(heldById(await rowsAt())).toEqual({ [MINE]: undefined });
+		expect(
+			heldById(await rowsAt([{ name: "name_query", value: "Theirs" }])),
+		).toEqual({ [THEIRS]: false });
+		expect(heldById(await rowsAt())).toEqual({ [MINE]: undefined });
+	});
+
 	it("reads the Project's open cases past the restore and says which the device holds", async () => {
 		const result = await readCases(storeAs(WORKER), {
 			tileGrouping: "grouped",

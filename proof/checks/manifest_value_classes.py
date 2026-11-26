@@ -4357,6 +4357,124 @@ def _literal(app, text):
     return parsed["expressions"] in (["XPathStringLiteral"], ["XPathNumericLiteral"]) and not parsed["functions"]
 
 
+# The tokens after which Core's lexer reads an operator (``Lexer.LEX_CONTEXT_OP``, ``proof/rules/_xpath.py``): a
+# ``/`` after any other begins an absolute path.
+_ENDS_A_VALUE = frozenset(
+    {"WILDCARD", "NSWILDCARD", "QNAME", "VAR", "NUM", "STR", "RBRACK", "RPAREN", "DOT", "DBL_DOT"}
+)
+
+
+def _reads_an_absolute_path(text):
+    """Whether an expression holds a path from the document's root (``/data/...``), read over Core's tokens: a ``/``
+    or ``//`` where Core's lexer reads a value; None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    previous = None
+    for token in found:
+        if token.kind in ("SLASH", "DBL_SLASH") and (previous is None or previous.kind not in _ENDS_A_VALUE):
+            return True
+        previous = token
+    return False
+
+
+def _reads_a_relative_path(text):
+    """Whether an expression holds a path from the context node (a name, ``.``, ``..`` or ``@name`` where Core's
+    lexer reads a value and no call follows); None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    for index, token in enumerate(found):
+        previous = found[index - 1] if index > 0 else None
+        if previous is not None and (previous.kind in _ENDS_A_VALUE or previous.kind in ("SLASH", "DBL_SLASH")):
+            continue
+        following = found[index + 1] if index + 1 < len(found) else None
+        if token.kind in ("DOT", "DBL_DOT", "AT", "WILDCARD", "NSWILDCARD"):
+            return True
+        if token.kind == "QNAME" and (following is None or following.kind != "LPAREN"):
+            return True
+    return False
+
+
+def native_filter_unbound_value(use, manifest):
+    """``case-search/native-filter-value-outside-screen-scope``: a default filter keyed by a native search key (any
+    key but ``_xpath_query``) whose value reads what its search screen holds no value of. A path from the document's
+    root (``/data/name``) names a form's answer, and the search screen is no form (Nova's ``search_filter_value``
+    slot holds the session, lookups and the worker alone): in the class. A value of literals and calls that read no
+    node, or that reads the session's context and its user alone, is outside it; any other read (a path from the
+    context node, ``current()``, a session datum, another instance) is not told (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    entry = at.nearest("DefaultCaseSearchProperty")
+    if entry is None:
+        return None
+    if entry.get("property") == "_xpath_query":
+        return False
+    value = entry.get("defaultValue")
+    if not isinstance(value, str):
+        return False
+    absolute = _reads_an_absolute_path(value)
+    if absolute is None:
+        return None
+    if absolute:
+        return True
+    parsed = at.app.parsed(value)
+    if parsed is None or "error" in parsed:
+        return None
+    if "XPathPathExpr" not in parsed["expressions"]:
+        return False
+    if parsed["roots"] != ["instance"] or _reads_a_relative_path(value) is not False:
+        return None
+    screen = all(
+        path["instance"] == "commcaresession"
+        and path["steps"][:1] == ["session"]
+        and path["steps"][1:2] in (["context"], ["user"])
+        for path in parsed["instancePaths"]
+    )
+    return False if parsed["instancePaths"] and screen else None
+
+
+# The keys of HQ's search index Nova reads as a record's own information
+# (``lib/commcare/suite/case-search/requestOrder.ts::RECORD_KEYS``), and the names Nova reserves for a case's own facts
+# or as CommCare HQ's reserved words (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``:
+# the SaveToCase set with the block's own rows and the two location keys).
+SERVER_ORDER_RECORD_KEYS = frozenset(
+    {"@case_id", "@owner_id", "@case_type", "@status", "name", "case_name", "external_id", "date_opened", "last_modified"}
+)
+CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id", "location_id", "hq_user_id"})
+
+
+def _order_key_reserved(key):
+    return key not in SERVER_ORDER_RECORD_KEYS and (key in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or key in CASE_OPERATION_OWN_ROWS)
+
+
+def server_order_reserved_property(use, manifest):
+    """``case-search/a-server-order-naming-a-property-nova-reserves``: a literal ``commcare_sort`` default filter, or a
+    search's ``custom_sort_properties`` on a search its menu offers (the only one Nova reads them on), one of whose
+    keys names a property Nova reserves (``status`` is a saved property; the record's state is ``@status``,
+    ``es/case_search.py::sort_by_case_property``). A ``commcare_sort`` that is no one literal is
+    ``a-commcare-sort-x-commcare-custom-related-case-property-or-case``'s."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    if not use.key.startswith(("schema:CaseSearch.custom_sort_properties", "schema:CaseSearchCustomSortProperty")):
+        for entry in _default_entries(at, config):
+            if entry.get("property") != "commcare_sort":
+                continue
+            text = _literal_text(entry.get("defaultValue"))
+            if text is not None and any(
+                _order_key_reserved(part.lstrip("+-").split(":")[0]) for part in text.split(",")
+            ):
+                return True
+        return False
+    if not (config.get("properties") or config.get("default_properties")):
+        return False
+    row = at.nearest("CaseSearchCustomSortProperty")
+    rows = [row] if row is not None else [each for each in config.get("custom_sort_properties") or [] if isinstance(each, dict)]
+    return any(isinstance(each.get("property_name"), str) and _order_key_reserved(each["property_name"]) for each in rows)
+
+
 def request_config_key_runtime_value(use, manifest):
     """``case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case``: a ``commcare_sort``,
     ``x_commcare_custom_related_case_property`` or ``case_type`` default filter whose value Core does not
@@ -4512,6 +4630,23 @@ hidden_with_required_or_validations = _prompt_reader(
 )
 hidden_with_required_or_validations.__doc__ = """``case-search/hidden-together-with-required-or-validations``."""
 
+allow_blank_on_a_hidden_prompt = _prompt_reader(
+    lambda prompt: bool(prompt.get("hidden")) and bool(prompt.get("allow_blank_value"))
+)
+allow_blank_on_a_hidden_prompt.__doc__ = """``case-search/allow-blank-value-on-a-hidden-prompt``: ``allow_blank_value`` on a
+``hidden`` prompt, whose row Web Apps hides whole (``query.js``, ``d-none``) while it still reads a starting value
+that begins with a blank as the box ticked (``query.js::decodeValue``)."""
+
+allow_blank_beside_the_owner = _prompt_reader(
+    lambda prompt: not prompt.get("hidden")
+    and not prompt.get("exclude")
+    and prompt.get("name") == "owner_id"
+    and bool(prompt.get("allow_blank_value"))
+)
+allow_blank_beside_the_owner.__doc__ = """``case-search/allow-blank-value-on-a-prompt-named-owner-id``: ``allow_blank_value``
+on a shown ``owner_id`` prompt without ``exclude``, which reaches HQ as the owner filter, and HQ refuses a second
+value beside an owner (``case_search/models.py::SearchCriteria._validate_multiple_terms``)."""
+
 later_validations = _prompt_reader(
     lambda prompt: len(_validations(prompt)) > 1 and not prompt.get("hidden") and not _address_field(prompt)
 )
@@ -4603,6 +4738,81 @@ def other_search_button_label(use, manifest):
         return None
     label = config.get("search_button_label")
     return label is not None and label != SEARCH_BUTTON_LABEL
+
+
+def _instance_ids_read(text):
+    """The ids an expression reads with ``instance('<id>')``, through Core's lexer (``Lexer.lex``), in reading order;
+    None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    ids = []
+    for index, token in enumerate(found[:-3]):
+        if (
+            token.kind == "QNAME"
+            and token.text == "instance"
+            and found[index + 1].kind == "LPAREN"
+            and found[index + 2].kind == "STR"
+            and found[index + 3].kind == "RPAREN"
+        ):
+            read = found[index + 2].text[1:-1]
+            if read not in ids:
+                ids.append(read)
+    return ids
+
+
+def search_button_reads_what_the_list_does_not_load(use, manifest):
+    """``case-search/search-button-display-condition-reading-what-the-case-list-does-not-load``: a Search action's
+    ``relevant`` (the action whose frame pushes ``search_command.<menu>``) in a detail some entry shows as its list
+    (``detail-select``), reading an instance one such entry does not declare. HQ declares an entry's instances from
+    what its datums, details and frames read and never from an action's ``relevant``
+    (``post_process/instances.py::_get_all_xpaths_for_entry``, ``xml_models.py::Detail.get_all_xpaths``), and Core
+    evaluates the condition in the entry's scope (``Detail.getCustomActions``,
+    ``CommCareSession.getEvaluationContext``), where an undeclared instance throws. Decided on a suite, the build
+    that declares the entry's instances. An app JSON's ``search_button_display_condition`` alone does not say what
+    HQ's build will declare beside it: on an app HQ made it is None, and an app Nova sends never holds the class,
+    since Nova's gate admits only a condition every entry showing the list declares
+    (``lib/commcare/suite/case-search/buttonCondition.ts``), so False."""
+    json_at = _json(use)
+    if json_at is not None:
+        if json_at.key != "search_button_display_condition":
+            return None
+        return None if json_at.app is None or json_at.app.authored else False
+    at = _xml(use, "runtime")
+    if at is None or at.attribute != "relevant" or _local(at.element) != "action":
+        return None
+    action = at.element
+    pushes = [
+        _command_literal(command)
+        for command in action.iter()
+        if isinstance(command.tag, str) and _local(command) == "command"
+    ]
+    if not pushes or not all((pushed or "").startswith("search_command.") for pushed in pushes):
+        return False
+    detail = action.getparent()
+    if detail is None or _local(detail) != "detail":
+        return None
+    read = _instance_ids_read(action.get("relevant"))
+    if read is None:
+        return None
+    shown_in = [
+        entry
+        for entry in _children(at.document.root)
+        if _local(entry) == "entry"
+        and any(
+            _local(datum) == "datum" and datum.get("detail-select") == detail.get("id")
+            for session in _children(entry)
+            if _local(session) == "session"
+            for datum in _children(session)
+        )
+    ]
+    if not shown_in:
+        return None
+    for entry in shown_in:
+        declared = {child.get("id") for child in _children(entry) if _local(child) == "instance"}
+        if any(instance_id not in declared for instance_id in read):
+            return True
+    return False
 
 
 def list_first_with_web_apps(use, manifest):
@@ -10376,56 +10586,6 @@ def endpoint_on_an_offered_search(use, manifest):
     return offered and bool(config.get("case_search_endpoint_id"))
 
 
-def custom_sort_on_an_offered_search(use, manifest):
-    """``case-search/custom-sort-properties-property-name-sort-type-exact-date``: a search's custom sort, and each
-    of its rows and their keys, on a search the menu offers, where HQ's build writes the sort into the query
-    (``post_process/remote_requests.py``, ``RemoteRequestsHelper``). On a menu that offers none it is part of
-    the search configuration HQ stores and builds nothing of, the round trip's class."""
-    _, offered = _offered_search_config(use)
-    return offered
-
-
-def _hq_auto_selects(module):
-    """``models/modules.py::Module.is_auto_select``: a menu's short detail's ``auto_select``, whether or not the
-    list is multi-select, since the method tests ``is_multi_select`` itself, a bound method and so always true; an
-    advanced menu never (``AdvancedModule.is_auto_select``). A shadow menu's is its source menu's
-    (``ShadowModule.is_auto_select``), another menu's than its own: None."""
-    if module.get("doc_type") == "ShadowModule":
-        return None
-    if module.get("doc_type") == "AdvancedModule":
-        return False
-    return bool(((module.get("case_details") or {}).get("short") or {}).get("auto_select"))
-
-
-def search_on_clear_without_auto_select(use, manifest):
-    """``case-search/search-on-clear``: ``search_on_clear`` on a search the menu offers, whose case list does not
-    choose its case by itself (``_hq_auto_selects``). HQ's build reads it only on such a search
-    (``remote_requests.py``); beside the list's auto select it is the bar's refusal, whether or not the menu
-    searches (``helpers/validators.py::validate_search_config``), and on a menu that offers no search otherwise it
-    is part of the search configuration HQ stores and builds nothing of."""
-    config, offered = _offered_search_config(use)
-    if config is None:
-        return None
-    module = _json(use).nearest(*MODULES)
-    if module is None:
-        return None
-    if not offered:
-        return False
-    auto_selects = _hq_auto_selects(module)
-    return None if auto_selects is None else not auto_selects
-
-
-def default_on_date_range(use, manifest):
-    """``case-search/default-value-on-a-date-range-input``: a ``default_value`` that holds text on a prompt shown as
-    a date range (``input_: daterange`` on a prompt that is not hidden; ``prompts.ts``, ``defaultOnRange``). A blank
-    default is no default: HQ's build and Web Apps read one only where it holds text."""
-    prompt = _prompt_slot(use, "default_value")
-    if prompt is None:
-        return None
-    value = prompt.get("default_value")
-    return value not in (None, "") and prompt.get("input_") == "daterange" and prompt.get("hidden") is not True
-
-
 def choice_value_with_both_quote_marks(use, manifest):
     """``questions/choice-value-holding-both-an-apostrophe-and-a-double-quote``: a choice's ``<value>`` whose text
     holds both ``'`` and ``"``, which no XPath string literal spells (``lib/domain/selectOptionValue.ts::
@@ -11168,16 +11328,23 @@ VALUE_CLASSES = {
     "forms-and-case-writes/session-endpoint-id-not-a-slug-fixed-point-or-duplicated": not_a_slug_or_duplicated,
     "forms-and-case-writes/any-other-undeclared-key": undeclared_key_no_row_names,
     # Case search
+    "case-search/a-server-order-naming-a-property-nova-reserves": server_order_reserved_property,
     "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": request_config_key_runtime_value,
     "case-search/an-x-commcare-custom-related-case-property-entry-together-with": related_case_property_twice,
     "case-search/default-properties-entry-keyed-x-commcare-data-registry": data_registry_key,
     "case-search/data-registry-data-registry-workflow-additional-registry-cases": registry_named,
     "case-search/default-properties-entry-keyed-x-commcare-endpoint-id": endpoint_id_key,
     "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": missing_default_value,
+    "case-search/native-filter-value-outside-screen-scope": native_filter_unbound_value,
+    "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load": (
+        search_button_reads_what_the_list_does_not_load
+    ),
     "case-search/that-entry-together-with-blacklisted-owner-ids-expression": blacklisted_owner_ids_twice,
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
+    "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
+    "case-search/allow-blank-value-on-a-prompt-named-owner-id": allow_blank_beside_the_owner,
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,
@@ -11349,10 +11516,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/case-tag-holding-a-hyphen": case_tag_with_a_hyphen,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
-    "case-search/default-value-on-a-date-range-input": default_on_date_range,
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
-    "case-search/custom-sort-properties-property-name-sort-type-exact-date": custom_sort_on_an_offered_search,
-    "case-search/search-on-clear": search_on_clear_without_auto_select,
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
     "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,

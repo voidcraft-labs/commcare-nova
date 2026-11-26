@@ -29,6 +29,7 @@ import { loadAppBlueprint } from "../loadApp";
 import { projectResult } from "../resultProjection";
 import { LARGE_RESULT_META } from "../resultSize";
 import { deriveRunId } from "../runId";
+import { registerSharedToolWithScopes } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { projectWorkPayload } from "../workProjection";
 
@@ -152,7 +153,9 @@ export function registerSharedTool(
 		mcpSchemas.set(authoredJson, mcpSchema);
 	}
 
-	server.registerTool(
+	registerSharedToolWithScopes(
+		server,
+		ctx,
 		toolName,
 		{
 			description: tool.description,

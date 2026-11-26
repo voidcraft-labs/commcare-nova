@@ -154,6 +154,7 @@ import {
 	searchDefaultFilterName,
 	searchHqCompile,
 	searchRelatedLookups,
+	searchWithFormsAbove,
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
@@ -209,6 +210,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	independentCaseOrder,
 	nearestClinics,
 	searchDefaultFilterName,
+	searchWithFormsAbove,
 	syncOnFormEntry,
 	hqSideState,
 	hqSideOwned,

@@ -15,6 +15,7 @@ const EXTERNAL_WRITE_CAPABILITIES = [
 	"media-write",
 	"lookup-write",
 	"deployment-write",
+	"preview-search-write",
 ] as const;
 
 describe("shared tool registry — execution policy coherence", () => {

@@ -548,6 +548,10 @@ function compiler(bindings: QueryBindings) {
 				right,
 			};
 		}
+		if (name === "project-today") {
+			arity(name, args);
+			return { kind: "today", clock: "project-space" };
+		}
 		if (["today", "now", "here", "acting-user", "unowned"].includes(name)) {
 			arity(name, args);
 			return { kind: name };
