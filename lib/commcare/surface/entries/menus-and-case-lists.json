@@ -8809,6 +8809,7 @@
 			"schema:Module.parent_select",
 			"schema:ParentSelect",
 			"schema:ParentSelect.active",
+			"schema:ParentSelect.module_id",
 			"schema:ShadowModule.parent_select"
 		],
 		"valueClass": "inactive",
@@ -9236,6 +9237,7 @@
 		"section": "Case selection extras",
 		"item": "`case_list_form.label`, `post_form_workflow`, `media_image`, `media_audio` or `relevancy_expression` beside a blank `form_id`",
 		"surfaceKeys": [
+			"schema:CaseListForm.form_id",
 			"schema:CaseListForm.label",
 			"schema:CaseListForm.media_audio",
 			"schema:CaseListForm.media_image",
