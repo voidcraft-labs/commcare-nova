@@ -1,7 +1,7 @@
 """The same native lookup choices survive an adopted app edit and a manual installation."""
 
-import json
 from dataclasses import replace
+from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
 
 from lxml import etree
@@ -58,6 +58,31 @@ def _observe(unit, app_id, runner, label):
     return observed
 
 
+
+def _manual_import(unit, app_file):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
+    from django.urls import resolve, reverse
+
+    from proof.hq import requests
+
+    path = reverse("import_app_steps", args=[unit.domain])
+    upload = encode_multipart(BOUNDARY, {
+        "app_name": "Clinic visits",
+        "app_file": SimpleUploadedFile("visits.json", app_file, content_type="application/json"),
+        "source_server": "india",
+        "source_domain": "x",
+        "app_id": "0" * 32,
+    })
+    request = requests.raw_post(unit, path, upload, MULTIPART_CONTENT)
+    request.META.update(HTTP_HQ_HX_ACTION="import_app", HTTP_HX_REQUEST="true")
+    view = resolve(path)
+    response = view.func(request, *view.args, **view.kwargs)
+    assert response.status_code == 200 and response.has_header("HX-Push-Url"), response
+    app_id, = parse_qs(urlsplit(response["HX-Push-Url"]).query)["new_app_id"]
+    return operations.held_app(unit, app_id)
+
+
 def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
     hq, core_runner, formplayer_runner, formplayer_documents, evidence
 ):
@@ -95,7 +120,7 @@ def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
         guide = archive.read("README.txt").decode()
         assert "uses the existing table in nova-proof" in guide and "selected-table export" in guide
         app_member, = [name for name in archive.namelist() if name.endswith(".json")]
-        manual_app = json.loads(archive.read(app_member))
+        manual_app = archive.read(app_member)
         assert not any(name.endswith(".xlsx") for name in archive.namelist())
 
     with hq_check(replace(configuration, domain="second-clinic")) as (unit, _):
@@ -108,7 +133,7 @@ def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
             assert [(code, label) for _, code, label in target_rows] == [
                 (code, label) for _, code, label in original_rows
             ]
-            imported = import_app_from_doc(manual_app, unit.domain, {"name": "Clinic visits"})
+            imported = _manual_import(unit, manual_app)
         after_manual = _observe(unit, imported.get_id, formplayer_runner, "manual")
         assert imported.get_id != app_id
         assert {entry["xmlns"] for entry in after_manual.values()} == {_identities(imported)[2]}
