@@ -185,6 +185,8 @@ Screen readers announce question and section positions within their current
 container. Hidden calculations and questions that do not currently apply are
 skipped, including inside each repeated entry.
 
+For one row per case, **Choose the rows** controls when the form looks up the cases. **When the form opens** keeps the records it finds, even if a worker changes the answer that selected them. **As answers change** lets the list follow the query. Switching the timing of a published list changes where its row IDs appear in CommCare HQ exports. The edit shows that change for review.
+
 Repeating sections with only hidden calculations and no title stay out of the
 running form. Their calculations still run, and any configured record
 changes happen when you submit. Titles, media and visible questions remain
@@ -348,6 +350,12 @@ a menu, a crumb or home, starts it over on both.
 
 ## Name new records
 
+In **Form settings**, **Submitted answer addresses** shows the name at the start
+of every answer in a submission. New forms start at `data`. A form brought
+in from CommCare HQ keeps its existing name. If your reporting system expects
+`survey`, for example, you can use that name to submit a question called
+`name` at `/survey/name`. Workers see the same question on their screen.
+
 A registration form’s **Form settings** includes **Record name**, the name shown
 in lists and record details. Choose an answer or combine answers in an expression.
 Changing the name preserves the form’s other saved answers. Nova uses the same
@@ -360,6 +368,18 @@ question a record's name or external ID comes from gains a hidden value that
 holds the trimmed answer. You'll see it in CommCare HQ's form builder, in
 submissions, and as a column in form exports. From the next build, the names
 and external IDs CommCare HQ stores are trimmed of surrounding spaces.
+
+### Change how a form submits in Web Apps
+
+In **Form settings**, **Form behavior** lets you choose a question or choice text that already appears in the form to hold a Web Apps setting. The setting follows that text when you rename or move its question, and its translations travel with it.
+
+- **Automatic submission** sends the form as soon as it opens in Web Apps, once its answers are valid. If an answer needs attention, the form stays open so the worker can fix it.
+- **Skip automatic sync** tells Web Apps to skip a sync after the form is sent. Web Apps syncs after a form only in an app set to sync after each form, which Nova apps aren't, so workers see no change. The setting is kept so an app brought in from CommCare HQ keeps it.
+- **Check changed answers** lets Web Apps accept previously accepted answers again without rechecking them. For example, a date already accepted can stay accepted after a worker changes the date it was compared with. A blank required answer still needs an answer.
+
+Android opens and submits these forms as it does any other form.
+
+To reuse the same setting on another question or choice, open **Shared texts**. Shared texts need matching wording, formatting and media in every language. If CommCare HQ would combine two texts and lose a setting, Nova names both texts. Changing either one or choosing another text lets you carry on.
 
 ## Share a document with Nova
 
@@ -497,15 +517,16 @@ questions closes any optional editor you had just opened.
 
 **Show when** affects the question's data as well as its visibility. When its
 condition is false, the answer is omitted from submission and can read as blank
-in other expressions. A **Hidden** field can carry a calculated or starting
-value without displaying a question. With neither, it stays blank.
+in other expressions. A **Hidden** field carries a value without showing a question. Its **Starting value** runs when the form opens or its repeat row is added. A later question can copy that value as its own starting answer. Its **Calculation** updates the hidden value as answers change. You can use either setting, both, or leave the field blank. In a repeat, a hidden value with both runs differently on each platform. In Web Apps, the worker's next answer works out the calculation again, so the starting value is gone before the form is sent. On Android, the starting value stays, and is sent, until the calculation runs again.
 
 A starting value can read another answer in the form. Renaming that question in
 Nova keeps the starting value reading it; renaming it in CommCare HQ's form
 builder leaves the starting value reading the old name.
 
 Each choice you write for a select question has a label, or an image, audio or
-video, so a worker never sees an empty choice.
+video, so a worker never sees an empty choice. A stored choice value can include
+apostrophes and double quotation marks together. You can enter that value in
+the choice editor and use the choice in a rule or starting answer.
 
 A formula that compares a select question with one of its choices, and a
 starting value that picks one, keep the choice itself rather than its value.
@@ -671,12 +692,19 @@ does, so a registration form that reads its new case's ID reads the ID the case
 is saved with. The formula editor lists the values this form receives, each
 labelled by what it means.
 
-A hidden value has one expression and a choice of when it runs, or no
-expression at all. **Keep in
-step** recalculates whenever a value it uses changes, and every time the form
-opens, including when a worker resumes a saved form. **Set once** runs when the
-form first opens and never again, which suits a timestamp or a fixed value.
-Switching between them keeps your expression. A hidden value that saves to the
+**Answer type** sets how a hidden value holds its answer. Automatic suits most calculations. Choose a whole number when a starting value such as `007` should become `7`, or Text when those zeros matter. A yes or no answer needs a calculation. A value brought in from CommCare HQ keeps its answer type.
+
+A receiving service may expect a hidden answer to have its own namespace. In the hidden value’s settings, open **Receiving service** and enter that namespace. Clearing it makes the value use the form’s namespace again.
+
+Workers use question IDs when they submit the form. `case` belongs to case changes on both platforms. Web Apps also reserves `registration`, `fixture` and `schema`. A name like `case_note` or `registration_note` keeps working on either platform. `script` is available on both.
+
+**Lock this question in CommCare HQ**, under **Field ID**, limits who can change that question in the HQ form designer. Your Nova Project’s editors can still change the question or remove its lock. The destination project space needs the Locked Admin Questions feature.
+
+A hidden value's two settings run at different times, and a change to one
+leaves the other as it was. Its **Starting value** runs once, when the form
+opens or its repeat row is added, which suits a timestamp or a fixed value. Its
+**Calculation** works itself out again whenever a value it uses changes, and
+when a worker resumes a saved form. A hidden value that saves to the
 case the form opened is set by its calculation, so the case's stored value
 never overrides it. When a hidden calculation saves to a date-and-time property,
 Nova preserves its clock time in Preview and export. Choose a date property when
@@ -786,3 +814,14 @@ save; leaving can discard them. Moving between screens within the same app
 keeps your edits in place. Waiting for **Saved** before closing is the safest
 option, especially on mobile devices where closing the browser may skip its
 warning.
+
+
+### Messages and confirmation
+
+Add a label to show a message. Turn on **Ask for confirmation** if you want the worker to check it on Android. Make the label required to keep the worker on the screen until they check it. Web Apps confirms messages when the worker submits the form.
+
+You can give a message or a location a starting value, and a message, a location or an attachment a validation condition. The validation message appears when the answer fails that condition. An attachment always starts empty, since Web Apps clears a starting file and Android can't open a form that names one. Use the hint for short guidance or add help text and media that the worker can open when needed.
+
+A repeating group that workers fill themselves starts empty. They can add as many entries as they need and remove the last one to leave the group empty again. Its add button can use different words before and after the first entry. In the group's display settings, **First entry button** sets the first invitation and **Another entry button** sets the next one. If you give only the second, workers see it for both. Each language can have its own wording.
+
+In a worker test, opening a form or editing an ordinary answer leaves messages unanswered. Turning a page on Android confirms the messages on that page. On Web Apps, submitting the form confirms its messages.

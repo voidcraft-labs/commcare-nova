@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -17,6 +18,7 @@ import {
 } from "../formLogicFindings";
 import { runValidation } from "../runner";
 
+const activityUuid = testUuid("root-read-activity");
 const selectedCase = { kind: "selected-case", module: ids.module } as const;
 const formCarriers = [
 	{ entity: "field", uuid: ids.text, slot: "relevant" },
@@ -26,9 +28,10 @@ const formCarriers = [
 	{ entity: "field", uuid: ids.text, slot: "required" },
 	{ entity: "field", uuid: ids.repeat, slot: "repeat_count" },
 	{ entity: "field", uuid: ids.repeat, slot: "ids_query" },
-	{ entity: "form", uuid: ids.form, slot: "assessment_user_score" },
-	{ entity: "form", uuid: ids.form, slot: "deliver_entity_id" },
-	{ entity: "form", uuid: ids.form, slot: "deliver_entity_name" },
+	{ entity: "field", uuid: activityUuid, slot: "assessment_user_score" },
+	{ entity: "field", uuid: activityUuid, slot: "deliver_entity_id" },
+	{ entity: "field", uuid: activityUuid, slot: "deliver_entity_name" },
+	{ entity: "field", uuid: activityUuid, slot: "deliver_work_area_id" },
 	{
 		entity: "form",
 		uuid: ids.form,
@@ -61,28 +64,26 @@ function carrierFixture(slot: ExpressionSlotRef) {
 						repeat_mode: "query_bound",
 						data_source: { ids_query: literal },
 					};
-	} else if (slot.slot === "assessment_user_score") {
-		doc.connectType = "learn";
-		// A Connect app runs on Android alone.
+	} else if (slot.uuid === activityUuid) {
+		const learn = slot.slot === "assessment_user_score";
+		doc.connectRoles = [learn ? "learn" : "deliver"];
 		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
-		doc.forms[ids.form].connect = {
-			assessment: { id: "quiz", user_score: literal },
+		doc.fields[activityUuid] = {
+			kind: "connect_activity",
+			uuid: activityUuid,
+			id: learn ? "quiz" : "visit",
+			activity: learn
+				? { kind: "assessment", score: literal }
+				: {
+						kind: "delivery",
+						name: "Visit",
+						entityId: literal,
+						entityName: literal,
+						workAreaId: literal,
+					},
 		};
-	} else if (
-		slot.slot === "deliver_entity_id" ||
-		slot.slot === "deliver_entity_name"
-	) {
-		doc.connectType = "deliver";
-		// A Connect app runs on Android alone.
-		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
-		doc.forms[ids.form].connect = {
-			deliver_unit: {
-				id: "visit",
-				name: "Visit",
-				entity_id: literal,
-				entity_name: literal,
-			},
-		};
+		doc.fieldOrder[ids.form].push(activityUuid);
+		doc.fieldParent[activityUuid] = ids.form;
 	} else if (slot.slot === "form_link_datum_xpath") {
 		const link = doc.forms[ids.form].formLinks?.[0];
 		if (link === undefined)

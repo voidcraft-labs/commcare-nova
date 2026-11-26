@@ -7,6 +7,7 @@ import {
 	caseChoiceSnapshot,
 	choiceUuid,
 } from "@/lib/__tests__/caseChoiceFixture";
+import { connectSectionForm } from "@/lib/__tests__/connectSectionForm";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
@@ -54,7 +55,6 @@ import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	asUuid,
 	type BlueprintDoc,
-	NEW_APP_SETTINGS,
 	organizationLevelSchema,
 } from "@/lib/domain";
 import {
@@ -193,6 +193,7 @@ import { buildSessionStorageState } from "./session";
 import { SMOKE_TEXT } from "./smokeText";
 import { buildSortByBlueprint, SORT_BY_SEED, sortByRoute } from "./sortBySeed";
 import { seedSourceInventory } from "./sourceInventorySeed";
+import { buildVisitReport, visitReport } from "./visitReportSeed";
 
 /** One context per seed process, one actor/Project universe per scenario. */
 /** One form taking part in Connect Learn, in an app that runs on Android
@@ -203,42 +204,10 @@ export const IDENTITY_MOVES_SEED = {
 } as const;
 
 export const CONNECT_LEARN_SEED = {
-	appName: "Smoke — Connect Learn",
+	appName: "Community learning",
 	moduleName: "Training",
 	formName: "Lesson one",
 } as const;
-
-function buildConnectLearnBlueprint(appId: string): BlueprintDoc {
-	const seed = CONNECT_LEARN_SEED;
-	return buildDoc({
-		appId,
-		appName: seed.appName,
-		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
-		connectType: "learn",
-		modules: [
-			{
-				name: seed.moduleName,
-				forms: [
-					{
-						name: seed.formName,
-						type: "survey",
-						fields: [
-							f({ kind: "text", id: "reflection", label: "Reflection" }),
-						],
-						connect: {
-							learn_module: {
-								id: "lesson_one",
-								name: seed.formName,
-								description: "The first lesson",
-								time_estimate: 5,
-							},
-						},
-					},
-				],
-			},
-		],
-	});
-}
 
 export async function smokeSeedEnvironment(secret: string, baseUrl: string) {
 	if (!process.env.NOVA_DB_LOCAL_URL)
@@ -1854,6 +1823,9 @@ export async function createSmokeBuilders(
 			});
 			return { localizationAppId: appId };
 		},
+		"visit-report": async () => ({
+			appId: await seedRuntimeApp(visitReport.appName, buildVisitReport),
+		}),
 		sections: async () => {
 			const { appId: formSectionsAppId, baseSeq: formSectionsGenesisSeq } =
 				await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
@@ -2472,7 +2444,7 @@ export async function createSmokeBuilders(
 		"connect-learn": async () => {
 			const appId = await seedRuntimeApp(
 				CONNECT_LEARN_SEED.appName,
-				buildConnectLearnBlueprint,
+				connectSectionForm,
 			);
 			return { connectLearn: { appId } };
 		},

@@ -4,8 +4,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerSettings from "@iconify-icons/tabler/settings";
 import { useCallback, useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { useConnectType } from "@/lib/doc/hooks/useConnectType";
-import { useForm } from "@/lib/doc/hooks/useEntity";
+import { useFormHasConnectActivity } from "@/lib/doc/hooks/useConnectRoles";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	FLOATING_LAYER_CLS,
@@ -39,9 +38,7 @@ export function FormSettingsButton({
 	moduleUuid,
 	formUuid,
 }: FormSettingsButtonProps) {
-	const form = useForm(formUuid);
-	const connectType = useConnectType();
-	const hasConnect = !!form?.connect && !!connectType;
+	const hasConnect = useFormHasConnectActivity(formUuid);
 	const [open, setOpen] = useState(false);
 
 	const handleOpenChange = useCallback(

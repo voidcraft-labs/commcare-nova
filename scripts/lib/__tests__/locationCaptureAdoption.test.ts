@@ -6,7 +6,10 @@ import {
 } from "../../migrations/step7-location-capture.mjs";
 
 it("adopts agreed location, distinguishes unknown targets from conflict, and keeps private genesis independent", () => {
-	const doc = buildDoc({ modules: [] });
+	// The released document this conversion reads: one Connect type, which
+	// the Connect conversion replaces with roles afterwards.
+	const { connectRoles: _roles, ...current } = buildDoc({ modules: [] });
+	const doc = { ...current, connectType: null };
 	const target = (domain: string, previous: boolean | null) => ({
 		domain,
 		server: "test",

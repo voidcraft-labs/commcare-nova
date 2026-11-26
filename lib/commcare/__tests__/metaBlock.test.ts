@@ -116,7 +116,7 @@ describe("addMetaBlock's location capture", () => {
 			expect(
 				pollsensors(xml).map((node) => node.attributes.ref),
 				name,
-			).toEqual(doc.connectType === null ? [] : ["/data/meta/location"]);
+			).toEqual(doc.connectRoles.length === 0 ? [] : ["/data/meta/location"]);
 		}
 	});
 });

@@ -573,7 +573,7 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "moveAutomation":
 		case "updateAutomationSchedule":
 		case "setAppName":
-		case "setConnectType":
+		case "setConnectRoles":
 		case "setAppLogo":
 		case "setAppSettings":
 		case "relabelSourceLanguage":

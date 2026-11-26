@@ -34,8 +34,14 @@ export function validateLookupOptionsSources(
 		)
 			continue;
 		const source = field.optionsSource;
-		for (const slot of ["valueColumnId", "labelColumnId"] as const) {
-			const problem = questionChoiceReadProblem(source[slot]);
+		for (const slot of [
+			"valueColumnId",
+			"labelColumnId",
+			"sortColumnId",
+		] as const) {
+			const read = source[slot];
+			const problem =
+				read === undefined ? undefined : questionChoiceReadProblem(read);
 			if (problem)
 				errors.push(
 					validationError(

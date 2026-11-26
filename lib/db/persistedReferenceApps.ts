@@ -14,7 +14,7 @@ import type { AppDatabase } from "./pg";
 export function persistedReferenceApps(tx: Transaction<AppDatabase>) {
 	return tx
 		.selectFrom("apps as app")
-		.select(["app.id", "app.app_name", "app.connect_type", "app.logo"])
+		.select(["app.id", "app.app_name", "app.connect_roles", "app.logo"])
 		.select(
 			sql<string | null>`${sql.ref("app.case_types")}::text`.as(
 				"case_types_text",

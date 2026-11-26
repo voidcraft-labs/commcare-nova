@@ -1,4 +1,5 @@
 import { singleChoiceLayoutSchema } from "@/lib/domain/choicePresentation";
+import { connectActivitySchema } from "@/lib/domain/fields/connectActivity";
 import { caseOptionsSourceSchema as storedCaseOptionsSourceSchema } from "@/lib/domain/fields/selectOptionsSource";
 import { displaySchemas } from "@/lib/domain/questionDisplaySchemas";
 
@@ -80,8 +81,7 @@ import {
 	fieldPatchSchemaByKind,
 	fieldRegistry,
 	formLogicSchema,
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
-	hiddenFieldCarriesBothValueSources,
+	imageDimensionSchema,
 	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
@@ -89,6 +89,8 @@ import {
 	TEXT_KEYPADS,
 	uuidSchema,
 } from "@/lib/domain";
+import { HIDDEN_ANSWER_TYPES } from "@/lib/domain/fields/hidden";
+import { rowTimingSchema } from "@/lib/domain/queryRepeatPlacement";
 import { caseWriteViaInputSchema } from "./tools/case-operations/shared";
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
@@ -111,6 +113,11 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 // …). If we ever flip to per-type tools (one schema per kind), these
 // strings still apply — they carry the per-property guidance, not the
 // per-kind shape.
+
+/** What the model needs to place a Connect activity, the one rule that admits a
+ *  delivery in each row a worker adds among it (`connectRecipientRule.ts`). */
+const CONNECT_ACTIVITY_DOC =
+	"The Connect activity this position submits. Replacing an activity replaces all of its settings. A delivery value left out submits empty text. A delivery inside a repeat the worker adds rows to needs each row to ask for a person or place ID no other row repeats: a required text question in that row, with no condition or default, whose validate expr is string-length(join('|', #form/<repeat>[true()]/<id>)) = string-length(join('|', distinct-values(#form/<repeat>[true()]/<id>))), and the delivery's entityId ../../../<id>, read from the delivery's own value.";
 
 const FIELD_DOCS = {
 	id: "Question identifier: lowercase words joined by underscores, starting with a letter and never with XML. Not one of meta, case, registration, script, instance, bind, parsererror. Independent of its saved record property.",
@@ -141,6 +148,10 @@ const FIELD_DOCS = {
 		"true shows the label exactly as typed, so *, #, numbered lines and links stay as written instead of formatting. Labels are formatted as Markdown by default; false or null returns the label to Markdown. A help text takes plain_help the same way; a hint and a validation message have no such setting.",
 	plain_help:
 		"true shows the help text exactly as typed on Android. Web Apps formats every help text either way. false or null returns it to Markdown.",
+	answerType:
+		"Hidden questions only. Choose the type of answer an assignment holds. Omit to infer it, or use null to return to automatic.",
+	maxDimension:
+		"Image questions only. Longest side in pixels for JPEG and PNG photos on Android. Web Apps keeps the original file. Leave out for no change, or set null to keep original size.",
 	keypad:
 		'Text, password and barcode questions. "android-numbers" limits the keypad to Android on text or password questions. "numbers" gives the worker a number keypad and keeps the answer as text, for a phone number or an ID that may start with 0 or +. Use int or decimal for a quantity. null returns the full keyboard.',
 	repeat_mode:
@@ -220,6 +231,23 @@ const labelTextFields = () => ({
 });
 const relevantField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.relevant);
+const questionLockField = () =>
+	z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe(
+			"Protect this question against changes in the CommCare HQ form designer. An authorized Nova editor may still edit it. The destination project space must support question locking.",
+		);
+const namespaceField = () =>
+	z
+		.string()
+		.min(1)
+		.nullable()
+		.optional()
+		.describe(
+			"A Hidden Value may use a separate namespace that a receiving service expects. Leave it out to inherit the form namespace. On an edit, null restores inheritance.",
+		);
 const calculateField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
@@ -230,6 +258,21 @@ const plainLabelField = () =>
 	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_label);
 const plainHelpField = () =>
 	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_help);
+const hiddenAnswerTypeField = () =>
+	z
+		.enum(HIDDEN_ANSWER_TYPES)
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.answerType);
+
+const confirmationField = () =>
+	z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe(
+			"On a label, show a confirmation checkbox on Android. Web Apps confirms the message when the worker submits.",
+		);
 const keypadField = () =>
 	z.enum(TEXT_KEYPADS).nullable().optional().describe(FIELD_DOCS.keypad);
 /**
@@ -334,11 +377,11 @@ const caseWriteField = () =>
 		.describe(FIELD_DOCS.caseWrite);
 
 /**
- * Whether a kind holds an answer a case can save: every kind but a label
- * and the three containers.
+ * A message can submit an answer like any other leaf. Case placement decides
+ * which editable location can save it.
  */
 function kindSavesAnswer(kind: FieldKind): boolean {
-	return kind !== "label" && !fieldRegistry[kind].isContainer;
+	return !fieldRegistry[kind].isContainer;
 }
 
 /**
@@ -416,6 +459,12 @@ function repeatConfigDiscriminated() {
 				.object({
 					mode: z.literal("query_bound"),
 					ids_query: formLogicSchema.describe(FIELD_DOCS.ids_query),
+					when: rowTimingSchema
+						.nullable()
+						.optional()
+						.describe(
+							"When to choose the rows. on-open keeps the records found as the form opens. as-answers-change follows the query during entry. Omit to keep the current timing.",
+						),
 				})
 				.describe("One row per case the query finds; provide ids_query."),
 		])
@@ -464,9 +513,16 @@ const ADD_GATED_KEYS = [
 	"relevant",
 	"validate",
 	"calculate",
+	"answerNamespace",
 	"default_value",
+	"addFirstLabel",
+	"addLabel",
 	"optionsSource",
 	"keypad",
+	"answerType",
+	"askForConfirmation",
+	"maxDimension",
+	"activity",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -496,35 +552,6 @@ function gateRepeatSlot(
 			message: `only kind "repeat" carries a \`repeat\` config — leave it out.`,
 		});
 	}
-}
-
-/**
- * A hidden field carries at most ONE value source: Nova doesn't yet write a
- * Hidden Value's default beside its calculate
- * (`HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). Refuse the pair at the tool boundary, on the `default_value` path,
- * so the model learns the fix in the rejection: keep the one that matches
- * what the value should do and leave the other out (or, on an edit, pass
- * it as null). `editField` normalizes the cross-call case, where the field
- * already holds one slot and the patch sets the other.
- */
-function gateHiddenValueSources(
-	ctx: z.RefinementCtx,
-	kind: FieldKind,
-	calculate: unknown,
-	default_value: unknown,
-): void {
-	if (!hiddenFieldCarriesBothValueSources({ kind, calculate, default_value })) {
-		return;
-	}
-	ctx.addIssue({
-		code: "custom",
-		path: ["default_value"],
-		message:
-			`${HIDDEN_VALUE_ONE_SOURCE_SENTENCE} ` +
-			"Keep `calculate` for a value that tracks other fields, or " +
-			"`default_value` for a value fixed when the form opens, and leave " +
-			"the other out.",
-	});
 }
 
 /**
@@ -710,13 +737,34 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			plain_label: plainLabelField(),
 			...labelTextFields(),
 			...questionDisplayFields(),
+			answerType: hiddenAnswerTypeField(),
+			askForConfirmation: confirmationField(),
+			maxDimension: imageDimensionSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.maxDimension),
+			activity: connectActivitySchema.optional().describe(CONNECT_ACTIVITY_DOC),
 			hint: hintField(),
 			help: helpField(),
+			addFirstLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding the first entry in a repeating group.",
+				),
+			addLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding another entry in a repeating group. Also used for the first when no separate text is set.",
+				),
 			plain_help: plainHelpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
+			answerNamespace: namespaceField(),
+			lockedInHq: questionLockField(),
 			default_value: defaultValueField(),
 			optionsSource: optionsSourceField().nullable().optional(),
 			caseWrite: caseWriteField(),
@@ -725,6 +773,12 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 		})
 		.superRefine((item, ctx) => {
 			checkQuestionDisplay(item.kind, item, ctx);
+			if (item.kind === "connect_activity" && item.activity === undefined)
+				ctx.addIssue({
+					code: "custom",
+					path: ["activity"],
+					message: "Choose the Connect activity this part of the form records.",
+				});
 			for (const key of ADD_GATED_KEYS) {
 				if (item[key] != null && !fieldKindDeclaresKey(item.kind, key)) {
 					undeclaredSlotIssue(ctx, item.kind, key);
@@ -785,12 +839,6 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 				});
 			}
 			gateRepeatSlot(ctx, item.kind, item.repeat);
-			gateHiddenValueSources(
-				ctx,
-				item.kind,
-				item.calculate,
-				item.default_value,
-			);
 		});
 }
 
@@ -831,13 +879,34 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			plain_label: plainLabelField(),
 			...labelTextFields(),
 			...questionDisplayFields(),
+			answerType: hiddenAnswerTypeField(),
+			askForConfirmation: confirmationField(),
+			maxDimension: imageDimensionSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.maxDimension),
+			activity: connectActivitySchema.optional().describe(CONNECT_ACTIVITY_DOC),
 			hint: hintField(),
 			help: helpField(),
+			addFirstLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding the first entry in a repeating group.",
+				),
+			addLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding another entry in a repeating group. Also used for the first when no separate text is set.",
+				),
 			plain_help: plainHelpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
+			answerNamespace: namespaceField(),
+			lockedInHq: questionLockField(),
 			default_value: defaultValueField(),
 			field_list: fieldListField(),
 			// A select source is required state and cannot be cleared. Omission
@@ -868,12 +937,6 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				plainHelp: patch.plain_help !== undefined,
 			});
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
-			gateHiddenValueSources(
-				ctx,
-				patch.kind,
-				patch.calculate,
-				patch.default_value,
-			);
 		});
 }
 

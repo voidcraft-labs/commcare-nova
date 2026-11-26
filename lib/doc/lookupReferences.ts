@@ -487,6 +487,17 @@ function extractLookupOptionsSources(
 					read: source.labelColumnId,
 					location,
 				},
+				...(source.sortColumnId === undefined
+					? []
+					: [
+							{
+								carrierUuid: field.uuid,
+								subpath: ["sortColumnId"],
+								tableId: source.tableId,
+								read: source.sortColumnId,
+								location,
+							},
+						]),
 			);
 	}
 
