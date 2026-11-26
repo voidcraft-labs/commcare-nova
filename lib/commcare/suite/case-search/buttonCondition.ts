@@ -5,9 +5,14 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { effectivePostSubmit } from "@/lib/domain/postSubmit";
-import { moduleExpressionContexts } from "../../expressionContext";
+import {
+	moduleExpressionContexts,
+	requireExpressionContext,
+} from "../../expressionContext";
 import {
 	caseListSessionDatums,
+	entryDatumIdResolver,
+	entryDatumIds,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
 	formLinkProjectionContext,
@@ -16,6 +21,7 @@ import {
 	parentMenuDestinationFrameChildren,
 	previousFrameChildren,
 	projectAfterSubmit,
+	selectedCaseSessionDatum,
 } from "../../formLinkProjection";
 import { identityLookupWireNaming } from "../../lookup/naming";
 import {
@@ -28,6 +34,7 @@ import { InstanceSink } from "../../xpath/wire/instances";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { searchActionRelevant } from "../case-list/shortDetail";
+import { emitFormDisplayConditionForSuite } from "../displayConditions";
 import { moduleUsesInlineSearch } from "./inlineSearch";
 
 /**
@@ -49,11 +56,16 @@ import { moduleUsesInlineSearch } from "./inlineSearch";
  * Every entry whose datum shows the list (`detail-select` the menu's
  * `m{N}_case_short`) is counted: the case list's own entry
  * (`Module.caseListMenuItem`) by its datums, and each form's entry by its
- * datums and the frames its after-submit writes (the same projections the
- * compiler's `deriveEntryDefinition` renders, so a form returning to the list
+ * datums, its command's `relevant` (the form's display condition, which HQ
+ * collects for the entry whatever the app's version,
+ * `_relevancy_xpaths_by_command`) and the frames its after-submit writes (the
+ * same projections the compiler renders, so a form returning to the list
  * with its case declares the session there). An instance only a list column,
  * an assertion or a return frame brings onto the entry is not counted, so a
- * condition reading one is refused where HQ might still declare it. A table
+ * condition reading one is refused where HQ might still declare it: HQ
+ * collects a column's header and template but not its sort
+ * (`Detail.get_all_xpaths`), and Nova's detail emission declares the two
+ * together, so counting it would admit a condition HQ leaves undeclared. A table
  * is named by its own id (`identityLookupWireNaming`), so two reads of one
  * table meet at one id. A menu whose forms read the search has no Search
  * button, so nothing is read there.
@@ -109,10 +121,36 @@ function listEntryScopes(
 			if (!shows(datums)) continue;
 			const scope = datumIds(datums);
 			for (const id of stackIds(doc, ctx, moduleUuid, formUuid)) scope.add(id);
+			for (const id of relevantIds(doc, ctx, moduleUuid, formUuid))
+				scope.add(id);
 			scopes.push(scope);
 		}
 	}
 	return scopes;
+}
+
+/** The instances a form's display condition reads, printed as its command's
+ *  `relevant` (`compiler.ts`, `emitFormDisplayConditionForSuite`). */
+function relevantIds(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): readonly string[] {
+	const form = doc.forms[formUuid];
+	if (form?.displayCondition === undefined) return [];
+	const relevant = emitFormDisplayConditionForSuite(
+		form,
+		requireExpressionContext(
+			doc,
+			{ entity: "form", uuid: formUuid, slot: "form_display_condition" },
+			ctx.lookupNaming,
+		),
+		ctx.lookupNaming,
+		selectedCaseSessionDatum(doc, ctx, moduleUuid, formUuid)?.id,
+		entryDatumIdResolver(entryDatumIds(doc, ctx, moduleUuid, formUuid)),
+	);
+	return relevant === undefined ? [] : idsOf(relevant);
 }
 
 /** The instances a form entry's after-submit frames read, projected as the

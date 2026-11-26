@@ -153,11 +153,31 @@ describe("Search action condition admission", () => {
 			findings(caseFirst(condition, "app_home")).map((error) => error.code),
 		).toEqual([notOnTheList]);
 	});
+	// HQ collects a form command's `relevant`, the form's display condition,
+	// for its entry whatever the app's version
+	// (`post_process/instances.py::_get_all_xpaths_for_entry`), so a form
+	// shown on a condition that reads the worker declares the session there.
+	it("admits a session read where every form showing the list reads the session to be shown", () => {
+		const condition = eq(sessionContext("username"), literal("A"));
+		expect(
+			findings(
+				caseFirst(
+					condition,
+					"app_home",
+					eq(sessionContext("username"), literal("B")),
+				),
+			),
+		).toEqual([]);
+	});
 });
 
 /** A menu of patients whose one form follows a patient up, so it opens on its
  *  case list, beside the menu that registers them. */
-function caseFirst(condition: Expression, postSubmit: Form["postSubmit"]) {
+function caseFirst(
+	condition: Expression,
+	postSubmit: Form["postSubmit"],
+	displayCondition?: Expression,
+) {
 	const columns = (key: string) => ({
 		columns: [plainColumn(testUuid(key), "case_name", "Name")],
 		searchInputs: [],
@@ -195,6 +215,7 @@ function caseFirst(condition: Expression, postSubmit: Form["postSubmit"]) {
 						name: "Visit",
 						type: "followup",
 						postSubmit,
+						...(displayCondition !== undefined && { displayCondition }),
 						fields: [f({ kind: "text", id: "note", label: "Note" })],
 					},
 				],
