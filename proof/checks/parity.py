@@ -342,6 +342,58 @@ def _generated_lookup_heading(use, held):
                 yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
 
 
+def _generated_search_group_heading(use, held):
+    """The literal group row and its ordered members own this generated wording."""
+    if use.key != "schema:Application.translations" or use.at is None:
+        return
+    translations = use.at.value
+    langs, menus = use.at.owner.get("langs"), use.at.owner.get("modules")
+    if not isinstance(translations, dict) or not isinstance(langs, list) or not isinstance(menus, list):
+        return
+    entry = next((item for item in held.entries[use.key]
+                  if item.id == "application-and-settings/translations-generated-wording"), None)
+    if entry is None:
+        return
+    for module_index, menu in enumerate(menus):
+        if not isinstance(menu, dict) or menu.get("doc_type") not in {"Module", "AdvancedModule", "ShadowModule"}:
+            continue
+        config = menu.get("search_config")
+        rows = config.get("properties") if isinstance(config, dict) else None
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            continue
+        headings, members, names = {}, set(), set()
+        current = None
+        for index, row in enumerate(rows):
+            name = row.get("name")
+            if not isinstance(name, str) or not name or name in names:
+                break
+            names.add(name)
+            if row.get("is_group") is True:
+                current = f"group_header_{index}"
+                labels = row.get("label")
+                if (name != current or row.get("group_key") != current or not isinstance(labels, dict)
+                        or not any(isinstance(text, str) and text.strip() for text in labels.values())):
+                    break
+                headings[current] = labels
+            elif current is None or row.get("group_key") != current:
+                break
+            else:
+                members.add(current)
+        else:
+            for group_key, labels in headings.items():
+                if group_key not in members:
+                    continue
+                key = f"search_property.m{module_index}.{group_key}"
+                for code in langs:
+                    if not isinstance(code, str) or not isinstance(translations.get(code), dict):
+                        continue
+                    base, wording = labels.get(code), translations[code].get(key)
+                    if not isinstance(base, str) or not base.strip() or not isinstance(wording, str) or wording == base:
+                        continue
+                    if wording and wording.isascii() and wording.isprintable() and wording.strip() == wording and "\\" not in wording:
+                        yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
+
+
 def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     """Each use of ``found`` (``manifest_usage.Uses``) the lane decides, with its standing, and the count of the
     others by key."""
@@ -353,6 +405,7 @@ def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
         decided.extend(_generated_detail_tab_title(use, held))
         decided.extend(_generated_badge(use, held))
         decided.extend(_generated_lookup_heading(use, held))
+        decided.extend(_generated_search_group_heading(use, held))
         if decides(held, use, standing, entries):
             decided.append(Decided(use, standing, tuple(entries)))
             if standing == manifest_usage.HELD:

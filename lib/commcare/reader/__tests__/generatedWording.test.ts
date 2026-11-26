@@ -4,6 +4,7 @@
 import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
 import { expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
@@ -47,6 +48,7 @@ import {
 	imageMapColumn,
 	imageMapEntry,
 	plainColumn,
+	simpleSearchInputDef,
 } from "@/lib/domain/modules";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
@@ -120,6 +122,196 @@ it("keeps source and secondary wording on the exact generated output", async () 
 		[submit]: "Guardar visita",
 		[header]: "Age",
 	});
+});
+
+it("keeps Search group worker wording on the route’s group when menus and groups move", async () => {
+	const initial = twoMenus();
+	initial.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
+		translations: { spa: {} },
+	};
+	for (const owner of [ROUTE, SOURCE]) {
+		const list = initial.modules[owner].caseListConfig;
+		if (!list) throw Error("Missing case list");
+		const first = testUuid(`${owner}-first-group`);
+		const second = testUuid(`${owner}-second-group`);
+		list.searchInputGroups = [
+			{
+				uuid: first,
+				label: owner === ROUTE ? "Route details" : "Source details",
+			},
+			{ uuid: second, label: "Other details" },
+		];
+		list.searchInputs = [
+			{
+				...simpleSearchInputDef(
+					testUuid(`${owner}-name-input`),
+					"case_name",
+					"Name",
+					"text",
+					"case_name",
+				),
+				group: first,
+			},
+			{
+				...simpleSearchInputDef(
+					testUuid(`${owner}-id-input`),
+					"case_id",
+					"Case ID",
+					"text",
+					"case_id",
+				),
+				group: second,
+			},
+		];
+	}
+	const raw = exportedBody(initial);
+	const modules = raw.modules as ReturnType<typeof expandDoc>["modules"];
+	const heading = modules[0].search_config.properties[0];
+	heading.label = { en: "Route details", es: "Datos de la ruta" };
+	const key = "search_property.m0.group_header_0";
+	const translations = raw.translations as Record<
+		string,
+		Record<string, string>
+	>;
+	translations.en[key] = "Find a client";
+	const read = async (body: ReturnType<typeof exportedBody>) => {
+		const result = readHqApp(
+			await inputFor(body, {
+				appStrings: (doc) => localAppStringTable(doc, []),
+			}),
+			{ claims: "full" },
+		);
+		if (result.kind !== "read") throw Error(JSON.stringify(result.findings));
+		expect([...result.claims.records()]).toContainEqual(
+			expect.objectContaining({
+				entry: "application-and-settings/translations-generated-wording",
+				at: `/translations/en/${key}`,
+			}),
+		);
+		return result.draft.doc;
+	};
+	const respelt = structuredClone(raw);
+	const oldSearch = (respelt.modules as typeof modules)[0].search_config;
+	oldSearch.properties[0].name = "group_header_2";
+	oldSearch.properties[0].group_key = "group_header_2";
+	oldSearch.properties[1].group_key = "group_header_2";
+	oldSearch.properties[2].name = "legacy_heading";
+	oldSearch.properties[2].group_key = "legacy_heading";
+	oldSearch.properties[3].group_key = "legacy_heading";
+	(respelt.translations as typeof translations).en[
+		"search_property.m0.group_header_2"
+	] = "Legacy worker wording";
+	const legacy = readHqApp(
+		await inputFor(respelt, {
+			appStrings: (doc) => localAppStringTable(doc, []),
+		}),
+		{ claims: "full" },
+	);
+	if (legacy.kind !== "account")
+		throw Error("The legacy override should stop the read");
+	expect(legacy.findings).toContainEqual(
+		expect.objectContaining({
+			code: "application-and-settings/translations-generated-key-anything-else",
+		}),
+	);
+	expect([...legacy.claims.records()]).toContainEqual(
+		expect.objectContaining({
+			entry:
+				"application-and-settings/translations-generated-key-anything-else",
+			at: "/translations/en/search_property.m0.group_header_2",
+		}),
+	);
+	expect([...legacy.claims.records()]).not.toContainEqual(
+		expect.objectContaining({
+			entry: "application-and-settings/translations-generated-wording",
+			at: `/translations/en/${key}`,
+		}),
+	);
+
+	// A valid first group cannot rescue an unassigned prompt later in the
+	// same Search or let its generated key stand for a partially read panel.
+	const ungrouped = structuredClone(raw);
+	delete (ungrouped.modules as typeof modules)[0].search_config.properties[3]
+		.group_key;
+	const malformed = readHqApp(
+		await inputFor(ungrouped, {
+			appStrings: (doc) => localAppStringTable(doc, []),
+		}),
+		{ claims: "full" },
+	);
+	if (malformed.kind !== "account")
+		throw Error("The malformed layout should stop the read");
+	expect(malformed.findings).toContainEqual(
+		expect.objectContaining({
+			code: "case-search/groups-present-and-an-input-without-group-key",
+		}),
+	);
+	expect([...malformed.claims.records()]).not.toContainEqual(
+		expect.objectContaining({
+			entry: "application-and-settings/translations-generated-wording",
+			at: `/translations/en/${key}`,
+		}),
+	);
+
+	const adopted = await read(raw);
+	for (const doc of [adopted, await read(exportedBody(adopted))]) {
+		const [route, source] = doc.moduleOrder;
+		const wire = expandDoc(doc);
+		expect(wire.modules[0].search_config.properties[0].label).toEqual(
+			heading.label,
+		);
+		expect(wire.translations?.en[key]).toBe("Find a client");
+		expect(wire.translations?.es[key]).toBeUndefined();
+		const archive = new AdmZip(
+			compileCcz(wire, doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		const table = (locale: string) =>
+			readLocaleFileAsCore(archive.readAsText(`${locale}/app_strings.txt`));
+		expect(table("en").get(key)).toBe("Find a client");
+		expect(table("es").get(key)).toBe("Datos de la ruta");
+		expect(table("en").get("search_property.m1.group_header_0")).toBe(
+			"Source details",
+		);
+		const projected = (owner: typeof route, language: string) =>
+			projectWorkerModule(doc, language, owner)?.caseListConfig
+				?.searchInputGroups?.[0].label;
+		expect(projected(route, "eng")).toBe("Find a client");
+		expect(projected(route, "spa")).toBe("Datos de la ruta");
+		expect(projected(source, "eng")).toBe("Source details");
+	}
+	const [route, source] = adopted.moduleOrder;
+	const reordered = structuredClone(adopted);
+	reordered.moduleOrder = [source, route];
+	const list = reordered.modules[route].caseListConfig;
+	if (!list?.searchInputGroups) throw Error("The route lost its headings");
+	list.searchInputGroups.reverse();
+	list.searchInputs.reverse();
+	const changed = mutationCommitVerdict(
+		adopted,
+		diffDocsToMutations(adopted, reordered),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!changed.ok) throw Error(JSON.stringify(changed.findings));
+	expect(changed.nextDoc.moduleOrder).toEqual([source, route]);
+	expect(
+		changed.nextDoc.modules[route].caseListConfig?.searchInputs[0].group,
+	).toBe(
+		changed.nextDoc.modules[route].caseListConfig?.searchInputGroups?.[0].uuid,
+	);
+	const wire = expandDoc(changed.nextDoc);
+	expect(wire.translations?.en[key]).toBeUndefined();
+	expect(
+		wire.translations?.en["search_property.m1.group_header_0"],
+	).toBeUndefined();
+	expect(wire.translations?.en["search_property.m1.group_header_2"]).toBe(
+		"Find a client",
+	);
 });
 
 it("keeps a menu badge override separate from its ordinary badge in the editor and the worker", async () => {

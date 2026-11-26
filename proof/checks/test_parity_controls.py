@@ -534,6 +534,31 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
     assert _whats(found) == ["unclaimed"]
 
 
+def test_saved_search_group_heading_uses_only_a_valid_grouped_layout():
+    entry = "application-and-settings/translations-generated-wording"
+    key = "search_property.m0.group_header_0"
+    head = {"doc_type": "CaseSearchProperty", "is_group": True, "name": "group_header_0",
+            "group_key": "group_header_0", "label": {"en": "Search fields"}}
+    field = {"doc_type": "CaseSearchProperty", "name": "name", "group_key": "group_header_0",
+             "label": {"en": "Name"}}
+    outside = {"doc_type": "CaseSearchProperty", "name": "unassigned", "label": {"en": "Unassigned"}}
+    base = {"doc_type": "Application", "langs": ["en"], "translations": {}, "modules": [{
+        "doc_type": "Module", "case_type": "client", "search_config": {
+            "doc_type": "CaseSearch", "properties": [field],
+        },
+    }]}
+    variant = copy.deepcopy(base)
+    variant["translations"] = {"en": {key: "Find a client"}}
+    rows = variant["modules"][0]["search_config"]["properties"]
+    rows.insert(0, head)
+    uses, differences = parity.variant_differences(base, variant, "", [entry])
+    assert [(use.standing, use.at) for use in uses] == [(HELD, f"/translations/en/{key}")]
+    assert _whats(differences) == ["unclaimed"]
+    for malformed in ([head, field, outside], [head, outside, field], [field, head]):
+        rows[:] = malformed
+        assert parity.variant_differences(base, variant, "", [entry]) == ([], [])
+
+
 @pytest.mark.parametrize(
     "entry,variant_id,key,artifact,where,standing,member",
     [

@@ -24375,13 +24375,18 @@
 	{
 		"id": "hq-search/translation-overrides-a-search-group-heading",
 		"base": "hq-search",
-		"entry": "application-and-settings/translations-generated-key-anything-else",
-		"standing": "not-yet",
-		"place": { "kind": "app" },
+		"entry": "application-and-settings/translations-generated-wording",
 		"change": {
 			"op": "named",
 			"name": "translation_overrides_a_search_group_heading"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputGroups/0/label",
+				"value": "Local details"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/badge-future-form-answer",
