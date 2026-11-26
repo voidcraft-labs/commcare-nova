@@ -111,7 +111,8 @@ it("holds the count's surface claim through an HQ app reading", async () => {
 	const count = Object.values(doc.fields).find(
 		(field) => field.id === "lookup_count",
 	);
-	expect(count?.calculate).toEqual({
+	if (count?.kind !== "hidden") throw new Error("Missing hidden lookup count.");
+	expect(count.calculate).toEqual({
 		kind: "case-list-lookup-count",
 		module: doc.moduleOrder[0],
 	});
