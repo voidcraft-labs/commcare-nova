@@ -150,6 +150,13 @@ def open_member_with_parent_index(authoring, app_id):
 
 def open_visitor_with_hyphenated_index(authoring, app_id):
     """Use the distinct connection for a type whose menu has no existing child chain."""
+    from proof.matrix.bases.hq_advanced import _source
+
+    _pages.new_case_module(authoring, app_id, name="Visitors", case_type="visitor")
+    ops.upload_form_source(
+        authoring, app_id, 3, 0, _source(("visitor_name", "Visitor name", "string")), "visit-registration-source",
+    )
+    _pages.save_case_actions(authoring, app_id, 3, 0, name_path="/data/visitor_name")
     ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
         _open(
             "open_member_0", "visitor", "/data/notes",
