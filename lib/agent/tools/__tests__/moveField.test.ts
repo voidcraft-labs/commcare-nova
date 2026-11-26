@@ -36,7 +36,7 @@ import { moveFieldTool } from "../moveField";
  *
  *   alpha, bravo, charlie, grp[ golf_one, golf_two ]
  */
-function makeDoc(): BlueprintDoc {
+function makeDoc(withReceivingGroup = false): BlueprintDoc {
 	const doc = buildDoc({
 		modules: [
 			{
@@ -58,6 +58,16 @@ function makeDoc(): BlueprintDoc {
 									f({ id: "golf_two", kind: "text" }),
 								],
 							}),
+							...(withReceivingGroup
+								? [
+										f({
+											id: "receiving",
+											kind: "group",
+											label: "Receiving",
+											children: [f({ id: "hotel_one", kind: "text" })],
+										}),
+									]
+								: []),
 						],
 					},
 				],
@@ -355,71 +365,105 @@ describe("moveField — refusals", () => {
 });
 
 describe("where a question appears and where its answer is saved", () => {
-	it("moves its screen, then moves just its answer beside another submitted value", async () => {
-		const initial = makeDoc();
+	it("moves its screen between groups, then rejoins its answer to the question", async () => {
+		const initial = makeDoc(true);
 		const h = makeToolWorkspaceHarness(initial);
-		const alpha = uuidOf(initial, "alpha");
+		const golfOne = uuidOf(initial, "golf_one");
 		const form = formUuidOf(initial);
-		const group = uuidOf(initial, "grp");
-		const address = fieldAddress(initial, "alpha");
+		const receiving = uuidOf(initial, "receiving");
+		const address = fieldAddress(initial, "golf_one");
 		const screen = await h.runTool(moveFieldTool, {
 			...address,
 			where: "screen",
-			parentUuid: group,
+			beforeFieldUuid: uuidOf(initial, "hotel_one"),
 		});
 		if ("error" in screen.result) throw new Error(screen.result.error);
 		const shown = expectAdmittedDoc(h.currentDoc());
-		expect(shown.fieldOrder[group].at(-1)).toBe(alpha);
-		expect(referenceNames(shown).fieldPathSegments(alpha)).toEqual(["alpha"]);
+		expect(idsUnder(shown, receiving)).toEqual(["golf_one", "hotel_one"]);
+		expect(referenceNames(shown).fieldPathSegments(golfOne)).toEqual([
+			"grp",
+			"golf_one",
+		]);
 		const submitted = await h.runTool(moveFieldTool, {
 			...address,
 			where: "submission",
-			beforeFieldUuid: uuidOf(initial, "golf_two"),
+			parentUuid: receiving,
 		});
 		if ("error" in submitted.result) throw new Error(submitted.result.error);
 		const saved = expectAdmittedDoc(h.currentDoc());
-		expect(referenceNames(saved).fieldPathSegments(alpha)).toEqual([
-			"grp",
-			"alpha",
+		expect(referenceNames(saved).fieldPathSegments(golfOne)).toEqual([
+			"receiving",
+			"golf_one",
 		]);
-		expect(saved.fieldOrder[group].at(-1)).toBe(alpha);
+		expect(saved.fields[golfOne].submissionPlacement).toBeUndefined();
+		expect(idsUnder(saved, receiving)).toEqual(["golf_one", "hotel_one"]);
 		const layout = submissionLayout(form, saved.fields, saved.fieldOrder);
 		expect(
-			layout.children.get(group)?.map((uuid) => saved.fields[uuid].id),
-		).toEqual(["golf_one", "alpha", "golf_two"]);
+			layout.children.get(receiving)?.map((uuid) => saved.fields[uuid].id),
+		).toEqual(["golf_one", "hotel_one"]);
 	});
 
 	it("moves a question with its answer once another answer beside it was placed on its own", async () => {
-		const initial = makeDoc();
+		const initial = makeDoc(true);
 		const h = makeToolWorkspaceHarness(initial);
 		const form = formUuidOf(initial);
 		const group = uuidOf(initial, "grp");
+		const receiving = uuidOf(initial, "receiving");
 		const charlie = uuidOf(initial, "charlie");
 		const golfOne = uuidOf(initial, "golf_one");
 		const placed = await h.runTool(moveFieldTool, {
 			...fieldAddress(initial, "golf_one"),
 			where: "submission",
-			afterFieldUuid: uuidOf(initial, "bravo"),
+			parentUuid: receiving,
 		});
 		if ("error" in placed.result) throw new Error(placed.result.error);
-		// Placing golf_one's answer at the top level pins its new siblings'
-		// order too, though nobody separated charlie's answer from charlie.
+		expect(placed.result.afterFieldUuid).toBe(uuidOf(initial, "hotel_one"));
+		// The group's own answers come before answers placed there from elsewhere.
 		const moved = await h.runTool(moveFieldTool, {
 			...fieldAddress(initial, "charlie"),
-			parentUuid: group,
+			parentUuid: receiving,
 		});
 		if ("error" in moved.result) throw new Error(moved.result.error);
 		const saved = expectAdmittedDoc(h.currentDoc());
 		const names = referenceNames(saved);
-		expect(names.fieldPathSegments(charlie)).toEqual(["grp", "charlie"]);
-		// The answer placed on its own stays where its author put it.
-		expect(names.fieldPathSegments(golfOne)).toEqual(["golf_one"]);
+		expect(names.fieldPathSegments(charlie)).toEqual(["receiving", "charlie"]);
+		expect(names.fieldPathSegments(golfOne)).toEqual(["receiving", "golf_one"]);
+		expect(idsUnder(saved, group)).toEqual(["golf_one", "golf_two"]);
+		expect(idsUnder(saved, receiving)).toEqual(["hotel_one", "charlie"]);
 		const layout = submissionLayout(form, saved.fields, saved.fieldOrder);
 		expect(
 			layout.children.get(form)?.map((uuid) => saved.fields[uuid].id),
-		).toEqual(["alpha", "bravo", "golf_one", "grp"]);
+		).toEqual(["alpha", "bravo", "grp", "receiving"]);
 		expect(
 			layout.children.get(group)?.map((uuid) => saved.fields[uuid].id),
-		).toEqual(["golf_two", "charlie"]);
+		).toEqual(["golf_two"]);
+		expect(
+			layout.children.get(receiving)?.map((uuid) => saved.fields[uuid].id),
+		).toEqual(["hotel_one", "charlie", "golf_one"]);
+	});
+
+	it("refuses a submitted answer at the form root or with an explicit anchor", async () => {
+		const initial = makeDoc(true);
+		const h = makeToolWorkspaceHarness(initial);
+		const address = fieldAddress(initial, "golf_one");
+		const atRoot = await h.runTool(moveFieldTool, {
+			...address,
+			where: "submission",
+			parentUuid: null,
+		});
+		expect(atRoot.result).toMatchObject({
+			error: expect.stringContaining("can't save its answer at the top level"),
+		});
+		const anchored = await h.runTool(moveFieldTool, {
+			...address,
+			where: "submission",
+			parentUuid: uuidOf(initial, "receiving"),
+			beforeFieldUuid: uuidOf(initial, "hotel_one"),
+		});
+		expect(anchored.result).toMatchObject({
+			error: expect.stringContaining("Pass parentUuid alone"),
+		});
+		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(initial);
 	});
 });
