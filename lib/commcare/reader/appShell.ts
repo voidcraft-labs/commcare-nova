@@ -123,8 +123,6 @@ const ACCOUNTED: readonly AccountedKeys[] = [
 	["vellum-case-management", ["vellum_case_management"]],
 	["comment-app", ["comment"]],
 	["smart-lang-display", ["smart_lang_display"]],
-	["46-hq-use-grid-menus", ["use_grid_menus"]],
-	["47-hq-grid-form-menus-none-all-some", ["grid_form_menus"]],
 	["51-hq-persistent-menu", ["persistent_menu"]],
 	["52-hq-show-breadcrumbs", ["show_breadcrumbs"]],
 	["35-hq-practice-mobile-worker-id", ["practice_mobile_worker_id"]],
