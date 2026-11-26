@@ -20,11 +20,12 @@ def test_web_apps_keeps_ordinary_cases_and_omits_the_android_lookup(
                 *steps.choose("Visits"),
                 steps.SCREEN,
                 *steps.select_case("lookup-cedar"),
+                *steps.choose("Visit"),
                 steps.SCREEN,
             ])
     assert not run.page_errors, run.page_errors
     case_list, form = run.screens
-    evidence("android-lookup-ignored", case_list)
+    evidence("android-lookup-ignored", run.screens)
     assert "Find a visit" not in case_list["list"]["actions"]
     assert {row["id"] for row in case_list["list"]["rows"]} == {"row-lookup-cedar", "row-lookup-juniper"}
     assert form["form"]["questions"], form

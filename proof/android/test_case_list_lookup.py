@@ -92,6 +92,7 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
 
 def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, android_documents):
     from proof.android.test_form_reads import _served
+    from proof.observe.served import local_archive
 
     document = android_documents["targeted-case-list-device-lookup"]
     database = casedata.CaseDatabase(
@@ -108,16 +109,20 @@ def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, andro
     with _served(document, database=database) as (served, released):
         blobs = Blobs()
         assert document.local_ccz is not None
-        for label, archive in (("hq", released), ("local", document.local_ccz.read_bytes())):
+        local = local_archive(document.local_ccz, served.app_id)
+        for label, archive in (("hq", released), ("local", local)):
             answer = observe.app(served, blobs, label=label, archive=archive, case_lookup_returns=commands)
             installed = blobs.get_json(answer["answer"])
+            write_evidence(f"nova-case-list-lookup-{label}-walk", installed)
             assert installed["install"] == "Installed", installed
-            (results,) = [
+            observations = [
                 step["list"]["lookupReturns"]
                 for walk in installed["walks"].values()
                 for step in walk.get("steps", [])
                 if isinstance(step.get("list"), dict) and "lookupReturns" in step["list"]
             ]
+            assert len(observations) == 1, (label, blobs.get_json(answer["hq"]), installed["walks"].keys())
+            (results,) = observations
             assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], []]
             assert [result["searchText"] for result in results] == ["Cedar", "Juniper", "none-matches"]
             assert all(result["action"] == ACTION for result in results)
