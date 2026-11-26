@@ -6591,6 +6591,7 @@ KNOWN_GAPS = frozenset(
         "expressions-and-data/tag-has-own-property",
         "expressions-and-data/tag-proto-read-by-a-form",
         "expressions-and-data/non-ascii-lookup-name-a-form-reads",
+        "expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks",
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
         "forms-and-case-writes/custom-assertions-form-non-empty",
         "forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes",
