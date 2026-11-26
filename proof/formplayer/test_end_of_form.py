@@ -42,6 +42,8 @@ each on HQ's release of Nova's export:
 
 from __future__ import annotations
 
+from lxml import etree
+
 from proof.formplayer import apps
 from proof.formplayer.walk import screen_kind
 
@@ -234,9 +236,32 @@ def test_shared_forms_keep_their_route_and_the_links_respect_each_routes_conditi
     with apps.published(formplayer_documents["targeted-listed-forms"], core_runner) as published:
         with apps.served(published, formplayer_runner) as served:
             menus = {}
+            submitted = {}
+            home = None
             for menu, path in (("Visits", ["0"]), ("Clinic", ["1"])):
                 with served.run(menu):
-                    menus[menu] = _landing(apps.web(formplayer_runner, served).navigate(path))
+                    web = apps.web(formplayer_runner, served)
+                    home = _landing(web.navigate([]))
+                    screen = web.navigate(path)
+                    menus[menu] = _landing(screen)
+                    ordinal = next(
+                        index for index, command in enumerate(screen["commands"])
+                        if command["displayText"] == "Visit notes"
+                    )
+                    form = web.navigate([*path, str(ordinal)])
+                    assert _landing(form)["title"] == "Visit notes", form
+                    (note,) = [node for node in form["tree"] if node["type"] == "question"]
+                    posted = len(served.hq.submissions)
+                    result = web.submit(form["session_id"], {note["ix"]: f"Saved through {menu}"})
+                    assert result["status"] == "success", result
+                    (receipt,) = served.hq.submissions[posted:]
+                    instance = etree.fromstring(receipt.instance)
+                    namespace = etree.QName(instance).namespace
+                    assert instance.findtext(f"{{{namespace}}}note") == f"Saved through {menu}"
+                    submitted[menu] = {
+                        "namespace": namespace,
+                        "landing": _landing(result["nextScreen"]),
+                    }
             entered = {}
             for endpoint in ("visit", "clinic_visit", "private_notes", "clinic_private"):
                 with served.run(endpoint):
@@ -244,7 +269,10 @@ def test_shared_forms_keep_their_route_and_the_links_respect_each_routes_conditi
                         [], route="get_endpoint", endpoint_id=endpoint, endpoint_args={}
                     )
                     entered[endpoint] = _landing(opened)
-    evidence("listed-forms", {"menus": menus, "entries": entered})
+    evidence("listed-forms", {"menus": menus, "entries": entered, "submissions": submitted})
+    assert submitted["Clinic"]["namespace"] == submitted["Visits"]["namespace"]
+    assert home is not None and home["commands"] == ["Visits", "Clinic"]
+    assert {menu: answer["landing"] for menu, answer in submitted.items()} == dict.fromkeys(menus, home)
     assert menus["Visits"] == {
         "kind": "commands",
         "title": "Visits",

@@ -16,6 +16,7 @@ import pytest
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
     "media-language-files",
+    "case-list-action-advanced",
     "case-list-action-basic",
     "case-capture-multiple",
     "case-capture-repeat",

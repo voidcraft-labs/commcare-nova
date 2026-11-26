@@ -444,11 +444,12 @@ def test_an_app_made_in_hq_lands_where_novas_publish_lands_after_registering_fro
     assert shown(landed["hq"]) == shown(landed["nova"]), json.dumps(landed, indent=1)
 
 
+@pytest.mark.parametrize("entry", ["basic", "advanced"])
 def test_a_list_button_updates_the_selected_household_and_a_second_button_creates_the_member(
-    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence, entry
 ):
     case_ns = "{http://commcarehq.org/case/transaction/v2}"
-    with apps.published(formplayer_documents["case-list-action-basic"], core_runner) as published:
+    with apps.published(formplayer_documents[f"case-list-action-{entry}"], core_runner) as published:
         with apps.served(published, formplayer_runner) as served:
             records = {}
             for index, title in [("2", "Edit household"), ("1", "Register household and member")]:
