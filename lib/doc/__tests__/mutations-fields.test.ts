@@ -586,6 +586,55 @@ describe("field topology and identity", () => {
 			androidApp: { kind: "use-question", question: Q("meter") },
 		});
 	});
+
+	it("gives copied Android app questions an ID free both in the form and in their submission group", () => {
+		const androidApp = {
+			kind: "open-app" as const,
+			action: "org.example.MEASURE",
+			send: [],
+			receive: [],
+		};
+		const source = commit(fixture(), [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+			{
+				kind: "addField",
+				parentUuid: F,
+				field: {
+					uuid: Q("receiving"),
+					id: "receiving",
+					kind: "group",
+					label: proseText("Receiving"),
+				},
+			},
+			{
+				kind: "addField",
+				parentUuid: Q("group"),
+				field: { ...textField("meter"), androidApp },
+			},
+			{
+				kind: "addField",
+				parentUuid: F,
+				field: { ...textField("meter_2"), androidApp },
+			},
+			{
+				kind: "addField",
+				parentUuid: Q("receiving"),
+				field: textField("meter_2_2"),
+			},
+			{
+				kind: "moveField",
+				uuid: Q("meter"),
+				where: "submission",
+				toParentUuid: Q("receiving"),
+				after: null,
+			},
+		]);
+		const plan = duplicateFieldMutations(source, Q("meter"));
+		if (!plan)
+			throw new Error("Expected the Android app question to duplicate.");
+		const copied = commit(source, plan.mutations);
+		expect(copied.fields[plan.cloneUuid].id).toBe("meter_2_3");
+	});
 });
 describe("field content and patch admission", () => {
 	it("patches one slot while retaining untouched nested values by identity", () => {

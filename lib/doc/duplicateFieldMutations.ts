@@ -154,13 +154,20 @@ export function duplicateFieldMutations(
 			app.question = clonedId(app.question);
 			continue;
 		}
+		const submittedTo = field.submissionPlacement?.parent ?? into;
 		const taken = new Set(actionIds);
-		for (const sibling of doc.fieldOrder[into] ?? []) {
+		for (const sibling of [
+			...(doc.fieldOrder[into] ?? []),
+			...(layout.children.get(submittedTo) ?? []),
+		]) {
 			const existing = doc.fields[sibling];
 			if (existing) taken.add(existing.id);
 		}
 		for (const sibling of cloned) {
-			if (sibling.parentUuid === into && sibling.field !== field)
+			if (sibling.field === field) continue;
+			const siblingSubmission =
+				sibling.field.submissionPlacement?.parent ?? sibling.parentUuid;
+			if (sibling.parentUuid === into || siblingSubmission === submittedTo)
 				taken.add(sibling.field.id);
 		}
 		field.id = suffixUntilFree(field.id, taken);
