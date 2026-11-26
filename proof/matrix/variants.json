@@ -23530,6 +23530,24 @@
 		]
 	},
 	{
+		"id": "hq-media/video-inline-as-only-help",
+		"base": "hq-media",
+		"entry": "questions/video-inline-as-the-only-content-of-a-help-text",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Animals",
+			"formName": "Survey",
+			"path": "animal_name"
+		},
+		"change": {
+			"op": "named",
+			"name": "video_inline_as_only_help"
+		}
+	},
+	{
 		"id": "hq-media/media-key-outside-jr-file",
 		"base": "hq-media",
 		"entry": "expressions-and-data/multimedia-map-key-not-under-jr-file-that-the-build-keeps",
@@ -35097,6 +35115,22 @@
 					},
 					["members"]
 				],
+				"pointer": "/addLabel/parts/0/text",
+				"value": "Add a member"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/long-form-on-repeat-action-caption",
+		"base": "hq-questions",
+		"entry": "questions/long-form-on-a-repeat-action-caption",
+		"change": {
+			"op": "named",
+			"name": "long_form_on_repeat_action_caption"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["members"]],
 				"pointer": "/addLabel/parts/0/text",
 				"value": "Add a member"
 			}

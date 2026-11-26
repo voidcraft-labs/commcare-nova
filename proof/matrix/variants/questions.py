@@ -545,6 +545,18 @@ def repeat_add_caption(authoring, app_id):
     )
 
 
+def long_form_on_repeat_action_caption(authoring, app_id):
+    """The add caption's own default text remains visible beside an unused long form."""
+    caption = '<text id="members-add"><value>Add a member</value><value form="long">Add another participant</value></text>'
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-repeat-action-caption",
+        (MEMBERS_LABEL_VALUE, caption + MEMBERS_LABEL_VALUE, 1),
+        (MEMBER_NAME_OPEN, "<jr:addCaption ref=\"jr:itext('members-add')\"/>" + MEMBER_NAME_OPEN, 1),
+    )
+
+
 def repeat_caption_itext(authoring, app_id):
     """A remove caption on the repeat ``members`` that names the itext ``members-label``."""
     _change(
@@ -3712,6 +3724,17 @@ def video_inline_on_help(authoring, app_id):
         "help",
         '<value>Say what the animal is called</value><value form="video-inline">'
         "jr://file/commcare/video/data/animal_name.mp4</value>",
+    )
+
+
+def video_inline_as_only_help(authoring, app_id):
+    """An otherwise empty help element using the existing question video file."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-inline-as-only-help",
+        "help",
+        '<value/><value form="video-inline">jr://file/commcare/video/data/animal_name.mp4</value>',
     )
 
 
