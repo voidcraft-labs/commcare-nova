@@ -40,17 +40,21 @@ export function searchInputReservedName(
 	const service = projectSearchOf(mod);
 	if (service) {
 		const issues: ValidationError[] = [];
-		const issue = (message: string) =>
+		const issue = (reason: string, message: string, name?: string) =>
 			issues.push(
-				validationError("PROJECT_SEARCH_REQUEST", "module", message, {
-					moduleUuid,
-					moduleName: mod.name,
-				}),
+				validationError(
+					"PROJECT_SEARCH_REQUEST",
+					"module",
+					message,
+					{ moduleUuid, moduleName: mod.name },
+					name === undefined ? { reason } : { reason, name },
+				),
 			);
 		if (!doc.appSettings.projectSearches?.[service.searchUuid])
-			issue("Choose a search that belongs to this app.");
+			issue("missing-search", "Choose a search that belongs to this app.");
 		if (!inputs.length && !service.defaults.length)
 			issue(
+				"empty-request",
 				"Add a search question or a named value for the project space to use.",
 			);
 		const byName = new Map<string, number>();
@@ -58,7 +62,9 @@ export function searchInputReservedName(
 		for (const parameter of service.defaults) {
 			if (!isProjectSearchParameter(parameter.name))
 				issue(
+					"reserved-default",
 					`“${parameter.name}” controls the search request. Choose a parameter name supplied by the project space.`,
+					parameter.name,
 				);
 			add(parameter.name);
 		}
@@ -66,18 +72,24 @@ export function searchInputReservedName(
 		for (const field of inputs) {
 			if (field.kind !== "parameter" && field.kind !== "hidden") {
 				issue(
+					"unbound-field",
 					`Choose how the project space uses “${field.label}” before connecting this search.`,
+					field.label,
 				);
 				continue;
 			}
 			if (names.has(field.name))
 				issue(
+					"shared-name",
 					`The field “${field.name}” has the same name as a starting parameter. Give the field its own name.`,
+					field.name,
 				);
 			if (field.sendAnswer) {
 				if (!isProjectSearchParameter(field.name))
 					issue(
+						"reserved-field",
 						`“${field.name}” controls the search request. Choose a different field name.`,
+						field.name,
 					);
 				add(field.name);
 				if (
@@ -87,7 +99,9 @@ export function searchInputReservedName(
 						field.name === "commcare_blacklisted_owner_ids")
 				)
 					issue(
+						"single-answer",
 						`“${field.name}” takes one answer. Choose a single-answer field.`,
+						field.name,
 					);
 			}
 		}
@@ -96,7 +110,9 @@ export function searchInputReservedName(
 		for (const key of ["owner_id", "commcare_blacklisted_owner_ids"])
 			if ((byName.get(key) ?? 0) > 1)
 				issue(
+					"one-source",
 					`The project space accepts one value for “${key}”. Choose one place to supply it.`,
+					key,
 				);
 		return issues;
 	}
@@ -113,6 +129,7 @@ export function searchInputReservedName(
 				"module",
 				"Choose the search supplied by the project space before adding its parameters.",
 				{ moduleUuid, moduleName: mod.name },
+				{ reason: "missing-source" },
 			),
 		];
 	const errors: ValidationError[] = [];
