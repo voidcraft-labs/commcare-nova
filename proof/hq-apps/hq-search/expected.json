@@ -157,6 +157,7 @@
 		"search-value-guards",
 		"search-filter-rows-recut",
 		"search-order-direction-signs-respelled",
+		"search-order-unused-suffix-removed",
 		"web-apps-turned-on"
 	]
 }

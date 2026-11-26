@@ -1708,7 +1708,7 @@
 					},
 					{
 						"property": "commcare_sort",
-						"defaultValue": "'+name'",
+						"defaultValue": "'+name:exact:obsolete'",
 						"doc_type": "DefaultCaseSearchProperty"
 					},
 					{
@@ -2374,7 +2374,7 @@
 	"doc_type": "Application",
 	"recipients": "",
 	"copy_of": null,
-	"version": 24,
+	"version": 25,
 	"short_odk_url": null,
 	"short_odk_media_url": null,
 	"build_spec": {
@@ -2416,7 +2416,7 @@
 	"case_sharing": false,
 	"vellum_case_management": true,
 	"application_version": "2.0",
-	"last_modified": "2026-10-05T10:02:39.000000Z",
+	"last_modified": "2026-10-05T10:02:40.000000Z",
 	"build_profiles": {},
 	"practice_mobile_worker_id": null,
 	"target_commcare_flavor": "none",
@@ -2431,7 +2431,7 @@
 	"logo_refs": {},
 	"archived_media": {},
 	"_id": "d753ed80-c0a3-11f1-9c44-ddeded022512",
-	"_rev": "24-e5a20980-c0a3-11f1-b01e-d37c9079fe9e",
+	"_rev": "25-e63aa000-c0a3-11f1-bbc4-d1765110ea77",
 	"_attachments": {
 		"087d04be1b864d1f88e4af32bbe47e2a.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Followup Form</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/47ef966e-1d55-44db-86d1-4cda2c97b59c\" uiVersion=\"1\" version=\"3\" name=\"Followup Form\"><referral_note/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"referral_note-label\"><value>What help did the client receive?</value></text></translation></itext><bind nodeset=\"/data/referral_note\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/referral_note\"><label ref=\"jr:itext('referral_note-label')\"/></input></h:body></h:html>",
 		"503e8c55fbba4f4094a53645d381f3a4.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n  <h:head>\n    <h:title>Registration Form</h:title>\n    <model>\n      <instance>\n        <data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/678B2CF9-55A2-4871-B64B-0F3B6CEE8AB4\" uiVersion=\"1\" version=\"1\" name=\"Registration Form\">\n        </data>\n      </instance>\n    </model>\n  </h:head>\n  <h:body>\n  </h:body>\n</h:html>\n",
