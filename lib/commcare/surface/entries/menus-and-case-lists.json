@@ -3372,10 +3372,9 @@
 			"schema:Detail.auto_select"
 		],
 		"valueClass": "on-a-multi-select-basic-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.selection.autoSelect`",
-		"subject": "auto-select",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.selection.autoSelect` holds the automatic choice of every eligible case up to the configured maximum",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",
@@ -3390,7 +3389,7 @@
 			"cell": "`auto_select: true`",
 			"markers": []
 		},
-		"gates": []
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
 		"id": "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
@@ -8958,11 +8957,49 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/lookup-with-text-extras",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Enabled Android lookup that searches with a returned text value",
+		"surfaceKeys": [
+			"parser:CalloutParser/lookup",
+			"parser:CalloutParser/lookup@action",
+			"parser:DetailParser/lookup",
+			"schema:Detail.lookup_action",
+			"schema:Detail.lookup_enabled",
+			"schema:Detail.lookup_image",
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template"
+		],
+		"valueClass": "enabled-android-lookup-with-text-extras",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: opens a companion Android app to search the case list by its returned text",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (no button) / RUNS",
+			"webApps": {
+				"reading": "ignored",
+				"note": "no button"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`caseListConfig.deviceLookup` writes the enabled action in both carriers. This class has no active result column or custom action image.",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-enabled-lookup-action",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "`lookup_enabled` + `lookup_action`",
+		"item": "Enabled Android lookup outside the fixed text setting",
 		"surfaceKeys": [
 			"parser:CalloutParser/lookup",
 			"parser:CalloutParser/lookup@action",
@@ -8970,9 +9007,9 @@
 			"schema:Detail.lookup_action",
 			"schema:Detail.lookup_enabled"
 		],
-		"valueClass": "enabled-on-a-plain-or-custom-case-list",
+		"valueClass": "enabled-on-a-plain-or-custom-case-list-outside-fixed-text-setting",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.callout {action}`",
+		"dispositionCell": "**HELD-NEW**: enabled lookup with an unsupported argument, action image or result column",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -9002,11 +9039,9 @@
 			"parser:CalloutParser/lookup@name",
 			"schema:Detail.lookup_name"
 		],
-		"valueClass": "on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.name`",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"valueClass": "nonempty-button-label-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android lookup has a required label in the current Case List editor",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -9018,10 +9053,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`lookup_name`",
+			"cell": "`deviceLookup.label` → `lookup_name`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/lookup-image-jr",
@@ -9064,11 +9100,9 @@
 			"parser:CalloutParser/lookup@auto_launch",
 			"schema:Detail.lookup_autolaunch"
 		],
-		"valueClass": "on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.autoLaunch`",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"valueClass": "automatic-launch-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android lookup can open automatically when its case list first appears",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -9080,26 +9114,59 @@
 			}
 		},
 		"emission": {
-			"cell": "`lookup_autolaunch`",
+			"cell": "`deviceLookup.automatic` → `lookup_autolaunch`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
-		"id": "menus-and-case-lists/lookup-extras-key-value",
+		"id": "menus-and-case-lists/lookup-extras-fixed-text",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "`lookup_extras[] {key, value}`",
+		"item": "Nonempty named fixed-text lookup extras",
 		"surfaceKeys": [
 			"parser:CalloutParser/extra",
 			"parser:CalloutParser/extra@key",
 			"parser:CalloutParser/extra@value",
 			"schema:Detail.lookup_extras"
 		],
-		"valueClass": "at-least-one-on-the-case-list",
+		"valueClass": "named-literal-text-extras-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android companion receives each named literal as text",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`deviceLookup.extras` → `lookup_extras` with literal XPath text",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/lookup-extras-key-value",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "`lookup_extras[] {key, value}` with expressions beyond fixed text",
+		"surfaceKeys": [
+			"parser:CalloutParser/extra",
+			"parser:CalloutParser/extra@key",
+			"parser:CalloutParser/extra@value",
+			"schema:Detail.lookup_extras"
+		],
+		"valueClass": "nonliteral-extra-on-the-case-list",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.extras`",
+		"dispositionCell": "**HELD-NEW**: typed lookup extras beyond fixed text",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -9129,11 +9196,9 @@
 			"parser:CalloutParser/response@key",
 			"schema:Detail.lookup_responses"
 		],
-		"valueClass": "at-least-one-on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.responses`",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"valueClass": "ordered-unique-response-keys-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the lookup checks the configured responses in order when the primary marker has no value",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -9145,10 +9210,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`lookup_responses`",
+			"cell": "`deviceLookup.responses` → `lookup_responses`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/callout-with-no-extras-or-no-responses",
@@ -9495,6 +9561,7 @@
 			"schema:Module.parent_select",
 			"schema:ParentSelect",
 			"schema:ParentSelect.active",
+			"schema:ParentSelect.module_id",
 			"schema:ShadowModule.parent_select"
 		],
 		"valueClass": "inactive",
@@ -9922,6 +9989,7 @@
 		"section": "Case selection extras",
 		"item": "`case_list_form.label`, `post_form_workflow`, `media_image`, `media_audio` or `relevancy_expression` beside a blank `form_id`",
 		"surfaceKeys": [
+			"schema:CaseListForm.form_id",
 			"schema:CaseListForm.label",
 			"schema:CaseListForm.media_audio",
 			"schema:CaseListForm.media_image",

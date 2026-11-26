@@ -414,7 +414,7 @@ export const FIELD_REFERENCE_SLOTS = [
 				slot,
 				path: slot,
 				kind: "prose",
-				appliesTo: LABEL_TEXT_KINDS,
+				appliesTo: slot === "extended_text" ? LABELED_KINDS : LABEL_TEXT_KINDS,
 			}) as const,
 	),
 	{
@@ -438,6 +438,16 @@ export const FIELD_REFERENCE_SLOTS = [
 		kind: "prose",
 		appliesTo: INPUT_KINDS,
 	},
+	...(["extended_hint", "extended_help", "extended_validate_msg"] as const).map(
+		(slot) =>
+			({
+				entity: "field",
+				slot,
+				path: slot,
+				kind: "prose",
+				appliesTo: INPUT_KINDS,
+			}) as const,
+	),
 	{
 		entity: "field",
 		slot: "addFirstLabel",
@@ -456,6 +466,13 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "option_label",
 		path: "optionsSource.options[].label",
+		kind: "prose",
+		appliesTo: SELECT_KINDS,
+	},
+	{
+		entity: "field",
+		slot: "option_extended_text",
+		path: "optionsSource.options[].extended_text",
 		kind: "prose",
 		appliesTo: SELECT_KINDS,
 	},
@@ -681,6 +698,20 @@ export const FORM_REFERENCE_SLOTS = [
 		slot: "case_operation_owner_condition",
 		path: "caseOperations[].ownerCondition",
 		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_type_condition",
+		path: "caseOperations[].typeChoice.condition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_alternate_type",
+		path: "caseOperations[].typeChoice.otherwise",
+		kind: "case-type-ref",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -1498,6 +1529,7 @@ function expressionRefForEntry(
 		case "case_operation_close_condition":
 		case "case_operation_name":
 		case "case_operation_owner":
+		case "case_operation_type_condition":
 		case "case_operation_owner_condition":
 		case "case_operation_rename": {
 			const operation = form.caseOperations?.[indices[0] ?? -1];
@@ -1667,7 +1699,8 @@ function proseRefForEntry(
 	slot: FieldProseSlotId,
 	indices: readonly number[],
 ): ProseSlotRef | undefined {
-	if (slot !== "option_label") return { entity: "field", uuid, slot };
+	if (slot !== "option_label" && slot !== "option_extended_text")
+		return { entity: "field", uuid, slot };
 	const options = (
 		field as { optionsSource?: { options?: readonly { uuid?: Uuid }[] } }
 	).optionsSource?.options;
@@ -1752,11 +1785,11 @@ export function translatedFieldProse(
 			const ref = proseRefForEntry(field, field.uuid, entry.slot, indices);
 			if (source === undefined || ref === undefined) continue;
 			const unitId =
-				ref.slot === "option_label"
+				"member" in ref
 					? makeTranslationUnitId(
 							"field",
 							field.uuid,
-							"option",
+							ref.slot === "option_label" ? "option" : "option_extended_text",
 							ref.member.optionUuid,
 						)
 					: makeTranslationUnitId("field", field.uuid, ref.slot);
@@ -2309,6 +2342,12 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].nameOnlyIfChanged": "config",
 	"caseOperations[].renameOnlyIfChanged": "config",
 	"caseOperations[].ownerOnlyIfChanged": "config",
+	// Imported case-type calculations contain literal pieces only.
+	// The checked caseType above supplies the case catalog reference.
+	"caseOperations[].typeCalculation.kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].term.kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].term.value": "config",
 	// A held placement names the slot or the block CommCare HQ keeps the
 	// change in: closed enums, an index, and the element names of a Save to
 	// Case block's path in the form's source.
@@ -2387,6 +2426,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.detailColumnOrder[]": "identity",
 	"caseListConfig.selection.kind": "discriminator",
 	"caseListConfig.selection.maximum": "config",
+	"caseListConfig.selection.autoSelect": "config",
 	"caseListConfig.emptyText": "display-text",
 	"caseListConfig.selectButtonText": "display-text",
 	"caseListConfig.optimizations": "config",

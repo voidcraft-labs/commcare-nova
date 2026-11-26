@@ -5,6 +5,7 @@ import {
 	caseChoiceDoc,
 	caseChoiceInput,
 	caseChoiceSnapshot,
+	choiceRow,
 	choiceUuid,
 	memberId,
 } from "@/lib/__tests__/caseChoiceFixture";
@@ -20,7 +21,10 @@ import {
 	prop,
 	tableColumn,
 	tableLookup,
+	term,
+	typeOf,
 } from "@/lib/domain/expression";
+import { slotContext } from "@/lib/domain/expression/context";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
@@ -58,6 +62,96 @@ function workerFor(engine: FormEngine) {
 }
 
 describe("case choices in the captured device world", () => {
+	it.each([false, true])(
+		"offers the full authorized snapshot without treating those IDs as a named type (worker=%s)",
+		async (stagedAsync) => {
+			const form = choiceUuid("all-visible");
+			const question = choiceUuid("all-cases-question");
+			const copy = choiceUuid("copy-unrefined-id");
+			const doc = assertAdmittedPreviewDoc(
+				buildDoc({
+					modules: [
+						{
+							name: "Directory",
+							forms: [
+								{
+									uuid: form,
+									name: "Choose a case",
+									type: "survey",
+									fields: [
+										f({
+											uuid: question,
+											kind: "single_select",
+											id: "case_choice",
+											label: "Case",
+											optionsSource: { kind: "available-cases" },
+										}),
+										f({
+											uuid: copy,
+											kind: "hidden",
+											id: "id_copy",
+											calculate: term(formField(question)),
+										}),
+									],
+								},
+							],
+						},
+					],
+				}),
+			);
+			const rows = [
+				choiceRow("old service key", "former", "Former service"),
+				{
+					...choiceRow("closed-host-key", "former", "Closed host"),
+					status: "closed" as const,
+				},
+				choiceRow("worker-profile-key", "commcare-user", "Worker profile"),
+			];
+			const context = slotContext(
+				doc,
+				{ entity: "field", uuid: copy, slot: "calculate" },
+				new Map(),
+			);
+			if (context === undefined)
+				throw new Error("Expected the calculated field context.");
+			expect(
+				typeOf(term(formField(question)), context)?.caseIdOf,
+			).toBeUndefined();
+			expect(caseDatabaseRequirements(doc).required).toBe(true);
+			const engine = new FormEngine(
+				caseChoiceInput(doc, form),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ rows, indices: [] },
+				{ stagedAsync },
+			);
+			const { runtime, evaluateAsync } = workerFor(engine);
+			try {
+				if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+				expect(engine.getState("/data/case_choice").choices).toEqual(
+					rows.map((row) => ({
+						key: row.case_id,
+						value: row.case_id,
+						label: row.case_name,
+					})),
+				);
+				if (stagedAsync)
+					await engine.setValueAsync(
+						"/data/case_choice",
+						rows[0].case_id,
+						evaluateAsync,
+					);
+				else engine.setValue("/data/case_choice", rows[0].case_id);
+				expect(engine.getState("/data/case_choice").value).toBe(
+					"old service key",
+				);
+			} finally {
+				runtime.dispose();
+			}
+		},
+	);
 	it.each([false, true])(
 		"keeps a stable 30-member roster across back navigation and collects final membership (worker=%s)",
 		async (stagedAsync) => {

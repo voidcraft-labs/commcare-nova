@@ -555,7 +555,7 @@ function compiler(bindings: QueryBindings) {
 		}
 		if (name === "position") {
 			arity(name, args);
-			return { kind: "call", fn: name, args: [] };
+			return { kind: "call", fn: name, args: args.map(value) };
 		}
 		if (name === "project-today") {
 			arity(name, args);

@@ -242,7 +242,7 @@ function summarizeCaseList(mod: Module): string | undefined {
 		lines.push("      Details layout: tile in Web Apps, rows on Android");
 	if (config.selection !== undefined) {
 		lines.push(
-			`      selection: workers choose up to ${config.selection.maximum} ${config.selection.maximum === 1 ? "case" : "cases"} before continuing`,
+			`      selection: ${config.selection.autoSelect ? "automatically chooses up to" : "workers choose up to"} ${config.selection.maximum} ${config.selection.maximum === 1 ? "case" : "cases"} before continuing`,
 		);
 	}
 	if (config.tile !== undefined) {

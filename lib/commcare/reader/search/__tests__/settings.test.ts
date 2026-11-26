@@ -22,6 +22,7 @@ import {
 	today,
 } from "@/lib/domain/expression/builders";
 import { NO_SEARCH_SCREEN_TITLE, plainColumn } from "@/lib/domain/modules";
+import { searchEmissionFixture } from "../../../__tests__/searchEmissionFixture";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	type AppJson,
@@ -47,6 +48,40 @@ function doc(search: object = {}) {
 		search,
 	});
 }
+
+it("reconciles renamed and moved HQ heading rows through their fields", async () => {
+	const fixture = searchEmissionFixture("grouped-prompts");
+	const first = await readLists(fixture);
+	expect(closedCodes(first)).toEqual([]);
+	const prior = listOf(first);
+	const edited = await readLists(fixture, {
+		edit: (app) => {
+			const search = app.modules[0]?.search_config;
+			const rows = search?.properties;
+			if (!search || !Array.isArray(rows) || rows.length !== 4)
+				throw new Error("The fixture needs two Search headings");
+			const moved = [...rows.slice(2), ...rows.slice(0, 2)];
+			search.properties = moved.map((row, index) => {
+				const group_key = index < 2 ? "group_header_0" : "group_header_2";
+				return {
+					...row,
+					group_key,
+					...(index % 2 === 0 && { name: group_key }),
+				};
+			});
+		},
+	});
+	expect(closedCodes(edited)).toEqual([]);
+	const current = listOf(edited);
+	expect(current.searchInputGroups).toEqual(
+		[...(prior.searchInputGroups ?? [])].reverse(),
+	);
+	expect(
+		current.searchInputs.map((input) => [input.name, input.group]),
+	).toEqual(
+		[...prior.searchInputs].reverse().map((input) => [input.name, input.group]),
+	);
+});
 
 describe("a search's settings", () => {
 	it("reads a title with text, and a subtitle", async () => {

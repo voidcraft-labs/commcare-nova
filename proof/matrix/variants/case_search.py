@@ -374,20 +374,38 @@ def inline_search_on_display_only_menu(authoring, app_id):
     _set_each(authoring, app_id, ("/modules/0/search_config/inline_search", True))
 
 
-# Search fields ------------------------------------------------------------------------------------------------------
-
-
-def fields_grouped(authoring, app_id):
-    """Clients' six Search fields put in one group of its search screen, the group's own entry last."""
+def related_record_id_sent_twice(authoring, app_id):
+    """Set both spellings of the one key, producing a single invalid Search request."""
     _set_each(
         authoring,
         app_id,
         (
-            "/modules/0/search_config/properties/-",
-            {**_field("g", "Group"), "is_group": True, "group_key": "g"},
+            "/modules/1/search_config/default_properties/-",
+            {
+                "property": "x_commcare_custom_related_case_property",
+                "doc_type": "DefaultCaseSearchProperty",
+                "defaultValue": "'parent/name'",
+            },
         ),
-        *((f"/modules/0/search_config/properties/{index}/group_key", "g") for index in range(6)),
+        ("/modules/1/search_config/custom_related_case_property", "name"),
     )
+
+
+# Search fields ------------------------------------------------------------------------------------------------------
+
+
+def fields_with_ungrouped_prompt(authoring, app_id):
+    """Keep a real group's header and fields, then place a field outside it."""
+    from proof.hq import operations
+
+    module = operations.held_app(authoring.state, app_id).get_module(0)
+    key = "group_header_0"
+    rows = [
+        {**_field(key, "Group"), "is_group": True, "group_key": key},
+        *({**field.to_json(), "group_key": key} for field in module.search_config.properties),
+        _field("region", "Region"),
+    ]
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
 
 
 # Registration after an empty search ---------------------------------------------------------------------------------

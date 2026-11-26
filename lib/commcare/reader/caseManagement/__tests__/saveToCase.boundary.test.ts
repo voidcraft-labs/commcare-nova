@@ -135,18 +135,18 @@ describe("a Save to Case block outside the shape Nova writes", () => {
 		["moved to the form root", []],
 		["moved into an authored group", ["details"]],
 	] as const)
-		it(`is the one finding at its place, ${where}, and no operation`, async () => {
-			const reading = await readCases(app(), { editSource: moved(to) });
+		it(`refuses a create whose guard did not move with it, ${where}`, async () => {
+			const reading = readHqApp(
+				await inputFor(exportedBody(app(), { xml: moved(to) })),
+			);
+			expect(reading.kind).toBe("account");
+			if (reading.kind !== "account") return;
 			const outside = reading.findings.filter((one) => one.code === OUTSIDE);
 			expect(outside).toHaveLength(1);
 			expect(outside[0]?.place).toMatchObject({
 				kind: "question",
 				path: [...to, "photo"].join("/"),
 			});
-			const operations = reading.forms.flatMap(
-				(form) => form.form.caseOperations ?? [],
-			);
-			expect(operations.filter((one) => one.action === "create")).toEqual([]);
 		});
 });
 

@@ -2745,8 +2745,8 @@ workbook under its tag (a live mapping of any of its apps, or a takeover
 from there: `store.ts::readWorkbookLookupTags`) stays in the workbook, whose
 findings name what it cannot carry (`carriedBy: "workbook-there"`). The HQ
 app file cannot carry such a table and says so
-(`describeLookupCarrierAlternative`, `carriedBy: "file"`); a table held in a
-paged generation does not travel this way yet on either (`"too-large"`).
+(`describeLookupCarrierAlternative`). Direct publish reads eligible paged tables
+under the same authority and ledger.
 A reading of that project space judges a Project table there by the carrier
 that keeps it there: a sibling mapping that is the table's JSON destination
 (`store.ts::readSiblingLookupMappings`, `jsonDestination`) is held to the JSON
@@ -2806,6 +2806,19 @@ superseded and named as left behind). After
 the writes the whole table is read back and held to the ledger in Nova's
 order. Each table found there gets a `nova-created` mapping, recorded
 `partial` and retained by the resources phase's complete record.
+
+Direct publish can use the JSON carrier when a complete paged global table
+with known unindexed columns needs a value or shape the workbook cannot
+preserve. It can continue a prior JSON destination over the same row IDs.
+A revision-bound paged reader reassembles the exact external leaves and
+validates UTF-8 and the encoded request bodies before any writes. Preparation
+stages at most 10,000 rows and 16 MiB of JSON body bytes across these paged
+tables for that publish. The executor returns a checkpoint only between
+settled operations, after up to 200 writes or the wall-clock budget. An
+unfinished checkpoint retains the mapping and prevents sending app content.
+Publishing again reads the same destination ledger, rechecks the intended
+source and remote facts, and sends only outstanding work. The HQ app file
+has workbook carriers and instructions to prepare its destination.
 
 ### Lookup workbooks, media receipts and device downloads
 

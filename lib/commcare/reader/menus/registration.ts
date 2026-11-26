@@ -1022,9 +1022,10 @@ function gateFindings(
 					error.code === "CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT",
 			)
 		) {
-			ctx.accounting.finding(
+			ctx.accounting.findingAt(
 				REGISTRATION.missingCreatedResult[block.host.docType],
 				caseListPlaceOf(block.host),
+				`${block.host.json.pointer}/case_list_form`,
 			);
 			continue;
 		}

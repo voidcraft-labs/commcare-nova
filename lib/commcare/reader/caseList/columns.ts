@@ -88,6 +88,7 @@ import {
 	ATTRIBUTE_PROPERTIES,
 	calculatedAttributeField,
 } from "./attributeColumns";
+import { literalText } from "./literalText";
 import { claimRestOfRefusedColumn } from "./refusedWhole";
 
 const A = "menus-and-case-lists/";
@@ -2498,20 +2499,6 @@ function selectedValue(key: string, property: string): string | undefined {
 	)
 		? value
 		: undefined;
-}
-
-/** The text a string literal spells, or a `concat` of string literals, which is how a literal
- *  holding both quote marks is printed. */
-function literalText(node: FormSyntax | undefined): string | undefined {
-	if (node?.kind === "string") return node.value;
-	if (node?.kind !== "call" || node.name !== "concat") return undefined;
-	let out = "";
-	for (const arg of node.args) {
-		const part = literalText(arg);
-		if (part === undefined) return undefined;
-		out += part;
-	}
-	return out;
 }
 
 function readImageMap(

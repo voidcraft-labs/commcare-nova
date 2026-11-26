@@ -35,6 +35,7 @@ import {
 	automationUserDataFilterSchema,
 	type Column,
 	calculatedSortSchema,
+	caseListDeviceLookupSchema,
 	caseListMenuItemSchema,
 	caseListWordingSchema,
 	caseOperationSchema,
@@ -72,6 +73,7 @@ import {
 	type SearchInputDef,
 	searchFilterSchema,
 	searchInputDefSchema,
+	searchInputGroupSchema,
 	searchOrderFilterSchema,
 	searchValueFilterSchema,
 	selectOptionSchema,
@@ -1859,6 +1861,19 @@ function createMutationSchema({
 				filter: mutationConditionSchema.nullable().optional(),
 				listCondition: mutationConditionSchema.nullable().optional(),
 				searchCondition: mutationConditionSchema.nullable().optional(),
+				searchInputGroups: z
+					.array(searchInputGroupSchema)
+					.min(1)
+					.nullable()
+					.optional(),
+				searchGroupAssignments: z
+					.array(
+						z.strictObject({
+							input: uuidSchema,
+							group: uuidSchema.nullable(),
+						}),
+					)
+					.optional(),
 				additionalCaseTypes: otherRecordTypesSchema.nullable().optional(),
 				searchFilterEdit: z
 					.discriminatedUnion("operation", [
@@ -1903,6 +1918,7 @@ function createMutationSchema({
 				emptyText: caseListWordingSchema.nullable().optional(),
 				selectButtonText: caseListWordingSchema.nullable().optional(),
 				optimizations: z.literal(true).nullable().optional(),
+				deviceLookup: caseListDeviceLookupSchema.nullable().optional(),
 			}),
 		}),
 		// The module's case list as its own menu entry, set whole as

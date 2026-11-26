@@ -17,6 +17,7 @@ export type AuthorableIdentityFamily =
 	| "project-search"
 	| "project-search-parameter"
 	| "search-input"
+	| "search-input-group"
 	| "worker-property"
 	| "user-type"
 	| "persona"
@@ -348,6 +349,8 @@ export function classifyIdentity(
 	)
 		return "case-list-sort";
 	if (property === "tabUuid") return "case-detail-tab";
+	if (tool === "configure_case_list" && property === "groupUuid")
+		return "search-input-group";
 	if (property === "orderFields" && tool === "set_case_detail_tabs")
 		return "case-list-column";
 	if (property === "userPropertyUuid" || property === "workerPropertyUuid")

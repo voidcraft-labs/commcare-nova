@@ -681,6 +681,10 @@ function verdictLacks(
 	const lacking = minimum.flags
 		.filter((flag) => !configuration.flags.includes(flag))
 		.sort();
+	for (const alternatives of minimum.flagsAny ?? []) {
+		if (!alternatives.some((flag) => configuration.flags.includes(flag)))
+			lacking.push(alternatives.join(" or "));
+	}
 	if (minimum.caseSearchEnabled && !configuration.caseSearchEnabled) {
 		lacking.push("case search");
 	}
@@ -1549,6 +1553,16 @@ export async function writeEntry(
 			),
 		);
 		await writeJson(join(editRoot, "verdict.json"), verdictJson(editVerdict));
+		if (authored?.editedImportFile) {
+			await writeFile(
+				join(editRoot, "import-file.zip"),
+				await importFile(
+					edit.publish,
+					PROOF_DOMAIN,
+					targetIdentity.projectSearches ?? [],
+				),
+			);
+		}
 		for (const [name] of named) {
 			const capture = captures.get(name);
 			const update =

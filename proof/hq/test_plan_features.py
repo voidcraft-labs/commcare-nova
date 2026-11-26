@@ -75,6 +75,7 @@ NOVA_LABELS = {
     "geocoder": "Geocoder",
     "build_profiles": "Build Profiles",
     "practice_mobile_workers": "Practice mode for mobile workers",
+    "custom_icon_badges": "Add text or xpath based custom icon badges to menus and forms",
 }
 
 

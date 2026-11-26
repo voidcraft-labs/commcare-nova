@@ -1802,6 +1802,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	help: PROSE,
 	validate_msg: PROSE,
 	extended_text: PROSE,
+	extended_hint: PROSE,
+	extended_help: PROSE,
+	extended_validate_msg: PROSE,
+	option_extended_text: PROSE,
 	qr_code: PROSE,
 	spoken_text: PROSE,
 	addFirstLabel: PROSE,
@@ -1855,6 +1859,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	),
 	case_operation_owner: fixed(
 		C["savetocase-owner"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
+	case_operation_type_condition: fixed(
+		C["savetocase-create-case-type-literal-case-name-owner-id-uuid-case"].entry,
 		SAVE_TO_CASE_REFUSED,
 	),
 	case_operation_owner_condition: {

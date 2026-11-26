@@ -879,3 +879,27 @@ def test_android_replaces_a_saved_case_choice_after_its_row_stops_matching(andro
     assert opening["control"]["choices"] == [{"value": "new-clinic", "label": "Replacement clinic", "index": 0}]
     (submitted,) = sent
     assert _child(etree.fromstring(submitted), "clinic").text == "new-clinic"
+
+
+
+def test_android_unfiltered_case_itemset_lists_the_workers_mixed_restore(android_documents, hq):
+    from proof.android import observe
+    from proof.formplayer import apps
+    from proof.observe import visible_case_choice as visible
+
+    with apps.published(android_documents[visible.DOCUMENT], None) as published:
+        with apps.served(published, None, database=visible.database(),
+                         change=visible.release_unfiltered(published)) as served:
+            answer, sent = _app(
+                served, observe.release_archive(served), "all-visible-cases", commands=[FORM],
+                controls=True, questions={"/data/clinic": ["1"]},
+            )
+    form = _completed_walk(answer, FORM)
+    (question,) = [
+        question for screen in form["screens"] for question in screen["questions"]
+        if question["reference"] == "/data/clinic[1]"
+    ]
+    choices = question["control"]["choices"]
+    assert {choice["value"]: choice["label"] for choice in choices} == visible.EXPECTED
+    (instance,) = sent
+    assert _child(etree.fromstring(instance), "clinic").text == choices[0]["value"]

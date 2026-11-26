@@ -451,6 +451,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"automaticSubmissionText",
 		),
 	},
+	"case-list-android-lookup": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.deviceLookup = {
+						action: "org.nova.proof.CASE_LOOKUP",
+						label: "Find a visit",
+						extras: [{ name: "mode", value: "lookup" }],
+						responses: ["visit"],
+					};
+				},
+			}),
+		without: () => caseApp(),
+		use: slotUse(
+			"case-list-android-lookup",
+			MODULE_OWNER,
+			"caseListConfig.deviceLookup",
+		),
+	},
 	"case-list-icon-actions": {
 		with: () =>
 			caseApp({
@@ -1772,6 +1791,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"barcode-search-field",
 			INPUT_OWNER,
 			"caseListConfig.searchInputs[0].type",
+		),
+	},
+	"search-field-groups": {
+		with: () => {
+			const group = testUuid("platform-fixture-search-group");
+			return caseApp({
+				searchInputs: [{ ...input("text"), group }],
+				list: (config) => {
+					config.searchInputGroups = [
+						{ uuid: group, label: "Personal details" },
+					];
+				},
+			});
+		},
+		without: () => caseApp({ searchInputs: [input("text")] }),
+		use: slotUse(
+			"search-field-groups",
+			MODULE_OWNER,
+			"caseListConfig.searchInputGroups",
 		),
 	},
 	"search-for-blank": {

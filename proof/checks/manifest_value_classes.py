@@ -490,7 +490,7 @@ class Form:
         return tuple((value, kind) for value, kind in found if value is not None)
 
     @cached_property
-    def long_text_owners(self):
+    def question_text_owners(self):
         """The text IDs named by the form's question references, retaining the kind of each owner.
 
         The same XPath grammar as the observer reads the owning references directly from the form.
@@ -1493,18 +1493,30 @@ def label_text_missing_in_default(use, manifest):
     return form.default_translation is not None and form.default_translation not in values
 
 
-def _long_form_on(owners):
-    """A ``long`` value whose itext entry is referenced by one of these question text owners."""
-
-    def reader(use, manifest):
-        form, value = _itext_value(use)
-        if form is None:
-            return None
-        if value is None or value.get("form") != "long":
-            return False
-        return not owners.isdisjoint(form.long_text_owners.get(value.getparent().get("id"), ()))
-
-    return reader
+def inline_video_on_empty_help(use, manifest):
+    """An otherwise empty help element keeps Android's help affordance."""
+    form, value = _itext_value(use)
+    if form is None:
+        return None
+    if value is None or value.get("form") != "video-inline":
+        return False
+    text_id = value.getparent().get("id")
+    if "help" not in form.question_text_owners.get(text_id, ()):
+        return False
+    for translation in form.translations:
+        for text in _children(translation):
+            if _local(text) != "text" or text.get("id") != text_id:
+                continue
+            for candidate in _children(text):
+                if _local(candidate) != "value":
+                    continue
+                role = candidate.get("form") or "default"
+                if role == "long" or (
+                    role in {"default", "audio", "image", "video"}
+                    and (len(candidate) or (candidate.text or "").strip())
+                ):
+                    return False
+    return True
 
 
 def media_blank_beside_file(use, manifest):
@@ -6179,6 +6191,91 @@ def _detail_of(use):
     return at, detail, kind, module
 
 
+def _short_lookup(use):
+    _, detail, kind, _ = _detail_of(use)
+    if kind != "short" or detail.get("lookup_enabled") is not True:
+        return None
+    return detail if detail.get("case_tile_template") != "icon_text_grid" else None
+
+
+def _missing_lookup_arguments(detail):
+    return any(
+        not isinstance(detail.get(key), list) or not detail[key] for key in ("lookup_extras", "lookup_responses")
+    )
+
+
+def lookup_without_arguments(use, manifest):
+    """HQ's Case List editor requires a row in both argument lists for an active lookup."""
+    detail = _short_lookup(use)
+    return detail is not None and _missing_lookup_arguments(detail)
+
+
+def lookup_on_long_detail(use, manifest):
+    """HQ's Case List editor can only save an active lookup on the short detail."""
+    _, detail, kind, _ = _detail_of(use)
+    return kind == "long" and detail.get("lookup_enabled") is True
+
+
+def _literal_lookup_text(tree):
+    if tree is None:
+        return False
+    if tree[0] == "text":
+        return True
+    return tree[:2] == ["call", "concat"] and all(_literal_lookup_text(argument) for argument in tree[2])
+
+
+def lookup_with_nonliteral_arguments(use, manifest):
+    """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail):
+        return False
+    return any(
+        isinstance(extra, dict)
+        and isinstance(value := extra.get("value"), str)
+        and not _literal_lookup_text(expression_tree(value))
+        for extra in detail["lookup_extras"]
+    )
+
+
+def lookup_with_action_image(use, manifest):
+    detail = _short_lookup(use)
+    return detail is not None and detail.get("lookup_image") not in (None, "")
+
+
+def lookup_with_result_column(use, manifest):
+    detail = _short_lookup(use)
+    return detail is not None and detail.get("lookup_display_results") is True
+
+
+def _lookup_names(entries, keys):
+    if not all(isinstance(entry, dict) and entry.keys() == keys for entry in entries):
+        return False
+    names = [entry["key"] for entry in entries]
+    return all(_lookup_name(name) for name in names) and len(set(names)) == len(names)
+
+
+def _lookup_name(value):
+    return isinstance(value, str) and value != "" and value.strip() == value
+
+
+def lookup_outside_fixed_text(use, manifest):
+    """The remaining active short-detail lookup settings beside a fixed-text action."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail):
+        return False
+    extras = detail["lookup_extras"]
+    return (
+        lookup_with_action_image(use, manifest)
+        or lookup_with_result_column(use, manifest)
+        or not _lookup_name(detail.get("lookup_action"))
+        or not _lookup_name(detail.get("lookup_name"))
+        or not _lookup_names(detail["lookup_responses"], {"key"})
+        or not _lookup_names(extras, {"key", "value"})
+        or any(extra["key"] == "force_xpath_parsing" or not isinstance(extra["value"], str) for extra in extras)
+        or lookup_with_nonliteral_arguments(use, manifest)
+    )
+
+
 def _tabs(detail):
     return [tab for tab in (detail or {}).get("tabs") or [] if isinstance(tab, dict)]
 
@@ -6528,6 +6625,61 @@ def default_on_multi_select_host(use, manifest):
             and _multi_select(module)
         )
     )(use, manifest)
+
+
+def _registration_return_search(at, module, form_id):
+    if not _inline_search(module):
+        return False
+    registration = at.app.forms_by_id.get(form_id)
+    if registration is None:
+        return None
+    if registration.get("post_form_workflow") == "root":
+        return False
+    # HQ's common-datum prefix excludes the standalone case-list entry.
+    forms = _forms(module)
+    if not forms:
+        return False
+    owner = at.app.module_of(registration)
+    if (
+        module.get("doc_type") != "Module"
+        or module.get("root_module_id")
+        or (module.get("parent_select") or {}).get("active")
+        or _multi_select(module)
+        or not owner
+        or registration.get("doc_type") != "Form"
+        or (owner.get("parent_select") or {}).get("active")
+        or any(form.get("doc_type") != "Form" for form in forms)
+    ):
+        return None
+    if any(_requires(form) != "case" for form in forms):
+        return False
+
+    # A basic standalone registration contributes its own new-case datum.
+    # Child actions and advanced entries need the built datum-to-source match.
+    case_type = module.get("case_type")
+    if any(subcase.get("case_type") == case_type and _active(subcase) for subcase in _subcases(registration)):
+        return None
+    action = _actions(registration).get("open_case")
+    if not case_type or owner.get("case_type") != case_type or not _active(action):
+        return False
+    if (
+        _requires(registration) != "none"
+        or registration.get("form_links")
+        or registration.get("post_form_workflow") not in (None, "", "default")
+        or (module["case_list_form"].get("post_form_workflow") or "default") not in ("case_list", "default")
+    ):
+        return None
+    return _condition(action) == "if"
+
+
+def registration_return_search_needs_created_case(use, manifest):
+    """HQ's CaseListFormWorkflow keeps the inline query before the case
+    selection it cuts. In a basic case-first menu with a standalone
+    registration of its type, the query takes the registration's allocated
+    ID. An active conditional create may leave that ID without a case.
+    Advanced, parent and subcase datum matches require the built frame.
+    """
+    return _case_list_form_reader(_registration_return_search)(use, manifest)
 
 
 def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
@@ -12427,10 +12579,7 @@ VALUE_CLASSES = {
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
-    "questions/long-form-on-a-hint-help-text-validation-message-or-choice": _long_form_on(
-        {"hint", "help", "alert", "message", "choice"}
-    ),
-    "questions/long-form-on-a-group-or-repeat-label": _long_form_on({"container-label"}),
+    "questions/video-inline-as-the-only-content-of-a-help-text": inline_video_on_empty_help,
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes": orphan_android_action,
     "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form": missing_android_action,
@@ -12721,6 +12870,9 @@ VALUE_CLASSES = {
     "menus-and-case-lists/case-list-form-on-a-put-in-root-module-whose-case-list-is-a-tile": (
         on_display_only_module_with_tile_list
     ),
+    "menus-and-case-lists/case-list-form-return-search-needs-the-created-case": (
+        registration_return_search_needs_created_case
+    ),
     "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
         default_on_multi_select_host
     ),
@@ -12818,6 +12970,14 @@ VALUE_CLASSES = {
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
+    "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,
+    "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
+    "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
+    "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
+    "menus-and-case-lists/lookup-image-jr": lookup_with_action_image,
+    "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
+        lookup_with_result_column
+    ),
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name

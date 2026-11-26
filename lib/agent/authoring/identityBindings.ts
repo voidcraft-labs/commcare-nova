@@ -216,6 +216,12 @@ export function bindNamedIdentity(args: {
 				([uuid, search]) => ({ id: uuid, names: [search.name] }),
 			);
 			break;
+		case "search-input-group":
+			candidates = named(
+				module?.caseListConfig?.searchInputGroups ?? [],
+				(item) => [item.label],
+			);
+			break;
 		case "search-input":
 			candidates = named<{ uuid: string; name: string }>(
 				scope.inputs ?? module?.caseListConfig?.searchInputs ?? [],

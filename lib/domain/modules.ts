@@ -1774,7 +1774,18 @@ const searchInputBase = z.strictObject({
 		.string()
 		.regex(SEARCH_INPUT_NAME_PATTERN, SEARCH_INPUT_NAME_REJECTION),
 	label: z.string(),
+	group: uuidSchema.optional(),
 });
+
+/**
+ * Localized heading for an ordered set of Search fields. Its placement and
+ * members are independent of a project's wire identifiers.
+ */
+export const searchInputGroupSchema = z.strictObject({
+	uuid: uuidSchema,
+	label: z.string().trim().min(1),
+});
+export type SearchInputGroup = z.infer<typeof searchInputGroupSchema>;
 
 /**
  * Whether a worker must answer a prompt before Search runs. `{}` is
@@ -3256,6 +3267,7 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
 export const caseSelectionSchema = z.strictObject({
 	kind: z.literal("multiple"),
 	maximum: persistableJsonPositiveIntegerSchema.max(100),
+	autoSelect: z.literal(true).optional(),
 });
 export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 
@@ -3482,6 +3494,42 @@ export function menuOffersRecordType(
 	);
 }
 
+/** A case list can open a companion on Android and use its returned text to search. */
+const deviceLookupName = z.string().trim().min(1);
+export const caseListDeviceLookupSchema = z
+	.strictObject({
+		action: deviceLookupName,
+		label: deviceLookupName,
+		automatic: z.literal(true).optional(),
+		extras: z
+			.array(
+				z.strictObject({
+					name: deviceLookupName.refine(
+						(name) => name !== "force_xpath_parsing",
+					),
+					value: z.string(),
+				}),
+			)
+			.min(1),
+		responses: z.array(deviceLookupName).min(1),
+	})
+	.superRefine(({ extras, responses }, ctx) => {
+		const names = extras.map(({ name }) => name);
+		if (new Set(names).size !== names.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["extras"],
+				message: "Give each value sent to the app a different name.",
+			});
+		if (new Set(responses).size !== responses.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["responses"],
+				message: "Use each response name once.",
+			});
+	});
+export type CaseListDeviceLookup = z.infer<typeof caseListDeviceLookupSchema>;
+
 export const caseListConfigSchema = z
 	.strictObject({
 		/**
@@ -3510,6 +3558,7 @@ export const caseListConfigSchema = z
 		additionalCaseTypes: otherRecordTypesSchema.optional(),
 		searchFilters: z.array(searchFilterSchema).min(1).optional(),
 		searchInputs: z.array(searchInputDefSchema),
+		searchInputGroups: z.array(searchInputGroupSchema).min(1).optional(),
 		/**
 		 * How many cases a worker can carry forward from Results. Absence is the
 		 * ordinary single-case flow; the stored arm is multiple-only so one intent
@@ -3538,6 +3587,7 @@ export const caseListConfigSchema = z
 		 * space's `CASE_LIST_OPTIMIZATIONS` gates.
 		 */
 		optimizations: z.literal(true).optional(),
+		deviceLookup: caseListDeviceLookupSchema.optional(),
 		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.
@@ -3545,6 +3595,48 @@ export const caseListConfigSchema = z
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		if (config.searchInputGroups && !config.searchInputs.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["searchInputGroups"],
+				message: "Add a Search field before adding headings.",
+			});
+		const groupOrder = new Map<Uuid, number>();
+		for (const [index, group] of (config.searchInputGroups ?? []).entries()) {
+			if (groupOrder.has(group.uuid)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputGroups", index, "uuid"],
+					message: "Each Search heading needs its own identity.",
+				});
+			}
+			groupOrder.set(group.uuid, index);
+		}
+		let lastGroup = -1;
+		for (const [index, input] of config.searchInputs.entries()) {
+			if (!groupOrder.size && input.group === undefined) continue;
+			const position =
+				input.group === undefined ? undefined : groupOrder.get(input.group);
+			if (position === undefined || position < lastGroup) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputs", index, "group"],
+					message:
+						position === undefined
+							? "Choose a heading in this Search for every field."
+							: "Keep each heading's fields together and in heading order.",
+				});
+			} else {
+				lastGroup = position;
+			}
+		}
+		if (config.deviceLookup && config.tile?.namedSlots)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup"],
+				message:
+					"Use a list or a custom case tile to look up cases with an Android app.",
+			});
 		if (
 			config.tile?.rawSlots &&
 			(!config.tile.namedSlots ||
@@ -3708,6 +3800,21 @@ export const caseListConfigSchema = z
 		}
 	});
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
+
+/** Group definitions and their fields in Search display order. */
+export function searchInputGroupsWithMembers(config: {
+	searchInputGroups?: readonly SearchInputGroup[];
+	searchInputs: readonly SearchInputDef[];
+}): Array<SearchInputGroup & { inputs: SearchInputDef[] }> {
+	const groups = (config.searchInputGroups ?? []).map((group) => ({
+		...group,
+		inputs: [] as SearchInputDef[],
+	}));
+	const byUuid = new Map(groups.map((group) => [group.uuid, group]));
+	for (const input of config.searchInputs)
+		if (input.group !== undefined) byUuid.get(input.group)?.inputs.push(input);
+	return groups;
+}
 
 /** Whether HQ keeps a load behavior on this column: one it reads through an
  *  expression as plain text or markdown (a calculation without translated

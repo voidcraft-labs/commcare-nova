@@ -1830,8 +1830,84 @@ def save_to_case_type_expression(authoring, app_id):
         app_id,
         "save-to-case-type-expression",
         (
+            'make_household vellum:role="SaveToCase" vellum:case_type="household"',
+            'make_household vellum:role="SaveToCase" vellum:case_type=""',
+            1,
+        ),
+        (
             STC_TYPE_BIND,
             f'<bind nodeset="{MAKE}/create/case_type" calculate="concat(&apos;house&apos;, &apos;hold&apos;)"/>',
+            1,
+        ),
+    )
+    _computed_type_references(authoring, app_id, guard_type="household")
+
+
+def _computed_type_references(authoring, app_id, *, guard_type):
+    # The source upload and the reference rows together reproduce a Vellum save.
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {
+        f"{OPS}/make_household": {
+            "doc_type": "CaseSaveReference",
+            "case_type": "",
+            "properties": ["head", "case_type", "case_name", "owner_id"],
+            "create": True,
+            "close": False,
+        },
+        f"{OPS}/nova_guard_make_household_text": {
+            "doc_type": "CaseSaveReference",
+            "case_type": guard_type,
+            "properties": ["case_type"],
+            "create": False,
+            "close": False,
+        },
+    })
+
+
+def save_to_case_declared_type_choice(authoring, app_id):
+    """Two declared case types, the same saved field and a guard reading the computed type."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    from proof.matrix.bases import _pages
+
+    def visit_form(name):
+        form = XFormBuilder(name)
+        form.new_question("note", "Note", "string")
+        return form.tostring().decode("utf-8")
+
+    _pages.new_survey_module(authoring, app_id, name="Visits")
+    ops.upload_form_source(authoring, app_id, 1, 0, visit_form, "visit-type-carrier")
+    ops.set_json(authoring, app_id, "/modules/0/case_type", "household")
+    ops.set_json(authoring, app_id, "/modules/1/case_type", "visit")
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-declared-type-choice",
+        ('vellum:role="SaveToCase" vellum:case_type="household"',
+         'vellum:role="SaveToCase" vellum:case_type=""', 2),
+        (STC_TYPE_BIND,
+         f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
+         1),
+        (f'<bind nodeset="{GUARD}/update/case_type" calculate="&apos;household&apos;"/>',
+         f'<bind nodeset="{GUARD}/update/case_type" calculate="current()/../../../../make_household/case/create/case_type"/>',
+         1),
+    )
+    _computed_type_references(authoring, app_id, guard_type="")
+
+
+def save_to_case_dynamic_type(authoring, app_id):
+    """Vellum clears the fixed-type metadata when the create's type uses an answer."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-dynamic-type",
+        (
+            'make_household vellum:role="SaveToCase" vellum:case_type="household"',
+            'make_household vellum:role="SaveToCase" vellum:case_type=""',
+            1,
+        ),
+        (
+            STC_TYPE_BIND,
+            f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
             1,
         ),
     )
@@ -2042,6 +2118,11 @@ def save_to_case_link_name_outside_grammar(authoring, app_id):
     _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
 
 
+def save_to_case_link_stops_form_designer(authoring, app_id):
+    """An ordinary case link whose element uses the reserved script name."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "script")
+
+
 def save_to_case_index_close_adds_action(authoring, app_id):
     """This block creates a case without a close action, before Vellum saves it."""
     _save_to_case_link(authoring, app_id, "save-to-case-index-close-adds-action", "close")
@@ -2174,6 +2255,18 @@ def itemset_filter_outside_predicate(authoring, app_id):
         ('villages[district = #form/district]"', 'villages[position(/data/district) &lt; 3]"', 1),
         (VILLAGE_FILTER, 'villages[position(/data/district) &lt; 3]"', 1),
     )
+
+
+def itemset_filter_position_of_scalar(authoring, app_id):
+    """The Core position function with an argument expects a nodeset."""
+    _change(
+        authoring,
+        app_id,
+        "itemset-filter-position-of-scalar",
+        ('villages[district = #form/district]"', 'villages[position(3) &lt; 3]"', 1),
+        (VILLAGE_FILTER, 'villages[position(3) &lt; 3]"', 1),
+    )
+
 
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
@@ -2823,6 +2916,23 @@ def save_to_case_retype_converts(authoring, app_id):
         app_id,
         "save-to-case-retype-converts",
         lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, RETYPE_CONVERTS_MODEL, RETYPE_CONVERTS_BODY),
+    )
+
+
+def save_to_case_keyed_from_outside_its_row(authoring, app_id):
+    """A create in members keys all its rows from the one root answer full_name."""
+    _edit(
+        authoring,
+        app_id,
+        "save-to-case-keyed-from-outside-its-row",
+        lambda text: _transplanted(
+            text,
+            KEYED_IN_REPEAT_DATA,
+            KEYED_IN_REPEAT_MODEL.replace("current()/../../../../member_name", "/data/full_name"),
+            KEYED_IN_REPEAT_BODY,
+            data_before="</members>",
+            body_after=MEMBER_NAME_CLOSE,
+        ),
     )
 
 

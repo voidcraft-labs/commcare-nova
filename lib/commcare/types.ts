@@ -313,6 +313,7 @@ export interface DetailBase<XPath = string> {
 	 * Omission keeps CommCare's single-select defaults.
 	 */
 	multi_select?: boolean;
+	auto_select?: true;
 	max_select_value?: number;
 	sort_elements: SortElement<XPath>[];
 	/**
@@ -338,13 +339,13 @@ export interface DetailBase<XPath = string> {
 	lookup_enabled: boolean;
 	lookup_autolaunch: boolean;
 	lookup_display_results: boolean;
-	lookup_name: null;
+	lookup_name: string | null;
 	lookup_image: null;
-	lookup_action: null;
+	lookup_action: string | null;
 	lookup_field_template: null;
 	lookup_field_header: Record<string, never>;
-	lookup_extras: unknown[];
-	lookup_responses: unknown[];
+	lookup_extras: { key: string; value: XPath }[];
+	lookup_responses: { key: string }[];
 	persist_case_context: true | null;
 	persistent_case_context_xml: XPath;
 	/**

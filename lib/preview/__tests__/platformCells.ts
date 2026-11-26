@@ -219,6 +219,21 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/submitted-answer-name-only-android-stores@web-apps": structural(
 		"answer-name-requires-android",
 	),
+	"menus-and-case-lists/lookup-with-text-extras@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-responses-key@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-extras-fixed-text@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-autolaunch@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-name@web-apps": stated(
+		"case-list-android-lookup",
+	),
 	"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list@android":
 		structural("case-list-icon-actions"),
 

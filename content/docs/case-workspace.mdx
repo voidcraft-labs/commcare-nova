@@ -50,6 +50,21 @@ selecting a case opens its form. The worker can open the tile to see more.
 For example, a visit can use a directory menu’s layout while continuing to
 show the person chosen for this visit.
 
+## Search with an Android app
+
+In **Results**, **Add lookup** connects a case list to a companion app on the
+worker’s Android device. Set its Android action, a button label, the text it
+receives, and the response names it can return. When a companion sends the
+primary text answer, CommCare searches the current list. When it returns a
+blank primary marker, CommCare uses the first named response it receives in
+your configured order.
+
+You can open the companion when the list first appears or let workers open
+it when they need it. The worker’s device needs the companion installed,
+and the project space needs to support Android case lookup. In browser
+Preview, the action explains how to check it on a device. Web Apps opens the
+ordinary case list.
+
 ## Choose a parent first
 
 In Results, **Choose a parent first** lets people pick a record from a menu for
@@ -365,6 +380,11 @@ stay in their original order while the worker searches, changes pages, opens
 Details, or goes Back. A changed maximum never removes a choice silently.
 Continue waits and states how many cases need to be removed.
 
+**Choose matching cases automatically** opens the shared form or the menu of
+forms with every eligible case, even when the list would show them on several
+pages. If more cases match than the maximum allows, the app stops before opening
+the form. An empty list still offers its usual search or registration options.
+
 Use several-case selection only when a follow-up or close form can run over the
 complete set. That form can belong to the module itself. A parent menu that is
 only its case list can also carry the set into a child that uses the same case type, also chooses
@@ -418,6 +438,16 @@ Android and your browser supports scanning, and typed codes on both. A scan
 replaces the current answer; cancelling keeps it.
 
 On Android, an answer that holds both `'` and `"` finds nothing.
+
+### Group Search fields
+
+Choose **Add Search heading** on the Search tab, then give the heading a
+name. You can move fields to another heading and change the order of the
+headings. Removing a heading keeps its fields. You can translate a heading
+in **Languages**.
+
+In Web Apps, workers can collapse each group and keep the answers they
+entered. Android shows the same fields in order and omits the headings.
 
 ### Search filters and project space matching
 

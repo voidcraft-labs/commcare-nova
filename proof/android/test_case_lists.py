@@ -657,3 +657,33 @@ def test_android_keeps_named_search_results_without_prompt_answers(android_docum
             }
             for query in (family, member)
         ], answer["walks"]
+
+
+def test_grouped_search_uses_plain_ordered_fields_on_android(android_documents, hq, android_walk_evidence):
+    from proof.android import observe
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    document = android_documents["search-remote-grouped-prompts"]
+    command = "search_command.m0"
+    observations = {}
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command], views=True)
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            query = next(step["query"] for step in answer["walks"][command]["steps"] if "query" in step)
+            assert query["opened"], (label, query)
+            observations[label] = {
+                "prompts": list(query["prompts"]),
+                "display": _texts(query["controls"]),
+            }
+
+    android_walk_evidence(observations)
+    for platform in observations.values():
+        assert set(platform["prompts"]) == {"first_name", "case_name"}
+        field_labels = [text for text in platform["display"] if text in {"Name", "Record name"}]
+        assert field_labels == ["Name", "Record name"]
+        assert "Personal details" not in platform["display"]
+        assert "Case details" not in platform["display"]

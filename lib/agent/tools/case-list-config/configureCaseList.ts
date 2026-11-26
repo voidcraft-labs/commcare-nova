@@ -9,6 +9,7 @@
 import { z } from "zod";
 import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import { withWorkflowAfterInputChange } from "@/lib/doc/caseSearchConfigPatchMutations";
+import { planSearchInputGroups } from "@/lib/doc/searchInputGroupMutations";
 import { planSearchTakeawayDependents } from "@/lib/doc/searchReadDependents";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -18,6 +19,7 @@ import {
 	CASE_LIST_SELECT_TEXT_DEFAULT,
 	type CaseSearchConfig,
 	calculatedSortSchema,
+	caseListDeviceLookupSchema,
 	caseListWordingSchema,
 	caseListWordingUnitId,
 	defaultSortBlanks,
@@ -132,6 +134,12 @@ export const configureCaseListInputSchema = z
 			.describe(
 				"Replacement always-on case-list filter. null clears it; omission leaves it unchanged. Ordinary case lists already omit closed cases.",
 			),
+		deviceLookup: caseListDeviceLookupSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Open a companion Android app to search the case list. Give its action and label, fixed text extras, and ordered fallback response names. null removes it; omission leaves it unchanged.",
+			),
 		emptyText: caseListWordingSchema
 			.nullable()
 			.optional()
@@ -169,6 +177,18 @@ export const configureCaseListInputSchema = z
 			.array(uuidInputSchema)
 			.optional()
 			.describe("Complete visible Details-field order after additions."),
+		searchGroups: z
+			.array(
+				z.strictObject({
+					groupUuid: uuidInputSchema.optional(),
+					label: caseListWordingSchema,
+					searchInputUuids: z.array(uuidInputSchema),
+				}),
+			)
+			.optional()
+			.describe(
+				"Replace the Search headings and their fields, in display order. Use each field UUID exactly once. Keep an existing heading’s UUID to preserve its translations. Pass an empty array for a flat list.",
+			),
 		searchInputOrder: z
 			.array(uuidInputSchema)
 			.optional()
@@ -200,13 +220,15 @@ export const configureCaseListInputSchema = z
 			input.searchWorkflow === undefined &&
 			input.formsReadSearch === undefined &&
 			!("filter" in input) &&
+			input.deviceLookup === undefined &&
 			input.emptyText === undefined &&
 			input.selectButtonText === undefined &&
 			input.optimizations === undefined &&
 			displaySlots.length === 0 &&
 			input.resultsColumnOrder === undefined &&
 			input.detailsColumnOrder === undefined &&
-			input.searchInputOrder === undefined
+			input.searchInputOrder === undefined &&
+			input.searchGroups === undefined
 		) {
 			ctx.addIssue({
 				code: "custom",
@@ -248,6 +270,7 @@ export interface ConfigureCaseListSuccess {
 	readonly columnUuids: readonly Uuid[];
 	readonly calculatedSortUuids?: readonly Uuid[];
 	readonly searchInputUuids: readonly Uuid[];
+	readonly searchGroupUuids?: readonly Uuid[];
 	readonly summary: ToolCallSummary;
 }
 
@@ -499,6 +522,14 @@ export const configureCaseListTool = {
 					},
 				]);
 			}
+			if (input.deviceLookup !== undefined)
+				append([
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { deviceLookup: input.deviceLookup },
+					},
+				]);
 			const wording: {
 				emptyText?: string | null;
 				selectButtonText?: string | null;
@@ -624,6 +655,31 @@ export const configureCaseListTool = {
 				append(result.mutations);
 			}
 
+			const groups = input.searchGroups?.map((group) => ({
+				uuid:
+					group.groupUuid === undefined ? newUuid() : asUuid(group.groupUuid),
+				label: group.label,
+				inputs: group.searchInputUuids.map(asUuid),
+			}));
+			if (groups !== undefined) {
+				const config = workingModule.caseListConfig;
+				const result =
+					config && planSearchInputGroups(moduleUuid, config, groups);
+
+				if (!result || "error" in result)
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: {
+							error:
+								result && "error" in result
+									? result.error
+									: "Add Search fields before grouping them.",
+						},
+					};
+				append(result.mutations);
+			}
+
 			// A call that leaves a search with nothing to fill in and no chosen
 			// workflow, where the menu had a Search field to fill in or no
 			// search, opens the menu on its results; a call that states the
@@ -651,6 +707,9 @@ export const configureCaseListTool = {
 					columnUuids,
 					...(input.calculatedSorts && { calculatedSortUuids: sortUuids }),
 					searchInputUuids,
+					...(groups && {
+						searchGroupUuids: groups.map((group) => group.uuid),
+					}),
 					summary: { location: originalModule.name },
 				},
 			};

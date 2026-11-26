@@ -487,11 +487,12 @@ export function addSearchInputsMutation(
 	mod: Module,
 	searchInputs: readonly SearchInputDef[],
 ): CaseListMutationOk {
-	// Each add appends, so emitting them in order lands them in order.
+	const lastGroup = mod.caseListConfig?.searchInputGroups?.at(-1)?.uuid;
+	// New fields enter the last heading so an ordinary add keeps a grouped Search valid.
 	const mutations: Mutation[] = searchInputs.map((searchInput) => ({
 		kind: "addSearchInput",
 		moduleUuid: mod.uuid,
-		searchInput,
+		searchInput: { ...searchInput, ...(lastGroup && { group: lastGroup }) },
 	}));
 	if (
 		mod.caseSearchConfig === undefined ||
@@ -523,7 +524,12 @@ export function updateSearchInputMutation(
 	}
 	return {
 		ok: true,
-		mutations: [planSearchInputUpdate(mod.uuid, current, replacement)],
+		mutations: [
+			planSearchInputUpdate(mod.uuid, current, {
+				...replacement,
+				...(current.group && { group: current.group }),
+			}),
+		],
 	};
 }
 

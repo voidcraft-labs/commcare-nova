@@ -220,6 +220,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
 	"web-apps-form-behavior",
+	"case-list-android-lookup",
 	"case-list-icon-actions",
 	"saved-form-descriptor",
 	"case-list-here",
@@ -293,6 +294,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"search-starting-dates",
 	"barcode-search-field",
 	"search-for-blank",
+	"search-field-groups",
 	"hidden-search-field",
 	"search-first",
 	"search",
@@ -376,6 +378,15 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "ignored",
 			note: "the form opens and submits as any other form",
 		},
+	},
+	"case-list-android-lookup": {
+		label: "Case lookup with an Android app",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the case list opens without the lookup action",
+		},
+		android: { reading: "runs" },
 	},
 	"case-list-icon-actions": {
 		label: "Submit from a case list icon",
@@ -1192,6 +1203,15 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "ignored",
 			note: "the Search screen shows the field alone",
+		},
+	},
+	"search-field-groups": {
+		label: "Search headings",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "the Search screen shows the fields in order",
 		},
 	},
 	"hidden-search-field": {

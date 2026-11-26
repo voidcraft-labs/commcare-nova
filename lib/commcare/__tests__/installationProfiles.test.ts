@@ -1,11 +1,12 @@
 import { expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { installationArchiveIssue } from "@/lib/domain/installationProfiles";
 import { resolvedLanguageEnglishName } from "@/lib/domain/languageRegistry/names";
 import { compileCczParts } from "../compiler";
 import { expandDoc } from "../expander";
 import { installationDownloadIssue } from "../installationProfiles";
 import { DERIVED_WIRE_IDENTITY } from "../wireIdentity";
+import { manifestFor } from "./fixtureMediaManifest";
 import { localizationWireFixture } from "./localizationWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -60,4 +61,46 @@ it("installs the chosen languages in order, including a default other than the s
 	expect(
 		installationDownloadIssue(doc, uuid, DERIVED_WIRE_IDENTITY),
 	).toBeUndefined();
+});
+
+it("writes no navigation icon when a named CCZ excludes its only ordinary icon language", () => {
+	const doc = localizationWireFixture("mandarin");
+	const menu = doc.modules[doc.moduleOrder[0]];
+	const ordinary = testMediaAssetId("ordinary-nav-icon");
+	const override = testMediaAssetId("locale-nav-icon");
+	menu.icon = ordinary;
+	menu.mediaByLanguage = {
+		eng: { iconOverride: override },
+		"cmn-Hans": { icon: null },
+		"cmn-Hant": { icon: "blank" },
+	};
+	doc.forms[doc.formOrder[menu.uuid][0]].icon = override;
+	const uuid = testUuid("without-navigation-language");
+	doc.appSettings.installationProfiles = {
+		[uuid]: {
+			uuid,
+			name: "Mandarin team",
+			languages: ["cmn-Hant", "cmn-Hans"],
+			requiresPracticeWorker: false,
+		},
+	};
+	const assets = manifestFor(doc);
+	const compile = (installationProfileUuid?: typeof uuid) => {
+		const options = {
+			assets,
+			runtimeTarget: TEST_RUNTIME_TARGET,
+			installationProfileUuid,
+		};
+		return compileCczParts(expandDoc(doc, options), doc.appName, doc, options);
+	};
+	const suite = (files: ReturnType<typeof compile>["files"]) =>
+		Object.values(files).find((xml) => xml.includes("<menu "));
+	const full = compile();
+	expect(full.tables.en.get("modules.m0.icon")).toBe(
+		`jr://file/${assets.get(override)?.wirePath}`,
+	);
+	expect(suite(full.files)).toContain('id="modules.m0.icon"');
+	const limited = compile(uuid);
+	expect(limited.tables.default.get("modules.m0.icon")).toBeUndefined();
+	expect(suite(limited.files)).not.toContain('id="modules.m0.icon"');
 });

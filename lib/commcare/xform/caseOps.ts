@@ -207,11 +207,13 @@ interface GeneratedGroup {
 	readonly controls: Element[];
 }
 
-export interface CaseOperationDataChild {
+export type CaseOperationDataChild = {
 	readonly parentPath: FormPath;
 	readonly element: Element;
-	readonly placement?: "prepend" | "append" | "replace";
-}
+} & (
+	| { readonly placement?: "prepend" | "append" }
+	| { readonly placement: "replace"; readonly following: readonly Element[] }
+);
 
 export interface CaseOperationBodyChild {
 	/** Undefined means the form body itself; otherwise the exact authored repeat. */
@@ -1224,6 +1226,7 @@ export function buildCaseOperations(
 				| "case_operation_close_condition"
 				| "case_operation_name"
 				| "case_operation_owner"
+				| "case_operation_type_condition"
 				| "case_operation_owner_condition"
 				| "case_operation_rename",
 		): FormExpressionSlotRef => ({
@@ -1282,6 +1285,12 @@ export function buildCaseOperations(
 				? undefined
 				: operation.name
 			: operation.rename;
+		const typeCalculation =
+			operation.action === "create" ? operation.typeCalculation : undefined;
+		const typeChoice =
+			operation.action === "create" ? operation.typeChoice : undefined;
+		const computedType =
+			typeChoice !== undefined || typeCalculation !== undefined;
 		const writes = (operation.writes ?? []).filter((write) => {
 			if (write.via !== undefined)
 				throw new Error(
@@ -1423,7 +1432,25 @@ export function buildCaseOperations(
 					{
 						xpath: {
 							nodeset: createPath.child("case_type").toWire(),
-							calculate: w.str(caseType),
+							calculate:
+								typeChoice !== undefined
+									? w.call("if", [
+											emitExpression(
+												typeChoice.condition,
+												createPath.child("case_type"),
+												ownSlot("case_operation_type_condition"),
+											),
+											w.str(caseType),
+											w.str(typeChoice.otherwise),
+										])
+									: typeCalculation === undefined
+										? w.str(caseType)
+										: w.call(
+												"concat",
+												typeCalculation.parts.map(({ term }) =>
+													w.str(term.value),
+												),
+											),
 						},
 					},
 					context,
@@ -1675,7 +1702,7 @@ export function buildCaseOperations(
 		}
 
 		const guardCaseIdPath = (kind: GuardKind): FormPath =>
-			(conditionPath ?? group.path)
+			(site.authoredPath?.parent() ?? conditionPath ?? group.path)
 				.child(generatedNodes.guard(operation.uuid, kind))
 				.child("case")
 				.attr("case_id");
@@ -1841,9 +1868,11 @@ export function buildCaseOperations(
 				);
 			}
 			guards.push(
-				saveToCaseBlock(generatedNodes.guard(operation.uuid, kind), guardType, [
-					el("update", {}, [el("case_type", {})]),
-				]),
+				saveToCaseBlock(
+					generatedNodes.guard(operation.uuid, kind),
+					typeChoice === undefined ? guardType : "",
+					[el("update", {}, [el("case_type", {})])],
+				),
 			);
 			guardBinds.push(
 				xel(
@@ -1854,7 +1883,13 @@ export function buildCaseOperations(
 								.child("update")
 								.child("case_type")
 								.toWire(),
-							calculate: w.str(guardType),
+							calculate:
+								typeChoice === undefined
+									? w.str(guardType)
+									: originalContextWirePath(
+											guardCasePath.child("update").child("case_type"),
+											casePath.child("create").child("case_type"),
+										),
 						},
 					},
 					context,
@@ -1880,20 +1915,19 @@ export function buildCaseOperations(
 		// block. HQ's form builder keeps a create's condition as its Open Case
 		// Condition and no condition on an update's or close's block, and a
 		// guard that ran while its operation did not would fail the submission.
-		const caseBlock = saveToCaseBlock(site.name, caseType, caseChildren);
+		const caseBlock = saveToCaseBlock(
+			site.name,
+			computedType ? "" : caseType,
+			caseChildren,
+		);
 		if (site.authoredPath !== undefined) {
-			const root = form.dataRootName ?? "data";
-			const parent = site.authoredPath
-				.segments()
-				.slice(0, -1)
-				.map((segment) => segment.name);
 			authoredBlocks.push({
-				parentPath: FormPath.parse(`/${parent.join("/")}`, root),
+				parentPath: site.authoredPath.parent(),
 				placement: "replace",
 				element: caseBlock,
+				following: guards,
 			});
 			binds.push(...blockBinds, ...guardBinds);
-			group.children.push(...guards);
 			if (create) priorCreates.set(operation.uuid, location);
 			continue;
 		}
@@ -2781,8 +2815,9 @@ export function attachCaseOperationData(
 				throw new Error(
 					"The authored case change is missing from the submitted form.",
 				);
-			child.element.parent = parent;
-			parent.children[index] = child.element;
+			const replacements = [child.element, ...child.following];
+			for (const node of replacements) node.parent = parent;
+			parent.children.splice(index, 1, ...replacements);
 			relinkSiblings(parent.children);
 		} else if (child.placement === "append") {
 			appendChildren(parent, [child.element]);

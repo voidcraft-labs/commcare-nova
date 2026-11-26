@@ -14,10 +14,12 @@ import { type Draft, produce } from "immer";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseListDeviceLookup,
 	type CaseProperty,
 	type Column,
 	type ColumnSort,
 	type ColumnVia,
+	caseListDeviceLookupSchema,
 	caseListWordingUnitId,
 	casePropertyOptionTranslationUnitId,
 	columnFieldText,
@@ -87,6 +89,7 @@ import { pendingPlaceholder } from "../pendingExpressions";
 import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sourceFactories } from "../sourceFactories";
 import { recordSyntaxKey, sameXPathText } from "../syntaxCompare";
+import { sharedFormSyntax } from "../syntaxRead";
 import type { SameStateRegister } from "../types";
 import { storedColumnKind } from "./columnIdentity";
 import {
@@ -105,6 +108,7 @@ import {
 	sourceText,
 	translatedTexts,
 } from "./columns";
+import { literalText } from "./literalText";
 import { CALCULATED_FIELD, readSortElements, type SortReading } from "./order";
 import { claimRestUnderFinding } from "./refusedWhole";
 import { readTile, type TileReading } from "./tile";
@@ -177,7 +181,7 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}multi-select-auto-select-or-max-select-value-on-an-advanced-or`,
 		"schema:Detail.max_select_value",
 	),
-	autoSelectMulti: refuse(
+	autoSelectMulti: take(
 		`${A}detail-auto-select-multi-select`,
 		"schema:Detail.auto_select",
 	),
@@ -440,6 +444,88 @@ const LOOKUP_ON_KEYS = defineClaims("caseList.details.lookupOn", {
 		"schema:Detail.lookup_action",
 	),
 });
+
+const TEXT_LOOKUP_FIELD_ENTRIES = new Map<string, string>([
+	["lookup_name", "lookup-name"],
+	["lookup_autolaunch", "lookup-autolaunch"],
+	["lookup_responses", "lookup-responses-key"],
+	["lookup_extras", "lookup-extras-fixed-text"],
+]);
+
+const TEXT_LOOKUP_KEYS = defineClaims(
+	"caseList.details.textLookup",
+	recordFromEntries(
+		CALLOUT_KEYS.map((key) => [
+			key,
+			take(
+				`${A}${TEXT_LOOKUP_FIELD_ENTRIES.get(key) ?? "lookup-with-text-extras"}`,
+				`schema:Detail.${key}`,
+			),
+		]),
+	) as Record<string, Claim<"take">>,
+);
+
+/** The Android text-search branch, with fixed text extras and ordered fallback responses. */
+function textDeviceLookup(
+	detail: JsonCursor,
+): CaseListDeviceLookup | undefined {
+	const image = detail.peek("lookup_image");
+	const results = detail.peek("lookup_display_results");
+	const automatic = detail.peek("lookup_autolaunch");
+	const action = detail.peek("lookup_action");
+	const label = detail.peek("lookup_name");
+	const rawExtras = detail.peek("lookup_extras");
+	const rawResponses = detail.peek("lookup_responses");
+	if (
+		(image !== undefined && image !== null && image !== "") ||
+		(results !== undefined && results !== null && results !== false) ||
+		(automatic !== undefined &&
+			automatic !== null &&
+			typeof automatic !== "boolean") ||
+		typeof action !== "string" ||
+		action.trim() !== action ||
+		typeof label !== "string" ||
+		label.trim() !== label ||
+		!Array.isArray(rawExtras) ||
+		!Array.isArray(rawResponses)
+	)
+		return undefined;
+	const extras = [];
+	for (const entry of rawExtras) {
+		if (
+			!isJsonObject(entry) ||
+			Object.keys(entry).length !== 2 ||
+			typeof entry.key !== "string" ||
+			entry.key.trim() !== entry.key ||
+			entry.key === "force_xpath_parsing" ||
+			typeof entry.value !== "string"
+		)
+			return undefined;
+		const parsed = sharedFormSyntax(entry.value);
+		const value = parsed.ok ? literalText(parsed.node) : undefined;
+		if (value === undefined) return undefined;
+		extras.push({ name: entry.key, value });
+	}
+	const responses = [];
+	for (const entry of rawResponses) {
+		if (
+			!isJsonObject(entry) ||
+			Object.keys(entry).length !== 1 ||
+			typeof entry.key !== "string" ||
+			entry.key.trim() !== entry.key
+		)
+			return undefined;
+		responses.push(entry.key);
+	}
+	const value = caseListDeviceLookupSchema.safeParse({
+		action,
+		label,
+		extras,
+		responses,
+		...(automatic === true && { automatic: true }),
+	});
+	return value.success ? value.data : undefined;
+}
 
 const LOOKUP_LONG_KEYS = defineClaims(
 	"caseList.details.lookupLong",
@@ -1077,7 +1163,7 @@ function readDetailTexts(
 	detail: JsonCursor,
 	codes: readonly string[],
 	screen: "short" | "long",
-	wording?: CaseListWordingReading,
+	wording?: CaseListShortReading,
 ): boolean {
 	let ok = true;
 	const texts = (
@@ -1167,9 +1253,10 @@ function readDetailTexts(
 }
 
 /** A case list's own texts as the reading of its short detail holds them, each language's. */
-interface CaseListWordingReading {
+interface CaseListShortReading {
 	empty?: HeldTexts;
 	select?: HeldTexts;
+	deviceLookup?: CaseListDeviceLookup;
 }
 
 /**
@@ -1212,7 +1299,7 @@ function readDetailKeys(
 	detail: JsonCursor,
 	screen: "short" | "long",
 	competingLine = false,
-	wording?: CaseListWordingReading,
+	wording?: CaseListShortReading,
 ): boolean {
 	let ok = true;
 	detail.drop("display", D.display);
@@ -1229,11 +1316,11 @@ function readDetailKeys(
 		detail.drop("multi_select", D.multiSelectAdvanced);
 		detail.drop("max_select_value", D.maxSelectAdvanced);
 		detail.drop("auto_select", D.autoSelectAdvanced);
-	} else if (detail.peek("auto_select") === true) {
-		detail.refuse(
-			"auto_select",
-			multi ? D.autoSelectMulti : D.autoSelectSingle,
-		);
+	} else if (
+		detail.peek("auto_select") === true &&
+		(screen !== "short" || !multi)
+	) {
+		detail.refuse("auto_select", D.autoSelectSingle);
 		ok = false;
 	}
 	for (const [key, claim] of [
@@ -1299,6 +1386,8 @@ function readDetailKeys(
 		if (primary !== undefined || screen !== "long") ok = false;
 	}
 	if (detail.peek("lookup_enabled") === true) {
+		const lookup =
+			screen === "short" && wording ? textDeviceLookup(detail) : undefined;
 		if (
 			screen === "short" &&
 			detail.peek("case_tile_template") === "icon_text_grid"
@@ -1313,8 +1402,14 @@ function readDetailKeys(
 				if (claim !== undefined) detail.refuse(key, claim);
 			}
 			ok = false;
+		} else if (wording && lookup !== undefined) {
+			for (const key of CALLOUT_KEYS) {
+				const claim = TEXT_LOOKUP_KEYS[key];
+				if (claim !== undefined && detail.used(key))
+					wording.deviceLookup = detail.take(key, claim, () => lookup).value;
+			}
 		} else {
-			// A callout is one finding: one with no extras or no responses, which HQ's build
+			// A callout is one finding: one with no extras or no responses, which HQ's Case List editor
 			// refuses, is refused as that, any other as a callout, and every other key of it is
 			// claimed under that one finding.
 			const extras = detail.peek("lookup_extras");
@@ -1379,6 +1474,16 @@ function readSelection(
 		return { ok: true };
 	}
 	short.take("multi_select", D.multiSelect, Boolean).value;
+	const automatic =
+		short.peek("auto_select") === true
+			? {
+					autoSelect: short.take(
+						"auto_select",
+						D.autoSelectMulti,
+						() => true as const,
+					).value,
+				}
+			: {};
 	// A null is HQ's model's `None`, for which HQ's build writes no `max-select-value`
 	// (`suite_xml/xml_models.py`, an `IntegerField`, which leaves out `None`), and Core then
 	// takes 100 (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`), Nova's own maximum.
@@ -1390,7 +1495,10 @@ function readSelection(
 			`${short.pointer}/max_select_value`,
 			"list-settings-respelled",
 		);
-		return { ok: true, selection: { kind: "multiple", maximum: 100 } };
+		return {
+			ok: true,
+			selection: { kind: "multiple", maximum: 100, ...automatic },
+		};
 	}
 	// Any other value that is no number is one HQ's model refuses as it wraps the app
 	// (`IntegerProperty`, an `AssertTypeProperty`), so no source HQ serves holds it: no entry
@@ -1414,7 +1522,11 @@ function readSelection(
 		);
 	return {
 		ok: true,
-		selection: { kind: "multiple", maximum: maximum === -1 ? 100 : maximum },
+		selection: {
+			kind: "multiple",
+			maximum: maximum === -1 ? 100 : maximum,
+			...automatic,
+		},
 	};
 }
 
@@ -1552,7 +1664,7 @@ export function readCaseDetails(
 		return;
 	}
 	// Both details are read whatever the first holds, so every finding is raised in one pass.
-	const wording: CaseListWordingReading = {};
+	const wording: CaseListShortReading = {};
 	const shortKeys = readDetailKeys(ctx, module, short, "short", false, wording);
 	// HQ generates a single shared detail ID for every enabled line on this
 	// menu. Core keeps the last definition. A long-only line is unreferenced,
@@ -1836,6 +1948,9 @@ export function readCaseDetails(
 		}),
 		...(wording.select !== undefined && {
 			selectButtonText: sourceText(ctx, wording.select.texts),
+		}),
+		...(wording.deviceLookup !== undefined && {
+			deviceLookup: wording.deviceLookup,
 		}),
 		// Claimed by the menu's reading (`menus/modules.ts`), held here with the list it serves.
 		...(module.json.peek("show_case_list_optimization_options") === true && {

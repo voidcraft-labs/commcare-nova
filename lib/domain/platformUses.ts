@@ -614,6 +614,10 @@ function moduleUses(
 	// form, ride on it.
 	const formsReadSearch = moduleFormsReadSearch(module);
 	const own: PlatformFeatureUse[] = [];
+	if (list?.deviceLookup !== undefined && wanted("case-list-android-lookup"))
+		own.push(
+			slotUse("case-list-android-lookup", owner, "caseListConfig.deviceLookup"),
+		);
 	if (formsReadSearch && wanted("forms-read-search"))
 		own.push(
 			slotUse("forms-read-search", owner, "caseSearchConfig.formsReadSearch"),
@@ -751,6 +755,10 @@ function moduleUses(
 	}
 	const byOwner = (target: PlatformFeatureOwner) =>
 		usesByMember.get(memberUuid(target)) ?? [];
+	if (list?.searchInputGroups && wanted("search-field-groups"))
+		own.push(
+			slotUse("search-field-groups", owner, "caseListConfig.searchInputGroups"),
+		);
 	own.push(...byOwner(owner));
 	const out = inFeatureOrder(own);
 
