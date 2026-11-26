@@ -1,8 +1,8 @@
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { CONNECT_TYPE_LABELS, type ConnectType } from "@/lib/domain";
+import { CONNECT_ROLE_LABELS, type ConnectRole } from "@/lib/domain";
 
 interface ConnectBadgeProps {
-	type: ConnectType;
+	type: ConnectRole;
 }
 
 /**
@@ -13,7 +13,7 @@ export function ConnectBadge({ type }: ConnectBadgeProps) {
 	return (
 		<span className="inline-flex items-center gap-1 text-nova-violet-bright">
 			<ConnectLogomark size={14} />
-			<span className="text-xs font-medium">{CONNECT_TYPE_LABELS[type]}</span>
+			<span className="text-xs font-medium">{CONNECT_ROLE_LABELS[type]}</span>
 		</span>
 	);
 }

@@ -97,6 +97,7 @@ import {
 	WEB_APPS_DEVICE_ID,
 } from "../platform";
 import { searchAfterClear } from "../searchStanding";
+import { automaticSubmissionEntry } from "../submitOffer";
 import { evaluateAsync } from "../xpath/asyncEvaluator";
 import {
 	coreDateAdd,
@@ -487,6 +488,36 @@ export const PLATFORM_MODEL_CHECKS = {
 		expect(searchAfterClear(false, WEB_APPS, 992)).toBe(false);
 		expect(searchAfterClear(true, ANDROID, 1280)).toBe(false);
 	},
+	/* Formplayer reads the presence pragmas, Android none: a Web Apps form
+	 * holding automatic submission submits once per entry when its submit is
+	 * offered, and an Android one waits for the worker. */
+	"presence-pragmas-on-web-apps-only": () => {
+		const opening = {
+			active: true,
+			enabled: true,
+			offered: "offered" as const,
+			entry: "second-visit",
+			attempted: undefined,
+		};
+		const web = {
+			...opening,
+			platformAllows: previewPlatformRules("web-apps").webAppsFormPragmas,
+		};
+		expect(automaticSubmissionEntry(web)).toBe("second-visit");
+		expect(
+			automaticSubmissionEntry({ ...web, attempted: "second-visit" }),
+		).toBeUndefined();
+		expect(
+			automaticSubmissionEntry({ ...web, offered: "waiting" }),
+		).toBeUndefined();
+		expect(automaticSubmissionEntry({ ...web, active: false })).toBeUndefined();
+		expect(
+			automaticSubmissionEntry({
+				...opening,
+				platformAllows: previewPlatformRules("android").webAppsFormPragmas,
+			}),
+		).toBeUndefined();
+	},
 	/* A calculate over the clock and a condition over it re-evaluate after
 	 * an unrelated answer on Web Apps; a starting value does not; on Android
 	 * neither moves. */
@@ -539,6 +570,71 @@ export const PLATFORM_MODEL_CHECKS = {
 		} finally {
 			vi.useRealTimers();
 		}
+	},
+
+	/* A row's starting value beside a calculation that reads a value the
+	 * row's insertion set first: a later starting value in the row reads it,
+	 * and the row keeps it on Android, while Web Apps works the calculation
+	 * out again on the next answer, so the starting value never reaches the
+	 * form Web Apps sends. Both platforms take the calculation once what it
+	 * reads changes. */
+	"row-starting-value": () => {
+		const run = (platform: Platform) => {
+			const engine = new FormEngine(
+				engineFixtureInput(
+					[
+						{ id: "unrelated", kind: "text" },
+						{
+							id: "rows",
+							kind: "repeat",
+							repeat_mode: "user_controlled",
+							children: [
+								{ id: "note", kind: "text", default_value: "'a'" },
+								{
+									id: "value",
+									kind: "hidden",
+									default_value: "'D'",
+									calculate: "concat(../note, '!')",
+								},
+								{ id: "seen", kind: "text", default_value: "../value" },
+							],
+						},
+					],
+					{ formUuid: testUuid("cell-model-row-value"), formType: "survey" },
+				),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					device: platform === "web-apps" ? webAppsDevice() : androidDevice(),
+				},
+			);
+			engine.addRepeat("/data/rows");
+			const inserted = {
+				value: engine.getState("/data/rows[0]/value").value,
+				seen: engine.getState("/data/rows[0]/seen").value,
+			};
+			engine.setValue("/data/unrelated", "u");
+			const afterUnrelated = engine.getState("/data/rows[0]/value").value;
+			engine.setValue("/data/rows[0]/note", "ab");
+			return {
+				inserted,
+				afterUnrelated,
+				afterRead: engine.getState("/data/rows[0]/value").value,
+			};
+		};
+		expect(run("web-apps")).toEqual({
+			inserted: { value: "D", seen: "D" },
+			afterUnrelated: "a!",
+			afterRead: "ab!",
+		});
+		expect(run("android")).toEqual({
+			inserted: { value: "D", seen: "D" },
+			afterUnrelated: "D",
+			afterRead: "ab!",
+		});
 	},
 
 	/* Formplayer's day numbers count from UTC's midnight: the calendar day

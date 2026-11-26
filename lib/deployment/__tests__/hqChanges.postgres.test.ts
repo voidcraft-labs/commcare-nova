@@ -768,6 +768,76 @@ describe("recordHqChangesTaken", () => {
 	});
 
 	describe("keeps the next publish's list by one rule", () => {
+		it.each(["first-publish", "next-publish"] as const)(
+			"keeps an older %s notice through an unrelated save and clears it after recovery",
+			async (of) => {
+				const birth = await born();
+				const original: StoredFirstPublish = {
+					ids: [
+						"forms-and-settings-rewritten",
+						"hidden-value-defaults-dropped",
+					],
+					of,
+					webAppsOnInHq: true,
+				};
+				await h
+					.db()
+					.updateTable("app_deployment_baselines")
+					.set({ first_publish_changes: JSON.stringify(original) })
+					.where("deployment_id", "=", birth.deployment.deployment.id)
+					.executeTakeFirstOrThrow();
+				const firstPublish = {
+					accepted: {
+						ids: ["forms-and-settings-rewritten"],
+						touchesWorkers: false,
+						of,
+					},
+					publishChanges: [],
+					webAppsOnInHq: true,
+				} as const;
+				await recordHqChangesTaken(
+					AT_HEAD,
+					taken(birth, {
+						firstPublish: {
+							...firstPublish,
+							stillOmitsHiddenStartingAnswer: true,
+						},
+					}),
+				);
+				// A take reviews the first publish's list as it writes it.
+				const reviewed = of === "first-publish" ? { reviewed: 1 as const } : {};
+				expect((await baselineRow()).first_publish_changes).toEqual({
+					...original,
+					...reviewed,
+				});
+				const refreshed = await recordRefreshedAppBaseline(
+					birth.scope,
+					TARGET,
+					{
+						expectedEndings: 0,
+						remoteAppId: HQ_APP,
+						comparedPushToken: appMappingToken(
+							await readDeployment(birth.scope, TARGET),
+						),
+						comparedDigest: digestOf(CHANGED_SOURCE),
+						read: stored(
+							{ ...CHANGED_SOURCE, name: "Changed again" },
+							"2026-11-14T09:00:00.000Z",
+						),
+						nextPublish: {
+							...firstPublish,
+							stillOmitsHiddenStartingAnswer: false,
+						},
+					},
+				);
+				expect(refreshed.outcome).toBe("current");
+				expect((await baselineRow()).first_publish_changes).toEqual({
+					...original,
+					...reviewed,
+					ids: ["forms-and-settings-rewritten"],
+				});
+			},
+		);
 		it("takes this reading's list for an app not yet published, less the two Web App lines", async () => {
 			const birth = await born();
 			expect((await baselineRow()).first_publish_changes).toEqual(BORN_LIST);

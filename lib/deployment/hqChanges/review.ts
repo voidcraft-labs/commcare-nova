@@ -1205,7 +1205,7 @@ async function computeWith(
 	);
 	const legacyLocationDiffers =
 		!baseline.ownership.autoGpsCapture &&
-		head.doc.connectType === null &&
+		head.doc.connectRoles.length === 0 &&
 		sourceCapturesLocation(source.raw) !==
 			(head.doc.appSettings.captureLocation === true);
 	const languageNames = live.ownership === "adopted" ? "target" : "nova";

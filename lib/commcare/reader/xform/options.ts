@@ -4,7 +4,8 @@ import {
 	lookupReadPath,
 } from "../../lookup/readPath";
 /**
- * A select's choices: its inline `item`s, or one `itemset` over a lookup table or over
+ * A select's choices: its inline `item`s, or one `itemset` over a lookup table (ordered by
+ * one of its columns where the itemset holds a `<sort ref>`) or over
  * the worker's cases in the shape Nova writes for a question's case choices. An itemset's
  * nodeset is read with the XPath grammar, and its filter is registered for the expression
  * stage, never read here.
@@ -151,24 +152,27 @@ function readItems(
 		// whose value is refused is refused whole: its label, and the text the label names,
 		// stand under the value's refusal.
 		const refusal =
-			problem === "both-quotes"
-				? { claim: X.choiceValueBothQuotes, detail: undefined }
-				: problem === "instance-read"
-					? {
-							claim: X.choiceValueInstance,
-							detail: { name: instanceScanRead(text) ?? text },
-						}
-					: problem !== undefined
-						? { claim: X.choiceValueRefused, detail: undefined }
-						: undefined;
+			problem === "instance-read"
+				? {
+						claim: X.choiceValueInstance,
+						detail: { name: instanceScanRead(text) ?? text },
+					}
+				: problem !== undefined
+					? { claim: X.choiceValueRefused, detail: undefined }
+					: undefined;
 		if (refusal !== undefined) {
 			cursor.refuseSubtree(value, refusal.claim, place, refusal.detail);
 			cursor.refuseSubtree(label, refusal.claim, place, refusal.detail);
 		} else {
-			const quoted = text.includes("'") || text.includes('"');
+			const apostrophe = text.includes("'");
+			const doubleQuote = text.includes('"');
 			const taken = cursor.take(
 				{ element: value },
-				quoted ? X.choiceValueQuote[select] : sites.value,
+				apostrophe && doubleQuote
+					? X.choiceValueBothQuotes[select]
+					: apostrophe || doubleQuote
+						? X.choiceValueQuote[select]
+						: sites.value,
 			).value;
 			options.push({ value: taken });
 			optionItems.push(item);
@@ -261,15 +265,23 @@ function readItemset(
 			]);
 		return undefined;
 	}
+	const other = () => {
+		cursor.refuseSubtree(itemset, X.otherItemset, place);
+		return undefined;
+	};
+	// One `<sort ref>` in the XForms namespace, the element HQ's form builder writes
+	// (Vellum `itemset.js::writeCustomXML`). Core keeps the last of several and reads a
+	// sort in any namespace (`XFormParser.parseItemset`), which no Nova source states.
+	const sorts = itemset.children
+		.filter(isTag)
+		.filter((child) => splitName(child.name).local === "sort");
+	const sort = xformsChildren(itemset, parsed, "sort")[0];
 	if (
 		plain(itemset, "sort") !== undefined ||
-		itemset.children
-			.filter(isTag)
-			.some((child) => splitName(child.name).local === "sort")
-	) {
-		cursor.refuseSubtree(itemset, X.itemsetSort, place);
-		return undefined;
-	}
+		sorts.length > 1 ||
+		(sorts.length === 1 && sort === undefined)
+	)
+		return other();
 	const nodeset = plain(itemset, "nodeset") ?? "";
 	const runtime = readFormSyntax(nodeset);
 	const read = runtime.ok ? runtime : readStoredNameSyntax(nodeset);
@@ -277,10 +289,7 @@ function readItemset(
 		read.ok && read.node !== undefined ? instanceChain(read.node) : undefined;
 	const labelRef = plain(label, "ref") ?? "";
 	const valueRef = value === undefined ? "" : (plain(value, "ref") ?? "");
-	const other = () => {
-		cursor.refuseSubtree(itemset, X.otherItemset, place);
-		return undefined;
-	};
+	const sortRef = sort === undefined ? undefined : (plain(sort, "ref") ?? "");
 	if (chain === undefined || value === undefined) return other();
 
 	// A lookup table: instance(id)/<tag>_list/<tag>, with at most one predicate.
@@ -312,10 +321,20 @@ function readItemset(
 		}
 		const labelName = lookupReadPath(labelRef, "stored-xml");
 		const valueName = lookupReadPath(valueRef, "stored-xml");
-		if (labelName === undefined || valueName === undefined) {
+		const sortName =
+			sortRef === undefined ? undefined : lookupReadPath(sortRef, "stored-xml");
+		if (
+			labelName === undefined ||
+			valueName === undefined ||
+			(sort !== undefined && sortName === undefined)
+		) {
 			cursor.refuseSubtreeAt(
 				itemset,
-				labelName === undefined ? refOf(label) : refOf(value),
+				labelName === undefined
+					? refOf(label)
+					: valueName === undefined
+						? refOf(value)
+						: refOf(sort as Element),
 				X.itemsetRefShape,
 				place,
 			);
@@ -323,11 +342,17 @@ function readItemset(
 		}
 		const labelColumn = bindLookupRead(labelName, table);
 		const valueColumn = bindLookupRead(valueName, table);
+		const sortColumn =
+			sortName === undefined ? undefined : bindLookupRead(sortName, table);
 		// A ref to a column the table lacks reads blank for every choice on a device: one finding,
 		// which the whole itemset stands behind. Its reason is the form parser's for a read of a
 		// column the table lacks, so a reader of the account can tell a read of the Project's data
 		// that is not there from any other.
-		if (labelColumn === undefined || valueColumn === undefined) {
+		if (
+			labelColumn === undefined ||
+			valueColumn === undefined ||
+			(sortName !== undefined && sortColumn === undefined)
+		) {
 			cursor.refuseSubtree(itemset, X.itemsetColumn, place, {
 				reason: "parse:unknown-column",
 			});
@@ -337,6 +362,9 @@ function readItemset(
 			[[tag], "tag", { element: itemset, attribute: "nodeset" }],
 			[lookupReadNames(labelName), "column", refOf(label)],
 			[lookupReadNames(valueName), "column", refOf(value)],
+			...(sortName !== undefined && sort !== undefined
+				? ([[lookupReadNames(sortName), "column", refOf(sort)]] as const)
+				: []),
 		] as const) {
 			for (const name of names) {
 				const refusal = lookupNameRefusal(name, "lookup_options_source", part);
@@ -346,13 +374,17 @@ function readItemset(
 				}
 			}
 		}
-		if (
-			questionChoiceReadIssue(labelColumn) ||
-			questionChoiceReadIssue(valueColumn)
-		) {
+		const unreadable = questionChoiceReadIssue(labelColumn)
+			? label
+			: questionChoiceReadIssue(valueColumn)
+				? value
+				: sortColumn !== undefined && questionChoiceReadIssue(sortColumn)
+					? sort
+					: undefined;
+		if (unreadable !== undefined) {
 			cursor.refuseSubtreeAt(
 				itemset,
-				questionChoiceReadIssue(labelColumn) ? refOf(label) : refOf(value),
+				refOf(unreadable),
 				X.itemsetRefShape,
 				place,
 			);
@@ -405,11 +437,16 @@ function readItemset(
 			cursor.take({ element }, siteElement).value;
 			cursor.take({ element, attribute: "ref" }, siteRef).value;
 		}
+		if (sort !== undefined) {
+			cursor.take({ element: sort }, X.itemsetSort).value;
+			cursor.take({ element: sort, attribute: "ref" }, X.itemsetSort).value;
+		}
 		field.field.optionsSource = {
 			kind: "lookup",
 			tableId: table.tableId,
 			labelColumnId: labelColumn,
 			valueColumnId: valueColumn,
+			...(sortColumn === undefined ? {} : { sortColumnId: sortColumn }),
 		};
 		return undefined;
 	}
@@ -419,6 +456,7 @@ function readItemset(
 		runtime.ok &&
 		bound?.kind === "native" &&
 		bound.id === "casedb" &&
+		sort === undefined &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === "casedb" &&
 		chain.steps[1] === "case" &&

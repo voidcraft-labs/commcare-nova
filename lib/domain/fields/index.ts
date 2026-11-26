@@ -30,6 +30,11 @@ import {
 	barcodeFieldMetadata,
 	barcodeFieldSchema,
 } from "./barcode";
+import {
+	type ConnectActivityField,
+	connectActivityFieldMetadata,
+	connectActivityFieldSchema,
+} from "./connectActivity";
 import { type DateField, dateFieldMetadata, dateFieldSchema } from "./date";
 import {
 	type DatetimeField,
@@ -54,13 +59,16 @@ import {
 	groupFieldSchema,
 } from "./group";
 import {
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	type HiddenField,
-	hiddenFieldCarriesBothValueSources,
 	hiddenFieldMetadata,
 	hiddenFieldSchema,
 } from "./hidden";
-import { type ImageField, imageFieldMetadata, imageFieldSchema } from "./image";
+import {
+	type ImageField,
+	imageDimensionSchema,
+	imageFieldMetadata,
+	imageFieldSchema,
+} from "./image";
 import { type IntField, intFieldMetadata, intFieldSchema } from "./int";
 import { type LabelField, labelFieldMetadata, labelFieldSchema } from "./label";
 import {
@@ -130,6 +138,7 @@ export const fieldKinds = [
 	"signature",
 	"label",
 	"hidden",
+	"connect_activity",
 	"secret",
 	"group",
 	"repeat",
@@ -141,7 +150,7 @@ export type FieldKind = (typeof fieldKinds)[number];
 /**
  * The capture kinds — every kind whose answer is an attachment rather
  * than a value the worker types. They share one schema shape (label +
- * hint + required + relevant; no validation, no default; a case
+ * hint, help, required, relevant, validation and a starting value; a case
  * operation saves a link to the file through a `capture-link` write
  * value) and one wire shape
  * (`<upload mediatype>` over a `binary` bind).
@@ -230,6 +239,7 @@ const fieldUnionSchema = z.union([
 		signatureFieldSchema,
 		labelFieldSchema,
 		hiddenFieldSchema,
+		connectActivityFieldSchema,
 		secretFieldSchema,
 		groupFieldSchema,
 		sectionFieldSchema,
@@ -264,6 +274,7 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	signature: signatureFieldMetadata,
 	label: labelFieldMetadata,
 	hidden: hiddenFieldMetadata,
+	connect_activity: connectActivityFieldMetadata,
 	secret: secretFieldMetadata,
 	group: groupFieldMetadata,
 	repeat: repeatFieldMetadata,
@@ -313,6 +324,7 @@ const fieldKindKeySets: Record<FieldKind, ReadonlySet<string>> = {
 	signature: new Set(Object.keys(signatureFieldSchema.shape)),
 	label: new Set(Object.keys(labelFieldSchema.shape)),
 	hidden: new Set(Object.keys(hiddenFieldSchema.shape)),
+	connect_activity: new Set(Object.keys(connectActivityFieldSchema.shape)),
 	secret: new Set(Object.keys(secretFieldSchema.shape)),
 	group: new Set(Object.keys(groupFieldSchema.shape)),
 	section: new Set(Object.keys(sectionFieldSchema.shape)),
@@ -787,6 +799,9 @@ export const fieldPatchSchemaByKind = {
 	signature: partialOf(signatureFieldSchema),
 	label: partialOf(labelFieldSchema),
 	hidden: partialOf(hiddenFieldSchema),
+	connect_activity: partialOf(connectActivityFieldSchema).extend({
+		activity: connectActivityFieldSchema.shape.activity.optional(),
+	}),
 	secret: partialOf(secretFieldSchema),
 	group: partialOf(groupFieldSchema),
 	section: partialOf(sectionFieldSchema),
@@ -844,6 +859,7 @@ export {
 export type {
 	AudioField,
 	BarcodeField,
+	ConnectActivityField,
 	CountBoundRepeatField,
 	DateField,
 	DatetimeField,
@@ -867,9 +883,4 @@ export type {
 	UserControlledRepeatField,
 	VideoField,
 };
-export {
-	groupBornFieldList,
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
-	hiddenFieldCarriesBothValueSources,
-	TEXT_KEYPADS,
-};
+export { groupBornFieldList, imageDimensionSchema, TEXT_KEYPADS };

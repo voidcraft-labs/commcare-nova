@@ -19170,13 +19170,14 @@
 		"holds": [
 			{
 				"key": [
-					"form",
+					"field",
 					{
 						"$xmlns": [0, 1]
-					}
+					},
+					["follow_up_task"]
 				],
-				"pointer": "/connect/task/id",
-				"value": "follow_up_task"
+				"pointer": "/activity/kind",
+				"value": "assigned-task"
 			}
 		]
 	},
@@ -19186,11 +19187,12 @@
 		"entry": "questions/connect-deliver-unit-and-task-in-one-form",
 		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Household visits",
-			"name": "Deliver visit"
+			"formName": "Deliver visit",
+			"path": "visit_task"
 		},
 		"change": {
 			"op": "named",
@@ -19201,30 +19203,36 @@
 		"id": "hq-connect-deliver/deliver-work-area-expression",
 		"base": "hq-connect-deliver",
 		"entry": "questions/connect-deliver-unit-work-area-id-expression",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Household visits",
-			"name": "Deliver visit"
-		},
 		"change": {
 			"op": "named",
 			"name": "deliver_work_area_expression"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_unit"]
+				],
+				"pointer": "/activity/workAreaId/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-connect-deliver/deliver-work-area-fixed-id",
 		"base": "hq-connect-deliver",
-		"entry": "questions/connect-deliver-unit-work-area-id-expression",
-		"standing": "not-yet",
+		"entry": "questions/connect-value-that-the-editor-clears",
+		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Household visits",
-			"name": "Deliver visit"
+			"formName": "Deliver visit",
+			"path": "visit_unit"
 		},
 		"change": {
 			"op": "named",
@@ -19235,14 +19243,34 @@
 		"id": "hq-connect-learn/connect-learn-and-deliver",
 		"base": "hq-connect-learn",
 		"entry": "questions/connect-learn-and-deliver-blocks-in-one-app",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
 		"change": {
 			"op": "named",
 			"name": "connect_learn_and_deliver"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_unit"]
+				],
+				"pointer": "/activity/kind",
+				"value": "delivery"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro_module"]
+				],
+				"pointer": "/activity/kind",
+				"value": "learning-module"
+			}
+		]
 	},
 	{
 		"id": "hq-connect-learn/connect-long-id",
@@ -19250,11 +19278,12 @@
 		"entry": "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
 		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Training",
-			"name": "Hand washing"
+			"formName": "Hand washing",
+			"path": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
 		},
 		"change": {
 			"op": "named",
@@ -19267,11 +19296,12 @@
 		"entry": "questions/connect-block-text-read-as-an-instance",
 		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Training",
-			"name": "Hand washing"
+			"formName": "Hand washing",
+			"path": "intro_module"
 		},
 		"change": {
 			"op": "named",
@@ -19282,18 +19312,23 @@
 		"id": "hq-connect-learn/connect-time-estimate-zero",
 		"base": "hq-connect-learn",
 		"entry": "questions/connect-blocks-beyond-one-of-each-kind",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Training",
-			"name": "Hand washing"
-		},
 		"change": {
 			"op": "named",
 			"name": "connect_time_estimate_zero"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro_module"]
+				],
+				"pointer": "/activity/estimatedHours",
+				"value": 0
+			}
+		]
 	},
 	{
 		"id": "hq-connect-learn/connect-two-assessments",
@@ -19301,11 +19336,12 @@
 		"entry": "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a",
 		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Training",
-			"name": "Hand washing"
+			"formName": "Hand washing",
+			"path": "final_check"
 		},
 		"change": {
 			"op": "named",
@@ -19313,10 +19349,140 @@
 		}
 	},
 	{
+		"id": "hq-connect-learn/connect-receiver-id-changed",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-unit-id-changed-by-form-editor",
+		"change": {
+			"op": "named",
+			"name": "connect_receiver_id_changed"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "intro_module"
+		}
+	},
+	{
+		"id": "hq-connect-learn/connect-work-area-photo",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-work-area-update-photo-not-forwarded",
+		"change": {
+			"op": "named",
+			"name": "connect_work_area_photo"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "area"
+		}
+	},
+	{
+		"id": "hq-connect-learn/connect-assessment-without-score",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-assessment-without-score",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "intro_check"
+		},
+		"change": {
+			"op": "named",
+			"name": "connect_assessment_without_score"
+		}
+	},
+	{
+		"id": "hq-connect-learn/connect-estimate-outside-receiver-range",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-estimate-outside-receiver-range",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "intro_module"
+		},
+		"change": {
+			"op": "named",
+			"name": "connect_estimate_outside_receiver_range"
+		}
+	},
+	{
+		"id": "hq-connect-learn/connect-repeated-module",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-repeats-module-completion-key",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "lessons/row_module"
+		},
+		"change": {
+			"op": "named",
+			"name": "connect_repeated_module"
+		}
+	},
+	{
+		"id": "hq-connect-deliver/deliver-shared-receiver-key",
+		"base": "hq-connect-deliver",
+		"entry": "questions/connect-deliveries-share-receiver-key",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Household visits",
+			"formName": "Deliver visit",
+			"path": "visits/row_visit"
+		},
+		"change": {
+			"op": "named",
+			"name": "deliver_shared_receiver_key"
+		}
+	},
+	{
+		"id": "hq-connect-deliver/constant-work-area-calculation",
+		"base": "hq-connect-deliver",
+		"entry": "questions/connect-deliver-unit-work-area-id-expression",
+		"change": {
+			"op": "named",
+			"name": "constant_work_area_calculation"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_unit"]
+				],
+				"pointer": "/activity/workAreaId/term/value",
+				"value": "5b2f7d1e-8c3a-4e6b-9d0f-1a2b3c4d5e6f"
+			}
+		]
+	},
+	{
 		"id": "hq-connect-learn/connect-work-area-update",
 		"base": "hq-connect-learn",
 		"entry": "questions/connect-work-area-update",
-		"standing": "not-yet",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -22732,19 +22898,11 @@
 		"id": "hq-lookups/itemset-sort",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-sort-ref",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Farm survey",
-			"formName": "Survey",
-			"path": "district"
-		},
 		"change": {
 			"op": "named",
 			"name": "itemset_sort"
-		}
+		},
+		"holds": []
 	},
 	{
 		"id": "hq-lookups/reads-a-table-the-project-space-lacks",
@@ -22913,19 +23071,23 @@
 		"id": "hq-media/help-media-on-label",
 		"base": "hq-media",
 		"entry": "questions/help-media-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Animals",
-			"formName": "Survey",
-			"path": "place_note"
-		},
 		"change": {
 			"op": "named",
 			"name": "help_media_on_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["place_note"]
+				],
+				"pointer": "/help_media/image",
+				"value": "7e963ff5-eb82-547b-8024-f13d83cd5fd4"
+			}
+		]
 	},
 	{
 		"id": "hq-media/hint-media",
@@ -31357,19 +31519,23 @@
 		"id": "hq-questions/acknowledge-label",
 		"base": "hq-questions",
 		"entry": "questions/acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "acknowledge_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/askForConfirmation",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/action-inside-control",
@@ -31979,19 +32145,17 @@
 		"id": "hq-questions/choice-value-both-quotes",
 		"base": "hq-questions",
 		"entry": "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "choice_value_both_quotes"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["colour"]],
+				"pointer": "/optionsSource/options/1/value",
+				"value": "blue'\"s"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/choice-value-instance",
@@ -32033,18 +32197,40 @@
 		"id": "hq-questions/constraint-on-capture",
 		"base": "hq-questions",
 		"entry": "questions/bind-constraint-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "constraint_on_capture"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/validate/kind",
+				"value": "neq"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/constraint-on-hidden-value",
+		"base": "hq-questions",
+		"entry": "questions/validation-on-a-hidden-value",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Questions",
 			"formName": "Survey",
-			"path": "photo"
+			"path": "double_age"
 		},
 		"change": {
 			"op": "named",
-			"name": "constraint_on_capture"
+			"name": "constraint_on_hidden_value"
 		}
 	},
 	{
@@ -32226,7 +32412,17 @@
 		"id": "hq-questions/data-parent-other-group",
 		"base": "hq-questions",
 		"entry": "questions/data-parent-data-node-under-another-group-than-its-control",
-		"standing": "not-yet",
+		"holds": [],
+		"change": {
+			"op": "named",
+			"name": "data_parent_other_group"
+		}
+	},
+	{
+		"id": "hq-questions/data-parent-at-form-root",
+		"base": "hq-questions",
+		"entry": "questions/data-parent-at-the-form-root-under-a-grouped-control",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -32237,7 +32433,43 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "data_parent_other_group"
+			"name": "data_parent_at_form_root"
+		}
+	},
+	{
+		"id": "hq-questions/data-parent-of-a-group",
+		"base": "hq-questions",
+		"entry": "questions/data-parent-on-a-group-or-repeat",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "archive/details"
+		},
+		"change": {
+			"op": "named",
+			"name": "data_parent_of_a_group"
+		}
+	},
+	{
+		"id": "hq-questions/photo-file-default",
+		"base": "hq-questions",
+		"entry": "questions/default-other-than-blank-on-a-capture-question",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "photo"
+		},
+		"change": {
+			"op": "named",
+			"name": "file_default"
 		}
 	},
 	{
@@ -32261,7 +32493,23 @@
 		"id": "hq-questions/data-root-named-survey",
 		"base": "hq-questions",
 		"entry": "questions/data-root-element-named-other-than-data",
-		"standing": "not-yet",
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/dataRootName",
+				"value": "survey"
+			}
+		],
+		"change": {
+			"op": "named",
+			"name": "data_root_named_survey"
+		}
+	},
+	{
+		"id": "hq-questions/data-root-reserved-by-designer",
+		"base": "hq-questions",
+		"entry": "questions/answer-root-that-the-form-designer-reads-as-its-own-element",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 0,
@@ -32271,7 +32519,24 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "data_root_named_survey"
+			"name": "data_root_reserved_by_designer"
+		}
+	},
+	{
+		"id": "hq-questions/data-root-unaddressable",
+		"base": "hq-questions",
+		"entry": "questions/data-root-name-that-workers-cannot-address",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "named",
+			"name": "data_root_unaddressable"
 		}
 	},
 	{
@@ -32437,10 +32702,32 @@
 		]
 	},
 	{
-		"id": "hq-questions/default-on-capture",
+		"id": "hq-questions/default-blank-on-capture",
 		"base": "hq-questions",
 		"entry": "questions/default-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "default_blank_on_capture"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/default_value/term/value",
+				"value": ""
+			}
+		]
+	},
+	{
+		"id": "hq-questions/default-on-capture",
+		"base": "hq-questions",
+		"entry": "questions/default-other-than-blank-on-a-capture-question",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -32791,73 +33078,83 @@
 		"id": "hq-questions/help-on-capture",
 		"base": "hq-questions",
 		"entry": "questions/help-text-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "help_on_capture"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/help/parts/0/text",
+				"value": "Stand back from the house"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/hidden-calculate-and-default",
 		"base": "hq-questions",
 		"entry": "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "double_age"
-		},
 		"change": {
 			"op": "named",
 			"name": "hidden_calculate_and_default"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["double_age"]],
+				"pointer": "/default_value",
+				"value": { "kind": "term", "term": { "kind": "literal", "value": 1 } }
+			}
+		]
 	},
 	{
 		"id": "hq-questions/hidden-int-type",
 		"base": "hq-questions",
 		"entry": "questions/hidden-value-bound-a-type-nova-would-not-write",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "double_age"
-		},
 		"change": {
 			"op": "named",
 			"name": "hidden_int_type"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["double_age"]
+				],
+				"pointer": "/answerType",
+				"value": "int"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/hidden-value-xmlns",
 		"base": "hq-questions",
 		"entry": "questions/data-node-xmlns-on-a-hidden-value",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "double_age"
-		},
 		"change": {
 			"op": "named",
 			"name": "hidden_value_xmlns"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["double_age"]
+				],
+				"pointer": "/answerNamespace",
+				"value": "http://example.org/special"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/hidden-with-children",
@@ -32881,19 +33178,23 @@
 		"id": "hq-questions/hint-on-label",
 		"base": "hq-questions",
 		"entry": "questions/hint-text-on-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "hint_on_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/hint/parts/0/text",
+				"value": "Read this first"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/ignore-rich-text",
@@ -32948,19 +33249,17 @@
 		"id": "hq-questions/image-max-dimension",
 		"base": "hq-questions",
 		"entry": "questions/jr-imagedimensionscaledmax-250-500-1000px-or-another-positive",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "image_max_dimension"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["photo"]],
+				"pointer": "/maxDimension",
+				"value": 500
+			}
+		]
 	},
 	{
 		"id": "hq-questions/image-max-dimension-invalid",
@@ -33308,17 +33607,40 @@
 		"id": "hq-questions/locked-question",
 		"base": "hq-questions",
 		"entry": "questions/vellum-lock-all-locked-question",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"name": "Survey"
-		},
 		"change": {
 			"op": "named",
 			"name": "locked_question"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/lockedInHq",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-questions/unrecognized-question-lock",
+		"base": "hq-questions",
+		"entry": "questions/question-lock-the-designer-cannot-represent",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "full_name"
+		},
+		"change": {
+			"op": "named",
+			"name": "unrecognized_question_lock"
 		}
 	},
 	{
@@ -33443,8 +33765,8 @@
 	{
 		"id": "hq-questions/message-on-capture",
 		"base": "hq-questions",
-		"entry": "questions/validation-message-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
+		"entry": "questions/validation-message-without-a-validation-condition",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -33457,6 +33779,28 @@
 			"op": "named",
 			"name": "message_on_capture"
 		}
+	},
+	{
+		"id": "hq-questions/message-on-capture-with-condition",
+		"base": "hq-questions",
+		"entry": "questions/validation-message-on-a-capture-question-or-a-label",
+		"change": {
+			"op": "named",
+			"name": "message_on_capture_with_condition"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["location"]
+				],
+				"pointer": "/validate_msg/parts/0/text",
+				"value": "Stand outside"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/message-without-condition",
@@ -33513,6 +33857,22 @@
 		}
 	},
 	{
+		"id": "hq-questions/model-iteration-container-condition",
+		"base": "hq-questions",
+		"entry": "questions/relevance-bound-on-a-model-iteration-repeat-s-container",
+		"change": {
+			"op": "named",
+			"name": "model_iteration_container_condition"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["rounds"]],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/model-iteration-nested",
 		"base": "hq-questions",
 		"entry": "questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind",
@@ -33531,22 +33891,92 @@
 		}
 	},
 	{
+		"id": "hq-questions/model-iteration-initially-relevant",
+		"base": "hq-questions",
+		"entry": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
+		"change": {
+			"op": "named",
+			"name": "model_iteration_initially_relevant"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["section", "rounds"]
+				],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/model-iteration-blank-fallback",
+		"base": "hq-questions",
+		"entry": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
+		"change": {
+			"op": "named",
+			"name": "model_iteration_blank_fallback"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["rounds"]
+				],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/model-iteration-blank-insensitive",
+		"base": "hq-questions",
+		"entry": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
+		"change": {
+			"op": "named",
+			"name": "model_iteration_blank_insensitive"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["rounds"]
+				],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/model-iteration-outside-rule",
 		"base": "hq-questions",
 		"entry": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "rounds"
-		},
 		"change": {
 			"op": "named",
 			"name": "model_iteration_outside_rule"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["rounds"]
+				],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/no-add-remove-without-count",
@@ -33717,6 +34147,27 @@
 			"op": "named",
 			"name": "pragma_question_text"
 		}
+	},
+	{
+		"id": "hq-questions/pragma-presence-text",
+		"base": "hq-questions",
+		"entry": "questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
+		"change": {
+			"op": "named",
+			"name": "pragma_presence_text"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/automaticSubmissionText/carrier/role",
+				"value": "field-label"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/pragma-text-merged",
@@ -33943,22 +34394,103 @@
 		}
 	},
 	{
-		"id": "hq-questions/question-id-script",
+		"id": "hq-questions/submitted-case-answer",
 		"base": "hq-questions",
-		"entry": "questions/question-id-case-registration-script",
-		"standing": "not-yet",
+		"entry": "questions/submitted-node-consumed-as-case",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Questions",
 			"formName": "Survey",
-			"path": "script"
+			"path": "Case"
 		},
 		"change": {
 			"op": "named",
-			"name": "question_id_script"
+			"name": "submitted_case_answer"
 		}
+	},
+	{
+		"id": "hq-questions/ordinary-stock-answer",
+		"base": "hq-questions",
+		"entry": "questions/ordinary-answer-in-stock-namespace",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "double_age"
+		},
+		"change": {
+			"op": "named",
+			"name": "ordinary_stock_answer"
+		}
+	},
+	{
+		"id": "hq-questions/empty-hidden-namespace",
+		"base": "hq-questions",
+		"entry": "questions/submitted-namespace-the-form-designer-cannot-keep",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "double_age"
+		},
+		"change": {
+			"op": "named",
+			"name": "empty_hidden_namespace"
+		}
+	},
+	{
+		"id": "hq-questions/android-answer-name",
+		"base": "hq-questions",
+		"entry": "questions/submitted-answer-name-only-android-stores",
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
+		"change": {
+			"op": "named",
+			"name": "android_answer_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["registration"]
+				],
+				"pointer": "/id",
+				"value": "registration"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/question-id-script",
+		"base": "hq-questions",
+		"entry": "questions/question-id-case-registration-script",
+		"change": {
+			"op": "named",
+			"name": "question_id_script"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["script"]
+				],
+				"pointer": "/id",
+				"value": "script"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/question-node-with-children",
@@ -34033,19 +34565,23 @@
 		"id": "hq-questions/repeat-add-caption",
 		"base": "hq-questions",
 		"entry": "questions/repeat-add-captions-jr-addcaption-jr-addemptycaption",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "members"
-		},
 		"change": {
 			"op": "named",
 			"name": "repeat_add_caption"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["members"]
+				],
+				"pointer": "/addLabel/parts/0/text",
+				"value": "Add a member"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/repeat-appearance",
@@ -34139,19 +34675,23 @@
 		"id": "hq-questions/required-on-label",
 		"base": "hq-questions",
 		"entry": "questions/bind-required-on-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "required_on_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/required/kind",
+				"value": "match-all"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-attachment",

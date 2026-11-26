@@ -163,8 +163,8 @@ A choice's `value` is the answer the app stores, not its wording: a lowercase
 slug with words joined by underscores (`prefer_not_to_say`), unique within the
 field and kept stable once data exists. It can't hold spaces, because the
 device refuses a choice value with a space in it and a multi-select answer is a
-space-separated list of these values, and it can't hold both an apostrophe and
-a double quote. The wording
+space-separated list of these values. Both kinds of quotation mark can appear
+in a stored value. The wording
 people read goes in `label`. A value that breaks that shape is refused at the
 tool's input schema, and the refusal restates the shape; an app that already
 holds such a value fails validation with a finding that names the
@@ -177,7 +177,9 @@ expression. A fixed default can use only the select's offered choices, or be emp
 
 Stored `uuid`, option `media`, and identity aliases are rejected on every field
 writer. Lookup-backed choices use the canonical
-`tableId` / `valueColumnId` / `labelColumnId` fields, plus optional `filter`;
+`tableId` / `valueColumnId` / `labelColumnId` fields, plus optional `filter`
+and `sortColumnId` (the column whose text orders the choices; without it they
+keep the table's row order);
 there are no `tableUuid` or column-UUID aliases. Option media is changed through
 the dedicated media tools.
 
@@ -311,6 +313,13 @@ answers that selected those records. To try a different date range, pass both
 blank adds `name:blank` set to `true`; Android's Search screen has no such box,
 so an Android check refuses it. Hidden values are worked out by the search, so
 leave them out.
+
+A worker-controlled repeat starts empty. `evaluate_form` and an app test’s
+`answer` action take `repeats`, for example `[{ "path": "visits", "count": 2 }]`.
+That creates `visits[0]` and `visits[1]` before their answers are applied. A
+count of zero clears the group. On a repeat question, `addFirstLabel` sets the
+first entry button and `addLabel` sets the later one. Each accepts translated
+wording and references to answers.
 
 For a complete observed journey, `start_app_test` opens the saved app at its
 entry screen with disposable records. `start_app_test` and `continue_app_test`
@@ -655,7 +664,7 @@ record module declares its record type and starts with a Name column; use
 worker information before referring to it in conditions or calculations.
 Commcare Nova supports one submenu tier: create the top-level parent first,
 then pass its UUID as the child's `parentModuleUuid`. Configure selection,
-Search, naming rules and Connect after their referenced objects exist.
+Search and naming rules after their referenced objects exist.
 
 An incomplete module or empty form can remain private while you work.
 `save_work` creates the app only when the complete candidate passes validation.
@@ -670,41 +679,29 @@ use the saved revision.
 
 ### Configuring CommCare Connect
 
-`configure_connect` owns enabling Connect, switching between `learn` and
-`deliver`, replacing the participant set, and disabling Connect. For an enabled
-mode, pass the complete nonempty set of participating forms. Every form is
-addressed by `formUuid`, which accepts its stable ID or unambiguous name; an unlisted form is auxiliary and any old Connect block
-on it is cleared. Before enabling Connect, let the user know that once the Connect
-version is installed on Android, every form a worker submits includes the device's
-location if CommCare has location permission and the device gets a GPS fix.
+Use `update_app` to choose `runs_only_on: "android"` when the app will use
+Connect. Once workers install this version, each Android submission includes
+the device's location when CommCare has permission and a GPS fix.
+
+Choose the roles the app needs. For example, an app can train workers and
+record their deliveries in the same opportunity.
 
 ```json
 {
   "work_id": "work-id",
   "request_id": "unique-request-id",
-  "mode": "learn",
-  "participants": [
-    {
-      "formUuid": "01890f45-0000-7000-8000-000000000002",
-      "connect": {
-        "learn_module": {
-          "name": "Health basics",
-          "description": "Introduction and guided practice",
-          "time_estimate": 1
-        }
-      }
-    }
-  ]
+  "roles": ["learn", "deliver"]
 }
 ```
 
-`time_estimate` is the estimated whole hours needed to complete the module.
-Round up and use at least `1`.
-
-The Connect sub-block `id` is an emitted Connect identifier, not the address of
-the Commcare Nova form. Usually omit it: Commcare Nova derives it once and stores the final value.
-An explicit id must already be valid and unique, or the whole call is refused;
-Commcare Nova never silently rewrites it. The form itself is selected by its stable ID or unambiguous name.
+Use `add_fields` to place a Connect activity beside its questions, including
+inside a group or repeat. Learning modules take whole hours, including zero.
+Assessments record an integer score. In rows a query lists, a delivery can use
+the row's person or place ID, name and work area ID. In a repeat the worker adds
+rows to, each row asks for a person or place ID no other row repeats; the `activity`
+setting of `add_fields` describes that rule. An assigned task identifies an open
+assignment. Keep the question ID when editing a published activity because
+Connect uses it to recognize submissions.
 
 An ordinary app’s `update_app` accepts `capture_location`: true requests location when
 every Android form opens, false lets each form choose. `update_form` accepts the
@@ -714,23 +711,10 @@ without a location. Workers get a changed setting when they install the new rele
 [Turning off automatic location capture](../commcare-connect.mdx#turning-off-automatic-location-capture)
 describes the switches after Connect is turned off.
 
-To disable Connect and clear every form's Connect block in the same change:
-
-```json
-{
-  "work_id": "work-id",
-  "request_id": "unique-request-id",
-  "mode": null
-}
-```
-
-Do not include `participants` with `mode: null`. Duplicate or foreign form
-UUIDs, empty participation, incomplete blocks, mixed mode families, and
-duplicate Connect ids are refused before anything saves. Once a mode exists,
-`update_form` can refine one participant's block, but it cannot create the mode,
-cross mode families, or change which forms participate. Creation tools have no
-Connect slot; a newly created form is auxiliary until a later
-`configure_connect` call replaces the complete set.
+To turn off a role, first change or remove the activities that use it. Then
+pass the remaining roles to `configure_connect`, or pass `roles: []` to turn
+off both. The app and form location settings decide whether Android still
+requests location once no role is left.
 
 ## Working with workers and personas
 
@@ -1190,6 +1174,13 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
 | `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, its `badge` when it has one (text or a calculation), case operations with authored conditions and values, its `openCondition` and `closeCondition` as authored text, its after-submit `destinations` in the order they run (each one's `uuid` is the `linkUuid` the link tools take), and its `otherwise`: `{ kind: "destination", destination }` or `{ kind: "link", linkUuid, target, datums? }`. It also lists `offeredOnCaseListsOf`, the modules whose case lists always offer the form. |
 
+An integration that receives submitted answers may depend on their first name.
+The form designer reserves `instance`, `bind` and `parsererror` for its own elements. Choose a different answer root, such as `survey`.
+
+`update_form.answerRoot` changes that name for the whole form. For example,
+`visit_report` makes an answer at `visit_report/village`. Pass `null` to restore
+`data`. A wording edit keeps the current name. `get_form` returns a custom name as `form.answerRoot`.
+
 ### Where a form goes after submit
 
 A form's `post_submit` says where people go once it is submitted, for a form
@@ -1425,6 +1416,15 @@ Question display settings use the same field identities as answers. For example,
 
 A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has a section, every top-level field is one, so group questions into sections before saving. `add_fields` can add sections and their questions together, with `parentUuid` naming the section; Nova assigns identities and orders parents before children. `set_form_sections` can re-page an existing form. Intermediate arrangements stay private until the complete form is valid. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
 
+A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has sections, worker questions go inside them. A Connect activity at the form root stays at its submitted address, including between pages. Leave activities out of the page lists. Nova keeps their submitted locations and order. To remove a page that contains an activity, move the activity first. `add_fields` can add sections and their questions together, with `parentUuid` naming the section; Nova assigns identities and orders parents before children. `set_form_sections` can re-page an existing form. Intermediate arrangements stay private until the complete form is valid. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
+
+A hidden value can take `answerNamespace` when a receiving service requires
+its own namespace. Pass `null` in `edit_field` to inherit the form’s namespace.
+`lockedInHq` marks a question for restricted editing in CommCare HQ. Project
+membership determines who can change it in Nova. A reading or publishing
+refusal about a submitted name identifies the platform or service that
+interprets it and the change that lets the form proceed.
+
 ### Saving a field answer to a case
 
 A field's `caseWrite` names one write to `{caseType, property}`; `get_field`
@@ -1474,6 +1474,14 @@ to, `null` stops it saving anywhere, and leaving `caseWrite` out keeps it. A
 question that saves to several places refuses a `caseWrite`; change each of
 those writes with `update_case_operation`, or pass `null` first to stop every
 one. Changing `id` never renames saved case data.
+
+A message (`label`) can use `askForConfirmation` to show an Android checkbox.
+With `required` set, the worker must check it to continue. Web Apps confirms
+the visible message on submission. Messages and capture questions can carry
+a starting answer, help, and a validation rule with its message. A starting
+filename supplies text. Choosing or recording a file supplies the bytes.
+
+An `image` question can set `maxDimension` to the longest side in pixels for JPEG and PNG photos sent from Android. A positive whole number sets the limit, up to 2147483647. On an edit, `null` restores original size. Web Apps sends the original file.
 
 A capture field (`image`, `audio`, `video`, `signature`, `file`) saves a link
 to its file, with the same `caseWrite` as any other field. In a case change,

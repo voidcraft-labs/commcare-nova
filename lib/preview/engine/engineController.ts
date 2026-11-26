@@ -62,6 +62,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
 import { formContentUuid } from "@/lib/domain/formEntryCases";
 import { declaredPlatforms, PLATFORMS } from "@/lib/domain/platforms";
 import type { ProseTemplate } from "@/lib/domain/prose";
@@ -93,7 +94,7 @@ import {
 	entrySessionData,
 } from "./entrySessionData";
 import type { FieldTreeNode } from "./fieldTree";
-import { buildFieldTree } from "./fieldTree";
+import { formFieldTrees } from "./fieldTree";
 import {
 	type CaseDataByType,
 	FormEngine,
@@ -392,7 +393,7 @@ function findModuleForForm(
  */
 function buildPathMaps(
 	tree: FieldTreeNode[],
-	prefix = "/data",
+	prefix: string,
 ): {
 	uuidToPath: Map<string, string>;
 	pathToUuid: Map<string, string>;
@@ -481,6 +482,8 @@ function classifyChange(
 		hint?: ProseTemplate;
 		help?: ProseTemplate;
 		validate_msg?: ProseTemplate;
+		addFirstLabel?: ProseTemplate;
+		addLabel?: ProseTemplate;
 	};
 	const prev = previous as Field & {
 		calculate?: unknown;
@@ -492,6 +495,8 @@ function classifyChange(
 		hint?: ProseTemplate;
 		help?: ProseTemplate;
 		validate_msg?: ProseTemplate;
+		addFirstLabel?: ProseTemplate;
+		addLabel?: ProseTemplate;
 	};
 
 	if (
@@ -523,7 +528,13 @@ function classifyChange(
 	const labelChanged = cur.label !== prev.label;
 	const hintChanged = cur.hint !== prev.hint;
 	const helpChanged = cur.help !== prev.help;
-	if (labelChanged || hintChanged || helpChanged) {
+	if (
+		labelChanged ||
+		hintChanged ||
+		helpChanged ||
+		cur.addFirstLabel !== prev.addFirstLabel ||
+		cur.addLabel !== prev.addLabel
+	) {
 		/* A reference is a typed part, not a `#` in the text. Scanning for the
 		 * character both threw — a `ProseTemplate` has no `.includes` — and
 		 * asked the wrong question: a label reading "Ward #3" carries no
@@ -536,6 +547,10 @@ function classifyChange(
 			prev.hint,
 			cur.help,
 			prev.help,
+			cur.addFirstLabel,
+			prev.addFirstLabel,
+			cur.addLabel,
+			prev.addLabel,
 		].some(
 			(template) =>
 				template?.parts.some((part) => part.kind !== "text") ?? false,
@@ -560,8 +575,10 @@ function activeFormTopologyChanged(
 	trackedUuids: ReadonlySet<string>,
 ): boolean {
 	if (
+		formRootName(current.forms[formContentUuid(current, formUuid)]) !==
+			formRootName(previous.forms[formContentUuid(previous, formUuid)]) ||
 		current.fieldOrder[formContentUuid(current, formUuid)] !==
-		previous.fieldOrder[formContentUuid(previous, formUuid)]
+			previous.fieldOrder[formContentUuid(previous, formUuid)]
 	) {
 		return true;
 	}
@@ -573,6 +590,7 @@ function activeFormTopologyChanged(
 		if (
 			currentField === undefined ||
 			previousField === undefined ||
+			currentField.submissionPlacement !== previousField.submissionPlacement ||
 			currentField.id !== previousField.id ||
 			currentField.kind !== previousField.kind
 		) {
@@ -2349,7 +2367,7 @@ export class EngineController {
 					await engine.initializeAsync(evaluator);
 					if (entryKey !== this.currentEntryKey || engine !== this.engine)
 						return false;
-					const maps = buildPathMaps(engine.getFieldTree());
+					const maps = buildPathMaps(engine.getFieldTree(), engine.rootPath);
 					this.uuidToPath = maps.uuidToPath;
 					this.pathToUuid = maps.pathToUuid;
 					this.syncAllToStore();
@@ -2622,7 +2640,7 @@ export class EngineController {
 
 		/* Build UUID ↔ path mapping from the engine's walked tree */
 		const tree = this.engine.getFieldTree();
-		const maps = buildPathMaps(tree);
+		const maps = buildPathMaps(tree, this.engine.rootPath);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
 
@@ -2847,7 +2865,11 @@ export class EngineController {
 	 *  the uuid map can't address. */
 	setValueAt(path: string, value: string): void {
 		if (this.rebuilding) return;
-		if (!this.engine || this.caseDatabaseWait() !== undefined) return;
+		if (
+			!this.engine?.workerRelevantPaths().has(path) ||
+			this.caseDatabaseWait() !== undefined
+		)
+			return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
 		this.contain("value-change", formUuid, undefined, () => {
@@ -2866,7 +2888,8 @@ export class EngineController {
 	}
 
 	async setValueAtAsync(path: string, value: string): Promise<boolean> {
-		if (this.rebuilding) return false;
+		if (this.rebuilding || !this.engine?.workerRelevantPaths().has(path))
+			return false;
 		if (this.caseDatabaseWait() !== undefined) return false;
 		if (this.xpathRuntime === undefined) {
 			this.setValueAt(path, value);
@@ -2964,7 +2987,7 @@ export class EngineController {
 			}
 			return undefined;
 		};
-		return walk(engine.getFieldTree(), "/data", 0);
+		return walk(engine.getFieldTree(), engine.rootPath, 0);
 	}
 
 	private async awaitCaptureEntryReady(
@@ -3511,9 +3534,9 @@ export class EngineController {
 	/** Get the repeat count for a repeat group. */
 	getRepeatCount(uuid: string): number {
 		const engine = this.retainedPresentation?.engine ?? this.engine;
-		if (!engine) return 1;
+		if (!engine) return 0;
 		const path = this.getPath(uuid);
-		if (!path) return 1;
+		if (!path) return 0;
 		return engine.getRepeatCount(path);
 	}
 
@@ -3544,7 +3567,11 @@ export class EngineController {
 		if (!this.engine) return 0;
 		if (!this.isUserControlledRepeat(uuid)) return 0;
 		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (!path) return 0;
+		if (
+			path === undefined ||
+			!this.engine?.workerCanEditRepeat(path, uuid, "add")
+		)
+			return 0;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return 0;
 		return this.contain("repeat-change", formUuid, 0, () => {
@@ -3572,17 +3599,26 @@ export class EngineController {
 			return 0;
 		}
 		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (path === undefined || this.xpathRuntime === undefined) {
+		if (path === undefined) return 0;
+		if (this.xpathRuntime === undefined) {
 			return this.addRepeat(uuid, atPath);
 		}
 		return this.runAsyncRevision(
 			"repeat-change",
 			formUuid,
 			async (revision, generation, signal) => {
-				const index = await engine.addRepeatAsync(
-					path,
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				const evaluate = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
 				);
+				if (
+					!(await engine.workerCanEditRepeatAsync(path, uuid, "add", evaluate))
+				)
+					return 0;
+				const index = await engine.addRepeatAsync(path, evaluate);
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return 0;
 				this.syncAllPathsSelectively();
@@ -3600,7 +3636,11 @@ export class EngineController {
 		if (!this.engine) return;
 		if (!this.isUserControlledRepeat(uuid)) return;
 		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (!path) return;
+		if (
+			path === undefined ||
+			!this.engine?.workerCanEditRepeat(path, uuid, "remove")
+		)
+			return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
 		this.contain("repeat-change", formUuid, undefined, () => {
@@ -3609,7 +3649,12 @@ export class EngineController {
 			this.engine?.removeRepeat(path, index);
 			// Selective sweep — see `addRepeat`.
 			this.syncAllPathsSelectively();
-			if (entryKey !== undefined && count > 1 && index >= 0 && index < count) {
+			if (
+				entryKey !== undefined &&
+				Number.isInteger(index) &&
+				index >= 0 &&
+				index < count
+			) {
 				const event: RepeatCompactionEvent = {
 					entryKey,
 					removedPrefix: `${path}[${index}]`,
@@ -3647,24 +3692,38 @@ export class EngineController {
 			return false;
 		}
 		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (path === undefined || this.xpathRuntime === undefined) {
+		if (path === undefined) return false;
+		if (this.xpathRuntime === undefined) {
+			const before = engine.getRepeatCount(path);
 			this.removeRepeat(uuid, index, atPath);
-			return true;
+			return engine.getRepeatCount(path) < before;
 		}
 		return this.runAsyncRevision(
 			"repeat-change",
 			formUuid,
 			async (revision, generation, signal) => {
-				const count = engine.getRepeatCount(path);
-				await engine.removeRepeatAsync(
-					path,
-					index,
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				const evaluate = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
 				);
+				if (
+					!(await engine.workerCanEditRepeatAsync(
+						path,
+						uuid,
+						"remove",
+						evaluate,
+					))
+				)
+					return false;
+				const count = engine.getRepeatCount(path);
+				await engine.removeRepeatAsync(path, index, evaluate);
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return false;
 				this.syncAllPathsSelectively();
-				if (count > 1 && index >= 0 && index < count) {
+				if (Number.isInteger(index) && index >= 0 && index < count) {
 					const event: RepeatCompactionEvent = {
 						entryKey,
 						removedPrefix: `${path}[${index}]`,
@@ -3697,7 +3756,22 @@ export class EngineController {
 		return field.repeat_mode === "user_controlled";
 	}
 
-	/** Get the XForm path for a UUID. */
+	/** The relevant controls belonging to the displayed runtime revision. */
+	workerRelevantPaths(): ReadonlySet<string> | undefined {
+		return (
+			this.retainedPresentation?.engine ?? this.engine
+		)?.workerRelevantPaths();
+	}
+
+	containsControl(outer: string, inner: string): boolean {
+		return (
+			(this.retainedPresentation?.engine ?? this.engine)?.containsControl(
+				outer,
+				inner,
+			) ?? false
+		);
+	}
+
 	getPath(uuid: string): string | undefined {
 		return (this.retainedPresentation?.uuidToPath ?? this.uuidToPath).get(uuid);
 	}
@@ -3929,18 +4003,22 @@ export class EngineController {
 			if (previousInput === undefined || currentInput === undefined) return;
 
 			const previousMaps = buildPathMaps(
-				buildFieldTree(
+				formFieldTrees(
 					previousInput.formUuid,
 					previousInput.fields,
 					previousInput.fieldOrder,
-				),
+					`/${formRootName(previousInput.form)}`,
+				).submitted,
+				`/${formRootName(previousInput.form)}`,
 			);
 			const currentMaps = buildPathMaps(
-				buildFieldTree(
+				formFieldTrees(
 					currentInput.formUuid,
 					currentInput.fields,
 					currentInput.fieldOrder,
-				),
+					`/${formRootName(currentInput.form)}`,
+				).submitted,
+				`/${formRootName(currentInput.form)}`,
 			);
 			const previousUuids = new Set(previousMaps.uuidToPath.keys());
 			const currentUuids = new Set(currentMaps.uuidToPath.keys());
@@ -4024,7 +4102,12 @@ export class EngineController {
 					},
 				});
 			}
-			if (pathPairs.length === 0 && captureMoves.length === 0) return;
+			if (
+				pathPairs.length === 0 &&
+				captureMoves.length === 0 &&
+				formRootName(previousInput.form) === formRootName(currentInput.form)
+			)
+				return;
 
 			engine.renamePaths(pathPairs);
 			const removedPaths = [...previousUuids]
@@ -4559,12 +4642,13 @@ export class EngineController {
 		/* Rebuild path MAPS — the conversion (and any co-incident rename)
 		 * moves paths. The engine's DAG rebuild waits until AFTER the value
 		 * moves below: old paths materialize against the pre-change topology. */
-		const newTree = buildFieldTree(
+		const newTree = formFieldTrees(
 			input.formUuid,
 			input.fields,
 			input.fieldOrder,
-		);
-		const maps = buildPathMaps(newTree);
+			`/${formRootName(input.form)}`,
+		).submitted;
+		const maps = buildPathMaps(newTree, this.engine.rootPath);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
 
@@ -4692,8 +4776,13 @@ export class EngineController {
 		if (!input) return;
 
 		/* Rebuild path maps and DAG to include the new fields */
-		const tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
-		const maps = buildPathMaps(tree);
+		const tree = formFieldTrees(
+			input.formUuid,
+			input.fields,
+			input.fieldOrder,
+			`/${formRootName(input.form)}`,
+		).submitted;
+		const maps = buildPathMaps(tree, this.engine.rootPath);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
 		this.engine.rebuildDag(input);
@@ -4748,12 +4837,13 @@ export class EngineController {
 		/* Rebuild path maps and DAG without the removed fields */
 		const input = this.currentEngineInput();
 		if (input) {
-			const tree = buildFieldTree(
+			const tree = formFieldTrees(
 				input.formUuid,
 				input.fields,
 				input.fieldOrder,
-			);
-			const maps = buildPathMaps(tree);
+				`/${formRootName(input.form)}`,
+			).submitted;
+			const maps = buildPathMaps(tree, this.engine.rootPath);
 			this.uuidToPath = maps.uuidToPath;
 			this.pathToUuid = maps.pathToUuid;
 			this.engine.rebuildDag(input);

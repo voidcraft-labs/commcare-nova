@@ -31,6 +31,7 @@ MEMBERS = (
     "android_grouped_tile_reopen",
     "connect_block_renamed",
     "settings_page_writes_unset_settings",
+    "vellum_reserved_question_name",
     "android_settings_page_writes_unset_settings",
 )
 
@@ -110,7 +111,7 @@ def _form(*subcases, requires="case", opens=None):
     }
 
 
-def _vellum(alerts, form, editor="vellum"):
+def _vellum(alerts, form, editor="vellum", *, questions=(), app=None):
     report = {
         "kind": "vellum",
         "source": SOURCE,
@@ -118,7 +119,7 @@ def _vellum(alerts, form, editor="vellum"):
             "record": {
                 "loaded": True,
                 "formErrors": [],
-                "questions": [],
+                "questions": list(questions),
                 "serializationWarnings": [],
                 "preSaveAlerts": list(alerts),
             },
@@ -128,7 +129,7 @@ def _vellum(alerts, form, editor="vellum"):
         },
         "saves": [],
     }
-    found = proof4.vellum_report(report, document="-", editor=editor, scope=proof4.Scope(0, 1), form=form)
+    found = proof4.vellum_report(report, document="-", editor=editor, scope=proof4.Scope(0, 1), form=form, app=app)
     return [difference.path for difference in found]
 
 
@@ -571,3 +572,45 @@ def test_android_search_needs_unchanged_forced_results_on_the_same_list_and_term
         changed = deepcopy(after)
         changed["walks"]["m0/m0-f1"]["steps"][0]["list"]["searches"][mode] = {"fo/o": ["Different row"]}
         assert held(d.artifact, path, d, added, before, changed) is None
+
+
+# Vellum's reserved question names ---------------------------------------------------------------------------------
+
+
+def _named(name):
+    """A question Vellum warns about by its ID, as the editor's record holds it."""
+    message = (
+        f"The ID '{name}' may cause problems with form parsing. It is recommended to pick a different Question ID."
+    )
+    return {
+        "path": f"/data/{name}",
+        "type": "Text",
+        "messages": [
+            {"attribute": "nodeID", "key": "mug-nodeID-reserved-name-warning", "level": "warning", "message": message}
+        ],
+    }
+
+
+WEB_APPS_APP, ANDROID_APP = {"cloudcare_enabled": True}, {"cloudcare_enabled": False}
+
+
+def test_the_reserved_name_warning_vellum_keys_is_the_one_the_member_names():
+    assert _vellum([], None, questions=[_named("case")]) == [hq_own_reports.RESERVED_NAME_WARNING]
+
+
+def test_the_warning_on_script_is_hqs_own_in_any_app():
+    for app in (WEB_APPS_APP, ANDROID_APP, None):
+        for editor in ("vellum", "vellum again"):
+            assert _vellum([], None, editor, questions=[_named("script"), _named("Script")], app=app) == []
+
+
+def test_the_warning_on_registration_is_hqs_own_only_where_the_app_is_off_web_apps():
+    for name in ("registration", "Registration"):
+        assert _vellum([], None, questions=[_named(name)], app=ANDROID_APP) == []
+        for app in (WEB_APPS_APP, {}, None):
+            assert _vellum([], None, questions=[_named(name)], app=app) == [hq_own_reports.RESERVED_NAME_WARNING]
+
+
+def test_the_warning_on_case_stays_the_exports():
+    for app in (WEB_APPS_APP, ANDROID_APP):
+        assert _vellum([], None, questions=[_named("case")], app=app) == [hq_own_reports.RESERVED_NAME_WARNING]

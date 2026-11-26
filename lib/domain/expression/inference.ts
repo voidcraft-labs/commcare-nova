@@ -30,7 +30,7 @@
  * read an untyped property as text; inference and writer agreement do not.
  * Data tables are no document fact, so inference reads none.
  *
- * **What Core holds.** A Hidden Value's bind is `xsd:dateTime` when its write
+ * **What Core holds.** A Hidden Value can declare its answer type. Its automatic bind is `xsd:dateTime` when its write
  * destination is a date and time (`fieldValueType`), else `xsd:string`. A
  * `calculate` is stored by `Recalculate.java::wrapData`: text stays
  * `StringData` under any bind, a number becomes `IntegerData`/`DecimalData`
@@ -104,7 +104,7 @@ import {
 import { type Expression, isExpression } from "./types";
 
 /** Which slot a Hidden Value's value comes from; it has at most one
- * (`HIDDEN_VALUE_BOTH_SOURCES` refuses both). */
+ * (the calculation supplies the eventual answer when both are present). */
 export type HiddenValueSource = "calculate" | "default_value";
 
 /** One value a Hidden Value can end with: a branch of `if`, `switch` or
@@ -524,6 +524,47 @@ function concreteType(
 		: data;
 }
 
+/** The value reaching a case writer after a hidden assignment. Starting
+ * answers cast into their declared type. Calculations keep the expression's
+ * own class, except for the numeric and boolean coercions in wrapData. */
+function hiddenAssignmentType(
+	site: HiddenWriterSite,
+	node: NodeType | undefined,
+	forStorage: boolean,
+): CasePropertyDataType | undefined {
+	const bind = site.field.answerType;
+	const value = concreteType(node);
+	if (bind === undefined) return value;
+	if (bind === "boolean") return undefined;
+	if (site.source === "default_value") {
+		// An untyped starting answer is cast to nothing: Core holds it as
+		// UncastData (`AnswerDataFactory.templateByDataType`, DATATYPE_NULL),
+		// the same text the automatic `xsd:string` holds as StringData, so
+		// it keeps the value's own type as the automatic one does.
+		if (bind === "untyped") return value;
+		if (bind === "long") return forStorage ? "text" : "decimal";
+		if (bind === "file" || bind === "barcode") return "text";
+		return bind;
+	}
+	const held = scalarHeldOf(node);
+	if (held === "number" && bind === "int") return "int";
+	// A property’s whole number fits int4. A 64-bit answer is a number
+	// in expressions, and its submitted digits fit a text property.
+	if (held === "number" && bind === "long")
+		return forStorage ? "text" : "decimal";
+	if (held === "date") {
+		if (bind === "time" || bind === "datetime") return bind;
+		if (bind === "single_select" || bind === "multi_select") return bind;
+		return "date";
+	}
+	if (
+		held === "string" &&
+		(bind === "single_select" || bind === "multi_select")
+	)
+		return bind;
+	return value;
+}
+
 /** A Hidden Value writer's types for its property: its agreed type, or each
  * type its results name where they agree on none. */
 function hiddenWriterTypes(
@@ -550,7 +591,9 @@ function writesIsoDateText(expression: Expression): boolean {
 	return every;
 }
 
-function isBlankLiteral(expression: Expression): boolean {
+/** Whether an expression is the blank text literal `''`, with no declared
+ * type: the one starting value an attachment question keeps. */
+export function isBlankLiteral(expression: Expression): boolean {
 	return (
 		expression.kind === "term" &&
 		expression.term.kind === "literal" &&
@@ -1150,7 +1193,7 @@ class Inference {
 				node,
 				blank,
 				isoDateText: isIsoDateText(output),
-				type: blank ? undefined : concreteType(node),
+				type: blank ? undefined : hiddenAssignmentType(site, node, true),
 				clockLost: node?.clockLost === true,
 			});
 		});
@@ -1161,7 +1204,7 @@ class Inference {
 		);
 		const opinion = agreedStorageType(typed);
 		return {
-			expressionType: concreteType(whole),
+			expressionType: hiddenAssignmentType(site, whole, false),
 			whole,
 			outputs,
 			opinion,
@@ -1197,6 +1240,8 @@ class Inference {
 				? destination
 				: undefined;
 		const expressionType = analysis?.expressionType;
+		if (site.field.answerType === "long" && expressionType === "decimal")
+			return expressionType;
 		if (destination === undefined) return expressionType;
 		return expressionType === undefined ||
 			isValueStorageAssignable(expressionType, destination)
@@ -1717,7 +1762,27 @@ function heldOf(
 	// A field with no value stays blank.
 	if (site.source === undefined) return "string";
 	// SetValueAction casts through the bind's answer class.
-	if (site.source === "default_value") return dateTimeBind ? "date" : "string";
+	if (site.field.answerType === "boolean") return "boolean";
+	if (site.source === "default_value") {
+		switch (site.field.answerType) {
+			case "int":
+			case "long":
+			case "decimal":
+				return "number";
+			case "date":
+			case "datetime":
+				return "date";
+			default:
+				return dateTimeBind ? "date" : "string";
+		}
+	}
+	if (
+		scalarHeldOf(analysis?.whole) === "date" &&
+		(site.field.answerType === "time" ||
+			site.field.answerType === "single_select" ||
+			site.field.answerType === "multi_select")
+	)
+		return "string";
 	// Recalculate.wrapData: the result's own class decides, the bind only
 	// whether a Date keeps its clock.
 	return scalarHeldOf(analysis?.whole) ?? "string";

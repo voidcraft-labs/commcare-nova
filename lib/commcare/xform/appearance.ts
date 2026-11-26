@@ -38,7 +38,11 @@ export type DisplaySettings = {
 	[K in Exclude<keyof typeof displaySchemas, "choiceLayout">]?: z.infer<
 		(typeof displaySchemas)[K]
 	>;
-} & { choiceLayout?: ChoiceLayout; fieldList?: true };
+} & {
+	choiceLayout?: ChoiceLayout;
+	fieldList?: true;
+	askForConfirmation?: boolean;
+};
 
 export function kindAppearanceToken(
 	kind: FieldKind,
@@ -61,6 +65,7 @@ export function writeFieldAppearance(
 	const kindToken = kindAppearanceToken(kind, settings);
 	if (
 		kindToken &&
+		!(kind === "label" && settings.askForConfirmation) &&
 		!(kind === "label" && (settings.selectableText || settings.banner))
 	)
 		words.push(kindToken);

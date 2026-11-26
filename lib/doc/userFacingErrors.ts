@@ -59,6 +59,10 @@ import type {
 } from "@/lib/commcare/validator/errors";
 import type { UserFacingValidationCode } from "@/lib/commcare/validator/gate";
 import { chosenCaseReadSentence } from "@/lib/commcare/validator/recordFindings";
+import {
+	formBehaviorTextIssueFromDetails,
+	formBehaviorTextSentence,
+} from "@/lib/commcare/xform/behaviorTextCopy";
 import { CONNECT_SOURCE_TEXT_WORDS } from "@/lib/commcare/xform/sourceTexts";
 import {
 	type EntryPointIdProblem,
@@ -70,6 +74,7 @@ import {
 	type ScalarType,
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
+import { missingConnectRoleMessage } from "@/lib/domain/fields/connectActivity";
 import { formTypeLabels } from "@/lib/domain/forms";
 import { questionChoiceReadSentence } from "@/lib/domain/lookupRead";
 import {
@@ -163,6 +168,14 @@ const standardValueWords = (property: string): string =>
 	isWritableStandardCaseProperty(property)
 		? WRITABLE_STANDARD_CASE_PROPERTY_WORDS[property]
 		: "name";
+
+/** The two submitted places a Connect submission finding names, as a
+ *  trailing clause, or nothing where the finding names none. */
+const connectPlaces = (e: ValidationError): string => {
+	const first = e.details?.first;
+	const second = e.details?.second;
+	return first && second ? ` (at ${q(first)} and ${q(second)})` : "";
+};
 
 /** The last sentence of a choice list's row finding: the remedy in Project
  * data, or, for a table CommCare HQ manages (`managedInDomain`), the managed
@@ -593,8 +606,6 @@ const optionValueProblemPhrase = (e: ValidationError): string => {
 			return "has an empty stored value";
 		case "whitespace":
 			return `has the stored value ${shown}, which contains a space`;
-		case "both-quotes":
-			return "holds both an apostrophe and a double quote";
 		case "instance-read":
 			return `has the stored value ${shown}, which CommCare HQ reads as a data source when it builds the form`;
 		default:
@@ -694,6 +705,11 @@ type PlatformBuilderCopy =
 	| { readonly sentence: string };
 
 const PLATFORM_BUILDER_COPY = {
+	"answer-name-requires-android": {
+		lead: (subject) =>
+			`${subject} has an answer ID that Web Apps reserves for its own instructions.`,
+		alternative: "give the answer a different ID",
+	},
 	"datetime-question": {
 		lead: (subject) =>
 			`${subject} asks for a date and time, which Web Apps can't show.`,
@@ -898,21 +914,23 @@ const looseFieldsPhrase = (e: ValidationError): string => {
  * the labels its details carry. */
 function queryRepeatModelIterationSentence(e: ValidationError): string {
 	const repeat = q(det(e, "repeatLabel", fieldName(e)));
-	const opening = `${repeat} takes its rows once, when the form opens, as your published app does`;
-	const follow =
-		"You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id";
+	const published = e.details?.published !== "false";
+	const opening = `${repeat} takes its rows once, when the form opens${published ? ", as your published app does" : ""}`;
+	const follow = published
+		? "You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id"
+		: "You can choose As answers change";
 	switch (e.details?.reason) {
 		case "nested": {
 			const outer = q(det(e, "outerLabel", "the repeat around it"));
 			return `${opening}, and inside ${outer} that would give its rows the wrong records. ${follow}, or keep it outside ${outer}.`;
 		}
 		case "query-reads-answers":
-			return `${opening}, so its query would run before any answer it reads is given. ${follow}, or have its query read no answers.`;
+			return `${opening}, before the answer its query matches a record ID against is given, so it would find no records. ${follow}, or give that answer a starting value.`;
 		case "row-condition":
 			return `${opening}, and a row made while its condition hides an earlier one would take that row's record. ${follow}, or show every row.`;
 		default: {
 			const group = q(det(e, "groupLabel", "the group around it"));
-			return `${opening}, and ${group} around it shows on a condition that can change while the form is filled in, so its rows could stay empty. ${follow}, or show ${group} on a condition that doesn't change.`;
+			return `${opening}, while a starting value hides ${group} around it, so its rows would stay empty. ${follow}, or show ${group} when the form opens.`;
 		}
 	}
 }
@@ -1001,13 +1019,19 @@ const USER_MESSAGE_BY_CODE: Record<
 				return "A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.";
 		}
 	},
-	CONNECT_ID_DUPLICATE: (e) =>
-		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
-	CONNECT_NO_PARTICIPATING_FORMS: () =>
-		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
 	PLATFORM_FEATURE_UNAVAILABLE: (e) => platformBuilderSentence(e),
-	CONNECT_MODE_MISMATCH: (e) =>
-		`${q(formName(e))}'s Connect setup doesn't match the app's Connect mode. Configure the app's complete Connect setup together.`,
+	CONNECT_MODE_MISMATCH: (e) => {
+		const role = e.details?.role;
+		return role === "learn" || role === "deliver"
+			? missingConnectRoleMessage(fieldName(e), role)
+			: `${q(fieldName(e))} uses a Connect role this app doesn't have. You can turn on that role in App settings or remove the activity.`;
+	},
+	CONNECT_DUPLICATE_DELIVERY: (e) =>
+		`One submission of ${q(formName(e))} can deliver ${q(fieldName(e))} twice to the same person or place${connectPlaces(e)}. You can ask for a different person or place ID in each row, as Delivery with a person or place ID does, or send each visit in a separate form.`,
+	CONNECT_REPEATED_ASSESSMENT: (e) =>
+		`One submission of ${q(formName(e))} can send two assessments${connectPlaces(e)}. You can use separate forms or show one assessment at a time.`,
+	CONNECT_REPEATED_LEARNING_MODULE: (e) =>
+		`One submission of ${q(formName(e))} can complete ${q(fieldName(e))} twice${connectPlaces(e)}. You can move the activity outside the repeated rows or use separate forms.`,
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
 		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
 	BLUEPRINT_TOPOLOGY_INVALID: () =>
@@ -1023,7 +1047,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	MUTATION_WIRE_CANONICALITY_INVALID: () =>
 		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
 	CASE_PROPERTY_OPTION_VALUE_INVALID: (e) =>
-		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, can't read as a data source, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
+		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it needs a nonempty value with no spaces that CommCare HQ can keep as text. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} both store ${q(det(e, "optionValue", ""))}, so a saved value can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	TRANSLATION_UNIT_UNKNOWN: () =>
@@ -1122,6 +1146,12 @@ const USER_MESSAGE_BY_CODE: Record<
 			e.details?.caseType,
 			e.details?.anotherForm === "yes",
 		);
+	},
+	FORM_BEHAVIOR_TEXT_INVALID: (e) => {
+		const issue = formBehaviorTextIssueFromDetails(e.details);
+		return issue
+			? formBehaviorTextSentence(issue)
+			: `A form setting in ${q(formName(e))} names a question text that no longer works for it. Choose another text or remove the setting.`;
 	},
 	ENTRY_POINT_INVALID: (e) => {
 		switch (e.details?.reason) {
@@ -1726,7 +1756,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	FORM_SECTION_NOT_TOP_LEVEL: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a section sitting inside ${sectionParentPhrase(e)}. A section is a page of the form, so it belongs at the top level. Move it out.`,
 	FORM_SECTIONS_INCOMPLETE: (e) =>
-		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every field belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
+		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every question belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
 	FORM_SECTION_USER_REPEAT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} lets people add entries, but it sits inside section ${q(det(e, "sectionTitle", det(e, "sectionId", "")))}, and a section shows on one screen where entries can't be added. Move the repeat out of the sections, or give it a fixed count.`,
 	QUESTION_DISPLAY_COMBINATION_INVALID: (e) =>
@@ -1826,7 +1856,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: (e) =>
 		`A Case change in ${q(formName(e))} can change the selected cases to another type before the next form opens. Send people to the destination's form list so they can choose matching cases, or keep every selected case as ${q(det(e, "expectedCaseType", "the destination's case type"))}.`,
 	CONNECT_ID_TOO_LONG: (e) =>
-		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
+		`Connect stores up to ${det(e, "limit", "50")} characters for this activity ID. You can shorten ${q(fieldName(e))}.`,
 	CONNECT_ID_INVALID_FORMAT: (e) => {
 		const id = det(e, "connectId", "");
 		const sentence = questionIdSentence(e, id, "connect");
@@ -1835,7 +1865,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			: `The Connect ID ${q(id)} in ${q(formName(e))} needs a change. ${sentence}`;
 	},
 	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
-		`${q(formName(e))} holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
+		`Connect checks a delivery before it completes an assigned task, so ${q(formName(e))} can't send both${connectPlaces(e)}. You can complete the task in an earlier form or show one activity at a time.`,
 	FORM_TEXT_READ_AS_INSTANCE: (e) => {
 		const match = det(e, "match", "some text");
 		const site = e.details?.site;
@@ -1965,14 +1995,8 @@ const USER_MESSAGE_BY_CODE: Record<
 				: "stops_form_builder",
 		)}`;
 	},
-	FIELD_ID_NAMES_CONNECT_BLOCK: (e) => {
-		const suggestedId = e.details?.suggestedId;
-		const offer =
-			typeof suggestedId === "string" && suggestedId.length > 0
-				? ` ${q(suggestedId)} is free for the field.`
-				: "";
-		return `${q(fieldName(e))} and a CommCare Connect block of ${q(formName(e))} share one name, so the form would hold two items CommCare can't tell apart. You can rename the field, or give the block another ID.${offer}`;
-	},
+	FIELD_SUBMISSION_PLACEMENT: (e) =>
+		`The submitted answer of ${q(fieldName(e))} is placed where ${q(formName(e))} can't keep it. ${det(e, "reason", "Choose a group in this form that sits in the same repeat entry as its question.")}`,
 	DUPLICATE_FIELD_ID: (e) =>
 		`${q(formName(e))} has two fields with the same ID at the same level. Rename one of them.`,
 	CASE_OPERATION_DUPLICATE_UUID: () =>
@@ -2075,20 +2099,26 @@ const USER_MESSAGE_BY_CODE: Record<
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_VALUES_UNBOUNDED: (e) =>
 		`Nova can't confirm that the starting value for ${q(fieldName(e))} always gives an available answer. You can map each result to an available answer, or remove the starting value and ask the worker to choose.`,
+	CAPTURE_DEFAULT_NOT_BLANK: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} starts with a file. Web Apps clears a starting file as the form opens, and Android can't open the form. You can leave its starting value empty.`,
 	SELECT_DEFAULT_NOT_AN_OPTION: (e) =>
 		`The starting value for ${q(fieldName(e))} is not one of its choices. Choose an available answer or clear the starting value.`,
 	SELECT_NO_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
 	SELECT_OPTION_VALUE_INVALID: (e) =>
-		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, can't read as a data source, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
+		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it needs a nonempty value with no spaces that CommCare HQ can keep as text. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	SELECT_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	FORM_MEDIA_LANGUAGE: (e) => formMediaLanguageCopy(e),
 	MENU_MEDIA_LANGUAGE: (e) => menuMediaLanguageCopy(e),
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
-	HIDDEN_VALUE_BOTH_SOURCES: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has both a calculated value and a default. A hidden value takes a calculation or a starting value, and Nova doesn't yet write both on one field. Remove the default, or drop the calculation if you wanted a fixed value.`,
+	HIDDEN_ANSWER_CALCULATION: (e) =>
+		e.details?.problem === "empty-choice"
+			? `The calculation for ${q(fieldName(e))} in ${q(formName(e))} starts with an empty choice. You can start the list with its first choice.`
+			: `The calculation for ${q(fieldName(e))} in ${q(formName(e))} returns a date, which a yes or no answer can't hold. You can compare the date to get a yes or no answer, or choose a date answer type.`,
+	HIDDEN_BOOLEAN_STARTING_ANSWER: (e) =>
+		`CommCare sets the yes or no answer in ${q(fieldName(e))} through Calculation. You can move its starting value there or choose another answer type.`,
 	REQUIRED_ON_HIDDEN: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required, no one can fill it in. Turn off required, or make the field visible.`,
 	CALCULATE_ON_VISIBLE_INPUT: (e) =>
@@ -2113,8 +2143,14 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen yet. Pick the records it should repeat over.`,
+	QUERY_REPEAT_TIMING_MOVE: (e) =>
+		`The timing for ${q(fieldName(e))} in ${q(formName(e))} changes where your published app keeps each row's record ID. You can review that change to use the new timing.`,
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: (e) =>
 		queryRepeatModelIterationSentence(e),
+	SUBMITTED_ANSWER_NAMESPACE: (e) =>
+		`The receiving namespace of ${q(fieldName(e))} can't be used. ${det(e, "problem", "")}${e.details?.problem ? " " : ""}You can enter the receiving service’s namespace, or clear it to use the namespace of ${q(formName(e))}.`,
+	SUBMITTED_CASE_CHANGE_WRAPPER: (e) =>
+		`A group around a saved case change in ${q(formName(e))} has the ID case, so workers would read that group as a second case change. You can move the change to a group with another ID.`,
 	INVALID_FIELD_ID: (e) => {
 		const sentence = questionIdSentence(e, fieldName(e), "question");
 		return sentence === undefined

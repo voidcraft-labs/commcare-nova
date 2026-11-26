@@ -113,6 +113,8 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// A case list icon names a form that may sit in another menu, so an edit
 	// there can strand it.
 	"CASE_LIST_ICON_ACTION_INVALID",
+	// A form behavior text: a translation or language edit anywhere can break it.
+	"FORM_BEHAVIOR_TEXT_INVALID",
 	// APP_RULES products.
 	"CASE_PARENT_SELECTION_CONFLICT",
 	// A child form's entry reads its root menu's first form, so a batch in
@@ -122,8 +124,6 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"EMPTY_APP_NAME",
 	"APP_TEXT_UNREPRESENTABLE",
 	"CASE_PROPERTY_OPTION_VALUE_INVALID",
-	"CONNECT_ID_DUPLICATE",
-	"CONNECT_NO_PARTICIPATING_FORMS",
 	"PLATFORM_FEATURE_UNAVAILABLE",
 	// A move scoped to another module can strand a case list registration
 	// slot, so its backstop runs as an app rule.
@@ -420,12 +420,6 @@ function runDeepValidation(
 						},
 					);
 
-				case "connect-xpath":
-					return presentFormLogicFinding(
-						doc,
-						{ entity: "form", uuid: deep.formUuid, slot: deep.slot },
-						deep.error,
-					);
 				case "form-link-xpath": {
 					const entry = formLinkEntries(doc.forms[deep.formUuid])[
 						deep.indices[0]
@@ -559,6 +553,8 @@ const PROSE_SURFACE_LABELS: Record<ProseSurface, string> = {
 	extended_text: "extended text",
 	qr_code: "QR code",
 	spoken_text: "spoken text",
+	addFirstLabel: "first entry button",
+	addLabel: "another entry button",
 	option_label: "answer option label",
 };
 

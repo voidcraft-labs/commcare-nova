@@ -1,8 +1,7 @@
 // lib/domain/fields/audio.ts
 //
 // Audio capture field. Emits `<upload mediatype="audio/*">` over a
-// `binary` bind. Cannot be calculated or validated — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema. A case
+// `binary` bind. Its starting value, constraint and help are shared with other questions. A case
 // operation saves a link to the captured file through a `capture-link`
 // write value, never the file itself.
 //
@@ -18,17 +17,14 @@ import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { displaySchemas } from "../questionDisplaySchemas";
-import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
+import { checkedInputFieldBaseSchema } from "./base";
 
-export const audioFieldSchema = fieldBaseSchema.extend({
+export const audioFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("audio"),
 	sendTopics: displaySchemas.sendTopics.optional(),
 	captureSource: z.literal("record-or-choose").optional(),
 	recorder: displaySchemas.recorder.optional(),
 	pauseRecording: displaySchemas.pauseRecording.optional(),
-	hint: proseTemplateSchema.optional(),
-	required: formLogicSchema.optional(),
-	relevant: formLogicSchema.optional(),
 });
 
 export type AudioField = z.infer<typeof audioFieldSchema>;
@@ -41,7 +37,7 @@ export const audioFieldMetadata: FieldKindMetadata<"audio"> = {
 	label: "Audio",
 	isStructural: false,
 	isContainer: false,
-	carriesValidation: false,
+	carriesValidation: true,
 	saDocs:
 		'Audio attachment. Name what to capture, such as "Recording of the interview", rather than how.',
 	convertTargets: ["image", "video", "signature", "file"],

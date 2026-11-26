@@ -20,16 +20,11 @@
 import { type AnyNode, isTag, isText } from "domhandler";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import {
-	type BlueprintDoc,
-	type ConnectConfig,
-	proseText,
-	type Uuid,
-} from "@/lib/domain";
+import { type BlueprintDoc, proseText, type Uuid } from "@/lib/domain";
 import { runValidation } from "../../validator/runner";
 import { parseXml } from "../../xmlParse";
 import { isParseableXPath } from "../pathExpression";
@@ -121,15 +116,15 @@ function entryMarkers(doc: BlueprintDoc, formUuid: Uuid): Set<string> {
 function markedForm(
 	uuid: string,
 	first: number,
-	connect: ConnectConfig,
+	activities: FieldSpec[],
 	choiceValue: string,
 ) {
 	return {
 		uuid,
 		name: `Form ${m(first)}`,
 		type: "survey" as const,
-		connect,
 		fields: [
+			...activities,
 			{
 				kind: "text" as const,
 				uuid: `${uuid}-notes`,
@@ -175,7 +170,12 @@ describe("formSourceTexts", () => {
 	it("is every plain text a learn form's source holds, but its choice values", () => {
 		const doc = buildDoc({
 			appName: "Source texts",
-			connectType: "learn",
+			connectRoles: ["learn"],
+			appSettings: {
+				runsOnlyOn: "android",
+				showSavedForms: false,
+				showIncompleteForms: false,
+			},
 			modules: [
 				{
 					name: "Training",
@@ -183,15 +183,23 @@ describe("formSourceTexts", () => {
 						markedForm(
 							"source-texts-learn",
 							10,
-							{
-								learn_module: {
+							[
+								f({
+									kind: "connect_activity",
 									id: "lesson",
-									name: `Lesson ${m(20)}`,
-									description: `About ${m(21)}`,
-									time_estimate: 5,
-								},
-								assessment: { id: "quiz" },
-							},
+									activity: {
+										kind: "learning-module",
+										name: `Lesson ${m(20)}`,
+										description: `About ${m(21)}`,
+										estimatedHours: 5,
+									},
+								}),
+								f({
+									kind: "connect_activity",
+									id: "quiz",
+									activity: { kind: "assessment", score: "100" },
+								}),
+							],
 							m(30),
 						),
 					],
@@ -215,7 +223,12 @@ describe("formSourceTexts", () => {
 	it("is every plain text a deliver form's source holds, its deliver unit's and its task's", () => {
 		const doc = buildDoc({
 			appName: "Source texts",
-			connectType: "deliver",
+			connectRoles: ["deliver"],
+			appSettings: {
+				runsOnlyOn: "android",
+				showSavedForms: false,
+				showIncompleteForms: false,
+			},
 			modules: [
 				{
 					name: "Visits",
@@ -223,19 +236,29 @@ describe("formSourceTexts", () => {
 						markedForm(
 							"source-texts-deliver",
 							40,
-							{ deliver_unit: { id: "visit_unit", name: `Visit ${m(50)}` } },
+							[
+								f({
+									kind: "connect_activity",
+									id: "visit_unit",
+									activity: { kind: "delivery", name: `Visit ${m(50)}` },
+								}),
+							],
 							m(51),
 						),
 						markedForm(
 							"source-texts-task",
 							60,
-							{
-								task: {
+							[
+								f({
+									kind: "connect_activity",
 									id: "follow_up",
-									name: `Follow up ${m(70)}`,
-									description: `Call back ${m(71)}`,
-								},
-							},
+									activity: {
+										kind: "assigned-task",
+										name: `Follow up ${m(70)}`,
+										description: `Call back ${m(71)}`,
+									},
+								}),
+							],
 							m(72),
 						),
 					],

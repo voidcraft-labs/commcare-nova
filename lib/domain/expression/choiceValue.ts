@@ -1,6 +1,6 @@
 import type { SelectOption } from "../fields";
 import type { Uuid } from "../uuid";
-import type { Choice } from "./types";
+import type { Choice, Expression } from "./types";
 /** Resolve static choice identities in their saved authored order. */
 export function choiceValue(
 	choice: Choice,
@@ -42,4 +42,24 @@ export function selectAnswerTokens(text: string): readonly string[] {
 	const tokens = text.split(/ +/);
 	while (tokens.length > 0 && tokens[tokens.length - 1] === "") tokens.pop();
 	return tokens;
+}
+
+/** The exact string made by a select's fixed operand. Only text literals
+ * and concatenations of them qualify. A calculation that happens to return
+ * today's choice value must remain a calculation after the choice changes. */
+export function fixedChoiceText(value: Expression): string | undefined {
+	if (value.kind === "term")
+		return value.term.kind === "literal" &&
+			typeof value.term.value === "string" &&
+			value.term.data_type === undefined
+			? value.term.value
+			: undefined;
+	if (value.kind !== "concat") return undefined;
+	const parts: string[] = [];
+	for (const part of value.parts) {
+		const text = fixedChoiceText(part);
+		if (text === undefined) return undefined;
+		parts.push(text);
+	}
+	return parts.join("");
 }

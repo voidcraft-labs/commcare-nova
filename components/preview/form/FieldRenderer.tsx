@@ -185,7 +185,14 @@ export function FieldRenderer({
 				/>
 			);
 		case "label":
-			return <LabelField field={field} state={state} />;
+			return (
+				<LabelField
+					field={field}
+					state={state}
+					onChange={onChange}
+					onBlur={onBlur}
+				/>
+			);
 		// Geopoint draws the location question of the platform Preview plays:
 		// Web Apps' map and address search, or Android's Record location.
 		case "geopoint":
@@ -222,6 +229,7 @@ export function FieldRenderer({
 		case "group":
 		case "repeat":
 		case "section":
+		case "connect_activity":
 		case "hidden":
 			return null;
 		default:

@@ -262,7 +262,7 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 				.array(
 					z.strictObject({
 						path: z.string().min(1).max(1024),
-						count: z.number().int().min(1).max(100),
+						count: z.number().int().min(0).max(100),
 					}),
 				)
 				.max(50)

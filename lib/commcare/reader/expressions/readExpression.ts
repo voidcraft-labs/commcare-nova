@@ -387,7 +387,7 @@ export function sourceNodeProjection(
 			// A form path is rooted at `data`, the root every source Nova reads
 			// holds; a source rooted elsewhere prints otherwise and reads as
 			// unrecognized.
-			let path = FormPath.root();
+			let path = FormPath.root(structure.dataRootName);
 			for (const coordinate of coordinates.slice(1)) {
 				const projected = step(coordinate);
 				if (projected === undefined) return undefined;

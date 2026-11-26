@@ -84,10 +84,14 @@ describe("computeOperationAnswers", () => {
 				[OPERATION],
 			),
 		);
+		engine.setValue("/data/enabled", "yes");
 		engine.setValue("/data/absent", "stale");
 		engine.setValue("/data/details/note", "retained");
+		engine.addRepeat("/data/visits");
+		engine.addRepeat("/data/visits[0]/meds");
 		engine.setValue("/data/visits[0]/note", "visit");
 		engine.setValue("/data/visits[0]/meds[0]/name", "medicine");
+		engine.setValue("/data/enabled", "no");
 		const hidden = engine.computeOperationAnswers();
 		expect(valuesOf(hidden?.root ?? [])).toMatchObject({
 			[testUuid("form.kept")]: "calculated",
@@ -164,6 +168,8 @@ describe("computeOperationAnswers", () => {
 		expect(valuesOf(answers?.root ?? [])).toEqual({
 			[testUuid("form.name") as string]: "Ada",
 			[testUuid("form.symptoms") as string]: ["fever", "cough"],
+			// A message is an answer too, blank until it is confirmed.
+			[testUuid("form.note") as string]: "",
 		});
 		expect(answers?.repeats).toEqual([]);
 	});
@@ -194,7 +200,10 @@ describe("computeOperationAnswers", () => {
 			),
 		);
 		engine.setValue("/data/region", "north");
-		engine.addRepeat("/data/visits"); // two visit iterations
+		engine.addRepeat("/data/visits");
+		engine.addRepeat("/data/visits");
+		engine.addRepeat("/data/visits[0]/meds");
+		engine.addRepeat("/data/visits[1]/meds");
 		engine.setValue("/data/visits[0]/visit_note", "first");
 		engine.setValue("/data/visits[1]/visit_note", "second");
 		engine.setValue("/data/visits[0]/meds[0]/med_name", "amoxicillin");

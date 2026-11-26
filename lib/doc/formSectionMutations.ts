@@ -40,6 +40,7 @@ import {
 	slugifyId,
 	type Uuid,
 } from "@/lib/domain";
+import { connectActivitySites } from "@/lib/domain/connectActivitySites";
 import { deepEqual } from "./deepEqual";
 import { planFieldMoveCaseWrites } from "./fieldCaseWriteMutations";
 import { orderedFieldUuids } from "./fieldWalk";
@@ -214,6 +215,81 @@ class SequenceModel {
 	}
 }
 
+/** A worker page may already contain an activity, including one inside a
+ * group on the page. Page edits keep its submitted address and traversal.
+ * A direct activity can be left out of the question list for a kept page. */
+function keepSubmittedActivities(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	requested: readonly DesiredSection[],
+): { pages: readonly DesiredSection[] } | { reason: string } {
+	if (doc.connectRoles.length === 0) return { pages: requested };
+	const sites = connectActivitySites(doc, formUuid);
+	if (!sites.length) return { pages: requested };
+	const pages = requested.map((page) => ({
+		...page,
+		fields: [...page.fields],
+	}));
+	const pageForSection = new Map(pages.map((page) => [page.sectionUuid, page]));
+	const pageForChild = new Map(
+		pages.flatMap((page) => page.fields.map((uuid) => [uuid, page] as const)),
+	);
+	const sitesByChild = new Map<Uuid, number[]>();
+	for (const [index, site] of sites.entries()) {
+		const root = site.path[0];
+		if (site.field.uuid === root) continue;
+		const page = doc.fields[root]?.kind === "section" ? root : undefined;
+		const child = page === undefined ? root : site.path[1];
+		const existingPage =
+			page === undefined ? undefined : pageForSection.get(page);
+		const landing = pageForChild.get(child);
+		const refusal = {
+			reason: `This would move Connect activity "${site.field.id}" to a different submitted path. Keep its current container or move the activity first.`,
+		};
+		if (pages.length === 0) {
+			if (page !== undefined) return refusal;
+			continue;
+		}
+		if (
+			landing === undefined &&
+			existingPage &&
+			page &&
+			site.field.uuid === child
+		) {
+			// Keep the activity beside the nearest surviving original sibling.
+			const siblings = orderedFieldUuids(doc, page);
+			const index = siblings.indexOf(child);
+			const before = siblings
+				.slice(0, index)
+				.findLast((id) => existingPage.fields.includes(id));
+			const after = siblings
+				.slice(index + 1)
+				.find((id) => existingPage.fields.includes(id));
+			const at =
+				before !== undefined
+					? existingPage.fields.indexOf(before) + 1
+					: after !== undefined
+						? existingPage.fields.indexOf(after)
+						: 0;
+			existingPage.fields.splice(at, 0, child);
+		} else if (landing?.sectionUuid !== page || !existingPage) {
+			return refusal;
+		}
+		const indices = sitesByChild.get(child) ?? [];
+		indices.push(index);
+		sitesByChild.set(child, indices);
+	}
+	const ordered = pages.flatMap((page) =>
+		page.fields.flatMap((id) => sitesByChild.get(id) ?? []),
+	);
+	if (ordered.some((n, i) => i > 0 && n < ordered[i - 1]))
+		return {
+			reason:
+				"These pages would change the order of the submitted Connect activities. Keep the activities in their current order or move them first.",
+		};
+	return { pages };
+}
+
 /**
  * The core: the minimal batch that turns the form's current top-level
  * questions into the desired partition, or a refusal. An empty `desired`
@@ -223,20 +299,34 @@ class SequenceModel {
 function planPartition(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	desired: readonly DesiredSection[],
+	requested: readonly DesiredSection[],
+	addedAt?: { readonly page: number; readonly after: Uuid | null },
 ): FormSectionPlan {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return fail(`${formUuid} isn't a form.`);
 	const formName = `"${form.name}"`;
+	const preserved = keepSubmittedActivities(doc, formUuid, requested);
+	if ("reason" in preserved) return fail(preserved.reason);
+	const desired = preserved.pages;
 	const root = orderedFieldUuids(doc, formUuid);
 	const currentSections = formSectionsOf(doc, formUuid);
 
 	// The form's top-level questions, in document order, and where each sits.
 	const questions: Uuid[] = [];
+	// A root activity has a submitted address but no page. Each one separates
+	// the roots before it from those after it, including newly wrapped questions.
+	const activities: Uuid[] = [];
+	const segmentOf = new Map<Uuid, number>();
 	const questionParent = new Map<Uuid, Uuid>();
 	for (const uuid of root) {
+		if (doc.fields[uuid]?.kind === "connect_activity") {
+			activities.push(uuid);
+			continue;
+		}
+		segmentOf.set(uuid, activities.length);
 		if (doc.fields[uuid]?.kind === "section") {
 			for (const child of orderedFieldUuids(doc, uuid)) {
+				segmentOf.set(child, activities.length);
 				questions.push(child);
 				questionParent.set(child, uuid);
 			}
@@ -268,6 +358,10 @@ function planPartition(
 			const parent = questionParent.get(uuid);
 			if (parent === undefined) {
 				const field = doc.fields[uuid];
+				if (activities.includes(uuid))
+					return fail(
+						`Connect activity ${quoteId(doc, uuid)} stays at the top level of ${formName}. Leave it out of the page list, or move the activity first.`,
+					);
 				if (field?.kind === "section" && currentSections.includes(uuid)) {
 					return fail(
 						`Section ${name} names ${uuid}, which is a section of ${formName}, not a question. Name the questions inside it instead.`,
@@ -334,7 +428,7 @@ function planPartition(
 	}
 
 	if (desired.length === 0) {
-		const idsAtRoot = new Set<string>();
+		const idsAtRoot = new Set(activities.map((id) => doc.fields[id].id));
 		for (const uuid of questions) {
 			const id = doc.fields[uuid]?.id;
 			if (id === undefined) continue;
@@ -388,7 +482,7 @@ function planPartition(
 
 	/* The ids the plan's finished root will hold: every kept page keeps
 	 * its id, and each new page's mint claims one. */
-	const pendingIds = new Set<string>();
+	const pendingIds = new Set(activities.map((id) => doc.fields[id].id));
 	for (const section of desired) {
 		if (section.sectionUuid === undefined) continue;
 		const kept = doc.fields[section.sectionUuid];
@@ -398,8 +492,36 @@ function planPartition(
 		readonly sectionUuid: Uuid;
 		readonly fields: readonly Uuid[];
 	}[] = [];
+	const segments: (number | undefined)[] = [];
+	for (const [i, page] of desired.entries()) {
+		const members = new Set(page.fields.map((id) => segmentOf.get(id)));
+		if (page.sectionUuid !== undefined && segmentOf.has(page.sectionUuid))
+			members.add(segmentOf.get(page.sectionUuid));
+		if (addedAt?.page === i) {
+			const anchor = addedAt.after;
+			members.add(
+				anchor === null
+					? 0
+					: (segmentOf.get(anchor) ?? activities.indexOf(anchor) + 1),
+			);
+		}
+		if (members.size > 1)
+			return fail(
+				"This page would put questions from opposite sides of a Connect activity together. Keep them on separate pages or move the activity first.",
+			);
+		segments.push([...members][0]);
+	}
+	let previousSegment = 0;
 	let prevSection: Uuid | null = null;
 	for (const [i, section] of desired.entries()) {
+		const segment = segments[i] ?? previousSegment;
+		if (segment < previousSegment)
+			return fail(
+				"These pages would change sides of a Connect activity. Keep them on their current sides or move the activity first.",
+			);
+		if (segment !== previousSegment)
+			prevSection = activities[segment - 1] ?? null;
+		previousSegment = segment;
 		const keep =
 			section.sectionUuid !== undefined &&
 			currentSections.includes(section.sectionUuid);
@@ -543,31 +665,33 @@ export function splitIntoSections(
 			`"${form.name}" has nothing to split: pages come from its questions. Add a question first.`,
 		);
 	}
-	let cut = 0;
-	if (opts.atFieldUuid !== undefined) {
-		cut = root.indexOf(opts.atFieldUuid);
-		if (cut === -1) {
-			return fail(
-				`${opts.atFieldUuid} isn't a top-level field of "${form.name}", so the form can't be split there.`,
-			);
-		}
+	if (opts.atFieldUuid !== undefined && !root.includes(opts.atFieldUuid)) {
+		return fail(
+			`${opts.atFieldUuid} isn't a top-level field of "${form.name}", so the form can't split there.`,
+		);
 	}
-	const first: DesiredSection = {
-		sectionUuid: opts.sectionUuids?.[0],
-		label: opts.titles?.[0] ?? null,
-		fields: cut <= 0 || cut >= root.length ? root : root.slice(0, cut),
-	};
-	const desired: DesiredSection[] =
-		cut <= 0 || cut >= root.length
-			? [first]
-			: [
-					first,
-					{
-						sectionUuid: opts.sectionUuids?.[1],
-						label: opts.titles?.[1] ?? null,
-						fields: root.slice(cut),
-					},
-				];
+	const runs: Uuid[][] = [];
+	let fields: Uuid[] = [];
+	for (const uuid of root) {
+		if (
+			doc.fields[uuid]?.kind === "connect_activity" ||
+			uuid === opts.atFieldUuid
+		) {
+			if (fields.length > 0) runs.push(fields);
+			fields = [];
+		}
+		if (doc.fields[uuid]?.kind !== "connect_activity") fields.push(uuid);
+	}
+	if (fields.length > 0) runs.push(fields);
+	if (runs.length === 0)
+		return fail(
+			`"${form.name}" has no questions to put on a page. Add a question first.`,
+		);
+	const desired = runs.map((fields, index) => ({
+		sectionUuid: opts.sectionUuids?.[index],
+		label: opts.titles?.[index] ?? null,
+		fields,
+	}));
 	return planPartition(doc, formUuid, desired);
 }
 
@@ -617,29 +741,34 @@ export function addSection(
 	const form = doc.forms[formUuid];
 	if (form === undefined) return fail(`${formUuid} isn't a form.`);
 	const parts = currentPartition(doc, formUuid);
-	if (parts.length === 0) {
+	const root = orderedFieldUuids(doc, formUuid);
+	if (
+		parts.length === 0 &&
+		(root.length === 0 ||
+			root.some((id) => doc.fields[id]?.kind !== "connect_activity"))
+	) {
 		return fail(
-			orderedFieldUuids(doc, formUuid).length > 0
+			root.length > 0
 				? `"${form.name}" isn't split into sections yet. Split it into sections first, and a new section has somewhere to go.`
 				: `"${form.name}" has no questions yet, and a form of empty pages can't be built. Add a question first.`,
 		);
 	}
-	let at = parts.length;
-	if (opts.after === null) {
-		at = 0;
-	} else if (opts.after !== undefined) {
-		const index = parts.findIndex((p) => p.sectionUuid === opts.after);
-		if (index === -1) {
-			return fail(`${opts.after} isn't a section of "${form.name}".`);
-		}
-		at = index + 1;
-	}
+	const after =
+		opts.after === undefined
+			? (parts.at(-1)?.sectionUuid ?? root.at(-1) ?? null)
+			: opts.after;
+	const anchor = after === null ? -1 : root.indexOf(after);
+	if (after !== null && anchor < 0)
+		return fail(`${after} isn't at the top level of "${form.name}".`);
+	const at = root
+		.slice(0, anchor + 1)
+		.filter((uuid) => doc.fields[uuid]?.kind === "section").length;
 	parts.splice(at, 0, {
 		sectionUuid: opts.sectionUuid,
 		label: opts.title ?? null,
 		fields: [],
 	});
-	return planPartition(doc, formUuid, parts);
+	return planPartition(doc, formUuid, parts, { page: at, after });
 }
 
 /** Fold a section into the one before it: its questions go to the end of
