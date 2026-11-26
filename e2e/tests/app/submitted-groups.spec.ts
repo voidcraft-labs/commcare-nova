@@ -43,7 +43,6 @@ test("a submitted answer can move to another group while its question stays on t
 	expect(blueprint.fieldOrder[aboutYou.uuid]).toContain(aboutYou.nameFieldUuid);
 	expect(blueprint.fields[aboutYou.nameFieldUuid].submissionPlacement).toEqual({
 		parent: yourVisit.uuid,
-		position: 1,
 	});
 	await reloadBuilder(page);
 	const main = page.getByRole("main");
