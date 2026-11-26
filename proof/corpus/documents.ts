@@ -406,6 +406,9 @@ export interface HqFormPlace {
  *   actions as HQ holds them, and the mappings as a `case_mapping_diff`);
  * - `moduleAttribute`: a menu's name in the app's first language, posted to
  *   `views/modules.py::edit_module_attr`;
+ * - `moduleLayout`: a menu's own display style (`display_style`, the menu
+ *   settings page's Menu Display, shown where the app's form menus are set
+ *   per menu), posted to `views/modules.py::edit_module_attr`;
  * - `moduleDetail`: a column added at the end of a menu's case list, posted
  *   as the Case List page posts its columns
  *   (`views/modules.py::edit_module_detail_screens`, `type` `case`, every
@@ -443,6 +446,10 @@ export interface HqSideContentSaves {
 	readonly moduleAttribute?: {
 		readonly module: number;
 		readonly name: string;
+	};
+	readonly moduleLayout?: {
+		readonly module: number;
+		readonly displayStyle: "grid" | "list";
 	};
 	readonly moduleDetail?: {
 		readonly module: number;

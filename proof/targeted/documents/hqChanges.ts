@@ -81,6 +81,7 @@ import {
 import {
 	type BlueprintDoc,
 	makeTranslationUnitId,
+	NEW_APP_SETTINGS,
 	plainColumn,
 	proseText,
 	type TranslationEntry,
@@ -564,6 +565,8 @@ function patientsDoc(
 		readonly menuName?: string;
 		readonly ageColumn?: Uuid;
 		readonly weightSaved?: boolean;
+		/** The first menu in a grid, the form menus set per menu, and this menu's own in a grid. */
+		readonly gridLayouts?: boolean;
 	} = {},
 ): BlueprintDoc {
 	const uuid = (name: string) => targetedUuid(id, name);
@@ -581,6 +584,13 @@ function patientsDoc(
 	const doc = buildDoc({
 		appId: id,
 		appName: "Patient care",
+		...(options.gridLayouts === true && {
+			appSettings: {
+				...NEW_APP_SETTINGS,
+				firstMenuLayout: "grid" as const,
+				formMenuLayout: "individual" as const,
+			},
+		}),
 		caseTypes: [
 			{
 				name: "patient",
@@ -597,6 +607,7 @@ function patientsDoc(
 				id: "patients",
 				name: options.menuName ?? "Patients",
 				caseType: "patient",
+				...(options.gridLayouts === true && { menuLayout: "grid" as const }),
 				caseListConfig: caseListOf([...columns, ...age]),
 				forms: [
 					{
@@ -691,6 +702,36 @@ export function hqChangesMenu(): CorpusDocument {
 		republish: "brings-in",
 		publishChanges: [],
 		bringsIn: broughtInDocument(document, after),
+	});
+}
+
+const MENU_LAYOUTS = "targeted-hq-changes-menu-layouts";
+
+/**
+ * Each menu layout slot changed on CommCare HQ's own pages: the app settings
+ * page's Modules Menu Display set to Grid (`use_grid_menus`) and Forms Menu
+ * Display to per-menu (`grid_form_menus` `some`), then the menu settings
+ * page's Menu Display of Patients set to Grid (`display_style`). The review
+ * lists the change and the bring-in takes each slot
+ * (`lib/commcare/hq/menuLayout.ts::sourceMenuLayouts`): the first menu in a
+ * grid, the form menus set per menu, and Patients' own in a grid.
+ */
+export function hqChangesMenuLayouts(): CorpusDocument {
+	const document = targetedDocument({
+		id: MENU_LAYOUTS,
+		rows: ROWS,
+		doc: patientsDoc(MENU_LAYOUTS),
+		expected: { intent: [patientNameHeld(MENU_LAYOUTS)] },
+	});
+	return withSaves(document, {
+		appAttributes: { use_grid_menus: true, grid_form_menus: "some" },
+		moduleLayout: { module: 0, displayStyle: "grid" },
+		republish: "brings-in",
+		publishChanges: [],
+		bringsIn: broughtInDocument(
+			document,
+			patientsDoc(MENU_LAYOUTS, { gridLayouts: true }),
+		),
 	});
 }
 
