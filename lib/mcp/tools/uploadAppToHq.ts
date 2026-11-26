@@ -247,6 +247,7 @@ import {
 import { loadAppBlueprint } from "../loadApp";
 import { deriveRunId } from "../runId";
 import { registerScopedTool } from "../scopedTool";
+import { credentialWriteGrant } from "../credentialWriteGrant";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
@@ -808,6 +809,7 @@ export function registerUploadAppToHq(
 							assertScope(ctx, SCOPES.hqImport, "upload_app_to_hq");
 						},
 						scope: {
+							requireInstallationManagement: credentialWriteGrant(ctx,"upload_app_to_hq",[SCOPES.hqWrite,SCOPES.hqImport]),
 							appId,
 							projectId: access.projectId,
 							role: access.role,

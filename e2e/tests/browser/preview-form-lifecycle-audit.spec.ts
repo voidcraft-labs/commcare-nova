@@ -1,3 +1,4 @@
+import { testUuid } from "../../../__tests__/helpers/uuid";
 import { resolve } from "node:path";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
@@ -712,3 +713,34 @@ for (const sectioned of [false, true]) {
 		}
 	});
 }
+
+test("Preview chooses each named installation and ordinary languages independently",async ({page})=>{
+ const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-form-lifecycle-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
+			"@/lib/doc/platformChangePreflight": boundary,
+			"@/lib/preview/xpath/browserWorkerClient": boundary,
+		},
+	);
+
+ try {
+  await page.goto(`${peer.origin}/?profile-labels`);
+  const picker=page.getByRole("button",{name:/Worker language:/});
+  const options=["Profile 1 · Team (English)", "Profile 2 · Team (Español / Spanish)", "Profile 3 · Unnamed profile (English)", "Profile 4 · All app languages (Español / Spanish)", /Profile 5 · Regional \(Chhattisgarhi → .*Mandarin Chinese \(Simplified, Singapore\)/, "All app languages"];
+  for (const [index,name] of options.entries()) {
+   await picker.click();
+   await page.getByRole("menuitemradio",{name,exact:true}).click();
+   await expect.poll(()=>new URL(page.url()).searchParams.get("installation")).toBe(index===5 ? null :testUuid(`preview-installation-${index}`));
+  }
+ } finally {
+  try {if (!page.isClosed()) await page.evaluate(()=>window.previewFormLifecycleAudit?.dispose());} finally {await peer.close();}
+ }
+});

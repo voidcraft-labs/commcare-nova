@@ -1,3 +1,4 @@
+import type { HqManagementGrant } from "./store";
 import { sameProfileDefinition } from "@/lib/commcare/installationProfiles";
 import {
 	installationDisclosure,
@@ -12,6 +13,7 @@ import {
 	readWorkingInstallationSuite,
 } from "@/lib/commcare/client";
 import type { HqAppSource, HqBuildProfile } from "@/lib/commcare/hq/appSource";
+import {nativeInstallationKey, INSTALLATION_KEY_RECOVERY} from "@/lib/commcare/hq/installationKey";
 import { readHqAppSaveCounter } from "@/lib/commcare/hq/appSourceAtVersion";
 import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 import { type BlueprintDoc, effectiveAppLocalization } from "@/lib/domain";
@@ -32,6 +34,7 @@ import {
 import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
+	hasPendingInstallationReviews,
 	readInstallationReview,
 	writeInstallationReview,
 } from "./store";
@@ -43,6 +46,7 @@ export type InstallationPublishCheck =
 			kind: "agreed";
 			bindings: readonly InstallationProfileBinding[];
 			resume?: InstallationProfileCheckpoint;
+			pendingEmptyReview?: boolean;
 	  }
 	| { kind: "prepare-content"; checkpoint: InstallationProfileCheckpoint }
 	| {
@@ -119,6 +123,8 @@ export async function unavailableInstallationWorker(
 	appId: string,
 	source: HqAppSource,
 ): Promise<string | undefined> {
+	const languages = new Set(source.langs);
+	if (source.buildProfiles.some(p=>!nativeInstallationKey(p.id, languages, p.langs, source.modules.length))) return INSTALLATION_KEY_RECOVERY;
 	for (const profile of source.buildProfiles) {
 		if (!profile.practiceWorkerId) continue;
 		const suite = await readWorkingInstallationSuite(
@@ -273,7 +279,7 @@ interface PublishCheckInput {
 	readonly needsBuildableContent: boolean;
 	readonly creds: CommCareCredentials;
 	readonly confirmWorkers?: string;
-	readonly requireHqImport: (() => void) | null;
+	readonly requireHqImport: HqManagementGrant | null;
 }
 
 export async function checkInstallationPublish(
@@ -321,8 +327,14 @@ async function checkInstallations(
 	const { scope, target, doc, sequence, identity, source, remoteAppId } = input;
 	const bindings = identity.installationProfiles ?? [];
 	const requests = requestedProfiles(doc, bindings);
+	const languages = new Set([...source.langs, ...Object.values(effectiveAppLocalization(doc.localization).wireCodes)]);
+	if (source.buildProfiles.some(p => !nativeInstallationKey(p.id, languages, p.langs, Math.max(source.modules.length, doc.moduleOrder.length)))) return {kind:"review", message: INSTALLATION_KEY_RECOVERY + " Then publish again.", details:[]};
 	if (!requests.length && !bindings.length) {
-		if (!source.buildProfiles.length) return { kind: "agreed", bindings: [] };
+		if (!source.buildProfiles.length) {
+			const pendingEmptyReview = await hasPendingInstallationReviews(scope, target);
+			if (pendingEmptyReview) await input.requireHqImport?.();
+			return { kind: "agreed", bindings: [], ...(pendingEmptyReview && { pendingEmptyReview }) };
+		}
 		return {
 			kind: "review",
 			message:
@@ -332,7 +344,7 @@ async function checkInstallations(
 			),
 		};
 	}
-	input.requireHqImport?.();
+	await input.requireHqImport?.();
 	const previous = await readInstallationReview(scope, target);
 	const { sourceDigest, unrelatedDigest } = profileSourceDigests(source.raw);
 	const currentReview =

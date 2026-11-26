@@ -299,15 +299,13 @@ it("pins the old visible XForm label when an old installation used fallback and 
 		(e) => e.name === "translation",
 		parseDocument(xml, { xmlMode: true }).children,
 	);
-	const label = (lang: string) =>
-		textContent(
-			findAll(
-				(e) => e.attribs.id === "case_name-label",
-				tables.find((e) => e.attribs.lang === lang)?.children ?? [],
-			),
-		);
-	expect(label(code)).toBe("Name");
-	expect(label("en")).toBe("Updated home visit");
+	const label = (lang: string) => {
+		const [fieldText] = findAll(e=>e.attribs.id === "case_name-label",tables.find(e=>e.attribs.lang===lang)?.children ?? []);
+		return findAll(e=>e.name==="value",fieldText?.children ?? []).map(value=>({form:value.attribs.form ?? "plain",text:textContent(value)}));
+	};
+	for (const [lang,text] of [[code,"Name"],["en","Updated home visit"]]) {
+		expect(label(lang)).toEqual([{form:"plain",text},{form:"markdown",text}]);
+	}
 });
 
 it("details each added, removed and renamed installation and the before/after languages and practice worker", () => {

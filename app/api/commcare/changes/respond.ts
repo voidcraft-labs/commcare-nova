@@ -24,6 +24,7 @@ import {
 	handleApiError,
 	readJsonBody,
 } from "@/lib/apiError";
+import { DeploymentSessionEndedError, sessionManagementGrant } from "@/lib/deployment/sessionManagementGrant";
 import { requireSession } from "@/lib/auth-utils";
 import { isValidDomainSlug } from "@/lib/commcare/client";
 import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
@@ -134,6 +135,7 @@ export async function answerHqChanges<Body extends KeyedBody>(
 			projectId: access.projectId,
 			role: access.role,
 			actorUserId: userId,
+			requireInstallationManagement: sessionManagementGrant(session.user.id, session.session.id),
 		};
 	} catch (err) {
 		const response = handleApiError(
@@ -165,6 +167,10 @@ export async function answerHqChanges<Body extends KeyedBody>(
 				});
 				write({ type: "done", answer });
 			} catch (error) {
+				if (error instanceof DeploymentSessionEndedError) {
+					write({ type: "done", answer: { kind: "refused", message: error.message } });
+					return;
+				}
 				log.error("[hq-changes] failed", error, {
 					appId: scope.appId,
 					projectId: scope.projectId,

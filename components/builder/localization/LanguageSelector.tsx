@@ -20,6 +20,7 @@ import {
 	languageDisplayLabel,
 	languageEnglishName,
 } from "@/lib/domain/languageRegistry";
+import {useInstallationChoiceLabels} from "./useInstallationChoiceLabels";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderLanguage } from "./BuilderLocalizationProvider";
 import { languageSelectorRows } from "./languageSelectorRows";
@@ -28,6 +29,7 @@ import { useLanguageRegistrySearch } from "./useLanguageRegistrySearch";
 export function LanguageSelector() {
 	const state = useBuilderLanguage();
 	const navigate = useNavigate();
+ const profileLabels=useInstallationChoiceLabels(state.profiles);
 
 	// The baked common set labels most languages statically; the full registry
 	// chunk loads only when an app language falls outside it.
@@ -96,7 +98,7 @@ export function LanguageSelector() {
 									value={profile.uuid}
 									closeOnClick
 								>
-									{profile.name || "Unnamed profile"}
+									{profileLabels.get(profile.uuid)}
 								</DropdownMenuRadioItem>
 							))}
 						</DropdownMenuRadioGroup>

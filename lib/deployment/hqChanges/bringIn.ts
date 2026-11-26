@@ -281,7 +281,7 @@ async function bringInInRoom(
 
 	/* Each arm writes; the room stops nothing from here on. */
 	if (checked?.installationReviewDigest)
-		scope.requireInstallationManagement?.();
+		await scope.requireInstallationManagement?.();
 	room.beginWrites();
 	try {
 		if (
@@ -515,6 +515,7 @@ async function bringChangesIn(
 			try {
 				published = (
 					await publishKeptReadingMedia({
+ authorizePublication:first.installationReviewDigest ? scope.requireInstallationManagement : undefined,
 						projectId: scope.projectId,
 						actorUserId: scope.actorUserId,
 						plan: toPublish,

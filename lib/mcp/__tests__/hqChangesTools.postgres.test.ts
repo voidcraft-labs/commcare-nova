@@ -1,3 +1,8 @@
+import { readFileSync } from "node:fs";
+import {join} from "node:path";
+import {uploadAssetBytes,deleteAsset} from "@/lib/storage/media";
+import {sql} from "kysely";
+import {installationCredential} from "@/__tests__/helpers/installationCredential";
 /**
  * `read_hq_changes` and `bring_in_hq_changes` through the real SDK client
  * and server, over real Postgres, with an app brought in through the
@@ -30,6 +35,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { HqChangesReview } from "@/lib/deployment/hqChanges";
 import {
 	adoptFixtureApp,
+	withIcons,
 	changedAnswer,
 	counterOf,
 	FIXTURE_DOMAIN,
@@ -72,6 +78,7 @@ import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
 
 const observed = vi.hoisted(() => ({
+ beforeInstallationCommit:null as null | (()=>Promise<void>),
 	/** Each review the read tool started, to wait on once its call is cancelled. */
 	reviews: [] as Promise<unknown>[],
 	/** Each stage the reviews and bring-ins named, in order. */
@@ -119,13 +126,20 @@ vi.mock("@/lib/deployment/hqChanges", async (importOriginal) => {
 		},
 	};
 });
+vi.mock("@/lib/storage/media",async (importOriginal)=>({...await importOriginal<typeof import("@/lib/storage/media")>(),uploadAssetBytes:vi.fn(),deleteAsset:vi.fn()}));
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 /* Passed through, so a test can make the read after a landed write fault. */
 vi.mock("@/lib/deployment/store", async (importOriginal) => {
 	const store = await importOriginal<typeof import("@/lib/deployment/store")>();
 	return {
 		...store,
-		readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
+        recordHqChangesTaken:async (...args:Parameters<typeof store.recordHqChangesTaken>)=>{
+            const before=observed.beforeInstallationCommit;
+            observed.beforeInstallationCommit=null;
+            await before?.();
+            return store.recordHqChangesTaken(...args);
+        },
+        readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
 	};
 });
 
@@ -150,6 +164,7 @@ const UUID_V7 =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 beforeEach(() => {
+	observed.beforeInstallationCommit=null;
 	observed.reviews.length = 0;
 	observed.stages.length = 0;
 	observed.reviewOptions.length = 0;
@@ -171,13 +186,13 @@ async function broughtIn(): Promise<string> {
 }
 
 /** The two tools and `get_deployment`, called as `userId`. */
-function withTools<T>(
+async function withTools<T>(
 	run: (client: Client) => Promise<T>,
 	userId = MEMBER,
 	scopes = SCOPES,
 ): Promise<T> {
+	const ctx=await installationCredential(h.db(),userId,scopes);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes, authKind: "api-key" as const };
 		registerReadHqChanges(server, ctx);
 		registerBringInHqChanges(server, ctx);
 		registerGetDeployment(server, ctx);
@@ -272,7 +287,26 @@ async function readChanges(client: Client, appId: string) {
 }
 
 describe("read_hq_changes and bring_in_hq_changes", () => {
-	it("requires both grants to accept an installation review and keeps read access with import alone", async () => {
+	it("guards changed-app ready media at the same transaction as its live install authority",async ()=>{
+ const appId=await broughtIn();
+ const before=await head(appId);
+ const source=withIcons(changedAnswer(fixtureSource(),body=>({...body,build_profiles:{visits:{name:"Training",langs:["en"]}}})),["menuicon"]);
+ await withHttpPeer(async peer=>{
+  serveRead(peer,source,{tables:true,times:2});
+  peer.get(FIXTURE_HOST).intercept({path:FIXTURE_PATHS.media("menuicon"),method:"GET"}).reply(200,readFileSync(join(import.meta.dirname,"../../media/__tests__/fixtures/pattern.png")),{headers:{"content-type":"image/png"}}).persist();
+  await withTools(async client=>{
+   const listed=await readChanges(client,appId);
+   vi.mocked(uploadAssetBytes).mockImplementationOnce(async()=>{
+    await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${MEMBER}`.execute(h.db());
+   });
+   expect(await call(client,"bring_in_hq_changes",{app_id:appId,reading_id:listed.reading_id,review_digest:listed.review_digest,discard_nova_changes:false,table_choices:{}})).toMatchObject({isError:true,body:{error_type:"permission_denied"}});
+   expect(uploadAssetBytes).toHaveBeenCalled();expect(deleteAsset).toHaveBeenCalled();
+   expect(await head(appId)).toEqual(before);
+   expect(await h.db().selectFrom("media_assets").select("id").execute()).toEqual([]);
+  });
+ });
+});
+ it("requires both grants to accept an installation review and keeps read access with import alone", async () => {
 		const appId = await broughtIn();
 		const source = changedAnswer(fixtureSource(), (body) => ({
 			...body,
@@ -285,7 +319,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 			},
 		}));
 		await withHttpPeer(async (peer) => {
-			serveRead(peer, source, { tables: true, times: 3 });
+			serveRead(peer, source, { tables: true, times: 4 });
 			const onlyImport = SCOPES.filter((s) => s !== "nova.hq.write");
 			const listed = await withTools(
 				(client) => readChanges(client, appId),
@@ -320,7 +354,12 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					.select("profile_key")
 					.execute(),
 			).toHaveLength(0);
-			expect(await accept(SCOPES)).toMatchObject({
+			observed.beforeInstallationCommit=async ()=>{
+    await sql`UPDATE public.auth_apikey SET enabled=false WHERE "referenceId"=${MEMBER}`.execute(h.db());
+ };
+ expect(await accept(SCOPES)).toMatchObject({isError:true,body:{error_type:"permission_denied"}});
+ expect(await h.db().selectFrom("app_deployment_installation_profiles").select("profile_key").execute()).toHaveLength(0);
+ expect(await accept(SCOPES)).toMatchObject({
 				isError: false,
 				body: { kind: "brought-in" },
 			});

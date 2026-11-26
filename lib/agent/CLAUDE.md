@@ -343,3 +343,5 @@ An architect that consumes its durable request allowance pauses through the same
 message continuation contract as an ordinary pause. Completed tool effects remain
 acknowledged, reconnect spends no new request, and a new user turn may continue.
 A final accepted response may complete at the exact allowance.
+
+The architect and MCP see the number of named installations in the ordinary app overview. The shared `getLanguages` tool pages their complete definitions and stable UUIDs on request. Each page belongs to one installation inventory, and an oversized definition spans numbered JSON text parts. `updateApp` accepts the same structured language identities in installation order.

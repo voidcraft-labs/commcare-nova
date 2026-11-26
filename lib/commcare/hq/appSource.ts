@@ -361,13 +361,11 @@ export function parseHqAppSource(
 	if (logoRefs !== undefined && !isRecord(logoRefs)) {
 		return refuse("logo_refs");
 	}
-	const buildProfiles = readBuildProfiles(body.build_profiles);
+	const ordinaryLanguages = new Set(langs);
+	const buildProfiles = readBuildProfiles(body.build_profiles, ordinaryLanguages, modules.length);
 	if (buildProfiles === null)
 		return refuse(
-			isRecord(body.build_profiles) &&
-				Object.keys(body.build_profiles).some(
-					(key) => !nativeInstallationKey(key),
-				)
+			unusableBuildProfileKey(body.build_profiles, ordinaryLanguages, modules.length)
 				? "build_profiles.unusable-key"
 				: "build_profiles",
 		);
@@ -470,6 +468,13 @@ function docTypeOf(value: unknown, admitAny: boolean): string | null {
 	return admitAny ? null : "";
 }
 
+export function unusableBuildProfileKey(value: unknown, ordinaryLanguages: ReadonlySet<string>, moduleCount: number): boolean {
+	return isRecord(value) && Object.entries(value).some(([key,p]) => {
+		const languages = isRecord(p) && Array.isArray(p.langs) ? p.langs.filter((lang):lang is string => typeof lang === "string") : [];
+		return !nativeInstallationKey(key, ordinaryLanguages, languages, moduleCount);
+	});
+}
+
 /**
  * `build_profiles`, `models/applications.py::ApplicationBase.build_profiles`,
  * a `SchemaDictProperty(BuildProfile)` HQ serializes on every app: an object
@@ -477,17 +482,19 @@ function docTypeOf(value: unknown, admitAny: boolean): string | null {
  */
 export function readBuildProfiles(
 	value: unknown,
+	ordinaryLanguages?: ReadonlySet<string>,
+	moduleCount?: number,
 ): readonly HqBuildProfile[] | null {
 	if (!isRecord(value)) return null;
 	const profiles: HqBuildProfile[] = [];
 	for (const [id, profile] of Object.entries(value)) {
 		if (
-			!nativeInstallationKey(id) ||
 			!isRecord(profile) ||
 			(profile.practice_mobile_worker_id != null &&
 				typeof profile.practice_mobile_worker_id !== "string") ||
 			!Array.isArray(profile.langs) ||
-			!profile.langs.every((lang) => typeof lang === "string")
+			!profile.langs.every((lang) => typeof lang === "string") ||
+			!nativeInstallationKey(id, ordinaryLanguages, profile.langs, moduleCount)
 		)
 			return null;
 		profiles.push({

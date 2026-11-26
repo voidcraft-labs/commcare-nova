@@ -243,6 +243,7 @@ export async function publishKeptReadingMedia(input: {
 	readonly actorUserId: string;
 	readonly plan: ReadingMediaPlan;
 	readonly onProgress: (done: number, total: number) => void;
+ readonly authorizePublication?:Parameters<typeof publishReadyMedia>[0]["authorizePublication"];
 }): Promise<ReadingMediaPlan> {
 	const { plan, onProgress } = input;
 	const heldFiles = plan.files.flatMap((file) => {
@@ -290,6 +291,7 @@ export async function publishKeptReadingMedia(input: {
 					projectId: input.projectId,
 					bytes: kept.get(contentHash) as Buffer,
 					validated: judged,
+					authorizePublication:input.authorizePublication,
 					originalFilename: judged.originalFilename,
 					assetId: asMediaAssetId(randomUUID()),
 				});

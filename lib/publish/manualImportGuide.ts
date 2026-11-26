@@ -1,3 +1,4 @@
+import {NATIVE_INSTALLATION_CHOICES} from "@/lib/domain/installationProfiles";
 /**
  * The steps a person takes to bring the HQ import file into CommCare HQ by
  * hand, derived from what the file carries and what the app needs.
@@ -460,11 +461,12 @@ export function manualImportGuide(
 						kind: "practice-installations" as const,
 						title: "Choose the practice workers for these installations",
 						lines: [
-							"After importing the app, open Releases → Application Profiles in this project space. Select an active practice worker for each installation and save.",
+							"After importing the app, open Releases → Application Profiles in this project space. Give any blank or repeated profiles different names so you can identify each one in the download menu. Select an active practice worker for each installation and save.",
 							...input.practiceInstallations.map(
 								({ name, languages }) =>
 									`• ${name || "Unnamed profile"} (${languages.join(" → ")}).`,
 							),
+							NATIVE_INSTALLATION_CHOICES,
 							"Choose Make new version. Under Deploy → Download to Android → Offline Installation, select each named Application Profile and download its CommCare_vN.ccz. Open it on a device and check the expected language and practice data before sending it to workers.",
 						],
 					},

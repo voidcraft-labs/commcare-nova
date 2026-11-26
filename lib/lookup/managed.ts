@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type Kysely, sql, type Transaction } from "kysely";
+import { type Kysely, type SqlBool, sql, type Transaction } from "kysely";
 import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import { type AppDatabase, getAppDb } from "@/lib/db/pg";
@@ -1282,7 +1282,7 @@ export async function lockLookupTablesForPublishInTransaction(
 		.selectFrom("lookup_tables")
 		.select(["id", "tag", "hq_server", "hq_domain", "hq_taken_over_at"])
 		.where("project_id", "=", projectId)
-		.where("id", "in", ids)
+		.where(sql<SqlBool>`id = ANY(${sql.val(ids)}::uuid[])`)
 		.orderBy("id")
 		.forUpdate()
 		.execute();

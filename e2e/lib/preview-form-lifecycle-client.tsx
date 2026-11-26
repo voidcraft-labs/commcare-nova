@@ -140,6 +140,15 @@ docStore.getState().startTracking();
 applyControllerEdit(docStore, [
 	{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 ]);
+if (new URLSearchParams(location.search).has("profile-labels")) {
+ applyControllerEdit(docStore,[
+  {kind:"addLanguage",language:{language:"hne"},wireCode:"hne"},
+  {kind:"addLanguage",language:{language:"cmn",script:"Hans",region:"SG"},wireCode:"cmn"},
+ ]);
+ const names=["Team","Team","","All app languages","Regional"];
+ const orders=[["eng"],["spa"],["eng"],["spa"],["hne","cmn-Hans-SG"]];
+ applyControllerEdit(docStore,names.map((name,index)=>({kind:"setAppSettings" as const,settings:{installationProfile:{operation:"add" as const,profile:{uuid:testUuid(`preview-installation-${index}`),name,languages:orders[index],requiresPracticeWorker:false}}}})));
+}
 const session = createBuilderSessionStore({
 	appId: doc.appId,
 	projectId: "project-a",

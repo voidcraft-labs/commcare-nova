@@ -65,7 +65,7 @@ vi.mock("@/lib/deployment/previewSpace", () => ({
 	})),
 }));
 
-const SESSION = { user: { id: "u1" } };
+const SESSION = { user: { id: "u1" }, session: { id: "test-session" } };
 const DOMAIN = "acme";
 
 /**
@@ -212,6 +212,7 @@ describe("POST /api/commcare/upload — target resolution", () => {
 			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
 		);
 		expect(resolveAppAccess).toHaveBeenCalledWith("app-1", "u1", "edit");
+		expect(vi.mocked(publishAppToHq).mock.calls[0][0].scope.requireInstallationManagement).toEqual(expect.any(Function));
 	});
 });
 

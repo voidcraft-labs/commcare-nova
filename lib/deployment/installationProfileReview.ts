@@ -48,7 +48,7 @@ export interface ReviewedInstallationProfiles {
 }
 
 export function requestedProfiles(
-	doc: BlueprintDoc,
+	doc: Pick<BlueprintDoc,"appSettings"|"localization">,
 	bindings: readonly InstallationProfileBinding[],
 ): InstallationProfileRequest[] {
 	const held = new Map(bindings.map((binding) => [binding.uuid, binding]));

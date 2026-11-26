@@ -1,3 +1,7 @@
+import {withInstallationRuntimeRole} from "@/__tests__/helpers/installationRuntimeRole";
+import {credentialWriteGrant} from "@/lib/mcp/credentialWriteGrant";
+import {installationCredential} from "@/__tests__/helpers/installationCredential";
+import {serveWorkingInstallationInventory} from "@/__tests__/helpers/workingInstallationInventory";
 /**
  * The publish sequence: the requests `publishAppToHq` sends, what it
  * records, and what it refuses, over real Postgres and a peer standing in
@@ -117,6 +121,7 @@ import {
 	readDeploymentNovaRevisions,
 	readTargetFacts,
 	readTargetIdentity,
+ recordPushedResources,
 } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
@@ -221,6 +226,17 @@ function publish(
 	});
 }
 
+ async function managedPublisher(doc:BlueprintDoc) {
+  const ctx=await installationCredential(h.db(),ACTOR,["nova.read","nova.write","nova.hq.write","nova.hq.import"]);
+  if(ctx.grant?.kind!=="api-key") throw new Error("Expected an API key");
+  const {keyId}=ctx.grant;
+  const grant=credentialWriteGrant(ctx,"upload_app_to_hq",["nova.hq.write","nova.hq.import"]);
+  return {
+   revoke:()=>sql`UPDATE auth_apikey SET enabled=false WHERE id=${keyId}`.execute(h.db()),
+   publish:(confirmInstallationProfiles?:string,compiledAtSeq=0)=>publishAppToHq({confirmInstallationProfiles,requireHqImport:null,scope:{...SCOPE,requireInstallationManagement:grant},...TARGET,doc,compiledAtSeq,reloadHead:reloadHeadFor(APP,ACTOR),appName:doc.appName,confirm:CONFIRM_ALL})
+  };
+ }
+
 function request(peer: MockAgent, path: string, method = "GET") {
 	return peer.get(HOST).intercept({
 		path,
@@ -237,6 +253,7 @@ function accepted(
 	status: 200 | 201,
 	appId = HQ_APP,
 	bodies?: unknown[],
+ onReply?:()=>Promise<void>,
 ) {
 	request(peer, IMPORT, "POST").reply(async (opts) => {
 		if (bodies !== undefined) {
@@ -249,6 +266,7 @@ function accepted(
 			});
 		}
 		if (status === 201) saves.create(appId);
+ await onReply?.();
 		return {
 			statusCode: status,
 			data: JSON.stringify({
@@ -1650,6 +1668,77 @@ describe("changes made in CommCare HQ", () => {
 			});
 		});
 	});
+
+ async function protectTarget() {
+  const current=(await state()) ?? fail();
+  await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${current.deployment.id},'other-editor','{"previousKeys":[]}'::jsonb)`.execute(h.db());
+ }
+ it("records the admitted workbook while preserving a dropped place when its management grant changes",async()=>{
+  const doc=await seed(await lookupDocument());
+  await withPeer(async peer=>{
+   emptyTables(peer);accepted(peer,201);serve(peer,SOURCE,"source-shell");workbookTaken(peer);tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-shell");accepted(peer,200);serve(peer,SOURCE,"source-live");
+   expect((await publish(doc)).landed).toBe(true);
+   await recordPushedResources(SCOPE,TARGET,[{kind:"location",novaResourceId:installationUuid("old-place"),remoteId:"old-place",ownership:"nova-created",pushedRevision:null,remoteRevision:null}],{status:"partial"},{expectedEndings:0});
+   await protectTarget();
+   const sender=await managedPublisher(doc);
+   const offset=requests(peer).length;
+   tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-live");
+   request(peer,WORKBOOK,"POST").reply(async()=>{await sender.revoke();return {statusCode:200,data:{code:200,message:"Done"}}});
+   tablesAfterPush(peer);tableRows(peer);
+   await expect(sender.publish()).rejects.toMatchObject({name:"McpCredentialInactiveError"});
+   expect((await state())?.active.map(r=>r.remoteId)).toContain("old-place");
+   expect(await h.db().selectFrom("hq_remote_writes").select("id").where("write_kind","=","workbook").where("settled_at","is not",null).execute()).toHaveLength(2);
+   expect(requests(peer).slice(offset).filter(r=>r.startsWith("POST "))).toEqual([`POST ${WORKBOOK}`]);
+   const restored=await managedPublisher(doc);
+   tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-live");workbookTaken(peer);tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-live");accepted(peer,200);serve(peer,SOURCE,"source-live");
+   expect((await restored.publish()).landed).toBe(true);
+   expect((await state())?.superseded.map(r=>r.remoteId)).toContain("old-place");
+  });
+ });
+ it("keeps an incomplete app's phase when its separate source read loses authority after a workbook",async()=>{
+  const doc=await seed(await lookupDocument());
+  await withPeer(async peer=>{
+   emptyTables(peer);accepted(peer,201);serve(peer,SOURCE,"source-shell");request(peer,WORKBOOK,"POST").reply(403,"");
+   expect(refusal(await publish(doc)).phase).toBe("resources");await protectTarget();
+   const sender=await managedPublisher(doc);
+   emptyTables(peer);serve(peer,SOURCE,"source-shell");workbookTaken(peer);tablesAfterPush(peer);tableRows(peer);
+   let held:Awaited<ReturnType<typeof state>>=null;
+   request(peer,SOURCE).reply(async()=>{held=await state();await sender.revoke();return {statusCode:200,data:"{"};});
+   await expect(sender.publish()).rejects.toMatchObject({name:"McpCredentialInactiveError"});
+   expect(held).not.toBeNull();
+   expect(await state()).toEqual(held);
+   expect((await state())?.active.some(r=>r.kind==="lookup-table")).toBe(true);
+   const restored=await managedPublisher(doc);
+   tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-shell");workbookTaken(peer);tablesAfterPush(peer);tableRows(peer);request(peer,SOURCE).reply(200,"{");
+   expect(refusal(await restored.publish()).phase).toBe("upload");
+   expect((await state())?.deployment.resumePhase).toBe("upload");
+   tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-shell");workbookTaken(peer);tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-shell");
+   request(peer,IMPORT,"POST").reply(async()=>{await restored.revoke();return {statusCode:400,data:"Invalid application"};});
+   expect(refusal(await restored.publish()).failure.code).toBe("hq_rejected_upload");
+   expect((await state())?.deployment.phases.upload).toMatchObject({status:"failed",failure:{code:"hq_rejected_upload"}});
+  });
+ });
+ it("accounts for the admitted workbook but checks the current installation grant for a separate missing-app read",async()=>{
+  const doc=await seed(await lookupDocument());
+  await withPeer(async peer=>{
+   emptyTables(peer);accepted(peer,201);serve(peer,SOURCE,"source-shell");workbookTaken(peer);tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-shell");accepted(peer,200);serve(peer,SOURCE,"source-live");
+   expect((await publish(doc)).landed).toBe(true);
+   const before=(await state()) ?? fail();
+   await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${before.deployment.id},'other-editor','{"previousKeys":[]}'::jsonb)`.execute(h.db());
+   const ctx=await installationCredential(h.db(),ACTOR,["nova.read","nova.write","nova.hq.write","nova.hq.import"]);
+   const grant=credentialWriteGrant(ctx,"upload_app_to_hq",["nova.hq.write","nova.hq.import"]);
+   const first=requests(peer).length;
+   tablesAfterPush(peer);tableRows(peer);serve(peer,SOURCE,"source-live");workbookTaken(peer);tablesAfterPush(peer);tableRows(peer);
+   request(peer,SOURCE).reply(async()=>{
+    await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(h.db());
+    const answer=retainedPublishRead("source-missing");return {statusCode:answer.status,data:retainedBodyText(answer),responseOptions:{headers:{...answer.headers}}};
+   });
+   await expect(publishAppToHq({requireHqImport:null,scope:{...SCOPE,requireInstallationManagement:grant},...TARGET,doc,compiledAtSeq:0,reloadHead:reloadHeadFor(APP,ACTOR),appName:doc.appName,confirm:CONFIRM_ALL})).rejects.toMatchObject({name:"McpCredentialInactiveError"});
+   const sent=requests(peer).slice(first);expect(sent).toContain(`POST ${WORKBOOK}`);expect(sent).not.toContain(`POST ${IMPORT}`);
+   const current=(await state()) ?? fail();expect(activeRemoteApp(current)?.remoteMissingAt).toBeNull();
+   expect(current.active.some(resource=>resource.kind==="lookup-table")).toBe(true);
+  });
+ });
 
 	it("stops at the upload when the app's compared keys moved during the push, and not when only an ignored key did", async () => {
 		const doc = await seed(await lookupDocument());
@@ -3403,6 +3492,35 @@ describe("named installations on a destination", () => {
 		});
 	});
 
+it.each(["revoke","move","unchanged"] as const)("accounts for the acknowledged intermediate language import when the review can %s",async change=>{
+ const uuid=installationUuid("language-transfer"),key=uuid.replaceAll("-","");
+ const doc=clinicVisitsDocument();
+ doc.appSettings.installationProfiles={[uuid]:{uuid,name:"Field office",languages:["eng"],requiresPracticeWorker:false}};
+ await seed(doc);
+ const profiles={[key]:{name:"Field office",langs:["en"],practice_mobile_worker_id:"",doc_type:"BuildProfile"}};
+ const raw=(name:"source-shell"|"source-after-create-then-update",langs=["en"])=>({...retainedBodyJson(retainedPublishRead(name)),langs,build_profiles:profiles});
+ await withPeer(async peer=>{
+  accepted(peer,201);request(peer,SOURCE).reply(200,raw("source-shell"));request(peer,SOURCE).reply(200,raw("source-shell"));
+  accepted(peer,200);request(peer,SOURCE).reply(200,raw("source-after-create-then-update"));expect((await publish(doc)).landed).toBe(true);
+  const mutate=(mutations:Mutation[])=>commitGuardedBatchProposal({appId:APP,expectedProjectId:PROJECT,actorUserId:ACTOR,batchId:crypto.randomUUID(),kind:"autosave",mutations});
+  const desired=await mutate([{kind:"addLanguage",language:{language:"spa"},wireCode:"es"},{kind:"setAppSettings",settings:{installationProfile:{operation:"update",uuid,patch:{languages:["spa"]}}}}]);
+  const author=await managedPublisher(hydratePersistedBlueprint(desired.committedDoc));
+  const sends=requests(peer).filter(p=>p.startsWith("POST ")).length;
+  request(peer,SOURCE).reply(200,raw("source-after-create-then-update"));request(peer,SOURCE).reply(200,raw("source-after-create-then-update"));
+  accepted(peer,200,HQ_APP,undefined,async()=>{
+   if(change==="revoke")await author.revoke();
+   if(change==="move")await mutate([{kind:"setAppName",name:"Relabeled during import"}]);
+  });
+  request(peer,SOURCE).reply(200,raw("source-after-create-then-update",["en","es"]));
+  const answer=author.publish(undefined,desired.seq);
+  if(change==="revoke")await expect(answer).rejects.toMatchObject({name:"McpCredentialInactiveError",message:expect.stringContaining("CommCare HQ received the app")});
+  else expect(refusal(await answer).failure.message).toContain(change==="move"?"Publish again":"languages workers need");
+  const privateRow=await h.db().selectFrom("app_deployment_installation_reviews").select("checkpoint").where("actor_id","=",ACTOR).executeTakeFirstOrThrow();
+  expect(privateRow.checkpoint).toMatchObject({phase:change==="unchanged"?"edit-profiles":"prepare-languages"});
+  const receipt=await sql<{version:number,settled:boolean}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version, settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP} ORDER BY opened_at DESC LIMIT 1`.execute(h.db());
+  expect(receipt.rows).toEqual([{version:saves.at(HQ_APP),settled:true}]);expect(requests(peer).filter(p=>p.startsWith("POST ")).length-sends).toBe(1);
+ });
+});
 	it("creates a profile on the shell, verifies its assigned key, and only records the final app after the complete map is read back", async () => {
 		const uuid = installationUuid("night-team");
 		const key = uuid.replaceAll("-", "");
@@ -3677,6 +3795,11 @@ describe("named installations on a destination", () => {
 		{ entitled: true, saveDuring: null },
 		{ entitled: true, saveDuring: "final-suite" },
 		{ entitled: true, saveDuring: "content-suite" },
+    { entitled: true, saveDuring: "restricted-runtime" },
+    { entitled: true, saveDuring: "revoke-on-content" },
+    { entitled: true, saveDuring: "revoke-on-resume" },
+    { entitled: true, saveDuring: "move-on-content" },
+    { entitled: true, saveDuring: "end-on-content" },
 	] as const)(
 		"fills the first shell once, then observes a named practice restore (entitled $entitled, concurrent save $saveDuring)",
 		async ({ entitled, saveDuring }) => {
@@ -3707,10 +3830,16 @@ describe("named installations on a destination", () => {
 			const resource = (path: string, id: string) =>
 				`<resource id="${id}" version="1"><location authority="remote">./${path}?profile=${key}</location></resource>`;
 			const suite = `<suite>${["default", "en"].map((lang) => `<locale language="${lang}">${resource(`${lang}/app_strings.txt`, lang)}</locale>`).join("")}<user-restore>${resource("practice_user_restore.xml", "practice-user-restore")}</user-restore></suite>`;
-			await withPeer(async (peer) => {
-				const bodies: unknown[] = [];
+			if(saveDuring==="end-on-content")await h.seedProjectMember(ADMIN,PROJECT,"admin");
+   const publisher=await managedPublisher(doc);
+   const journey=()=>withPeer(async (peer) => {
+    const bodies: unknown[] = [];
 				accepted(peer, 201, HQ_APP, bodies);
-				accepted(peer, 200, HQ_APP, bodies);
+				accepted(peer,200,HQ_APP,bodies,async()=>{
+     if(saveDuring==="end-on-content")await stopHere(ADMIN_SCOPE,TARGET);
+     if(saveDuring==="revoke-on-content")await publisher.revoke();
+     if(saveDuring==="move-on-content")await commitGuardedBatchProposal({appId:APP,expectedProjectId:PROJECT,actorUserId:ACTOR,batchId:crypto.randomUUID(),kind:"autosave",mutations:[{kind:"setAppName",name:"Renamed during confirmation"}]});
+    });
 				request(peer, SOURCE)
 					.reply(() => ({
 						statusCode: 200,
@@ -3731,8 +3860,9 @@ describe("named installations on a destination", () => {
 					peer,
 					`/a/clinic/apps/download/${HQ_APP}/suite.xml?profile=${key}`,
 				)
-					.reply(() => {
+					.reply(async () => {
 						if (checkingPrepared) promotedSuites++;
+ if(saveDuring==="revoke-on-resume" && checkingPrepared && promotedSuites===1)await publisher.revoke();
 						if (
 							!changed &&
 							((saveDuring === "final-suite" && promotedSuites === 2) ||
@@ -3788,7 +3918,24 @@ describe("named installations on a destination", () => {
 					(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
 				).toBeUndefined();
 				workerActive = true;
-				const waiting = refusal(await publish(doc, undefined, null, token));
+				if(saveDuring==="end-on-content"){
+     await publisher.publish(token);
+     expect((await state())?.deployment.state).toBe("ended");expect(activeRemoteApp((await state()) ?? fail())).toBeNull();
+     const receipt=await sql<{version:number|null,settled:boolean}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version,settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP}`.execute(h.db());
+     expect(receipt.rows).toEqual([{version:saves.at(HQ_APP),settled:true}]);expect(bodies).toHaveLength(2);return;
+    }
+    if(saveDuring==="revoke-on-content" || saveDuring==="move-on-content"){
+     const before=(await state()) ?? fail();
+     await expect(publisher.publish(token)).rejects.toMatchObject({message:expect.stringContaining("CommCare HQ received the app")});
+     const receipts=await sql<{version:number|null,settled:boolean}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version,settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP}`.execute(h.db());
+     expect(receipts.rows).toEqual([{version:saves.at(HQ_APP),settled:true}]);
+     const after=(await state()) ?? fail();
+     expect(activeRemoteApp(after)?.pushToken).toBe(activeRemoteApp(before)?.pushToken);
+     expect(activeRemoteApp(after)?.pushedRevision).toBeNull();
+     expect((await readTargetIdentity(SCOPE,TARGET)).installationProfiles).toBeUndefined();
+     expect(bodies).toHaveLength(2);return;
+    }
+    const waiting = refusal(await publish(doc, undefined, null, token));
 				if (saveDuring === "content-suite") {
 					expect(changed).toBe(true);
 					expect(waiting.failure.message).toMatch(/changed|verify/);
@@ -3825,10 +3972,13 @@ describe("named installations on a destination", () => {
 					(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
 				).toBeUndefined();
 				built = true;
+				serveWorkingInstallationInventory(peer,HOST,HQ_APP,saves.at(HQ_APP),{counterAlreadyServed:true});
 				const blobs = Object.fromEntries(
 					[
 						"profile.ccpr",
 						"suite.xml",
+						"profile.xml","media_profile.xml","media_profile.ccpr","media_suite.xml","default/app_strings.txt","en/app_strings.txt","modules-0/forms-0.xml",
+						...["profile.xml","media_profile.xml","media_profile.ccpr","media_suite.xml","modules-0/forms-0.xml"].map(file=>key+"/"+file),
 						`${key}/profile.ccpr`,
 						`${key}/suite.xml`,
 						`${key}/default/app_strings.txt`,
@@ -3848,12 +3998,21 @@ describe("named installations on a destination", () => {
 					built_from_app_id: HQ_APP,
 					version: saves.at(HQ_APP),
 					is_released: false,
+					langs:["en"], modules:[{forms:[{doc_type:"Form"},{doc_type:"ShadowForm"},{doc_type:"Form",is_release_notes_form:true,enable_release_notes:false}]}],
 					build_profiles: { [key]: profile },
 					external_blobs: blobs,
 				});
 				checkingPrepared = true;
-				const finished = await publish(doc);
-				if (saveDuring === "final-suite") {
+    if(saveDuring==="revoke-on-resume"){
+     const receipt=()=>sql<{id:string,at:Date|null,version:number|null}>`SELECT id,settled_at AS at,(to_jsonb(w)->>'import_acknowledged_version')::integer AS version FROM hq_remote_writes w WHERE write_kind='import'`.execute(h.db());
+     const before=await receipt();expect(before.rows).toMatchObject([{at:expect.any(Date),version:saves.at(HQ_APP)}]);
+     await expect(publisher.publish()).rejects.toMatchObject({name:"McpCredentialInactiveError"});
+     expect((await receipt()).rows).toEqual(before.rows);
+     expect((await mapping()).pushed_revision).toBeNull();expect(bodies).toHaveLength(2);
+     return;
+    }
+    const finished=await publish(doc);
+    if (saveDuring === "final-suite") {
 					expect(changed).toBe(true);
 					expect(refusal(finished).failure.message).toContain("changed");
 					expect((await mapping()).pushed_revision).toBeNull();
@@ -3886,8 +4045,9 @@ describe("named installations on a destination", () => {
 					`POST ${IMPORT}`,
 				]);
 			});
-		},
-	);
+   if(saveDuring==="restricted-runtime") await withInstallationRuntimeRole(h,journey);else await journey();
+  },45_000,
+ );
 	it("keeps a shell incomplete when the destination must supply an active practice worker", async () => {
 		const uuid = installationUuid("training");
 		const key = uuid.replaceAll("-", "");

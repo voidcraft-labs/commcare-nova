@@ -1,3 +1,4 @@
+import type { HqManagementGrant } from "../store";
 import "server-only";
 
 /**
@@ -115,7 +116,7 @@ export function adoptedDeploymentWrite(input: {
 // ---------------------------------------------------------------------------
 
 export interface AdoptionBirth {
-	readonly requireInstallationManagement?: () => void;
+	readonly requireInstallationManagement?: HqManagementGrant;
 	readonly actorUserId: string;
 	/** Attribution only: an adoption holds no run. Minted outside the transaction. */
 	readonly runId: string;
@@ -151,7 +152,7 @@ export async function adoptHqAppInTransaction(
 	const { candidate, actorUserId, projectData, at } = birth;
 	const { appId, projectId } = candidate;
 	try {
-		await claimHqAppInTransaction(tx, birth.hqApp);
+		await claimHqAppInTransaction(tx, birth.hqApp, birth.requireInstallationManagement);
 	} catch (error) {
 		if (
 			error instanceof HqAppAlreadyClaimedError &&
@@ -167,7 +168,7 @@ export async function adoptHqAppInTransaction(
 		status: "complete",
 		afterAppInsert: async (inner) => {
 			if (birth.deployment.targetIdentity.installationProfiles?.length)
-				birth.requireInstallationManagement?.();
+				await birth.requireInstallationManagement?.(inner);
 			await writeBroughtInLookupTablesInTransaction(
 				inner,
 				{ projectId, actorUserId, appId },

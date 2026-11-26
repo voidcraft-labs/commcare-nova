@@ -1,5 +1,6 @@
 "use client";
 
+import type {InstallationProfile} from "@/lib/domain/installationProfiles";
 import {
 	createContext,
 	type ReactNode,
@@ -44,7 +45,7 @@ const LANGUAGE_QUERY_KEY = "lang";
 export interface BuilderLanguageState {
 	readonly language: LanguageTag;
 	readonly identity: AppLanguageIdentity;
-	readonly profiles: readonly { uuid: Uuid; name: string }[];
+	readonly profiles: readonly InstallationProfile[];
 	readonly profileUuid?: Uuid;
 	selectProfile(uuid: string): void;
 	readonly sourceLanguage: LanguageTag;

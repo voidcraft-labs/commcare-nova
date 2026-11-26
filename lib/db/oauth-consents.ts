@@ -17,6 +17,7 @@
 
 import { createHash } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { lockOAuthGrantGate } from "@/lib/auth/grantGate";
 import { AS_ISSUER, AS_ORIGIN, MCP_RESOURCE_URL } from "@/lib/hostnames";
 import { deriveClientIdentityHost } from "@/lib/oauth/client-display";
 import { getAuthDb } from "../auth/db";
@@ -169,6 +170,7 @@ export async function revokeAuthorizedClient(
 			throw new Error("Consent does not belong to this user");
 		}
 		const { clientId } = consent;
+		await lockOAuthGrantGate(trx, userId, clientId, "revoke");
 		/* One app-server timestamp for the whole transaction, so the
 		 * revoked tokens and the watermark share an instant. */
 		const revokedAt = new Date();
@@ -207,14 +209,17 @@ export async function recordOAuthGrantRevocation(
 	clientId: string,
 ): Promise<void> {
 	const db = await getAuthDb();
-	const revokedAt = new Date();
-	await db
-		.insertInto("auth_oauth_grant_revocation")
-		.values({ userId, clientId, revokedAt })
-		.onConflict((oc) =>
-			oc.columns(["userId", "clientId"]).doUpdateSet({ revokedAt }),
-		)
-		.execute();
+	await db.transaction().execute(async (tx) => {
+		await lockOAuthGrantGate(tx, userId, clientId, "revoke");
+		const revokedAt = new Date();
+		await tx
+			.insertInto("auth_oauth_grant_revocation")
+			.values({ userId, clientId, revokedAt })
+			.onConflict((oc) =>
+				oc.columns(["userId", "clientId"]).doUpdateSet({ revokedAt }),
+			)
+			.execute();
+	});
 }
 
 /**

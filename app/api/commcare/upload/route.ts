@@ -65,6 +65,7 @@ import {
 	handleApiError,
 	readJsonBody,
 } from "@/lib/apiError";
+import { sessionManagementGrant } from "@/lib/deployment/sessionManagementGrant";
 import { requireSession } from "@/lib/auth-utils";
 import { isValidDomainSlug } from "@/lib/commcare/client";
 import { resolveAppAccess } from "@/lib/db/appAccess";
@@ -311,6 +312,7 @@ export async function POST(req: NextRequest) {
 			projectId: access.projectId,
 			role: access.role,
 			actorUserId: session.user.id,
+			requireInstallationManagement: sessionManagementGrant(session.user.id, session.session.id),
 		};
 		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
 		const appId = body.appId;

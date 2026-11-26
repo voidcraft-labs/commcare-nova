@@ -1,3 +1,5 @@
+import {resolvedLanguageEnglishName} from "@/lib/domain/languageRegistry/names";
+import {installationDownloadIssue} from "@/lib/commcare/installationProfiles";
 /**
  * `nova.compile_app` — produce CommCare artifacts for an app the caller can view.
  *
@@ -153,11 +155,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						throw new McpInvalidInputError(
 							"An import file includes the entire app. A profile can be selected for a mobile app file.",
 						);
-					const issue = installationArchiveIssue(
-						doc,
-						args.installation_profile_uuid,
-					);
-					if (issue) throw new McpInvalidInputError(issue);
+
 				}
 				/* A CCZ is made for one project space this app is published
 				 * to, and the import file for none: a reached deployment only
@@ -184,6 +182,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							...downloadRefusalLines(download).map((line) => `- ${line}`),
 						].join("\n"),
 					);
+				}
+				if (download.format === "ccz" && args.installation_profile_uuid) {
+					const issue = installationDownloadIssue(doc, args.installation_profile_uuid, download.identity)
+						?? installationArchiveIssue(doc,args.installation_profile_uuid,resolvedLanguageEnglishName);
+					if (issue) throw new McpInvalidInputError(issue);
 				}
 				const { attachmentTarget } = download;
 				const boundary = await prepareExportBoundary({

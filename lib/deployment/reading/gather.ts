@@ -1,3 +1,4 @@
+import {installationReviewNames} from "../targetIdentity";
 import "server-only";
 
 /**
@@ -2103,6 +2104,7 @@ function* reviewOf(input: {
 						key: binding.key,
 						name: profile.name,
 						languages: profile.languages,
+ ...installationReviewNames(profile.languages),
 						requiresPracticeWorker: profile.requiresPracticeWorker,
 						...(binding.practiceWorkerId && {
 							worker: binding.practiceWorkerId,

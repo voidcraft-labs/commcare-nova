@@ -1,3 +1,4 @@
+import {cleanLanguageIdentity,languageIdentityInputSchema} from "./localization";
 /**
  * SA tool: `updateApp` — set the app's display name and its app settings:
  * whether workers see their saved forms and their incomplete forms, and
@@ -25,8 +26,8 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	declaredPlatforms,
-	installationProfilePatchSchema,
-	installationProfileSchema,
+	languageTag,
+
 	type Platform,
 	uuidSchema,
 } from "@/lib/domain";
@@ -54,24 +55,27 @@ import type {
 export const UPDATE_APP_EMPTY_INPUT_MESSAGE =
 	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms) where the app runs (runs_only_on) and named installations (installation_profile); a call needs at least one of them.";
 
+const installationInputs=z.strictObject({
+ name:z.string(),languages:z.array(languageIdentityInputSchema).min(1),requiresPracticeWorker:z.boolean()
+});
 export const updateAppInputSchema = z
 	.strictObject({
 		installation_profile: z
 			.discriminatedUnion("operation", [
 				z.strictObject({
 					operation: z.literal("create"),
-					...installationProfileSchema.omit({ uuid: true }).shape,
+					...installationInputs.shape,
 				}),
 				z.strictObject({
 					operation: z.literal("update"),
 					uuid: uuidSchema,
-					patch: installationProfilePatchSchema,
+					patch:installationInputs.partial().refine(patch=>Object.keys(patch).length>0,"Choose something to change in this installation profile."),
 				}),
 				z.strictObject({ operation: z.literal("remove"), uuid: uuidSchema }),
 			])
 			.optional()
 			.describe(
-				"Create, change, or remove one named installation. languages is its ordered subset of app language tags, with the initial worker language first. requiresPracticeWorker means a practice worker must be chosen in each project space; account identifiers never belong in the profile. Find existing UUIDs in the app overview.",
+				"Create, change, or remove one named installation. languages is its ordered subset of structured app language identities, with the initial worker language first. requiresPracticeWorker means a practice worker must be chosen in each project space; account identifiers never belong in the profile. Read existing UUIDs with the installations option of getLanguages or get_languages.",
 			),
 		name: z
 			.string()
@@ -122,9 +126,12 @@ function changedSettings(
 		const { operation: _operation, ...definition } = change;
 		settings.installationProfile = {
 			operation: "add",
-			profile: { ...definition, uuid: asUuid(crypto.randomUUID()) },
+			profile: { ...definition,languages:definition.languages.map(value=>languageTag(cleanLanguageIdentity(value))), uuid: asUuid(crypto.randomUUID()) },
 		};
-	} else if (change) settings.installationProfile = change;
+	} else if(change?.operation==="update") {
+  const {languages,...other}=change.patch;
+  settings.installationProfile={operation:"update",uuid:change.uuid,patch:{...other,...(languages && {languages:languages.map(value=>languageTag(cleanLanguageIdentity(value)))})}};
+ } else if (change) settings.installationProfile = change;
 	if (
 		input.show_saved_forms !== undefined &&
 		input.show_saved_forms !== current.showSavedForms

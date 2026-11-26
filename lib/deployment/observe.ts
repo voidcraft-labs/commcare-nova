@@ -1,9 +1,11 @@
 import "server-only";
+import {ambiguousInstallationNames,NATIVE_INSTALLATION_CHOICES,INSTALLATION_NAME_RECOVERY} from "@/lib/domain/installationProfiles";
 
 import type { CommCareCredentials } from "@/lib/commcare/client";
 import { probeBuildProfile, readAppVersions } from "@/lib/commcare/client";
 import { readHqApplication } from "@/lib/commcare/hq/application";
 import type { HqBuildProfile } from "@/lib/commcare/hq/appSource";
+import {INSTALLATION_KEY_RECOVERY} from "@/lib/commcare/hq/installationKey";
 import { readInstallationBuild } from "@/lib/commcare/hq/installationBuild";
 import type {
 	DeploymentFailureCode,
@@ -73,6 +75,7 @@ export async function observeDeployment(input: {
 	readonly creds: CommCareCredentials;
 	readonly domain: string;
 	readonly hqAppId: string;
+	readonly checkOfflineInstallation: boolean;
 	readonly namedProfiles?: readonly HqBuildProfile[];
 	readonly now: string;
 }): Promise<ObservationResult> {
@@ -236,25 +239,32 @@ export async function observeDeployment(input: {
 		};
 	}
 
-	if (input.namedProfiles?.length) {
-		const files = await readInstallationBuild(
+	if (input.checkOfflineInstallation) {
+		const expected = input.namedProfiles ?? [];
+		const build = await readInstallationBuild(
 			creds,
 			domain,
 			hqAppId,
 			released,
-			input.namedProfiles,
+			expected,
 		);
-		const missing = input.namedProfiles.find(
+		const files=build?.profiles;
+		const missing = expected.find(
 			(p) => files?.get(p.id) !== "prepared",
 		);
-		const detail = !files
-			? "Nova could not read the released build’s installation details. Check your CommCare HQ API access and check status again."
+		const detail = !build || !files
+			? "Nova could not verify the form list for this released version. If the app has newer changes in CommCare HQ, make and release their version. Otherwise check your API access, then check status again."
+			: build.ordinary === "unusable" ? INSTALLATION_KEY_RECOVERY + " Publish again, then make and release a new version."
+			: build.ordinary === "different" ? "This released version has files outside its current installations. Check Application Profiles on the Releases page in CommCare HQ, then make and release a new version before downloading it for Android."
+			: build.ordinary === "incomplete" ? "The released version is missing files from the all-language Android installation. Make and release a new version in CommCare HQ, then check status again."
+			: ambiguousInstallationNames(expected).size > 0 ? INSTALLATION_NAME_RECOVERY
 			: missing && files.get(missing.id) === "different"
 				? `The “${missing.name}” installation on this released build differs from the profile Nova published. Check its name, languages and practice worker on the Releases page in CommCare HQ.`
 				: missing && files.get(missing.id) === "incomplete"
 					? `CommCare HQ prepared “${missing.name}” without all its required files. Check its languages, its practice worker and your plan there, then make and prepare a new version.`
+
 					: missing
-						? `The “${missing.name}” installation is waiting for its files. On version ${released.version} in CommCare HQ, choose Deploy, Download to Android, then Offline Installation. Under Application Profile choose “${missing.name}” and download CommCare_v${released.version}.ccz, then check status again.`
+						? `The “${missing.name}” installation is waiting for its files. On version ${released.version} in CommCare HQ, choose Deploy, Download to Android, then Offline Installation. ${NATIVE_INSTALLATION_CHOICES} Choose “${missing.name}” and download CommCare_v${released.version}.ccz, then check status again.`
 						: undefined;
 		if (detail) {
 			outcomes.push(["probe", pending(now, detail)]);

@@ -1,3 +1,4 @@
+import {nativeInstallationKey} from "./hq/installationKey";
 /**
  * CommCare HQ REST API client — server-side only.
  *
@@ -1419,7 +1420,7 @@ export function readWorkingInstallationSuite(
 	creds: CommCareCredentials,
 	domain: string,
 	appId: string,
-	profileKey: string,
+	profileKey?: string,
 ) {
 	return readInstallationXml(creds, domain, appId, "suite.xml", profileKey);
 }
@@ -1431,7 +1432,7 @@ async function readInstallationXml(
 	resource: "profile.ccpr" | "suite.xml",
 	profileKey?: string,
 ): Promise<{ readonly xml: string } | CommCareApiError> {
-	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(buildId))
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(buildId) || (profileKey !== undefined && !nativeInstallationKey(profileKey)))
 		return { success: false, status: 400 };
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 30_000);

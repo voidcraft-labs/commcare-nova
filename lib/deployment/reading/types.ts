@@ -201,13 +201,14 @@ export type CreateAnswer =
 
 /**
  * Every refusal of a bring-in: the two a route meets before its stream opens,
- * and the six that only ever ride a `CreateAnswer`. `publish_in_flight` is a
+ * and those that only ever ride a `CreateAnswer`. `publish_in_flight` is a
  * create whose claim met a write another Nova app let out to the HQ app that
  * has not settled: the review stands, and the person can try again shortly. `no_project_access` is
  * both: the route's 403, and the birth's own check of `edit` after the stream
  * is open.
  */
 export const READING_REFUSALS = [
+	"session_ended",
 	"no_project_access",
 	"invalid_input",
 	"name_missing",
@@ -221,6 +222,7 @@ export type ReadingRefusal = (typeof READING_REFUSALS)[number];
 
 /** The status a route answers a refusal with: 200 where it rides the stream's last line. */
 export const READING_REFUSAL_STATUS = {
+	session_ended: 200,
 	no_project_access: 403,
 	invalid_input: 400,
 	name_missing: 200,

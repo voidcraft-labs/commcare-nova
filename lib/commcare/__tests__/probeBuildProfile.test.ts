@@ -1,3 +1,4 @@
+import {serveWorkingInstallationInventory} from "@/__tests__/helpers/workingInstallationInventory";
 import { setImmediate } from "node:timers/promises";
 import { gzipSync } from "node:zlib";
 import type { MockAgent } from "undici";
@@ -229,11 +230,13 @@ it("reads an exact cold build without requesting files, and rejects one rename o
 	};
 	const build = { id: "released-build", version: 7, isReleased: true };
 	const cold = {
+		...Object.fromEntries(["profile.xml","media_profile.xml","media_profile.ccpr","media_suite.xml","modules-0/forms-0.xml","default/app_strings.txt","fra/app_strings.txt"].map(file => ["files/"+file,{content_length:50}])),
 		"files/profile.ccpr": { content_length: 5 },
 		"files/suite.xml": { content_length: 8 },
 	};
 	const ready = Object.fromEntries(
 		[
+			"profile.xml","media_profile.xml","media_profile.ccpr","media_suite.xml","modules-0/forms-0.xml",
 			"profile.ccpr",
 			"suite.xml",
 			"default/app_strings.txt",
@@ -247,6 +250,11 @@ it("reads an exact cold build without requesting files, and rejects one rename o
 			["Visits", "worker-a", { ...cold, ...ready }, "prepared"],
 			["Visits", "worker-b", { ...cold, ...ready }, "different"],
 			["Renamed", "worker-a", { ...cold, ...ready }, "different"],
+			...["media_profile.ccpr","media_suite.xml","modules-0/forms-0.xml"].flatMap(path => [
+				["Visits","worker-a", {...cold, ...Object.fromEntries(Object.entries(ready).filter(([key])=>key !== "files/visits/"+path))}, "incomplete"] as const,
+				["Visits","worker-a", {...cold,...ready,["files/visits/"+path]:{content_length:0}}, "incomplete"] as const,
+			]),
+			["Visits", "worker-a", { ...cold, ...ready, "files/visits/modules-0/forms-1.xml":{content_length:1} }, "different"],
 			[
 				"Visits",
 				"worker-a",
@@ -258,6 +266,7 @@ it("reads an exact cold build without requesting files, and rejects one rename o
 				"incomplete",
 			],
 		] as const) {
+			serveWorkingInstallationInventory(peer,HOST,"working",7);
 			peer
 				.get(HOST)
 				.intercept({
@@ -270,6 +279,7 @@ it("reads an exact cold build without requesting files, and rejects one rename o
 					_id: build.id,
 					domain: "clinic",
 					doc_type: "Application",
+					langs:["fra"], modules:[{forms:[{unique_id:"regular"},{unique_id:"shadow"},{unique_id:"release-note"}]}],
 					copy_of: "working",
 					built_from_app_id: "working",
 					version: 7,
@@ -284,13 +294,13 @@ it("reads an exact cold build without requesting files, and rejects one rename o
 					await readInstallationBuild(CREDS, "clinic", "working", build, [
 						expected,
 					])
-				)?.get("visits"),
+				)?.profiles.get("visits"),
 			).toBe(verdict);
 		}
 	});
 });
 
-it("checks a multi-team build including nested, incomplete and separate installation folders", async () => {
+it("checks enabled forms, locale and media files across many separate installation folders", async () => {
 	const expected: {
 		id: string;
 		name: string;
@@ -304,30 +314,28 @@ it("checks a multi-team build including nested, incomplete and separate installa
 	expected.push(
 		...[
 			"home",
-			"home/north",
+			"home-north",
 			"homecoming",
 			"empty",
-			"empty/ready",
+			"empty-ready",
 			"partial",
 			"stale",
 		].map((id) => ({
 			id,
 			name: id,
-			...(id === "home/north" && { practiceWorkerId: "northern-worker" }),
+			...(id === "home-north" && { practiceWorkerId: "northern-worker" }),
 			langs: ["en", "fra"],
 		})),
 	);
 	const profileFiles = [
+		"profile.xml","media_profile.xml","media_profile.ccpr","media_suite.xml","modules-0/forms-0.xml",
 		"profile.ccpr",
 		"suite.xml",
 		"default/app_strings.txt",
 		"en/app_strings.txt",
 		"fra/app_strings.txt",
 	];
-	const files = new Map([
-		["files/profile.ccpr", { content_length: 10 }],
-		["files/suite.xml", { content_length: 11 }],
-	]);
+	const files = new Map<string,{content_length:number}>(profileFiles.map(file=>["files/"+file,{content_length:16}]));
 	for (const profile of expected) {
 		if (profile.id === "empty") continue;
 		for (const filename of profile.id === "partial"
@@ -335,12 +343,13 @@ it("checks a multi-team build including nested, incomplete and separate installa
 			: profileFiles)
 			files.set(`files/${profile.id}/${filename}`, { content_length: 12 });
 	}
-	files.set("files/home/north/practice_user_restore.xml", {
+	files.set("files/home-north/practice_user_restore.xml", {
 		content_length: 13,
 	});
 	files.set("files/stale/spa/app_strings.txt", { content_length: 13 });
 	await withHttpPeer(async (peer) => {
 		const id = "regional-release";
+		serveWorkingInstallationInventory(peer,HOST,"working",9);
 		peer
 			.get(HOST)
 			.intercept({
@@ -355,6 +364,7 @@ it("checks a multi-team build including nested, incomplete and separate installa
 				copy_of: "working",
 				built_from_app_id: "working",
 				version: 9,
+				langs:["en","fra"], modules:[{forms:[{unique_id:"regular"},{unique_id:"shadow"},{unique_id:"release-note"}]}],
 				is_released: true,
 				build_profiles: Object.fromEntries(
 					expected.map((profile) => [
@@ -375,7 +385,7 @@ it("checks a multi-team build including nested, incomplete and separate installa
 			{ id, version: 9, isReleased: true },
 			expected,
 		);
-		expect(read?.size).toBe(expected.length);
+		expect(read?.profiles.size).toBe(expected.length);
 		for (const profile of expected) {
 			const verdict =
 				profile.id === "stale"
@@ -385,7 +395,17 @@ it("checks a multi-team build including nested, incomplete and separate installa
 						: profile.id === "partial"
 							? "incomplete"
 							: "prepared";
-			expect(read?.get(profile.id)).toBe(verdict);
+			expect(read?.profiles.get(profile.id)).toBe(verdict);
 		}
+	});
+});
+
+
+it("returns a Releases repair before fetching an unsafe named installation", async () => {
+	await withHttpPeer(async peer => {
+		const result = await readInstallationBuild(CREDS,"clinic","working",
+			{id:"released",version:1,isReleased:true}, [{id:"team/subteam",name:"Team",langs:["en"],practiceWorkerId:"synthetic"}]);
+		expect(result?.ordinary).toBe("unusable");
+		expect(peer.getCallHistory()?.calls()).toEqual([]);
 	});
 });

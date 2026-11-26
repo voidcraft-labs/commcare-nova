@@ -1507,3 +1507,5 @@ incident. A previously retained attachment or server-selected source failing
 admission is an invariant failure reported with its original cause, thread and
 asset identity. Client responses contain actionable copy only. Rejected claims
 roll back their thread, holder and credit changes together.
+
+A publish settles released HQ claims only for the chosen server and project space. A signed-in restore can settle the app’s complete set. Before a bearer changes a physical claim with installation bindings or a private pending review, the locked transaction checks its live HQ Write and HQ Import grants. This covers an ending, reclaiming a released mapping, and displacing its deleted holder. Waiting on an admitted write changes no claim.

@@ -113,7 +113,7 @@ async function scan() {
 				source_digest: stored.source_digest,
 			});
 			const source = JSON.parse(bytes.toString("utf8"));
-			const profiles = readBuildProfiles(source.build_profiles);
+			const profiles = readBuildProfiles(source.build_profiles, new Set(Array.isArray(source.langs) ? source.langs : []), Array.isArray(source.modules) ? source.modules.length : undefined);
 			if (profiles && Array.isArray(source.langs))
 				baseline = describe(profiles, source.langs, source.translations);
 		}
@@ -162,7 +162,7 @@ async function scan() {
 						? {
 								state: "needs-profile-edit",
 								reason:
-									"Recreate the profile whose installation link cannot select its ID on Releases, then check again.",
+									"Recreate the profile whose ID cannot select a separate set of installation files on Releases, then check again.",
 							}
 						: {
 								state: "unknown",

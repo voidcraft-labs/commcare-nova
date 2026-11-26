@@ -488,6 +488,26 @@ describe("a review of changes made in CommCare HQ", () => {
 		]);
 	});
 
+	it("discloses a large shared table decision in complete numbered parts before providing consent",()=>{
+		const labels=Array.from({length:250},(_,i)=>String(i).padStart(3,"0")+"q".repeat(117));
+		const table:ReviewTable={tag:"district",standing:"choice",hqDigest:DIGEST,projectTable:null,choice:{differs:["columns"],apps:[{appId:"other",appName:"Clinic",deleted:false}],options:{"use-commcare-hq":{offered:true,goneColumns:labels,retypedColumns:[]},"use-project":{offered:false,why:"needs-admin",name:null}}}};
+		const review=changes({tables:[table]});
+		const text:string[]=[];
+		let from=0;
+		for(;;){
+			const page=describeHqChangesReview(review,HEAD,{...FIRST_PAGE,page:{from,restarted:false}});
+			if(page.kind!=="changes") throw new Error("Expected the table choice");
+			expect(JSON.stringify({content:[{type:"text",text:JSON.stringify(page)}]}).length).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+			for(const part of page.table_parts ?? []){expect(part.tag).toBe(table.tag);text.push(part.text);}
+			if(!page.next_page){expect(page.review_digest).toBe(review.reviewDigest);break;}
+			expect(page.review_digest).toBeNull();
+			const next=changesPageFor(review,parseAccountPage(page.next_page),HEAD.domain);
+			if(!next || next.restarted) throw new Error("Unexpected changed table");
+			from=next.from;
+		}
+		expect(JSON.parse(text.join(""))).toEqual(tableProjection(table,review.projectName,HEAD.domain));
+	});
+
 	it("says why there is nothing to bring in, for each reason", () => {
 		for (const reason of [
 			"unchanged",

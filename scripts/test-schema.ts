@@ -1,3 +1,4 @@
+import { getLanguagesTool } from "../lib/agent/tools/localization";
 import { readSourceTool } from "../lib/agent/tools/media/readSource";
 /**
  * Verifies that the SA's tool input schemas are accepted by the OpenAI
@@ -467,6 +468,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		prompt:
 			"Use generateSchema to record one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
 	},
+    {name:"getLanguages",description:getLanguagesTool.description,schema:getLanguagesTool.inputSchema,prompt:"Use getLanguages to read the first page of named installations."},
 	{
 		name: "updateApp",
 		description: updateAppTool.description,

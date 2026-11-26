@@ -1,3 +1,4 @@
+import {parseLanguageTag,type AppLanguageIdentity} from "@/lib/domain/localization";
 /**
  * What `read_hq_app` and `bring_in_hq_app` answer about one read of a
  * CommCare HQ app: a stop, an account or a review, with every sentence the
@@ -90,6 +91,8 @@ import { BringInToolError } from "../errors";
 import {
 	arrayItemChars,
 	cutPage,
+	encodedJsonChars,
+	toolResultChars,
 	fitPiece,
 	lineParts,
 	PIECE_MAX_CHARS,
@@ -147,7 +150,7 @@ export interface ReviewPublishDetail {
 	readonly parts: number;
 	readonly text: string;
 }
-function reviewPublishDetails(review: ReadingReview): ReviewPublishDetail[] {
+export function reviewPublishDetails(review: ReadingReview): ReviewPublishDetail[] {
 	return review.runsOn.flatMap((choice) =>
 		(choice.removesFiles ?? []).flatMap((line, item) => {
 			const parts = lineParts(line, PIECE_MAX_CHARS - 256);
@@ -218,10 +221,13 @@ export interface ReviewProjection {
 	}[];
 	/** How many lookup tables the app reads, over every page. */
 	readonly tables_total: number;
+	readonly table_parts?: readonly TableReviewPart[];
+	readonly case_types_total?: number;
+	readonly case_type_parts?: readonly TextReviewPart[];
 	readonly installations?: readonly {
 		readonly profile_id: string;
 		readonly name: string;
-		readonly languages: readonly string[];
+		readonly languages: readonly AppLanguageIdentity[];
 		readonly practice_worker_id: string | null;
 	}[];
 	readonly installations_total?: number;
@@ -415,11 +421,11 @@ function installationRowsOf(review: ReadingReview) {
 		const row = {
 			profile_id: entry.key,
 			name: entry.name,
-			languages: entry.languages,
+			languages: entry.languages.map(parseLanguageTag),
 			practice_worker_id: entry.worker ?? null,
 		};
 		const text = JSON.stringify(row);
-		if (text.length < PIECE_MAX_CHARS) {
+		if (encodedJsonChars(row) < PIECE_MAX_CHARS) {
 			rows.push({ row });
 			continue;
 		}
@@ -430,8 +436,46 @@ function installationRowsOf(review: ReadingReview) {
 	return rows;
 }
 
+export interface TextReviewPart {
+	item:number;
+	part:number;
+	parts:number;
+	text:string;
+}
+export interface TableReviewPart extends TextReviewPart {
+	tag?:string;
+	standing:ReviewTable["standing"];
+	answers: readonly {answer:TableAnswerProjection["answer"];offered:boolean}[];
+}
+function partsOf(text:string,item:number): TextReviewPart[] {
+	const pieces=lineParts(text,PIECE_MAX_CHARS-1024);
+	return pieces.map((text,i)=>({item,part:i+1,parts:pieces.length,text}));
+}
+export type TableReviewPiece = {kind:"table"; table:ReviewProjection["tables"][number]} | {kind:"table-part";fragment:TableReviewPart};
+// A read owns its immutable table list. Its length and projection use the
+// same pieces; fresh reads get fresh arrays and never resume from this cache.
+const projectedTables=new WeakMap<readonly ReviewTable[], {project:string;domain:string;pieces:TableReviewPiece[]}>();
+export function tableReviewPieces(tables:readonly ReviewTable[],project:string,domain:string):TableReviewPiece[] {
+	const existing=projectedTables.get(tables);
+	if(existing?.project===project && existing.domain===domain) return existing.pieces;
+	const pieces=tables.flatMap((table,item):TableReviewPiece[]=>{
+		const row=tableProjection(table,project,domain);
+		if (encodedJsonChars(row)<PIECE_MAX_CHARS) return [{kind:"table",table:row}];
+		const answers=row.choice?.answers.map(({answer,offered})=>({answer,offered})) ?? [];
+		return partsOf(JSON.stringify(row),item).map(part=>({kind:"table-part",fragment:{...part,...(encodedJsonChars(row.tag)<512 && {tag:row.tag}),standing:row.standing,answers}}));
+	});
+	projectedTables.set(tables,{project,domain,pieces});
+	return pieces;
+}
+function caseReviewPieces(types:readonly string[]):({name:string}|{fragment:TextReviewPart})[] {
+	// Small catalogs stay in the summary. Large catalogs are paged once.
+	if(encodedJsonChars(types)<=4096) return [];
+	return types.flatMap((name,item):({name:string}|{fragment:TextReviewPart})[]=>
+		encodedJsonChars(name)<PIECE_MAX_CHARS ? [{name}] : partsOf(name,item).map(fragment=>({fragment})));
+}
+
 function pagedOf(
-	answer: ReadingAnswer,
+	answer: ReadingAnswer, project:string, domain:string,
 ): { readonly length: number; readonly digest: string } | null {
 	switch (answer.kind) {
 		case "stop":
@@ -442,7 +486,8 @@ function pagedOf(
 			return {
 				length:
 					reviewPublishDetails(answer.review).length +
-					answer.review.tables.length +
+					tableReviewPieces(answer.review.tables,cutFindingName(project),domain).length +
+					caseReviewPieces(answer.review.creates.caseTypes).length +
 					installationRowsOf(answer.review).length,
 				digest: answer.reviewDigest,
 			};
@@ -462,9 +507,11 @@ function pagedOf(
 export function pageFor(
 	answer: ReadingAnswer,
 	cursor: ReturnType<typeof parseAccountPage>,
+	context:{project:string,domain:string}={project:"",domain:""},
 ): { readonly from: number; readonly restarted: boolean } | null {
-	const paged = pagedOf(answer);
-	if (cursor === null || paged === null) return { from: 0, restarted: false };
+	if (cursor===null) return {from:0,restarted:false};
+	const paged = pagedOf(answer,context.project,context.domain);
+	if (paged === null) return { from: 0, restarted: false };
 	const proof =
 		answer.kind === "review"
 			? reviewedPageDigest("birth", paged.digest, cursor.from)
@@ -718,6 +765,8 @@ function reviewProjection(
 		);
 	const asks = firstUploadAsks(review, preselected);
 	const files = reviewPublishDetails(review);
+	const cases=caseReviewPieces(review.creates.caseTypes);
+	const decisionRows=tableReviewPieces(review.tables,project,domain);
 	const shell: ReviewProjection = {
 		...(files.length && { publish_details: [] }),
 		review_digest: reviewDigest,
@@ -727,7 +776,7 @@ function reviewProjection(
 			menus: review.creates.menus,
 			forms: review.creates.forms,
 			questions: review.creates.questions,
-			case_types: review.creates.caseTypes,
+			case_types: cases.length ? [] : review.creates.caseTypes,
 			languages: review.creates.languages.length,
 			media_files: review.creates.mediaFiles,
 		},
@@ -777,6 +826,8 @@ function reviewProjection(
 		},
 		tables: [],
 		tables_total: review.tables.length,
+		...(decisionRows.some(row=>row.kind==="table-part") && {table_parts: []}),
+		...(cases.length && {case_types_total:review.creates.caseTypes.length,case_type_parts:[]}),
 		...(review.installations?.length && {
 			installations: [],
 			installation_parts: [],
@@ -806,17 +857,6 @@ function reviewProjection(
 			ANOTHER_SPACE_NEW_APP_LINE,
 		],
 	};
-	const projected = new Map<number, ReviewProjection["tables"][number]>();
-	const projectedAt = (index: number) => {
-		let one = projected.get(index);
-		if (one === undefined) {
-			one = fitPiece(
-				tableProjection(review.tables[index] as ReviewTable, project, domain),
-			);
-			projected.set(index, one);
-		}
-		return one;
-	};
 	const profileRows = installationRowsOf(review);
 	const installations: NonNullable<
 		ReviewProjection["installations"]
@@ -825,34 +865,38 @@ function reviewProjection(
 		[];
 	const tables: ReviewProjection["tables"][number][] = [];
 	const shown: ReviewPublishDetail[] = [];
-	const profileStart = files.length + review.tables.length;
-	const valueAt = (index: number) => {
-		if (index < files.length) return files[index];
-		if (index < profileStart) return projectedAt(index - files.length);
-		const row = profileRows[index - profileStart];
-		return "row" in row ? row.row : row.part;
-	};
-	const count = profileStart + profileRows.length;
-	const end = cutPage({
-		count,
-		from,
-		shellChars: measure(shell),
-		pieceChars: (index) => arrayItemChars(valueAt(index), 1),
-		take: (index) => {
-			if (index < files.length) shown.push(files[index]);
-			else if (index < profileStart)
-				tables.push(projectedAt(index - files.length));
-			else {
-				const row = profileRows[index - profileStart];
-				if ("row" in row) installations.push(row.row);
-				else parts.push(row.part);
-			}
-		},
-	});
+	const tableParts:TableReviewPart[]=[];
+	const caseTypes:string[]=[];
+	const caseParts:TextReviewPart[]=[];
+	const casesStart = files.length;
+	const tablesStart = casesStart + cases.length;
+	const profilesStart = tablesStart + decisionRows.length;
+	const count=profilesStart + profileRows.length;
+	function pieceAt(index:number,take:boolean):unknown {
+		if(index<casesStart) {
+			const file=files[index]; if(take) shown.push(file); return file;
+		}
+		if(index<tablesStart) {
+			const row=cases[index-casesStart];
+			if("name" in row) {if(take) caseTypes.push(row.name); return row.name;}
+			if(take) caseParts.push(row.fragment); return row.fragment;
+		}
+		if(index<profilesStart) {
+			const row=decisionRows[index-tablesStart];
+			if(row.kind==="table") {if(take) tables.push(row.table); return row.table;}
+			if(take) tableParts.push(row.fragment); return row.fragment;
+		}
+		const row=profileRows[index-profilesStart];
+		if("row" in row) {if(take) installations.push(row.row); return row.row;}
+		if(take) parts.push(row.part); return row.part;
+	}
+	const end=cutPage({count,from,shellChars:measure(shell),pieceChars:(index)=>arrayItemChars(pieceAt(index,false),1),take:(index)=>{pieceAt(index,true);}});
 
 	return {
 		...shell,
 		tables,
+		...(tableParts.length && {table_parts:tableParts}),
+		...(cases.length && {creates:{...shell.creates,case_types:caseTypes},case_type_parts:caseParts}),
 		...(files.length && { publish_details: shown }),
 		...(profileRows.length && { installations }),
 		...(parts.length && { installation_parts: parts }),
@@ -909,7 +953,7 @@ export function describeReading(
 					key,
 					context,
 					options.from,
-					(account) => JSON.stringify(wrap({ ...head, account })).length,
+					(account) => toolResultChars(wrap({ ...head, account })),
 				),
 			};
 		case "review":
@@ -924,9 +968,9 @@ export function describeReading(
 					key.domain,
 					options.from,
 					(review) =>
-						JSON.stringify(
-							wrap({ ...head, reading_id: answer.readingId, review }),
-						).length,
+						toolResultChars(
+						wrap({ ...head, reading_id: answer.readingId, review }),
+						),
 				),
 			};
 	}
@@ -941,6 +985,7 @@ const READING_REFUSAL_ERRORS = {
 	choice_missing: { errorType: "invalid_input", namesProject: false },
 	project_changed: { errorType: "bring_in_refused", namesProject: false },
 	app_unavailable: { errorType: "bring_in_refused", namesProject: false },
+	session_ended: { errorType: "permission_denied", namesProject: false },
 	publish_in_flight: { errorType: "bring_in_refused", namesProject: false },
 } as const satisfies Record<
 	ReadingRefusal,

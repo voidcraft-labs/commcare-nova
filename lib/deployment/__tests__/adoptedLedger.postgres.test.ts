@@ -1,7 +1,8 @@
+import {readBuildProfiles} from "@/lib/commcare/hq/appSource";
 import { createHash as installationDigest } from "node:crypto";
 import * as installationMigration from "@/lib/case-store/migrations/20261203040000_hq_installation_profiles";
 import { scanInstallationProfileBaselines } from "@/scripts/lib/installationProfileBaselines";
-import { readInstallationReview, writeInstallationReview } from "../store";
+import { admitAppWrite,settleRemoteWrites,readInstallationReview, writeInstallationReview, writeTargetIdentityInTransaction } from "../store";
 /**
  * The adopted ledger in real Postgres: what one birth from CommCare HQ
  * records, in the transaction that births the app, and what every reader
@@ -23,7 +24,7 @@ import { deploymentIsObservable } from "../stateMachine";
 import {
 	foldDeploymentAttempt,
 	readAppBaseline,
-	readDeployment,
+	readDeployment,readDeploymentsForApp,
 	readHqAppClaims,
 	readReachedDeploymentTargets,
 	readTargetIdentity,
@@ -317,7 +318,56 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 		});
 	});
 
-	it("fences a signed installation receipt and binding under the current baseline, app revision and mapping generation", async () => {
+	it("keeps installation choices off the shared phase and hides details in previously saved rows from a second member",async ()=>{
+ const birth=await born();
+ const viewer="review-viewer";
+ await h.seedProjectMember(viewer,PROJECT,"viewer");
+ const scope={...birth.scope,actorUserId:viewer,role:"viewer"};
+ const detailed={code:"hq_installation_profile_review" as const,message:"Review private training worker",details:["physical-slot","practice-private"],installationProfileChoices:[{label:"worker-private",confirmation:"c".repeat(64)}],installationProfileConfirmation:"d".repeat(64)};
+ const failure={status:"failed" as const,at:new Date().toISOString(),failure:detailed};
+ // A new, incomplete target holds a preflight but no completed upload.
+ const target={...TARGET,domain:"new-target"};
+ await foldDeploymentAttempt(birth.scope,target,"preflight",{status:"succeeded",at:failure.at},{ensure:true,expectedEndings:0});
+ await foldDeploymentAttempt(birth.scope,target,"resources",failure,{expectedEndings:0});
+ const stored=await h.db().selectFrom("app_deployments").select(["id","phases"]).where("domain","=",target.domain).executeTakeFirstOrThrow();
+ expect(JSON.stringify(stored.phases)).not.toContain("private");
+ const list=()=>readDeploymentsForApp(scope);
+ const visible=(await list()).find(r=>r.deployment.domain===target.domain);
+ expect(visible?.deployment.phases.resources).toMatchObject({status:"failed",failure:{code:"hq_installation_profile_review",details:[]}});
+ expect(JSON.stringify(visible)).not.toContain("private");
+ await sql`UPDATE app_deployments SET phases=jsonb_set(phases,'{resources}',${JSON.stringify(failure)}::jsonb) WHERE id=${stored.id}`.execute(h.db());
+ expect(JSON.stringify(await list())).not.toContain("private");
+ });
+ it("keeps long HQ keys, hash peers and more than one statement of profile bindings in one transaction", async () => {
+ const birth=await born();
+ const original=await readTargetIdentity(birth.scope,TARGET);
+ const db=h.db();
+ const deployment=await db.selectFrom("app_deployments").select("id").where("app_id","=",APP).executeTakeFirstOrThrow();
+ const longKey=Array.from({length:200},(_,i)=>installationDigest("sha256").update(String(i)).digest("hex")).join("");
+ // Ask this PostgreSQL version for two different, legitimate identifiers
+ // whose index hash compares equal. Both full keys must survive the recheck.
+ const pair=(await sql<{a:string;b:string}>`WITH candidates AS (
+ SELECT 'site-' || i AS k FROM generate_series(1,250000) AS n(i)
+ ) SELECT min(k) AS a,max(k) AS b FROM candidates GROUP BY hashtext(k) HAVING count(*)>1 LIMIT 1`.execute(db)).rows[0];
+ expect(pair).toBeDefined();
+ const keys=[longKey,pair.a,pair.b,...Array.from({length:13_105},(_,i)=>`region-${i}`)];
+ const read=readBuildProfiles(Object.fromEntries(keys.map(id=>[id,{name:"Team",langs:["en"]}])),new Set(["en"]),1);
+ expect(read?.length).toBe(keys.length);
+ const bindings=(read??[]).map(({id},i)=>({uuid:testUuid(`kept-installation-${i}`),key:id}));
+ const write=(prior:typeof original,rows:typeof bindings)=>db.transaction().execute(async tx=>{
+  await tx.selectFrom("app_deployments").select("id").where("id","=",deployment.id).forUpdate().executeTakeFirstOrThrow();
+  await writeTargetIdentityInTransaction(tx,deployment.id,{appId:APP,server:TARGET.server},{read:prior,next:{...prior,installationProfiles:rows}});
+ });
+ await write(original,bindings);
+ const stored=await readTargetIdentity(birth.scope,TARGET);
+ expect(new Map(stored.installationProfiles?.map(({uuid,key})=>[uuid,key]))).toEqual(new Map(bindings.map(({uuid,key})=>[uuid,key])));
+ // A duplicate in a later batch rolls back all earlier additions/removals.
+ const replacements=Array.from({length:1010},(_,i)=>({uuid:testUuid(`changed-installation-${i}`),key:i===1009 ? "second-key-0":`second-key-${i}`}));
+ await expect(write(stored,replacements)).rejects.toMatchObject({code:"23P01"});
+ expect(await readTargetIdentity(birth.scope,TARGET)).toEqual(stored);
+},60_000);
+
+ it("fences a signed installation receipt and binding under the current baseline, app revision and mapping generation", async () => {
 		const birth = await born();
 		const base = await readAppBaseline(birth.scope, TARGET);
 		if (!base || base.origin === "unread")
@@ -698,7 +748,11 @@ describe("existing adoptions and installation reviews", () => {
 			.selectFrom("app_deployment_baselines")
 			.selectAll()
 			.executeTakeFirstOrThrow();
-		// This isolated database has an authentic adoption and its immutable source.
+		const admitted=await admitAppWrite(birth.scope,TARGET,{expectedEndings:0,remoteAppId:HQ_APP,writeKind:"import"});
+   if(admitted.kind!=="admitted")throw new Error("Expected a durable import admission");
+   await settleRemoteWrites([admitted.writeId],{kind:"settled"});
+   const oldReceipt=await database.selectFrom("hq_remote_writes").select(["id","resource_id","settled_at"]).where("id","=",admitted.writeId).executeTakeFirstOrThrow();
+   // This isolated database has an authentic adoption and its immutable source.
 		// Down/up simulates the exact previous schema and the operator's DDL recovery.
 		await installationMigration.down(database);
 		try {
@@ -748,6 +802,8 @@ describe("existing adoptions and installation reviews", () => {
 		} finally {
 			await installationMigration.up(database);
 		}
+  expect(await database.selectFrom("hq_remote_writes").select(["id","resource_id","settled_at","import_acknowledged_at","import_acknowledged_version"]).where("id","=",admitted.writeId).executeTakeFirstOrThrow()).toEqual({...oldReceipt,import_acknowledged_at:null,import_acknowledged_version:null});
+
 		expect(
 			await database
 				.selectFrom("app_deployment_baselines")

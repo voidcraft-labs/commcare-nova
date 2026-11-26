@@ -72,7 +72,7 @@ export async function scanInstallationProfileBaselines(
 					census.unobserved++;
 					continue;
 				}
-				const profiles = readBuildProfiles(raw.build_profiles);
+				const profiles = readBuildProfiles(raw.build_profiles, new Set(Array.isArray(raw.langs) ? raw.langs : []), Array.isArray(raw.modules) ? raw.modules.length : undefined);
 				if (
 					!profiles ||
 					!Array.isArray(raw.langs) ||

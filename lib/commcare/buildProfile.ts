@@ -111,3 +111,29 @@ export function selectedSuiteAgrees(
 				)
 		: restores.length === 0;
 }
+
+/** HQ's FormResourceContributor emits one of these two resources for each
+ * enabled form; shadow forms and disabled release notes contribute neither. */
+export function installationFormFiles(xml: string, moduleFormCounts: readonly number[]): ReadonlySet<string> | null {
+	const parsed = tryParseXml(xml);
+	if ("issue" in parsed) return null;
+	const roots=parsed.doc.children.filter(isTag);
+	if (roots.length!==1 || roots[0].name !== "suite") return null;
+	const paths=new Set<string>();
+	for (const node of roots[0].children.filter(isTag)) {
+		if(node.name!=="xform" && node.name!=="xform-update-info") continue;
+		const resources=node.children.filter(isTag).filter(child=>child.name==="resource");
+		if(resources.length!==1) return null;
+		const locations=resources[0].children.filter(isTag).filter(child=>child.name==="location");
+		const local=locations.filter(child=>child.attribs.authority==="local");
+		const remote=locations.filter(child=>child.attribs.authority==="remote");
+		if(local.length!==1 || remote.length!==1) return null;
+		const name=textContent(local[0]).trim();
+		const match=/^\.\/(modules-(0|[1-9][0-9]*)\/forms-(0|[1-9][0-9]*)\.xml)$/.exec(name);
+		if (!match || textContent(remote[0]).trim()!==name || paths.has(match[1])) return null;
+		const count=moduleFormCounts[Number(match[2])];
+		if(count===undefined || Number(match[3])>=count) return null;
+		paths.add(match[1]);
+	}
+	return paths;
+}

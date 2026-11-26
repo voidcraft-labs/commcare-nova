@@ -871,6 +871,8 @@ export interface AppDeploymentKeyedCaseIdsTable {
  * settles, never deleted and never row-locked.
  */
 export interface HqRemoteWritesTable {
+ import_acknowledged_at:ColumnType<Date|null,Date|string|null|undefined,Date|string|null>;
+ import_acknowledged_version:ColumnType<string|null,number|null|undefined,number|null>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
 	server: string;

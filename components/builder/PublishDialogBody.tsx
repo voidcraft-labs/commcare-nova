@@ -144,6 +144,7 @@ import type {
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import {useInstallationChoiceLabels} from "./localization/useInstallationChoiceLabels";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import {
 	CONNECTION_CHECK_FAILED,
@@ -445,7 +446,10 @@ export function PublishDialogBody({
 	});
 	/** The CCZ's project space, as `downloadTargetKey` spells it; "" for none chosen. */
 	const [cczTargetKey, setCczTargetKey] = useState("");
-	const profiles = Object.values(useAppSettings().installationProfiles ?? {});
+	const appSettings = useAppSettings();
+	const profiles = useMemo(()=>Object.values(appSettings.installationProfiles ?? {}),[appSettings.installationProfiles]);
+	const profileLabels=useInstallationChoiceLabels(profiles);
+
 	const [selectedProfileUuid, setSelectedProfileUuid] = useState("");
 	const selectedProfile = profiles.find(
 		(profile) => profile.uuid === selectedProfileUuid,
@@ -1730,7 +1734,7 @@ export function PublishDialogBody({
 								</FieldDescription>
 							</Field>
 						)}
-						{(target === "hq" || target === "mobile") &&
+						{target === "mobile" && appSettings.runsOnlyOn !== "web-apps" && cczTarget !== null &&
 							!downloadComplete &&
 							profiles.length > 0 && (
 								<Field>
@@ -1738,6 +1742,7 @@ export function PublishDialogBody({
 										Installation profile
 									</FieldLabel>
 									<Select
+										disabled={isWorking}
 										value={selectedProfile?.uuid ?? ""}
 										onValueChange={(value) => {
 											setSelectedProfileUuid(value ?? "");
@@ -1746,32 +1751,22 @@ export function PublishDialogBody({
 									>
 										<SelectTrigger id="install-profile">
 											<SelectValue>
-												{selectedProfile?.name || "All app languages"}
+												{selectedProfile ? profileLabels.get(selectedProfile.uuid) : "All app languages"}
 											</SelectValue>
 										</SelectTrigger>
 										<SelectContent>
 											<SelectItem value="">All app languages</SelectItem>
 											{profiles.map((profile) => (
 												<SelectItem key={profile.uuid} value={profile.uuid}>
-													{profile.name || "Unnamed profile"}
+													{profileLabels.get(profile.uuid)}
 												</SelectItem>
 											))}
 										</SelectContent>
 									</Select>
-									{selectedProfile?.requiresPracticeWorker ? (
+									{selectedProfile?.requiresPracticeWorker && (
 										<FieldDescription>
-											CommCare HQ builds this profile with the practice worker
-											from its project space. On the app’s Releases page, choose
-											this profile to download it.
+											This profile needs a practice worker from {cczTarget.domain}. Publish to that project space to check which version can supply its installation.
 										</FieldDescription>
-									) : (
-										target === "hq" &&
-										selectedProfile && (
-											<FieldDescription>
-												On the app’s Releases page in CommCare HQ, choose “
-												{selectedProfile.name}” when you download the build.
-											</FieldDescription>
-										)
 									)}
 								</Field>
 							)}
@@ -1898,6 +1893,7 @@ export function PublishDialogBody({
 											? projectSpaceLabel(cczTarget)
 											: "Import into CommCare HQ"}
 								</p>
+								{target === "mobile" && selectedProfile && <p className="mt-2 text-sm text-nova-text-secondary">Installation profile: {profileLabels.get(selectedProfile.uuid)}</p>}
 								{target === "hq" ? (
 									<>
 										<p className="mt-2 text-sm text-nova-text-secondary">

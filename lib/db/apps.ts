@@ -133,6 +133,7 @@ import {
 } from "./credits";
 import {
 	appHasOpenRemoteWriteInTransaction,
+	type InstallationClaimGrant,
 	isHqAppClaimIndexViolation,
 	lockReleasedClaimsInTransaction,
 	remapDeploymentMediaPathsInTransaction,
@@ -2383,6 +2384,7 @@ const RESTORE_CLAIM_TRIES = 3;
 export async function restoreApp(
 	appId: string,
 	actorUserId: string,
+	grant?: InstallationClaimGrant,
 ): Promise<RestoredApp> {
 	for (let attempt = 0; attempt < RESTORE_CLAIM_TRIES; attempt++) {
 		let restored: RestoredApp | null;
@@ -2409,6 +2411,7 @@ export async function restoreApp(
 						actorUserId,
 						at: new Date(),
 						locks,
+						grant,
 					});
 				await tx
 					.updateTable("apps")

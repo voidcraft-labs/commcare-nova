@@ -1,7 +1,7 @@
 import "server-only";
 
 import { gzipSync } from "node:zlib";
-import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
+import { greatestFoldBaselineSeq, loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { HqApplication } from "@/lib/commcare";
 import {
@@ -47,7 +47,9 @@ import { getHqCredentials } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc } from "@/lib/domain";
-import { declaresWebApps, organizationLevelsOf } from "@/lib/domain";
+import {appSettingsSchema} from "@/lib/domain/blueprint";
+import {appLocalizationSchema} from "@/lib/domain/localization";
+import { declaresAndroid, declaresWebApps, organizationLevelsOf } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { log } from "@/lib/logger";
 import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
@@ -182,6 +184,10 @@ import {
 } from "./stateMachine";
 import {
 	type AdmittedRecord,
+ acknowledgeInstallationImport,
+ finishAcknowledgedInstallationImport,
+ type PublishWriteResponse,
+ publishManagementGrant,
 	admitAppCreate,
 	admitAppWrite,
 	admitPlacesWrite,
@@ -443,6 +449,19 @@ function hqAppUrlFor(
 	return `${COMMCARE_SERVERS[server].baseUrl}/a/${domain}/apps/view/${hqAppId}/`;
 }
 
+/** A published release can predate the current stored document shape. */
+async function publishedInstallationSettings(snapshot: DeploymentReadSnapshot, sequence: number | null): Promise<Pick<BlueprintDoc,"appSettings"|"localization"> | null> {
+	if (sequence === null) return null;
+	const {appId,projectId}=snapshot.scope;
+	const head=await snapshot.db.selectFrom("apps").select(["app_settings","localization"]).where("id","=",appId).where("project_id","=",projectId).where("mutation_seq","=",sequence).executeTakeFirst();
+	if(head) return {appSettings:appSettingsSchema.parse(head.app_settings),...(head.localization && {localization:appLocalizationSchema.parse(head.localization)})};
+	const horizon=await greatestFoldBaselineSeq(snapshot.db,appId);
+	if(horizon === null || sequence < horizon) return null;
+	const prior=await loadCanonicalBlueprintAtSequence(snapshot.db,{appId,seq:sequence,expectedDigest:null});
+	if (prior.projectId !== projectId) throw deploymentNotFound();
+	return prior.doc;
+}
+
 /**
  * Regenerate the artifact for a deployment.
  *
@@ -459,8 +478,11 @@ export async function setupArtifactFor(
 	/** The caller's read of the organization; null where that read failed. */
 	organization?: SetupArtifactOrganization | null,
 ): Promise<SetupArtifact> {
+	const published=publishedRemoteApp(deployment);
+	const publishedPlatforms = published ? await withDeploymentReadSnapshot(scope,"view",snapshot=>publishedInstallationSettings(snapshot,published.pushedRevision)) : undefined;
 	return buildSetupArtifact({
 		doc,
+		publishedPlatforms,
 		server: deployment.deployment.server,
 		domain: deployment.deployment.domain,
 		/* Links into the app's pages only where its content is there: a
@@ -833,18 +855,14 @@ export async function publishAppToHq(
 	 * publisher's own work, answered to them whether or not they may still
 	 * read the deployment (`store.ts::RecordAnswer`). */
 	const sentToHq: LandedResource[] = [];
-	/* Each once: a first publish's import lands on the empty app it made. */
+	const sentKeys = new Set<string>();
 	const noteSent = (recorded: RecordAnswer): void => {
-		for (const resource of recorded.landed)
-			if (
-				!sentToHq.some(
-					(earlier) =>
-						earlier.kind === resource.kind &&
-						earlier.novaResourceId === resource.novaResourceId &&
-						earlier.remoteId === resource.remoteId,
-				)
-			)
-				sentToHq.push(resource);
+		for (const resource of recorded.landed) {
+			const key = JSON.stringify([resource.kind, resource.novaResourceId, resource.remoteId]);
+			if (sentKeys.has(key)) continue;
+			sentKeys.add(key);
+			sentToHq.push(resource);
+		}
 	};
 	/* The deployment a record of this publish answers, for the publish to go
 	 * on from. A publisher who may no longer read it can send nothing more,
@@ -875,7 +893,7 @@ export async function publishAppToHq(
 			existing !== null &&
 			(activeRemoteApp(existing)?.releasedAt ?? null) !== null
 		) {
-			const settle = await settleReleasedClaims(input.scope);
+			const settle = await settleReleasedClaims(input.scope, target);
 			const waits =
 				settle.settled &&
 				settle.waiting.some(
@@ -893,6 +911,7 @@ export async function publishAppToHq(
 						doc,
 						checks: [],
 						projectSpaceCompatibility: null,
+						claimUnsettled: true,
 						placements: placements(),
 					},
 				);
@@ -901,7 +920,7 @@ export async function publishAppToHq(
 		}
 		/* Every store write of this publish carries the count of endings read
 		 * here, 0 where the target has no record yet. */
-		const fence: DeploymentFence = {
+		let fence: DeploymentFence = {
 			expectedEndings: existing?.deployment.endings ?? 0,
 		};
 		/* Where this project space keeps what the document doesn't hold: the
@@ -915,7 +934,9 @@ export async function publishAppToHq(
 		/* Update in place, fill the empty app an earlier try made, or create.
 		 * The predicates live in `resources.ts`, which the publish dialog also
 		 * reads to say which will happen before the button is pressed. */
-		const inPlaceUpdate =
+		const installationGrant = () => targetIdentity.installationProfiles?.length || Object.keys(doc.appSettings.installationProfiles ?? {}).length ? (input.scope.requireInstallationManagement ?? input.requireHqImport) : null;
+		const placementGrant=()=>publishManagementGrant(input.scope,target,Object.keys(doc.appSettings.installationProfiles ?? {}).length>0,input.scope.requireInstallationManagement ?? input.requireHqImport);
+  const inPlaceUpdate =
 			existing === null ? null : plannedInPlaceUpdate(existing);
 		/* On an app Nova brought in from CommCare HQ, a language's display name
 		 * and a seeded setting the project space holds no value for are the
@@ -945,6 +966,7 @@ export async function publishAppToHq(
 			> = { checks: [], projectSpaceCompatibility: null },
 		): Promise<PublishOutcome> =>
 			preflightRefusal(input, target, existing, failure, {
+				manageInstallations:installationGrant(),
 				...extras,
 				at: now,
 				doc,
@@ -970,6 +992,7 @@ export async function publishAppToHq(
 				}
 				const record = await recordPublishPlacements({
 					scope: input.scope,
+					grant:placementGrant(),
 					expectedHeadSeq: seq,
 					holds: offer.holds,
 				});
@@ -1009,12 +1032,7 @@ export async function publishAppToHq(
 				confirmations: existing?.confirmations ?? [],
 				confirm: input.confirm ?? [],
 				confirmWebApps: input.confirmWebApps,
-				access: {
-					appId: input.scope.appId,
-					projectId: input.scope.projectId,
-					role: input.scope.role,
-					actorUserId: input.scope.actorUserId,
-				},
+				access: input.scope,
 				server: input.server,
 				domain: input.domain,
 				now,
@@ -1035,6 +1053,7 @@ export async function publishAppToHq(
 						target,
 						run.remoteAppGone,
 						run.outcome.failure,
+						"publish-read",
 						{
 							doc,
 							checks: run.checks,
@@ -1050,6 +1069,7 @@ export async function publishAppToHq(
 				 * about the attempt (a key or draft problem against a live app). */
 				const confirmationsNeeded = run.confirmationsNeeded ?? [];
 				return preflightRefusal(input, target, existing, run.outcome.failure, {
+ manageInstallations:installationGrant(),
 					at: run.outcome.at,
 					doc,
 					checks: run.checks,
@@ -1075,6 +1095,7 @@ export async function publishAppToHq(
 			}
 			const record = await recordPublishPlacements({
 				scope: input.scope,
+				grant:placementGrant(),
 				expectedHeadSeq: seq,
 				holds,
 			});
@@ -1141,14 +1162,11 @@ export async function publishAppToHq(
 				workingVersion,
 				needsBuildableContent,
 				confirmWorkers: input.confirmInstallationProfiles,
-				requireHqImport: input.requireHqImport,
+				requireHqImport: input.scope.requireInstallationManagement ?? input.requireHqImport,
 			});
 		};
-		const requireProfileImport =
-			targetIdentity.installationProfiles?.length ||
-			Object.keys(doc.appSettings.installationProfiles ?? {}).length
-				? input.requireHqImport
-				: null;
+		const requireProfileImport = installationGrant();
+		if(requireProfileImport) fence={...fence,manageInstallations:requireProfileImport};
 		const previouslyManagedProfiles = Boolean(
 			targetIdentity.installationProfiles?.length,
 		);
@@ -1168,6 +1186,7 @@ export async function publishAppToHq(
 		let prepareContent: InstallationProfileCheckpoint | undefined;
 		let resumed: InstallationProfileCheckpoint | undefined;
 		let completedReview: InstallationProfileCheckpoint | undefined;
+		let previouslyPendingEmpty = false;
 		let pendingContent: InstallationProfileCheckpoint | undefined;
 		let pendingFailure: DeploymentFailure | undefined;
 		let transition:
@@ -1203,7 +1222,16 @@ export async function publishAppToHq(
 					},
 				);
 			if (check.kind === "prepare-content") prepareContent = check.checkpoint;
-			if (check.kind === "agreed") completedReview = check.resume;
+			if (check.kind === "agreed") {
+				completedReview = check.resume;
+				previouslyPendingEmpty = Boolean(check.pendingEmptyReview);
+				if (previouslyPendingEmpty) {
+					fence = {
+						...fence,
+						manageInstallations: input.scope.requireInstallationManagement ?? input.requireHqImport,
+					};
+				}
+			}
 			if (
 				check.kind === "agreed" &&
 				check.resume?.preparedContent?.resourcesReady &&
@@ -1319,6 +1347,7 @@ export async function publishAppToHq(
 			fence,
 		);
 		let entryPointManifest: PublishedEntryPointManifest | null = null;
+ let acknowledgedInstallationWrite:{writeId:string;remoteAppId:string}|undefined;
 		try {
 			input.onUploadStarted?.();
 
@@ -1333,6 +1362,7 @@ export async function publishAppToHq(
 				options: {
 					/** The confirmations HQ's own answer contradicted, withdrawn in the fold. */
 					readonly withdraw?: readonly DeploymentConfirmationKey[];
+ readonly responseTo?: PublishWriteResponse;
 				} = {},
 			): Promise<PublishOutcome> => {
 				deployment = await foldDeploymentAttempt(
@@ -1344,9 +1374,7 @@ export async function publishAppToHq(
 						at: new Date().toISOString(),
 						failure,
 					},
-					options.withdraw === undefined
-						? fence
-						: { ...fence, withdraw: options.withdraw },
+					{...fence,...options},
 				);
 				return {
 					landed: false,
@@ -1381,7 +1409,7 @@ export async function publishAppToHq(
 			/* HQ reported the app gone while this publish was writing. The same
 			 * observation preflight's `target-app` edge records, against the
 			 * mapping as it stands now. */
-			const remoteAppGone = (): Promise<PublishOutcome> => {
+			const remoteAppGone = (source:"publish-read"|{readonly importWriteId:string}): Promise<PublishOutcome> => {
 				const mapped = activeRemoteApp(deployment);
 				if (mapped === null) {
 					throw new Error(
@@ -1393,6 +1421,7 @@ export async function publishAppToHq(
 					target,
 					mapped,
 					remoteAppMissingFailure(domain),
+					source,
 					{
 						doc,
 						checks: preflight.checks,
@@ -1464,7 +1493,7 @@ export async function publishAppToHq(
 							classifyHqFailure(created, "app-import"),
 						),
 						details: [],
-					});
+					},{responseTo:{kind:"create",writeIds:[createWrite]}});
 				}
 				/* HQ's one save of a new empty app leaves version 1. A counter
 				 * first sampled after the create could already include another
@@ -1678,7 +1707,7 @@ export async function publishAppToHq(
 				 * project space now holds. */
 				if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
 				if (pushed.failure !== null)
-					return refused("resources", pushed.failure);
+					return refused("resources", pushed.failure,{responseTo:pushed.responseTo});
 			}
 
 			/* Places after tables, and both before the app's content. The order
@@ -1706,7 +1735,7 @@ export async function publishAppToHq(
 				}
 				if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
 				if (pushed.failure !== null)
-					return refused("resources", pushed.failure);
+					return refused("resources", pushed.failure,{responseTo:pushed.responseTo});
 			}
 
 			/* An app that used to carry resources and no longer does. The ledger
@@ -1779,7 +1808,7 @@ export async function publishAppToHq(
 				const counter = await readHqAppSaveCounter(creds, domain, appId);
 				const read = await readHqAppSource(creds, domain, appId);
 				if (!("success" in read) && read.kind === "gone" && !createdApp) {
-					return remoteAppGone();
+					return remoteAppGone("publish-read");
 				}
 				if (typeof counter !== "number") {
 					return refused(
@@ -1916,6 +1945,10 @@ export async function publishAppToHq(
 			 * immediately before it goes: an ending since stops the publish
 			 * here, and no other Nova app is granted the HQ app until the import
 			 * has settled. */
+			const ordinaryMapping = !previouslyManagedProfiles && !source.buildProfiles.length &&
+				!Object.keys(doc.appSettings.installationProfiles ?? {}).length
+				? (inPlaceUpdate?.pushToken ?? (createdApp ? activeRemoteApp(deployment)?.pushToken : undefined))
+				: undefined;
 			const importAdmission = resumed
 				? null
 				: await admitAppWrite(input.scope, target, {
@@ -1923,6 +1956,11 @@ export async function publishAppToHq(
 						remoteAppId: appId,
 						writeKind: "import",
 						installationReview: prepareContent ?? completedReview,
+						...(ordinaryMapping && { emptyInstallations: {
+							mapping: ordinaryMapping,
+							sequence: seq,
+							previouslyPending: previouslyPendingEmpty,
+						}}),
 						expectedInstallationMapping: installationClaim?.mapping,
 						requireHqImport: requireProfileImport,
 					});
@@ -1953,7 +1991,7 @@ export async function publishAppToHq(
 				 * target. Not for the app this publish just created, though: its
 				 * mapping is kept, so the next publish reads it at `target-app`
 				 * and never creates a second one. */
-				if (result.status === 404 && !createdApp) return remoteAppGone();
+				if (result.status === 404 && !createdApp && importAdmission) return remoteAppGone({importWriteId:importAdmission.writeId});
 				/* CommCare HQ refusing THIS upload says nothing about the app
 				 * already on the project space; the fold leaves a reached record
 				 * alone and moves an unreached one to `incomplete` at `upload`,
@@ -1964,10 +2002,15 @@ export async function publishAppToHq(
 						classifyHqFailure(result, "app-import"),
 					),
 					details: [],
-				});
+				},{responseTo:{kind:"import",writeIds:importWrites}});
 			}
 
-			// ── Read it back: the next publish compares with this ───────────
+			if(importAdmission && (transition || prepareContent || completedReview || installationClaim || importAdmission.emptyInstallations)){
+    await acknowledgeInstallationImport(input.scope,target,importAdmission.writeId,result.appId,result.version);
+    acknowledgedInstallationWrite={writeId:importAdmission.writeId,remoteAppId:result.appId};
+   }
+
+   // ── Read it back: the next publish compares with this ───────────
 			// Before the media upload, which moves nothing the comparison reads.
 			// A failed read lands the app all the same, with an `unread`
 			// baseline that makes the next publish ask before writing over it.
@@ -1998,7 +2041,7 @@ export async function publishAppToHq(
 			// An intermediate import has reached HQ but has not delivered the final app.
 			// Keep the existing published revision and take the next decision from this exact read.
 			if (
-				transition ||
+				transition || importAdmission?.emptyInstallations ||
 				previouslyManagedProfiles ||
 				source.buildProfiles.length ||
 				Object.keys(doc.appSettings.installationProfiles ?? {}).length ||
@@ -2114,11 +2157,11 @@ export async function publishAppToHq(
 							previous: transition.checkpoint,
 							claim: transition.checkpoint.claim,
 							next,
-							requireHqImport: input.requireHqImport,
+							requireHqImport: requireProfileImport ? tx=>requireProfileImport(tx,true):null,
 						}))
 					)
 						return unverified(
-							"Nova could not verify the intermediate installation languages at this revision. Publish again to review the current languages.",
+							"CommCare HQ received the app. Nova could not verify the intermediate installation languages at this revision. Publish again to review the current languages.",
 						);
 					const readBackProfiles = new Map(
 						readBack.source.buildProfiles.map((p) => [p.id, p.langs]),
@@ -2221,7 +2264,8 @@ export async function publishAppToHq(
 						? { ownership: "adopted", adoptedBy: inPlaceUpdate.adoptedBy }
 						: { ownership: "nova-created" }),
 					pushedRevision: prepareContent ? null : seq,
-					expectedInstallationMapping: installationClaim?.mapping,
+					expectedInstallationMapping: installationClaim?.mapping ?? importAdmission?.emptyInstallations?.mapping,
+     ...(importAdmission?.emptyInstallations && {emptyInstallations:{...importAdmission.emptyInstallations,requireGrant:input.scope.requireInstallationManagement ?? input.requireHqImport}}),
 					...(prepareContent &&
 						pendingContent &&
 						pendingFailure && {
@@ -2254,6 +2298,7 @@ export async function publishAppToHq(
 						}
 					: undefined,
 			);
+   acknowledgedInstallationWrite=undefined; // The import record settled its own admission.
 			noteSent(imported);
 			if (pendingContent && imported.pushToken)
 				pendingContent = {
@@ -2548,8 +2593,11 @@ export async function publishAppToHq(
 				hqAppUrl: hqAppUrlFor(input.server, domain, result.appId),
 				placements: placements(),
 			};
-		} finally {
-			await finishDeploymentContentWrite(
+		 } finally {
+   try {
+    if(acknowledgedInstallationWrite)await finishAcknowledgedInstallationImport(input.scope,target,acknowledgedInstallationWrite.writeId,acknowledgedInstallationWrite.remoteAppId);
+   } finally {
+   await finishDeploymentContentWrite(
 				input.scope,
 				target,
 				contentGeneration,
@@ -2557,6 +2605,7 @@ export async function publishAppToHq(
 				fence,
 				{ writeIds: letOut, settle: [] },
 			);
+   }
 		}
 	};
 
@@ -2622,6 +2671,7 @@ async function remoteAppGoneOutcome(
 	target: DeploymentTargetKey,
 	mapped: DeploymentResource,
 	failure: DeploymentFailure,
+	source:"publish-read"|{readonly importWriteId:string},
 	context: {
 		/** The document this attempt holds, the recorded one where it recorded. */
 		readonly doc: BlueprintDoc;
@@ -2632,6 +2682,11 @@ async function remoteAppGoneOutcome(
 	},
 ): Promise<PublishOutcome> {
 	const observed = await applyDeploymentObservation(input.scope, target, {
+  ...(source !== "publish-read" && { importReplyId: source.importWriteId }),
+  ...(source === "publish-read" && { publishRead: {
+    documentManagesInstallations: Object.keys(context.doc.appSettings.installationProfiles ?? {}).length>0,
+    grant: input.scope.requireInstallationManagement ?? input.requireHqImport,
+  } }),
 		observedRemoteId: mapped.remoteId,
 		observedPushToken: mapped.pushToken,
 		outcomes: [
@@ -2670,6 +2725,8 @@ type PassedPreflight = Exclude<PreflightResult, { readonly ready: null }>;
 
 /** What a refusal before anything is sent reports beside its failure. */
 interface PreflightRefusalExtras {
+ readonly claimUnsettled?:true;
+ readonly manageInstallations?:DeploymentFence["manageInstallations"];
 	readonly resumePhase?: "upload";
 	/** When the stop was decided, for the fold of an unreached target. */
 	readonly at: string;
@@ -2719,8 +2776,8 @@ async function preflightRefusal(
 		placementMoves: extras.placementMoves ?? null,
 	};
 	const deployment =
-		existing === null
-			? null
+		existing === null || extras.claimUnsettled
+			? existing
 			: await foldDeploymentAttempt(
 					input.scope,
 					target,
@@ -2730,7 +2787,7 @@ async function preflightRefusal(
 						at: extras.at,
 						failure,
 					},
-					{ expectedEndings: existing.deployment.endings },
+					{ expectedEndings: existing.deployment.endings, manageInstallations:extras.manageInstallations },
 				);
 	return {
 		landed: false,
@@ -3009,16 +3066,15 @@ function appBaselineFor(input: {
 }
 
 /** The discard a person confirmed for one resource, recorded with its next baseline. */
-function confirmedDiscard(
-	confirmed: readonly DeploymentRemoteChange[],
-	kind: DeploymentRemoteChange["kind"],
-	novaResourceId: string,
-): ResourceBaselineWrite["discard"] {
-	const change = confirmed.find(
-		(candidate) =>
-			candidate.kind === kind && candidate.novaResourceId === novaResourceId,
-	);
-	return change === undefined ? null : { digest: change.observedDigest };
+function confirmedResourceDiscards(
+ confirmed: readonly DeploymentRemoteChange[],
+ kind: "lookup-table" | "location",
+): ReadonlyMap<string, {digest:string}> {
+ const discards=new Map<string,{digest:string}>();
+ for(const change of confirmed){
+  if(change.kind===kind && !discards.has(change.novaResourceId)) discards.set(change.novaResourceId,{digest:change.observedDigest});
+ }
+ return discards;
 }
 
 /** A baseline write for an HQ table or place Nova could not read back. */
@@ -3095,6 +3151,7 @@ async function pushLookupTables(
 	letOut: string[],
 ): Promise<{
 	readonly failure: DeploymentFailure | null;
+ readonly responseTo?: PublishWriteResponse;
 	/** What the push's record answers. Null only when nothing was written. */
 	readonly recorded: RecordAnswer | null;
 	/** Some table this push may have changed could not be read back. */
@@ -3140,7 +3197,7 @@ async function pushLookupTables(
 			warnings: [],
 		};
 	}
-	letOut.push(...admission.writeIds);
+	for(const id of admission.writeIds) letOut.push(id);
 	const upload = await uploadLookupTableWorkbook(
 		creds,
 		domain,
@@ -3166,6 +3223,7 @@ async function pushLookupTables(
 		await settleQuietly(ended.writeIds, ended.how);
 		return {
 			failure: lookupUploadFailure(refusal, domain, createdApp),
+ responseTo:{kind:"workbook",writeIds:admission.writeIds},
 			recorded: null,
 			readBackFailed: false,
 			warnings: [],
@@ -3190,6 +3248,7 @@ async function pushLookupTables(
 		if (refusal !== null) {
 			return {
 				failure: lookupUploadFailure(refusal, domain, createdApp),
+ responseTo:{kind:"workbook",writeIds:admission.writeIds},
 				recorded: null,
 				readBackFailed: true,
 				warnings: [],
@@ -3210,7 +3269,8 @@ async function pushLookupTables(
 		remote.map((table) => [table.tag, table] as const),
 	);
 
-	const mappings: RecordRemoteResourceInput[] = [];
+	const discards=confirmedResourceDiscards(confirmed,"lookup-table");
+ const mappings: RecordRemoteResourceInput[] = [];
 	const baselines: ResourceBaselineWrite[] = [];
 	const missing: string[] = [];
 	/* The same tables by Nova's own ids, for the log line: a tag is the app's
@@ -3234,7 +3294,7 @@ async function pushLookupTables(
 		},
 	);
 	for (const [index, push] of plan.pushes.entries()) {
-		const discard = confirmedDiscard(confirmed, "lookup-table", push.tableId);
+		const discard = discards.get(push.tableId) ?? null;
 		const landed = remoteByTag.get(push.tag);
 		const rows = landedRows[index] ?? null;
 		if (landed === undefined || rows === null) {
@@ -3341,6 +3401,7 @@ async function pushLookupTables(
 		});
 		return {
 			failure: lookupUploadFailure(refusal, domain, createdApp),
+ responseTo:{kind:"workbook",writeIds:admission.writeIds},
 			recorded: await recordPartial(),
 			readBackFailed,
 			warnings: [],
@@ -3482,12 +3543,14 @@ async function pushLocations(
 	letOut: string[],
 ): Promise<{
 	readonly failure: DeploymentFailure | null;
+ readonly responseTo?: PublishWriteResponse;
 	/** What the push's record answers. Null only when nothing was written. */
 	readonly recorded: RecordAnswer | null;
 	/** Some place this push may have changed could not be read back. */
 	readonly readBackFailed: boolean;
 }> {
-	const remoteIdByLocationUuid = new Map<string, string>();
+	const discards=confirmedResourceDiscards(confirmed,"location");
+ const remoteIdByLocationUuid = new Map<string, string>();
 	const landed: RecordRemoteResourceInput[] = [];
 	const landedPushes: { push: PlannedPlacePush; remoteId: string }[] = [];
 	/* Every batch's admission, and how CommCare HQ ended each batch. */
@@ -3520,7 +3583,7 @@ async function pushLocations(
 						unreadResourceBaseline(
 							"location",
 							remoteId,
-							confirmedDiscard(confirmed, "location", push.locationUuid),
+							discards.get(push.locationUuid) ?? null,
 						),
 					),
 					...unreadOf(uncertain),
@@ -3534,11 +3597,7 @@ async function pushLocations(
 		let failed = uncertain.length > 0;
 		const baselines: ResourceBaselineWrite[] = [];
 		for (const { push, remoteId } of landedPushes) {
-			const discard = confirmedDiscard(
-				confirmed,
-				"location",
-				push.locationUuid,
-			);
+			const discard = discards.get(push.locationUuid) ?? null;
 			const place = byId.get(remoteId);
 			if (place === undefined) {
 				failed = true;
@@ -3592,11 +3651,13 @@ async function pushLocations(
 	const stopped = async (
 		failure: DeploymentFailure,
 		uncertain: readonly string[] = [],
+ responseTo?:PublishWriteResponse,
 	): Promise<{
 		readonly failure: DeploymentFailure;
-		readonly recorded: RecordAnswer | null;
+		readonly responseTo?:PublishWriteResponse;
+ readonly recorded: RecordAnswer | null;
 		readonly readBackFailed: boolean;
-	}> => ({ failure, ...(await recordStop(uncertain)) });
+	}> => ({ failure,responseTo, ...(await recordStop(uncertain)) });
 
 	for (const batch of plan.batches) {
 		const places: HqLocationPush[] = [];
@@ -3683,6 +3744,7 @@ async function pushLocations(
 					details: result.message === "" ? [] : [result.message],
 				},
 				uncertain,
+ {kind:"places",writeIds:batchWrites},
 			);
 		}
 
@@ -4091,29 +4153,18 @@ export async function refreshDeployment(
 
 	assertCredentialsMatchServer(credResult.creds, target);
 
-	const namedProfiles = await withDeploymentReadSnapshot(
+	const installation = await withDeploymentReadSnapshot(
 		scope,
 		"view",
 		async (snapshot) => {
 			const identity = await readTargetIdentity(snapshot, target);
-			if (
-				!identity.installationProfiles?.length ||
-				remote.pushedRevision === null
-			)
-				return [];
-			const prior = await loadCanonicalBlueprintAtSequence(snapshot.db, {
-				appId: scope.appId,
-				seq: remote.pushedRevision,
-				expectedDigest: null,
-			});
-			if (prior.projectId !== scope.projectId) throw deploymentNotFound();
-			return requestedProfiles(prior.doc, identity.installationProfiles).map(
-				(request) => request.definition,
-			);
+			const prior=await publishedInstallationSettings(snapshot,remote.pushedRevision);
+			if (!prior) return {checkOfflineInstallation:true,namedProfiles:[]};
+			return {checkOfflineInstallation:declaresAndroid(prior),namedProfiles:requestedProfiles(prior, identity.installationProfiles ?? []).map(request => request.definition)};
 		},
 	);
 	const observation = await observeDeployment({
-		namedProfiles,
+		...installation,
 		creds: credResult.creds,
 		domain: credResult.domain.name,
 		hqAppId: remote.remoteId,

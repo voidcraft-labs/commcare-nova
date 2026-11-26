@@ -94,6 +94,7 @@ import {
 	pageFor,
 	parseAccountPage,
 	type ReadingProjection,
+	tableProjection,
 } from "../tools/readingProjection";
 
 const KEY: ReadingKey = {
@@ -562,7 +563,7 @@ describe("an account a page at a time", () => {
 			const parsed = cursor === null ? null : parseAccountPage(cursor);
 			if (cursor !== null && parsed === null)
 				throw new Error(`An unreadable cursor: ${cursor}`);
-			const start = pageFor(answer, parsed);
+			const start = pageFor(answer, parsed,{project:PROJECT,domain:KEY.domain});
 			if (start === null) throw new Error("The cursor named no page.");
 			expect(start.restarted).toBe(false);
 			const projection = describeReading(answer, KEY, {
@@ -751,7 +752,7 @@ describe("a review's lookup tables a page at a time", () => {
 		let pages = 0;
 		do {
 			const parsed = cursor === null ? null : parseAccountPage(cursor);
-			const start = pageFor(answer, parsed);
+			const start = pageFor(answer, parsed,{project:PROJECT,domain:KEY.domain});
 			if (!start || start.restarted)
 				throw new Error("The reviewed installation changed across pages");
 			const body = describeReading(answer, KEY, { ...start, project: PROJECT });
@@ -771,14 +772,24 @@ describe("a review's lookup tables a page at a time", () => {
 	it("discloses long destination identities completely before returning an adoption digest", () => {
 		const answer = reviewAnswer();
 		if (answer.kind !== "review") throw new Error("Expected a review");
-		const file = "/jr/media/" + "Door visits ".repeat(19000);
+		const file = "/jr/media/" + 'Door "visits" \\ '.repeat(19000);
 		const files: string[] = [];
 		const tables: string[] = [];
 		const key = "⌂".repeat(90_000);
+		const columns=Array.from({length:250},(_,i)=>String(i).padStart(3,"0")+"x".repeat(117));
+		const shared=longTable(0);
+		if(!shared.choice) throw new Error("Expected table choice");
+		const table={...shared,choice:{...shared.choice,options:{...shared.choice.options,"use-commcare-hq":{offered:true as const,goneColumns:columns.slice(0,125),retypedColumns:columns.slice(125)}}}};
+		const caseTypes=Array.from({length:3500},(_,i)=>"family_member_"+i);
+		const tableText:string[]=[];
+		const receivedTypes:string[]=[];
+
 		const input = {
 			...answer,
 			review: {
 				...answer.review,
+				tables:[table,...answer.review.tables],
+				creates:{...answer.review.creates,caseTypes},
 				runsOn: answer.review.runsOn.map((choice, i) => ({
 					...choice,
 					...(i === 0 && { removesFiles: [file] }),
@@ -787,7 +798,7 @@ describe("a review's lookup tables a page at a time", () => {
 					{
 						key,
 						name: "Long installation",
-						languages: ["en"],
+						languages: ["eng"],
 						worker: "worker",
 						requiresPracticeWorker: true,
 					},
@@ -797,7 +808,9 @@ describe("a review's lookup tables a page at a time", () => {
 		let from = 0;
 		const chunks: string[] = [];
 		for (;;) {
-			const next = describeReading(input, KEY, { ...FIRST_PAGE, from }).review;
+			const body = describeReading(input, KEY, { ...FIRST_PAGE, from });
+			expect(JSON.stringify({content:[{type:"text",text:JSON.stringify(body)}]}).length).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+			const next = body.review;
 			if (!next) throw new Error("Missing review");
 			for (const detail of next.publish_details ?? []) {
 				expect(detail.runs_only_on).toEqual(
@@ -806,6 +819,11 @@ describe("a review's lookup tables a page at a time", () => {
 				files.push(detail.text);
 			}
 			tables.push(...next.tables.map((t) => t.tag));
+			receivedTypes.push(...next.creates.case_types);
+			for(const fragment of next.table_parts ?? []){
+				expect(fragment.answers.map(option=>option.offered)).toEqual([true,false]);
+				expect(fragment.tag).toBe(table.tag); tableText.push(fragment.text);
+			}
 			for (const piece of next.installation_parts ?? [])
 				chunks.push(piece.text);
 			if (!next.next_page) {
@@ -813,16 +831,19 @@ describe("a review's lookup tables a page at a time", () => {
 				break;
 			}
 			expect(next.review_digest).toBeNull();
-			const page = pageFor(input, parseAccountPage(next.next_page));
+			const page = pageFor(input, parseAccountPage(next.next_page),{project:PROJECT,domain:KEY.domain});
 			if (!page || page.restarted) throw new Error("Expected a stable cursor");
 			from = page.from;
 		}
 		expect(files.join("")).toBe(file);
+		expect(receivedTypes).toEqual(caseTypes);
+		expect(JSON.parse(tableText.join(""))).toEqual(tableProjection(table,PROJECT,KEY.domain));
+		for(const column of columns) expect(tableText.join("")).toContain(column);
 		expect(tables).toEqual(answer.review.tables.map((t) => t.tag));
 		expect(JSON.parse(chunks.join(""))).toEqual({
 			profile_id: key,
 			name: "Long installation",
-			languages: ["en"],
+			languages:[{language:"eng"}],
 			practice_worker_id: "worker",
 		});
 	});
@@ -836,7 +857,7 @@ describe("a review's lookup tables a page at a time", () => {
 			const parsed = cursor === null ? null : parseAccountPage(cursor);
 			if (cursor !== null && parsed === null)
 				throw new Error(`An unreadable cursor: ${cursor}`);
-			const start = pageFor(answer, parsed);
+			const start = pageFor(answer, parsed,{project:PROJECT,domain:KEY.domain});
 			if (start === null) throw new Error("The cursor named no page.");
 			expect(start.restarted).toBe(false);
 			const projection = describeReading(answer, KEY, {
@@ -914,6 +935,7 @@ describe("mapReadingRefusal", () => {
 			}),
 		);
 		expect(tags).toEqual({
+			session_ended: "permission_denied",
 			no_project_access: "permission_denied",
 			invalid_input: "invalid_input",
 			name_missing: "invalid_input",

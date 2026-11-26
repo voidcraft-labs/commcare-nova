@@ -1,3 +1,4 @@
+import {resolvedLanguageEnglishName} from "@/lib/domain/languageRegistry/names";
 /**
  * The one assembly of a locally installable `.ccz` from a prepared export.
  *
@@ -9,6 +10,7 @@
 
 import "server-only";
 
+import { installationDownloadIssue } from "@/lib/commcare/installationProfiles";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
@@ -66,9 +68,10 @@ export function compileLocalArchive(
 		);
 	}
 	const { doc, assets, attachmentTarget, compiledAtSeq } = prepared;
-	const profileIssue = installationArchiveIssue(
+	const profileIssue = installationDownloadIssue(doc, deployment.installationProfileUuid, identity) ?? installationArchiveIssue(
 		doc,
 		deployment.installationProfileUuid,
+	resolvedLanguageEnglishName,
 	);
 	if (profileIssue) throw new Error(profileIssue);
 	const hqJson = expandDoc(doc, {

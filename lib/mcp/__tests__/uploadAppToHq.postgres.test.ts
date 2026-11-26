@@ -1,3 +1,6 @@
+import {pendingInstallationTarget} from "@/__tests__/helpers/pendingInstallationTarget";
+import {installationCredential} from "@/__tests__/helpers/installationCredential";
+import {serveWorkingInstallationInventory} from "@/__tests__/helpers/workingInstallationInventory";
 /** Publish persisted apps through the actual SDK, compiler, ledger and HTTP. */
 
 import { createHash } from "node:crypto";
@@ -15,6 +18,7 @@ import {
 } from "@/__tests__/helpers/httpPeer";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
+	ordinaryInstallationBuild,
 	applicationAnswer,
 	type RetainedHqAnswer,
 	replyRetained,
@@ -36,6 +40,7 @@ import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import {
 	acceptImport,
+	connect,
 	hqSaves,
 	makeManagedCopy,
 	readerOf as managedReader,
@@ -59,6 +64,7 @@ import { APP_PREVIEW_NOTE } from "@/lib/deployment/remoteChanges";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
 import {
+ readEntryPointEvidence,
 	readDeployment,
 	readDeploymentNovaRevisions,
 	recordWorkerLevelConfirmations,
@@ -96,10 +102,19 @@ import {
 } from "@/lib/publish/webApps";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { loadAppBlueprint } from "../loadApp";
+import { registerStopPublishing } from "../tools/stopPublishing";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
+const authorityChange=vi.hoisted(()=>({beforeRecord:null as null|(()=>Promise<void>),beforeImport:null as null|(()=>Promise<void>),beforeShell:null as null | (()=>Promise<void>),beforeFold:null as null|(()=>Promise<void>),beforePlacement:null as null|(()=>Promise<void>)}));
+vi.mock("@/lib/deployment/placements",async original=>{
+ const placements=await original<typeof import("@/lib/deployment/placements")>();
+ return {...placements,recordPublishPlacements:async (...args:Parameters<typeof placements.recordPublishPlacements>)=>{
+  const before=authorityChange.beforePlacement;authorityChange.beforePlacement=null;await before?.();
+  return placements.recordPublishPlacements(...args);
+ }};
+});
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
 /* Passed through, so a test can make the read after a landed app fault. */
@@ -107,10 +122,30 @@ vi.mock("@/lib/deployment/store", async (original) => {
 	const store = await original<typeof import("@/lib/deployment/store")>();
 	return {
 		...store,
-		readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
+		recordRemoteResource:async (...args:Parameters<typeof store.recordRemoteResource>)=>{
+			const before=authorityChange.beforeRecord;authorityChange.beforeRecord=null;
+			await before?.();
+			return store.recordRemoteResource(...args);
+		},
+  foldDeploymentAttempt:async (...args:Parameters<typeof store.foldDeploymentAttempt>)=>{
+   const before=authorityChange.beforeFold;authorityChange.beforeFold=null;await before?.();
+   return store.foldDeploymentAttempt(...args);
+  },
+        admitAppWrite:async (...args:Parameters<typeof store.admitAppWrite>)=>{
+   const before=authorityChange.beforeImport;authorityChange.beforeImport=null;await before?.();
+   return store.admitAppWrite(...args);
+  },
+  admitAppCreate:async (...args:Parameters<typeof store.admitAppCreate>)=>{
+            const before=authorityChange.beforeShell;
+            authorityChange.beforeShell=null;
+            await before?.();
+            return store.admitAppCreate(...args);
+        },
+        readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
 	};
 });
 beforeEach(() => {
+	authorityChange.beforeShell=null;
 	hqSaves.reset();
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
@@ -141,14 +176,14 @@ const SOURCE = sourcePath();
  */
 const PROJECT_SPACES_READ = `GET ${HOST}/api/user_domains/v1/?limit=100`;
 const PROJECT_SPACES = [PROJECT_SPACES_READ, PROJECT_SPACES_READ];
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.hq.write"],
 ) {
+	const ctx = scopes.includes("nova.hq.import") && scopes.includes("nova.hq.write") ? await installationCredential(h.db(),userId,scopes) : {userId,scopes,authKind:"oauth" as const};
 	return withMcpClient(
-		(server) =>
-			registerUploadAppToHq(server, { userId, scopes, authKind: "oauth" }),
+		(server) => registerUploadAppToHq(server,ctx),
 		run,
 	);
 }
@@ -202,6 +237,82 @@ it.each(["parent-multiple", "same-smaller"] as const)(
 		});
 	},
 );
+it.each(["beforeFold","beforePlacement"] as const)("keeps the first installation publish atomic when grant changes at %s",async boundary=>{
+ const doc=boundary==="beforePlacement" ? heldPlacementApp().doc : document();
+ const uuid=testUuid("grant-review-test");
+ doc.appSettings.installationProfiles={[uuid]:{uuid,name:"Training",languages:["eng"],requiresPracticeWorker:false}};
+ await seed(doc);
+ let reached=false;
+ authorityChange[boundary]=async ()=>{
+  reached=true;
+  await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(h.db());
+ };
+ await withManagedPeer(async peer=>{
+  try {
+   await asUser(async client=>expect(body(await call(client),true)).toMatchObject({error_type:"permission_denied"}),ACTOR,["nova.read","nova.write","nova.hq.write","nova.hq.import"]);
+   expect(reached).toBe(true);
+   expect(await state()).toBeNull();
+   expect(await h.db().selectFrom("app_deployment_confirmations").selectAll().execute()).toEqual([]);
+   expect(await h.db().selectFrom("app_changes").select("seq").where("kind","=","publish-placement").execute()).toEqual([]);
+   expect(requests(peer).filter(line=>line.startsWith("POST "))).toEqual([]);
+  } finally {authorityChange[boundary]=null;}
+ });
+});
+it.each(["last-profile-removed","new-pending-review","ordinary"] as const)("checks the placement destination under lock for %s",async mode=>{
+ const doc=heldPlacementApp().doc;
+ const uuid=testUuid("former-practice");
+ if(mode==="last-profile-removed")doc.appSettings.installationProfiles={[uuid]:{uuid,name:"Retired team",languages:["eng"],requiresPracticeWorker:false}};
+ await seed(doc);
+ if(mode==="last-profile-removed"){
+  await pendingInstallationTarget(h,SCOPE,TARGET);
+  await commitGuardedBatchProposal({appId:APP,expectedProjectId:PROJECT,actorUserId:ACTOR,batchId:crypto.randomUUID(),kind:"autosave",mutations:[{kind:"setAppSettings",settings:{installationProfile:{operation:"remove",uuid}}}]});
+ } else if(mode==="new-pending-review")authorityChange.beforePlacement=async()=>{
+  await pendingInstallationTarget(h,SCOPE,TARGET);
+  await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(h.db());
+ };
+ try{
+  await withManagedPeer(async peer=>{
+   await asUser(async client=>{const result=await call(client);
+    if(mode!=="ordinary")expect(body(result,true).error_type).toBe(mode==="last-profile-removed"?"scope_missing":"permission_denied");
+   },ACTOR,mode==="new-pending-review"?["nova.read","nova.write","nova.hq.write","nova.hq.import"]:["nova.read","nova.hq.write"]);
+   expect(await h.db().selectFrom("app_changes").select("seq").where("kind","=","publish-placement").execute()).toHaveLength(mode==="ordinary"?1:0);
+   if(mode!=="ordinary")expect(requests(peer).filter(r=>r.startsWith("POST "))).toEqual([]);
+  });
+ }finally{authorityChange.beforePlacement=null;}
+});
+it("rechecks the installation credential at shell admission after the project space was checked",async ()=>{
+ const doc=document();
+ const uuid=testUuid("patrol");
+ doc.appSettings.installationProfiles={[uuid]:{uuid,name:"Patrol",languages:["eng"],requiresPracticeWorker:false}};
+ await seed(doc);
+ authorityChange.beforeShell=async()=>{
+   await sql`DELETE FROM public.auth_apikey WHERE "referenceId"=${ACTOR}`.execute(h.db());
+ };
+ await withManagedPeer(async peer=>{
+   await asUser(async client=>{
+     const result=await call(client);
+     expect(body(result,true)).toMatchObject({error_type:"permission_denied"});
+   },ACTOR,["nova.read","nova.write","nova.hq.write","nova.hq.import"]);
+   expect(requests(peer).filter(line=>line.startsWith("POST "))).toEqual([]);
+   expect(await h.db().selectFrom("hq_remote_writes").select("id").execute()).toEqual([]);
+ });
+});
+it("discloses installation plan needs for a large app within one real SDK response",async ()=>{
+ const doc=document();
+ const names=Array.from({length:13_108},(_,i)=>({uuid:testUuid(`install-plan-${i}`),name:`Field team ${i}`,languages:["eng"],requiresPracticeWorker:i%2===0}));
+ doc.appSettings.installationProfiles=Object.fromEntries(names.map(p=>[p.uuid,p]));
+ await seed(doc);
+ await withManagedPeer(async ()=>asUser(async client=>{
+  const result=await call(client,{confirm_plan_features:[]});
+  expect(JSON.stringify(result).length).toBeLessThan(20_000);
+  const refusal=body(result,true);
+  expect(refusal.error_type).toBe("hq_confirmation_needed");
+  expect(refusal.confirmations_needed).toEqual(expect.arrayContaining([
+   expect.objectContaining({subject:"installation-profiles",reasons:["Workers can choose from 13108 named installations."]}),
+   expect.objectContaining({subject:"practice-workers",reasons:["6554 named installations use a practice worker from this project space."]})
+  ]));
+ },ACTOR,["nova.read","nova.write","nova.hq.import","nova.hq.write"]));
+},60000);
 it("discloses the complete installation review across bounded SDK responses before offering a worker confirmation", async () => {
 	const doc = document();
 	const labels = [
@@ -281,7 +392,7 @@ it("discloses the complete installation review across bounded SDK responses befo
 				expect(pages).toBeGreaterThan(2);
 			},
 			ACTOR,
-			["nova.read", "nova.hq.write", "nova.hq.import"],
+			["nova.read","nova.write","nova.hq.write","nova.hq.import"],
 		);
 		expect(
 			requests(peer).filter((line) => line.startsWith("POST ")),
@@ -591,6 +702,165 @@ it("refuses an unreadable update source without replacing the last published app
 			`GET ${HOST}${SOURCE}`,
 		]);
 	});
+});
+
+const reconciliationScopes=["nova.read","nova.write","nova.hq.write","nova.hq.import"];
+const ordinaryScopes=["nova.read","nova.write","nova.hq.write"];
+const abandonedProfile=testUuid("abandoned installation");
+
+function chooseInstallation(add:boolean){
+	return commitGuardedBatchProposal({
+		appId:APP,expectedProjectId:PROJECT,actorUserId:ACTOR,batchId:crypto.randomUUID(),kind:"autosave",
+		mutations:[{kind:"setAppSettings",settings:{installationProfile:add
+			? {operation:"add",profile:{uuid:abandonedProfile,name:"Home visits",languages:["eng"],requiresPracticeWorker:false}}
+			: {operation:"remove",uuid:abandonedProfile}}}],
+	});
+}
+
+async function reviewRows(deploymentId:string){
+	return h.db().selectFrom("app_deployment_installation_reviews").select(["actor_id","checkpoint"])
+		.where("deployment_id","=",deploymentId).orderBy("actor_id").execute();
+}
+
+it.each(["reconcile","successor","changed-on-HQ"] as const)("retires an abandoned installation review only for its verified claim (%s)",async scenario=>{
+	await seed();
+	const otherEditor="second-profile-editor", publisher="profile-publisher";
+	for(const [id,role] of [[otherEditor,"editor"],[publisher,"admin"]] as const){
+		await h.seedProjectMember(id,PROJECT,role);
+		await connect(h,id,TARGET.server,[TARGET.domain]);
+	}
+	const stop=async()=>{
+		const credential=await installationCredential(h.db(),publisher,ordinaryScopes);
+		return withMcpClient(server=>registerStopPublishing(server,credential),client=>client.callTool({
+			name:"stop_publishing",arguments:{app_id:APP,...TARGET,hq_app_id:"working-app"},
+		}));
+	};
+	await withManagedPeer(async peer=>{
+		shellCreated(peer);imported(peer);
+		await asUser(async client=>{body(await call(client));});
+		const published=await state();
+		if(!published)throw new Error("Expected the ordinary publish to have landed");
+		const deploymentId=published.deployment.id;
+		const siblingId=await pendingInstallationTarget(h,SCOPE,{...TARGET,domain:"sibling"});
+		const siblingBefore=await reviewRows(siblingId);
+		await chooseInstallation(true);
+		async function startReview(actor:string){
+			source(peer);
+			await asUser(async client=>{
+				expect(body(await call(client),true).error_type).toBe("hq_installation_profile_review");
+			},actor,reconciliationScopes);
+		}
+		for(const editor of [ACTOR,otherEditor])await startReview(editor);
+		const original=await reviewRows(deploymentId);
+		expect(original).toMatchObject([ACTOR,otherEditor].sort().map(actor_id=>({
+			actor_id,checkpoint:{phase:"edit-profiles",claim:{mapping:published.active[0].pushToken},review:{requested:[{uuid:abandonedProfile}]}}
+		)));
+		await chooseInstallation(false);
+		const writes=()=>requests(peer).filter(line=>line.startsWith("POST "));
+		const before=writes().length;
+		// A failed authorization needs no extra remote write.
+		await asUser(async client=>{
+			const refusal=body(await call(client),true);
+			expect(["scope_missing","permission_denied"]).toContain(refusal.error_type);
+		},publisher,ordinaryScopes);
+		expect((await stop()).isError).toBe(true);
+		expect(await reviewRows(deploymentId)).toEqual(original);
+		expect(writes()).toHaveLength(before);
+		if(scenario==="successor"){
+			let successorRows:Awaited<ReturnType<typeof reviewRows>>|undefined;
+			let successorToken:string|undefined;
+			authorityChange.beforeRecord=async()=>{
+				source(peer);imported(peer);
+				await asUser(async client=>{body(await call(client));},otherEditor,reconciliationScopes);
+				successorToken=(await state())?.active[0].pushToken;
+				await chooseInstallation(true);
+				await startReview(otherEditor);
+				successorRows=await reviewRows(deploymentId);
+			};
+			try{
+				source(peer);imported(peer);
+				await asUser(async client=>{expect((await call(client)).isError).toBe(true);},publisher,reconciliationScopes);
+				expect(successorToken).toBeTruthy();
+				expect(successorToken).not.toBe(published.active[0].pushToken);
+				expect(successorRows).toMatchObject([{actor_id:otherEditor,checkpoint:{claim:{mapping:successorToken}}}]);
+				expect(await reviewRows(deploymentId)).toEqual(successorRows);
+				expect((await state())?.active[0].pushToken).toBe(successorToken);
+				expect(writes()).toHaveLength(before+2);
+			} finally { authorityChange.beforeRecord=null; }
+		}else if(scenario==="changed-on-HQ"){
+			source(peer);
+			request(peer,IMPORT,"POST").reply(()=>({statusCode:200,data:JSON.stringify({success:true,app_id:"working-app",version:hqSaves.save("working-app")})}));
+			const live=liveSource();
+			replyRetained(request(peer,SOURCE),{...live,body:{...retainedBodyJson(live),build_profiles:{reopened:{name:"Reopened",langs:["en"]}}}});
+			await asUser(async client=>{expect((await call(client)).isError).toBe(true);},publisher,reconciliationScopes);
+			expect(await reviewRows(deploymentId)).toEqual(original);
+			expect((await state())?.active[0].pushToken).toBe(published.active[0].pushToken);
+			expect(writes()).toHaveLength(before+1);
+		}else{
+			source(peer);imported(peer);
+			await asUser(async client=>{expect(body(await call(client)).hq_app_action).toBe("updated");},publisher,reconciliationScopes);
+			expect(await reviewRows(deploymentId)).toEqual([]);
+			expect(writes()).toHaveLength(before+1);
+			const receipt=await h.db().selectFrom("hq_remote_writes").select(["settled_at","import_acknowledged_version"]).where("deployment_id","=",deploymentId).where("import_acknowledged_at","is not",null).execute();
+			expect(receipt).toEqual([{settled_at:expect.any(Date),import_acknowledged_version:String(hqSaves.at("working-app"))}]);
+			source(peer);imported(peer);
+			await asUser(async client=>{expect(body(await call(client)).hq_app_action).toBe("updated");},publisher,ordinaryScopes);
+			expect((await stop()).isError).not.toBe(true);
+			expect((await state())?.deployment.state).toBe("ended");
+			expect(writes()).toHaveLength(before+2);
+		}
+		expect(await reviewRows(siblingId)).toEqual(siblingBefore);
+	});
+},60_000);
+
+it("preserves a newer publisher's entry points when the managed attempt sent nothing",async()=>{
+ await seed();
+ const scopes=["nova.read","nova.write","nova.hq.write","nova.hq.import"];
+ await withManagedPeer(async peer=>{
+  shellCreated(peer);imported(peer);await asUser(async client=>{body(await call(client));});
+  const first=await state();if(!first)throw new Error("Expected the published mapping");
+  await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${first.deployment.id},'other-editor','{"previousKeys":[]}'::jsonb)`.execute(h.db());
+  const start=requests(peer).length;
+  let accepted:Awaited<ReturnType<typeof readEntryPointEvidence>>|undefined;
+  source(peer);
+  authorityChange.beforeImport=async()=>{
+   await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(h.db());
+   source(peer);imported(peer);
+   await asUser(async client=>{body(await call(client));},ACTOR,scopes);
+   accepted=await readEntryPointEvidence(SCOPE,TARGET);
+  };
+  try{
+   await asUser(async client=>{expect(body(await call(client),true).error_type).toBe("permission_denied");},ACTOR,scopes);
+   expect(accepted?.manifest).toBeTruthy();
+   expect(await readEntryPointEvidence(SCOPE,TARGET)).toEqual(accepted);
+   expect(requests(peer).slice(start).filter(r=>r.startsWith("POST "))).toEqual([`POST ${HOST}${IMPORT}`]);
+  }finally{authorityChange.beforeImport=null;}
+ });
+});
+it.each(["read","admitted-import"] as const)("binds the managed missing-app observation to its %s authority",async origin=>{
+ await seed();
+ await withManagedPeer(async peer=>{
+  shellCreated(peer);imported(peer);
+  await asUser(async client=>{body(await call(client));});
+  const before=await state();
+  if(!before)throw new Error("Expected the first publish to have landed");
+  // A separate editor's private checkpoint is target management even when the current app has no desired installations.
+  await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${before.deployment.id},'separate-editor','{"previousKeys":[]}'::jsonb)`.execute(h.db());
+  const missing=retainedPublishRead(origin==="read" ? "source-missing" : "update-missing");
+  if(origin==="admitted-import") source(peer);
+  const edge=origin==="read"?request(peer,SOURCE):request(peer,IMPORT,"POST");
+  edge.reply(async ()=>{
+    await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(h.db());
+    return {statusCode:missing.status,data:retainedBodyText(missing),responseOptions:{headers:{...missing.headers}}};
+  });
+  await asUser(async client=>{
+    const failure=body(await call(client),true);
+    expect(failure.error_type).toBe(origin==="read" ? "permission_denied":"remote_app_missing");
+  },ACTOR,["nova.read","nova.write","nova.hq.write","nova.hq.import"]);
+  const after=await state();
+  if(origin==="read"){expect(after).toEqual(before);}
+  else {expect(after?.active[0].remoteMissingAt).not.toBeNull();expect(after?.deployment.resumePhase).toBe("upload");}
+ });
 });
 
 it.each(["source-missing", "source-deleted", "update-missing"] as const)(
@@ -2418,6 +2688,8 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 				{ id: "released-build", version: build, is_released: true },
 			]),
 		);
+		serveWorkingInstallationInventory(peer,HOST,"working-app",build,{counterAlreadyServed:true});
+		request(peer,"/a/clinic/api/application/v1/released-build/?extras=true").reply(200,ordinaryInstallationBuild("working-app","released-build","clinic",build));
 		request(peer, "/a/clinic/apps/download/released-build/profile.ccpr").reply(
 			200,
 			`<profile><suite><resource id="suite"><location authority="remote">${HOST}/a/clinic/apps/download/released-build/suite.xml</location></resource></suite></profile>`,

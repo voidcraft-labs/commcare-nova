@@ -198,7 +198,7 @@ export function caseTypesLine(caseTypes: readonly string[]): string {
 }
 
 export function installationDescription(p: InstallationReviewState): string {
-	const names = p.languages.map((tag) => languageEnglishName(tag) ?? tag);
+	const names = p.languageNames ?? p.languages.map((tag) => languageEnglishName(tag) ?? "Language name unavailable");
 	const languages = names.join(" → ");
 	const worker = p.worker
 		? `practice worker ${p.worker}`

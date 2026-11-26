@@ -1,4 +1,5 @@
 import "server-only";
+import {ambiguousInstallationNames,visibleInstallationName,NATIVE_INSTALLATION_CHOICES,INSTALLATION_NAME_RECOVERY} from "@/lib/domain/installationProfiles";
 
 import { readHqApplication } from "@/lib/commcare/hq/application";
 import type { HqBuildProfile } from "@/lib/commcare/hq/appSource";
@@ -7,6 +8,7 @@ import {
 	type InstallationFileState,
 	readInstallationBuild,
 } from "@/lib/commcare/hq/installationBuild";
+import {nativeInstallationKey, INSTALLATION_KEY_RECOVERY} from "@/lib/commcare/hq/installationKey";
 import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { InstallationProfileCheckpoint } from "./installationProfileReview";
@@ -31,6 +33,8 @@ export async function checkPracticePreparation(input: {
 	start?: PracticeStart;
 }): Promise<PracticeResult> {
 	const { creds, domain, appId, profiles } = input;
+	const languages = new Set(profiles.flatMap(p => p.langs));
+	if (profiles.some(p => !nativeInstallationKey(p.id, languages, p.langs))) return {kind:"review", message:INSTALLATION_KEY_RECOVERY};
 	const definitions = new Map(
 		profiles.map((p) => [p.id, canonicalJsonDigest(p)]),
 	);
@@ -81,10 +85,12 @@ export async function checkPracticePreparation(input: {
 	const current = app.builds.filter((b) => b.version === app.version);
 	if (current.length > 1) return unavailable;
 	const build = current[0];
-	const states = build
+	const release = build
 		? await readInstallationBuild(creds, domain, appId, build, profiles)
-		: new Map<string, InstallationFileState>();
-	if (!states || [...states.values()].includes("different")) return unavailable;
+		: {ordinary:"prepared",profiles:new Map<string, InstallationFileState>()};
+	const states=release?.profiles;
+	if (states && [...states.values()].includes("unusable")) return {kind:"review",message:INSTALLATION_KEY_RECOVERY + " Publish again and make a new version."};
+	if (!states || release?.ordinary !== "prepared" || [...states.values()].includes("different")) return unavailable;
 
 	const alreadyPrepared = new Set(start?.preparedOrIncomplete ?? []);
 	const checked = bindings.map((binding) => {
@@ -131,6 +137,8 @@ export async function checkPracticePreparation(input: {
 		witnessed: checked.filter((binding) => binding.practiceWitness),
 	};
 	const remainingKeys = new Set(remaining.map((binding) => binding.key));
+	const ambiguous=ambiguousInstallationNames(profiles);
+	if(profiles.some(p=>remainingKeys.has(p.id) && ambiguous.has(visibleInstallationName(p.name)))) return {kind:"review",start:next,message:INSTALLATION_NAME_RECOVERY};
 	const names = profiles
 		.filter((profile) => remainingKeys.has(profile.id))
 		.map((p) => `“${p.name}”`)
@@ -144,6 +152,6 @@ export async function checkPracticePreparation(input: {
 	return {
 		kind: "review",
 		start: next,
-		message: `${version} In that version’s Deploy menu, choose Download to Android, then Offline Installation. Under Application Profile, select ${names}, one at a time, and download ${file} for each. Return to Nova and publish again to verify the selected workers. You can also remove the practice worker requirement in Nova.`,
+		message: `${version} In that version’s Deploy menu, choose Download to Android, then Offline Installation. ${NATIVE_INSTALLATION_CHOICES} Select ${names}, one at a time, and download ${file} for each. Return to Nova and publish again to verify the selected workers. You can also remove the practice worker requirement in Nova.`,
 	};
 }

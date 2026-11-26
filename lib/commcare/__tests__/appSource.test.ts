@@ -562,7 +562,7 @@ describe("readHqAppSource", () => {
 		}
 	});
 
-	it.each(["", "clinic&west", "a+b", "clinic%2Fwest", "north#visits"])(
+	it.each(["", "clinic&west", "a+b", "clinic%2Fwest", "north#visits","north/south","back\\slash",".","..","default","en","suite.xml","practice_user_restore.xml","media_profile.ccpr","modules-0","ules-0","n","team\u0000"])(
 		"identifies an installation key its native link cannot select (%s)",
 		async (key) => {
 			const reads = await readUnderBoth(
@@ -578,7 +578,7 @@ describe("readHqAppSource", () => {
 		},
 	);
 
-	it.each(["north/south", "a=b", "district%", "a%zz"])(
+	it.each(["north-team", "a=b", "district%", "a%zz"])(
 		"retains the physical key its native link selects (%s)",
 		async (key) => {
 			const reads = await readUnderBoth(

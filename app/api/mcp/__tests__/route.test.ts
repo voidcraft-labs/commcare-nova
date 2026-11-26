@@ -44,6 +44,7 @@ vi.mock("@better-auth/mcp", () => ({
 			return inner(req, {
 				sub: "test-user",
 				azp: "test-client",
+				exp: Math.floor(Date.now()/1000) + 300,
 				iat: Math.floor(Date.now() / 1000),
 				scope: "nova.read nova.write",
 			});
@@ -184,6 +185,7 @@ describe("POST /api/mcp (JWT path)", () => {
 			userId: "test-user",
 			scopes: ["nova.read", "nova.write"],
 			authKind: "oauth",
+			grant:{kind:"oauth",clientId:"test-client",issuedAt:expect.any(Number),expiresAt:expect.any(Number),scopes:["nova.read","nova.write"]},
 		});
 	});
 });
@@ -301,6 +303,7 @@ describe("POST /api/mcp (API-key path)", () => {
 			userId: "user-7",
 			scopes: ["nova.read", "nova.write"],
 			authKind: "api-key",
+			grant:{kind:"api-key",keyId:"key-1"},
 		});
 	});
 
@@ -628,6 +631,7 @@ it("dispatches each caller to a real SDK tool with its own authenticated context
 							userId,
 							scopes: ["nova.read", "nova.write"],
 							authKind: "api-key",
+							grant:{kind:"api-key",keyId:`key-${userId}`},
 						}),
 					},
 				],

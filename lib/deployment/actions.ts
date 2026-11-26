@@ -1,5 +1,6 @@
 "use server";
 
+import { sessionManagementGrant } from "@/lib/deployment/sessionManagementGrant";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { declaresAndroid } from "@/lib/domain";
@@ -172,7 +173,7 @@ async function resolveScope(
 	appId: string,
 	capability: "view" | "edit",
 ): Promise<
-	| { readonly ok: true; readonly scope: DeploymentScope }
+	| { readonly ok: true; readonly scope: DeploymentScope; readonly sessionId: string }
 	| { readonly ok: false; readonly result: DeploymentActionResult<never> }
 > {
 	const session = await getSession();
@@ -190,11 +191,13 @@ async function resolveScope(
 		const access = await resolveAppScope(appId, session.user.id, capability);
 		return {
 			ok: true,
+			sessionId: session.session.id,
 			scope: {
 				appId,
 				projectId: access.projectId,
 				role: access.role,
 				actorUserId: session.user.id,
+				requireInstallationManagement: sessionManagementGrant(session.user.id, session.session.id),
 			},
 		};
 	} catch (error) {

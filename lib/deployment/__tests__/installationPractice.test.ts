@@ -1,3 +1,4 @@
+import {serveWorkingInstallationInventory} from "@/__tests__/helpers/workingInstallationInventory";
 import type { MockAgent } from "undici";
 import { expect, it } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
@@ -37,8 +38,10 @@ function step(
 	version: number,
 	states: [FileState, FileState],
 	start?: Start,
+	selected=profiles,
 ) {
 	const buildId = `build-${version}`;
+	serveWorkingInstallationInventory(peer,host,"app",version);
 	const reply = (path: string, body: unknown) =>
 		peer
 			.get(host)
@@ -57,12 +60,14 @@ function step(
 		versions: [{ id: buildId, version, is_released: false }],
 	});
 	const external_blobs: Record<string, { content_length: number }> = {
+		...Object.fromEntries(["profile.xml","media_profile.xml","media_profile.ccpr","media_suite.xml","modules-0/forms-0.xml","default/app_strings.txt","en/app_strings.txt"].map(file => ["files/"+file,{content_length:50}])),
 		"files/profile.ccpr": { content_length: 80 },
 		"files/suite.xml": { content_length: 90 },
 	};
-	for (const [i, p] of profiles.entries()) {
+	for (const [i, p] of selected.entries()) {
 		if (states[i] === "cold") continue;
 		for (const file of [
+			"profile.xml","media_profile.xml","media_profile.ccpr","media_suite.xml","modules-0/forms-0.xml",
 			"profile.ccpr",
 			"suite.xml",
 			"default/app_strings.txt",
@@ -72,7 +77,7 @@ function step(
 			external_blobs[`files/${p.id}/${file}`] = { content_length: 42 };
 	}
 	const build_profiles = Object.fromEntries(
-		profiles.map((p) => [
+		selected.map((p) => [
 			p.id,
 			{
 				name: p.name,
@@ -90,6 +95,7 @@ function step(
 		built_from_app_id: "app",
 		version,
 		is_released: false,
+		langs:["en"], modules:[{forms:[{doc_type:"Form"},{doc_type:"ShadowForm"},{doc_type:"Form",is_release_notes_form:true,enable_release_notes:false}]}],
 		build_profiles,
 		external_blobs,
 	});
@@ -97,7 +103,7 @@ function step(
 		creds,
 		appId: "app",
 		domain: "clinic",
-		profiles,
+		profiles:selected,
 		proposed,
 		held: [],
 		workingVersion: version,
@@ -186,5 +192,21 @@ it("keeps a partial transition first seen on a newer build after earlier install
 				{ key: "visits", practiceWitness: { version: 8 } },
 			],
 		});
+	});
+});
+
+it("refuses an unresolved historical folder before asking HQ for a build or worker", async () => {
+	await withHttpPeer(async peer => {
+		const result = await checkPracticePreparation({creds,domain:"clinic",appId:"working",workingVersion:9,
+			profiles:[{id:"team/subteam",name:"Team",langs:["en"],practiceWorkerId:"synthetic"}], held:[],proposed:[]});
+		expect(result).toMatchObject({kind:"review",message:expect.stringContaining("Releases page")});
+		expect(peer.getCallHistory()?.calls()).toHaveLength(0);
+	});
+});
+
+it.each([["","Visits"],["Field team","Field  team"]])("asks for visible names before choosing a blank or ambiguous native row %s and %s",async (a,b)=>{
+	await withHttpPeer(async peer=>{
+		const answer=await step(peer,3,["cold","cold"],undefined,profiles.map((p,i)=>({...p,name:[a,b][i]})));
+		expect(answer).toMatchObject({kind:"review",message:expect.stringContaining("different visible name")});
 	});
 });

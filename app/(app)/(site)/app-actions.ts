@@ -17,6 +17,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { sessionManagementGrant } from "@/lib/deployment/sessionManagementGrant";
+import { DeploymentError } from "@/lib/deployment/errors";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import {
@@ -173,7 +175,7 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 		const auth = validateAppMutationInput(appId);
 		if (!auth.ok) return { success: false, error: auth.error };
 
-		const restored = await restoreAppDoc(appId, session.user.id);
+		const restored = await restoreAppDoc(appId, session.user.id, sessionManagementGrant(session.user.id, session.session.id));
 		revalidatePath("/");
 		return {
 			success: true,
@@ -185,6 +187,9 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 	} catch (err) {
 		if (err instanceof CommitReauthError) {
 			return { success: false, error: "App not found." };
+		}
+		if (err instanceof DeploymentError && err.code === "not_permitted") {
+			return { success: false, error: err.message };
 		}
 		if (err instanceof RestoreClaimsChangedError) {
 			return { success: false, error: RESTORE_CLAIMS_CHANGED };

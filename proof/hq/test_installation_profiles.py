@@ -46,7 +46,7 @@ def profile_payload(name, languages, worker=None):
     return {"name": name, "langs": languages, "practice_mobile_worker_id": worker}
 
 
-def offline_download(state, build, profile):
+def offline_download(state, build, profile, targeted=False):
     """The Releases page's DownloadCCZ route, including its genuine archive worker.
 
     Capture the file at the final delivery boundary instead of distributing it
@@ -64,7 +64,10 @@ def offline_download(state, build, profile):
             Path(path).unlink(missing_ok=True)
 
     path = reverse("download_ccz", args=[state.domain, build._id])
-    with hq_requests.held_get(state, path, {"profile": profile}) as request:
+    params = {"profile": profile} if profile is not None else {}
+    if targeted:
+        params["download_targeted_version"] = "true"
+    with hq_requests.held_get(state, path, params) as request:
         match = resolve(path)
         with patch("corehq.apps.hqmedia.tasks._expose_download_link", side_effect=take_file):
             response = match.func(request, *match.args, **match.kwargs)
@@ -83,20 +86,21 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
             worker = operations.practice_worker(state, "installation-guide")
             reader = operations.seed_api_user(state, "build-observer@example.com")
         source = bilingual_app()
+        source["target_commcare_flavor"] = "commcare_lts"
         source["build_profiles"] = {
-            "visits": profile_payload("Field team", ["fra"], worker),
+            "visits": profile_payload("(Default)", ["fra"], worker),
             "office": profile_payload("Office", ["en", "fra"]),
         }
         shell = {**source, "modules": [], "_attachments": {}}
         if practice_allowed:
-            shell["build_profiles"] = {**source["build_profiles"], "visits": profile_payload("Field team", ["fra"])}
+            shell["build_profiles"] = {**source["build_profiles"], "visits": profile_payload("(Default)", ["fra"])}
         app_id, _ = operations.publish(state, [nova_shaped_upload(shell, "Team visits")])
         with build_seams(), pytest.raises(webapps_hq.ReleaseRefused, match="no modules"):
             webapps_hq._make_build(state, operations.held_app(state, app_id))
         if practice_allowed:
             assert not operations.held_app(state, app_id).get_practice_user_id("visits")
             hqside.build_profiles(state, app_id, [
-                {"id": "visits", "name": "Field team", "langs": ["fra"], "practice_worker_id": worker},
+                {"id": "visits", "name": "(Default)", "langs": ["fra"], "practice_worker_id": worker},
                 {"id": "office", "name": "Office", "langs": ["en", "fra"]},
             ])
             from corehq.apps.app_manager.exceptions import PracticeUserException
@@ -149,13 +153,41 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
         assert cold["domain"] == state.domain and cold["is_released"]
         assert cold["built_from_app_id"] == cold["copy_of"] == app_id
         assert cold["version"] == build.version
-        assert cold["build_profiles"]["visits"]["name"] == "Field team"
+        assert cold["build_profiles"]["visits"]["name"] == "(Default)"
         assert cold["build_profiles"]["visits"]["practice_mobile_worker_id"] == worker
         assert cold["external_blobs"] == before[1]
+        assert cold["langs"] == ["en","fra"] and cold["modules"][0]["forms"]
+        working_revision = operations.held_app(state, app_id)._rev
+        inventory = operations.api_request(
+            state, "GET", f"/a/{state.domain}/apps/download/{app_id}/suite.xml", credential=reader)
+        assert inventory.status == 200
+        suite = etree.fromstring(inventory.body.encode())
+        resources = suite.xpath("/suite/xform/resource | /suite/xform-update-info/resource")
+        forms = set()
+        for resource in resources:
+            (local,) = resource.xpath("location[@authority='local']/text()")
+            (remote,) = resource.xpath("location[@authority='remote']/text()")
+            assert local == remote and local.startswith("./modules-")
+            forms.add(local[2:])
+        assert forms and len(forms) == len(resources)
+        assert operations.held_app(state, app_id)._rev == working_revision
         assert snapshot() == before
         with build_seams(), hq_redis.shared(None), state.committing():
+            ordinary = offline_download(state, build, None)
             archive = offline_download(state, build, "visits")
-        assert any(path.endswith("profile.ccpr") for path in archive)
+            targeted = offline_download(state, build, "visits", targeted=True)
+            normal_targeted = offline_download(state, build, None, targeted=True)
+        for files in [ordinary, archive, targeted, normal_targeted]:
+            assert {path for path in files if path.startswith("modules-") and "/forms-" in path} == forms
+        for path in forms:
+            assert etree.fromstring(archive[path]).xpath("//*[local-name()='translation']/@lang") == ["fra"]
+            assert set(etree.fromstring(ordinary[path]).xpath("//*[local-name()='translation']/@lang")) == {"en", "fra"}
+        for files, langs in [(ordinary, ["default","en","fra"]), (archive, ["default","fra"])]:
+            assert etree.fromstring(files["suite.xml"]).xpath("/suite/locale/@language") == langs
+            assert etree.fromstring(files["media_suite.xml"]).tag == "suite"
+        assert all(ordinary[name] for name in ["profile.ccpr", "media_suite.xml", *forms])
+        assert not etree.fromstring(ordinary["profile.ccpr"]).get("buildProfileID")
+        assert etree.fromstring(archive["profile.ccpr"]).get("buildProfileID") == "visits"
         after = snapshot()
         assert after[0] != before[0]
         named = detail()
@@ -164,6 +196,10 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
         materialized = operations.held_app(state, build._id)
         selected = {path.removeprefix("files/"): materialized.fetch_attachment(path)
                     for path in after[1] if path.startswith("files/visits/")}
+        assert archive["profile.ccpr"] == selected["visits/media_profile.ccpr"]
+        assert targeted["profile.ccpr"] == selected["visits/media_profile-commcare_lts.ccpr"]
+        assert normal_targeted["profile.ccpr"] == materialized.fetch_attachment("files/media_profile-commcare_lts.ccpr")
+        assert ordinary["profile.ccpr"] == materialized.fetch_attachment("files/media_profile.ccpr")
         restore = selected.get("visits/practice_user_restore.xml")
         assert bool(restore) is practice_allowed
         assert all(named["external_blobs"]["files/"+path]["content_length"] == len(content)
@@ -215,7 +251,7 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
 def test_native_profile_links_select_their_physical_key(hq):
     from urllib.parse import urlsplit, urlunsplit
 
-    cases = {"home/north": True, "crew=east": True, "literal%": True,
+    cases = {"north-team": True, "crew=east": True, "literal%": True,
              "a%zz": True, "clinic&west": False, "a+b": False,
              "north#team": False, "encoded%2Fkey": False}
     with hq_check(Configuration(privileges={"API_ACCESS", "BUILD_PROFILES"})) as (state, _):

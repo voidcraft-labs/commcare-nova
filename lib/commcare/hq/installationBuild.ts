@@ -1,8 +1,12 @@
 import "server-only";
 
-import { type HqBuildProfile, readBuildProfiles } from "./appSource";
+import {installationFormFiles} from "../buildProfile";
+import {readWorkingInstallationSuite} from "../client";
+import {readHqAppSaveCounter} from "./appSourceAtVersion";
+import { type HqBuildProfile, readBuildProfiles, unusableBuildProfileKey } from "./appSource";
 import { HQ_APP_SOURCE_MAX_BYTES, HQ_APPLICATION_MAX_BYTES } from "./bounds";
 import { baseUrl, type CommCareCredentials, isValidDomainSlug } from "./http";
+import {INSTALLATION_RESOURCES, nativeInstallationKey} from "./installationKey";
 import { isHqObject } from "./readCollection";
 import { readHqJson } from "./readJson";
 
@@ -10,34 +14,8 @@ export type InstallationFileState =
 	| "prepared"
 	| "cold"
 	| "incomplete"
-	| "different";
-
-/** Match the relative paths ApplicationBase.create_all_files writes. A language
- * file and a module/form file have one directory beneath their physical key.
- * Other native files are at the root of that profile. Keys may contain slashes. */
-function installationFileOwner(
-	path: string,
-): { key: string; languageFile: boolean } | null {
-	if (!path.startsWith("files/")) return null;
-	const last = path.lastIndexOf("/");
-	if (last <= 5) return null;
-	const leaf = path.slice(last + 1);
-	const parent = path.slice(6, last);
-	if (leaf === "app_strings.txt" || /^forms-[0-9]+\.xml$/.test(leaf)) {
-		const child = parent.lastIndexOf("/");
-		if (
-			leaf === "app_strings.txt" ||
-			/^modules-[0-9]+$/.test(parent.slice(child + 1))
-		) {
-			if (child < 1) return null;
-			return {
-				key: parent.slice(0, child),
-				languageFile: leaf === "app_strings.txt",
-			};
-		}
-	}
-	return { key: parent, languageFile: false };
-}
+	| "different"
+	| "unusable";
 
 /** ApplicationResource.dehydrate(extras=true) merges the stored document into
  * the top-level response. Files are the BlobMixin's stored metadata. A named
@@ -48,7 +26,9 @@ export async function readInstallationBuild(
 	workingId: string,
 	build: { id: string; version: number; isReleased: boolean },
 	expected: readonly HqBuildProfile[],
-): Promise<ReadonlyMap<string, InstallationFileState> | null> {
+): Promise<{ordinary: "prepared" | "unusable" | "incomplete" | "different"; profiles: ReadonlyMap<string,InstallationFileState>} | null> {
+	const unavailableFiles = (ordinary: "unusable" | "incomplete" | "different") => ({ordinary, profiles: new Map(expected.map(p=>[p.id,ordinary]))});
+	if (expected.some(p => !nativeInstallationKey(p.id, undefined, p.langs))) return unavailableFiles("unusable");
 	if (
 		!isValidDomainSlug(domain) ||
 		!/^[\w-]+$/.test(build.id) ||
@@ -76,31 +56,70 @@ export async function readInstallationBuild(
 		!isHqObject(raw.external_blobs)
 	)
 		return null;
-	const profiles = readBuildProfiles(raw.build_profiles);
-	if (!profiles) return null;
-	const blobs = raw.external_blobs;
-	const byOwner = new Map<string, { languageFiles: number }>();
-	for (const path of Object.keys(blobs)) {
-		const owner = installationFileOwner(path);
-		if (!owner) continue;
-		const item = byOwner.get(owner.key) ?? { languageFiles: 0 };
-		if (owner.languageFile) item.languageFiles++;
-		byOwner.set(owner.key, item);
+	if (!Array.isArray(raw.langs) || !raw.langs.every((lang): lang is string => typeof lang === "string") || !Array.isArray(raw.modules)) return null;
+	const languages = new Set(raw.langs);
+	const modules = raw.modules;
+	const profiles = readBuildProfiles(raw.build_profiles, languages, modules.length);
+	if (!profiles) {
+		if (unusableBuildProfileKey(raw.build_profiles, languages, modules.length)) return unavailableFiles("unusable");
+		return null;
 	}
-	const profilesById = new Map(
-		profiles.map((profile) => [profile.id, profile]),
-	);
+	const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+	const ordinaryFiles = new Set<string>();
+	const formCounts:number[]=[];
+	for (const module of modules) {
+		if (!isHqObject(module) || !Array.isArray(module.forms)) return null;
+		formCounts.push(module.forms.length);
+	}
+	const byOwner = new Map<string, Set<string>>();
+	const blobs = raw.external_blobs;
 	const positive = (path: string) => {
 		const blob = Object.hasOwn(blobs, path) ? blobs[path] : undefined;
-		return (
-			isHqObject(blob) &&
-			typeof blob.content_length === "number" &&
-			Number.isSafeInteger(blob.content_length) &&
-			blob.content_length > 0
-		);
+		return isHqObject(blob) && typeof blob.content_length === "number"
+			&& Number.isSafeInteger(blob.content_length) && blob.content_length > 0;
 	};
-	if (!positive("files/profile.ccpr") || !positive("files/suite.xml"))
-		return null;
+	const resources: string[] = [...INSTALLATION_RESOURCES];
+	const flavor = raw.target_commcare_flavor;
+	if (flavor != null && flavor !== "none") {
+		if (flavor !== "commcare" && flavor !== "commcare_lts") return null;
+		for (const prefix of ["profile", "media_profile"])
+			for (const extension of ["xml","ccpr"]) resources.push(prefix + "-" + flavor + "." + extension);
+	}
+	const rootFiles = new Set(resources);
+	if (raw.practice_mobile_worker_id != null && typeof raw.practice_mobile_worker_id !== "string") return null;
+	if (raw.practice_mobile_worker_id) rootFiles.add("practice_user_restore.xml");
+	const formPath = /^modules-[0-9]+\/forms-[0-9]+\.xml$/;
+	for (const path of Object.keys(blobs)) {
+		if (!path.startsWith("files/")) continue;
+		const relative = path.slice(6);
+		const slash = relative.indexOf("/");
+		if (slash < 0) {
+			if (!rootFiles.has(relative)) return unavailableFiles("different");
+			continue;
+		}
+		const top = relative.slice(0, slash);
+		if (profilesById.has(top)) {
+			const files = byOwner.get(top) ?? new Set<string>();
+			files.add(relative.slice(slash + 1));
+			byOwner.set(top, files);
+		} else if (formPath.test(relative)) {
+			if (!positive(path)) return unavailableFiles("incomplete");
+			ordinaryFiles.add(relative);
+		} else if (!((top === "default" || languages.has(top)) && relative.slice(slash+1) === "app_strings.txt")) {
+			// The ordinary offline archive includes every folder outside the current named profiles.
+			return unavailableFiles("different");
+		}
+	}
+	if (![...rootFiles].every(name => positive("files/" + name))
+		|| !["default", ...languages].every(lang => positive("files/" + lang + "/app_strings.txt"))) return unavailableFiles("incomplete");
+	// On the working app HQ generates the suite from the form definitions. The
+	// exact current save binds this inventory to the build we just identified.
+	const suite=await readWorkingInstallationSuite(creds,domain,workingId);
+	if ("success" in suite || await readHqAppSaveCounter(creds,domain,workingId) !== build.version) return null;
+	const ordinaryForms=installationFormFiles(suite.xml,formCounts);
+	if (!ordinaryForms) return null;
+	for (const file of ordinaryFiles) if (!ordinaryForms.has(file)) return unavailableFiles("different");
+	if (ordinaryForms.size!==ordinaryFiles.size) return unavailableFiles("incomplete");
 	const states = new Map<string, InstallationFileState>();
 	for (const profile of expected) {
 		const actual = profilesById.get(profile.id);
@@ -111,43 +130,26 @@ export async function readInstallationBuild(
 			actual.practiceWorkerId !== profile.practiceWorkerId ||
 			!actual.langs.length ||
 			actual.langs.length !== profile.langs.length ||
-			actual.langs.some((lang, i) => lang !== profile.langs[i])
+			actual.langs.some((lang, i) => lang !== profile.langs[i] || !languages.has(lang))
 		) {
 			states.set(profile.id, "different");
 			continue;
 		}
-		const prefix = `files/${profile.id}/`;
-		const languageFiles = new Set(
-			["default", ...profile.langs].map(
-				(lang) => `${prefix}${lang}/app_strings.txt`,
-			),
-		);
-		const paths = [
-			`${prefix}profile.ccpr`,
-			`${prefix}suite.xml`,
-			...languageFiles,
-		];
-		const restore = `${prefix}practice_user_restore.xml`;
-		if (profile.practiceWorkerId) paths.push(restore);
 		const files = byOwner.get(profile.id);
-		const namedStrings = files?.languageFiles ?? 0;
-		let presentStrings = 0;
-		for (const path of languageFiles)
-			if (Object.hasOwn(blobs, path)) presentStrings += 1;
-		const unexpected =
-			namedStrings !== presentStrings ||
-			(!profile.practiceWorkerId && Object.hasOwn(blobs, restore));
-		const hasNamedFile = files !== undefined;
-		states.set(
-			profile.id,
-			unexpected
-				? "different"
-				: paths.every(positive)
-					? "prepared"
-					: hasNamedFile
-						? "incomplete"
-						: "cold",
-		);
+		if (!files) {
+			states.set(profile.id, "cold");
+			continue;
+		}
+		const selectedLanguages = new Set(["default", ...profile.langs].map(lang => lang + "/app_strings.txt"));
+		const roots = new Set(resources);
+		if (profile.practiceWorkerId) roots.add("practice_user_restore.xml");
+		let unexpected = false;
+		let complete = files.size === roots.size + selectedLanguages.size + ordinaryForms.size;
+		for (const file of files) {
+			if (!roots.has(file) && !selectedLanguages.has(file) && !ordinaryForms.has(file)) unexpected = true;
+			if (!positive("files/" + profile.id + "/" + file)) complete = false;
+		}
+		states.set(profile.id, unexpected ? "different" : complete ? "prepared" : "incomplete");
 	}
-	return states;
+	return {ordinary:"prepared", profiles: states};
 }

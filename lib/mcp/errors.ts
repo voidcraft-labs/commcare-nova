@@ -74,7 +74,7 @@ import {
 	ProjectPermissionError,
 } from "@/lib/projects/manage";
 import { McpAccessError } from "./ownership";
-import { McpScopeError } from "./scopes";
+import { McpScopeError,McpCredentialInactiveError } from "./scopes";
 
 /**
  * Thrown when an MCP tool's input arguments fail a handler-level contract
@@ -753,6 +753,7 @@ export function toMcpErrorResult(
 		};
 	}
 
+	if (err instanceof McpCredentialInactiveError) return {isError:true,content:[{type:"text",text:JSON.stringify(payload("permission_denied",err.message))}]};
 	if (err instanceof McpScopeError) {
 		/* Scope-gate failure short-circuits the classifier the same way
 		 * `McpInvalidInputError` does: the failure shape is deterministic

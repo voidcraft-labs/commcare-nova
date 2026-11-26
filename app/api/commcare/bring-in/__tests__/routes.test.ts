@@ -1,3 +1,4 @@
+import { DeploymentSessionEndedError } from "@/lib/deployment/sessionManagementGrant";
 /**
  * The two bring-in routes as shells over their services: who may call them,
  * the bodies they accept, that every answer rides the stream's one last line,
@@ -242,7 +243,7 @@ const CREATE_ANSWERS: readonly [string, CreateAnswer][] = [
 
 beforeEach(() => {
 	requireSessionMock.mockReset();
-	requireSessionMock.mockResolvedValue({ user: { id: USER } });
+	requireSessionMock.mockResolvedValue({ user: { id: USER }, session: { id: "test-session" } });
 	vi.mocked(authorizeBringIn).mockReset();
 	vi.mocked(authorizeBringIn).mockResolvedValue(ACTOR);
 	vi.mocked(readHqAppForReview).mockReset();
@@ -427,6 +428,7 @@ describe("the stream", () => {
 			]);
 			expect(createFromReview).toHaveBeenCalledWith(ACTOR, INPUT, {
 				onEvent: expect.any(Function),
+				requireInstallationManagement: expect.any(Function),
 			});
 		},
 	);
@@ -513,8 +515,7 @@ describe("the signal each route hands its service", () => {
 			{ type: "done", answer: { kind: "read-again" } },
 		]);
 		const [, , options] = vi.mocked(createFromReview).mock.calls[0] ?? [];
-		expect(options).toEqual({ onEvent: expect.any(Function) });
-		expect(Object.keys(options ?? {})).toEqual(["onEvent"]);
+		expect(options).toEqual({ onEvent: expect.any(Function), requireInstallationManagement: expect.any(Function) });
 	});
 
 	it("runs a create to its end where the client stops reading mid-stream, and logs nothing", async () => {
@@ -581,4 +582,10 @@ describe("the hosts that reach the bring-in routes", () => {
 			expect(isPathAllowedOnHost(HOSTNAMES.docs, path)).toBe(false);
 		},
 	);
+});
+
+it("returns sign-in recovery when the checked session ends during creation", async () => {
+	vi.mocked(createFromReview).mockRejectedValueOnce(new DeploymentSessionEndedError());
+	const response=await createPost(request("create",INPUT));
+	expect(await lines(response)).toEqual([{type:"done",answer:{kind:"refused",refusal:"session_ended"}}]);
 });

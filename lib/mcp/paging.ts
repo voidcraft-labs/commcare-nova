@@ -30,8 +30,18 @@ export const PIECE_MAX_CHARS = 30_000;
 /** The most characters of JSON the rest of a page takes, so any one piece fits beside it. */
 export const SHELL_MAX_CHARS = PAGE_LIMIT_CHARS - PIECE_MAX_CHARS;
 
-/** The most characters of JSON one code unit takes: `\uXXXX`. */
-const JSON_CHARS_PER_UNIT = 6;
+/** A control code in the JSON body can take seven characters inside SDK TextContent. */
+const JSON_CHARS_PER_UNIT = 7;
+
+/** Serialized characters a JSON fragment occupies inside an MCP TextContent string. */
+export function encodedJsonChars(value: unknown): number {
+	return JSON.stringify(JSON.stringify(value)).length - 2;
+}
+
+/** Budget the SDK result including its text wrapper and optional error flag. */
+export function toolResultChars(body: unknown): number {
+	return JSON.stringify({content: [{type: "text", text: JSON.stringify(body)}], isError: true}).length;
+}
 
 /**
  * `value` where its JSON is at most `maxChars` characters (by default a
@@ -45,13 +55,14 @@ export function fitPiece<T>(
 	value: T,
 	maxChars: number = PIECE_MAX_CHARS - 1,
 ): T {
-	if (JSON.stringify(value).length <= maxChars) return value;
+	if (encodedJsonChars(value) <= maxChars) return value;
 	let strings = 0;
-	const structure = JSON.stringify(value, (_key, held: unknown) => {
+	const empty = JSON.stringify(value, (_key, held: unknown) => {
 		if (typeof held !== "string") return held;
 		strings += 1;
 		return "";
-	}).length;
+	});
+	const structure = JSON.stringify(empty).length - 2;
 	const units = Math.floor(
 		(maxChars - structure) / (JSON_CHARS_PER_UNIT * Math.max(1, strings)),
 	);
@@ -114,7 +125,7 @@ export function cutPage(input: {
 
 /** The JSON a value adds to an array that holds `taken` values already: its own, and a comma after the first. */
 export function arrayItemChars(value: unknown, taken: number): number {
-	return JSON.stringify(value).length + (taken > 0 ? 1 : 0);
+	return encodedJsonChars(value) + (taken > 0 ? 1 : 0);
 }
 
 /**
@@ -124,9 +135,10 @@ export function arrayItemChars(value: unknown, taken: number): number {
  */
 export function toolText(body: unknown): string {
 	const text = JSON.stringify(body);
-	if (text.length > PAGE_LIMIT_CHARS)
+	const size = toolResultChars(body);
+	if (size > PAGE_LIMIT_CHARS)
 		throw new Error(
-			`An answer came to ${text.length} characters, more than the ${PAGE_LIMIT_CHARS} one answer holds, so Nova sent none of it. Every list in an answer is paged by lib/mcp/paging.ts::cutPage; look at what this one held outside its pages.`,
+			`An answer came to ${size} characters, more than the ${PAGE_LIMIT_CHARS} one answer holds, so Nova sent none of it. Every list in an answer is paged by lib/mcp/paging.ts::cutPage; look at what this one held outside its pages.`,
 		);
 	return text;
 }
@@ -144,5 +156,5 @@ export function lineParts(
 	line: string,
 	limit = LINE_PART_MAX_CHARS,
 ): readonly string[] {
-	return boundedJsonTextParts(line, limit);
+	return boundedJsonTextParts(line, limit, true);
 }

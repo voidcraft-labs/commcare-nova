@@ -1,3 +1,4 @@
+import type { HqManagementGrant } from "../store";
 import "server-only";
 
 /**
@@ -29,6 +30,7 @@ import {
 } from "@/lib/db/commitGuard";
 import {
 	HqAppAlreadyClaimedError,
+	lockDisplacedInstallationClaim,
 	HqAppWriteInFlightError,
 } from "@/lib/db/hqAppClaims";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
@@ -202,7 +204,7 @@ export function createFromReview(
 	input: BringInInput,
 	options: {
 		readonly onEvent: (event: ReadingEvent) => void;
-		readonly requireInstallationManagement?: () => void;
+		readonly requireInstallationManagement?: HqManagementGrant;
 	},
 ): Promise<CreateAnswer> {
 	return withBringInRoom(
@@ -217,7 +219,7 @@ async function createInRoom(
 	input: BringInInput,
 	options: {
 		readonly onEvent: (event: ReadingEvent) => void;
-		readonly requireInstallationManagement?: () => void;
+		readonly requireInstallationManagement?: HqManagementGrant;
 	},
 	room: BringInRoom,
 ): Promise<CreateAnswer> {
@@ -388,8 +390,8 @@ async function createInRoom(
 		return checkFailed("bindings", [], bindingsMoved(appId, moved));
 
 	/* 7. Publish: the first write, so the room stops nothing from here on. */
-	if (gathered.targetIdentity.installationProfiles?.length)
-		options.requireInstallationManagement?.();
+	const managesSourceInstallations = !!gathered.targetIdentity.installationProfiles?.length;
+	if (managesSourceInstallations) await options.requireInstallationManagement?.();
 	room.beginWrites();
 	let plan = gathered.media;
 	const held = heldFileCount(gathered);
@@ -398,6 +400,9 @@ async function createInRoom(
 		onEvent({ type: "files", done: 0, total: held });
 		try {
 			plan = await publishKeptReadingMedia({
+ authorizePublication:managesSourceInstallations || !options.requireInstallationManagement
+     ? options.requireInstallationManagement
+     : {lockSource:tx=>lockDisplacedInstallationClaim(tx,key),grant:options.requireInstallationManagement},
 				projectId: key.projectId,
 				actorUserId: actor.userId,
 				plan,

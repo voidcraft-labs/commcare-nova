@@ -1,3 +1,5 @@
+import {resolvedLanguageEnglishName} from "@/lib/domain/languageRegistry/names";
+import {installationDownloadIssue} from "@/lib/commcare/installationProfiles";
 import type { NextRequest } from "next/server";
 import {
 	ApiError,
@@ -138,6 +140,27 @@ export async function prepareCompileRequest<
 		throw new ApiError(download.message, 422, downloadRefusalLines(download));
 	}
 
+	const rawProfile = (body as { installationProfileUuid?: unknown })
+		.installationProfileUuid;
+	let installationProfileUuid: Uuid | undefined;
+	if (rawProfile !== undefined) {
+		if (mode !== "ccz")
+			throw new ApiError(
+				"An import file includes the entire app. A profile can be selected for the mobile app file.",
+				400,
+			);
+		const parsed = uuidSchema.safeParse(rawProfile);
+		if (!parsed.success)
+			throw new ApiError("Choose an installation profile from the app.", 400);
+		installationProfileUuid = parsed.data;
+		const issue = (download.format === "ccz" ? installationDownloadIssue(docWithParent, installationProfileUuid, download.identity):undefined) ?? installationArchiveIssue(
+			docWithParent,
+			installationProfileUuid,
+		resolvedLanguageEnglishName,
+	);
+		if (issue) throw new ApiError(issue, 422);
+	}
+
 	// The transaction-boundary gate: zero tolerance, before any expensive
 	// work. Every finding (soundness, completeness, media-state) rejects the
 	// export with the rule's own actionable message: an invalid app must
@@ -171,25 +194,6 @@ export async function prepareCompileRequest<
 		);
 	}
 
-	const rawProfile = (body as { installationProfileUuid?: unknown })
-		.installationProfileUuid;
-	let installationProfileUuid: Uuid | undefined;
-	if (rawProfile !== undefined) {
-		if (mode !== "ccz")
-			throw new ApiError(
-				"An import file includes the entire app. A profile can be selected for the mobile app file.",
-				400,
-			);
-		const parsed = uuidSchema.safeParse(rawProfile);
-		if (!parsed.success)
-			throw new ApiError("Choose an installation profile from the app.", 400);
-		installationProfileUuid = parsed.data;
-		const issue = installationArchiveIssue(
-			boundary.prepared.doc,
-			installationProfileUuid,
-		);
-		if (issue) throw new ApiError(issue, 422);
-	}
 	return {
 		...boundary.prepared,
 		installationProfileUuid,

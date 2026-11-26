@@ -1,3 +1,7 @@
+import {pendingInstallationTarget} from "@/__tests__/helpers/pendingInstallationTarget";
+import {installationCredential} from "@/__tests__/helpers/installationCredential";
+import {credentialWriteGrant} from "@/lib/mcp/credentialWriteGrant";
+import {sql} from "kysely";
 /**
  * Places CommCare HQ manages for an app, through a publish and through
  * provisioning a worker, over real Postgres and a peer standing in for
@@ -125,8 +129,12 @@ function document(): BlueprintDoc {
 }
 
 /** The app, with Nova's copy of CommCare HQ's places, as a bring-in writes it. */
-async function seed(): Promise<BlueprintDoc> {
-	const doc = document();
+async function seed(withInstallation = false): Promise<BlueprintDoc> {
+ const doc = document();
+ if(withInstallation){
+  const uuid=testUuid("place-service-installation");
+  doc.appSettings.installationProfiles={[uuid]:{uuid,name:"Team",languages:["eng"],requiresPracticeWorker:false}};
+ }
 	await h.seedAppWithBlueprint(doc, {
 		id: APP,
 		owner: ACTOR,
@@ -194,6 +202,24 @@ it("requires permission before publishing refreshes managed places", async () =>
 
 const PUSH_REASON = "This publish sends the places in your organization.";
 
+it.each(["named","pending-during-read"] as const)("checks the live installation grant inside the managed place refresh while publishing with %s",async mode=>{
+ const doc=await seed(mode==="named");
+ const before=await readOrganization(SCOPE);
+ const ctx=await installationCredential(h.db(),ACTOR,["nova.read","nova.write","nova.hq.import","nova.hq.write"]);
+ const grant=credentialWriteGrant(ctx,"upload_app_to_hq",["nova.hq.import","nova.hq.write"]);
+ let fetched=false;
+ await withManagedPeer(async peer=>{
+  request(peer,"/a/clinic/api/location/v2/?limit=5000").reply(async ()=>{
+   fetched=true;
+   if(mode==="pending-during-read")await pendingInstallationTarget(h,SCOPE,MANAGING);
+   await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(h.db());
+   return {statusCode:200,data:JSON.stringify({meta:{next:null},objects:[{location_id:north.locationId,name:"Renamed during publish",site_code:north.siteCode,location_type_code:"region",parent_location_id:"",latitude:null,longitude:null,location_data:{}}]})};
+  });
+  await expect(publishAppToHq({requireHqImport:null,scope:{...SCOPE,requireInstallationManagement:grant},...MANAGING,doc,compiledAtSeq:0,reloadHead:reloadHeadFor(APP,ACTOR),appName:doc.appName,confirm:CONFIRM_ALL})).rejects.toMatchObject({name:"McpCredentialInactiveError"});
+ });
+ expect(fetched).toBe(true);
+ expect((await readOrganization(SCOPE)).locations).toEqual(before.locations);
+});
 it("never pushes places to the project space that manages them, and refreshes the copy instead", async () => {
 	const doc = await seed();
 	const needs = await publishConfirmationNeeds(

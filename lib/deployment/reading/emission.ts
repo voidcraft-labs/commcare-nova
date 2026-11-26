@@ -316,7 +316,7 @@ function sourceFromServed(
 		name: text(body.name),
 		lastModified: null,
 		multimediaMap: source.multimediaMap,
-		buildProfiles: readBuildProfiles(raw.build_profiles ?? NO_ENTRIES) ?? [],
+		buildProfiles: readBuildProfiles(raw.build_profiles ?? NO_ENTRIES, new Set(Array.isArray(body.langs) ? body.langs : []), servedModules(body).length) ?? [],
 	};
 }
 

@@ -1,3 +1,5 @@
+import {languageEnglishName} from "@/lib/domain/languageRegistry";
+import {resolvedLanguageEnglishName} from "@/lib/domain/languageRegistry/names";
 /**
  * The target-identity record: where CommCare HQ keeps the things of one
  * deployment that the document does not hold. The id of every menu and form
@@ -384,17 +386,14 @@ export function resolveTargetIdentity(
 	for (const row of stored.columnWords)
 		if (!observedWords.has(wordKey(row))) columnWords.push(row);
 
+	const priorProfiles=new Map(stored.installationProfiles?.map((binding)=>[binding.uuid,binding]));
 	return canonicalTargetIdentity({
 		entities,
 		keyedCaseIds,
 		mediaPaths,
 		installationProfiles: observed.installationProfiles?.map((binding) => {
-			const prior = stored.installationProfiles?.find(
-				(held) =>
-					held.uuid === binding.uuid &&
-					held.key === binding.key &&
-					held.practiceWorkerId === binding.practiceWorkerId,
-			);
+			const held=priorProfiles.get(binding.uuid);
+            const prior=held?.key===binding.key && held.practiceWorkerId===binding.practiceWorkerId ? held : undefined;
 			return prior?.practiceWitness
 				? { ...binding, practiceWitness: prior.practiceWitness }
 				: binding;
@@ -458,6 +457,7 @@ export function exportIdentityOf(
 
 /** What changed between two records, as a review names it to a person. */
 export interface InstallationReviewState {
+ readonly languageNames?:readonly string[];
 	readonly name: string;
 	readonly languages: readonly string[];
 	readonly requiresPracticeWorker: boolean;
@@ -473,6 +473,9 @@ export interface InstallationReviewChange {
 	readonly remainsRemoved?: boolean;
 }
 
+export function installationReviewNames(languages: readonly string[]) {
+ return languages.some(tag=>!languageEnglishName(tag)) ? {languageNames:languages.map(tag=>resolvedLanguageEnglishName(tag) ?? "Language name unavailable")} : {};
+}
 function installationReviewState(
 	doc: BlueprintDoc,
 	bindings: Map<string, InstallationProfileBinding>,
@@ -484,6 +487,7 @@ function installationReviewState(
 	return {
 		name: profile.name,
 		languages: profile.languages,
+ ...installationReviewNames(profile.languages),
 		requiresPracticeWorker: profile.requiresPracticeWorker,
 		...(binding && { key: binding.key }),
 		...(binding?.practiceWorkerId && { worker: binding.practiceWorkerId }),
@@ -648,6 +652,7 @@ export function targetIdentityChanges(
 						? {
 								name: definition.name,
 								languages: definition.languages,
+ ...installationReviewNames(definition.languages),
 								requiresPracticeWorker: !!binding.practiceWorkerId,
 								key: binding.key,
 								...(binding.practiceWorkerId && {

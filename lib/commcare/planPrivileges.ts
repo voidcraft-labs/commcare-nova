@@ -384,21 +384,14 @@ export function requiredPlanPrivileges(
 	add(
 		"build_profiles",
 		profiles.length
-			? profiles.map((profile) => `Workers can install “${profile.name}”.`)
+			? [`Workers can choose from ${profiles.length} named installation${profiles.length===1 ? "" : "s"}.`]
 			: pushes.hasTargetProfiles
 				? ["Update the named installations already on this project space."]
 				: [],
 	);
-	add(
-		"practice_mobile_workers",
-		profiles
-			.filter((profile) => profile.requiresPracticeWorker)
-			.map(
-				(profile) =>
-					`“${profile.name}” uses a practice worker from this project space.`,
-			),
-	);
-	return uses;
+const practice=profiles.filter(profile=>profile.requiresPracticeWorker).length;
+ add("practice_mobile_workers",practice ? [`${practice} named installation${practice===1 ? " uses" : "s use"} a practice worker from this project space.`] : []);
+ return uses;
 }
 
 /** The plan features this app needs, in Nova's vocabulary, each keeping its reasons. */

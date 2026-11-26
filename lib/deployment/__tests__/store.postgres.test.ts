@@ -25,6 +25,10 @@ import { activeRemoteApp } from "../resources";
 import { deploymentDisplaysAsReached } from "../stateMachine";
 import {
 	admitWorkerWrite,
+ admitAppWrite,
+ admitWorkbookWrite,
+ settleRemoteWrites,
+ readSiblingLookupMappings,
 	applyDeploymentObservation,
 	beginDeploymentContentWrite,
 	type DeploymentScope,
@@ -763,7 +767,23 @@ describe("pushed Project data", () => {
 		);
 	});
 
-	it("records both tables and the completed resources phase", async () => {
+	it("admits and settles a large workbook atomically and reads sibling mappings past the SQL parameter boundary",async()=>{
+  const scope=await seed();await create(scope);
+  const tables=await sql<{id:string}>`INSERT INTO lookup_tables(project_id,name,tag,definition_revision,rows_revision,column_count,created_by,updated_by)
+   SELECT ${scope.projectId}, 'Table ' || n,'table_' || n,0,0,1,${scope.actorUserId},${scope.actorUserId} FROM generate_series(1,6600) AS n RETURNING id`.execute(h.db());
+  await sql`INSERT INTO lookup_columns(project_id,table_id,wire_name,label,data_type,order_key)
+   SELECT project_id,id,'value','Value','text','a1' FROM lookup_tables WHERE project_id=${scope.projectId}`.execute(h.db());
+  const ids=tables.rows.map(r=>r.id);
+  const stored=await admitWorkbookWrite(scope,TARGET,{...NEVER_ENDED,tableIds:ids});
+  if(stored.kind!=="admitted")throw new Error("Expected an admitted workbook");
+  expect(new Set(stored.writeIds).size).toBe(6600);
+  await settleRemoteWrites(stored.writeIds,{kind:"settled"});
+  const count=await h.db().selectFrom("hq_remote_writes").select(eb=>eb.fn.countAll<number>().as("n")).where("settled_at","is not",null).executeTakeFirstOrThrow();expect(Number(count.n)).toBe(6600);
+  const [kept]=ids;await pushTable(scope,{novaResourceId:kept});
+  const candidates=[...ids,...Array.from({length:60_000},()=>crypto.randomUUID())];
+  expect(await readSiblingLookupMappings({...scope,appId:"sibling"},TARGET,candidates)).toMatchObject([{remoteId:"hq-districts"}]);
+ },60_000);
+ it("records both tables and the completed resources phase", async () => {
 		const scope = await seed();
 		await create(scope);
 		const second = "018f0000-0000-7000-8000-000000000002";
@@ -1887,7 +1907,9 @@ describe("entry point release evidence", () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 1);
 		const first = await beginDeploymentContentWrite(scope, TARGET, NEVER_ENDED);
-		const second = await beginDeploymentContentWrite(
+		const write=await admitAppWrite(scope,TARGET,{...NEVER_ENDED,remoteAppId:"hq-1",writeKind:"import"});
+    if(write.kind!=="admitted")throw new Error("Expected an admitted import");
+    const second = await beginDeploymentContentWrite(
 			scope,
 			TARGET,
 			NEVER_ENDED,
@@ -1920,6 +1942,7 @@ describe("entry point release evidence", () => {
 					dependencies: [],
 				},
 				NEVER_ENDED,
+ {writeIds:[write.writeId],settle:[]},
 			),
 		).toBe(false);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();

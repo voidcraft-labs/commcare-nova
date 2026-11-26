@@ -40,7 +40,7 @@ import {
 
 describe("delete/restore authoritative admission", () => {
 	beforeEach(() => {
-		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
+		mocks.getSession.mockResolvedValue({ user: { id: "user-1" }, session: { id:"test-session" } });
 	});
 
 	it("passes the authenticated actor to the locked delete writer", async () => {
@@ -74,7 +74,7 @@ describe("delete/restore authoritative admission", () => {
 			success: false,
 			error: "App not found.",
 		});
-		expect(mocks.restoreApp).toHaveBeenCalledWith("app-1", "user-1");
+		expect(mocks.restoreApp).toHaveBeenCalledWith("app-1", "user-1", expect.any(Function));
 	});
 
 	it("names each project space a restore stopped publishing to with its server's label", async () => {
@@ -108,7 +108,7 @@ describe("delete/restore authoritative admission", () => {
 
 describe("moveApp Project policy", () => {
 	beforeEach(() => {
-		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
+		mocks.getSession.mockResolvedValue({ user: { id: "user-1" }, session: { id:"test-session" } });
 		mocks.resolveAppAccess.mockResolvedValue({
 			projectId: "project-source",
 			role: "owner",

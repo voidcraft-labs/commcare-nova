@@ -160,8 +160,10 @@ import {
 } from "./setupArtifact";
 import {
 	type DeploymentTargetKey,
+	type DeploymentScope,
 	readAppBaseline,
 	readInstallationReview,
+ publishManagementGrant,
 	readResourceBaselines,
 	readSiblingLookupMappings,
 	readTargetIdentity,
@@ -462,13 +464,7 @@ export interface PreflightInput {
 	 * `hq_web_apps_change` refusal. Never defaulted from an earlier attempt.
 	 */
 	readonly confirmWebApps: boolean | undefined;
-	readonly access: {
-		/** The app whose organization this reads. Authorized by the caller. */
-		readonly appId: string;
-		readonly projectId: string;
-		readonly role: string;
-		readonly actorUserId: string;
-	};
+	readonly access: DeploymentScope;
 	readonly server: CommCareServer;
 	readonly domain: string;
 	readonly now: string;
@@ -787,8 +783,9 @@ export async function runDeploymentPreflight(
 		targetIdentity.installationProfiles?.length ||
 			Object.keys(input.doc.appSettings.installationProfiles ?? {}).length,
 	);
-	if (managedProfiles) input.requireHqImport?.();
-	const managedHere = await managedDataEdge(input, creds, domain);
+	const grant=publishManagementGrant(input.access,target,Object.keys(input.doc.appSettings.installationProfiles ?? {}).length>0,input.access.requireInstallationManagement ?? input.requireHqImport);
+	await grant?.();
+	const managedHere = await managedDataEdge(input, creds, domain,grant);
 	if (managedHere !== null) {
 		checks.push(managedHere.check);
 		if (managedHere.failure !== null) {
@@ -1252,7 +1249,7 @@ export async function runDeploymentPreflight(
 			input.access,
 			{ domain },
 			hqPlaces,
-			readAt,
+			readAt,grant,
 		);
 		checks.push({
 			id: "organization",
@@ -1954,6 +1951,7 @@ async function managedDataEdge(
 	input: PreflightInput,
 	creds: CommCareCredentials,
 	domain: string,
+grant:DeploymentScope["requireInstallationManagement"] | null,
 ): Promise<{
 	readonly check: PreflightCheck;
 	readonly failure: DeploymentFailure | null;
@@ -1977,6 +1975,7 @@ async function managedDataEdge(
 	const title = "Data managed in CommCare HQ";
 	const reRead = await reReadManagedTablesForPublish({
 		requireHqImport: input.requireHqImport,
+		grant,
 		access: input.access,
 		doc: input.doc,
 		target: { server: input.server, domain: input.domain },
@@ -2375,7 +2374,7 @@ export function hqAppSourceReadFailure(
 		return {
 			code: "hq_app_state_unknown",
 			message:
-				"A CommCare HQ installation link cannot select its profile. On this app’s Releases page, open Application Profiles, recreate the affected profile with its languages and practice worker, and remove the old entry. Then publish again.",
+				"CommCare HQ cannot select a separate set of files for this installation profile. On this app’s Releases page, open Application Profiles, recreate the affected profile with its languages and practice worker, and remove the old entry. Then publish again.",
 			details: [],
 		};
 	if (!("success" in read) && read.kind === "unsupported") {

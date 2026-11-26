@@ -55,13 +55,15 @@ import {
 import {
 	arrayItemChars,
 	cutPage,
+	toolResultChars,
 	fitPiece,
 	PAGE_LIMIT_CHARS,
 	toolText,
 } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
 import { registerScopedTool } from "../scopedTool";
-import { assertScope, SCOPES } from "../scopes";
+import { credentialWriteGrant } from "../credentialWriteGrant";
+import { SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import {
 	type DeploymentProjection,
@@ -238,7 +240,7 @@ export async function describeHqChangesOutcome(
 				...receipt,
 				deployment: await landedDeployment(call, outcome.deployment),
 			};
-			if (JSON.stringify(answer).length <= PAGE_LIMIT_CHARS) return answer;
+			if (toolResultChars(answer) <= PAGE_LIMIT_CHARS) return answer;
 			return {
 				...receipt,
 				deployment: null,
@@ -293,7 +295,7 @@ export async function describeHqChangesOutcome(
 			cutPage({
 				count: outcome.details.length,
 				from: 0,
-				shellChars: JSON.stringify(shell).length,
+				shellChars: toolResultChars(shell),
 				pieceChars: (index, taken) => arrayItemChars(fitted(index), taken),
 				take: (index) => findings.push(fitted(index)),
 			});
@@ -357,10 +359,7 @@ export function registerBringInHqChanges(
 					outcome = await bringInHqChanges(
 						{
 							...call.scope,
-							requireInstallationManagement: () => {
-								assertScope(ctx, SCOPES.hqImport, "bring_in_hq_changes");
-								assertScope(ctx, SCOPES.hqWrite, "bring_in_hq_changes");
-							},
+							requireInstallationManagement:credentialWriteGrant(ctx,"bring_in_hq_changes",[SCOPES.hqImport,SCOPES.hqWrite]),
 						},
 						call.target,
 						{
