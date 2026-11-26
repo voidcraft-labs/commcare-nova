@@ -205,13 +205,36 @@
 		"gates": []
 	},
 	{
+		"id": "expressions-and-data/companion-lookup-count",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "A numeric companion lookup count from a single direct selection",
+		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
+		"valueClass": "guarded-numeric-lookup-count-from-one-supplier",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the guarded numeric value from a single direct case selection",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE / RUNS",
+			"webApps": { "reading": "unavailable" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "Only a singleton count becomes a number. No result reads blank and an empty result reads zero.",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "expressions-and-data/session-data-fingerprintquery",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
 		"item": "session `data/fingerprintquery`",
 		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a typed count needs one resolvable lookup supplier",
+		"dispositionCell": "**HELD-NEW**: unguarded reads and frames without one identifiable lookup supplier",
+		"valueClass": "count-outside-a-guarded-single-supplier",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {

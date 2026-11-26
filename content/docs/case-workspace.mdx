@@ -65,6 +65,12 @@ In a list with rows, **Show match confidence** adds a confidence column. Use thi
 companion that returns case IDs with confidence levels. Android shows the
 matches it finds in the worker’s cases, with the confidence beside each one.
 
+In an Android-only form that opens directly from one case list, a calculation
+can read **Companion lookup count**. It counts distinct keys the companion
+returned, including keys outside the worker’s case list. The value is blank
+when there is no identification response and zero when the companion
+returns an empty result. Browser Preview leaves the value blank.
+
 You can open the companion when the list first appears or let workers open
 it when they need it. The worker’s device needs the companion installed,
 and the project space needs to support Android case lookup. In browser

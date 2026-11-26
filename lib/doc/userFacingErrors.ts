@@ -778,6 +778,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} has an icon that submits a form. Android shows the image path as text and cannot run the action.`,
 		alternative: "remove the action from the icon",
 	},
+	"case-list-lookup-count": {
+		lead: (subject) =>
+			`${subject} reads a companion lookup count, which is available only on Android.`,
+		alternative: "take the read out",
+	},
 	"case-list-search-text": {
 		lead: (subject) =>
 			`${subject} reads the case list's search text, which Web Apps doesn't keep.`,
@@ -1012,6 +1017,10 @@ const USER_MESSAGE_BY_CODE: Record<
 				return platformBuilderSentence(e, formulaSubject(e));
 			case "window-width":
 				return `${formulaSubject(e)} reads the window width, which CommCare sends only while a menu or a list loads, so a form can't rely on it. You can use it in a display condition or a case list instead.`;
+			case "case-list-lookup-count-slot":
+				return "You can read the companion lookup count in a form question.";
+			case "case-list-lookup-count-source":
+				return "This form needs to open directly from one case list with a companion lookup before it can read the lookup count.";
 			case "case-list-search-text-slot":
 				return `${formulaSubject(e)} reads what the worker typed into a case list's search box, which only a form's questions and Connect settings can read. You can read it in one of the form's questions instead.`;
 			case "case-text":

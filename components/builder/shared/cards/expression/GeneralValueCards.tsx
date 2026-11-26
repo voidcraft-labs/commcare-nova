@@ -39,7 +39,13 @@ import { useStableListIdentity } from "../../useStableListIdentity";
 import { reseedValueForConstraint } from "../reseed";
 
 interface GeneralValueCardProps<
-	K extends "negate" | "here" | "call" | "case-list-search-text" | "value-list",
+	K extends
+		| "negate"
+		| "here"
+		| "call"
+		| "case-list-search-text"
+		| "case-list-lookup-count"
+		| "value-list",
 > {
 	readonly value: ExpressionOfKind<K>;
 	readonly onChange: (next: Expression) => void;
@@ -114,6 +120,17 @@ export function ChoicePositionCard({
 					: "A question outside a repeat has position 0. Its answer does not affect that position."}
 			</p>
 		</div>
+	);
+}
+
+export function CaseListLookupCountCard(
+	_props: GeneralValueCardProps<"case-list-lookup-count">,
+) {
+	return (
+		<p className="text-[13px] text-nova-text-muted">
+			How many distinct results the companion app returned. This is blank until
+			the companion returns results.
+		</p>
 	);
 }
 

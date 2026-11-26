@@ -9515,6 +9515,53 @@ def _session_data_read(tree):
     return steps[2][1]
 
 
+@cache
+def _guarded_lookup_count():
+    path = "instance('commcaresession')/session/data/fingerprintquery"
+    return expression_tree(f"if(count({path}) = 1, number({path}[1]), '')")
+
+
+def _contains_unguarded_lookup_count(tree):
+    if not isinstance(tree, list) or tree == _guarded_lookup_count():
+        return False
+    if tree[:2] == ["path", "instance:commcaresession"] and any(
+        step[:2] == ["child", "fingerprintquery"] for step in tree[4]
+    ):
+        return True
+    return any(_contains_unguarded_lookup_count(child) for child in tree)
+
+
+def lookup_count_outside_one_supplier(use, manifest):
+    """The guarded scalar form read is the only lookup-count spelling Nova publishes."""
+    document, text = _expression_at(use)
+    if not isinstance(document, Form) or text is None:
+        return True
+    tree = expression_tree(text)
+    if tree is None or _contains_unguarded_lookup_count(tree):
+        return True
+    entries = _form_entries(document)
+    if not entries:
+        # This use may come from an editor-only carrier without a suite. The source
+        # reader still proves entry attribution before accepting it into Nova.
+        return False
+    for entry in entries:
+        suite = entry.getparent()
+        selected = [datum for _, datum in _session_ids(entry) if datum.get("nodeset")]
+        if len(selected) != 1:
+            return True
+        detail_id = selected[0].get("detail-select")
+        if not detail_id or not any(
+            _local(detail) == "detail" and detail.get("id") == detail_id
+            and any(_local(child) == "lookup" for child in _children(detail))
+            for detail in _children(suite)
+        ):
+            return True
+    for suite in document.entry_suites:
+        if sum(entry.getparent() is suite for entry in entries) > 1:
+            return True
+    return False
+
+
 def _own_case_property(tree):
     """``instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/<id>]/<property>``, the
     read of a case a session datum names that HQ's form builder writes for ``#case/<property>``: (the datum's id,
@@ -13065,6 +13112,7 @@ VALUE_CLASSES = {
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
     "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,
+    "expressions-and-data/session-data-fingerprintquery": lookup_count_outside_one_supplier,
     "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
     "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,

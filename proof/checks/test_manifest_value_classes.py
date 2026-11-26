@@ -8073,7 +8073,27 @@ def _case_list_lookup_shapes():
     }
 
 
+def _lookup_count_shapes():
+    key = "session-path:session/data/fingerprintquery"
+    path = "instance('commcaresession')/session/data/fingerprintquery"
+    raw = _form(data="<count/>", model=f'<bind nodeset="/data/count" calculate="{path}"/>')
+    guarded = _form(data="<count/>", model=(
+        f'<bind nodeset="/data/count" calculate="if(count({path}) = 1, number({path}[1]), &apos;&apos;)"/>'
+    ))
+    wrong_guard = _form(data="<count/>", model=(
+        f'<bind nodeset="/data/count" calculate="if(count({path}) &gt; 0, number({path}[1]), &apos;&apos;)"/>'
+    ))
+    return {
+        "expressions-and-data/session-data-fingerprintquery": (
+            refused("form", raw, key, "bind[1]/@calculate", readings=True),
+            refused("form", wrong_guard, key, "bind[1]/@calculate", readings=True, uses=2),
+            accepted("form", guarded, key, "bind[1]/@calculate", readings=True, uses=2),
+        ),
+    }
+
+
 SHAPES = {
+    **_lookup_count_shapes(),
     **_case_list_lookup_shapes(),
     **_connect_activities(),
     **_questions(),

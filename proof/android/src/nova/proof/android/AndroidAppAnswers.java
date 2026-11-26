@@ -99,10 +99,17 @@ public final class AndroidAppAnswers {
         }
         if (command.has("verify")) result.putExtra(IdentityResponseBuilder.VERIFICATION, new VerificationMatch(
                 command.getString("verify"), new MatchResult(80, MatchStrength.FOUR_STARS)));
-        if (command.has("identify")) {
+        if (command.has("identify") || command.has("identifyKeys")) {
             ArrayList<IdentificationMatch> matches = new ArrayList<>();
-            matches.add(new IdentificationMatch("lower", new MatchResult(3, MatchStrength.ONE_STAR)));
-            matches.add(new IdentificationMatch(command.getString("identify"), new MatchResult(95, MatchStrength.FIVE_STARS)));
+            if (command.has("identify")) {
+                matches.add(new IdentificationMatch("lower", new MatchResult(3, MatchStrength.ONE_STAR)));
+                matches.add(new IdentificationMatch(command.getString("identify"), new MatchResult(95, MatchStrength.FIVE_STARS)));
+            } else {
+                JSONArray keys = command.getJSONArray("identifyKeys");
+                for (int i = 0; i < keys.length(); i++) {
+                    matches.add(new IdentificationMatch(keys.getString(i), new MatchResult(95, MatchStrength.FIVE_STARS)));
+                }
+            }
             result.putParcelableArrayListExtra(IdentityResponseBuilder.IDENTIFICATION, matches);
         }
         return result;

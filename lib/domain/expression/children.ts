@@ -263,6 +263,7 @@ export function expressionChildren(
 		case "itext":
 		case "here":
 		case "case-list-search-text":
+		case "case-list-lookup-count":
 		case "selected-cases":
 		case "form-case":
 		case "capture-link":
