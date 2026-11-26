@@ -1392,7 +1392,9 @@ function parseSourceChoice(
 	const index = object(load.case_index);
 	if (typeof index.tag !== "string" || index.tag === "")
 		return { ...row, menu };
-	if (!before(index.tag))
+	// HQ's editor indexes a load only to the load stored right before it
+	// (`advanced/actions.js`, `subcase.write`: `load_update_cases()[index - 1]`).
+	if (tags.get(index.tag) !== i - 1)
 		return {
 			issue:
 				i === 0

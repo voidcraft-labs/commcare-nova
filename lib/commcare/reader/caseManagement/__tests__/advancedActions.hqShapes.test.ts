@@ -308,6 +308,28 @@ describe("an advanced form's loads and open actions", () => {
 		).toEqual([]);
 	});
 
+	it("refuses a load indexed to a load stored before the one right before it", async () => {
+		// HQ's editor indexes a load only to the load stored right before it
+		// (`advanced/actions.js`, `subcase.write`), so an index past it is one
+		// no editor makes.
+		const { doc } = memberFollowup();
+		const reading = await readCases(doc, {
+			edit: (app) => {
+				const loads = actionsOf(app).load_update_cases;
+				const [household] = loads;
+				if (household === undefined) throw new Error("The chain loads.");
+				loads.splice(1, 0, {
+					...structuredClone(household),
+					case_tag: "load_household_again",
+					case_properties: {},
+				});
+			},
+		});
+		expect(actionFindings(reading)).toContain(
+			`${F}/loadupdateaction-case-index-tag-naming-a-load-other-than-the-one`,
+		);
+	});
+
 	it("reads a load's saved-if-changed write as onlyIfChanged where the project space applies it, and as saved every time where it does not", async () => {
 		const { doc } = memberFollowup();
 		const edit = (app: AppJson) => {
