@@ -65,7 +65,7 @@ def _released(has_sibling, runner=None):
         ("zones", ("UID", "Delete(Y/N)", "field: code"), [(None, "N", MATCH)]),
         ("other-zones", ("UID", "Delete(Y/N)", "field: code"), [(None, "N", "Wrong fixture")]),
     ])
-    date = "2026-01-10T00:00:00Z"
+    date = "2026-01-10T00:00:00.000Z"
     database = CaseDatabase(USER_ID, USERNAME, (), (
         CaseRecord("lookup-zone-case", "suite_test", "Aster household", USER_ID, date, date, None,
                    (("zone", MATCH), ("zone_source_check", MATCH))),
