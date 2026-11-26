@@ -682,6 +682,8 @@ def test_grouped_search_uses_plain_ordered_fields_on_android(android_documents, 
 
     android_walk_evidence(observations)
     for platform in observations.values():
-        assert platform["prompts"] == ["first_name", "case_name"]
+        assert set(platform["prompts"]) == {"first_name", "case_name"}
+        field_labels = [text for text in platform["display"] if text in {"Name", "Record name"}]
+        assert field_labels == ["Name", "Record name"]
         assert "Personal details" not in platform["display"]
         assert "Case details" not in platform["display"]
