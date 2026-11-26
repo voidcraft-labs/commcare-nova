@@ -607,7 +607,6 @@ function patientsDoc(
 				id: "patients",
 				name: options.menuName ?? "Patients",
 				caseType: "patient",
-				...(options.gridLayouts === true && { menuLayout: "grid" as const }),
 				caseListConfig: caseListOf([...columns, ...age]),
 				forms: [
 					{
@@ -651,6 +650,9 @@ function patientsDoc(
 			},
 		],
 	});
+	const patients = doc.modules[uuid("patients")];
+	if (options.gridLayouts === true && patients !== undefined)
+		patients.menuLayout = "grid";
 	/* A mapping saved on CommCare HQ's Case Management tab writes the answer
 	 * and opens the question on nothing: HQ holds no preload beside it. */
 	const weight = doc.fields[uuid("weight")];
