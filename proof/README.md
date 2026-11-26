@@ -1746,8 +1746,8 @@ declared), then maps the draw through
 planner, with no further random call, so a draw that runs on
 neither platform only because of a date-and-time question
 (`fuzz-suite-20260930-8`) declares Web Apps with each such question split.
-The edit kind `setConnectType` narrows the app to Android in the batch that
-turns Connect on, as the builder commits it.
+The edit kind `setConnectRoles` narrows the app to Android in the batch that
+gives it a Connect role, as the builder commits it.
 `proof/checks/test_corpus.py::test_the_corpus_holds_each_declaration_and_a_narrowing_edit`
 holds that some document declares each of both, Web Apps only and Android
 only, and some D′ declares fewer platforms than its D, so no branch of a
