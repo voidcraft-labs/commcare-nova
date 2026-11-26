@@ -90,14 +90,16 @@ def _assign(unit, first, second):
     return {str(row.id) for row in made}
 
 
-def _fixture_rows(root):
-    fixtures = [node for node in root.iter() if node.get("id") == "item-list:clinics"]
-    assert len(fixtures) <= 1, fixtures
-    return [] if not fixtures else list(fixtures[0].findall("./clinics_list/clinics"))
+def _fixture_rows(root, worker_id):
+    (fixture,) = [node for node in root.iter() if node.get("id") == "item-list:clinics"]
+    assert fixture.get("user_id") == worker_id, fixture.attrib
+    (table,) = fixture
+    assert table.tag == "clinics_list"
+    return list(table)
 
 
-def _restored_rows(restore, remote_ids):
-    rows = _fixture_rows(ElementTree.fromstring(restore))
+def _restored_rows(restore, remote_ids, worker_id):
+    rows = _fixture_rows(ElementTree.fromstring(restore), worker_id)
     for row in rows:
         assert set(row.attrib) == {"code"}, row.attrib
         assert all(field.tag == "name" and set(field.attrib) == {"lang"} for field in row)
@@ -326,11 +328,19 @@ def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
             evidence(case, run.screens)
             assert run.page_errors == []
             assert bridge.full, "Formplayer did not request a full HQ restore"
-            assert [_restored_rows(body, remote_ids) for body in bridge.full] == [list(expected)] * len(bridge.full)
+            assert [_restored_rows(body, remote_ids, worker.user_id) for body in bridge.full] == [
+                list(expected)
+            ] * len(bridge.full)
             menu, form = run.screens
             assert menu["menuLayout"] == "grid"
             (people,) = [command for command in menu["commands"] if command["text"] == "People"]
             assert paths[f"menu{caption}"].rsplit("/", 1)[-1] in (people["image"] or ""), people
+            if not expected:
+                assert not form.get("form"), form
+                error = run.answered("navigate_menu")[-1].json()
+                assert error["status"] == "error", error
+                assert "clinics" in error["exception"] and "lookup table" in error["exception"], error
+                continue
             (question,) = form["form"]["questions"]
             (image,) = [item["src"] for item in question["media"] if item["kind"] == "img"]
             assert paths[f"form{caption}"].rsplit("/", 1)[-1] in image
@@ -380,12 +390,11 @@ def test_android_grid_uses_each_workers_assigned_choices_and_installed_language_
                 and not exchange.get("unread")
                 for exchange in exchanges
             ), exchanges
-            walked = [
-                step
-                for name, walk in answer["walks"].items()
+            walks = {
+                name: walk for name, walk in answer["walks"].items()
                 if (f"@language:{language}" in name if language != "en" else "@language:" not in name)
-                for step in walk["steps"]
-            ]
+            }
+            walked = [step for walk in walks.values() for step in walk.get("steps", ())]
             rendered = [
                 item["image"]
                 for step in walked for item in (step.get("menu") or {}).get("items", ())
@@ -399,6 +408,11 @@ def test_android_grid_uses_each_workers_assigned_choices_and_installed_language_
                 screen for step in walked for screen in (step.get("form") or {}).get("screens", ())
                 if any(question["reference"] == "/data/clinic[1]" for question in screen["questions"])
             ]
+            if not expected:
+                evidence(case, walks)
+                report = json.dumps(walks)
+                assert not screens and "clinics" in report and "lookup table" in report, walks
+                continue
             evidence(case, screens)
             assert screens, answer["walks"].keys()
             for screen in screens:
