@@ -23,6 +23,11 @@ from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import instance_scheme
 
 ALIAS_ENTRY = "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns"
+# The tag ``types`` in any case: HQ's workbook reader spends the sheet ``types`` on its own list of tables
+# (``fixtures/upload/workbook.py::_FixtureWorkbook.get_types_sheet``), and a workbook holds no second sheet of that
+# name in another case, so Nova carries such a table through the JSON resources instead, and a reading holds it
+# as it holds any other tag.
+TYPES_ENTRY = "expressions-and-data/tag-types"
 DOTTED_ENTRY = "expressions-and-data/tag-or-field-name-holding-a-period"
 UNICODE_ENTRY = "expressions-and-data/tag-or-field-name-with-non-ascii-letters"
 FIELD_VALUES_ENTRY = "expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name"
@@ -34,7 +39,7 @@ CONTENT_KEYS = {
     ROW_ATTRIBUTES_ENTRY: "lookup-model:LookupTable.item_attributes",
     CELL_ABSENCE_ENTRY: "lookup-model:LookupTableRow.fields",
 }
-RESOURCE_ENTRIES = {ALIAS_ENTRY, DOTTED_ENTRY, UNICODE_ENTRY, *CONTENT_KEYS}
+RESOURCE_ENTRIES = {ALIAS_ENTRY, TYPES_ENTRY, DOTTED_ENTRY, UNICODE_ENTRY, *CONTENT_KEYS}
 ARTIFACT = "lookup-tables"
 
 
@@ -48,6 +53,8 @@ def resource_entries(manifest, table):
         or manifest.item(f"instance-scheme:{instance_scheme(tag.lower())}") is not None
     ):
         yield "lookup-model:LookupTable.tag", f"/{pointer_token(tag)}/tag", ALIAS_ENTRY
+    if tag.lower() == "types":
+        yield "lookup-model:LookupTable.tag", f"/{pointer_token(tag)}/tag", TYPES_ENTRY
     names = [(tag, "lookup-model:LookupTable.tag", "tag")]
     names.extend(
         (
@@ -97,7 +104,6 @@ def _held_definition(table):
     names = [field["field_name"] for field in fields]
     return (
         _hq_name(tag, 32)
-        and tag.lower() != "types"
         and not any(word in tag for word in ("casedb", "ledgerdb"))
         and table.get("is_global") is True
         and 0 < len(fields) <= 250

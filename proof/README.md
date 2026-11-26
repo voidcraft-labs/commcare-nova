@@ -2711,6 +2711,7 @@ block builders other bases import. Each base module’s docstring describes the 
 | `hq-media` | media in every place and shape the first publish reads, videos among them |
 | `hq-lookups` | a form that reads the lookup tables its project space holds |
 | `hq-lookup-data` | a table whose field holds a property and two values a row, whose rows hold an attribute, and whose third field one row holds, one holds no value of, one does not hold and one holds empty, read by two selects |
+| `hq-lookup-types` | a table tagged `types`, the sheet name CommCare HQ's workbook keeps for itself, read by a select and a hidden value beside an ordinary table |
 | `hq-lookup-aliases` | lookup choices whose table tags coincide with the form’s session and location instances, exercised together on both platforms |
 | `hq-places` | a form that reads the worker's place in its project space's organization |
 | `hq-connect-deliver` | a Connect deliver app, read as Android only, so its first publish turns Web Apps off |

@@ -5065,10 +5065,9 @@
 		"item": "`tag` `types`",
 		"surfaceKeys": ["lookup-model:LookupTable.tag"],
 		"valueClass": "types",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no workbook can carry it (Nova refuses it, `lib/export/boundaryFindings.ts::lookupHqReservedTagFindings`, and a reading raises this entry, `lib/deployment/reading/projectData/lookupTables.ts::lookupTableFindings`), though HQ's table editor accepts the tag; a direct publish carries a global table with no index under it through CommCare HQ's JSON resources (`lib/deployment/lookupJsonExecutor.ts`), held over a peer that answers as `fixtures/resources/v0_1.py` does (`lib/deployment/__tests__/lookupJsonExecutor.postgres.test.ts`), while the HQ app file, whose data is a workbook, still refuses it; HQ's own resources take those requests and serve the worker Nova's fixture of the rows (`proof/hq/test_lookup_json.py`); held while a reading still refuses an app whose project space holds the table, so it cannot be brought in",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table keeps its tag, and a reading holds a project space's table under it as any other (`lib/deployment/reading/projectData/lookupTables.ts::lookupTableFindings`, the base `hq-lookup-types`). CommCare HQ's workbook spends the sheet `types` on its own list of tables (`fixtures/upload/workbook.py::_FixtureWorkbook.get_types_sheet`), so no workbook carries the table: a direct publish puts a global table with no index under it through CommCare HQ's JSON resources (`lib/deployment/lookupJsonExecutor.ts`, chosen by `lib/export/boundaryFindings.ts::travelsAsJson`), whose requests HQ's own resources take and whose rows HQ serves the worker as Nova's fixture does (`proof/hq/test_lookup_json.py`); a table CommCare HQ manages in the project space a publish goes to is never written there; the HQ app file, whose data is a workbook, refuses it (`lib/export/boundaryFindings.ts::lookupHqReservedTagFindings`) and names the direct publish.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5080,7 +5079,7 @@
 			}
 		},
 		"emission": {
-			"cell": "none (referenced)",
+			"cell": "the table tag in the fixture source, and in CommCare HQ's JSON table resources on a direct publish",
 			"markers": []
 		},
 		"gates": []

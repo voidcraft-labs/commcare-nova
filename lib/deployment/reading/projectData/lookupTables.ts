@@ -230,7 +230,6 @@ export function managedLookupContentOf(
 
 const CAPS_ENTRY =
 	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";
-const TAG_TYPES_ENTRY = "expressions-and-data/tag-types";
 const RESERVED_WORD_ENTRY =
 	"expressions-and-data/tag-containing-casedb-or-ledgerdb";
 /** Project data preserves the HQ spelling even when a worker's XPath cannot
@@ -289,9 +288,6 @@ export function lookupTableFindings(
 		}
 	}
 
-	if (tag.toLowerCase() === TYPES_SHEET) {
-		findings.push(manifestFinding(TAG_TYPES_ENTRY, place, TYPES_SHEET));
-	}
 	if (isReservedInstanceTag(tag)) {
 		findings.push(manifestFinding(RESERVED_WORD_ENTRY, place, tag));
 	}

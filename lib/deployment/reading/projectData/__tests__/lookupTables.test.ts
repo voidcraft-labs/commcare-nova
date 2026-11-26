@@ -424,9 +424,9 @@ describe("lookupTableFindings", () => {
 	it("judges the tag", () => {
 		const tagged = (tag: string) =>
 			names(lookupTableFindings(plain({ table: { tag } })));
-		expect(tagged("Types")).toEqual([
-			["expressions-and-data/tag-types", "types"],
-		]);
+		// CommCare HQ's workbook spends the sheet name `types` on its own list,
+		// and Nova's direct publish carries such a table without a workbook.
+		expect(tagged("Types")).toEqual([]);
 		expect(tagged("my_casedb")).toEqual([
 			["expressions-and-data/tag-containing-casedb-or-ledgerdb", "my_casedb"],
 		]);
@@ -488,11 +488,10 @@ describe("lookupTableFindings", () => {
 			plain({ table: { tag: "Types" }, rows }),
 		);
 		expect(names(findings)).toEqual([
-			["expressions-and-data/tag-types", "types"],
 			["table-cell-unrepresentable", "Types (the field code)"],
 			["table-cell-unrepresentable", "Types (the field name)"],
 		]);
-		expect(findings[1]).toMatchObject({ standing: "fix-in-hq", subject: null });
+		expect(findings[0]).toMatchObject({ standing: "fix-in-hq", subject: null });
 	});
 
 	it("finds a table with no field, which a field added in CommCare HQ settles, with or without rows", () => {

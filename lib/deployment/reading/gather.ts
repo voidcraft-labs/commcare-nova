@@ -35,6 +35,7 @@ import {
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
 import { lookupXformInstanceId } from "@/lib/commcare/lookup/naming";
+import { TYPES_SHEET } from "@/lib/commcare/lookup/workbook";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import {
 	type ReadDraft,
@@ -750,6 +751,9 @@ const SETTLED = {
 	unicodeName: "expressions-and-data/tag-or-field-name-with-non-ascii-letters",
 	aliasedTableTag:
 		"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+	/** A table under the tag `types` in any case, the one name CommCare HQ's workbook spends on its
+	 *  own list of tables, which a direct publish carries through the JSON resources. */
+	typesTableTag: "expressions-and-data/tag-types",
 	/** A field's properties and the several values a row holds of one field (`<name lang="en">`). */
 	fieldValues:
 		"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
@@ -990,6 +994,14 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 					LOOKUP_TABLES_ARTIFACT,
 					`${at}/tag`,
 					nameClass ?? SETTLED.tableTag,
+				),
+			);
+		if (tag.toLowerCase() === TYPES_SHEET)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/tag`,
+					SETTLED.typesTableTag,
 				),
 			);
 		for (const [index, field] of table.read.table.fields.entries()) {
