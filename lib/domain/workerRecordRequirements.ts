@@ -133,7 +133,9 @@ export function menusUsingWorkerRecord(doc: BlueprintDoc) {
 		const readsExpression = MODULE_REFERENCE_SLOTS.some(
 			(slot) =>
 				slot.kind === "expression" &&
-				readSlotValues(mod, slot.path).some(({ value }) => readsWorkerRecord(value)),
+				readSlotValues(mod, slot.path).some(({ value }) =>
+					readsWorkerRecord(value),
+				),
 		);
 		return readsColumn || readsExpression
 			? [{ uuid, name: mod.name.trim() || mod.id, reads: true, writes: false }]
