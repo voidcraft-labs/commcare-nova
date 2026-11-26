@@ -214,8 +214,8 @@ export function caseOperationWireOrderViolationDetails(
 	const repeatedAncestors = repeatedOperationScopeAncestors(doc, formUuid);
 	const createsByUuid = registrationOwnCreates(doc, formUuid, operations);
 	const repeatedAuthoredCreates: CaseOperation[] = [];
+	const earlierNonCreates: TargetedCaseOperation[] = [];
 	let furthestRank = -1;
-	let sawNonCreate = false;
 	const broken: CaseOperationWireOrderViolation[] = [];
 	for (const operation of targetedOperations(operations)) {
 		const rank = scopeRank.get(operation.forEach?.repeat);
@@ -232,57 +232,50 @@ export function caseOperationWireOrderViolationDetails(
 		// deterministic upsert identity and may already exist from an earlier
 		// submission; therefore its create cannot appear after a non-create block
 		// whose runtime id might resolve to that same case.
-		if (
-			operation.action === "create" &&
-			operation.target.kind === "new" &&
-			operation.target.idFrom !== undefined &&
-			sawNonCreate
-		) {
-			broken.push({
-				operationUuid: operation.uuid,
-				kind: "authored-create-after-noncreate",
-			});
-		}
-		if (operation.action !== "create") {
-			sawNonCreate = true;
-			if (operation.target.kind !== "new") {
-				for (const producer of repeatedAuthoredCreates) {
-					if (
-						!operationScopesShareRepeatedExecutionAncestor(
-							repeatedAncestors,
-							producer.forEach?.repeat,
-							operation.forEach?.repeat,
-						) ||
-						caseOperationTargetsProvablyDistinct(
-							{ kind: "op", opUuid: producer.uuid },
-							operation.target,
-							createsByUuid,
-						)
-					) {
-						continue;
-					}
-					// Core walks submitted repeat instances in iteration-major order,
-					// while HQ groups blocks by concrete case id and stable-sorts every
-					// create before non-create effects. Duplicate authored keys make
-					// C1,U1,C2,U2 one case and HQ turns that into C1,C2,U1,U2. If
-					// producer and consumer share any repeated execution ancestor,
-					// Nova cannot promise the two processors the same result.
-					broken.push({
-						operationUuid: operation.uuid,
-						kind: "repeated-authored-key-alias",
-						producerUuid: producer.uuid,
-					});
-				}
-			}
-		} else {
+		if (operation.action === "create") {
 			createsByUuid.set(operation.uuid, operation);
 			if (
-				operation.target.kind === "new" &&
-				operation.target.idFrom !== undefined &&
-				operation.forEach !== undefined
+				operation.target.kind !== "new" ||
+				operation.target.idFrom === undefined
+			)
+				continue;
+			if (
+				earlierNonCreates.some((earlier) =>
+					mayChangeCreatedCase(operation.uuid, earlier, createsByUuid),
+				)
 			) {
-				repeatedAuthoredCreates.push(operation);
+				broken.push({
+					operationUuid: operation.uuid,
+					kind: "authored-create-after-noncreate",
+				});
 			}
+			if (operation.forEach !== undefined)
+				repeatedAuthoredCreates.push(operation);
+			continue;
+		}
+		earlierNonCreates.push(operation);
+		for (const producer of repeatedAuthoredCreates) {
+			if (
+				!operationScopesShareRepeatedExecutionAncestor(
+					repeatedAncestors,
+					producer.forEach?.repeat,
+					operation.forEach?.repeat,
+				) ||
+				!mayChangeCreatedCase(producer.uuid, operation, createsByUuid)
+			) {
+				continue;
+			}
+			// Core walks submitted repeat instances in iteration-major order,
+			// while HQ groups blocks by concrete case id and stable-sorts every
+			// create before non-create effects. Duplicate authored keys make
+			// C1,U1,C2,U2 one case and HQ turns that into C1,C2,U1,U2. If
+			// producer and consumer share any repeated execution ancestor,
+			// Nova cannot promise the two processors the same result.
+			broken.push({
+				operationUuid: operation.uuid,
+				kind: "repeated-authored-key-alias",
+				producerUuid: producer.uuid,
+			});
 		}
 	}
 	return [
@@ -293,6 +286,25 @@ export function caseOperationWireOrderViolationDetails(
 			]),
 		).values(),
 	];
+}
+
+/** A write through an index changes the reached case in its own block.
+ * Proving the operation's direct target distinct says nothing about that block.
+ */
+function mayChangeCreatedCase(
+	createUuid: Uuid,
+	operation: TargetedCaseOperation,
+	creates: ReadonlyMap<Uuid, CaseOperation>,
+): boolean {
+	return (
+		operation.target.kind !== "new" &&
+		((operation.writes ?? []).some((write) => (write.via?.length ?? 0) > 0) ||
+			!caseOperationTargetsProvablyDistinct(
+				{ kind: "op", opUuid: createUuid },
+				operation.target,
+				creates,
+			))
+	);
 }
 
 /** Repeat scopes whose runtime iterations enclose each operation scope,
@@ -1013,10 +1025,11 @@ function authoredCreateCannotEqualExpression(
 	if (
 		target.expr.kind === "term" &&
 		target.expr.term.kind === "field" &&
-		target.expr.term.uuid === operation.target.idFrom
+		target.expr.term.uuid === operation.target.idFrom &&
+		operation.forEach === undefined
 	) {
-		// The field is the raw key; a nonempty fixed prefix makes equality with
-		// the derived id impossible.
+		// A root key reads the same answer everywhere. A repeated key does
+		// not: a different row can contain the full prefixed id.
 		return true;
 	}
 	const literal = staticExpressionCaseId(target);

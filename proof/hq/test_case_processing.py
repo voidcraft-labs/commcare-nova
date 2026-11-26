@@ -28,6 +28,8 @@ owner as it was.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
@@ -128,3 +130,31 @@ def test_an_owner_id_in_an_update_block_moves_the_case_to_the_new_owner(hq, core
     # Read as the case's owner, not as a property the case carries beside it.
     assert "owner_id" not in updated.case.case_json
     assert updated.case.case_json["visits"] == "2"
+
+
+def test_hq_create_first_changes_an_existing_alias_and_keeps_independent_effects(hq, core_runner):
+    """Read the same two rows as Core's case-operation proof, including the cases it already holds."""
+    prefix = "nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:"
+    conflict, commuting, distinct = prefix + "conflict", prefix + "commuting", "distinct-existing"
+    fresh = prefix + "fresh"
+    submission = Path(__file__).resolve().parents[1] / "native/core/resources/case-order/update-before-create.xml"
+    with hq_check(CONFIGURATION) as (state, _):
+        opened = operations.process_case_blocks(
+            state, _submission(*(_person(case_id) for case_id in [conflict, commuting, distinct]))
+        )
+        assert opened.refusal is None
+        result = operations.process_case_blocks(
+            state, submission.read_bytes(), cases=[meta.case for meta in opened.touched.values()]
+        )
+
+    assert result.refusal is None
+    assert [block["@case_id"] for block in result.case_blocks] == [
+        conflict, commuting, distinct, conflict, commuting, fresh,
+    ]
+    assert {case_id: meta.case.name for case_id, meta in result.touched.items()} == {
+        conflict: "Updated first",
+        commuting: "Kept commuting",
+        distinct: "Different target",
+        fresh: "Fresh independent",
+    }
+    assert result.touched[commuting].case.case_json["visits"] == "2"

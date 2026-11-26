@@ -671,8 +671,40 @@ describe("case-operation activation and identity", () => {
 			}),
 		]);
 
-		// The raw key cannot equal Nova's namespaced derived case id, so a
-		// same-repeat operation targeting that raw answer is order-independent.
+		// Another row's raw key can equal the prefixed id of this row.
+		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
+			create({
+				forEach: { repeat: REPEAT_A },
+				target: { kind: "new", idFrom: REPEAT_A_TEXT },
+			}),
+			update({
+				caseType: "visit",
+				target: {
+					kind: "expression",
+					expr: term(formField(REPEAT_A_TEXT)),
+				},
+				forEach: { repeat: REPEAT_A },
+			}),
+		]);
+	});
+});
+
+describe("distinct targets of keyed creates", () => {
+	it("keeps a later keyed create after an update of a disjoint literal or its own root key", () => {
+		for (const expr of [
+			term(literal("existing-visit")),
+			term(formField(TEXT)),
+		]) {
+			expect(
+				codesFor([
+					update({ caseType: "visit", target: { kind: "expression", expr } }),
+					create({ target: { kind: "new", idFrom: TEXT } }),
+				]),
+			).toEqual([]);
+		}
+	});
+
+	it("keeps otherwise overlapping repeat effects on separate identities", () => {
 		expect(
 			codesFor([
 				create({
@@ -681,15 +713,14 @@ describe("case-operation activation and identity", () => {
 				}),
 				update({
 					caseType: "visit",
-					target: {
-						kind: "expression",
-						expr: term(formField(REPEAT_A_TEXT)),
-					},
+					target: { kind: "expression", expr: term(literal("existing-visit")) },
 					forEach: { repeat: REPEAT_A },
 				}),
 			]),
 		).toEqual([]);
+	});
 
+	it("distinguishes sibling repeat sequences from interleaved nested repeat effects", () => {
 		const siblingScopes = fixture();
 		siblingScopes.doc.forms[siblingScopes.formUuid].caseOperations = [
 			...ownArms(siblingScopes.doc.forms[siblingScopes.formUuid]),

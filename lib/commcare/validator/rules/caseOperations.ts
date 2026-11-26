@@ -349,7 +349,7 @@ export function validateCaseOperations(
 					message = `Case operation "${operation.id}" crosses back to an earlier multiplicity scope, so CommCare's document-order executor cannot preserve the declared operation order.`;
 					break;
 				case "authored-create-after-noncreate":
-					message = `Authored-key create operation "${operation.id}" follows a non-create effect. A retry can address an existing case, and HQ's per-case create sort would no longer match CommCare Core's document order.`;
+					message = `Authored-key create operation "${operation.id}" follows an effect that may change the same case. HQ applies the create first, while the device follows the submitted form order.`;
 					break;
 				case "repeated-authored-key-alias": {
 					const producer = operations.find(
