@@ -314,13 +314,20 @@ export function applyFormMutation(
 							...current,
 							action: semantic.targetAction,
 						} as Record<string, unknown>;
-						applyPatch(prospective, semantic.patch as Record<string, unknown>);
+						const patch = semantic.patch as Record<string, unknown>;
+						applyPatch(prospective, patch);
 						// Saving a name or owner only when changed means nothing once
-						// the operation stops saving that name or owner.
+						// the patch stops saving that name or owner. A flag the patch
+						// itself sets stays for the gate to judge.
 						for (const [flag, facet] of Object.entries(
 							CASE_FACET_OF_ONLY_IF_CHANGED,
 						))
-							if (prospective[facet] === undefined) delete prospective[flag];
+							if (
+								Object.hasOwn(patch, facet) &&
+								(patch[facet] === null || patch[facet] === undefined) &&
+								patch[flag] !== true
+							)
+								delete prospective[flag];
 						const parsed = caseOperationSchema.safeParse(prospective);
 						if (!parsed.success) {
 							console.warn(

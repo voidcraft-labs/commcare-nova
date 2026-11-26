@@ -17,21 +17,28 @@
  * never blank, or through Save to Case; the export writing `always`; the
  * tools dropping the flag, so an edit by chat clears what a person set.
  */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import {
 	caseOperationInputSchema,
 	ownOperationInputSchema,
 	resolveCaseOperationInput,
 	resolveOwnCaseOperationInput,
 } from "@/lib/agent/tools/case-operations/shared";
+import { updateCaseOperationTool } from "@/lib/agent/tools/case-operations/updateCaseOperation";
+import { applyToDoc } from "@/lib/agent/tools/common";
 import {
 	childCreate,
 	OP,
+	OWN,
 	own,
 	placementFixture,
 	read,
 } from "@/lib/commcare/__tests__/placementFixture";
 import { expandDoc } from "@/lib/commcare/expander";
+import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc, OwnCaseOperation } from "@/lib/domain";
@@ -239,5 +246,60 @@ describe("the case change tools", () => {
 			},
 		])
 			expect(caseOperationInputSchema.safeParse(input).success).toBe(false);
+	});
+});
+
+/**
+ * An edit of an existing change through the update tool and the shared
+ * reducer: a flag the edit sets with no name or owner beside it reaches the
+ * gate, which refuses it as the add tool does, and a flag whose name or
+ * owner the edit clears goes with it.
+ */
+describe("an edit of an existing change", () => {
+	const fixture = () =>
+		placementFixture("followup", {
+			operations: () => [own({ name: read("name") })],
+		});
+
+	it("leaves a flag it sets with no owner to the gate, which refuses it", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(updateCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: OWN,
+			operation: {
+				action: "own",
+				name: read("name"),
+				ownerOnlyIfChanged: true,
+			},
+		});
+		expect(
+			z.object({ error: z.string() }).parse(result.result).error,
+		).toContain("saves its owner only when it changed, but it saves no owner.");
+		expect(h.recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("drops the flag of an owner it clears", () => {
+		const base = fixture();
+		const flagged = produce(base.doc, (draft) => {
+			const operation = draft.forms[base.formUuid]?.caseOperations?.[0];
+			if (operation?.action !== "own")
+				throw new Error("The form keeps its own case.");
+			operation.owner = read("name");
+			operation.ownerOnlyIfChanged = true;
+		});
+		expect(onlyIfChangedFindings(flagged)).toEqual([]);
+		const current = flagged.forms[base.formUuid]?.caseOperations?.[0];
+		if (current?.action !== "own")
+			throw new Error("The form keeps its own case.");
+		const { owner: _owner, ...cleared } = current;
+		const plan = planCaseOperationUpdate(flagged, base.formUuid, cleared);
+		if (!plan.ok) throw new Error(plan.reason);
+		const next = applyToDoc(flagged, plan.mutations);
+		const after = next.forms[base.formUuid]?.caseOperations?.[0];
+		expect(after).not.toHaveProperty("owner");
+		expect(after).not.toHaveProperty("ownerOnlyIfChanged");
+		expect(onlyIfChangedFindings(next)).toEqual([]);
 	});
 });
