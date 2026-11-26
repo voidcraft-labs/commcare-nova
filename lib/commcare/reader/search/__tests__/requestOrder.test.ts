@@ -313,6 +313,10 @@ it.each([
 		"'-date_opened:date,+priority::obsolete'",
 		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
 	],
+	...["date-opened", "external-id", "p".repeat(256)].map((key) => [
+		`'+${key}:exact:obsolete'`,
+		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+	]),
 	[
 		"'+priority:unknown:obsolete'",
 		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",

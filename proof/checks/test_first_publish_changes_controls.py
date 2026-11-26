@@ -967,6 +967,8 @@ def test_search_order_change_covers_original_filter_and_exact_built_and_sent_val
             "trace": [{"screen": "search", "params": params, "requests": [{"kind": "search", "params": params}]}],
         }
 
+    order_sites = changes.search_order_sites(app(before, "'north'"))
+    sites = changes.merged_sites(sites, order_sites)
     changed = source.compare_sources("hq-planted", app(before, "'north'"), app(after, "'south'"))
     assert len(changed) == 2
     assert [_held_by(document, item, sites) for item in changed] == [{change}, frozenset()]
@@ -1004,6 +1006,9 @@ def test_search_order_change_covers_original_filter_and_exact_built_and_sent_val
     ("++priority:exact:obsolete", "+priority:exact"),
     ("+priority:unknown:obsolete", "+priority:unknown"),
     ("+location_id:exact:obsolete", "+location_id:exact"),
+    ("+external-id:exact:obsolete", "+external-id:exact"),
+    ("+date-opened:exact:obsolete", "+date-opened:exact"),
+    ("+" + "p" * 256 + ":exact:obsolete", "+" + "p" * 256 + ":exact"),
     ("+status:exact:obsolete", "+status:exact"),
     ("+priority:exact:", "+priority:exact"),
     ("+priority:exact:obsolete:old", "+priority:exact"),
@@ -1015,6 +1020,54 @@ def test_unused_sort_suffix_does_not_cover_other_sort_changes(before, after):
     difference = Difference("proof3", "hq-planted", "trace@B", "/params/commcare_sort/*",
                             "/params/commcare_sort/0", "changed", before, after)
     assert not changes.search_order_unused_suffix_removed(difference)
+
+
+def test_next_publish_authorizes_only_the_reported_default_sort_row_and_its_wire_occurrence():
+    change = changes.SEARCH_ORDER_SUFFIX
+    expected = "/menu/0/search_config/default_properties/1/defaultValue"
+    registered = SimpleNamespace(
+        id="hq-planted", next_publish=(change,), search_order_suffix_places=(expected,),
+    )
+    missing = SimpleNamespace(id="hq-planted", next_publish=(change,), search_order_suffix_places=())
+    unsorted = {"property": "district", "defaultValue": "'north'"}
+    literal = {"property": "commcare_sort", "defaultValue": "'+priority:exact:obsolete'"}
+    raw = {"modules": [
+        {"search_config": {"default_properties": [unsorted, literal, literal]}},
+        {"search_config": {"default_properties": [literal]}},
+    ]}
+    sites = changes.merged_sites(changes.search_order_sites(raw), changes.Sites(
+        builds={("suite.xml", "remote-request[1]"): ("menu", "0"),
+                ("suite.xml", "remote-request[2]"): ("menu", "1")},
+        steps={(0, 0): ("menu", "0", "search_config"), (1, 0): ("menu", "1", "search_config")},
+    ))
+
+    def source_row(menu, index):
+        path = f"/modules/{menu}/search_config/default_properties/{index}/defaultValue"
+        return replace(_source(path), before="'+priority:exact:obsolete'", after="'+priority:exact'")
+
+    def suite_row(request, occurrence):
+        at = f"/suite/remote-request[{request}]/session[1]/query[1]/data[@key=commcare_sort][{occurrence}]/@ref"
+        path = "/suite/remote-request[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref"
+        return replace(_built("suite.xml", path, at), before="'+priority:exact:obsolete'", after="'+priority:exact'")
+
+    def trace_row(run, occurrence):
+        at = f"/runs/{run}/trace/0/requests/0/params/commcare_sort/{occurrence}"
+        path = "/runs/*/trace/*/requests/*/params/commcare_sort/*"
+        return replace(_trace(at, path), before="+priority:exact:obsolete", after="+priority:exact")
+
+    for reported, sibling, wrong_menu in [
+        (source_row(0, 1), source_row(0, 2), source_row(1, 0)),
+        (suite_row(1, 1), suite_row(1, 2), suite_row(2, 1)),
+        (trace_row(0, 0), trace_row(0, 1), trace_row(1, 0)),
+    ]:
+        declared, held = changes.declared(registered, reported.check, [reported, sibling, wrong_menu], sites=sites)
+        assert held == {change}
+        assert declared == [reported]
+        assert not _held_by(missing, reported, sites)
+
+    stale = replace(trace_row(0, 0), before="+priority:exact:stale")
+    assert not _held_by(registered, stale, sites)
+
 
 
 def test_a_menu_s_change_holds_no_other_menu_s_build_difference():

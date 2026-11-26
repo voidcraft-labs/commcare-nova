@@ -39,6 +39,9 @@ from pathlib import Path
 
 from lxml import etree
 
+from proof.checks.case_property_names import (
+    SERVER_SEARCH_DEVICE_ONLY_KEYS, SAVE_TO_CASE_RESERVED_UPDATE_KEYS, order_key_reserved,
+)
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
 from proof.observe.manifest import CSQL_HOLES, expression_tree, form_language_profiles
@@ -5047,21 +5050,6 @@ def native_filter_unbound_value(use, manifest):
     return False if parsed["instancePaths"] and screen else None
 
 
-# The keys of HQ's search index Nova reads as a record's own information
-# (``lib/commcare/suite/case-search/requestOrder.ts::SERVER_ORDER_RECORD_KEYS``), and the names Nova reserves for a case's own facts
-# or as CommCare HQ's reserved words (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``:
-# the SaveToCase set with the block's own action rows).
-SERVER_ORDER_RECORD_KEYS = frozenset(
-    {"@case_id", "@owner_id", "@case_type", "@status", "name", "case_name", "external_id", "date_opened", "last_modified"}
-)
-CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id"})
-# SQL keeps this value apart from case_json, so the Search index lacks it.
-SERVER_SEARCH_DEVICE_ONLY_KEYS = frozenset({"location_id"})
-
-
-def _order_key_reserved(key):
-    return key not in SERVER_ORDER_RECORD_KEYS and (key in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or key in CASE_OPERATION_OWN_ROWS)
-
 
 def _server_order_keys(use):
     """The keys of a literal or dedicated server order at the source site of a use."""
@@ -5087,7 +5075,7 @@ def _server_order_keys(use):
 def server_order_reserved_property(use, manifest):
     """An order of a stored property Nova reserves, apart from the indexed record's own attribute keys."""
     keys = _server_order_keys(use)
-    return None if keys is None else any(_order_key_reserved(key) for key in keys)
+    return None if keys is None else any(order_key_reserved(key) for key in keys)
 
 
 def server_order_device_only_property(use, manifest):
@@ -5095,7 +5083,7 @@ def server_order_device_only_property(use, manifest):
     keys = _server_order_keys(use)
     if keys is None:
         return None
-    return not any(_order_key_reserved(key) for key in keys) and bool(SERVER_SEARCH_DEVICE_ONLY_KEYS.intersection(keys))
+    return not any(order_key_reserved(key) for key in keys) and bool(SERVER_SEARCH_DEVICE_ONLY_KEYS.intersection(keys))
 
 
 def request_config_key_runtime_value(use, manifest):
@@ -8420,50 +8408,6 @@ def attachment_in_save_to_case(use, manifest):
     held = form.holder(element)
     return held is not None and held[0] == "save-to-case" and held[1] is not element
 
-
-# The names a SaveToCase block's ``update`` row may hold that Nova reserves for a case's own facts or as a word in
-# ``case-reserved-words.json`` (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``,
-# less the block's own rows ``case_type``, ``case_name`` and ``owner_id``); ``proof/ci/__tests__/manifestReaders.test.ts``
-# holds it to that set.
-SAVE_TO_CASE_RESERVED_UPDATE_KEYS = frozenset(
-    {
-        "actions",
-        "case_id",
-        "case_type_id",
-        "closed",
-        "closed_by",
-        "closed_on",
-        "commtrack",
-        "computed_",
-        "computed_modified_on_",
-        "create",
-        "date",
-        "date_modified",
-        "date_opened",
-        "doc_type",
-        "domain",
-        "index",
-        "indices",
-        "initial_processing_complete",
-        "last_modified",
-        "modified_by",
-        "modified_on",
-        "name",
-        "opened_by",
-        "opened_on",
-        "parent",
-        "referrals",
-        "server_modified_on",
-        "server_opened_on",
-        "status",
-        "type",
-        "user_id",
-        "userid",
-        "version",
-        "xform_id",
-        "xform_ids",
-    }
-)
 
 
 def reserved_save_to_case_key(use, manifest):

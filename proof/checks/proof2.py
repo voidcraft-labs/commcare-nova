@@ -312,6 +312,8 @@ def document_sites(document, records):
         observed = observations.republish_view(records, name)
         if observed.a is not None and observed.a.build is not None:
             found.append(build_sites(observed.a.build.files, observed.a.doc))
+            if changes.has_search_order_suffix(document):
+                found.append(changes.search_order_sites(observed.a.doc))
             found.extend(
                 build_sites(files, observed.a.doc, profile=profile)
                 for profile, files in observed.a.build.profile_files.items()

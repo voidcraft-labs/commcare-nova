@@ -1813,6 +1813,10 @@ def document_sites(document, records, differences=(), *, native_sites=None):
             continue
         processed = _processed(sessions["baseline"], records.blobs)
         found.append(trace_sites(baseline.trace, processed))
+        if changes.has_search_order_suffix(document):
+            source = observations.republish_view(records, name).a
+            if source is not None:
+                found.append(changes.search_order_sites(source.doc))
         for key, side in (("local", "local.ccz"), ("b", "B")):
             held = sessions.get(key)
             if not held or held.get("trace") is None:
