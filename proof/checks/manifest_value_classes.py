@@ -11291,8 +11291,59 @@ def conditioned_aliased_create_owner(use, manifest):
     )
 
 
+def guarded_owner_after_fresh_create(use):
+    """Both ordered owner leaves of the standalone fresh block, with its distinct text checks."""
+    form, bind, node = _bind(use)
+    if form is None or bind is None or node is None or isinstance(node, tuple):
+        return False
+    update = node.getparent()
+    if node.tag != f"{{{CASE}}}owner_id" or update is None or update.tag != f"{{{CASE}}}update":
+        return False
+    condition = bind.get("relevant")
+    if not condition or not bind.get("calculate"):
+        return False
+    case = update.getparent()
+    holder = case.getparent()
+    wrapper = holder.getparent()
+    if (
+        wrapper is None or wrapper.getparent() is not form.data_root or _local(wrapper) != "nova_operations"
+        or holder.get(f"{{{VELLUM}}}role") != "SaveToCase"
+        or holder.get(f"{{{VELLUM}}}case_type") in (None, "", USER_CASE_TYPE)
+        or [_local(action) for action in case] != ["create", "update"]
+        or next(iter(update), None) is not node
+        or update.find(f"{{{CASE}}}case_type") is not None
+        or form.in_repeat(form.paths[holder])
+    ):
+        return False
+    block_path = form.paths[holder]
+    initial = form.bind(f"{block_path}/case/create/owner_id")
+    if initial is None or not initial.get("calculate") or initial.get("relevant"):
+        return False
+    id_path = f"{block_path}/case/@case_id"
+    allocated = [step for step in form.model.findall(f"{{{XFORMS}}}setvalue") if step.get("ref") == id_path]
+    if form.bind(id_path) is not None or len(allocated) != 1:
+        return False
+    if allocated[0].get("event") != "xforms-ready" or expression_tree(allocated[0].get("value") or "") != ["call", "uuid", []]:
+        return False
+    name = _local(holder)
+    guard_id = f"{form.paths[wrapper]}/nova_guard_{name}_text/case/@case_id"
+    guard = form.bind(guard_id)
+    if guard is None:
+        return False
+    sibling = f"current()/../../../{name}/case"
+
+    def text_bound(path):
+        return f"string-length({path}) > 0 and string-length({path}) <= 255"
+
+    expected = (f"if((not({condition}) or {text_bound(sibling + '/update/owner_id')})"
+                f" and {text_bound(sibling + '/create/case_name')} and {text_bound(sibling + '/create/owner_id')},"
+                f" {sibling}/@case_id, '')")
+    expected_tree = expression_tree(expected)
+    return expected_tree is not None and expression_tree(guard.get("calculate") or "") == expected_tree
+
+
 def conditioned_unsupported_update_owner(use, manifest):
-    """An owner update inside a create, or a transfer of the worker's own record."""
+    """An owner update outside the proved guarded create, or a worker transfer."""
     form, bind, node = _bind(use)
     if form is None:
         return None
@@ -11309,6 +11360,7 @@ def conditioned_unsupported_update_owner(use, manifest):
         and (
             holder.get(f"{{{VELLUM}}}case_type") == USER_CASE_TYPE
             or case.find(f"{{{CASE}}}create") is not None
+            and not guarded_owner_after_fresh_create(use)
         )
     )
 

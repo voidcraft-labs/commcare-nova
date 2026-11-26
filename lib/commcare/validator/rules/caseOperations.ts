@@ -42,6 +42,7 @@ import {
 	type CaseOperationWrite,
 	type CaseTarget,
 	type CaseWriteVia,
+	canSetOwnerAfterCreate,
 	caseDataTypeForFieldKind,
 	caseOperationRunsPerSelectedCase,
 	caseSelectionCardinality,
@@ -829,6 +830,40 @@ function validateOperation(
 			operation,
 			operation.ownerCondition,
 			operationSlot(ctx, operation, "case_operation_owner_condition"),
+			errors,
+		);
+	}
+	if (operation.ownerAfterCreate !== undefined) {
+		if (
+			!canSetOwnerAfterCreate(
+				operation,
+				ctx.form.type,
+				ctx.form.caseOperations?.length === 1,
+			)
+		) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_OWNER_CONDITION_INVALID",
+					"Changing the owner after creation requires one fresh case created outside a repeat.",
+					{ reason: "standalone-fresh-create" },
+				),
+			);
+		}
+		validateTextExpression(
+			ctx,
+			operation,
+			operation.ownerAfterCreate.value,
+			"owner",
+			operationSlot(ctx, operation, "case_operation_later_owner"),
+			errors,
+		);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.ownerAfterCreate.condition,
+			operationSlot(ctx, operation, "case_operation_later_owner_condition"),
 			errors,
 		);
 	}
@@ -2058,6 +2093,8 @@ type OperationScalarSlot =
 	| "case_operation_owner"
 	| "case_operation_type_condition"
 	| "case_operation_owner_condition"
+	| "case_operation_later_owner"
+	| "case_operation_later_owner_condition"
 	| "case_operation_rename";
 function operationSlot(
 	ctx: OperationRuleContext,

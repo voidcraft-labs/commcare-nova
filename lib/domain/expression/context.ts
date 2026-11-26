@@ -1105,6 +1105,7 @@ export function slotContext(
 				slot.slot === "case_operation_condition" ||
 				slot.slot === "case_operation_close_condition" ||
 				slot.slot === "case_operation_owner_condition" ||
+				slot.slot === "case_operation_later_owner_condition" ||
 				slot.slot === "case_operation_type_condition" ||
 				slot.slot === "case_operation_write_condition";
 			const target =
@@ -1176,7 +1177,9 @@ export function slotContext(
 									.filter((candidate) => candidate.action === "create")
 									.map((candidate) => candidate.uuid),
 					),
-					ownerValues: slot.slot === "case_operation_owner",
+					ownerValues:
+						slot.slot === "case_operation_owner" ||
+						slot.slot === "case_operation_later_owner",
 					captureLinkWholeValue: slot.slot === "case_operation_write_value",
 				},
 			);

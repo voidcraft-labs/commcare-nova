@@ -171,6 +171,7 @@ export function formNeedsOpeningEvidence(
 	if (
 		operations.some(
 			(operation) =>
+				operation.ownerAfterCreate !== undefined ||
 				operation.writes?.some((write) => write.via) ||
 				operationSavesOnlyChanged(operation) ||
 				(operation.action !== "own" &&

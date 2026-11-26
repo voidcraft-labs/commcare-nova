@@ -1019,7 +1019,8 @@ function corePlan(
 								operation.typeChoice !== undefined)) ||
 						operation.closeAfter === true ||
 						operation.closeCondition !== undefined ||
-						operation.ownerCondition !== undefined,
+						operation.ownerCondition !== undefined ||
+						operation.ownerAfterCreate !== undefined,
 				)
 				.map((operation) => operation.uuid),
 		]),

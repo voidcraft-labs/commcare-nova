@@ -370,6 +370,9 @@ function describeUserPropertyReference(
 			case_operation_name: "case name calculation",
 			case_operation_owner: "case owner calculation",
 			case_operation_owner_condition: "case owner condition",
+			case_operation_later_owner: "owner after creation",
+			case_operation_later_owner_condition:
+				"condition to change the owner after creation",
 			case_operation_type_condition: "case type condition",
 			case_operation_write_value: "case property calculation",
 			case_operation_write_condition: "case property condition",

@@ -1228,6 +1228,8 @@ export function buildCaseOperations(
 				| "case_operation_owner"
 				| "case_operation_type_condition"
 				| "case_operation_owner_condition"
+				| "case_operation_later_owner"
+				| "case_operation_later_owner_condition"
 				| "case_operation_rename",
 		): FormExpressionSlotRef => ({
 			entity: "form",
@@ -1303,13 +1305,24 @@ export function buildCaseOperations(
 		});
 		const links = operation.links ?? [];
 		const requiredScalarTextPaths: FormPath[] = [];
-		let conditionalOwnerPath: FormPath | undefined;
+		let conditionalOwner:
+			| {
+					path: FormPath;
+					condition: Expression;
+					slot:
+						| "case_operation_owner_condition"
+						| "case_operation_later_owner_condition";
+			  }
+			| undefined;
 		const optionalScalarTextPaths: FormPath[] = [];
 		const updateChildren: Element[] = [];
 		if (rename !== undefined) updateChildren.push(el("case_name", {}));
 		if (operation.retype !== undefined)
 			updateChildren.push(el("case_type", {}));
-		if (!create && operation.owner !== undefined) {
+		if (
+			(!create && operation.owner !== undefined) ||
+			operation.ownerAfterCreate !== undefined
+		) {
 			updateChildren.push(el("owner_id", {}));
 		}
 		for (const write of writes) updateChildren.push(el(write.property, {}));
@@ -1335,6 +1348,7 @@ export function buildCaseOperations(
 			(!create && !closeOnly) ||
 			writes.length > 0 ||
 			rename !== undefined ||
+			operation.ownerAfterCreate !== undefined ||
 			operation.retype !== undefined;
 		// HQ's parser treats an empty <update/> as absent when the block also has a
 		// close/index action, so an empty node alone cannot normalize its server
@@ -1481,7 +1495,12 @@ export function buildCaseOperations(
 			const ownerPath = createPath.child("owner_id");
 			const ownerCondition = operation.ownerCondition;
 			if (ownerCondition === undefined) requiredScalarTextPaths.push(ownerPath);
-			else conditionalOwnerPath = ownerPath;
+			else
+				conditionalOwner = {
+					path: ownerPath,
+					condition: ownerCondition,
+					slot: "case_operation_owner_condition",
+				};
 			blockBinds.push(
 				xel(
 					"bind",
@@ -1551,12 +1570,24 @@ export function buildCaseOperations(
 					),
 				);
 			}
-			if (!create && operation.owner !== undefined) {
+			const later = operation.ownerAfterCreate;
+			const owner = create ? later?.value : operation.owner;
+			if (owner !== undefined) {
 				const ownerPath = updatePath.child("owner_id");
-				const ownerCondition = operation.ownerCondition;
+				const ownerCondition = create
+					? later?.condition
+					: operation.ownerCondition;
+				const slot = create
+					? "case_operation_later_owner_condition"
+					: "case_operation_owner_condition";
 				if (ownerCondition === undefined)
 					requiredScalarTextPaths.push(ownerPath);
-				else conditionalOwnerPath = ownerPath;
+				else
+					conditionalOwner = {
+						path: ownerPath,
+						condition: ownerCondition,
+						slot,
+					};
 				blockBinds.push(
 					xel(
 						"bind",
@@ -1567,14 +1598,18 @@ export function buildCaseOperations(
 									relevant: emitExpression(
 										ownerCondition,
 										ownerPath,
-										ownSlot("case_operation_owner_condition"),
+										ownSlot(slot),
 									),
 								}),
 								calculate: caseScalarTextValueCalculation(
 									emitExpression(
-										operation.owner,
+										owner,
 										ownerPath,
-										ownSlot("case_operation_owner"),
+										ownSlot(
+											create
+												? "case_operation_later_owner"
+												: "case_operation_owner",
+										),
 									),
 								),
 							},
@@ -1835,19 +1870,18 @@ export function buildCaseOperations(
 				// executor one normalized value; this check fails the submission
 				// before an invalid value can diverge.
 				check = w.and(
-					...(conditionalOwnerPath !== undefined &&
-					operation.ownerCondition !== undefined
+					...(conditionalOwner !== undefined
 						? [
 								w.or(
 									w.not(
 										emitExpression(
-											operation.ownerCondition,
+											conditionalOwner.condition,
 											idPath,
-											ownSlot("case_operation_owner_condition"),
+											ownSlot(conditionalOwner.slot),
 										),
 									),
 									caseScalarTextValueGuard(
-										originalContextWirePath(idPath, conditionalOwnerPath),
+										originalContextWirePath(idPath, conditionalOwner.path),
 										"reject",
 									),
 								),

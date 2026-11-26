@@ -941,6 +941,47 @@ it("keeps the owner condition on the create leaf of a fresh case", async () => {
 	]);
 });
 
+it("round-trips two independently placed owner effects on a fresh case", async () => {
+	const change = visitCreate({
+		owner: term(literal("team-01")),
+		ownerAfterCreate: { value: term(literal("team-02")), condition: onYes },
+		writes: [{ property: "outcome", value: answer }],
+	});
+	const doc = produce(app("survey", [change]), (draft) => {
+		delete draft.modules[draft.moduleOrder[0]].caseType;
+	});
+	expect(gateCodes(doc)).toEqual([]);
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	expect(outcome.draft.doc.forms[FORM].caseOperations).toEqual([
+		{
+			...change,
+			placement: { kind: "save-to-case", path: ["nova_operations", "mk"] },
+		},
+	]);
+	const retained = exportedBody(outcome.draft.doc);
+	expect(retained._attachments).toEqual(exportedBody(doc)._attachments);
+});
+
+it("refuses the later owner on aliased and competing case changes", () => {
+	const change = visitCreate({
+		owner: term(literal("team-01")),
+		ownerAfterCreate: { value: term(literal("team-02")), condition: onYes },
+	});
+	const alias = {
+		...change,
+		target: { kind: "new" as const, expr: term(literal("visit-01")) },
+	};
+	for (const changes of [[alias], [change, update({})]]) {
+		const doc = produce(app("survey", changes), (draft) => {
+			delete draft.modules[draft.moduleOrder[0]].caseType;
+		});
+		expect(gateCodes(doc)).toContain("CASE_OPERATION_OWNER_CONDITION_INVALID");
+	}
+});
+
 describe("a Save to Case create's calculated type", () => {
 	const doc = produce(app("survey", [visitCreate()]), (draft) => {
 		delete draft.modules[draft.moduleOrder[0]].caseType;

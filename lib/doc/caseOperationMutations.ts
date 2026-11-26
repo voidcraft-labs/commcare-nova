@@ -58,6 +58,7 @@ const OPERATION_PATCH_KEYS = [
 	"nameOnlyIfChanged",
 	"owner",
 	"ownerCondition",
+	"ownerAfterCreate",
 	"ownerOnlyIfChanged",
 	"rename",
 	"renameOnlyIfChanged",
@@ -168,6 +169,9 @@ function scalarOperationUpdate(
 					: {}),
 				...(!deepEqual(before.ownerCondition, after.ownerCondition)
 					? { ownerCondition: clearable(after.ownerCondition) }
+					: {}),
+				...(!deepEqual(before.ownerAfterCreate, after.ownerAfterCreate)
+					? { ownerAfterCreate: clearable(after.ownerAfterCreate) }
 					: {}),
 				...flagPatch("ownerOnlyIfChanged", before, after),
 				...(!deepEqual(before.closeAfter, after.closeAfter)

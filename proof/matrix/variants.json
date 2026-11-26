@@ -36227,6 +36227,47 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-fresh-create-with-later-owner",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-guarded-owner-after-fresh-create",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_fresh_create_with_later_owner"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerAfterCreate/condition/kind",
+				"value": "gt"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerAfterCreate/value/term/kind",
+				"value": "field"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/0/property",
+				"value": "head"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-update-owner-condition",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-targeted-update-owner-condition",

@@ -104,6 +104,7 @@ export async function submitAppTest(
 	// submission reads the journey server's held opening, not its live data.
 	const retainsOpening = form?.caseOperations?.some(
 		(operation) =>
+			operation.ownerAfterCreate !== undefined ||
 			(operation.action === "create" &&
 				operation.target.kind === "new" &&
 				operation.target.expr !== undefined) ||

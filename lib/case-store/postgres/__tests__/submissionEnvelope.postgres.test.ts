@@ -1755,6 +1755,68 @@ describe("ordered selected-case batches", () => {
 		});
 	});
 
+	it("keeps the initial owner and applies an optional later owner on the same fresh case", async () => {
+		const store = makeStore();
+		const create = envOp(
+			operation({
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: term(literal("New patient")),
+				owner: term(literal("team-1")),
+				ownerAfterCreate: {
+					value: term(formField(KEY_FIELD)),
+					condition: eq(formField(FLAG_FIELD), literal("transfer")),
+				},
+				writes: [{ property: "notes", value: term(formField(FLAG_FIELD)) }],
+			}),
+		);
+		const submitCreate = (
+			formFields: NonNullable<Parameters<typeof rootProgram>[1]>["formFields"],
+		) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram([create], { formFields, sessionCaseId: null }),
+			});
+
+		const kept = await submitCreate([[FLAG_FIELD, "keep"]]);
+		const keptId = kept.operations[0].caseId;
+		expect(kept.operations).toHaveLength(1);
+		expect(await patientRow(store, keptId)).toMatchObject({
+			owner_id: "team-1",
+			properties: { notes: "keep" },
+		});
+		await expect(
+			submitCreate([
+				[FLAG_FIELD, "transfer"],
+				[KEY_FIELD, ""],
+			]),
+		).rejects.toBeInstanceOf(SubmissionRejectedError);
+		const rowsAfterRefusal = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			includeHeld: true,
+		});
+		expect(rowsAfterRefusal.map((row) => row.case_id)).toEqual([keptId]);
+		expect(await patientRow(store, keptId)).toMatchObject({
+			owner_id: "team-1",
+			properties: { notes: "keep" },
+		});
+		const transferred = await submitCreate([
+			[FLAG_FIELD, "transfer"],
+			[KEY_FIELD, "team-2"],
+		]);
+		const transferredId = transferred.operations[0].caseId;
+		expect(transferred.operations).toHaveLength(1);
+		expect(transferredId).not.toBe(keptId);
+		expect(await patientRow(store, transferredId)).toMatchObject({
+			owner_id: "team-2",
+			properties: { notes: "transfer" },
+		});
+	});
+
 	it("applies authored case changes within a row and omits absent positions on replay", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);

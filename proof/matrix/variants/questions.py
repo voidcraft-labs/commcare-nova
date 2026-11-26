@@ -2104,6 +2104,34 @@ def save_to_case_create_with_conditioned_owner_update(authoring, app_id):
     )
 
 
+def save_to_case_fresh_create_with_later_owner(authoring, app_id):
+    """A fresh root create with a later guarded owner inside the same case block."""
+    condition = "/data/age &gt; 5"
+    owner = GUARD_OWNER.replace("/create/", "/update/")
+    existing_guard = (
+        f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+        f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255"
+    )
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-fresh-create-with-later-owner",
+        (STC_UPDATE, "<update><owner_id/><head/></update>", 1),
+        (
+            STC_HEAD_BIND,
+            f'<bind nodeset="{MAKE}/update/owner_id" calculate="replace(/data/full_name, {TRIM})"'
+            f' relevant="{condition}"/>' + STC_HEAD_BIND,
+            1,
+        ),
+        (
+            existing_guard,
+            f"(not({condition}) or string-length({owner}) &gt; 0 and string-length({owner}) &lt;= 255) and "
+            + existing_guard,
+            1,
+        ),
+    )
+
+
 def save_to_case_create_and_close(authoring, app_id):
     """A create that closes its new case only when the close condition holds."""
     _save_to_case(

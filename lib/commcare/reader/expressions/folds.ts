@@ -455,7 +455,10 @@ function isCaseOperationSlot(context: ExpressionContext): boolean {
 	return slotName(context).startsWith("case_operation_");
 }
 function isOwnerSlot(context: ExpressionContext): boolean {
-	return slotName(context) === "case_operation_owner";
+	return (
+		slotName(context) === "case_operation_owner" ||
+		slotName(context) === "case_operation_later_owner"
+	);
 }
 
 // ── The literal folds ────────────────────────────────────────────────

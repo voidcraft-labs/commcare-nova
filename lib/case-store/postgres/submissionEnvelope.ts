@@ -1138,6 +1138,7 @@ interface ResolvedInstance {
 	readonly preparedName?: string;
 	readonly preparedRename?: string;
 	readonly preparedOwner?: string;
+	readonly preparedLaterOwner?: string;
 	/** Executing writes only, in authored order, storage-converted
 	 * against the operation's RESULT type (retype destination when the
 	 * operation retypes — the wire applies writes and the type change in
@@ -1709,7 +1710,11 @@ async function resolveOperationProgram(
 	// not evaluate blank numeric answers or other unused expressions. These
 	// reads share the operation guards' pre-effect view under the app lock.
 	const leafGuardRequests: EvalRequest[] = [];
-	const leafGuardSlots: Array<{ instance: number; write?: number }> = [];
+	const leafGuardSlots: Array<{
+		instance: number;
+		write?: number;
+		laterOwner?: true;
+	}> = [];
 	for (const [index, instance] of instances.entries()) {
 		if (!executing[index]) continue;
 		const operation = instance.envelope.operation;
@@ -1721,6 +1726,16 @@ async function resolveOperationProgram(
 				operationUuid: operation.uuid,
 				operationId: operation.id,
 				slot: "owner condition",
+			});
+		}
+		if (operation.ownerAfterCreate !== undefined) {
+			leafGuardSlots.push({ instance: index, laterOwner: true });
+			leafGuardRequests.push({
+				instance: index,
+				predicate: operation.ownerAfterCreate.condition,
+				operationUuid: operation.uuid,
+				operationId: operation.id,
+				slot: "condition to change the owner after creation",
 			});
 		}
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
@@ -1745,9 +1760,14 @@ async function resolveOperationProgram(
 		leafGuardRequests,
 	);
 	const skippedOwners = new Set<number>();
+	const skippedLaterOwners = new Set<number>();
 	const skippedWrites = new Map<number, Set<number>>();
 	for (const [slotIndex, slot] of leafGuardSlots.entries()) {
 		if (leafGuardResults[slotIndex] === true) continue;
+		if (slot.laterOwner) {
+			skippedLaterOwners.add(slot.instance);
+			continue;
+		}
 		if (slot.write === undefined) {
 			skippedOwners.add(slot.instance);
 			continue;
@@ -1767,6 +1787,7 @@ async function resolveOperationProgram(
 			| "name"
 			| "rename"
 			| "owner"
+			| "laterOwner"
 			| "target"
 			| "close"
 			| "case type"
@@ -1817,6 +1838,14 @@ async function resolveOperationProgram(
 			request(index, "owner", { expression: operation.owner });
 		}
 		if (
+			operation.ownerAfterCreate !== undefined &&
+			!skippedLaterOwners.has(index)
+		) {
+			request(index, "laterOwner", {
+				expression: operation.ownerAfterCreate.value,
+			});
+		}
+		if (
 			operation.action !== "create" &&
 			operation.target.kind === "expression"
 		) {
@@ -1860,6 +1889,7 @@ async function resolveOperationProgram(
 			name?: unknown;
 			rename?: unknown;
 			owner?: unknown;
+			laterOwner?: unknown;
 			target?: unknown;
 			close?: unknown;
 			caseTypeChoice?: unknown;
@@ -1880,6 +1910,7 @@ async function resolveOperationProgram(
 		if (slot.kind === "name") bag.name = value;
 		else if (slot.kind === "rename") bag.rename = value;
 		else if (slot.kind === "owner") bag.owner = value;
+		else if (slot.kind === "laterOwner") bag.laterOwner = value;
 		else if (slot.kind === "target") bag.target = value;
 		else if (slot.kind === "close") bag.close = value;
 		else if (slot.kind === "case type") bag.caseTypeChoice = value;
@@ -1974,6 +2005,17 @@ async function resolveOperationProgram(
 			continue;
 		}
 		const bag = valuesByInstance.get(index);
+		if (
+			operation.ownerAfterCreate !== undefined &&
+			(allocations.get(index)?.identity !== "fresh" ||
+				program.entryCaseKeys?.has(operation.uuid) === true)
+		)
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "not-found-or-out-of-scope",
+			});
 		if (operation.action === "create" && operation.typeChoice !== undefined) {
 			const branch = bag?.caseTypeChoice;
 			if (
@@ -2391,6 +2433,10 @@ async function resolveOperationProgram(
 		) {
 			preparedOwner = prepareText("owner", evaluatedText(bag?.owner));
 		}
+		const preparedLaterOwner =
+			operation.ownerAfterCreate === undefined || skippedLaterOwners.has(index)
+				? undefined
+				: prepareText("owner", evaluatedText(bag?.laterOwner));
 		let preparedRename =
 			operation.rename === undefined ||
 			(instance.envelope.blankSavesNothing &&
@@ -2602,6 +2648,7 @@ async function resolveOperationProgram(
 			...(preparedName === undefined ? {} : { preparedName }),
 			...(preparedRename === undefined ? {} : { preparedRename }),
 			...(preparedOwner === undefined ? {} : { preparedOwner }),
+			...(preparedLaterOwner === undefined ? {} : { preparedLaterOwner }),
 			writes,
 			links,
 			viaWrites,
@@ -2863,6 +2910,14 @@ async function applyOperationEffects(
 				createdInEnvelope,
 				device,
 			);
+			if (entry.preparedLaterOwner !== undefined)
+				await setOwner(
+					trx,
+					host,
+					appId,
+					entry.caseId,
+					entry.preparedLaterOwner,
+				);
 		} else {
 			await applyMutationEffect(trx, host, appId, entry, operation, device);
 		}

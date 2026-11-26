@@ -1228,6 +1228,8 @@ export type FormExpressionSlotRef =
 				| "case_operation_owner"
 				| "case_operation_type_condition"
 				| "case_operation_owner_condition"
+				| "case_operation_later_owner"
+				| "case_operation_later_owner_condition"
 				| "case_operation_rename";
 			readonly member: { readonly operationUuid: Uuid };
 	  }

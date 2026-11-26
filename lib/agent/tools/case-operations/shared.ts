@@ -360,6 +360,15 @@ const createOperationInputSchema = z
 			.describe(
 				"Assign the chosen owner only when this condition holds. Otherwise use the submitting worker.",
 			),
+		ownerAfterCreate: z
+			.strictObject({
+				value: valueSchema,
+				condition: conditionSchema,
+			})
+			.optional()
+			.describe(
+				"An optional owner change when this condition holds, after a fresh case has been created with its initial owner.",
+			),
 		ownerOnlyIfChanged: ownerOnlyIfChangedInputSchema,
 		writes: z.array(writeInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
@@ -544,6 +553,9 @@ export function resolveCaseOperationInput(
 				...(input.owner !== undefined && { owner: input.owner }),
 				...(input.ownerCondition !== undefined && {
 					ownerCondition: input.ownerCondition,
+				}),
+				...(input.ownerAfterCreate !== undefined && {
+					ownerAfterCreate: input.ownerAfterCreate,
 				}),
 				...(input.ownerOnlyIfChanged !== undefined && {
 					ownerOnlyIfChanged: input.ownerOnlyIfChanged,

@@ -2468,6 +2468,7 @@ function operationFormFieldRefs(
 		for (const expression of [
 			operation.name,
 			operation.owner,
+			operation.ownerAfterCreate?.value,
 			operation.rename,
 			...(operation.target?.kind === "expression" ||
 			(operation.target?.kind === "new" && operation.target.expr !== undefined)
@@ -2487,6 +2488,7 @@ function operationFormFieldRefs(
 				? operation.typeChoice?.condition
 				: undefined,
 			operation.ownerCondition,
+			operation.ownerAfterCreate?.condition,
 			...(operation.writes ?? []).flatMap((write) =>
 				write.condition === undefined ? [] : [write.condition],
 			),

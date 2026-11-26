@@ -817,6 +817,10 @@ export interface ProposedBlock {
 	/** A close in the block: an operation's own close, or the own close's condition. */
 	readonly closes: boolean;
 	readonly ownerCondition?: { readonly text: string; readonly site: ClaimSite };
+	readonly ownerAfterCreate?: {
+		readonly owner: ProposedOwner;
+		readonly condition: { readonly text: string; readonly site: ClaimSite };
+	};
 	readonly closeCondition?: { readonly text: string; readonly site: ClaimSite };
 	readonly place: HqPlace;
 	/**
@@ -1775,6 +1779,7 @@ function readBlock(
 
 	// The name and the owner of a create.
 	let ownerCondition: ProposedBlock["ownerCondition"];
+	let ownerAfterCreate: ProposedBlock["ownerAfterCreate"];
 	let name: ProposedBlock["name"];
 	let owner: ProposedOwner | undefined;
 	if (creates) {
@@ -1915,10 +1920,38 @@ function readBlock(
 				continue;
 			}
 			if (property === "owner_id") {
+				if (creates && bind.attribs.relevant !== undefined) {
+					if (
+						target.kind !== "new" ||
+						target.idFrom !== undefined ||
+						target.authoredId !== undefined ||
+						block.repeat !== null ||
+						segments.join("/") !== "operations/block" ||
+						conditionWrapper !== undefined ||
+						ownerCondition !== undefined ||
+						form.form.type !== "survey"
+					)
+						return {
+							ok: false,
+							claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
+							at: { element: bind, attribute: "relevant" },
+						};
+					ownerAfterCreate = {
+						owner: readOwner(untrimmed(text).text, root, {
+							element: bind,
+							attribute: "calculate",
+						}),
+						condition: {
+							text: bind.attribs.relevant,
+							site: { element: bind, attribute: "relevant" },
+						},
+					};
+					continue;
+				}
 				if (bind.attribs.relevant !== undefined) {
 					if (sharedShape) ownerLed = true;
 					else {
-						if (creates || target.kind === "worker-record")
+						if (target.kind === "worker-record")
 							return {
 								ok: false,
 								claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
@@ -2176,7 +2209,15 @@ function readBlock(
 						),
 					);
 	} else sharedHolds = false;
-	if (ownerLed && !sharedHolds) {
+	if (
+		(ownerLed && !sharedHolds) ||
+		(ownerAfterCreate !== undefined &&
+			(closes ||
+				links.length > 0 ||
+				typeCalculation !== undefined ||
+				choiceType !== undefined ||
+				retype !== undefined))
+	) {
 		const ownerBind = bindAt("case/update/owner_id");
 		return {
 			ok: false,
@@ -2210,6 +2251,7 @@ function readBlock(
 			...(condition !== undefined && { condition }),
 			closes,
 			...(ownerCondition !== undefined && { ownerCondition }),
+			...(ownerAfterCreate !== undefined && { ownerAfterCreate }),
 			...(closeCondition !== undefined && { closeCondition }),
 			place,
 			...(sharedHolds && { shared: sharedRows }),
@@ -2814,6 +2856,7 @@ export function readSaveToCaseBlocks(
 		firstBlock.target.idFrom === undefined &&
 		firstBlock.target.authoredId === undefined &&
 		firstBlock.ownerCondition === undefined &&
+		firstBlock.ownerAfterCreate === undefined &&
 		firstBlock.typeCalculation === undefined &&
 		firstBlock.typeChoice === undefined &&
 		firstBlock.block.repeat === null &&
@@ -3162,6 +3205,9 @@ function claimAccepted(
 	for (const one of reading.proposals) {
 		if (one.name?.answer === undefined) note(one.name?.site);
 		if (one.owner?.kind === "text") note(one.owner.site);
+		if (one.ownerAfterCreate?.owner.kind === "text")
+			note(one.ownerAfterCreate.owner.site);
+		note(one.ownerAfterCreate?.condition.site);
 		if (one.rename?.answer === undefined) note(one.rename?.site);
 		note(one.condition?.site);
 		note(one.closeCondition?.site);
@@ -3570,6 +3616,8 @@ function caseSlot(
 		| "case_operation_owner"
 		| "case_operation_type_condition"
 		| "case_operation_owner_condition"
+		| "case_operation_later_owner"
+		| "case_operation_later_owner_condition"
 		| "case_operation_rename"
 		| "case_operation_condition"
 		| "case_operation_close_condition"
@@ -3660,6 +3708,26 @@ function registerTexts(
 				one.place,
 				RELEVANT,
 			);
+		if (one.ownerAfterCreate !== undefined) {
+			const { owner, condition } = one.ownerAfterCreate;
+			if (owner.kind === "text")
+				register(
+					`${op} owner after creation`,
+					caseSlot(form.uuid, "case_operation_later_owner", op),
+					owner.text,
+					owner.site,
+					one.place,
+					CALC,
+				);
+			register(
+				`${op} condition to change the owner after creation`,
+				caseSlot(form.uuid, "case_operation_later_owner_condition", op),
+				condition.text,
+				condition.site,
+				one.place,
+				RELEVANT,
+			);
+		}
 		// A registration's own case opens under the form's open condition.
 		if (one.condition !== undefined)
 			register(
@@ -3951,6 +4019,17 @@ function operationOf(
 			action: "create",
 			...(one.ownerCondition !== undefined && {
 				ownerCondition: placeholder("condition"),
+			}),
+			...(one.ownerAfterCreate !== undefined && {
+				ownerAfterCreate: {
+					value:
+						one.ownerAfterCreate.owner.kind === "unowned"
+							? unowned()
+							: one.ownerAfterCreate.owner.kind === "meta-user"
+								? actingUser()
+								: placeholder("value"),
+					condition: placeholder("condition"),
+				},
 			}),
 			caseType: one.caseType,
 			...(one.typeCalculation !== undefined && {
@@ -4669,24 +4748,25 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 	// A block a finding already stands at (a slot of it the expression stage
 	// could not hold, which the emitter then prints otherwise) is that one
 	// finding: the source's one cause.
+	const failedClaim = (one: ProposedBlock) =>
+		one.ownerAfterCreate !== undefined
+			? SAVE_TO_CASE_CLAIMS.updateOwnerCondition
+			: SAVE_TO_CASE_CLAIMS.outsideShape;
 	for (const one of failing) {
 		if (ctx.accounting.hasFindingAt(one.place)) continue;
-		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.outsideShape, one.place);
+		const claim = failedClaim(one);
+		ctx.accounting.finding(claim, one.place);
 		const xform = form.xform;
 		if (xform !== null)
 			for (const bind of laterBindsUnder(xform, one.block.path))
-				xform.cursor.refuseSubtree(
-					bind,
-					SAVE_TO_CASE_CLAIMS.outsideShape,
-					one.place,
-				);
+				xform.cursor.refuseSubtree(bind, claim, one.place);
 	}
 	const failed = [
 		...reading.failed,
 		...failing.map((one) => ({
 			block: one.block,
 			place: one.place,
-			claim: SAVE_TO_CASE_CLAIMS.outsideShape,
+			claim: failedClaim(one),
 		})),
 	];
 	// The own close, over the document the blocks settled on. One whose

@@ -73,6 +73,7 @@ from proof.checks.manifest_value_classes import (
     save_to_case_before_optional_own_update,
     save_to_case_retype_property_types,
     worker_record_save_to_case_shape,
+    guarded_owner_after_fresh_create,
     two_parent_links_text_prompt_key,
 )
 from proof.observe.manifest import expression_tree
@@ -82,6 +83,7 @@ ARTIFACT = "claims@A"
 ALLOWING = frozenset({"HELD", "TARGET-OWNED", "INERT"})
 HQ_BUILD_REASON = "not-hq-buildable"
 DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
+LATER_OWNER_ON_FRESH_CREATE = "questions/savetocase-guarded-owner-after-fresh-create"
 CONDITIONAL_WORKER_UPDATE = "questions/savetocase-update-case-id-xpath"
 REPEATED_WORKER_UPDATE = "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat"
 TWO_PARENT_LINKS_PROMPT = "case-search/prompt-key-matching-two-parent-links"
@@ -473,7 +475,7 @@ def _forms_variant_uses(found, held, entries):
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT,
         OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
-        CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE,
+        CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
     }.intersection(entries)
     if not wanted:
         return
@@ -481,6 +483,9 @@ def _forms_variant_uses(found, held, entries):
     places = {(use.artifact, use.where, use.key) for use in found.uses}
     for use in found.uses:
         at = use.at
+        if (LATER_OWNER_ON_FRESH_CREATE in wanted and use.key == "xform:model/bind@relevant"
+                and guarded_owner_after_fresh_create(use)):
+            yield Decided(use, manifest_usage.HELD, (by_id[LATER_OWNER_ON_FRESH_CREATE],))
         if (AUTOMATIC_MULTI in wanted and use.key == "schema:Detail.auto_select"
                 and _automatic_multiple_case_selection(use)):
             yield Decided(use, manifest_usage.HELD, (by_id[AUTOMATIC_MULTI],))

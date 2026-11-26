@@ -702,6 +702,20 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "case_operation_later_owner",
+		path: "caseOperations[].ownerAfterCreate.value",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_later_owner_condition",
+		path: "caseOperations[].ownerAfterCreate.condition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "case_operation_type_condition",
 		path: "caseOperations[].typeChoice.condition",
 		kind: "expression",
@@ -1537,6 +1551,8 @@ function expressionRefForEntry(
 		case "case_operation_owner":
 		case "case_operation_type_condition":
 		case "case_operation_owner_condition":
+		case "case_operation_later_owner":
+		case "case_operation_later_owner_condition":
 		case "case_operation_rename": {
 			const operation = form.caseOperations?.[indices[0] ?? -1];
 			return operation === undefined

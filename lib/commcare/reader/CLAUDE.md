@@ -973,6 +973,11 @@ A change that holds one removes its line.
   (`caseManagement/saveToCase.ts::readBlock`). CommCare keeps a name and an external id as the case's
   own value, and the gate holds a link only in a property of its own
   (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
+- **A fresh root Save to Case create with a later guarded owner** holds both owner leaves
+  in its one case block. The reader keeps the initial owner on creation and reads the
+  later owner and its condition separately. The generated scalar guard checks the later
+  value only when the condition holds. Aliased creates, worker transfers, and shapes
+  whose guard or scope does not print back keep their dedicated refusal.
 - **A Save to Case update of the worker's record in a repeat**: one finding at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
   (`caseManagement/saveToCase.ts::readBlock`). One root worker update may have its own condition.

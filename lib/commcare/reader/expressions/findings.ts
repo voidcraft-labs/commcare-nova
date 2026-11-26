@@ -1490,6 +1490,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/savetocase-owner-id-condition",
 		"xform:model/bind@relevant",
 	),
+	"savetocase-guarded-owner-after-fresh-create": take(
+		"questions/savetocase-guarded-owner-after-fresh-create",
+		"xform:model/bind@relevant",
+	),
 	"savetocase-targeted-update-owner-condition": take(
 		"questions/savetocase-targeted-update-owner-condition",
 		"xform:model/bind@relevant",
@@ -1863,6 +1867,14 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	),
 	case_operation_owner: fixed(
 		C["savetocase-owner"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
+	case_operation_later_owner: fixed(
+		C["savetocase-owner"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
+	case_operation_later_owner_condition: fixed(
+		C["savetocase-guarded-owner-after-fresh-create"].entry,
 		SAVE_TO_CASE_REFUSED,
 	),
 	case_operation_type_condition: fixed(

@@ -117,6 +117,8 @@ export function caseOperationDependencyUuids(
 		operation.rename,
 		operation.closeCondition,
 		operation.ownerCondition,
+		operation.ownerAfterCreate?.value,
+		operation.ownerAfterCreate?.condition,
 	]) {
 		if (expression !== undefined)
 			collectExpressionDependencies(expression, refs);

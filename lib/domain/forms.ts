@@ -609,6 +609,12 @@ const caseTypeCalculationSchema = z.strictObject({
 });
 export type CaseTypeCalculation = z.infer<typeof caseTypeCalculationSchema>;
 
+const ownerAfterCreateSchema = z.strictObject({
+	value: valueSchema,
+	condition: conditionSchema,
+});
+export type OwnerAfterCreate = z.infer<typeof ownerAfterCreateSchema>;
+
 const caseTypeChoiceSchema = z.strictObject({
 	condition: conditionSchema,
 	otherwise: z.string(),
@@ -627,6 +633,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		typeCalculation: caseTypeCalculationSchema.optional(),
 		typeChoice: caseTypeChoiceSchema.optional(),
 		ownerCondition: conditionSchema.optional(),
+		ownerAfterCreate: ownerAfterCreateSchema.optional(),
 		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
 		name: valueSchema,
@@ -672,6 +679,32 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 
 /** A block which closes is a close operation unless it also carries
  * a facet that only an update can represent. Plain property writes fit both. */
+/** The ordinary fresh root create is the only case change whose block may
+ * set an initial owner and then change it under a separate condition. */
+export function canSetOwnerAfterCreate(
+	operation: CaseOperation,
+	formType: FormType,
+	singleOperation: boolean,
+): boolean {
+	return (
+		formType === "survey" &&
+		singleOperation &&
+		operation.action === "create" &&
+		operation.target.kind === "new" &&
+		operation.target.idFrom === undefined &&
+		operation.target.expr === undefined &&
+		operation.forEach === undefined &&
+		operation.condition === undefined &&
+		operation.closeAfter === undefined &&
+		operation.closeCondition === undefined &&
+		operation.typeCalculation === undefined &&
+		operation.typeChoice === undefined &&
+		operation.ownerCondition === undefined &&
+		operation.ownerOnlyIfChanged === undefined &&
+		(operation.links?.length ?? 0) === 0
+	);
+}
+
 export function hasUpdateOnlyCaseFacets(operation: {
 	readonly rename?: unknown;
 	readonly retype?: unknown;
@@ -752,6 +785,7 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	target?: undefined;
 	condition?: undefined;
 	ownerCondition?: undefined;
+	ownerAfterCreate?: undefined;
 	closeCondition?: undefined;
 	closeAfter?: undefined;
 	forEach?: undefined;
@@ -769,6 +803,7 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	target: CaseTarget;
 	condition?: Expression;
 	ownerCondition?: Expression;
+	ownerAfterCreate?: OwnerAfterCreate;
 	closeCondition?: Expression;
 	closeAfter?: true;
 	forEach?: { repeat: Uuid };

@@ -631,6 +631,7 @@ function collectFormSlotReferences(
 				case "case_operation_close_condition":
 				case "case_operation_type_condition":
 				case "case_operation_owner_condition":
+				case "case_operation_later_owner_condition":
 					out.push(
 						sameRef(
 							`${operationLabel} in ${where} has a condition using "${caseType}"`,
@@ -639,6 +640,7 @@ function collectFormSlotReferences(
 					break;
 				case "case_operation_name":
 				case "case_operation_owner":
+				case "case_operation_later_owner":
 				case "case_operation_rename":
 					out.push(
 						sameRef(

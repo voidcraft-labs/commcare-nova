@@ -4165,11 +4165,11 @@
 		"id": "questions/savetocase-update-owner-condition",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase owner update condition on a create, worker-record or unsupported shared-update block",
+		"item": "SaveToCase owner update condition outside a scoped update or a guarded fresh create",
 		"surfaceKeys": ["xform:model/bind@relevant"],
 		"valueClass": "update-owner-id-condition",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: These shapes require a separate owner effect or a matching scoped selection carrier.",
+		"dispositionCell": "**HELD-NEW**: A create with an incompatible owner guard or case shape, worker record transfer, or unsupported shared update has a distinct effect that this form change cannot preserve.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {
@@ -4184,6 +4184,32 @@
 		},
 		"emission": {
 			"cell": "`relevant` on the `update/owner_id` bind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-guarded-owner-after-fresh-create",
+		"area": "questions",
+		"section": "Question types",
+		"item": "SaveToCase condition on a later owner in the same block as a fresh root create",
+		"surfaceKeys": ["xform:model/bind@relevant"],
+		"valueClass": "guarded-owner-after-fresh-create",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A standalone fresh create retains its initial owner and changes it only when the later owner condition holds. Sibling properties save either way.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "Separate `create/owner_id` and guarded `update/owner_id` binds in the same case block",
 			"markers": []
 		},
 		"gates": []
