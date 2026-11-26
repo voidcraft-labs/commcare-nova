@@ -1216,7 +1216,7 @@ def test_hqs_builds_read_lookup_tables_from_hqs_restore(hq, core_runner, basic_a
     )
     values = [value["value"] for value in result["values"]]
     assert values == [str(len(rows)), *(row["values"][column["id"]] for row in rows)]
-    missing_table = f'FixtureInitializationException: Unable to find lookup table "jr://fixture/item-list:{tag}"'
+    missing_table = f"FixtureInitializationException: Unable to find lookup table: jr://fixture/item-list:{tag}"
     with pytest.raises(CoreRunnerError, match=re.escape(missing_table)):
         core_runner.evaluate(
             app=basic_app,
