@@ -272,10 +272,15 @@ def with_missing_media(holder, *, delete_file=True):
     return change
 
 
-def override_menu_badge(stored):
-    """The same generated badge key HQ reads beside the menu's own wording."""
-    assert stored["modules"][0]["custom_icons"][0]["text"]["en"] == "New"
-    stored.setdefault("translations", {}).setdefault("en", {})["modules.m0.badge"] = "Urgent"
+def override_navigation_badges(stored):
+    """HQ reads the generated badge wording beside each control's own text."""
+    menu = stored["modules"][0]
+    assert menu["custom_icons"][0]["text"]["en"] == "New"
+    assert menu["forms"][5]["custom_icons"][0]["text"]["en"] == "Équipe"
+    stored.setdefault("translations", {}).setdefault("en", {}).update({
+        "modules.m0.badge": "Urgent",
+        "forms.m0f5.badge": "Ready",
+    })
 
 
 def generated_menu_icon(holder, scenario):

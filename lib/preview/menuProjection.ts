@@ -482,9 +482,12 @@ export function previewEntryBadge(args: {
 	const text =
 		badge.kind === "text"
 			? ((args.localizedValues.get(
-					ref.entity === "module" && !args.authoring
-						? generatedWordingId(ref.uuid, "menuBadgeText")
-						: makeTranslationUnitId(ref.entity, ref.uuid, "badge"),
+					args.authoring
+						? makeTranslationUnitId(ref.entity, ref.uuid, "badge")
+						: generatedWordingId(
+								ref.uuid,
+								ref.entity === "module" ? "menuBadgeText" : "formBadgeText",
+							),
 				) as string | undefined) ?? badge.text)
 			: navigationBadgeValue({
 					...args,

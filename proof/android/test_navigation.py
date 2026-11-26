@@ -314,16 +314,21 @@ def test_menu_badges_are_read_and_shortened_on_the_installed_android_app(android
     ]
 
 
-def test_generated_menu_badge_is_used_in_the_android_release(android_documents, hq, android_walk_evidence):
-    from proof.formplayer.apps import override_menu_badge
+def test_generated_navigation_badges_are_used_in_the_android_release(android_documents, hq, android_walk_evidence):
+    from proof.formplayer.apps import override_navigation_badges
 
     walks = _navs(
-        android_documents["targeted-menu-badges"], "generated-menu-badge",
-        change=override_menu_badge, paths=[[]],
+        android_documents["targeted-menu-badges"], "generated-navigation-badges",
+        change=override_navigation_badges, paths=[[], ["m0"]],
     )
     android_walk_evidence(walks)
     menu = _steps(walks["path:"])[-1]["menu"]
     assert [(item["id"], item.get("badge")) for item in menu["items"]] == [("m0", "Urg.."), ("m1", None)]
+    forms = _steps(walks["path:m0"])[-1]["menu"]
+    assert [(item["id"], item.get("badge")) for item in forms["items"]] == [
+        ("m0-f0", None), ("m0-f1", ""), ("m0-f2", "999+"),
+        ("m0-f3", "999+"), ("m0-f4", "214.."), ("m0-f5", "Rea.."),
+    ]
 
 
 def test_a_worker_can_hold_a_grid_label_to_hear_it_and_choose_that_command(android_documents, hq):

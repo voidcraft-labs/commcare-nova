@@ -112,6 +112,29 @@ def translation_overrides_a_form_badge(authoring, app_id):
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Urgent"
 
 
+def translation_overrides_a_lookup_heading(authoring, app_id):
+    """Lookup Results uses a separate generated heading beside the configured label."""
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+    from proof.matrix.variants.menus_and_case_lists import fixed_text_callout_with_confidence
+
+    key = "case_lists.m0.callout.header"
+    fixed_text_callout_with_confidence(authoring, app_id)
+    with authoring.step("variant:plain-lookup-heading"):
+        app = operations.held_app(authoring.state, app_id)
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Confidence"
+        assert etree.fromstring(app.create_suite()).xpath(f"//header/text/locale[@id='{key}']")
+    translations = dict(app.translations)
+    translations["en"] = {**translations.get("en", {}), key: "Match score"}
+    ops.set_json(authoring, app_id, "/translations", translations)
+    with authoring.step("variant:overridden-lookup-heading"):
+        app = operations.held_app(authoring.state, app_id)
+        assert app.get_module(0).case_details.short.lookup_field_header["en"] == "Confidence"
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Match score"
+
+
 def every_form_deleted(authoring, app_id):
     """The first menu's case list offered as a menu item of its own (``case_list``, shown, labelled), and then each
     of its forms deleted through the form's own delete (``views/forms.py::delete_form``), which takes the form out
