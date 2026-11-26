@@ -185,6 +185,8 @@
 	"hq-connect-deliver": [
 		"hq-connect-deliver/auto-gps-capture-on",
 		"hq-connect-deliver/deliver-shared-receiver-key",
+		"hq-connect-deliver/deliver-under-capitalized-receiver-key",
+		"hq-connect-deliver/deliver-under-receiver-key",
 		"hq-connect-deliver/deliver-unit-and-task",
 		"hq-connect-deliver/deliver-work-area-fixed-id"
 	],
