@@ -13,6 +13,7 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { namedParentSearchDoc } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import { formExpressionEmission } from "@/lib/commcare/xform/formExpressions";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
@@ -519,6 +520,89 @@ describe("FormEngine", () => {
 		},
 	);
 
+	it.each([
+		[
+			"Android with formatted help and radio choices",
+			androidDevice(),
+			false,
+			false,
+		],
+		[
+			"Android with help and choices shown as typed",
+			androidDevice(),
+			true,
+			true,
+		],
+		["Web Apps", webAppsDevice(), true, false],
+	] as const)(
+		"reads the extended wording in %s",
+		async (_label, device, seesLong, asTyped) => {
+			const name = testUuid("form.name");
+			const choice = testUuid("extended-choice");
+			const extended = prose(
+				{ kind: "text", text: "For " },
+				{ kind: "field-ref", uuid: name },
+			);
+			const input = dTree([
+				{ id: "name", kind: "text" },
+				{
+					id: "question",
+					kind: "single_select",
+					hint: proseText("Short hint"),
+					extended_hint: extended,
+					help: proseText("Short help"),
+					...(asTyped && { plainHelp: true }),
+					extended_help: extended,
+					validate: "false()",
+					validate_msg: proseText("Short message"),
+					extended_validate_msg: extended,
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: choice,
+								value: "first",
+								label: proseText("Short choice"),
+								...(asTyped && { plainLabel: true }),
+								extended_text: extended,
+							},
+							{
+								uuid: testUuid("extended-neighbor"),
+								value: "second",
+								label: proseText("Other"),
+							},
+						],
+					},
+				},
+			]);
+			const engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					device,
+					stagedAsync: true,
+				},
+			);
+			const { evaluateAsync } = fixedWorldEvaluator(engine, device.platform);
+			await engine.initializeAsync(evaluateAsync);
+			await engine.setValueAsync("/data/question", "first", evaluateAsync);
+			for (const value of ["Ana", "Nia"]) {
+				await engine.setValueAsync("/data/name", value, evaluateAsync);
+				const state = engine.getState("/data/question");
+				expect(state.resolvedHint).toBe(`For ${value}`);
+				expect(state.errorMessage).toBe(`For ${value}`);
+				expect(state.resolvedHelp).toBe(seesLong ? `For ${value}` : undefined);
+				expect(state.resolvedOptionLabels?.[choice]).toBe(
+					seesLong ? `For ${value}` : undefined,
+				);
+			}
+		},
+	);
+
 	/* An answer is one request. Android runs what the answer reaches, once.
 	 * Formplayer loads the form session at the start of every request, and
 	 * Core runs every triggerable before the answer's own cascade
@@ -663,6 +747,39 @@ describe("FormEngine", () => {
 				{ searchAnswers: new Map([["patient_name", "Zzz"]]) },
 			);
 			expect(engine.getState("/data/name").value).toBe("Zzz");
+		});
+
+		it("a worker's child form reads each menu's answer to the same named prompt", () => {
+			const doc = namedParentSearchDoc();
+			const [child, parent] = doc.moduleOrder;
+			const form = buildEngineInput(doc, doc.formOrder[child][0], null);
+			if (form === undefined) throw new Error("Expected the child form");
+			for (const [family, member] of [
+				["North", "West"],
+				["South", "East"],
+			]) {
+				const engine = new FormEngine(
+					form,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{
+						searchAnswers: new Map([["first_name", member]]),
+						searches: [
+							{
+								menu: parent,
+								submission: family,
+								answers: [["first_name", family]],
+							},
+						],
+					},
+				);
+				expect(engine.getState("/data/question1").value).toBe(
+					`${family}/${member}`,
+				);
+			}
 		});
 
 		it("reads blank when the form opened with no search context", () => {

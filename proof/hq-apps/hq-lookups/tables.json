@@ -179,7 +179,7 @@
 			{
 				"name": "district",
 				"properties": [],
-				"is_indexed": false
+				"is_indexed": true
 			}
 		],
 		"item_attributes": [],

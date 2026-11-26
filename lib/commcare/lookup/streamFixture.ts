@@ -3,6 +3,11 @@ import { serializeXmlValue } from "../serializeXml";
 import { xmlTextIssue } from "../xmlText";
 import type { LookupTableWireNaming } from "./naming";
 import { type FixtureAtom, workerFixtureAtoms } from "./row";
+import {
+	LookupRuntimeValueLimit,
+	lookupRuntimeStringBytes,
+	MAX_LOOKUP_RUNTIME_STRING_BYTES,
+} from "./runtimeStrings";
 
 /** The producer scopes every slot to this exact row, table, delivery and
  * generation. Undefined means the stored inline value is authoritative. */
@@ -30,31 +35,41 @@ async function* atomBytes(
 	atom: FixtureAtom,
 	attribute: boolean,
 	read?: FixtureAtomBytes,
+	checkRuntime = false,
 ) {
+	let size = 0;
+	function encode(part: string) {
+		if (checkRuntime) {
+			size += lookupRuntimeStringBytes(part);
+			if (size > MAX_LOOKUP_RUNTIME_STRING_BYTES)
+				throw new LookupRuntimeValueLimit();
+		}
+		return escaped(part, attribute);
+	}
 	const bytes = read?.(atom);
 	if (!bytes) {
-		yield* escaped(atom.text, attribute);
+		yield* encode(atom.text);
 		return;
 	}
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	for await (const chunk of bytes) {
 		for (let offset = 0; offset < chunk.length; offset += 16384)
-			yield* escaped(
+			yield* encode(
 				decoder.decode(chunk.subarray(offset, offset + 16384), {
 					stream: true,
 				}),
-				attribute,
 			);
 	}
-	yield* escaped(decoder.decode(), attribute);
+	yield* encode(decoder.decode());
 }
 async function* tagAttributes(
 	attributes: Iterable<FixtureAtom & { name: string }>,
 	read?: FixtureAtomBytes,
+	checkRuntime = false,
 ) {
 	for (const item of attributes) {
 		yield encoder.encode(` ${item.name}="`);
-		yield* atomBytes(item, true, read);
+		yield* atomBytes(item, true, read, checkRuntime);
 		yield encoder.encode('"');
 	}
 }
@@ -65,20 +80,23 @@ export async function* streamWorkerFixtureRow(
 	table: LookupTableWireNaming,
 	row: LookupFixtureRow,
 	read?: FixtureAtomBytes,
+	onCell?: () => void,
+	checkRuntime = false,
 ): AsyncGenerator<Uint8Array> {
 	const root = workerFixtureAtoms(table, row);
 	yield encoder.encode(`<${root.name}`);
-	yield* tagAttributes(root.attributes, read);
+	yield* tagAttributes(root.attributes, read, checkRuntime);
 	let hasChild = false;
 	for (const child of root.children) {
+		onCell?.();
 		if (!hasChild) {
 			yield encoder.encode(">");
 			hasChild = true;
 		}
 		yield encoder.encode(`<${child.name}`);
-		yield* tagAttributes(child.attributes, read);
+		yield* tagAttributes(child.attributes, read, checkRuntime);
 		let hasText = false;
-		for await (const bytes of atomBytes(child, false, read)) {
+		for await (const bytes of atomBytes(child, false, read, checkRuntime)) {
 			if (!hasText) {
 				yield encoder.encode(">");
 				hasText = true;

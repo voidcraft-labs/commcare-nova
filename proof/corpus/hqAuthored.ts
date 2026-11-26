@@ -545,11 +545,20 @@ async function handEdit(
 	app: RetainedHqApp,
 	hand: string,
 	document: Pick<CorpusDocument, "id" | "doc" | "lookup">,
-): Promise<CorpusDocument["edit"]> {
+): Promise<
+	| {
+			readonly edit: NonNullable<CorpusDocument["edit"]>;
+			readonly editedImportFile?: true;
+	  }
+	| undefined
+> {
 	const path = join(hand, "edit.ts");
 	if (!existsSync(path)) return undefined;
 	const loaded: unknown = await import(pathToFileURL(path).href);
-	const edit = (loaded as { edit?: unknown }).edit;
+	const { edit, editedImportFile } = loaded as {
+		edit?: unknown;
+		editedImportFile?: unknown;
+	};
 	if (typeof edit !== "function")
 		throw new Error(
 			`${path} exports no edit function, so the corpus cannot read the edit the base ${app.id} states. It exports edit(doc), which returns the mutations of the edit.`,
@@ -582,8 +591,11 @@ async function handEdit(
 			`The commit kernel refused the edit the base ${app.id} states as an editor's save ("${refusal}"); an edit changes a held placement only by a move its own change needs. Look at ${path}.`,
 		);
 	return {
-		mutations: [...verdict.mutations],
-		nextDoc: storedDocument(verdict.nextDoc),
+		edit: {
+			mutations: [...verdict.mutations],
+			nextDoc: storedDocument(verdict.nextDoc),
+		},
+		...(editedImportFile === true && { editedImportFile: true }),
 	};
 }
 
@@ -638,6 +650,10 @@ export async function hqAuthoredDocument(
 		mediaPaths,
 		keyedCaseIds: reading.keyedCaseIds,
 		columnWords: reading.columnWords,
+		...(reading.projectSearches.length && {
+			projectSearches: reading.projectSearches,
+		}),
+		installationProfiles: reading.installationProfiles,
 		retained: app.directory,
 		hand,
 	};
@@ -653,13 +669,16 @@ export async function hqAuthoredDocument(
 		doc: storedDocument(reading.doc),
 		...(lookup !== undefined && { lookup }),
 	};
-	const edit = await handEdit(app, hand, document);
+	const handEditResult = await handEdit(app, hand, document);
 	return {
 		...document,
 		source: { kind: "hq-authored", base: app.id },
 		...(media.size > 0 && { media }),
-		hqAuthored,
-		...(edit !== undefined && { edit }),
+		hqAuthored: {
+			...hqAuthored,
+			...(handEditResult?.editedImportFile && { editedImportFile: true }),
+		},
+		...(handEditResult !== undefined && { edit: handEditResult.edit }),
 	};
 }
 

@@ -5,7 +5,8 @@
 2. Four global lookup tables made with HQ's own models
    (``fixtures/models.py::LookupTable``, ``LookupTableRow``), as HQ's
    table page saves them: ``districts`` and ``villages``, whose rows name a
-   district; ``crop-types``, a tag holding a hyphen; and ``seasons``.
+   district through its indexed ``district`` field; ``crop-types``, a tag
+   holding a hyphen; and ``seasons``.
 3. A survey menu "Farm survey" (``views/modules.py::new_module``) whose one
    form's source is written by HQ's own form writer
    (``xform_builder.py::XFormBuilder``) and uploaded on the form page: a
@@ -74,7 +75,12 @@ def make_tables(authoring, tables):
     ``build:tables``, as HQ's table page saves one: ``LookupTable`` with a ``TypeField`` a field and no property,
     then one ``LookupTableRow`` a row in order, each field holding one ``Field`` with no property
     (``fixtures/models.py``)."""
-    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, TypeField
+    from corehq.apps.fixtures.models import (
+        Field,
+        LookupTable,
+        LookupTableRow,
+        TypeField,
+    )
 
     state = authoring.state
     with authoring.step("build:tables", json.dumps(tables, sort_keys=True).encode()):
@@ -175,9 +181,22 @@ def survey_source(name):
 
 
 def build(authoring) -> str:
+    from corehq.apps.fixtures.models import LookupTable
+
     app_id = _pages.new_app(authoring)
     _pages.rename_app(authoring, app_id, NAME)
     make_tables(authoring, [dict(table, fields=list(table["fields"])) for table in TABLES])
+    # Changing the held field preserves the table and row identities.
+    with authoring.step("build:index-village-district", b"villages:district"):
+        villages = LookupTable.objects.get(domain=authoring.state.domain, tag="villages")
+        for field in villages.fields:
+            if field.name == "district":
+                field.is_indexed = True
+                break
+        else:
+            raise AssertionError("The villages table has no district field")
+        villages.save()
+
     _pages.new_survey_module(authoring, app_id, name=MENU)
     ops.upload_form_source(authoring, app_id, 0, 0, survey_source, "survey-source")
     return app_id

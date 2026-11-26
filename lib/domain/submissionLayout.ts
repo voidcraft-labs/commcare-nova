@@ -36,7 +36,9 @@ export interface SubmissionLayout {
 
 /** Kinds with no question on screen: their value stands where they stand on screen. */
 export function submitsWithoutQuestion(kind: FieldKind): boolean {
-	return kind === "hidden" || kind === "connect_activity";
+	return (
+		kind === "hidden" || kind === "connect_activity" || kind === "case_change"
+	);
 }
 
 const CONTAINER_KINDS: ReadonlySet<FieldKind> = new Set([

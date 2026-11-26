@@ -61,7 +61,7 @@ export interface ExactFoldArtifact {
 	readonly sha256: string;
 }
 
-async function importExactArtifact(artifact: ExactFoldArtifact) {
+export async function importExactArtifact(artifact: ExactFoldArtifact) {
 	const bytes = await readFile(artifact.path);
 	if (
 		!/^[0-9a-f]{64}$/.test(artifact.sha256) ||

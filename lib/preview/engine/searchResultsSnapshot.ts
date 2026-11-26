@@ -13,6 +13,7 @@
 import "server-only";
 import type { CaseStore } from "@/lib/case-store";
 import { CaseSearchUnavailableError } from "@/lib/case-store/searchRequest";
+import type { SearchResultInstance } from "@/lib/case-store/store";
 import { SEARCH_RESULTS_CAP } from "@/lib/commcare/session";
 import {
 	type readCases,
@@ -42,7 +43,7 @@ export async function readSearchResultsSnapshot(
 	readsHitScore = false,
 ): Promise<SearchResultsSnapshot> {
 	const { searchPopulation, ...base } = read;
-	const { rows, indices, primaryIds } = await store.readSearchResultInstance(
+	const instance = await store.readSearchResultInstance(
 		runningCaseSelectionQuery({
 			...base,
 			searchPopulation: {
@@ -59,6 +60,13 @@ export async function readSearchResultsSnapshot(
 			},
 		}),
 	);
+	return searchResultsSnapshotFromInstance(instance, readsHitScore);
+}
+
+export function searchResultsSnapshotFromInstance(
+	{ rows, indices, primaryIds }: SearchResultInstance,
+	readsHitScore = false,
+): SearchResultsSnapshot {
 	if (readsHitScore && primaryIds.length)
 		throw new CaseSearchUnavailableError({ kind: "hit-score-unavailable" });
 	const primary = new Set(primaryIds);

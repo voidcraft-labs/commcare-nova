@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data xmlns="http://example.com/proof/case-order" name="Case order">
+  <row>
+    <case xmlns="http://commcarehq.org/case/transaction/v2" case_id="nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:conflict" date_modified="2026-09-30T10:00:00Z" user_id="u-1">
+      <update><case_name>Updated first</case_name></update>
+    </case>
+    <case xmlns="http://commcarehq.org/case/transaction/v2" case_id="nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:commuting" date_modified="2026-09-30T10:00:00Z" user_id="u-1">
+      <update><visits>2</visits></update>
+    </case>
+    <case xmlns="http://commcarehq.org/case/transaction/v2" case_id="distinct-existing" date_modified="2026-09-30T10:00:00Z" user_id="u-1">
+      <update><case_name>Different target</case_name></update>
+    </case>
+  </row>
+  <row>
+    <case xmlns="http://commcarehq.org/case/transaction/v2" case_id="nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:conflict" date_modified="2026-09-30T10:00:00Z" user_id="u-1">
+      <create><case_type>person</case_type><case_name>Created last</case_name><owner_id>u-1</owner_id></create>
+    </case>
+    <case xmlns="http://commcarehq.org/case/transaction/v2" case_id="nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:commuting" date_modified="2026-09-30T10:00:00Z" user_id="u-1">
+      <create><case_type>person</case_type><case_name>Kept commuting</case_name><owner_id>u-1</owner_id></create>
+    </case>
+    <case xmlns="http://commcarehq.org/case/transaction/v2" case_id="nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:fresh" date_modified="2026-09-30T10:00:00Z" user_id="u-1">
+      <create><case_type>person</case_type><case_name>Fresh independent</case_name><owner_id>u-1</owner_id></create>
+    </case>
+  </row>
+  <meta xmlns="http://openrosa.org/jr/xforms">
+    <instanceID>form-order</instanceID><userID>u-1</userID>
+    <timeStart>2026-09-30T10:00:00Z</timeStart><timeEnd>2026-09-30T10:00:01Z</timeEnd>
+  </meta>
+</data>

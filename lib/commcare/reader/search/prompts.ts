@@ -12,25 +12,34 @@ import type {
 	BlueprintDoc,
 	LookupTableId,
 	SearchInputDef,
+	SearchInputGroup,
 	Uuid,
 } from "@/lib/domain";
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import type { RelationPath } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { sameLookupRead } from "@/lib/domain/lookupRead";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
+	isParentPathSearchProperty,
+	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+	type SearchAddressReceiver,
 	type SearchInputLookupOptions,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { SearchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
-import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
+import {
+	searchInputGroupLabelUnitId,
+	type TranslationUnitRole,
+} from "@/lib/domain/translationUnits";
 import {
 	circumstanceFinding,
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import { isProjectSearchParameter } from "../../hq/projectSearch";
 import {
 	bindLookupRead,
 	lookupReadNames,
@@ -95,6 +104,14 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}name-prompt-key-case-property`,
 		"schema:CaseSearchProperty.name",
 	),
+	parentName: take(
+		`${S}prompt-key-matching-a-direct-parent-property`,
+		"schema:CaseSearchProperty.name",
+	),
+	nestedParentName: take(
+		`${S}prompt-key-matching-two-parent-links`,
+		"schema:CaseSearchProperty.name",
+	),
 	nameOutside: refuse(
 		`${S}prompt-key-outside-nova-s-name-grammar`,
 		"schema:CaseSearchProperty.name",
@@ -121,6 +138,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	),
 	barcode: take(
 		`${S}appearance-barcode-scan`,
+		"schema:CaseSearchProperty.appearance",
+	),
+	addressPicker: take(
+		`${S}address-picker-on-a-search-screen`,
 		"schema:CaseSearchProperty.appearance",
 	),
 	address: refuse(
@@ -305,12 +326,28 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}allow-blank-value-on-a-prompt-named-owner-id`,
 		"schema:CaseSearchProperty.allow_blank_value",
 	),
+	addressReceiver: take(
+		`${S}address-picker-receiver-on-a-search-screen`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
+	addressReceiverDuplicate: refuse(
+		`${S}address-receiver-shared-with-a-choice-field`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
+	addressReceiverNoComponent: refuse(
+		`${S}address-receiver-matching-a-picker-without-a-component`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
 	receiver: refuse(
 		`${S}receiver-expression`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
 	receiverOther: refuse(
 		`${S}receiver-expression-on-a-prompt-whose-editor-appearance-is`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
+	receiverSingleChoice: refuse(
+		`${S}address-receiver-single-choice-lookup-position`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
 	blankReceiver: drop(
@@ -334,13 +371,22 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	 *  a check that shows CommCare's sentence (`readPrompt`). */
 	requiredNoMessage: take(NO_MESSAGE, "schema:Assertion.text"),
 	validationNoMessage: take(NO_MESSAGE, "schema:Assertion.text"),
-	group: refuse(`${S}is-group-group-key`, "schema:CaseSearchProperty.is_group"),
+	group: take(`${S}is-group-group-key`, "schema:CaseSearchProperty.is_group"),
+	groupName: take(`${S}is-group-group-key`, "schema:CaseSearchProperty.name"),
+	groupLabel: take(`${S}is-group-group-key`, "schema:CaseSearchProperty.label"),
+	groupLayout: refuse(
+		`${S}search-group-layout-unreadable`,
+		"schema:CaseSearchProperty.group_key",
+	),
+	groupHeading: refuse(
+		`${S}search-group-heading-unreadable`,
+		"schema:CaseSearchProperty.label",
+	),
 	groupMissing: refuse(
 		`${S}groups-present-and-an-input-without-group-key`,
 		"schema:CaseSearchProperty.group_key",
 	),
-	/** A member's `group_key` beside groups: the group's own finding (`readPrompt`). */
-	groupKey: refuse(
+	groupKey: take(
 		`${S}is-group-group-key`,
 		"schema:CaseSearchProperty.group_key",
 	),
@@ -459,6 +505,64 @@ const RECEIVER_REFUSED_APPEARANCES = new Set([
 	"checkbox",
 ]);
 
+function receiverSelector(source: unknown): RegExpExecArray | null {
+	return typeof source === "string"
+		? /^([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*)$/.exec(
+				source,
+			)
+		: null;
+}
+
+function addressPartsHeld(parts: readonly string[]): boolean {
+	return parts.every((part) =>
+		(SEARCH_ADDRESS_PARTS as readonly string[]).includes(part),
+	);
+}
+
+/** Web Apps updates every DOM field with the same receive selector together.
+ * Only a group of plain text receivers can share it safely. */
+function addressReceiverDuplicates(
+	prompts: readonly JsonCursor[],
+	sourceNames: ReadonlySet<string>,
+): ReadonlySet<JsonCursor> {
+	const selectors = new Map<
+		string,
+		{ prompts: JsonCursor[]; hasChoice: boolean }
+	>();
+	for (const prompt of prompts) {
+		if (prompt.peek("is_group") === true || prompt.peek("hidden") === true)
+			continue;
+		const wire = receiverSelector(prompt.peek("receiver_expression"));
+		if (
+			!wire ||
+			!sourceNames.has(wire[1]) ||
+			!addressPartsHeld(wire[2].split("||"))
+		)
+			continue;
+		const input = prompt.peek("input_");
+		const appearance = editorAppearance(prompt);
+		const itemset = prompt.peek("itemset");
+		const choice =
+			appearance === "lookup_table_fixture" &&
+			isJsonObject(itemset) &&
+			typeof itemset.nodeset === "string" &&
+			itemset.nodeset !== "";
+		if (!choice && (appearance !== "" || Boolean(input))) continue;
+		const previous = selectors.get(wire[0]);
+		if (previous === undefined)
+			selectors.set(wire[0], { prompts: [prompt], hasChoice: choice });
+		else {
+			previous.prompts.push(prompt);
+			previous.hasChoice ||= choice;
+		}
+	}
+	return new Set(
+		[...selectors.values()].flatMap(({ prompts, hasChoice }) =>
+			hasChoice && prompts.length > 1 ? prompts : [],
+		),
+	);
+}
+
 /** Whether a prompt carries a widget: an itemset, an input type, or an appearance that gives one
  *  (a barcode scan, an address); a blank input type is none, and any other appearance dresses no
  *  widget Nova holds, which the reading drops (`P.appearanceOther`, `readPrompt`). */
@@ -477,12 +581,127 @@ function carriesWidget(prompt: JsonCursor): boolean {
  * what the settle needs. A prompt that raised a finding is read as far as the finding leaves it
  * (`PromptReading.refused`); a group's own entry, which is no field, has no reading.
  */
+/** Read physical heading rows separately from the fields that send answers. */
+function readSearchGroups(
+	ctx: ReadContext,
+	module: DraftModule,
+	prompts: readonly JsonCursor[],
+	place: HqPlace,
+) {
+	const groups: SearchInputGroup[] = [];
+	const hasFields = prompts.some((row) => row.peek("is_group") !== true);
+	const memberships = new Map<JsonCursor, Uuid>();
+	const headingRefusals = new Map<JsonCursor, Finding>();
+	const keys = new Set<string>();
+	let refused = false;
+	for (const [index, row] of prompts.entries()) {
+		if (row.peek("is_group") !== true) continue;
+		const key = row.peek("group_key");
+		if (
+			typeof key !== "string" ||
+			!key ||
+			!hasFields ||
+			keys.has(key) ||
+			row.peek("name") !== key
+		) {
+			row.refuseWhole(P.groupLayout, { name: String(key ?? "") });
+			refused = true;
+			continue;
+		}
+		keys.add(key);
+		const members: JsonCursor[] = [];
+		for (let next = index + 1; next < prompts.length; next++) {
+			const member = prompts[next];
+			if (member.peek("is_group") === true) break;
+			if (member.peek("group_key") !== key) {
+				refused = true;
+				continue;
+			}
+			members.push(member);
+		}
+		const codes = appCodes(ctx);
+		const copy = promptText(
+			ctx,
+			row.peek("label"),
+			codes,
+			"search-input-group-label",
+		);
+		const label = sourceText(ctx, copy.texts);
+		if (copy.held === undefined || !label) {
+			const detail = { name: key };
+			row.refuseWhole(P.groupHeading, detail);
+			const finding = manifestFindingOf(P.groupHeading, place, detail);
+			for (const member of members) headingRefusals.set(member, finding);
+			refused = true;
+			continue;
+		}
+		const names = members.flatMap((member) => {
+			const name = member.peek("name");
+			return typeof name === "string" ? [name] : [];
+		});
+		const uuid = ctx.accounting.identity(
+			ctx.identities.claim(
+				externalKey.searchInputGroup(module.uniqueId, names, groups.length),
+				`${module.uniqueId}/search/groups/${index}`,
+			),
+			place,
+			"schema:CaseSearchProperty.group_key",
+		);
+		if (uuid === undefined) {
+			refused = true;
+			continue;
+		}
+		row.take("is_group", P.group, Boolean).value;
+		row.take("name", P.groupName, String).value;
+		row.take("group_key", P.groupKey, String).value;
+		row.take("label", P.groupLabel, languageMap).value;
+		ctx.translations.set(
+			searchInputGroupLabelUnitId(uuid),
+			"text",
+			translatedTexts(ctx, copy.texts),
+		);
+		groups.push({ uuid, label });
+		if (key !== `group_header_${index}`) {
+			for (const owningRow of [row, ...members])
+				sameState(
+					ctx,
+					P.groupKey.entry,
+					`${owningRow.pointer}/group_key`,
+					"list-settings-respelled",
+				);
+			sameState(
+				ctx,
+				P.groupName.entry,
+				`${row.pointer}/name`,
+				"list-settings-respelled",
+			);
+		}
+		for (const member of members) memberships.set(member, uuid);
+	}
+	const grouped = prompts.some(
+		(row) => row.peek("is_group") === true || row.used("group_key"),
+	);
+	return {
+		groups,
+		memberships,
+		headingRefusals,
+		refused:
+			refused ||
+			(grouped &&
+				prompts.some(
+					(row) => row.peek("is_group") !== true && !memberships.has(row),
+				)),
+		grouped,
+	};
+}
+
 export function readSearchPrompts(
 	ctx: ReadContext,
 	module: DraftModule,
 	config: JsonCursor,
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
-): readonly PromptReading[] {
+	projectService = false,
+) {
 	const place = searchPlace(module);
 	const prompts = config.list(
 		"properties",
@@ -490,9 +709,7 @@ export function readSearchPrompts(
 		P.order,
 		() => place,
 	);
-	const grouped = prompts.some(
-		(prompt) => prompt.peek("is_group") === true || prompt.used("group_key"),
-	);
+	const groupReading = readSearchGroups(ctx, module, prompts, place);
 	// Each of these texts is emitted into the same remote request. Exclude
 	// group headings and gated defaults, which need their own target facts.
 	const suiteSources = new Map<string, string>();
@@ -526,20 +743,168 @@ export function readSearchPrompts(
 				if (isJsonObject(rule)) scan(rule.test, false);
 		}
 	}
+	const sourceNames = new Set(
+		prompts
+			.filter((prompt) => canReadAddressPrompt(prompt, projectService))
+			.flatMap((prompt) => {
+				const name = prompt.peek("name");
+				return typeof name === "string" ? [name] : [];
+			}),
+	);
+	const receiverDuplicates = addressReceiverDuplicates(prompts, sourceNames);
+	const occupiedNames = new Set(
+		prompts.flatMap((prompt) => {
+			const name = prompt.peek("name");
+			return typeof name === "string" && SEARCH_INPUT_NAME_PATTERN.test(name)
+				? [name]
+				: [];
+		}),
+	);
+	const savedNames = new Map<string, string>();
+	for (const prompt of prompts) {
+		const binding = parentPathPromptBinding(prompt);
+		if (binding === undefined) continue;
+		const key = binding.key;
+		const uuid = ctx.input.resolver.uuidOf(
+			externalKey.searchInput(module.uniqueId, key),
+		);
+		const previous = ctx.input.knownParentPathSearchNames?.get(uuid);
+		if (previous !== undefined && !occupiedNames.has(previous)) {
+			savedNames.set(key, previous);
+			occupiedNames.add(previous);
+		}
+	}
 	const out: PromptReading[] = [];
 	for (const prompt of prompts) {
+		if (prompt.peek("is_group") === true) continue;
+		const headingRefusal = groupReading.headingRefusals.get(prompt);
+		if (headingRefusal !== undefined)
+			ctx.accounting.cover({ json: prompt, key: "group_key" }, headingRefusal);
 		const reading = readPrompt(
 			ctx,
 			module,
 			prompt,
 			place,
 			defaultFilterNames,
-			grouped,
+			groupReading.grouped && headingRefusal === undefined,
+			groupReading.memberships.get(prompt),
 			suiteSources,
+			projectService,
+			sourceNames,
+			receiverDuplicates.has(prompt),
+			occupiedNames,
+			savedNames,
 		);
 		if (reading !== undefined) out.push(reading);
 	}
-	return out;
+	const linkedPrompts = out.map((prompt): PromptReading => {
+		const input = prompt.input;
+		if (
+			input.kind === "address" ||
+			input.kind === "hidden" ||
+			input.addressReceiver?.kind !== "unsubscribed"
+		)
+			return prompt;
+		const configured = input.addressReceiver;
+		const source = out.find(
+			({ input }) =>
+				input.kind === "address" && input.name === configured.topic,
+		);
+		if (source === undefined) return prompt;
+		return {
+			...prompt,
+			input: {
+				...input,
+				addressReceiver: {
+					kind: "address",
+					source: source.uuid,
+					parts: configured.fields.split("||") as Array<
+						(typeof SEARCH_ADDRESS_PARTS)[number]
+					>,
+				},
+			},
+		};
+	});
+	return {
+		prompts: linkedPrompts,
+		groups: groupReading.groups,
+		groupRefused: groupReading.refused,
+	};
+}
+
+function canReadAddressPrompt(
+	prompt: JsonCursor,
+	projectService: boolean,
+): boolean {
+	const required = prompt.peek("required");
+	const validations = prompt.peek("validations");
+	const itemset = prompt.peek("itemset");
+	return (
+		!projectService &&
+		typeof prompt.peek("name") === "string" &&
+		/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(prompt.peek("name"))) &&
+		prompt.peek("is_group") !== true &&
+		prompt.peek("appearance") === "address" &&
+		!prompt.peek("input_") &&
+		!prompt.peek("default_value") &&
+		prompt.peek("hidden") !== true &&
+		prompt.peek("allow_blank_value") !== true &&
+		!prompt.peek("receiver_expression") &&
+		(!isJsonObject(required) || !required.test) &&
+		(!Array.isArray(validations) || validations.length === 0) &&
+		(!isJsonObject(itemset) || !itemset.nodeset)
+	);
+}
+
+/** A labeled text prompt carried by one or two native parent links. */
+function parentPathPromptBinding(prompt: JsonCursor):
+	| {
+			readonly key: string;
+			readonly property: string;
+			readonly via: Extract<RelationPath, { kind: "ancestor" }>;
+	  }
+	| undefined {
+	const key = prompt.peek("name");
+	if (typeof key !== "string") return undefined;
+	const parts = key.split("/");
+	const property = parts.pop();
+	if (
+		!property ||
+		(parts.length !== 1 && parts.length !== 2) ||
+		parts.some((part) => part !== "parent")
+	)
+		return undefined;
+	const parent = { identifier: "parent" };
+	const via: Extract<RelationPath, { kind: "ancestor" }> = {
+		kind: "ancestor",
+		via: parts.length === 2 ? [parent, { ...parent }] : [parent],
+	};
+	const required = prompt.peek("required");
+	const validations = prompt.peek("validations");
+	const itemset = prompt.peek("itemset");
+	return isParentPathSearchProperty(property) &&
+		prompt.peek("hidden") !== true &&
+		prompt.peek("exclude") !== true &&
+		prompt.peek("allow_blank_value") !== true &&
+		!prompt.peek("group_key") &&
+		!prompt.peek("input_") &&
+		!prompt.peek("appearance") &&
+		!prompt.peek("receiver_expression") &&
+		!prompt.peek("default_value") &&
+		(!isJsonObject(required) || !required.test) &&
+		(!Array.isArray(validations) || validations.length === 0) &&
+		(!isJsonObject(itemset) ||
+			Object.keys(itemset).every((key) => key === "doc_type"))
+		? { key, property, via }
+		: undefined;
+}
+
+function reserveParentPromptAlias(key: string, occupied: Set<string>): string {
+	const base = key.replaceAll("/", "_");
+	let name = base;
+	for (let suffix = 2; occupied.has(name); suffix++) name = `${base}_${suffix}`;
+	occupied.add(name);
+	return name;
 }
 
 function readPrompt(
@@ -549,22 +914,17 @@ function readPrompt(
 	place: HqPlace,
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
 	grouped: boolean,
+	group: Uuid | undefined,
 	suiteSources: ReadonlyMap<string, string>,
+	projectService: boolean,
+	addressSources: ReadonlySet<string>,
+	receiverDuplicate: boolean,
+	occupiedNames: Set<string>,
+	savedNames: ReadonlyMap<string, string>,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
 	const named = { name: name };
-	// A group's own entry is no field: HQ's build makes it a group of the search screen
-	// (`remote_requests.py::build_query_prompt_groups`), which Nova holds no slot for. It is one
-	// finding, naming the group's key, as each member's `group_key` names it, and covers every key
-	// the entry holds.
-	if (prompt.peek("is_group") === true) {
-		const groupKey = prompt.peek("group_key");
-		prompt.refuseWhole(P.group, {
-			name: typeof groupKey === "string" ? groupKey : name,
-		});
-		return undefined;
-	}
 	// Each refusal is the one finding for its cause, at the key that holds it, and the reading
 	// goes on: every other key of the prompt is read as it would be, or, where the refusal leaves
 	// nothing to read it into, stands under that finding (`cover`), so the close names none of
@@ -673,12 +1033,21 @@ function readPrompt(
 				texts: NO_ENTRIES,
 			};
 	const label = labelRead.texts;
+	const parentBinding =
+		!projectService && !grouped && sourceText(ctx, label).trim()
+			? parentPathPromptBinding(prompt)
+			: undefined;
 	const hintMap = hintRead.texts;
 	const requiredMap = requiredRead.texts;
 	// A key CommCare HQ reads as part of the request (a setting, a tag, an unsearched key, an
 	// owner, project space or reverse-index filter, CSQL) never searches the property it names.
-	if (isReservedSearchInputName(name)) refuseWith("name", P.nameReserved);
-	else if (!SEARCH_INPUT_NAME_PATTERN.test(name))
+	if (
+		projectService
+			? !isProjectSearchParameter(name)
+			: isReservedSearchInputName(name)
+	)
+		refuseWith("name", P.nameReserved);
+	else if (parentBinding === undefined && !SEARCH_INPUT_NAME_PATTERN.test(name))
 		refuseWith("name", P.nameOutside);
 	else if (defaultFilterNames.has(name)) {
 		refuseWith("name", P.nameShared);
@@ -687,23 +1056,50 @@ function readPrompt(
 		for (const pointer of defaultFilterNames.get(name) ?? [])
 			ctx.accounting.findingAt(P.nameShared, place, pointer, named);
 	}
-	// Beside a group, a member's `group_key` names its group, whose own entry's finding it is; a
-	// member with none is a finding of its own.
 	if (grouped) {
-		const groupKey = prompt.peek("group_key");
-		if (prompt.used("group_key"))
-			refuseWith("group_key", P.groupKey, prompt, {
-				name: String(groupKey),
-			});
+		if (group !== undefined) prompt.take("group_key", P.groupKey, String).value;
+		else if (prompt.used("group_key")) refuseWith("group_key", P.groupLayout);
 		else refuseWith("group_key", P.groupMissing);
 	}
-	if (holds("receiver_expression"))
-		refuseWith(
-			"receiver_expression",
-			RECEIVER_REFUSED_APPEARANCES.has(editorAppearance(prompt))
-				? P.receiverOther
-				: P.receiver,
-		);
+	const address = canReadAddressPrompt(prompt, projectService);
+	const inputType = editorAppearance(prompt);
+	const sourceReceiver = prompt.peek("receiver_expression");
+	let addressReceiver:
+		| Exclude<SearchAddressReceiver, { kind: "address" }>
+		| undefined;
+	if (holds("receiver_expression")) {
+		const wire = receiverSelector(sourceReceiver);
+		const parts = wire?.[2].split("||") ?? [];
+		const validSource = wire !== null && addressSources.has(wire[1]);
+		// A bare publisher name subscribes successfully in Web Apps, then
+		// the address message reaches a receiver with no component to split.
+		const bareTopic =
+			inputType === "" &&
+			!prompt.peek("input_") &&
+			typeof sourceReceiver === "string" &&
+			addressSources.has(sourceReceiver);
+		if (
+			RECEIVER_REFUSED_APPEARANCES.has(inputType) ||
+			prompt.peek("hidden") === true
+		)
+			refuseWith("receiver_expression", P.receiverOther);
+		else if (bareTopic)
+			refuseWith("receiver_expression", P.addressReceiverNoComponent);
+		else if (validSource && prompt.peek("input_") === "select1")
+			refuseWith("receiver_expression", P.receiverSingleChoice);
+		else if (wire === null || (validSource && !addressPartsHeld(parts)))
+			refuseWith("receiver_expression", P.receiver);
+		else if (receiverDuplicate)
+			refuseWith("receiver_expression", P.addressReceiverDuplicate);
+		else {
+			prompt.take("receiver_expression", P.addressReceiver, String).value;
+			addressReceiver = {
+				kind: "unsubscribed",
+				topic: wire[1],
+				fields: wire[2],
+			};
+		}
+	}
 	const hidden = prompt.peek("hidden") === true;
 	const exclude = prompt.peek("exclude") === true;
 	const checked = requires || prompt.used("validations");
@@ -722,7 +1118,7 @@ function readPrompt(
 	// is read as a Hidden Value, and each key whose meaning the refusal names (its checks, its
 	// widget, `exclude`) stands under the refusal's finding.
 	const widget = carriesWidget(prompt);
-	const hiddenArm = hidden && exclude && !widget;
+	const hiddenArm = hidden && (exclude || projectService) && !widget;
 	let hiddenRefused = false;
 	let addressRefused: Finding | undefined;
 	// Web Apps draws "Include results where … is blank" under a shown prompt whose
@@ -754,7 +1150,7 @@ function readPrompt(
 			],
 			refuseWith("hidden", P.hiddenChecked),
 		);
-	} else if (appearance === "address" && !inputOverAddress)
+	} else if (appearance === "address" && !inputOverAddress && !address)
 		addressRefused = refuseWith(
 			"appearance",
 			checked ? P.addressRequired : P.address,
@@ -1094,7 +1490,10 @@ function readPrompt(
 		)
 			cover(prompt, ["appearance"], widgetRefusal);
 		if (!refusedHere("appearance")) {
-			if (appearance === "barcode_scan" && type === "text") {
+			if (address) {
+				prompt.take("appearance", P.addressPicker, String).value;
+				type = "address";
+			} else if (appearance === "barcode_scan" && type === "text") {
 				prompt.take("appearance", P.barcode, String).value;
 				type = "barcode";
 			} else if (appearance === "address" && inputOverAddress) {
@@ -1113,7 +1512,10 @@ function readPrompt(
 			// as the simple field's property: a name Nova's property grammar refuses (`_x`,
 			// `date-opened`, `external-id`) names a property no document can hold.
 			if (
+				!projectService &&
 				!exclude &&
+				!address &&
+				parentBinding === undefined &&
 				!ATTRIBUTE_PROMPT_NAMES.has(name) &&
 				!authoredCasePropertyNameSchema.safeParse(name).success
 			)
@@ -1133,10 +1535,16 @@ function readPrompt(
 	if (!refusedHere("name")) {
 		prompt.take(
 			"name",
-			!exclude && ATTRIBUTE_PROMPT_NAMES.has(name) ? P.nameAttribute : P.name,
+			parentBinding !== undefined
+				? parentBinding.via.via.length === 2
+					? P.nestedParentName
+					: P.parentName
+				: !projectService && !exclude && ATTRIBUTE_PROMPT_NAMES.has(name)
+					? P.nameAttribute
+					: P.name,
 			String,
 		).value;
-		if (name === "owner_id" && exclude)
+		if (!projectService && name === "owner_id" && exclude)
 			ctx.accounting.claimEntry(
 				{ json: prompt, key: "name" },
 				P.ownerKey.entry,
@@ -1388,7 +1796,12 @@ function readPrompt(
 
 	const common = {
 		uuid,
-		name,
+		name:
+			parentBinding === undefined
+				? name
+				: (savedNames.get(name) ??
+					reserveParentPromptAlias(parentBinding.key, occupiedNames)),
+		...(group !== undefined && { group }),
 		label: sourceText(ctx, label),
 		...(hint !== "" && { hint }),
 		...(required !== undefined && {
@@ -1413,15 +1826,29 @@ function readPrompt(
 			uuid,
 			name,
 			label: common.label,
+			...(group !== undefined && { group }),
 			kind: "hidden",
+			...(projectService && !exclude && { sendAnswer: true as const }),
 			...(defaultIndex !== undefined && {
 				value: pendingPlaceholder("value"),
 			}),
+		};
+	else if (type === "address")
+		entry = {
+			kind: "address",
+			type,
+			uuid,
+			name,
+			label: common.label,
+			...(group !== undefined && { group }),
+			...(hint !== "" && { hint }),
+			...(exclude && { excludeFromRequest: true }),
 		};
 	else {
 		const widget = {
 			...common,
 			type,
+			...(addressReceiver !== undefined && { addressReceiver }),
 			...(options !== undefined && { options }),
 			...(defaultIndex !== undefined && {
 				default: pendingPlaceholder("value"),
@@ -1432,21 +1859,30 @@ function readPrompt(
 		// A refused field reads no property: it stands in the provisional document only so the
 		// expressions that read it bind.
 		entry = (
-			exclude || refused
-				? {
-						...widget,
-						kind: "advanced",
-						predicate: pendingPlaceholder("condition"),
-					}
-				: {
-						...widget,
-						kind: "simple",
-						property: name === "name" ? "case_name" : name,
-						...((ATTRIBUTE_PROMPT_NAMES.has(name) || type === "date") && {
-							matching: "project-space",
-						}),
-						...(type === "date-range" && { mode: { kind: "range" } }),
-					}
+			projectService
+				? { ...widget, kind: "parameter", sendAnswer: !exclude }
+				: exclude || refused
+					? {
+							...widget,
+							kind: "advanced",
+							predicate: pendingPlaceholder("condition"),
+						}
+					: {
+							...widget,
+							kind: "simple",
+							property:
+								parentBinding?.property ??
+								(name === "name" ? "case_name" : name),
+							...(parentBinding !== undefined && {
+								via: parentBinding.via,
+							}),
+							...((parentBinding !== undefined ||
+								ATTRIBUTE_PROMPT_NAMES.has(name) ||
+								type === "date") && {
+								matching: "project-space",
+							}),
+							...(type === "date-range" && { mode: { kind: "range" } }),
+						}
 		) as SearchInputDef;
 	}
 	return {

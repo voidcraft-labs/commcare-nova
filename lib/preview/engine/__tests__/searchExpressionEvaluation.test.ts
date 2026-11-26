@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import type { CaseRow } from "@/lib/case-store";
 import type { SearchInputDef } from "@/lib/domain";
 import { simpleSearchInputDef } from "@/lib/domain";
 import {
 	arith,
 	concat,
+	count,
 	dateAdd,
 	double,
 	eq,
+	gt,
 	input,
 	isBlank,
 	literal,
@@ -33,6 +36,7 @@ import {
 	resolveSearchInputDefaults as resolveDefaults,
 	sessionInstancePathValue,
 } from "../searchExpressionEvaluation";
+import { caseDatabaseRequirements } from "../useCaseDatabaseSnapshot";
 
 function searchEnvironment(
 	inputs: readonly SearchInputDef[],
@@ -116,6 +120,60 @@ function evaluatePreviewSearchPredicate(
 		values,
 	);
 }
+it("evaluates a Search button against the device cases before the worker types", () => {
+	const type = eq(
+		{ kind: "case-row-type" },
+		{ kind: "case-type", caseType: "patient" },
+	);
+	const condition = gt(
+		count({ kind: "cases", source: "casedb", where: [type] }),
+		literal(1),
+	);
+	const environment = searchEnvironment([], undefined, condition);
+	expect(caseDatabaseRequirements(environment.doc).required).toBe(true);
+	const ctx = slotContext(
+		environment.doc,
+		{
+			entity: "module",
+			uuid: environment.moduleUuid,
+			slot: "search_button_display_condition",
+		},
+		new Map(),
+	);
+	if (ctx === undefined)
+		throw new Error("The Search button has no evaluation context.");
+	const row = (case_id: string, case_type: string): CaseRow =>
+		({
+			app_id: "search-count",
+			case_id,
+			case_type,
+			status: "open",
+			owner_id: "worker-42",
+			case_name: case_id,
+			external_id: null,
+			opened_on: null,
+			closed_on: null,
+			modified_on: null,
+			parent_case_id: null,
+			properties: {},
+		}) as CaseRow;
+	const otherType = row("different", "visit");
+	const patient = row("first", "patient");
+	const actionVisible = (rows: CaseRow[]) =>
+		evaluatePredicate(
+			condition,
+			ctx,
+			{ ...environment, caseDatabase: { rows, indices: [] } },
+			[],
+			SESSION,
+			new Map(),
+		);
+	expect(actionVisible([patient, otherType])).toBe(false);
+	expect(actionVisible([patient, otherType, row("second", "patient")])).toBe(
+		true,
+	);
+});
+
 function resolveSearchInputDefaults(
 	inputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,

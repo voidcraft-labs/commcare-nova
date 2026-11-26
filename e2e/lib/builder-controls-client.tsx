@@ -102,6 +102,7 @@ import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	blueprintDocSchema,
+	NEW_APP_SETTINGS,
 	type UserProperty,
 	uuidSchema,
 } from "@/lib/domain";
@@ -1385,7 +1386,39 @@ const ROWS_FIELDS = {
 	contact: ROWS_CONTACT_ID,
 	visits: ROWS_VISITS_ID,
 } as const;
-type RowsFieldName = keyof typeof ROWS_FIELDS;
+const METER_FIELDS = {
+	meter: uuidSchema.parse("00000000-0000-7000-8000-00000000b006"),
+	count: uuidSchema.parse("00000000-0000-7000-8000-00000000b007"),
+};
+const meterSource = buildDoc({
+	appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+	modules: [
+		{
+			name: "Readings",
+			forms: [
+				{
+					type: "survey",
+					name: "Measure",
+					fields: [
+						{
+							kind: "text",
+							id: "meter",
+							uuid: METER_FIELDS.meter,
+							label: proseText("Meter"),
+						},
+						{
+							kind: "int",
+							id: "count",
+							uuid: METER_FIELDS.count,
+							label: proseText("Count"),
+						},
+					],
+				},
+			],
+		},
+	],
+});
+const METER_DOC = toPersistableDoc(meterSource);
 const ROWS_SOURCE = buildDoc({
 	caseTypes: [{ name: "household", properties: [] }],
 	modules: [
@@ -1463,18 +1496,22 @@ const rowsAdmission = evaluateCommit({
 if (!rowsAdmission.ok) throw new Error(JSON.stringify(rowsAdmission));
 const ROWS_DOC = toPersistableDoc(ROWS_SOURCE);
 blueprintDocSchema.parse(ROWS_DOC);
-function RowsFixtureContent() {
-	const [selected, setSelected] = useState<RowsFieldName>("household");
-	const field = useField(ROWS_FIELDS[selected]);
+function RowsFixtureContent({
+	fields,
+}: {
+	fields: typeof ROWS_FIELDS | typeof METER_FIELDS;
+}) {
+	const [selected, setSelected] = useState(Object.values(fields)[0]);
+	const field = useField(selected);
 	if (field === undefined) throw new Error("Missing rows fixture field");
 	return (
 		<>
 			<nav aria-label="Fields">
-				{(Object.keys(ROWS_FIELDS) as RowsFieldName[]).map((name) => (
+				{Object.entries(fields).map(([name, uuid]) => (
 					<Button
 						key={name}
 						onMouseDown={(event) => event.preventDefault()}
-						onClick={() => setSelected(name)}
+						onClick={() => setSelected(uuid)}
 					>
 						Select {name}
 					</Button>
@@ -1519,14 +1556,24 @@ function FormatTextFixtureContent() {
 }
 function RowsFixture({
 	formatText = false,
+	meter = false,
 }: {
 	readonly formatText?: boolean;
+	readonly meter?: boolean;
 }) {
 	return (
-		<BlueprintDocProvider initialDoc={ROWS_DOC} appId="native-rows" canEdit>
+		<BlueprintDocProvider
+			initialDoc={meter ? METER_DOC : ROWS_DOC}
+			appId="native-rows"
+			canEdit
+		>
 			<BuilderSessionProvider init={{ canEdit: true }}>
 				<EditGuardProvider>
-					{formatText ? <FormatTextFixtureContent /> : <RowsFixtureContent />}
+					{formatText ? (
+						<FormatTextFixtureContent />
+					) : (
+						<RowsFixtureContent fields={meter ? METER_FIELDS : ROWS_FIELDS} />
+					)}
 				</EditGuardProvider>
 			</BuilderSessionProvider>
 		</BlueprintDocProvider>
@@ -2383,11 +2430,15 @@ if (scenario === "preload")
 		"",
 		`/build/native-preload/${Object.keys(PRELOAD_DOC.forms)[0]}`,
 	);
-if (scenario === "rows" || scenario === "format-text")
+if (
+	scenario === "rows" ||
+	scenario === "format-text" ||
+	scenario === "android-app-authoring"
+)
 	window.history.replaceState(
 		null,
 		"",
-		`/build/native-rows/${Object.keys(ROWS_DOC.forms)[0]}`,
+		`/build/native-rows/${Object.keys((scenario === "android-app-authoring" ? METER_DOC : ROWS_DOC).forms)[0]}`,
 	);
 
 const root = document.getElementById("root");
@@ -2419,8 +2470,13 @@ createRoot(root).render(
 			<SetupFixture values={scenario === "setup-values"} />
 		) : scenario === "preload" ? (
 			<PreloadFixture />
-		) : scenario === "rows" || scenario === "format-text" ? (
-			<RowsFixture formatText={scenario === "format-text"} />
+		) : scenario === "rows" ||
+			scenario === "format-text" ||
+			scenario === "android-app-authoring" ? (
+			<RowsFixture
+				formatText={scenario === "format-text"}
+				meter={scenario === "android-app-authoring"}
+			/>
 		) : scenario === "case-write" ? (
 			<CaseWriteFixture />
 		) : scenario === "activation" ? (

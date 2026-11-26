@@ -196,6 +196,21 @@ def with_a_starting_value(path, value):
     return write
 
 
+def with_initial_instance_text(path, value):
+    """A form rewrite that writes text directly in a node of the primary instance."""
+    def write(source):
+        from lxml import etree
+
+        tree = etree.fromstring(source.encode() if isinstance(source, str) else source)
+        node, = tree.xpath("//*[local-name()='model']/*[local-name()='instance' and not(@id)]")
+        for step in path.strip("/").split("/"):
+            node, = node.xpath("./*[local-name()=$name]", name=step)
+        node.text = value
+        return etree.tostring(tree, encoding="unicode")
+
+    return write
+
+
 # The forms Nova emitted before defect 16, by document id (``<id>.form.xml``).
 MEDIA_SLOTS = Path(__file__).parent / "media_slots"
 
@@ -220,6 +235,7 @@ MISSING_MEDIA_UNMAPPED = (
     "4aebda3a657a0d8f532d11ceacb1679081d7bdf7d7d301a53f1096af3580be91.wav",
 )
 MISSING_MEDIA_DELETED = "c5f74c6dda51d3941b4d17d05991f900debbf387ff748eda65d2f03dda227b2e.png"
+UNMAPPED_GENERATED_ICON = f"jr://file/commcare/image/data/{MISSING_MEDIA_UNMAPPED[0]}"
 
 
 def with_missing_media(holder, *, delete_file=True):
@@ -252,6 +268,56 @@ def with_missing_media(holder, *, delete_file=True):
         app.save()
         stored.clear()
         stored.update(operations.held_app(holder.unit, holder.app_id).to_json())
+
+    return change
+
+
+def override_menu_badge(stored):
+    """The same generated badge key HQ reads beside the menu's own wording."""
+    assert stored["modules"][0]["custom_icons"][0]["text"]["en"] == "New"
+    stored.setdefault("translations", {}).setdefault("en", {})["modules.m0.badge"] = "Urgent"
+
+
+def generated_menu_icon(holder, scenario):
+    """A released locale replaces the ordinary Visits icon with the Remarks image."""
+    from lxml import etree
+
+    from proof.hq import operations
+
+    image_name, icon_name, _ = MISSING_MEDIA_UNMAPPED
+    key = "modules.m0.icon"
+
+    def change(stored):
+        paths = {path.rsplit("/", 1)[-1]: path for path in stored["multimedia_map"]}
+        image = paths[image_name]
+        assert stored["modules"][0]["media_image"]["en"] == paths[icon_name]
+        if scenario == "ordinary":
+            return
+
+        def remove_original_carrier(source):
+            root = etree.fromstring(source.encode())
+            (carrier,) = root.xpath("//*[local-name()='value' and @form='image' and text()=$image]", image=image)
+            carrier.getparent().remove(carrier)
+            return etree.tostring(root, encoding="unicode")
+
+        form_written(holder, {"0.0": remove_original_carrier})(stored)
+        app = operations.held_app(holder.unit, holder.app_id)
+        assert image in app.multimedia_map
+        if scenario == "other-language":
+            app.langs = ["en", "fr"]
+            app.modules[0].forms[0].media_image = {"fr": image}
+        override = UNMAPPED_GENERATED_ICON if scenario == "unmapped" else image
+        if scenario == "unmapped":
+            del app.multimedia_map[image]
+        app.set_translations("en", {**app.translations.get("en", {}), key: override})
+        app.save()
+        app = operations.held_app(holder.unit, holder.app_id)
+        assert app.translations["en"][key] == override
+        assert (override in app.multimedia_map) == (scenario != "unmapped")
+        assert (override in app.all_media_paths()) == (scenario == "other-language")
+        assert override not in app.all_media_paths(lang="en")
+        stored.clear()
+        stored.update(app.to_json())
 
     return change
 

@@ -6,6 +6,7 @@ import { columnSnapshotMutations } from "@/lib/doc/caseListColumnMutations";
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
+import { planSearchInputGroups } from "@/lib/doc/searchInputGroupMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	caseListWordingUnitId,
@@ -907,7 +908,11 @@ describe("projectBuilderLanguageMutations", () => {
 	it("redirects a Search prompt's hint and messages to the selected target", () => {
 		const doc = fixture();
 		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
-		if (current === undefined || current.kind === "hidden") {
+		if (
+			current === undefined ||
+			current.kind === "hidden" ||
+			current.kind === "address"
+		) {
 			throw new Error("Expected a visible prompt.");
 		}
 		const { uuid: _uuid, ...content } = current;
@@ -1015,10 +1020,60 @@ describe("projectBuilderLanguageMutations", () => {
 		]);
 	});
 
+	it("keeps Search field wording when moving the field between headings in another language", () => {
+		const first = testUuid("localized-search-heading-first");
+		const second = testUuid("localized-search-heading-second");
+		const doc = produce(fixture(), (draft) => {
+			const list = draft.modules[MODULE]?.caseListConfig;
+			const field = list?.searchInputs[0];
+			if (!list || !field) throw new Error("Expected a Search field.");
+			list.searchInputGroups = [
+				{ uuid: first, label: "Identity" },
+				{ uuid: second, label: "Other information" },
+			];
+			field.group = first;
+		});
+		const canonical = doc.modules[MODULE]?.caseListConfig;
+		const localized = projectLocalizedModule(
+			doc,
+			"spa",
+			MODULE,
+		)?.caseListConfig;
+		if (!canonical || !localized?.searchInputGroups)
+			throw new Error("Expected Search headings.");
+
+		const layout = localized.searchInputGroups.map((group) => ({
+			...group,
+			inputs: group.uuid === second ? [SEARCH_INPUT] : [],
+		}));
+		const change = planSearchInputGroups(MODULE, canonical, layout);
+		if ("error" in change) throw new Error(change.error);
+		const next = apply(doc, project(doc, change.mutations));
+
+		expect(next.modules[MODULE]?.caseListConfig?.searchInputs[0]).toEqual({
+			...canonical.searchInputs[0],
+			group: second,
+		});
+		expect(
+			projectLocalizedModule(next, "spa", MODULE)?.caseListConfig
+				?.searchInputs[0],
+		).toEqual({
+			...localized.searchInputs[0],
+			group: second,
+		});
+		expect(next.localization?.translations).toEqual(
+			doc.localization?.translations,
+		);
+	});
+
 	it("clears a Search prompt's translated hint when the worker-language editor removes it, keeping the source", () => {
 		const doc = fixture();
 		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
-		if (current === undefined || current.kind === "hidden") {
+		if (
+			current === undefined ||
+			current.kind === "hidden" ||
+			current.kind === "address"
+		) {
 			throw new Error("Expected a visible prompt.");
 		}
 		const { uuid: _uuid, hint: _hint, ...content } = current;
@@ -1048,7 +1103,11 @@ describe("projectBuilderLanguageMutations", () => {
 	it("requires a Search prompt's optional sentences to exist in the source language first", () => {
 		const doc = fixture();
 		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
-		if (current === undefined || current.kind === "hidden") {
+		if (
+			current === undefined ||
+			current.kind === "hidden" ||
+			current.kind === "address"
+		) {
 			throw new Error("Expected a visible prompt.");
 		}
 		const { uuid: _uuid, ...content } = current;
@@ -1064,7 +1123,11 @@ describe("projectBuilderLanguageMutations", () => {
 		).toBe(true);
 		const withoutMessage = produce(doc, (draft) => {
 			const prompt = draft.modules[MODULE]?.caseListConfig?.searchInputs[0];
-			if (prompt !== undefined && prompt.kind !== "hidden") {
+			if (
+				prompt !== undefined &&
+				prompt.kind !== "hidden" &&
+				prompt.kind !== "address"
+			) {
 				prompt.required = {};
 			}
 		});

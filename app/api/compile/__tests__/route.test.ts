@@ -42,6 +42,7 @@ import {
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { deliverExport } from "@/lib/export/artifacts/store";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { getLookupFixtureData } from "@/lib/lookup/service";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
@@ -65,6 +66,10 @@ vi.mock("@/lib/db/appAccess", async (original) => ({
 }));
 vi.mock("@/lib/db/mediaAssets", () => ({ loadAssetsByIds: vi.fn() }));
 vi.mock("@/lib/lookup/service", () => ({ getLookupFixtureData: vi.fn() }));
+vi.mock("@/lib/export/artifacts/store", async (original) => {
+	const store = await original<typeof import("@/lib/export/artifacts/store")>();
+	return { ...store, deliverExport: vi.fn(store.deliverExport) };
+});
 vi.mock("@/lib/storage/media", () => ({
 	streamAsset: vi.fn(),
 	getStoredObjectMetadata: async () => ({
@@ -604,6 +609,68 @@ it("ships a readable workbook generated from the same lookup rows as the app ref
 		expect.anything(),
 		[TABLE],
 		"export",
+	);
+});
+
+it("packages the reviewed lookup locator and HQ app without carrying the JSON rows as a workbook", async () => {
+	loads(fixture({ lookup: true }));
+	const lookup = snapshot(true);
+	vi.mocked(getLookupFixtureData).mockResolvedValue({
+		...lookup,
+		definitions: lookup.definitions.map((definition) => ({
+			...definition,
+			tag: "types",
+		})),
+	});
+	vi.mocked(requireSession).mockResolvedValue({
+		user: { id: "u1" },
+		session: { id: "current-editor" },
+	} as never);
+	answers(cczFor(ACME), { ...importFileFor([]), targetRevision: "0" });
+
+	const stored: Buffer[] = [];
+	vi.mocked(deliverExport).mockImplementationOnce(
+		async (source, access, options) => {
+			expect(options?.protected).toBe(true);
+			expect(access()).toMatchObject({
+				actor: {
+					userId: "u1",
+					grant: { kind: "session", sessionId: "current-editor" },
+				},
+				spec: {
+					manualLookupInstaller: true,
+					documentRevision: 42,
+					dataRevision: "7",
+				},
+			});
+			for await (const bytes of source) stored.push(Buffer.from(bytes));
+			return { bytes: Buffer.concat(stored) };
+		},
+	);
+	const response = await jsonPost(
+		request({ appId: "a1", manualLookupInstaller: true }),
+	);
+	expect(response.status).toBe(200);
+	expect(resolveAppAccess).toHaveBeenCalledWith("a1", "u1", "edit");
+	const entries = await unzip(new Uint8Array(await response.arrayBuffer()));
+	expect(entries.has("lookup-tables.xlsx")).toBe(false);
+	expect(JSON.parse(member(entries, "lookup-install.json").toString())).toEqual(
+		{
+			version: 1,
+			appId: "a1",
+			documentRevision: 42,
+			dataRevision: "7",
+			digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+		},
+	);
+	const app = JSON.parse(member(entries, "Vaccine Tracker.json").toString());
+	expect(
+		app._attachments[`${app.modules[0].forms[0].unique_id}.xml`],
+	).toContain("item-list:types");
+	const guide = member(entries, "README.txt").toString();
+	expect(guide.indexOf("lookup-install.json")).toBeGreaterThanOrEqual(0);
+	expect(guide.indexOf("lookup-install.json")).toBeLessThan(
+		guide.indexOf("Import the app"),
 	);
 });
 

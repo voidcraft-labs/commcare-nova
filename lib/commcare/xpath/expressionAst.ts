@@ -275,22 +275,38 @@ export function bindFormSyntax(
 			node.namespace === "search" ||
 			node.namespace === "case"
 		) {
-			if (node.segments.length !== 1)
+			if (
+				node.segments.length !== 1 &&
+				!(node.namespace === "search" && node.segments.length === 2)
+			)
 				refuse("unknown-hashtag", node, RECORD_REFERENCE_SHAPE);
-			const property = node.segments[0];
+			const property = node.segments[node.segments.length - 1];
 			if (node.namespace === "user")
 				return term(formUserProperty(scope, property, "worker-record"), node);
 			if (node.namespace === "search") {
 				const matches =
-					ctx.form?.searchInputs.filter((input) => input.name === property) ??
-					[];
+					ctx.form?.searchInputs.filter(
+						(input) =>
+							input.name === property &&
+							input.supplierId ===
+								(node.segments.length === 2 ? node.segments[0] : undefined),
+					) ?? [];
 				if (matches.length !== 1)
 					refuse(
 						"unknown-search-input",
 						node,
 						`This menu's search has no field called ${property}.`,
 					);
-				return term({ kind: "input", searchInputUuid: matches[0].uuid }, node);
+				return term(
+					{
+						kind: "input",
+						searchInputUuid: matches[0].uuid,
+						...(matches[0].supplier !== undefined && {
+							supplier: matches[0].supplier,
+						}),
+					},
+					node,
+				);
 			}
 			const selected = scope.authoring?.selectedCaseType;
 			if (selected === undefined)
@@ -313,6 +329,16 @@ export function bindFormSyntax(
 		node: Extract<FormSyntax, { kind: "call" }>,
 		ctx: ExpressionContext,
 	): Expression {
+		if (!scope.reading && node.name === "case-list-lookup-count") {
+			const module = ctx.caseListLookupCountSource;
+			if (node.args.length !== 0 || module === undefined)
+				refuse(
+					"unknown-datum",
+					node,
+					"This form needs to open directly from one case list with a companion lookup before it can read the lookup count.",
+				);
+			return remember({ kind: "case-list-lookup-count", module }, node);
+		}
 		if (
 			!scope.reading &&
 			(node.name === "opening-record" || node.name === "opening-value")
