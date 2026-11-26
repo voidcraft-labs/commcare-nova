@@ -980,7 +980,9 @@ it("requires the live installation grant for a JSON lookup write to a protected 
 				entry: {
 					kind: "create-table",
 					tag: "facilities",
-					definitionDigest: "planned-facilities",
+					definitionDigest: createHash("sha256")
+						.update("facilities")
+						.digest("hex"),
 				},
 			},
 		);
