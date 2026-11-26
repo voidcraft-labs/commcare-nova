@@ -78,7 +78,9 @@ sign out of place, a second period or a space, which Preview's Android rule woul
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from contextlib import contextmanager
 
 import pytest
@@ -119,7 +121,7 @@ INVALID = "Sorry, this response is invalid!"
 
 
 @contextmanager
-def _served(document, publication=None):
+def _served(document, publication=None, *, database=None):
     """HQ's release of ``document`` as Nova first publishes it, served by HQ's own views, and the archive a
     worker installs of it."""
     from proof.android import observe
@@ -133,7 +135,7 @@ def _served(document, publication=None):
             yield served, observe.release_archive(served)
         return
 
-    with published(document, None) as app, formplayer_hq.serve(app.unit, document, app.app_id) as served:
+    with published(document, None) as app, formplayer_hq.serve(app.unit, document, app.app_id, database=database) as served:
         yield served, observe.release_archive(served)
 
 
@@ -631,3 +633,277 @@ def test_selected_language_uses_its_own_installed_menu_form_help_and_choice_imag
                 assert form["saved"]["finishing"] is True, (name, form)
     assert seen_drawn == {(lang, label) for lang, rows in expected_drawn.items() for label in rows}, seen_drawn
     assert seen == {(language, title) for language, items in expected.items() for title in items}, seen
+
+
+def _app_samples(walk):
+    return [
+        sample
+        for command in walk["walks"].values()
+        for form in _forms(command)
+        for screen in form["screens"]
+        for question in screen.get("answered", [])
+        for sample in question.get("appReturns", [])
+    ]
+
+
+def _result_rows(sample, when):
+    form = etree.fromstring(sample[when].encode())
+    return [
+        {etree.QName(node).localname: node.text or "" for node in row}
+        for row in form.xpath("./*[local-name()='visits' and not(@*[local-name()='template'])]")
+    ]
+
+
+def test_android_app_returns_update_only_the_invoking_row(android_documents, hq):
+    """The same installed activity opens from a text and an integer question.
+    Keep, clear and cast returned answers before moving the worker onward."""
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        walk, sent = _app(served, archive, "app-answers", commands=[FORM], questions={"/data/unit": ["litres"]}, callouts={
+            "meter": [[
+                {"primary": "one", "named": {"correction": "calibrated", "measurement": "007", "photo": {"file": "from meter"}}},
+                {"cancel": True, "primary": "ignored"},
+                {"bundle": True, "named": {"measurement": None}},
+                {"primary": ""},
+                {"simprints": "simulated", "primary": "ignored"},
+                {"register": "registered", "simprints": "overridden", "primary": "ignored"},
+                {"verify": "verified", "primary": "ignored"},
+                {"identify": "best", "primary": "ignored"},
+            ], [
+                {"primary": "two", "named": {"measurement": "015"}},
+                {"missingHandler": True},
+            ]],
+            "verify": [[{"primary": "012", "named": {"measurement": "08"}}], [{"invalid": True}]],
+        })
+        samples = _app_samples(walk)
+        assert len(samples) == 12, samples
+        (first, cancelled, cleared, empty, simprints, registration, verification,
+         identification, auxiliary, second, missing_handler, invalid) = samples
+        assert first["action"] == "org.example.MEASURE"
+        assert first["sent"] == {"odk_intent_data": "previous", "unit": "litres"}
+        first_rows = _result_rows(first, "after")
+        # Android materializes the second counted row when the worker advances to it.
+        assert len(first_rows) == len(_result_rows(first, "before")) == 1
+        assert first_rows[0]["meter"] == "one"
+        assert (first_rows[0]["description"], first_rows[0]["reading"]) == ("calibrated", "7")
+        assert first_rows[0]["attachment"] == "synthetic-meter-reading.txt" and first["copied"] == "from meter"
+        assert cancelled["sent"]["odk_intent_data"] == "one"
+        assert _result_rows(cancelled, "after") == _result_rows(cancelled, "before")
+        after_clear = _result_rows(cleared, "after")[0]
+        assert (after_clear["meter"], after_clear["reading"], after_clear["description"]) == ("", "", "")
+        assert after_clear["attachment"] == "synthetic-meter-reading.txt"
+        assert _result_rows(empty, "after")[0]["meter"] == ""
+        fingerprints = _result_rows(simprints, "after")[0]
+        assert (fingerprints["guid"], fingerprints["thumb"], fingerprints["other_thumb"]) == ("simulated", "AQ==\n", "")
+        assert fingerprints["meter"] == "Fingerprints scanned: 1"
+        registered = _result_rows(registration, "after")[0]
+        assert (registered["guid"], registered["face_template"], registered["meter"]) == (
+            "registered", "c3ludGhldGlj\n", "All data stored successfully"
+        )
+        verified = _result_rows(verification, "after")[0]
+        assert (verified["match_guid"], verified["match_confidence"], verified["match_strength"], verified["meter"]) == (
+            "verified", "80", "four_stars", "★★★★"
+        )
+        matched = _result_rows(identification, "after")[0]
+        assert (matched["match_guid"], matched["guid"], matched["meter"]) == ("best", "", "★★★★")
+        assert auxiliary["sent"]["odk_intent_data"] == "9"
+        altered = _result_rows(auxiliary, "after")[0]
+        assert (altered["verify"], altered["meter"], altered["reading"], altered["description"]) == ("12", "★★★★", "8", "08")
+        before_second = _result_rows(second, "before")
+        after_second = _result_rows(second, "after")
+        assert len(before_second) == len(after_second) == 2
+        assert after_second[0] == before_second[0]
+        assert after_second[1] == {
+            **before_second[1],
+            "meter": "two",
+            "description": "015",
+            "reading": "15",
+        }
+        assert missing_handler["missingHandler"]
+        assert _result_rows(missing_handler, "after") == _result_rows(missing_handler, "before")
+        assert _result_rows(invalid, "after") == _result_rows(invalid, "before")
+
+
+def test_android_app_raw_result_flag_distinguishes_bundled_updates(android_documents, hq):
+    """The raw handler flag does not describe whether a mapped question changed."""
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        walk, _ = _app(served, archive, "app-result-flag", commands=[FORM], callouts={
+            "meter": [[{"bundle": True, "named": {"measurement": "2"}, "raw": True},
+                       {"named": {"measurement": "3"}, "raw": True}, {"primary": "", "raw": True}]]
+        })
+        first, second, empty = _app_samples(walk)
+        assert [s["reportedSuccess"] for s in (first, second, empty)] == [False, True, True]
+        assert [_result_rows(s, "after")[0]["reading"] for s in (first, second)] == ["2", "3"]
+
+
+def test_required_android_app_primary_only(android_documents, hq):
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        for label, second, expected in [
+            ("cancel", {"cancel": True}, "confirmed"),
+            ("absent", {"bundle": True}, ""),
+        ]:
+            walk, sent = _app(served, archive, f"app-primary-{label}", commands=["m0-f1"], callouts={
+                "confirmed": [[{"primary": "confirmed"}, second]]
+            })
+            first, next_return = _app_samples(walk)
+            assert first["action"] == "org.commcare.respiratory.BREATHCOUNT"
+            assert next_return["sent"]["odk_intent_data"] == "confirmed"
+            assert etree.fromstring(next_return["after"].encode()).xpath("string(./*[local-name()='confirmed'])") == expected
+            assert bool(sent) == bool(expected), walk
+
+def test_android_app_answer_survives_incomplete_form_resume(android_documents, hq):
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        walk, sent = _app(served, archive, "app-resume", commands=[], save_incomplete="m0-f1", reopen=True,
+            callouts={"confirmed": [[{"primary": "ready"}], [{"cancel": True}]]})
+        reopened = walk["savedIncomplete"]["reopened"]
+        assert reopened["screen"] == FORM_ENTRY, reopened
+        (cancelled,) = [result for screen in reopened["form"]["screens"] for entry in screen.get("answered", [])
+                        for result in entry.get("appReturns", [])]
+        assert cancelled["sent"]["odk_intent_data"] == "ready"
+        (instance,) = sent
+        assert _child(etree.fromstring(instance), "confirmed").text == "ready"
+
+def test_quick_app_refusal_control_uses_result_flag_for_navigation(android_documents, hq):
+    """This independent device input is the quick appearance Nova refuses:
+    a bundle-only write refreshes; a direct write advances."""
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        output = io.BytesIO()
+        changed = 0
+        with zipfile.ZipFile(io.BytesIO(archive)) as source, zipfile.ZipFile(output, "w") as amended:
+            for info in source.infolist():
+                data = source.read(info)
+                if info.filename.endswith(".xml") and b"org.example.MEASURE" in data:
+                    xml = etree.fromstring(data)
+                    for node in xml.xpath("//*[local-name()='intent' and @class='org.example.MEASURE']"):
+                        node.set("appearance", "quick")
+                        changed += 1
+                    data = etree.tostring(xml)
+                amended.writestr(info, data)
+        assert changed == 1
+        walk, _ = _app(served, output.getvalue(), "quick-refusal-control", commands=[FORM], callouts={
+            "meter": [[{"bundle": True, "named": {"measurement": "5"}}, {"named": {"measurement": "6"}}]]
+        })
+        first, second = _app_samples(walk)
+        assert first["indexBefore"] == first["indexAfter"]
+        assert _result_rows(first, "after")[0]["reading"] == "5"
+        assert second["indexBefore"] != second["indexAfter"]
+        assert _result_rows(second, "after")[0]["reading"] == "6"
+
+
+def test_android_sorts_filtered_case_choices_by_text_and_keeps_ties(android_documents, hq):
+    from proof.observe import casedata
+
+    rows = (
+        ("north-late", "Alpha label", "north", "2"),
+        ("north-tie-first", "Zulu label", "north", "10"),
+        ("north-tie-second", "Beta label", "north", "10"),
+        ("south", "South only", "south", "0"),
+    )
+    ranks = {case_id: rank for case_id, _, _, rank in rows}
+    names = {case_id: name for case_id, name, _, _ in rows}
+    database = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), tuple(
+        casedata.CaseRecord(
+            case_id, "clinic", name, casedata.USER_ID,
+            "2025-12-01T08:00:00.000Z", "2025-12-01T08:00:00.000Z", None,
+            (("region", region), ("rank", rank)),
+        )
+        for case_id, name, region, rank in rows
+    ))
+    with _served(android_documents["targeted-sorted-case-choices"], database=database) as (served, archive):
+        for region, expected in (("north", {"north-late", "north-tie-first", "north-tie-second"}), ("south", {"south"})):
+            answer, sent = _app(
+                served, archive, f"case-choices-{region}", commands=[FORM], controls=True,
+                questions={"/data/region": [region], "/data/sorted": ["1"]},
+            )
+            form = _completed_walk(answer, FORM)
+            by_question = {
+                question["reference"]: question["control"]["choices"]
+                for screen in form["screens"] for question in screen["questions"]
+                if "choices" in question.get("control", {})
+            }
+            natural = [choice["value"] for choice in by_question["/data/source_order[1]"]]
+            ordered = by_question["/data/sorted[1]"]
+            type_order = [choice["value"] for choice in by_question["/data/type_order[1]"]]
+            assert set(type_order) == set(names)
+            assert set(natural) == expected
+            limited_ids = sorted((case_id for case_id in type_order[:2] if case_id in expected), key=ranks.__getitem__)
+            assert by_question["/data/limited[1]"] == [
+                {"value": case_id, "label": names[case_id], "index": i}
+                for i, case_id in enumerate(limited_ids)
+            ]
+            ordered_ids = sorted(natural, key=ranks.__getitem__)
+            assert ordered == [
+                {"value": case_id, "label": names[case_id], "index": i}
+                for i, case_id in enumerate(ordered_ids)
+            ]
+            (instance,) = sent
+            root = etree.fromstring(instance)
+            assert _child(root, "sorted").text == ordered_ids[0]
+
+
+
+def test_android_replaces_a_saved_case_choice_after_its_row_stops_matching(android_documents, hq):
+    from proof.observe import casedata
+
+    def database(old_region, new_region, modified):
+        return casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), tuple(
+            casedata.CaseRecord(
+                case_id, "clinic", name, casedata.USER_ID,
+                "2025-12-01T08:00:00.000Z", modified, None, (("region", region),),
+            )
+            for case_id, name, region in (
+                ("old-clinic", "Original clinic", old_region),
+                ("new-clinic", "Replacement clinic", new_region),
+            )
+        ))
+
+    initial = database("north", "south", "2025-12-01T08:00:00.000Z")
+    changed = database("south", "north", "2025-12-02T08:00:00.000Z")
+    with _served(android_documents["targeted-case-choice-reopen"], database=initial) as (served, archive):
+        answer, sent = _app(
+            served, archive, "case-choice-reopen", commands=[], controls=True,
+            save_incomplete=FORM, first_screen_choice="old-clinic",
+            reopen=True, reopen_restore=casedata.restore(changed, served.unit.domain),
+            questions={"/data/clinic": ["1"]},
+        )
+    saved = answer["savedIncomplete"]
+    assert _child(etree.fromstring(saved["instance"]), "clinic").text == "old-clinic"
+    assert saved["reopenRestore"].split(": ", 1)[0] == "DOWNLOAD_SUCCESS", saved["reopenRestore"]
+    reopened = saved["reopened"]
+    assert reopened["screen"] == FORM_ENTRY, reopened
+    assert reopened["form"]["saved"]["finishing"] is True, reopened
+    (opening,) = [
+        question for screen in reopened["form"]["screens"] for question in screen["questions"]
+        if question["reference"] == "/data/clinic[1]"
+    ]
+    assert opening["answer"] is None
+    assert opening["control"]["choices"] == [{"value": "new-clinic", "label": "Replacement clinic", "index": 0}]
+    (submitted,) = sent
+    assert _child(etree.fromstring(submitted), "clinic").text == "new-clinic"
+
+
+
+@pytest.mark.parametrize("open_only", [False, True], ids=["all", "open"])
+def test_android_case_itemset_keeps_its_lifecycle_scope(android_documents, hq, open_only):
+    from proof.android import observe
+    from proof.formplayer import apps
+    from proof.observe import visible_case_choice as visible
+
+    with apps.published(android_documents[visible.DOCUMENT], None) as published:
+        with apps.served(published, None, database=visible.database(),
+                         change=visible.release_with_lifecycle(published, open_only)) as served:
+            answer, sent = _app(
+                served, observe.release_archive(served), "all-visible-cases", commands=[FORM],
+                controls=True, questions={"/data/clinic": ["1"]},
+            )
+    form = _completed_walk(answer, FORM)
+    (question,) = [
+        question for screen in form["screens"] for question in screen["questions"]
+        if question["reference"] == "/data/clinic[1]"
+    ]
+    choices = question["control"]["choices"]
+    expected = dict(visible.EXPECTED)
+    if open_only:
+        del expected["closed-host"]
+    assert {choice["value"]: choice["label"] for choice in choices} == expected
+    (instance,) = sent
+    assert _child(etree.fromstring(instance), "clinic").text == choices[0]["value"]

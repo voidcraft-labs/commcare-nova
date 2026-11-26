@@ -17,15 +17,16 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import {
 	type CaseListConfig,
+	caseTileGroupingIdentifierSchema,
 	caseTileGroupingSchema,
 	TILE_FONT_SIZES,
 	TILE_GRID_COLUMNS,
 	TILE_HORIZONTAL_ALIGNS,
 	type TileCell,
 	type TileVerticalAlign,
+	tileCellBottomEdge,
 	tileCellIsGroupBody,
 	tileCellsOverlap,
 	tileRowLimit,
@@ -110,6 +111,10 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 	groupRows: take(
 		`${A}detail-case-tile-group-index-identifier-header-rows`,
 		"schema:CaseTileGroupConfig.header_rows",
+	),
+	groupWithoutBody: refuse(
+		`${A}case-tile-group-header-covers-all-cells`,
+		"schema:Detail.case_tile_group",
 	),
 	groupIdentifierOutside: refuse(
 		`${A}case-tile-group-identifier-outside-an-xml-element-name`,
@@ -567,31 +572,6 @@ export function readTile(
 		short.take("persist_tile_on_forms", T.persist, Boolean).value;
 		config.persistOnForms = true;
 	}
-	const group = short.peek("case_tile_group");
-	if (
-		isJsonObject(group) &&
-		typeof group.index_identifier === "string" &&
-		group.index_identifier !== ""
-	) {
-		const cursor = short.object(
-			"case_tile_group",
-			"CaseTileGroupConfig",
-			T.group,
-		);
-		const identifier = group.index_identifier;
-		if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
-			cursor.refuse("index_identifier", T.groupIdentifierOutside, {
-				name: identifier,
-			});
-			ok = false;
-		} else {
-			config.grouping = {
-				identifier: cursor.take("index_identifier", T.groupIdentifier, String)
-					.value,
-				headerRows: cursor.take("header_rows", T.groupRows, Number).value,
-			};
-		}
-	}
 	const placesCell = (column: JoinedDetails["columns"][number]) => {
 		const cursor =
 			column.short === undefined ? undefined : shortColumns[column.short];
@@ -634,6 +614,68 @@ export function readTile(
 		const cursor = shortColumns[index];
 		if (cursor !== undefined) dropCells(cursor);
 	}
+	const group = short.peek("case_tile_group");
+	if (
+		isJsonObject(group) &&
+		typeof group.index_identifier === "string" &&
+		group.index_identifier !== ""
+	) {
+		const identifier = group.index_identifier;
+		const validIdentifier =
+			caseTileGroupingIdentifierSchema.safeParse(identifier).success;
+		const headerRows = group.header_rows ?? 2;
+		// The source's placed geometry remains known when a column's style
+		// or format is independently refused.
+		let occupiedRows = 0;
+		for (const column of shortColumns) {
+			if (column.peek("format") === "filter") continue;
+			const box = storedBox(column);
+			if (box === undefined) continue;
+			const fit = gridFit(column, shortRows);
+			if (fit === "fits" || fit === "below-the-twelfth-row")
+				occupiedRows = Math.max(occupiedRows, tileCellBottomEdge(box));
+		}
+		if (
+			validIdentifier &&
+			!named &&
+			occupiedRows > 0 &&
+			typeof headerRows === "number" &&
+			Number.isSafeInteger(headerRows) &&
+			headerRows >= occupiedRows
+		) {
+			// The header is relative to the tile's cells, and its default is
+			// omitted from use accounting. Refuse the active group as a whole.
+			short.refuse("case_tile_group", T.groupWithoutBody, {
+				reason: "Leave at least one tile row below the group heading.",
+			});
+			ok = false;
+		} else {
+			const cursor = short.object(
+				"case_tile_group",
+				"CaseTileGroupConfig",
+				T.group,
+			);
+			if (!validIdentifier) {
+				cursor.refuse("index_identifier", T.groupIdentifierOutside, {
+					name: identifier,
+				});
+				claimRestUnderFinding(
+					ctx,
+					cursor,
+					{ code: T.groupIdentifierOutside.entry, place: cursor.place },
+					(key) => key === "header_rows",
+				);
+				ok = false;
+			} else {
+				config.grouping = {
+					identifier: cursor.take("index_identifier", T.groupIdentifier, String)
+						.value,
+					headerRows: cursor.take("header_rows", T.groupRows, Number).value,
+				};
+			}
+		}
+	}
+
 	return {
 		ok,
 		config,

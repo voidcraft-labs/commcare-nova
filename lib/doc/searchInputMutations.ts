@@ -10,6 +10,7 @@ import type {
 } from "@/lib/domain";
 import {
 	isOwnerOnlyCaseSearchConfig,
+	isVisibleSearchInput,
 	searchInputDefault,
 	searchInputScreenExpressions,
 } from "@/lib/domain";
@@ -31,6 +32,11 @@ type UpdateSearchInputMutation = Extract<
 >;
 
 export type SearchInputRemovalDependency =
+	| {
+			readonly kind: "search-address-receiver";
+			readonly label: string;
+			readonly inputUuid: Uuid;
+	  }
 	| {
 			readonly kind: "cases-available";
 			readonly label: "Cases available" | "Online search";
@@ -88,10 +94,11 @@ export type SearchInputRemovalDependency =
 			readonly uses: number;
 	  };
 
-/** How many places one dependency reads the answer in. */
+/** How many places one dependency uses the Search field in. */
 export function searchInputDependencyUses(
 	dependency: SearchInputRemovalDependency,
 ): number {
+	if (dependency.kind === "search-address-receiver") return 1;
 	return dependency.kind === "form-field"
 		? dependency.uses
 		: dependency.paths.length;
@@ -128,7 +135,7 @@ function expressionInputPaths(
 	return paths;
 }
 
-/** Gate-valid rules that still consume the answer of a field being removed. */
+/** Gate-valid uses of a Search field being removed. */
 export function searchInputRemovalDependencies(
 	config: CaseListConfig,
 	searchConfig: CaseSearchConfig | undefined,
@@ -168,6 +175,18 @@ export function searchInputRemovalDependencies(
 		if (input.uuid === target.uuid) continue;
 		const siblingLabel =
 			input.label.trim() || input.name.trim() || "Another search field";
+		if (
+			target.kind === "address" &&
+			isVisibleSearchInput(input) &&
+			input.addressReceiver?.kind === "address" &&
+			input.addressReceiver.source === target.uuid
+		) {
+			dependencies.push({
+				kind: "search-address-receiver",
+				label: siblingLabel,
+				inputUuid: input.uuid,
+			});
+		}
 		const conditions: readonly {
 			readonly slot: SearchInputConditionSlot;
 			readonly predicate: NonNullable<CaseListConfig["filter"]>;

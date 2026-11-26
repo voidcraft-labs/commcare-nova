@@ -366,7 +366,11 @@ export function CaseOperationInspectorBody({
 
 				<Row
 					title="Kind of case"
-					description="The type of case this change acts on."
+					description={
+						operation.action === "create" && operation.typeChoice !== undefined
+							? `The imported condition chooses between ${humanizeId(operation.caseType)} and ${humanizeId(operation.typeChoice.otherwise)}. Choosing a different type replaces the condition.`
+							: "The type of case this change acts on."
+					}
 				>
 					<CaseTypePicker
 						value={operation.caseType}

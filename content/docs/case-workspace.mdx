@@ -50,6 +50,36 @@ selecting a case opens its form. The worker can open the tile to see more.
 For example, a visit can use a directory menu’s layout while continuing to
 show the person chosen for this visit.
 
+## Search with an Android app
+
+In **Results**, **Add lookup** connects a case list to a companion app on the
+worker’s Android device. Set its Android action, lookup name, the text it
+receives, and the response names it can return. Each named value can be
+fixed text, the worker’s username, or the worker’s ID. The Android toolbar
+calls the action **Scan Barcode**. You can attach a Project image to identify
+it. When a companion sends the primary text answer, CommCare searches the
+current list. If it declares a text response without a primary value,
+CommCare uses the first returned value in your response-name order.
+
+In a list with rows, **Show match confidence** adds a confidence column. Use this for a
+companion that returns keys with confidence levels. Android matches record IDs
+by default. When the list uses one record type, you can also choose a custom
+text property that holds the companion’s keys. Each available case with a matching
+value appears with the same confidence, even when several cases share that value.
+A blank returned key can match cases where the property is blank or missing.
+
+In an Android-only form that opens directly from one case list, a calculation
+can read **Companion lookup count**. It counts distinct keys the companion
+returned, including keys outside the worker’s case list. The value is blank
+when there is no identification response and zero when the companion
+returns an empty result. Browser Preview leaves the value blank.
+
+You can open the companion when the list first appears or let workers open
+it when they need it. The worker’s device needs the companion installed,
+and the project space needs to support Android case lookup. In browser
+Preview, the action explains how to check it on a device. Web Apps opens the
+ordinary case list.
+
 ## Choose a parent first
 
 In Results, **Choose a parent first** lets people pick a record from a menu for
@@ -79,6 +109,12 @@ their cases when they choose a form, so until then a form's display condition
 reads its properties as blank, on a phone, in Web Apps and in Preview alike.
 
 ## Arrange information in the canvas
+
+Under **Other record types**, choose any other kind of record with a menu in this app. A worker can open those records from the same list, whether they browse their device or search. A follow-up form saves changes to the record they chose and keeps its type.
+
+Under **Search filters**, you can include another record type in the search request alone. A form that reads the search can use those matches. They count toward the project space’s result limit and only appear as choices if the menu also offers their type.
+
+In the search settings, **Record ID to follow** includes the record named by a property on a match. **Related records** lets you include the linked records used by details or the whole hierarchy. A detail can read a related record, including a closed one, without offering that record as a choice.
 
 Choose **Add search field**, then select the case information people should be
 able to search. Nova puts Case name first as a useful suggestion, but does not
@@ -283,7 +319,7 @@ appear together, under one heading: the visits of a household under that
 household, the deliveries on a route under that route.
 
 You choose two things. The **connection** to group by, which is the saved name
-of the link between the two case types, almost always `parent`. And how many of
+of the link between the two case types, such as `parent` or `my-parent`. And how many of
 the tile's top rows form the **heading**. Those top rows are drawn once for the
 whole group, from the first case in it; the rows below them are drawn for every
 case. Nova offers only the depths that cut the tile cleanly, with something
@@ -363,6 +399,11 @@ stay in their original order while the worker searches, changes pages, opens
 Details, or goes Back. A changed maximum never removes a choice silently.
 Continue waits and states how many cases need to be removed.
 
+**Choose matching cases automatically** opens the shared form or the menu of
+forms with every eligible case, even when the list would show them on several
+pages. If more cases match than the maximum allows, the app stops before opening
+the form. An empty list still offers its usual search or registration options.
+
 Use several-case selection only when a follow-up or close form can run over the
 complete set. That form can belong to the module itself. A parent menu that is
 only its case list can also carry the set into a child that uses the same case type, also chooses
@@ -411,11 +452,32 @@ fixed values and current-user information. Case information belongs in the
 field's own match behavior or in **Cases available**, which run against each
 case.
 
+
+**Address search** lets workers choose a place in Web Apps. A text field or
+a multiple-choice field can fill from part of that address. Its
+**Fill from an address** setting lets you pick the address field and the
+parts to try in order. A multiple-choice field adds a choice when exactly one label
+matches. Workers can also enter or change those answers themselves.
+The project space needs advanced case search and the Geocoder plan feature.
+On Android, workers enter the linked fields themselves.
+When you remove an address field, Nova shows the fields that fill from it.
+Review each link and choose a different address field or **No address field**.
+
 In Preview, barcode search fields accept camera scans when Preview runs as
 Android and your browser supports scanning, and typed codes on both. A scan
 replaces the current answer; cancelling keeps it.
 
 On Android, an answer that holds both `'` and `"` finds nothing.
+
+### Group Search fields
+
+Choose **Add Search heading** on the Search tab, then give the heading a
+name. You can move fields to another heading and change the order of the
+headings. Removing a heading keeps its fields. You can translate a heading
+in **Languages**.
+
+In Web Apps, workers can collapse each group and keep the answers they
+entered. Android shows the same fields in order and omits the headings.
 
 ### Search filters and project space matching
 
@@ -438,12 +500,19 @@ Project space matching also lets a date or a date range search information your
 forms save as text: the project space finds the cases whose saved text it reads
 as a date in that range, and Preview does the same.
 
+A text field can use project space matching for information on the parent
+case. A field brought in with two parent links searches information on the
+grandparent case. Changing the field’s name in Nova keeps the information it
+searches. Preview uses the settings you confirm for the project space. It shows
+when a needed record is absent or the project space matches similar words for
+this field.
+
 Turn on **Also find blank** to let workers include cases where the field's
 information is blank. In Web Apps a box appears under the field, and workers can
 tick it with or without an answer. Android shows the field without the box. The
 option is offered on a field that searches its own information under the same
 name, with exact matching or a date range, and on a field with project space
-matching, except one that searches the case owner. A form that
+matching on the current case, except one that searches the case owner. A form that
 reads the search answer sees the blank before the answer, the way CommCare sends
 it.
 
@@ -471,6 +540,26 @@ unavailable. A more specific search can make the result clear. A search for an
 empty link can also depend on earlier changes to that record. An isolated App
 Test with newly created records lets you exercise the empty, linked and cleared
 states. These searches remain available on the published app.
+
+### Use a search supplied by a project space
+
+If your team already has a search in its CommCare HQ project space, a menu can
+send answers to that search and show the cases it returns. In the Search
+inspector, **Where matches come from** lets you name the search or choose one
+another menu already uses. You can also describe it to the Solutions Architect.
+
+The project space decides which cases match. Switching an existing menu shows
+which field matching rules will be replaced. Each question keeps its name,
+label and answer. **Send this answer** lets the search use it directly. A
+field with that setting off can still supply a named value. For example, a
+region question can supply the value the search expects under `district`.
+Named values are sent in order. A supplied empty value can mean something
+different from leaving a name out.
+
+The team that manages the search can change its results without editing the
+Nova app. Preview tells you when a search needs the project space. To try the
+worker journey, open the published app there. Each destination has its own
+search connection in the Publish dialog.
 
 ### Hints, required fields, and checks
 
@@ -618,6 +707,10 @@ field, the canvas says the menu opens on the cases the search finds, and
 condition is false, a menu whose forms don't read the search opens on its case
 list.
 
+A Search button condition can count the cases the worker has on their device.
+Choose a record type and add conditions to count only the cases that fit. The
+count uses cases available on that device. It does not count online matches.
+
 A Search button condition can read only what the case list itself loads
 wherever it shows. CommCare HQ loads, for each screen that shows the list, what
 that screen's case selection, its list and its return after the form read, and
@@ -638,9 +731,17 @@ not an after-submit destination for the menu's forms, because the previous
 screen was the search itself. After submitting, those forms return to the menu
 by default, which reopens Search.
 
-A menu whose forms read the search does not share its search results with a
-submenu or with a menu that selects a parent case from it. Give such a menu its
-own ordinary case list instead.
+A form can read the search that helped a worker choose its parent record. For
+example, a worker might search for a household by village, choose a household,
+then search for a member by village. The form can use either village answer.
+The expression picker shows which menu supplied each one. In chat you can ask
+for “the village entered when choosing the household.”
+
+Nova gives the searches separate names when you connect the menus. You can
+change the **Search results name** in Search’s **More settings**, or in
+**Module settings** while Search is off. Formulas follow the menu if its search is renamed. A form opened without
+the parent search has no answer from that search. A submenu that only groups
+forms does not run a parent search.
 
 A form in a menu whose forms read the search can read what the search found,
 for example how many cases it returned, with
@@ -876,11 +977,18 @@ switch stays on until the menu has a form.
 
 ## Choose which matches Search sends
 
-A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** sets which records the server sends. Pick a property, how to compare its values and a direction. Comparing a priority as a number puts 2 before 10 in ascending order; compared as text, 10 comes first. Add a tie-breaker to decide between records that share a priority. Your list can still show the records it receives in its own order.
+A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** sets which records the server sends. Pick a property, how to compare its values and a direction. Comparing a priority as a number puts 2 before 10 in ascending order; compared as text, 10 comes first. You can choose a property that Search indexes from any record type this search requests. Search does not index the record’s location. Add a tie-breaker to decide between records that share a priority. Your list can still show the records it receives in its own order.
 
-This order uses advanced case search in your CommCare HQ project space. If your project space doesn't have it, **Add order as a search filter** sets the same kind of order among the search filters instead. When a search has both, the server applies the filters' orders first, then the one above. An app you bring in from CommCare HQ keeps each order where it was.
+This order uses advanced case search in your CommCare HQ project space. If your project space doesn't have it, **Add order as a search filter** sets the same kind of order among the search filters instead. When a search has both, the server applies the filters' orders first, then the one above. An app you bring in from CommCare HQ keeps each order where it was. If an older order repeats a direction sign, publishing keeps the same sort direction.
 
 To keep particular owners' records out of the online results, add a search filter and choose **Owners to leave out of Search**. Its value names the owner IDs, separated by spaces, and can come from the worker's Search answers. It applies to the online search only: **Assigned cases** still decides which records the device list shows. A search takes one such rule, so name every owner in its value.
+
+
+### Choose which records appear and which supply information
+
+Choose additional record types for the menu when workers should be able to open them from its list. Each type needs a menu in your app. Under **Search filters**, **Include another record type in the request** adds matches to the search without changing the types a worker can open. A form that reads that search can use the extra matches.
+
+Use **Related records** in Search's settings to include the related hierarchy or the records used by Details. **Record ID to follow** includes the case whose ID a matched record holds in a property that Search can read. Related records can supply case details without appearing as selectable matches.
 
 ## Choose which cases appear first
 
@@ -986,6 +1094,12 @@ their language, and the list sorts by that label. With no match, the cell is
 blank. An image rule also takes the first match. It can match one of the saved
 choices, the entire saved value, or a condition. You can give the image a
 description in each app language.
+
+On an app that runs only in Web Apps, a value image on **Results** can
+submit a form for the case a worker taps. **When a worker taps the image**
+offers forms that open with that case and submit automatically from a
+question label. The form needs a deep link that takes one case. The worker
+returns to the same Results.
 
 ## Use the sidebar for properties
 
@@ -1101,11 +1215,11 @@ data and try the complete experience, use **Preview** in the builder header.
 Preview runs the configured journey against the same case data. When Search is
 configured, it appears before Results and Details. Entering a search leaves the
 current results in place until you choose the screen's Search button, matching
-the app people will ultimately use. A search in Preview finds every open case
-in the Project that matches, as CommCare's search does, including cases the
-worker doesn't have yet. When you choose one, it's added to the worker's cases,
-as it would be on a device, until you change the worker, leave Preview or
-reload the page. A one-case row opens that case. In a
+the app people will ultimately use. Preview searches the app's open records in
+the current Project, including matches the worker does not hold yet. Search
+applies its result limit before Results filters those matches. When the worker
+chooses a match, Preview can claim it for that worker. Use **Release claimed
+cases** in the worker menu to remove those claims. A one-case row opens that case. In a
 several-case workflow, its checkbox adds or removes the case and **Details**
 opens it without changing the selection. Other actions inside the row, such as
 calling a phone number or checking why a value is shown, work independently.

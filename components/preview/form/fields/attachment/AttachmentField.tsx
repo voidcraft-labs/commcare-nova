@@ -951,12 +951,16 @@ function AttachmentControl({
 							.filter(
 								(input) =>
 									!(field.kind === "image" || field.kind === "video") ||
-									field.captureSource !== "camera" ||
+									(field.captureSource !== "camera" &&
+										field.captureSource !== "face-camera") ||
 									input.camera,
 							)
 							.map((input) =>
-								field.kind === "image" && field.overlaySize && input.camera ? (
+								field.kind === "image" &&
+								(field.overlaySize || field.captureSource === "face-camera") &&
+								input.camera ? (
 									<FramedPhoto
+										face={field.captureSource === "face-camera"}
 										key={input.label}
 										disabled={interactionBlocked}
 										labelledBy={labelledBy}

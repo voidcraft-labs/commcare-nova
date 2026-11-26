@@ -286,3 +286,32 @@ def test_hq_keeps_extension_indices_datums_worker_writes_and_whole_case_forms(na
         "editedEvidence": [_check_edited(record) for record in result["edited"]],
     }
     write_evidence(native.family("case"), "case-emission", evidence)
+
+
+
+def test_hq_retype_keeps_the_existing_date_string(hq):
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.hqcase.utils import submit_case_blocks
+    from corehq.form_processor.models import CommCareCase
+
+    from proof.hq import redis as hq_redis
+    from proof.hq.check import hq_check
+    from proof.hq.configuration import Configuration
+
+    with hq_check(Configuration()) as (unit, _):
+        with hq_redis.shared(None), unit.committing():
+            with unit.operation("retype:seed", b"seen-on"):
+                seed = CaseBlock(
+                    case_id="patient-1", create=True, case_type="patient", case_name="Alice",
+                    owner_id="worker", update={"seen_on": "2026-04-17", "note": "original"},
+                )
+                submit_case_blocks([seed.as_text()], unit.domain, user_id="worker", device_id="proof")
+                original = CommCareCase.objects.get_case("patient-1", unit.domain)
+                assert original.type == "patient"
+                assert original.case_json["seen_on"] == "2026-04-17"
+            with unit.operation("retype:submit", b"seen-on"):
+                update = CaseBlock(case_id="patient-1", update={"case_type": "visit"})
+                submit_case_blocks([update.as_text()], unit.domain, user_id="worker", device_id="proof")
+                retyped = CommCareCase.objects.get_case("patient-1", unit.domain)
+                assert retyped.type == "visit"
+                assert retyped.case_json == original.case_json

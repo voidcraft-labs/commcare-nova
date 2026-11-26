@@ -7,6 +7,7 @@ import type { PreviewLookupData } from "./lookupEvaluation";
 import type { PreviewDevice } from "./previewDevice";
 import type {
 	CaseDatabaseSnapshot,
+	CompletedFormSearch,
 	SearchResultsSnapshot,
 } from "./xpathInstances";
 export interface FormEvaluationFault {
@@ -90,6 +91,9 @@ export interface FormEvaluationContext {
 	searchResults?: SearchResultsSnapshot;
 	/** The actual completed Search, or the separately opened manager's raw
 	 * starting answers. The form turns this held state into its instance once. */
+	readonly searches?: readonly CompletedFormSearch[];
+	/** The Search answers a form of a search-first module reads when the
+	 * input supplies none: each Search field's starting value. */
 	searchAnswers?: readonly { name: string; value: string }[];
 	/** The running session the entry starts from: the app its `uuid()`
 	 * datums are minted in and the menu's case choices

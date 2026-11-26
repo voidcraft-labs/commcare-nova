@@ -16,6 +16,7 @@ import copy
 import json
 
 from proof.matrix import ops
+from proof.matrix.bases import _pages
 
 SESSION = "instance('commcaresession')/session"
 
@@ -373,20 +374,55 @@ def inline_search_on_display_only_menu(authoring, app_id):
     _set_each(authoring, app_id, ("/modules/0/search_config/inline_search", True))
 
 
-# Search fields ------------------------------------------------------------------------------------------------------
-
-
-def fields_grouped(authoring, app_id):
-    """Clients' six Search fields put in one group of its search screen, the group's own entry last."""
+def related_record_id_sent_twice(authoring, app_id):
+    """Set both spellings of the one key, producing a single invalid Search request."""
     _set_each(
         authoring,
         app_id,
         (
-            "/modules/0/search_config/properties/-",
-            {**_field("g", "Group"), "is_group": True, "group_key": "g"},
+            "/modules/1/search_config/default_properties/-",
+            {
+                "property": "x_commcare_custom_related_case_property",
+                "doc_type": "DefaultCaseSearchProperty",
+                "defaultValue": "'parent/name'",
+            },
         ),
-        *((f"/modules/0/search_config/properties/{index}/group_key", "g") for index in range(6)),
+        ("/modules/1/search_config/custom_related_case_property", "name"),
     )
+
+
+# Search fields ------------------------------------------------------------------------------------------------------
+
+
+def _grouped_search_rows(authoring, app_id, label):
+    from proof.hq import operations
+
+    module = operations.held_app(authoring.state, app_id).get_module(0)
+    key = "group_header_0"
+    return [
+        {**_field(key, label), "is_group": True, "group_key": key},
+        *({**field.to_json(), "group_key": key} for field in module.search_config.properties),
+    ]
+
+
+def fields_with_ungrouped_prompt(authoring, app_id):
+    """Keep a real group's header and fields, then leave one field unassigned."""
+    rows = _grouped_search_rows(authoring, app_id, "Group")
+    rows.append(_field("region", "Region"))
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
+
+
+def fields_with_unknown_search_heading(authoring, app_id):
+    """HQ serves a prompt naming a heading the search did not declare."""
+    rows = _grouped_search_rows(authoring, app_id, "Group")
+    rows.append({**_field("region", "Region"), "group_key": "unknown_heading"})
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
+
+
+def fields_with_blank_search_heading(authoring, app_id):
+    """HQ serves a complete group whose header has no text."""
+    rows = _grouped_search_rows(authoring, app_id, "")
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
 
 
 # Registration after an empty search ---------------------------------------------------------------------------------
@@ -412,8 +448,8 @@ def child_menu_reads_the_search(authoring, app_id):
     child menu, choosing its own case from its own list; and Active clients' Followup Form showing ``check_note``
     where Visits' village answer is ``north``. HQ's build keeps the child's own selection where it matches the root
     menu's (``entries.py::EntriesHelper.add_parent_datums``), so the child's entry carries no query of Visits' and
-    the form reads an instance no step loads. The results instance of its own HQ's build needs of the child is the
-    row's second change."""
+    the form reads an instance no step loads. The child's results instance is
+    distinct from its parent's."""
     with authoring.step("variant:child-menu-reads-the-search:visits-second"):
         body, content_type = ops.form_body([("from", "2"), ("to", "1"), ("ajax", "false")])
         ops.post(authoring, "rearrange", [app_id, "modules"], body, content_type, "Visits moved second", redirects=True)
@@ -421,6 +457,7 @@ def child_menu_reads_the_search(authoring, app_id):
         authoring,
         app_id,
         ("/modules/1/search_config/properties", [_field("village", "Village")]),
+        ("/modules/2/search_config/instance_name", "active"),
         # Visits, second once moved.
         ("/modules/2/root_module_id", {"$menu": 1}),
         ("/modules/2/search_config/default_properties", []),
@@ -455,11 +492,15 @@ def child_menu_selecting_from_the_search_reads_it(authoring, app_id):
     its child menu, choosing a household from Households' list before its own member; and Members' Followup Form
     showing ``status_note`` where Households' village answer is ``north``. HQ's build writes Households' query into
     the entry ahead of that choice (``entries.py::EntriesHelper.add_remote_query_datums``), so the form reads the
-    answers its own entry loaded. The results instance of its own HQ's build needs of Members is the row's second
-    change."""
+    answers its own entry loaded. The Web Apps witness has a case-first parent and a distinct name on the child.
+    Remove the base's ordinary registration and Android-only date-time form, which exercise separate contracts."""
+    _pages.delete_form(authoring, app_id, 0, 3)
+    _pages.delete_form(authoring, app_id, 0, 0)
     _set_each(
         authoring,
         app_id,
+        ("/cloudcare_enabled", True),
+        ("/modules/1/search_config/instance_name", "members"),
         ("/modules/0/search_config/properties", [_field("village", "Village")]),
         ("/modules/0/search_config/inline_search", True),
         ("/modules/0/search_config/auto_launch", True),
@@ -617,3 +658,34 @@ def district_choice_details(authoring, app_id):
         (base + "/label", "name[@lang='fr'][1]"),
         (base + "/sort", "name[@lang='en'][1]"),
     )
+
+
+
+def address_picker_and_two_receivers(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+
+
+def address_picker_and_single_choice(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select1")
+
+
+def address_picker_and_receiver_without_component(authoring, app_id):
+    """The Village field subscribes to the existing picker but names no address part."""
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home")
+
+
+def _address_picker_for_lookup(authoring, app_id, choice_type):
+    """The exact Search picker fills a text field and an existing lookup choice."""
+    prompts = _modules(authoring, app_id)[0]["search_config"]["properties"]
+    village = next(row for row in prompts if row["name"] == "village")
+    district = next(row for row in prompts if row["name"] == "district")
+    village["receiver_expression"] = "home-us_state||city"
+    district["receiver_expression"] = "home-region"
+    district["input_"] = choice_type
+    prompts.insert(0, {
+        **_field("home", "Find an address"),
+        "exclude": True,
+        "appearance": "address",
+    })
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties", prompts)

@@ -52,6 +52,7 @@ import {
 	type CaseTileGrouping,
 	type CaseTileLayout,
 	type CaseType,
+	caseTileGroupingIdentifierSchema,
 	orderedColumns,
 	type TileCell,
 	tileCellFor,
@@ -59,7 +60,6 @@ import {
 	tileGroupHeaderRowChoices,
 	type Uuid,
 } from "@/lib/domain";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { useMissingConnectionCount } from "@/lib/preview/hooks/useCaseDataBinding";
 import { PlatformNoteRow } from "../../shared/PlatformNoteRow";
 import { groupingReopenNotice } from "./tileModel";
@@ -197,7 +197,7 @@ function ConnectionNameField({
 	const [draft, setDraft] = useState(value);
 	const skipNextBlurCommit = useRef(false);
 	const normalized = draft.trim();
-	const valid = XML_ELEMENT_NAME_PATTERN.test(normalized);
+	const valid = caseTileGroupingIdentifierSchema.safeParse(normalized).success;
 	const guidanceId = `${id}-guidance`;
 	const errorId = `${id}-error`;
 	const commit = () => {
@@ -250,8 +250,8 @@ function ConnectionNameField({
 			</FieldDescription>
 			{!valid && (
 				<p id={errorId} role="alert" className="text-sm text-nova-rose">
-					Start with a letter or underscore, then use only letters, numbers, and
-					underscores
+					Start with a letter or underscore. Use only letters, numbers,
+					underscores, or hyphens.
 				</p>
 			)}
 		</Field>

@@ -4,6 +4,7 @@ import {
 	formBehaviorRoles,
 } from "@/lib/domain/forms";
 import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
+
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
@@ -52,6 +53,7 @@ import {
 	ownCaseOperation,
 } from "@/lib/doc/scaffolds";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
+import { offeredSearchResultsName } from "@/lib/doc/searchResultsNaming";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -138,7 +140,10 @@ export interface NewModuleInput {
  *  supply one — mirrors the producer-side stamp pattern established by
  *  `addField` in the reducer. The module appends: the SA creates modules at
  *  the end of the app and reorders them with `moveModule`. */
-export function addModuleMutations(input: NewModuleInput): Mutation[] {
+export function addModuleMutations(
+	input: NewModuleInput,
+	doc?: BlueprintDoc,
+): Mutation[] {
 	const uuid = asUuid(
 		typeof input.uuid === "string" && input.uuid.length > 0
 			? input.uuid
@@ -166,7 +171,12 @@ export function addModuleMutations(input: NewModuleInput): Mutation[] {
 			caseListConfig: input.caseListConfig,
 		}),
 	};
-	return [addModuleMutation(module)];
+	const offered = doc && offeredSearchResultsName(doc, module);
+	return [
+		addModuleMutation(
+			offered ? { ...module, searchResultsName: offered } : module,
+		),
+	];
 }
 
 /** Remove a module (cascades forms + fields via the reducer). No-op when
@@ -477,11 +487,12 @@ export function addSearchInputsMutation(
 	mod: Module,
 	searchInputs: readonly SearchInputDef[],
 ): CaseListMutationOk {
-	// Each add appends, so emitting them in order lands them in order.
+	const lastGroup = mod.caseListConfig?.searchInputGroups?.at(-1)?.uuid;
+	// New fields enter the last heading so an ordinary add keeps a grouped Search valid.
 	const mutations: Mutation[] = searchInputs.map((searchInput) => ({
 		kind: "addSearchInput",
 		moduleUuid: mod.uuid,
-		searchInput,
+		searchInput: { ...searchInput, ...(lastGroup && { group: lastGroup }) },
 	}));
 	if (
 		mod.caseSearchConfig === undefined ||
@@ -513,7 +524,12 @@ export function updateSearchInputMutation(
 	}
 	return {
 		ok: true,
-		mutations: [planSearchInputUpdate(mod.uuid, current, replacement)],
+		mutations: [
+			planSearchInputUpdate(mod.uuid, current, {
+				...replacement,
+				...(current.group && { group: current.group }),
+			}),
+		],
 	};
 }
 

@@ -367,6 +367,7 @@ function batchGroup(unit: TranslationUnit): string {
 			return `form:${unit.owner.formUuid}`;
 		case "case-list-column":
 			return `case-list:${unit.owner.moduleUuid}`;
+		case "search-input-group":
 		case "search-input":
 			return `search:${unit.owner.moduleUuid}`;
 		case "module":

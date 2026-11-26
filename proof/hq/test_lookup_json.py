@@ -174,3 +174,182 @@ def test_novas_json_requests_put_a_types_table_there_row_by_row(hq):
         assert again.status == 201
         assert json.loads(again.body)["id"].replace("-", "") not in ids
         assert LookupTableRow.objects.filter(domain=state.domain, table_id=table_id).count() == 3
+
+
+def test_native_json_keeps_a_segmented_value_beyond_the_workbook_cell_limit(hq):
+    from corehq.apps.fixtures.models import LookupTable
+    from django.conf import settings
+
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits
+    from proof.observe.casedata import served_fixtures
+
+    value = " " + "🌱" * 17_000 + ' "'
+    assert len(value.encode("utf-8")) > 64 * 1024
+    assert len(value.encode("utf-16-le")) // 2 > 32767
+
+    with hq_check(CONFIGURATION) as (state, _), hq_redis.shared(None), state.committing(), api_rate_limits(state):
+        publisher = operations.seed_api_user(state, "paged-lookup@example.org", edit_data=True)
+
+        def send(method, path, body=None):
+            return operations.api_request(
+                state,
+                method,
+                path.format(domain=state.domain),
+                credential=publisher,
+                body=b"" if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            )
+
+        assert send("POST", TABLES, REQUESTS["create"]).status == 201
+        table = LookupTable.objects.get(domain=state.domain, tag="types")
+        for text in ("Clinic", value):
+            body = _for_table(REQUESTS["appends"][0], table.id.hex)
+            body["fields"]["name"]["field_list"][0]["field_value"] = text
+            saved = send("POST", ROWS, body)
+            assert saved.status == 201, saved.retained()
+            row_id = json.loads(saved.body)["id"].replace("-", "")
+            detail = send("GET", ROWS + row_id + "/")
+            assert detail.status == 200, detail.retained()
+            assert json.loads(detail.body)["fields"]["name"]["field_list"][0]["field_value"] == text
+
+        (fixture,) = served_fixtures(state)
+        values = etree.fromstring(fixture).xpath("./types_list/types/name/text()")
+        assert values == ["Clinic", value]
+
+        # The pinned HQ settings disable Django's default JSON body ceiling.
+        # The row resource accepts and keeps a body larger than that default.
+        assert settings.DATA_UPLOAD_MAX_MEMORY_SIZE is None
+        body = _for_table(REQUESTS["appends"][0], table.id.hex)
+        field = body["fields"]["name"]["field_list"][0]
+        field["field_value"] = ""
+        envelope = len(json.dumps(body, ensure_ascii=False).encode("utf-8"))
+        field["field_value"] = "x" * (2_621_441 - envelope)
+        assert send("POST", ROWS, body).status == 201
+        assert _rows(state, table.id.hex)[-1][2]["name"] == [(field["field_value"], {})]
+
+
+def test_manual_json_install_then_native_app_import_reads_exact_lookup_value(hq, core_runner, documents, tmp_path):
+    """A fresh destination keeps the JSON-installed data through manual app import and native runtime."""
+    import base64
+    from dataclasses import replace
+    from zipfile import ZipFile
+
+    from corehq.apps.app_manager.dbaccessors import get_brief_apps_in_domain
+    from corehq.apps.fixtures.models import LookupTable
+
+    from proof.formplayer.test_shared_lookup_journey import _manual_import
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits
+    from proof.hq.test_indexed_lookup import _compiled_app
+    from proof.hq.test_lookup_upload import workbook
+    from proof.observe import casedata
+    from proof.observe.sessions import admitted
+
+    document = documents["hq-lookup-types"]
+    with ZipFile(document.import_file) as archive:
+        app_path, = [path for path in archive.namelist() if path.endswith(".json")]
+        manual_app = archive.read(app_path)
+
+    # HQ JSON and JavaRosa can both carry this value past the workbook ceiling.
+    value = "s" * 65_535
+    configuration = replace(
+        document.exports["minimum"].configuration.hq(),
+        domain="manual-lookup-json",
+        privileges=CONFIGURATION.privileges | {"CLOUDCARE"},
+    )
+    worker = casedata.CaseDatabase(casedata.USER_ID, "manual-lookup-worker", (), ())
+    with hq_check(configuration) as (state, record), hq_redis.shared(None), state.committing(), api_rate_limits(state):
+        assert not LookupTable.objects.filter(domain=state.domain).exists()
+        editor = operations.seed_api_user(state, "manual-lookup-editor@example.org", edit_data=True)
+
+        def send(method, endpoint, body):
+            result = operations.api_request(
+                state, method, endpoint.format(domain=state.domain), credential=editor,
+                body=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            )
+            assert result.status == 201, result.retained()
+            return result
+
+        fields = ("id", "name", "description")
+        send("POST", TABLES, {
+            "tag": "types",
+            "is_global": True,
+            "fields": [{"field_name": field, "properties": []} for field in fields],
+            "item_attributes": [],
+        })
+        table = LookupTable.objects.get(domain=state.domain, tag="types")
+        for rank, row in enumerate([("first", "First visit", "Meet the family"), ("follow_up", "Follow-up", value)]):
+            send("POST", ROWS, {
+                "data_type_id": table.id.hex,
+                "fields": {
+                    field: {"field_list": [{"field_value": text, "properties": {}}]}
+                    for field, text in zip(fields, row, strict=True)
+                },
+                "item_attributes": {},
+                "sort_key": rank,
+            })
+        before = _rows(state, table.id.hex)
+        assert before[1][2]["description"] == [(value, {})]
+
+        # The existing workbook remains an independent carrier in this package.
+        ordinary = workbook([
+            ("types", ("Delete(Y/N)", "table_id", "is_global?", "field 1", "field 2"),
+             [("N", "sites", "yes", "id", "name")]),
+            ("sites", ("UID", "Delete(Y/N)", "field: id", "field: name"),
+             [(None, "N", "home", "At home")]),
+        ])
+        result = operations.upload_lookup_workbook(state, ordinary, replace=False)
+        assert result.errors == [], result.errors
+        assert not list(get_brief_apps_in_domain(state.domain))
+        imported = _manual_import(state, manual_app)
+        assert {app.get_id for app in get_brief_apps_in_domain(state.domain)} == {imported.get_id}
+        assert _rows(state, table.id.hex) == before
+        app, xmlns = _compiled_app(state, record, imported.get_id, tmp_path / "manual")
+        restored = casedata.restore(worker, state.domain, casedata.served_fixtures(state, worker.user_id))
+
+    with admitted(core_runner, app) as install:
+        assert install["admitted"], install["problems"]
+        observed = core_runner.evaluate(
+            app=install["app"],
+            xmlns=xmlns,
+            locale="en",
+            restoreBase64=base64.b64encode(restored).decode(),
+            answers=[{"path": "/data/visit_type", "value": "2"}, {"path": "/data/site", "value": "1"}],
+            expressions=["/data/visit_type", "/data/site", "/data/visit_description"],
+        )
+        assert [answer["result"] for answer in observed["answers"]] == ["ok", "ok"], observed
+        visit_type, site, description = [item["value"] for item in observed["values"]]
+        assert (visit_type, site) == ("follow_up", "home")
+        assert len(description) == len(value) and description == value
+
+
+def test_native_read_checks_lookup_edit_permission_and_the_api_keys_role(hq):
+    """Nova's defensive authorization read must prove the role and scoped key can edit data."""
+    from django.contrib.auth.models import User
+    from corehq.apps.users.models import HQApiKey, HqPermissions
+    from corehq.apps.users.models_role import UserRole
+
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits
+
+    with hq_check(CONFIGURATION) as (state, _), hq_redis.shared(None), state.committing(), api_rate_limits(state):
+        allowed = operations.seed_api_user(state, "lookup-editor@example.org", edit_apps=False, edit_data=True)
+        denied = operations.seed_api_user(state, "app-editor@example.org", edit_apps=True, edit_data=False)
+        no_data = UserRole.create(
+            state.domain, "API read only", permissions=HqPermissions(access_api=True, edit_data=False)
+        )
+        limited = HQApiKey.objects.create(
+            user=User.objects.get(username=allowed.username),
+            name="lookup proof role scope",
+            is_active=True,
+            domain=state.domain,
+            role_id=no_data.get_id,
+        )
+        narrowed = operations.ApiCredential(allowed.username, limited.plaintext_key)
+        url = f"/a/{state.domain}/api/device-log/v1/?limit=1&device_id=00000000000000000000000000000000"
+        approved = operations.api_request(state, "GET", url, credential=allowed)
+        assert approved.status == 200, approved.retained()
+        assert json.loads(approved.body)["objects"] == []
+        for credential in (denied, narrowed):
+            refused = operations.api_request(state, "GET", url, credential=credential)
+            assert refused.status in (401, 403), refused.retained()

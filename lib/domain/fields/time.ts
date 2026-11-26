@@ -8,6 +8,7 @@ import tablerClock from "@iconify-icons/tabler/clock";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { displaySchemas } from "../questionDisplaySchemas";
+import { androidAppQuestionSchema } from "./androidApp";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -18,8 +19,10 @@ export const timeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("time"),
 	inputWidth: displaySchemas.inputWidth.optional(),
 	clock: displaySchemas.clock.optional(),
+	androidApp: androidAppQuestionSchema.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
+	extended_validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),
 });
 

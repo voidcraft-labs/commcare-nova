@@ -1,3 +1,9 @@
+import { sql } from "kysely";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
+import { pendingInstallationTarget } from "@/__tests__/helpers/pendingInstallationTarget";
+import { credentialWriteGrant } from "@/lib/mcp/credentialWriteGrant";
+import { publishAppToHq } from "../service";
+import { reloadHeadFor } from "./publishFixtures";
 /**
  * The re-read a publish makes of the lookup tables CommCare HQ manages for
  * the app, over real Postgres and a peer standing in for CommCare HQ: each
@@ -292,6 +298,96 @@ describe("a table managed in the target", () => {
 			});
 		},
 	);
+	it("checks a newly pending destination before publishing a managed table refresh", async () => {
+		await seed();
+		const copy = await makeManagedCopy(h, LOOKUP, facilities, TARGET);
+		const doc = readerOf([copy]);
+		await h.seedAppWithBlueprint(doc, {
+			id: ACCESS.appId,
+			projectId: PROJECT,
+			owner: ACTOR,
+		});
+		const before = await rowsOf(copy);
+		const ctx = await installationCredential(h.db(), ACTOR, [
+			"nova.read",
+			"nova.write",
+			"nova.hq.write",
+			"nova.hq.import",
+		]);
+		const grant = credentialWriteGrant(ctx, "upload_app_to_hq", [
+			"nova.hq.import",
+			"nova.hq.write",
+		]);
+		const changed = {
+			...facilities,
+			rows: [...facilities.rows, { code: "003", name: "East" }],
+		};
+		await withHttpPeer(async (peer) => {
+			serveTableList(peer, "clinic", [changed]);
+			serveRows(peer, "clinic", changed, undefined, async () => {
+				await pendingInstallationTarget(h, ACCESS, TARGET);
+				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+			});
+			await expect(
+				publishAppToHq({
+					requireHqImport: null,
+					scope: { ...ACCESS, requireInstallationManagement: grant },
+					...TARGET,
+					doc,
+					compiledAtSeq: 0,
+					reloadHead: reloadHeadFor(ACCESS.appId, ACTOR),
+					appName: doc.appName,
+				}),
+			).rejects.toMatchObject({ name: "McpCredentialInactiveError" });
+		});
+		expect(await rowsOf(copy)).toEqual(before);
+	});
+	it("holds the installation grant while refreshed managed table rows become visible", async () => {
+		await seed();
+		const copy = await makeManagedCopy(h, LOOKUP, facilities, TARGET);
+		const prior = await getLookupTable(LOOKUP, copy.tableId);
+		const ctx = await installationCredential(h.db(), ACTOR, [
+			"nova.read",
+			"nova.write",
+			"nova.hq.import",
+			"nova.hq.write",
+		]);
+		const grant = credentialWriteGrant(ctx, "upload_app_to_hq", [
+			"nova.hq.import",
+			"nova.hq.write",
+		]);
+		await grant();
+		const changed = {
+			...facilities,
+			rows: [...facilities.rows, { code: "003", name: "East" }],
+		};
+		await withHttpPeer(async (peer) => {
+			serveTableList(peer, "clinic", [changed]);
+			serveRows(peer, "clinic", changed, undefined, async () => {
+				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+			});
+			await expect(
+				reReadManagedTablesForPublish({
+					requireHqImport: null,
+					access: ACCESS,
+					doc: readerOf([copy]),
+					target: TARGET,
+					creds: CREDS,
+					grant: async (tx) => {
+						expect(tx).toBeDefined();
+						await grant(tx);
+					},
+				}),
+			).rejects.toMatchObject({ name: "McpCredentialInactiveError" });
+		});
+		expect((await getLookupTable(LOOKUP, copy.tableId)).rows).toEqual(
+			prior.rows,
+		);
+	});
 	const stops: readonly [
 		string,
 		(table: ServedTable) => ServedTable | null,

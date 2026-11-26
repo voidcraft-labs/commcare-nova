@@ -75,10 +75,20 @@ function formReadSite(
 			return site([...at, "target", "expr"]);
 		case "case_operation_condition":
 			return site([...at, "condition"]);
+		case "case_operation_close_condition":
+			return site([...at, "closeCondition"]);
 		case "case_operation_name":
 			return site([...at, "name"]);
 		case "case_operation_owner":
 			return site([...at, "owner"]);
+		case "case_operation_type_condition":
+			return site([...at, "typeChoice", "condition"]);
+		case "case_operation_owner_condition":
+			return site([...at, "ownerCondition"]);
+		case "case_operation_later_owner":
+			return site([...at, "ownerAfterCreate", "value"]);
+		case "case_operation_later_owner_condition":
+			return site([...at, "ownerAfterCreate", "condition"]);
 		case "case_operation_rename":
 			return site([...at, "rename"]);
 		case "case_operation_write_value":
@@ -149,6 +159,17 @@ function moduleReadSite(
 			return site(list, ["filter"]);
 		case "search_button_display_condition":
 			return site(search, ["searchButtonDisplayCondition"]);
+		case "project_search_parameter": {
+			const projectSearch =
+				search && "projectSearch" in search ? search.projectSearch : undefined;
+			const position =
+				projectSearch?.defaults.findIndex(
+					(parameter) => parameter.uuid === ref.member.parameterUuid,
+				) ?? -1;
+			return position < 0
+				? undefined
+				: site(search, ["projectSearch", "defaults", position, "value"]);
+		}
 		case "excluded_owner_ids":
 			return site(search, ["excludedOwnerIds"]);
 		case "case_list_sort_expression": {

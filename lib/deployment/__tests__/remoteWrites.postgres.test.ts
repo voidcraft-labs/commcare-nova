@@ -12,6 +12,7 @@ import { sql } from "kysely";
 import { Client } from "pg";
 import { v7 } from "uuid";
 import { describe, expect, it } from "vitest";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { inlineWorkbookReceipts } from "@/lib/commcare/lookup/workbookReceipt";
@@ -50,6 +51,7 @@ import {
 } from "@/lib/lookup/managed";
 import { createLookupTable, getLookupTable } from "@/lib/lookup/service";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
+import { credentialWriteGrant } from "@/lib/mcp/credentialWriteGrant";
 import { handBackWhilePublishing } from "@/lib/publish/managedData";
 import { destinationOwnerDigestInTransaction } from "../destinationRowOwners";
 import { DeploymentEndedError } from "../errors";
@@ -62,6 +64,7 @@ import {
 	type AdmittedRecord,
 	admitAppCreate,
 	admitAppWrite,
+	admitLookupJsonWrite,
 	admitPlacesWrite,
 	admitWorkbookWrite,
 	type DeploymentScope,
@@ -79,6 +82,7 @@ import {
 	recordPushedResources,
 	recordRemoteResource,
 	recordWorkerLevelConfirmations,
+	settleLookupJsonWrite,
 	settleReleasedClaims,
 	settleRemoteWrites,
 } from "../store";
@@ -605,6 +609,16 @@ describe("two publishes of one HQ app", () => {
 		const evidence = await readEntryPointEvidence(birth.scope, TARGET);
 		expect(evidence.manifest).toBeNull();
 		expect(evidence.generation).not.toBe(generation);
+		await expect(
+			finishDeploymentContentWrite(
+				birth.scope,
+				TARGET,
+				generation,
+				manifest,
+				fence,
+			),
+		).resolves.toBe(false);
+		expect(await readEntryPointEvidence(birth.scope, TARGET)).toEqual(evidence);
 		expect(
 			await finishDeploymentContentWrite(
 				birth.scope,
@@ -932,6 +946,64 @@ async function localTable(tag: string) {
 		},
 	);
 }
+
+it("requires the live installation grant for a JSON lookup write to a protected deployment", async () => {
+	const birth = await born();
+	const tableId = (await localTable("facilities")).id;
+	await h
+		.db()
+		.insertInto("app_deployment_installation_profiles")
+		.values({
+			deployment_id: birth.deployment.deployment.id,
+			nova_profile_uuid: testUuid("training-profile"),
+			profile_key: "training",
+		})
+		.execute();
+	const admit = async (scopes: string[]) => {
+		const ctx = await installationCredential(h.db(), OWNER, scopes);
+		if (!ctx.grant) throw new Error("Expected a live credential.");
+		const plan = await planned(birth, tableId, ctx.grant);
+		return admitLookupJsonWrite(
+			{
+				...birth.scope,
+				requireInstallationManagement: credentialWriteGrant(
+					ctx,
+					"upload_app_to_hq",
+					["nova.hq.write", "nova.hq.import"],
+				),
+			},
+			TARGET,
+			{
+				...plan,
+				tableId,
+				expectedRevision: null,
+				entry: {
+					kind: "create-table",
+					tag: "facilities",
+					definitionDigest: createHash("sha256")
+						.update("facilities")
+						.digest("hex"),
+				},
+			},
+		);
+	};
+	const ordinaryScopes = ["nova.read", "nova.write", "nova.hq.write"];
+	await expect(admit(ordinaryScopes)).rejects.toMatchObject({
+		requiredScope: "nova.hq.import",
+	});
+	expect(
+		await h.db().selectFrom("lookup_json_operations").select("id").execute(),
+	).toEqual([]);
+	const accepted = await admit([...ordinaryScopes, "nova.hq.import"]);
+	if (accepted.kind !== "admitted")
+		throw new Error("Expected an admitted lookup write.");
+	await settleLookupJsonWrite(
+		{ projectId: PROJECT, ...TARGET, tableId },
+		accepted.operationId,
+		{ kind: "not-applied" },
+		{ writeIds: accepted.writeIds, answered: true },
+	);
+});
 
 describe("a workbook and the hand-back of a table it carries", () => {
 	it("refuses a hand-back while an admitted workbook carrying the table is open, leaving the table as it was", async () => {
@@ -1646,6 +1718,21 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 				TARGET,
 				generation,
 				null,
+				fence,
+			),
+		).resolves.toBe(false);
+		await expect(
+			finishDeploymentContentWrite(
+				birth.scope,
+				TARGET,
+				generation,
+				{
+					generation,
+					remoteAppId: HQ_APP,
+					sourceSequence: 3,
+					entries: [],
+					dependencies: [],
+				},
 				fence,
 			),
 		).rejects.toMatchObject({ code: "not_found" });

@@ -72,6 +72,13 @@ def test_every_reader_reads_a_refused_or_held_new_entry_that_names_a_value_class
     assert [key for key in classes.VALUE_CLASSES if entries[key].refused_by_hq_build()] == []
 
 
+def test_each_positive_reader_has_a_held_value_class(manifest):
+    entries = {entry.id: entry for held in manifest.entries.values() for entry in held}
+    for key in classes.POSITIVE_VALUE_CLASSES:
+        entry = entries[key]
+        assert entry.disposition == "HELD" and entry.value_class
+
+
 SOURCE_FAMILIES_FILE = Path(__file__).parent / "fixtures" / "source-families.json"
 SOURCE_FAMILIES = json.loads(SOURCE_FAMILIES_FILE.read_text(encoding="utf-8"))["families"]
 ALLOWING = ("HELD", "TARGET-OWNED", "INERT")
@@ -1062,8 +1069,12 @@ def test_a_form_the_register_action_opens_is_reached_through_the_searching_entry
         [entry] = [entry for entry in root if entry.tag == "entry" and entry.find("command").get("id") == "m1-f0"]
         return entry
 
-    assert classes._reached_without_a_query(register_entry(INLINE_QUERY)) is False
-    assert classes._reached_without_a_query(register_entry("")) is True
+    assert classes._reached_without_a_query(register_entry(INLINE_QUERY), "results:inline") is False
+    assert classes._reached_without_a_query(register_entry(""), "results:inline") is True
+    assert classes._reached_without_a_query(register_entry(INLINE_QUERY), "results:Family") is True
+    named = INLINE_QUERY.replace("results:inline", "results:Family")
+    assert classes._reached_without_a_query(register_entry(named), "results:Family") is False
+
 
 
 def test_csql_comparisons_by_what_stands_on_their_value_side(hq, manifest, core_runner):
@@ -1148,6 +1159,8 @@ class Shape:
     # How many uses of the key sit there: one, but where the expression reads the key more than once (a guard and
     # the read it guards), each read is a use and each takes the verdict.
     uses: int = 1
+    # Builds linked to the form when a positive class needs its entry frame.
+    entry_suites: tuple[bytes, ...] = ()
     # Whether the app JSON is the one HQ made (``App.authored``), which a class only Nova's reader settles there reads.
     authored: bool = False
     # Whether Nova's reader read that app (``App.read``): a corpus document's, which a class only that reader
@@ -1553,6 +1566,15 @@ def _questions():
         body="""<upload ref="/data/photo" mediatype="image/*"/>
           <upload ref="/data/report" mediatype="application/*,text/*"/><input ref="/data/note"/>""",
     )
+    data_defaults = form(
+        data="<photo> \t </photo><report>carry-forward.pdf</report><note>x</note><group><audio>later.mp3</audio></group>",
+        model="""<bind nodeset="/data/photo" type="binary"/><bind nodeset="/data/report" type="binary"/>
+          <bind nodeset="/data/group/audio" type="binary"/>""",
+        body="""<upload ref="/data/photo" mediatype="image/*"/><upload ref="/data/report" mediatype="application/*,text/*"/>
+          <input ref="/data/note"/><group ref="/data/group"><upload ref="/data/group/audio" mediatype="audio/*"/></group>""",
+    )
+    data_path = "data[1]/{http://example.org/t}"
+    root_child = "xform:model/instance/*/*"
     leaves = form(
         data=f'<q/><op vellum:role="SaveToCase">{case}<update><when/></update></case></op>',
         model="""<bind nodeset="/data/q" type="xsd:dateTime"/>
@@ -1585,7 +1607,21 @@ def _questions():
         model='<bind nodeset="/data/p" type="intent"/><bind nodeset="/data/c" type="intent"/>',
         head=f"""<odkx:intent id="p" class="{classes.PRINT_ACTION}"/>
           <odkx:intent id="c" class="org.example.CALLOUT"/>""",
-        body='<input ref="/data/p"/><input ref="/data/c"/>',
+        body='<input ref="/data/p" appearance="intent:c"/><input ref="/data/c" appearance="intent:p"/>',
+    )
+    meter_questions = form(
+        data="<old_meter/><meter/><count/>",
+        model='<bind nodeset="/data/old_meter" type="intent"/><bind nodeset="/data/meter" type="intent"/>',
+        head="""<odkx:intent id="scanner" class="org.example.MEASURE"/>
+                <odkx:intent id="meter" class="org.example.MEASURE"><response key="reading" ref="/data/count"/></odkx:intent>""",
+        body='<input ref="/data/old_meter" appearance="intent:scanner"/><input ref="/data/meter" appearance="intent:meter"/>',
+    )
+    action_links = form(
+        data="<meter/><auxiliary/><unowned/><stale/>",
+        model='<bind nodeset="/data/meter" type="intent"/>',
+        head='<odkx:intent id="meter" class="org.example.MEASURE"/><odkx:intent id="unowned" class="org.example.OLD"/>',
+        body='<input ref="/data/meter" appearance="intent:meter"/><input ref="/data/auxiliary" appearance="intent:meter"/>'
+             '<input ref="/data/unowned" appearance="intent:unowned"/><input ref="/data/stale" appearance="intent:lost"/>',
     )
     labels = form(
         data="<r/><t/>",
@@ -1661,9 +1697,23 @@ def _questions():
             refused("form", inputs("xsd:long", "xsd:int"), "jr-control:input", "body[1]/input[1]"),
             accepted("form", inputs("xsd:long", "xsd:int"), "jr-control:input", "body[1]/input[2]"),
         ),
+        "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes": (
+            refused("form", action_links, "appearance:android/intent:", "body[1]/input[3]/@appearance"),
+            accepted("form", action_links, "appearance:android/intent:", "body[1]/input[2]/@appearance"),
+        ),
+        "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form": (
+            refused("form", action_links, "appearance:android/intent:", "body[1]/input[4]/@appearance"),
+            accepted("form", action_links, "appearance:android/intent:", "body[1]/input[3]/@appearance"),
+        ),
+        "questions/android-app-callout-that-cannot-be-recreated": (
+            refused("form", meter_questions, "jr-extension:IntentExtensionParser", "head[1]/odkx:intent[1]"),
+            accepted("form", meter_questions, "jr-extension:IntentExtensionParser", "head[1]/odkx:intent[2]"),
+        ),
         "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": (
             refused("form", callouts, "jr-control:input", "body[1]/input[1]"),
             accepted("form", callouts, "jr-control:input", "body[1]/input[2]"),
+            refused("form", callouts, "appearance:android/intent:", "body[1]/input[2]/@appearance"),
+            accepted("form", callouts, "appearance:android/intent:", "body[1]/input[1]/@appearance"),
         ),
         "questions/input-readonly-true-control-attribute": (
             refused("form", labels, "jr-control:input", "body[1]/input[1]"),
@@ -1689,6 +1739,10 @@ def _questions():
             refused("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[2]/@value"),
             accepted("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[1]/@value"),
             accepted("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[3]/@value"),
+            refused("form", data_defaults, root_child, f"{data_path}report[1]"),
+            refused("form", data_defaults, "xform:model/instance//*", f"{data_path}group[1]/{{http://example.org/t}}audio[1]"),
+            accepted("form", data_defaults, root_child, f"{data_path}photo[1]"),
+            accepted("form", data_defaults, root_child, f"{data_path}note[1]"),
         ),
         "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": (
             refused("form", created, setvalue, "model[1]/setvalue[1]", readings=True),
@@ -1795,6 +1849,18 @@ def _settings_and_forms():
             refused("app", app(langs=["en", "EN-us"]), "schema:Application.langs", "/langs"),
             refused("app", app(langs=["en", "fr", "en"]), "schema:Application.langs", "/langs"),
             accepted("app", app(langs=["en", "pt-br"]), "schema:Application.langs", "/langs"),
+        ),
+        "application-and-settings/translations-generated-menu-icon-without-mapping": (
+            refused("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
+                    translations={"en": {"modules.m0.icon": "jr://file/commcare/image/missing.png"}}),
+                    translations, "/translations"),
+            accepted("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
+                     translations={"en": {"modules.m0.icon": "http://example.invalid/icon.png"}}),
+                     translations, "/translations"),
+            accepted("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
+                     multimedia_map={"jr://file/commcare/image/mapped.png": {"multimedia_id": "supplied"}},
+                     translations={"en": {"modules.m0.icon": "jr://file/commcare/image/mapped.png"}}),
+                     translations, "/translations"),
         ),
         "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
             refused("app", app(translations={"en": {" home.start": "Begin"}}), translations, "/translations"),
@@ -3377,6 +3443,20 @@ def _search_and_menus():
     def plain(**module):
         return _module(unique_id=module.pop("unique_id", "p"), **module)
 
+    def icon_action(endpoint="visit", *, automatic=True, requires="case"):
+        target = {**_form_json(requires), "session_endpoint_id": "visit"}
+        label = "Pragma-Submit-Automatically" if automatic else "survey-label"
+        return _with_forms(
+            columns_app(
+                _column(fmt="clickable-icon", endpoint_action_id=endpoint),
+                forms=[target],
+            ),
+            f=_form(
+                data="<done />",
+                body=f'<trigger ref="/data/done"><label ref="jr:itext(&apos;{label}&apos;)" /></trigger>',
+            ),
+        )
+
     # A form that returns to its own menu after it is sent.
     returns_to_its_menu = {**_form_json(), "post_form_workflow": "module"}
     # A form whose one after-submit link opens the menu ``p``.
@@ -3468,6 +3548,81 @@ def _search_and_menus():
                 "schema:CaseSearchCustomSortProperty.property_name",
                 f"{config}/custom_sort_properties/1/property_name",
             ),
+        ),
+        "case-search/a-related-record-property-only-devices-hold": (
+            refused(
+                "app",
+                search(_search_module(custom_related_case_property="location_id")),
+                "schema:CaseSearch.custom_related_case_property",
+                f"{config}/custom_related_case_property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(custom_related_case_property="hq_user_id")),
+                "schema:CaseSearch.custom_related_case_property",
+                f"{config}/custom_related_case_property",
+            ),
+            refused(
+                "app",
+                search(_search_module(default_properties=[
+                    _default("x_commcare_custom_related_case_property", "'location_id'")
+                ])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[
+                    _default("x_commcare_custom_related_case_property", "'hq_user_id'")
+                ])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+        ),
+        "case-search/a-server-order-naming-a-property-only-devices-hold": (
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'+location_id:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'+hq_user_id:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            refused(
+                "app",
+                search(_search_module(
+                    default_properties=[_default("dob", "'x'")],
+                    custom_sort_properties=[
+                        {"doc_type": "CaseSearchCustomSortProperty", "property_name": "location_id", "sort_type": "exact"}
+                    ],
+                )),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+            accepted(
+                "app",
+                search(_search_module(
+                    default_properties=[_default("dob", "'x'")],
+                    custom_sort_properties=[
+                        {"doc_type": "CaseSearchCustomSortProperty", "property_name": "hq_user_id", "sort_type": "exact"}
+                    ],
+                )),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+        ),
+        "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": (
+            refused("app", search(_search_module(instance_name="Mycasedb2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
+            accepted("app", search(_search_module(instance_name="MyCaseDB2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
+        ),
+        "case-search/results-name-outside-the-search-editor": (
+            refused("app", search(_search_module(instance_name="2Search")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
+            refused("app", search(_search_module(instance_name="Search-name")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
+            accepted("app", search(_search_module(instance_name="Recherche_été2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
         ),
         "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": (
             refused(
@@ -3759,6 +3914,78 @@ def _search_and_menus():
                 f"{prompts}/hidden",
             ),
         ),
+        "case-search/additional-record-type-without-menu": (
+            refused(
+                "app",
+                search(_search_module(additional_case_types=["patient", "household"])),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(additional_case_types=["patient", "household"]),
+                    _module(case_type="household"),
+                ),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+            accepted(
+                "app",
+                search(_search_module(additional_case_types=["patient"])),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+        ),
+        "case-search/search-group-layout-unreadable": (
+            refused(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="unknown"),
+                ])),
+                "schema:CaseSearchProperty.group_key",
+                f"{config}/properties/1/group_key",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.group_key",
+                f"{config}/properties/1/group_key",
+            ),
+        ),
+        "case-search/search-group-heading-unreadable": (
+            refused(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": ""}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"fr": "Groupe"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
+            ),
+        ),
         "case-search/allow-blank-value-on-a-hidden-prompt": (
             refused(
                 "app",
@@ -3873,6 +4100,39 @@ def _search_and_menus():
             refused("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[1]/@input"),
             accepted("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[2]/@input"),
         ),
+        "case-search/address-receiver-matching-a-picker-without-a-component": tuple(
+            make(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("village", receiver_expression=receiver),
+                    _prompt("home", appearance=appearance, exclude=True),
+                ])),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{prompts}/receiver_expression",
+            )
+            for make, receiver, appearance in (
+                (refused, "home", "address"),
+                (accepted, "home||city", "address"),
+                (accepted, "home-region", "address"),
+                (accepted, "home", None),
+            )
+        ),
+        "case-search/address-receiver-single-choice-lookup-position": tuple(
+            make(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("district", input_=input_, receiver_expression=receiver),
+                    _prompt("home", appearance="address", exclude=True),
+                ])),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{prompts}/receiver_expression",
+            )
+            for make, input_, receiver in (
+                (refused, "select1", "home-region"),
+                (accepted, "select", "home-region"),
+                (accepted, "select1", "away-region"),
+            )
+        ),
         "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": tuple(
             make(
                 "app",
@@ -3897,35 +4157,35 @@ def _search_and_menus():
                 ),
             )
         ),
+        "case-search/address-receiver-shared-with-a-choice-field": tuple(
+            make(
+                "app",
+                search(_search_module(properties=fields)),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{config}/properties/1/receiver_expression",
+            )
+            for make, fields in (
+                (refused, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("district", receiver_expression="home-city", input_="select",
+                            itemset={"doc_type": "Itemset", "nodeset": "instance('places')/rows/place"}),
+                ]),
+                (accepted, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("other_town", receiver_expression="home-city"),
+                ]),
+                (accepted, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("district", receiver_expression="home-region", input_="select",
+                            itemset={"doc_type": "Itemset", "nodeset": "instance('places')/rows/place"}),
+                ]),
+            )
+        ),
         # HQ's build reads these three only on a search the menu offers; on one it does not, each is part of the
         # search configuration HQ stores and builds nothing of.
-        "case-search/case-search-endpoint-id": (
-            refused(
-                "app",
-                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id="visits")),
-                "schema:CaseSearch.case_search_endpoint_id",
-                f"{config}/case_search_endpoint_id",
-            ),
-            accepted(
-                "app",
-                search(_search_module(case_search_endpoint_id="visits")),
-                "schema:CaseSearch.case_search_endpoint_id",
-                f"{config}/case_search_endpoint_id",
-            ),
-            # a default filter is the endpoint's parameter beside an id, and its own key's with none
-            refused(
-                "app",
-                search(_search_module(default_properties=[_default("dob", "'x'")], case_search_endpoint_id="visits")),
-                "schema:DefaultCaseSearchProperty.property",
-                f"{config}/default_properties/0/property",
-            ),
-            accepted(
-                "app",
-                search(_search_module(default_properties=[_default("dob", "'x'")])),
-                "schema:DefaultCaseSearchProperty.property",
-                f"{config}/default_properties/0/property",
-            ),
-        ),
         "case-search/search-button-label-any-other-value": (
             refused(
                 "app",
@@ -4226,9 +4486,13 @@ def _search_and_menus():
                 "format:clickable-icon",
                 f"{short}/columns/0/format",
             ),
-            accepted(
-                "app", columns_app(_column(fmt="clickable-icon")), "format:clickable-icon", f"{short}/columns/0/format"
+            refused(
+                "app",
+                columns_app(_column(fmt="clickable-icon", enum=icons)),
+                "schema:DetailColumn.enum",
+                f"{short}/columns/0/enum",
             ),
+            accepted("app", icon_action(), "format:clickable-icon", f"{short}/columns/0/format"),
             # its icon mapping is the column's, never the column editor's extras on another format
             refused(
                 "app",
@@ -4267,6 +4531,16 @@ def _search_and_menus():
                 "schema:DetailColumn.enum",
                 f"{short}/columns/0/enum",
             ),
+        ),
+        "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint": (
+            refused("app", icon_action("missing"), "format:clickable-icon", f"{short}/columns/0/format"),
+            refused(
+                "app", icon_action(automatic=False), "format:clickable-icon", f"{short}/columns/0/format"
+            ),
+            refused(
+                "app", icon_action(requires="none"), "format:clickable-icon", f"{short}/columns/0/format"
+            ),
+            accepted("app", icon_action(), "format:clickable-icon", f"{short}/columns/0/format"),
         ),
         "menus-and-case-lists/21p-translatable-enum-key-outside-a-za-z0-9": (
             refused(
@@ -4383,6 +4657,30 @@ def _search_and_menus():
             ),
         ),
         "menus-and-case-lists/more-than-one-address-column-or-more-than-one-image-or-geo": (
+            refused(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "address")),
+                "schema:DetailColumn.format",
+                f"{short}/columns/0/format",
+            ),
+            refused(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "address")),
+                "format:address",
+                f"{short}/columns/1/format",
+            ),
+            accepted(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "address"), doc_type="AdvancedModule"),
+                "format:address",
+                f"{short}/columns/1/format",
+            ),
+            accepted(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "plain")),
+                "format:address",
+                f"{short}/columns/0/format",
+            ),
             refused(
                 "app",
                 columns_app(_column("a", "image"), _column("b", "image")),
@@ -4766,6 +5064,30 @@ def _search_and_menus():
                 tabbed(tab(0, has_nodeset=False, nodeset_case_type="visit")),
                 "schema:DetailTab.nodeset_case_type",
                 f"{long_}/tabs/0/nodeset_case_type",
+            ),
+        ),
+        "menus-and-case-lists/case-tile-group-header-covers-all-cells": (
+            refused(
+                "app",
+                columns_app(_column(grid_x=0, grid_y=0, width=12, height=1), short={
+                    "case_tile_template": "custom",
+                    "case_tile_group": {"index_identifier": "my-group", "header_rows": 2},
+                }),
+                "schema:Detail.case_tile_group",
+                f"{short}/case_tile_group",
+            ),
+            accepted(
+                "app",
+                columns_app(
+                    _column(grid_x=0, grid_y=0, width=12, height=1),
+                    _column("notes", grid_x=0, grid_y=1, width=12, height=1),
+                    short={
+                        "case_tile_template": "custom",
+                        "case_tile_group": {"index_identifier": "my-group", "header_rows": 1},
+                    },
+                ),
+                "schema:Detail.case_tile_group",
+                f"{short}/case_tile_group",
             ),
         ),
         "menus-and-case-lists/custom-tile-cell-outside-the-grid": (
@@ -5883,6 +6205,40 @@ CASE_PROPERTY_COLLISION_FORM = _form(
 )
 
 
+def _save_to_case_effects():
+    role = "{http://example.org/t}op[1]/@vellum:role"
+    create = "<create><owner_id/></create>"
+
+    def with_link(name, actions):
+        return _form(
+            data=(
+                f'<op vellum:role="SaveToCase" vellum:case_type="patient">'
+                f'<case xmlns="{CASE_NS}" case_id="" date_modified="" user_id="">{actions}'
+                f'<index><{name} case_type="household" relationship="child"/></index></case></op>'
+            ),
+            model=f'<bind nodeset="/data/op/case/index/{name}" calculate="\'household-01\'"/>',
+        )
+
+    return {
+        "questions/savetocase-link-name-changes-actions-on-save": [
+            refused("form", with_link("close", create), ROLE, role),
+            refused("form", with_link("create", "<update/>"), ROLE, role),
+            accepted("form", with_link("close", create + "<close/>"), ROLE, role),
+            accepted("form", with_link("create", create), ROLE, role),
+        ],
+        "questions/savetocase-link-name-outside-nova-s-identifier-grammar": [
+            refused("form", with_link("parént", create), ROLE, role),
+            refused("form", with_link("亲属", create), ROLE, role),
+            accepted("form", with_link("par.ent", create), ROLE, role),
+            accepted("form", with_link("par-ent", create), ROLE, role),
+        ],
+        "questions/savetocase-link-bind-lost-on-save": [
+            refused("form", with_link("par.ent", create), ROLE, role),
+            accepted("form", with_link("par-ent", create), ROLE, role),
+        ],
+    }
+
+
 def _data_binds_and_itext():
     """The shapes of the classes read on a form's data nodes, binds, model iterations, itext and appearances, and of
     the keys a class does not declare."""
@@ -6036,6 +6392,22 @@ def _data_binds_and_itext():
             <label ref="jr:itext(name)"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
             <label ref="name"/><value ref="id"/></itemset></select1>""",
+    )
+    positioned_itemsets = form(
+        data="<s/><t/>",
+        model='<instance id="items" src="jr://fixture/item-list:items"/>',
+        body="".join(
+            f'<{select} ref="/data/t"><itemset nodeset="instance(&apos;items&apos;)/items_list/items[{condition}]">'
+            f'<label ref="name"/><value ref="id"/></itemset></{select}>'
+            for select, condition in (
+                ("select1", "position(3) &lt; 3"),
+                ("select1", "position() &lt; 3"),
+                ("select1", "position(/data/s) &lt; 3"),
+                ("select1", "2"),
+                ("select1", "false() and position(3) &lt; 3"),
+                ("select", "position((-3))"),
+            )
+        ),
     )
     # A lookup choice whose label or value reads two steps down the row (the first select), which the form editor's
     # lookup widget cannot keep, beside one that reads a field and an attribute of the row (the second).
@@ -6503,6 +6875,12 @@ def _data_binds_and_itext():
                 "bind[1]/@readonly",
             ),
             accepted("form", _protected_form(), "xform:model/bind@readonly", "bind[2]/@readonly", readings=True),
+        ),
+        "questions/itemset-position-called-on-a-number": (
+            refused("form", positioned_itemsets, "xform:select1/itemset@nodeset", "select1[1]/itemset[1]/@nodeset"),
+            refused("form", positioned_itemsets, "xform:select/itemset@nodeset", "select[1]/itemset[1]/@nodeset"),
+            *(accepted("form", positioned_itemsets, "xform:select1/itemset@nodeset", f"select1[{i}]/itemset[1]/@nodeset")
+              for i in (2, 3, 4, 5)),
         ),
         "questions/itemset-label-jr-itext-field": (
             refused(
@@ -6974,7 +7352,31 @@ def _label_texts():
             <text id="q2"><value>B</value></text></translation></itext>""",
         body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
     )
+    video = _form(
+        data="<q/><r/><s/><t/>",
+        model="""<itext><translation lang="en" default="">
+          <text id="blank"><value/><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          <text id="ordinary"><value>Help</value><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          <text id="caption"><value/><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          <text id="markdown"><value/><value form="video-inline">jr://file/commcare/example.mp4</value>
+            <value form="markdown">Real help</value></text>
+          <text id="ordinary-video"><value/><value form="video-inline">jr://file/commcare/example.mp4</value>
+            <value form="video">jr://file/commcare/example.mp4</value></text>
+          </translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('caption')"/><help ref="jr:itext('blank')"/></input>
+          <input ref="/data/r"><help ref="jr:itext('ordinary')"/></input>
+          <input ref="/data/s"><help ref="jr:itext('markdown')"/></input>
+          <input ref="/data/t"><help ref="jr:itext('ordinary-video')"/></input>""",
+    )
+    inline = "itext-form:android/video-inline"
     return {
+        "questions/video-inline-as-the-only-content-of-a-help-text": (
+            refused("form", video, inline, "translation[1]/text[1]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[2]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[3]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[4]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[5]/value[2]/@form"),
+        ),
         "questions/long-qrcode-or-tts-form-missing-in-default-language": (
             refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),
             refused("form", texts, "itext-form:android/tts", "translation[2]/text[1]/value[3]/@form"),
@@ -7048,18 +7450,63 @@ def _held_new():
         item = {"doc_type": "MappingItem", "key": key, "value": {"en": "A"}}
         return columns(_column(fmt=fmt, enum=[item]))
 
-    profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": ["fra"]}})
+    profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": []}})
+    choices = _form(
+        data="<s/>",
+        body="""<select1 ref="/data/s"><item><value>a'b"c</value></item><item><value>a'b</value></item></select1>""",
+    )
     named = _form(data="<q/>").replace(b"<data ", b'<visit uiVersion="1" ').replace(b"</data>", b"</visit>")
+    def owner_form(create, leaf, case_id, *, case_type="household"):
+        start = "<create><owner_id/></create>" if create and leaf == "create" else (
+            "<create><case_type/></create>" if create else ""
+        )
+        update = "<update><owner_id/></update>" if leaf == "update" else ""
+        return _form(
+            data=f'<q/><change vellum:role="SaveToCase" vellum:case_type="{case_type}">{case}{start}{update}</case></change>',
+            model=f'<bind nodeset="/data/change/case/{leaf}/owner_id" relevant="/data/q &gt; 5" calculate="/data/q"/>'
+                  + (f'<setvalue event="xforms-ready" ref="/data/change/case/@case_id" value="{case_id}"/>'
+                     if create else f'<bind nodeset="/data/change/case/@case_id" calculate="{case_id}"/>'),
+        )
+
+    alias = owner_form(True, "create", "'household-01'")
+    fresh = owner_form(True, "create", "uuid()")
+    update_owner = owner_form(False, "update", "'household-01'")
+    create_owner_update = owner_form(True, "update", "uuid()")
+    worker_owner = owner_form(False, "update", "'worker-01'", case_type="commcare-user")
+    owner_key, owner_site = "xform:model/bind@relevant", "bind[1]/@relevant"
     return {
+        "questions/savetocase-owner-condition-on-an-aliased-create": (
+            refused("form", alias, owner_key, owner_site),
+            accepted("form", fresh, owner_key, owner_site),
+            accepted("form", update_owner, owner_key, owner_site),
+        ),
+        "questions/savetocase-update-owner-condition": (
+            refused("form", create_owner_update, owner_key, owner_site),
+            refused("form", worker_owner, owner_key, owner_site),
+            accepted("form", fresh, owner_key, owner_site),
+            accepted("form", update_owner, owner_key, owner_site),
+        ),
+        "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": (
+            refused("app", own_update("n名字"), update_map, updates),
+            accepted("app", own_update("n_name"), update_map, updates),
+            accepted("app", own_update("estado_é"), update_map, updates),
+            accepted("app", own_update("aⅣ"), update_map, updates),
+            accepted("app", own_update("note½"), update_map, updates),
+            accepted("app", child_update("n名字"), "schema:Form.actions", "/modules/0/forms/0/actions"),
+        ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             refused("app", own_update("größe"), update_map, updates),
             refused("app", child_update("größe"), child_map, children),
             accepted("app", own_update("size"), update_map, updates),
-            # ``ª`` is a letter to HQ's grammar and no name character to Core: HQ's build refuses it (the bar's).
+            refused("app", own_update("estado_é"), update_map, updates),
+            refused("app", own_update("aⅣ"), update_map, updates),
+            accepted("app", own_update("n名字"), update_map, updates),
+            # The case update's XML name is outside the held value class.
             accepted("app", own_update("aª"), update_map, updates),
         ),
         "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
-            refused("app", opened("my-parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("my.parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("my-parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my_parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             # A load's index is another class's.
             accepted("app", load_indexed("my-parent"), reference, f"{loads}/1/case_index/reference_id"),
@@ -7080,6 +7527,14 @@ def _held_new():
               for name in ("instance", "bind", "parsererror")),
             *(accepted("form", named.replace(b"visit", name.encode()), "xform:model/instance/*", f"instance[1]/{data}{name}[1]")
               for name in ("case", "registration", "Bind")),
+        ),
+        "menus-and-case-lists/detail-max-select-value-above-2147483647": (
+            refused("app", columns(multi_select=True, max_select_value=2_147_483_648),
+                    "schema:Detail.max_select_value", f"{short}/max_select_value"),
+            accepted("app", columns(multi_select=True, max_select_value=2_147_483_647),
+                     "schema:Detail.max_select_value", f"{short}/max_select_value"),
+            accepted("app", columns(multi_select=False, max_select_value=2_147_483_648),
+                     "schema:Detail.max_select_value", f"{short}/max_select_value"),
         ),
         "menus-and-case-lists/detail-max-select-value-above-100": (
             refused(
@@ -7155,20 +7610,20 @@ def _held_new():
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(
                 "app",
-                tile("my-group"),
+                tile("-my-group"),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
             accepted(
                 "app",
-                tile("my_group"),
+                tile("my-group"),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
             # A list with no custom tile groups nothing.
             accepted(
                 "app",
-                tile("my-group", template=None),
+                tile("-my-group", template=None),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
@@ -7183,9 +7638,10 @@ def _held_new():
                 "app", columns(_column(field="#owner_name")), "schema:DetailColumn.field", f"{short}/columns/0/field"
             ),
         ),
-        "application-and-settings/build-profiles-non-empty": (
+        "application-and-settings/build-profiles-invalid-language-subset": (
             refused("app", profiled, "schema:Application.build_profiles", "/build_profiles"),
             refused("app", profiled, "schema:BuildProfile.name", "/build_profiles/french/name"),
+            accepted("app", _app([], build_profiles={"field": {"doc_type":"BuildProfile","name":"Field","langs":["en"]}}), "schema:Application.build_profiles", "/build_profiles"),
         ),
     }
 
@@ -7773,13 +8229,126 @@ def _connect_activities():
     }
 
 
+def _case_list_lookup_shapes():
+    valid = {
+        "lookup_enabled": True,
+        "lookup_action": "org.example.SCAN",
+        "lookup_name": "Scan a card",
+        "lookup_extras": [{"key": "mode", "value": "concat('open', ' visits')"}],
+        "lookup_responses": [{"key": "primary"}, {"key": "fallback"}],
+    }
+
+    def use(shape, key, *, detail="short", **changes):
+        app = _app([_detail_module(**{detail: {**valid, **changes}})])
+        return shape("app", app, f"schema:Detail.{key}", f"/case_details/{detail}/{key}")
+
+    dynamic = [{"key": "mode", "value": "properties/mode"}]
+    return {
+        "menus-and-case-lists/callout-with-no-extras-or-no-responses": (
+            use(refused, "lookup_extras", lookup_responses=[]),
+            use(accepted, "lookup_extras"),
+        ),
+        "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": (
+            use(refused, "lookup_action", detail="long"),
+            use(accepted, "lookup_action"),
+        ),
+        "menus-and-case-lists/lookup-enabled-lookup-action": (
+            use(refused, "lookup_action", lookup_extras=dynamic),
+            use(refused, "lookup_action", lookup_extras=[{"key": "mode", "value": "1 + 2"}]),
+            use(refused, "lookup_action", lookup_responses=[{"key": "repeat"}, {"key": "repeat"}]),
+            use(accepted, "lookup_action"),
+            use(accepted, "lookup_action", lookup_enabled=False, lookup_extras=dynamic),
+        ),
+        "menus-and-case-lists/lookup-extra-relative-without-case-context": (
+            use(refused, "lookup_extras", lookup_extras=[{"key": "mode", "value": "scan"}]),
+            use(accepted, "lookup_extras", lookup_extras=dynamic),
+            use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "'scan'"}]),
+        ),
+        "menus-and-case-lists/lookup-extras-key-value": (
+            use(refused, "lookup_extras", lookup_extras=dynamic),
+            use(accepted, "lookup_extras"),
+            use(accepted, "lookup_extras", lookup_extras=[
+                {"key": "worker", "value": "instance('commcaresession')/session/context/username"},
+            ]),
+            use(refused, "lookup_extras", lookup_extras=[
+                {"key": "worker", "value": "instance('commcaresession')/session/context/@username"},
+            ]),
+        ),
+        "menus-and-case-lists/lookup-case-id-result-without-a-header-map": (
+            use(refused, "lookup_display_results", lookup_field_template="@case_id",
+                lookup_field_header={}, lookup_display_results=True),
+            use(accepted, "lookup_display_results", lookup_field_template="@case_id",
+                lookup_field_header={"en": ""}, lookup_display_results=True),
+            use(accepted, "lookup_display_results", lookup_field_template="external_id",
+                lookup_field_header={}, lookup_display_results=True),
+            use(accepted, "lookup_display_results", lookup_field_template="@case_id",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
+        ),
+        "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
+            use(accepted, "lookup_field_template", lookup_field_template="scan_id",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
+            use(refused, "lookup_field_template", lookup_field_template="concat(scan_id, '')",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
+            use(refused, "lookup_field_template", lookup_field_template="external_id",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
+            use(refused, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=True),
+            use(accepted, "lookup_field_template", lookup_field_template="@case_id",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
+            use(accepted, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=False),
+        ),
+    }
+
+
+def _lookup_count_shapes():
+    key = "session-path:session/data/fingerprintquery"
+    path = "instance('commcaresession')/session/data/fingerprintquery"
+    raw = _form(data="<count/>", model=f'<bind nodeset="/data/count" calculate="{path}"/>')
+    guarded = _form(data="<count/>", model=(
+        f'<bind nodeset="/data/count" calculate="if(count({path}) = 1, number({path}[1]), &apos;&apos;)"/>'
+    ))
+    unindexed_guard = _form(data="<count/>", model=(
+        f'<bind nodeset="/data/count" calculate="if(count({path}) = 1, number({path}), &apos;&apos;)"/>'
+    ))
+    wrong_guard = _form(data="<count/>", model=(
+        f'<bind nodeset="/data/count" calculate="if(count({path}) &gt; 0, number({path}[1]), &apos;&apos;)"/>'
+    ))
+    lookup = '<detail id="visits"><lookup action="org.example.LOOKUP"/></detail>'
+    select = '<datum id="case_id" nodeset="case" value="./@case_id" detail-select="visits"/>'
+
+    def suite(*selections):
+        return (
+            f'<suite version="1">{lookup}<entry><form>http://example.org/t</form>'
+            f'<session>{"".join(selections)}</session></entry></suite>'
+        ).encode()
+
+    site = "bind[1]/@calculate"
+    return {
+        "expressions-and-data/companion-lookup-count": (
+            accepted("form", raw, key, site, readings=True),
+            accepted("form", wrong_guard, key, site, readings=True, uses=2),
+            unsettled("form", guarded, key, site, readings=True, uses=2),
+            accepted("form", guarded, key, site, readings=True, uses=2,
+                     entry_suites=(suite(select.replace("case_id", "parent_id"), select),)),
+            refused("form", guarded, key, site, readings=True, uses=2,
+                    entry_suites=(suite(select),)),
+            refused("form", unindexed_guard, key, site, readings=True, uses=2,
+                    entry_suites=(suite(select),)),
+            accepted("form", unindexed_guard, key, site, readings=True, uses=2,
+                     entry_suites=(suite(select.replace("case_id", "parent_id"), select),)),
+        ),
+    }
+
+
 SHAPES = {
+    **_lookup_count_shapes(),
+    **_case_list_lookup_shapes(),
     **_connect_activities(),
     **_questions(),
     **_settings_and_forms(),
     **_advanced_actions(),
     **_search_and_menus(),
     **_data_binds_and_itext(),
+    **_save_to_case_effects(),
     **_localized_media(),
     **_per_rows(),
     **_label_texts(),
@@ -7820,9 +8389,6 @@ EVERY_USE_TAKEN = {
     "menus-and-case-lists/module-with-is-training-module-true-training-menu-root-training": (
         "is_training_module is a use only where it is true, which is the class; a suite's menu root it does not read"
     ),
-    "application-and-settings/build-profiles-non-empty": (
-        "an empty build_profiles is HQ's default and no use, and every use of the keys is a profile or its part"
-    ),
     "forms-and-case-writes/form-type-other-than-the-form-s-own-kind": (
         "form_type is a use only where it is not its class's default, the form's own kind, so every use is another"
     ),
@@ -7835,7 +8401,7 @@ def test_every_reader_has_a_refused_shape_and_an_accepted_one_beside_it():
     """Every reader the registry holds has its shapes here, and every set of shapes a reader: one the reader places in
     its class and one beside it that it places outside (or, where the export cannot settle the class, one it leaves
     open), so a reader that places every use outside its class, or every use inside it, fails."""
-    assert sorted(set(classes.VALUE_CLASSES) ^ set(SHAPES)) == []
+    assert sorted(set(classes.VALUE_CLASSES | classes.POSITIVE_VALUE_CLASSES) ^ set(SHAPES)) == []
     unconsulted = {entry_id for entry_id, shapes in SHAPES.items() if not all(shape.named for shape in shapes)}
     assert unconsulted == set(UNCONSULTED)
     for entry_id, shapes in SHAPES.items():
@@ -7865,6 +8431,8 @@ def _shape_uses(shape, manifest, readings=None):
     for document in found.documents:
         if isinstance(document, (classes.App, classes.Form, classes.Runtime)):
             document.case_types = shape.case_types
+        if isinstance(document, classes.Form) and shape.entry_suites:
+            document.entry_suites = tuple(etree.fromstring(suite) for suite in shape.entry_suites)
     if readings is not None:
         manifest_usage.read_observed(found, manifest, readings)
     return found
@@ -7882,7 +8450,7 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
         # A key the entry should name and does not is a gap listed in UNCONSULTED; one it names now moves its shape.
         assert named is shape.named, f"{entry_id} {'does not name' if shape.named else 'now names'} {shape.key}"
         for use in uses:
-            verdict = classes.VALUE_CLASSES[entry_id](use, manifest)
+            verdict = manifest.readers[entry_id](use, manifest)
             assert verdict is shape.verdict, f"{entry_id} reads {shape.key} at {shape.where} as {verdict}"
             if not named:
                 continue
@@ -7890,6 +8458,14 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
             kind, held = manifest_usage.standing(manifest, use)
             if shape.verdict and entry.disposition == "HELD-NEW":
                 assert kind == manifest_usage.HELD_NEW and entry in held, f"{entry_id} stands {kind} at {shape.where}"
+            elif entry_id in classes.POSITIVE_VALUE_CLASSES:
+                expected = {
+                    True: manifest_usage.HELD,
+                    False: manifest_usage.HELD_NEW,
+                    None: manifest_usage.UNDECIDED,
+                }
+                assert kind == expected[shape.verdict], f"{entry_id} stands {kind} at {shape.where}"
+                assert (entry in held) == (shape.verdict is not False)
             elif shape.verdict:
                 refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
                 assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
@@ -7902,6 +8478,53 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
 )
 def test_a_reader_places_each_shape_of_its_class(entry_id, manifest):
     _holds_its_shapes(entry_id, manifest)
+
+
+@pytest.mark.parametrize(("name", "widget", "held_entry"), [
+    ("parent/village", None, "case-search/prompt-key-matching-a-direct-parent-property"),
+    ("parent/parent/village", None, "case-search/prompt-key-matching-two-parent-links"),
+    ("parent/parent/parent/village", None, None),
+    ("host/parent/village", None, None),
+    ("parent/location_id", None, None),
+    ("parent/village", "date", None),
+    ("parent/parent/village", "date", None),
+])
+def test_retained_search_matches_only_proven_parent_text_paths(manifest, name, widget, held_entry):
+    from proof.checks import parity
+
+    assert parity.PARENT_PROMPT_SHAPES.keys().isdisjoint(manifest.readers)
+    source = _app([_search_module(properties=[_prompt(name=name, label={"en": "Village"}, input_=widget)])])
+    key = "schema:CaseSearchProperty.name"
+    pointer = "/modules/0/search_config/properties/0/name"
+    shape = accepted("app", source, key, pointer)
+    found = _shape_uses(shape, manifest)
+    use, = (one for one in found.uses if one.key == key and one.where.endswith(pointer))
+    matches = [entry for entry, classify in parity.PARENT_PROMPT_SHAPES.items() if classify(use, manifest)]
+    assert matches == ([held_entry] if held_entry else [])
+
+
+def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):
+    from proof.checks import parity
+
+    entry = "questions/itemset-filter-outside-predicate"
+    assert entry not in manifest.readers
+    source = _form(
+        data="<choice/>",
+        model='<instance id="items" src="jr://fixture/item-list:items"/>',
+        body="""
+          <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[2]">
+            <label ref="name"/><value ref="id"/></itemset></select1>
+          <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[last() - 1]">
+            <label ref="name"/><value ref="id"/></itemset></select1>
+        """,
+    )
+    shape = refused("form", source, "xform:select1/itemset@nodeset", "select1[1]/itemset[1]/@nodeset")
+    found = _shape_uses(shape, manifest)
+    assert list(parity._forms_variant_uses(found, manifest, set())) == []
+    decided, = parity._forms_variant_uses(found, manifest, {entry})
+    assert decided.standing == manifest_usage.HELD_NEW
+    assert [one.id for one in decided.entries] == [entry]
+    assert decided.use.where.endswith(shape.where)
 
 
 @pytest.fixture(scope="module")
@@ -8067,7 +8690,6 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/44p-hq-translation-strategy-select-known",
         "application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts",
         "application-and-settings/non-empty-custom-assertions-app",
-        "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
         "expressions-and-data/commtrack-products-commtrack-programs",
         "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
@@ -8084,7 +8706,6 @@ KNOWN_GAPS = frozenset(
         "forms-and-case-writes/unknown-form-doc-type",
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
         "menus-and-case-lists/attachment-name-with-any-other-format",
-        "menus-and-case-lists/callout-with-no-extras-or-no-responses",
         "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
         "menus-and-case-lists/detail-custom-variables-dict-non-empty",
         "menus-and-case-lists/detail-custom-xml-non-empty",
@@ -8092,7 +8713,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/fixture-select-active-true",
         "menus-and-case-lists/indicator-any-other-set-name",
         "menus-and-case-lists/indicator-call-center-name",
-        "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not",
         "menus-and-case-lists/module-lazy-load-case-list-fields-true",
         "menus-and-case-lists/parent-select-relationship-null-other",
         "menus-and-case-lists/report-context-tile-true",
@@ -8106,8 +8726,6 @@ KNOWN_GAPS = frozenset(
         "questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none",
         "questions/a-savetocase-link-name-longer-than-commcare-hq-stores",
         "questions/bare-repeat-with-no-group-wrapper",
-        "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes",
-        "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form",
         "questions/send-submission",
         "questions/unknown-body-control-vellum-readonly-e-g-range",
     }

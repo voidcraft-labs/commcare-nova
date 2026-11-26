@@ -115,6 +115,7 @@ export type {
 	CaseOperationProgram,
 	CreatedChildCaseReceipt,
 	EnvelopeCaseOperation,
+	OpeningReadSet,
 	OperationEffectRecord,
 	OperationIterationBindings,
 	OperationScopeIterations,

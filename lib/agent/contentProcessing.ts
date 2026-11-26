@@ -94,8 +94,8 @@ export type PreparedFlatField = Omit<FlatField, "optionsSource"> & {
  * domain state. This is the sole `optionUuid` -> `uuid` and `plain_label` ->
  * `plainLabel` bridge: callers invoke it once before collision/admission
  * checks and carry the returned object through mutation assembly unchanged.
- * A replacement keeps a prior option's identity and media, but its
- * `plainLabel` is what the input states.
+ * A replacement keeps a matched option's identity and media. Omitted
+ * extended wording keeps the prior wording. A null value clears it.
  */
 export function prepareToolOptionsSource(
 	source: ProjectedOptionsSource,
@@ -105,21 +105,26 @@ export function prepareToolOptionsSource(
 	const existing = previous?.kind === "inline" ? previous.options : [];
 	return {
 		kind: "inline",
-		options: source.options.map(({ optionUuid, plain_label, ...option }) => {
-			const matches = existing.filter((prior) =>
-				optionUuid === undefined
-					? prior.value === option.value
-					: prior.uuid === optionUuid,
-			);
-			const prior = matches.length === 1 ? matches[0] : undefined;
-			return {
-				...option,
-				uuid:
-					optionUuid ?? prior?.uuid ?? uuidSchema.parse(crypto.randomUUID()),
-				...(prior?.media && { media: prior.media }),
-				...(plain_label === true && { plainLabel: true as const }),
-			};
-		}),
+		options: source.options.map(
+			({ optionUuid, plain_label, extended_text, ...option }) => {
+				const matches = existing.filter((prior) =>
+					optionUuid === undefined
+						? prior.value === option.value
+						: prior.uuid === optionUuid,
+				);
+				const prior = matches.length === 1 ? matches[0] : undefined;
+				const extended =
+					extended_text === undefined ? prior?.extended_text : extended_text;
+				return {
+					...option,
+					uuid:
+						optionUuid ?? prior?.uuid ?? uuidSchema.parse(crypto.randomUUID()),
+					...(prior?.media && { media: prior.media }),
+					...(extended != null && { extended_text: extended }),
+					...(plain_label === true && { plainLabel: true as const }),
+				};
+			},
+		),
 	};
 }
 
@@ -363,6 +368,11 @@ export function flatFieldToField(
 		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
 		...(q.help !== undefined && q.help !== null && { help: q.help }),
 		...(q.extended_text != null && { extended_text: q.extended_text }),
+		...(q.extended_hint != null && { extended_hint: q.extended_hint }),
+		...(q.extended_help != null && { extended_help: q.extended_help }),
+		...(q.extended_validate_msg != null && {
+			extended_validate_msg: q.extended_validate_msg,
+		}),
 		...(q.qr_code != null && { qr_code: q.qr_code }),
 		...(q.spoken_text != null && { spoken_text: q.spoken_text }),
 		...(q.plain_help === true && { plainHelp: true }),
@@ -389,6 +399,7 @@ export function flatFieldToField(
 		...(q.repeatsPerRow != null && { repeatsPerRow: q.repeatsPerRow }),
 		...(q.textAlignment != null && { textAlignment: q.textAlignment }),
 		...(q.webSignature != null && { webSignature: q.webSignature }),
+		...(q.androidApp != null && { androidApp: q.androidApp }),
 		...(q.keypad != null && { keypad: q.keypad }),
 		...(q.choiceLayout != null && { choiceLayout: q.choiceLayout }),
 		...(q.answerType != null && { answerType: q.answerType }),

@@ -68,6 +68,11 @@ export function newCaseDatumCauseWords(
 					reason: `"${moduleName}" lets workers choose several cases, and CommCare HQ can hand a new case on only from a menu where they choose one`,
 					remedy: `let workers choose one case in "${moduleName}"`,
 				};
+			case "several-record-types":
+				return {
+					reason: `a case selection in "${moduleName}" offers several record types, and CommCare HQ can hand a new case on only when each selection asks for one type`,
+					remedy: "choose one record type in each case list for this form",
+				};
 			case "forms-read-search":
 				return {
 					reason: `the forms in "${moduleName}" read its search, which CommCare HQ can't keep while handing a new case on`,

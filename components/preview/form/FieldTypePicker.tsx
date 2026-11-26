@@ -75,7 +75,7 @@ import {
  *  settings. A preset is one stored thing: the Phone number row inserts a
  *  Text question holding `keypad: "numbers"`. */
 type FieldPickerItem = {
-	readonly kind: FieldKind;
+	readonly kind: Exclude<FieldKind, "case_change">;
 	readonly preset?: "phone-number" | ConnectActivity["kind"];
 };
 
@@ -116,7 +116,9 @@ function itemKey(item: FieldPickerItem): string {
 	return item.preset ?? item.kind;
 }
 
-function kindItems(kinds: readonly FieldKind[]): readonly FieldPickerItem[] {
+function kindItems(
+	kinds: readonly Exclude<FieldKind, "case_change">[],
+): readonly FieldPickerItem[] {
 	return kinds.map((kind) => ({ kind }));
 }
 
@@ -132,8 +134,11 @@ interface InsertionCategory {
 /** The container kinds offered as plain kinds: the boxed ones. A page is
  *  a gesture (`sectionGestureItems`), never a flat kind, so it is the one
  *  container left out. */
-const BOXED_CONTAINER_KINDS: readonly FieldKind[] = fieldKinds.filter(
-	(kind) => fieldRegistry[kind].isContainer && kind !== "section",
+const BOXED_CONTAINER_KINDS = fieldKinds.filter(
+	(kind): kind is Exclude<FieldKind, "case_change"> =>
+		kind !== "case_change" &&
+		fieldRegistry[kind].isContainer &&
+		kind !== "section",
 );
 
 /** Grouped families: each becomes a submenu in the insertion menu. */

@@ -155,6 +155,7 @@ function householdRemarkOf(
 describe("sample members of an app that links them to their household as `home`", () => {
 	it.each([
 		["home", "child"],
+		["my-parent", "child"],
 		// The catalog calls a member a child; the app extends the household
 		// as `host`, and a sample member carries that link as a submitted
 		// one does, so a list that leaves extensions out leaves it out too.

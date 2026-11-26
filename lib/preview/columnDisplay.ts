@@ -83,6 +83,14 @@ export type ColumnDisplayContext = {
 	readonly caseLocationDetail?: PreviewPlatformRules["caseLocationDetail"];
 	readonly markdownRendering?: PreviewPlatformRules["labelMarkdown"];
 	readonly tileText?: "html";
+	readonly listIconAction?: {
+		readonly disabled: boolean;
+		readonly groupCaseId?: string;
+		readonly run: (
+			column: Extract<Column, { kind: "image-map" }>,
+			id: string,
+		) => void;
+	};
 	readonly linkColumnInList?: PreviewPlatformRules["linkColumnInList"];
 };
 

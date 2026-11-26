@@ -574,24 +574,26 @@ function instanceIds(reads: ExpressionReads): Completion[] {
 						type: "namespace",
 					},
 				]),
-		...(reads.searchResults === undefined
-			? []
-			: [
-					{
-						label: "results:inline",
-						detail: "What the search found",
-						type: "namespace",
-					},
-				]),
-		...(reads.searchInputs === undefined
-			? []
-			: [
-					{
-						label: "search-input:results:inline",
-						detail: "The search answers",
-						type: "namespace",
-					},
-				]),
+		...(reads.searches ?? []).flatMap((search) => [
+			...(search.properties === undefined
+				? []
+				: [
+						{
+							label: search.resultsId,
+							detail: `What ${search.menu} found`,
+							type: "namespace",
+						},
+					]),
+			...(search.inputs === undefined
+				? []
+				: [
+						{
+							label: `search-input:${search.resultsId}`,
+							detail: `Search answers from ${search.menu}`,
+							type: "namespace",
+						},
+					]),
+		]),
 	];
 }
 
@@ -635,9 +637,9 @@ function caseValueName(name: string): string {
 }
 
 /** A search result's values: the row attributes and the searched type's properties. */
-function resultValues(
-	results: NonNullable<ExpressionReads["searchResults"]>,
-): Completion[] {
+function resultValues(results: {
+	readonly properties: readonly NamedRead[];
+}): Completion[] {
 	return [
 		...[...CASE_NODE_ATTRIBUTE_PROPERTIES].map((name) => step(`@${name}`)),
 		...results.properties
@@ -719,22 +721,24 @@ function instanceSteps(
 		if (at === "results") return [step("value")];
 		return [];
 	}
-	if (id === "results:inline" && reads.searchResults !== undefined) {
+	const search = reads.searches?.find((search) => search.resultsId === id);
+	if (search?.properties !== undefined) {
 		if (at === "") return [step("results/")];
 		if (at === "results")
 			return [{ ...step(SEARCH_RESULTS_ROW), detail: "What the search found" }];
-		if (at === "results/case") return resultValues(reads.searchResults);
+		if (at === "results/case")
+			return resultValues({ properties: search.properties });
 		return [];
 	}
-	if (
-		id === "search-input:results:inline" &&
-		reads.searchInputs !== undefined
-	) {
+	const prompts = reads.searches?.find(
+		(search) => `search-input:${search.resultsId}` === id,
+	)?.inputs;
+	if (prompts !== undefined) {
 		// Core's shape for a Search answer (`VirtualInstances.java::
 		// buildSearchInputInstance`), the one the parser reads.
 		if (at === "") return [step("input/")];
 		if (at === "input")
-			return reads.searchInputs.map((name) =>
+			return prompts.map((name) =>
 				step(`field[@name = '${name}']`, "Search answer"),
 			);
 		return [];
@@ -829,9 +833,10 @@ function rowPredicateValues(
 		return at === "locations/location" && reads.places !== undefined
 			? placeValues(reads.places, true)
 			: [];
-	if (id === "results:inline")
-		return at === "results/case" && reads.searchResults !== undefined
-			? resultValues(reads.searchResults)
+	const search = reads.searches?.find((search) => search.resultsId === id);
+	if (search)
+		return at === "results/case" && search.properties !== undefined
+			? resultValues({ properties: search.properties })
 			: [];
 	if (id === "casedb")
 		return at === "casedb/case" ? caseRowValues(reads, caseType()) : [];
