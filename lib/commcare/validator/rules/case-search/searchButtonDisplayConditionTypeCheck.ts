@@ -40,6 +40,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { checkExpression } from "@/lib/domain/expression";
+import { searchButtonUndeclaredInstances } from "../../../suite/case-search/buttonCondition";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -93,7 +94,28 @@ export function searchButtonDisplayConditionTypeCheck(
 			error.code !== "case-data-unavailable" &&
 			error.code !== "search-answer-unavailable",
 	);
-	if (errors.length === 0) return [];
+	if (errors.length === 0) {
+		// HQ's build declares the instances an entry's datums, details and
+		// frames read, never the Search action's `relevant`
+		// (`buttonCondition.ts`), so a condition reading what the list does
+		// not load stops the list on the device once HQ builds the app.
+		const undeclared = searchButtonUndeclaredInstances(doc, moduleUuid);
+		if (undeclared.length === 0) return [];
+		return [
+			validationError(
+				"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST",
+				"module",
+				`Module "${mod.name}" has a search-button display condition that reads ${undeclared.map((id) => `instance('${id}')`).join(", ")}, which its case list doesn't load. CommCare HQ's build declares an entry's instances from what its selections, case list and after-submit frames read, never from the Search action's condition, so on the device the case list would stop with a missing instance once the app is on CommCare HQ. Base the condition on what the list itself reads, such as a case list filter over the same information, return each form that shows the list to it with its case, or clear the condition to show the button unconditionally.`,
+				{ moduleUuid, moduleName: mod.name },
+				{
+					reason: "instance-not-on-the-list",
+					instances: undeclared,
+					slot: "caseSearchConfig.searchButtonDisplayCondition",
+					surface: "search-button",
+				},
+			),
+		];
+	}
 
 	return errors.map((err) => {
 		const at = formatPath(err.path);

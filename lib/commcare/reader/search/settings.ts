@@ -94,6 +94,12 @@ export const BLANK_IS_ABSENT = `${S}a-blank-text-in-a-search-key-hq-reads-only-w
 const NO_REGISTRY = `${S}the-registry-workflow-and-cases-where-no-registry-is-named`;
 
 export const SETTING_CLAIMS = defineClaims("search.settings", {
+	/** A Search button condition reading an instance its case list does not load
+	 *  (`index.ts::settleSearchButtonConditions`). */
+	buttonNotOnTheList: refuse(
+		`${S}search-button-display-condition-reading-what-the-case-list-does-not-load`,
+		"schema:CaseSearch.search_button_display_condition",
+	),
 	/** A check with no message on a field Nova's search guards (`settleSearchSettings`). */
 	checkWithoutMessageGuarded: refuse(
 		`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,

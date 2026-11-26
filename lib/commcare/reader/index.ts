@@ -35,7 +35,11 @@ import {
 	settleMenusSteps,
 } from "./menus";
 import { bindExpressions, bindExpressionsSteps } from "./provisional";
-import { readSearches, settleSearches } from "./search";
+import {
+	readSearches,
+	settleSearchButtonConditions,
+	settleSearches,
+} from "./search";
 import { readStructure } from "./structure";
 import type {
 	ReaderInput,
@@ -98,6 +102,7 @@ const STAGE_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
 		(ctx) => settleMenus(ctx, ctx.draft),
 		(ctx) => settleMenusSteps(ctx, ctx.draft),
 	],
+	[(ctx) => settleSearchButtonConditions(ctx, ctx.draft)],
 	[finishText],
 	[finishForms],
 	[assembleDocument, assembleDocumentSteps],

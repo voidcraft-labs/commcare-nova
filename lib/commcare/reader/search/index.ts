@@ -23,8 +23,10 @@ import type {
 import { recordFromEntries } from "@/lib/domain/records";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import { searchButtonUndeclaredInstances } from "../../suite/case-search/buttonCondition";
 import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
+import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
 import { appCodes } from "../caseList/columns";
 import { caseListReadings, sameState } from "../caseList/details";
@@ -1053,6 +1055,41 @@ export function settleSearches(ctx: ReadContext, app: DraftApp): void {
 	} finally {
 		// A check's refusal no settle reached stands as the expression stage made it.
 		settleDeferredRefusals(ctx);
+	}
+}
+
+/**
+ * Each held Search button condition, over the document its menus settled: one that reads an
+ * instance the menu's case list does not load is refused, since HQ's build declares no instance
+ * for what only the Search action's `relevant` reads and the list then stops on the device
+ * (`suite/case-search/buttonCondition.ts::searchButtonUndeclaredInstances`, the gate's
+ * `CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST`). It runs after the menus settle, since
+ * a menu's parent selection is among what the list loads.
+ */
+export function settleSearchButtonConditions(
+	ctx: ReadContext,
+	app: DraftApp,
+): void {
+	const doc = ctx.doc;
+	const readings = READINGS.get(ctx);
+	if (doc === undefined || readings === undefined) return;
+	for (const module of app.modules) {
+		const reading = readings.get(module.uuid);
+		if (reading === undefined || !reading.whole) continue;
+		let undeclared: readonly string[];
+		try {
+			undeclared = searchButtonUndeclaredInstances(doc, module.uuid);
+		} catch (error) {
+			rethrowWorkStop(error);
+			continue;
+		}
+		if (undeclared.length === 0) continue;
+		ctx.accounting.findingAt(
+			SETTING_CLAIMS.buttonNotOnTheList,
+			searchPlace(module),
+			`${reading.cursor.pointer}/search_button_display_condition`,
+			{ name: "search_button_display_condition" },
+		);
 	}
 }
 

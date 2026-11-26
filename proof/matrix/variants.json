@@ -37414,7 +37414,7 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/search_button_display_condition",
-			"value": "instance('commcaresession')/session/context/username != 'demo'"
+			"value": "today() >= '2026-01-01'"
 		},
 		"holds": [
 			{
@@ -37426,24 +37426,37 @@
 				],
 				"pointer": "/caseSearchConfig/searchButtonDisplayCondition",
 				"value": {
-					"kind": "neq",
+					"kind": "gte",
 					"left": {
-						"kind": "term",
-						"term": {
-							"kind": "session-context",
-							"field": "username"
-						}
+						"kind": "today"
 					},
 					"right": {
 						"kind": "term",
 						"term": {
 							"kind": "literal",
-							"value": "demo"
+							"value": "2026-01-01",
+							"data_type": "date"
 						}
 					}
 				}
 			}
 		]
+	},
+	{
+		"id": "hq-search/search-button-shown-to-a-user-the-list-does-not-load",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/search_button_display_condition",
+			"value": "instance('commcaresession')/session/context/username != 'demo'"
+		}
 	},
 	{
 		"id": "hq-search/search-endpoint",

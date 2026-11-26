@@ -521,6 +521,15 @@ field, the canvas says the menu opens on the cases the search finds, and
 condition is false, a menu whose forms don't read the search opens on its case
 list.
 
+A Search button condition can read only what the case list itself loads
+wherever it shows. CommCare HQ loads, for each screen that shows the list, what
+that screen's case selection, its list and its return after the form read, and
+never what the button's condition alone reads. So a condition on the worker's
+session or user information works where the list's filter reads it, or where
+every form that shows the list returns to it with the chosen case, and Nova
+asks you to change it anywhere else, since the list wouldn't open once the app
+is on CommCare HQ.
+
 **Forms read the search** is offered when every form on the menu works on an
 existing case, or when the menu is a case list with no forms. A menu with a
 registration form on it can't use it, because its first

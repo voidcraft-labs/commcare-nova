@@ -941,6 +941,35 @@ SEARCH_SUITE = b"""<suite version="1">
 
 
 # A search's prompts with an input type no runtime names (``slider``) and one Core names (``date``).
+# Two case lists with a Search action each: the first's condition reads the session, which its entry does not declare,
+# and the second's the case database, which its entry's datum reads; the third action pushes another command.
+BUTTON_SUITE = b"""<suite version="1">
+ <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="f"/></text></command>
+  <instance id="casedb" src="jr://instance/casedb"/>
+  <session><datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='client']" value="./@case_id"
+   detail-select="m0_case_short"/></session></entry>
+ <entry><form>http://example.org/g</form><command id="m1-f0"><text><locale id="g"/></text></command>
+  <instance id="casedb" src="jr://instance/casedb"/>
+  <session><datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='client']" value="./@case_id"
+   detail-select="m1_case_short"/></session></entry>
+ <detail id="m0_case_short"><title><text><locale id="t"/></text></title>
+  <field><header><text><locale id="h"/></text></header><template><text><xpath function="."/></text></template></field>
+  <action auto_launch="false()" redo_last="false" relevant="instance('commcaresession')/session/context/username != 'demo'">
+   <display><text><locale id="case_search.m0"/></text></display>
+   <stack><push><mark/><command value="'search_command.m0'"/></push></stack></action>
+ </detail>
+ <detail id="m1_case_short"><title><text><locale id="t"/></text></title>
+  <field><header><text><locale id="h"/></text></header><template><text><xpath function="."/></text></template></field>
+  <action auto_launch="false()" redo_last="false" relevant="count(instance('casedb')/casedb/case) &gt; 0">
+   <display><text><locale id="case_search.m1"/></text></display>
+   <stack><push><mark/><command value="'search_command.m1'"/></push></stack></action>
+  <action relevant="instance('commcaresession')/session/context/username != 'demo'">
+   <display><text><locale id="r"/></text></display>
+   <stack><push><command value="'m1-f1'"/></push></stack></action>
+ </detail>
+</suite>"""
+
+
 INPUT_SUITE = b"""<suite version="1">
  <entry><form>http://example.org/g</form><command id="m0-f0"><text><locale id="g"/></text></command>
   <instance id="results:inline" src="jr://instance/remote/results:inline"/>
@@ -3151,6 +3180,23 @@ def _search_and_menus():
                 search(_search_module(default_properties=[_default("status", "'open'")])),
                 "schema:DefaultCaseSearchProperty.property",
                 f"{config}/default_properties/0/property",
+            ),
+        ),
+        "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load": (
+            refused("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[1]/action/@relevant"),
+            accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[1]/@relevant"),
+            # another action of the list (a registration form's) is no Search button
+            accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[2]/@relevant"),
+            # the app JSON alone does not say what HQ's build declares beside the condition
+            unsettled(
+                "app",
+                search(
+                    _search_module(
+                        search_button_display_condition="instance('commcaresession')/session/context/username = 'x'"
+                    )
+                ),
+                "schema:CaseSearch.search_button_display_condition",
+                f"{config}/search_button_display_condition",
             ),
         ),
         "case-search/native-filter-value-outside-screen-scope": (

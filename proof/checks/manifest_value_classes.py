@@ -4504,6 +4504,74 @@ def other_search_button_label(use, manifest):
     return label is not None and label != SEARCH_BUTTON_LABEL
 
 
+def _instance_ids_read(text):
+    """The ids an expression reads with ``instance('<id>')``, through Core's lexer (``Lexer.lex``), in reading order;
+    None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    ids = []
+    for index, token in enumerate(found[:-3]):
+        if (
+            token.kind == "QNAME"
+            and token.text == "instance"
+            and found[index + 1].kind == "LPAREN"
+            and found[index + 2].kind == "STR"
+            and found[index + 3].kind == "RPAREN"
+        ):
+            read = found[index + 2].text[1:-1]
+            if read not in ids:
+                ids.append(read)
+    return ids
+
+
+def search_button_reads_what_the_list_does_not_load(use, manifest):
+    """``case-search/search-button-display-condition-reading-what-the-case-list-does-not-load``: a Search action's
+    ``relevant`` (the action whose frame pushes ``search_command.<menu>``) in a detail some entry shows as its list
+    (``detail-select``), reading an instance one such entry does not declare. HQ declares an entry's instances from
+    what its datums, details and frames read and never from an action's ``relevant``
+    (``post_process/instances.py::_get_all_xpaths_for_entry``, ``xml_models.py::Detail.get_all_xpaths``), and Core
+    evaluates the condition in the entry's scope (``Detail.getCustomActions``,
+    ``CommCareSession.getEvaluationContext``), where an undeclared instance throws. Decided on a suite, the build
+    that declares the entry's instances; an app JSON's ``search_button_display_condition`` alone does not say what
+    HQ's build will declare beside it (None)."""
+    at = _xml(use, "runtime")
+    if at is None or at.attribute != "relevant" or _local(at.element) != "action":
+        return None
+    action = at.element
+    pushes = [
+        _command_literal(command)
+        for command in action.iter()
+        if isinstance(command.tag, str) and _local(command) == "command"
+    ]
+    if not pushes or not all((pushed or "").startswith("search_command.") for pushed in pushes):
+        return False
+    detail = action.getparent()
+    if detail is None or _local(detail) != "detail":
+        return None
+    read = _instance_ids_read(action.get("relevant"))
+    if read is None:
+        return None
+    shown_in = [
+        entry
+        for entry in _children(at.document.root)
+        if _local(entry) == "entry"
+        and any(
+            _local(datum) == "datum" and datum.get("detail-select") == detail.get("id")
+            for session in _children(entry)
+            if _local(session) == "session"
+            for datum in _children(session)
+        )
+    ]
+    if not shown_in:
+        return None
+    for entry in shown_in:
+        declared = {child.get("id") for child in _children(entry) if _local(child) == "instance"}
+        if any(instance_id not in declared for instance_id in read):
+            return True
+    return False
+
+
 def list_first_with_web_apps(use, manifest):
     """``case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with``: ``auto_launch: false`` on a
     module that offers search, in an app with ``cloudcare_enabled``. In a suite, a search action
@@ -9868,6 +9936,9 @@ VALUE_CLASSES = {
     "case-search/default-properties-entry-keyed-x-commcare-endpoint-id": endpoint_id_key,
     "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": missing_default_value,
     "case-search/native-filter-value-outside-screen-scope": native_filter_unbound_value,
+    "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load": (
+        search_button_reads_what_the_list_does_not_load
+    ),
     "case-search/that-entry-together-with-blacklisted-owner-ids-expression": blacklisted_owner_ids_twice,
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,

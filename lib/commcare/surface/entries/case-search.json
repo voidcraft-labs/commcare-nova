@@ -1020,6 +1020,36 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`search_button_display_condition` reading an instance the case list's own selection does not read (the session, a lookup table, places)",
+		"surfaceKeys": [
+			"schema:CaseSearch.search_button_display_condition",
+			"parser:ActionParser/action@relevant"
+		],
+		"valueClass": "reads-an-instance-the-case-list-does-not-load",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The Search button's condition reads information its case list doesn't load, so the list would not open on the device.",
+		"subject": "search-setup",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ writes the condition as the Search action's `relevant` (`sections/details.py::DetailContributor._get_relevant_expression`) but declares an entry's instances only from what its datums, details and frames read (`post_process/instances.py::_get_all_xpaths_for_entry`; `xml_models.py::Detail.get_all_xpaths` never collects an action's `relevant`), and Core decides whether the button shows in that entry's scope (`Detail.getCustomActions`, `CommCareSession.getEvaluationContext`), where a read of an undeclared instance throws (`XPathPathExpr.getRefValue`), so the case list does not open"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression",
 		"area": "case-search",
 		"section": "Case search",
