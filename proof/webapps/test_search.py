@@ -931,3 +931,88 @@ def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
         assert result["headings"] == [text, "Case details"]
         assert sent == [{"first_name": "North", "case_name": "River"}]
         assert run.page_errors == []
+
+
+@pytest.mark.parametrize("dormant_heading", [None, "Previously saved words"], ids=["fallback", "dormant-override"])
+def test_canonical_search_group_save_leaves_the_legacy_override_behind(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, dormant_heading,
+):
+    from urllib.parse import parse_qs
+
+    from proof.editors.hq import HQAnswers, editor_build
+    from proof.hq import operations
+    from proof.matrix import ops
+    from proof.matrix.authoring import Authoring
+
+    document = webapps_documents["search-grouped-prompts"]
+    old_group = "g"
+    current_group = "group_header_0"
+    old_key = f"search_property.m0.{old_group}"
+    current_key = f"search_property.m0.{current_group}"
+    old_heading = "Find a client"
+
+    def worker_headings(project, label):
+        opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+        with project.released(formplayer_runner, label=label) as release:
+            run = Session(release, editor_driver).run([
+                *opening,
+                {"eval": """() => [...document.querySelectorAll('.search-query-group-header-label')]
+                    .map(label => label.textContent.trim())"""},
+            ])
+        assert not run.page_errors and not run.dialogs
+        return run.value(len(opening))
+
+    with webapps_hq.project(document) as project:
+        state, app_id = project.unit, project.app_id
+        app = operations.held_app(state, app_id)
+        properties = [prop.to_json() for prop in app.get_module(0).search_config.properties]
+        assert properties[0]["name"] == properties[1]["group_key"] == current_group
+        properties[0].update({"name": old_group, "group_key": old_group})
+        properties[1]["group_key"] = old_group
+        authoring = Authoring(state, {}, "legacy-search-group-canonical-save", operation=state.operation)
+        ops.set_json(authoring, app_id, "/modules/0/search_config/properties", properties)
+        with state.operation("upload-legacy-search-heading", document.id.encode()):
+            ops.upload_commcare_translation(state, app_id, old_key, old_heading)
+        if dormant_heading:
+            with state.operation("upload-dormant-search-heading", document.id.encode()):
+                ops.upload_commcare_translation(state, app_id, current_key, dormant_heading)
+        before_app = operations.held_app(state, app_id)
+        before = dict(before_app.translations["en"])
+        assert before[old_key] == old_heading and before.get(current_key) == dormant_heading
+        original = worker_headings(project, "legacy-search-heading")
+
+        # Adding an empty property runs the native array change. The Case List
+        # page drops that row on Save, so the groups and their members stay put.
+        page = pages.CASE_LIST
+        path, save_path = pages._urls(state, page, app_id, project.module_id(0))
+        editor_build()
+        answers = HQAnswers(state)
+        run = editor_driver.run([
+            {"goto": path},
+            {"until": "pages/ready", "arg": {"bar": page.bar}},
+            {"click": 'button[data-bind="click: addProperty"]'},
+            {"click": f"{page.bar} > .btn:not(.disabled)"},
+            {"awaitRequest": {"method": "POST", "pathname": save_path}},
+            {"until": "pages/saved", "arg": page.bar},
+        ], answer=answers)
+        answers.check()
+        assert not run["pageErrors"], run["pageErrors"]
+        [save] = [exchange for exchange in answers.exchanges if exchange.method == "POST" and exchange.path == save_path]
+        assert save.status == 200, save.response
+        posted = json.loads(parse_qs(save.body.decode("utf-8"))["search_properties"][0])["properties"]
+        saved = operations.held_app(state, app_id)
+        actual = [(row.name, row.group_key, row.is_group) for row in saved.get_module(0).search_config.properties]
+        expected = [(row["name"], row["group_key"], row["is_group"]) for row in properties]
+        expected[0] = (current_group, current_group, True)
+        expected[1] = (expected[1][0], current_group, False)
+        assert actual == expected
+        assert [(row["name"], row["group_key"], row["is_group"]) for row in posted] == expected
+        assert dict(saved.translations["en"]) == before
+        saved_heading = worker_headings(project, "canonical-search-heading")
+
+    evidence("canonical-search-heading", {
+        "beforeHeadings": original, "afterHeadings": saved_heading, "oldKey": old_key,
+        "canonicalKey": current_key, "translations": before, "savedRows": actual,
+    })
+    assert original == [old_heading, "Case details"]
+    assert saved_heading == [dormant_heading or "Personal details", "Case details"]
