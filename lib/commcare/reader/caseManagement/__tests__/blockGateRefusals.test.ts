@@ -994,10 +994,45 @@ it("round trips a create that chooses one of two declared case types from an ans
 			draft.forms[FORM].caseOperations = [
 				visitCreate({
 					typeChoice: { condition: onYes, otherwise: "patient" },
+					writes: [{ property: "saved_note", value: answer }],
 				}),
 			];
 		},
 	);
+	const body = exportedBody(doc);
+	const attachments = Object.values(
+		body._attachments as Record<string, string>,
+	);
+	const xml = attachments.find(
+		(attachment) =>
+			attachment.includes("'saved_note'") || attachment.includes("<saved_note"),
+	);
+	expect(xml).toContain('vellum:role="SaveToCase" vellum:case_type=""');
+	expect(xml).toContain("current()/../../../../mk/case/create/case_type");
+	const first = await readHqApp(await inputFor(body));
+	if (first.kind !== "read") throw new Error(JSON.stringify(first.findings));
+	expect(
+		Object.values(first.draft.doc.forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.find((operation) => operation.action === "create"),
+	).toMatchObject({ typeChoice: { otherwise: "patient" } });
+	for (const [name, reason] of [
+		["missing_type", "undeclared-output"],
+		["commcare-user", "platform-owned-output"],
+	]) {
+		const refused = await readBack(doc, {
+			xml: (source) =>
+				source.replace("&apos;patient&apos;)", `&apos;${name}&apos;)`),
+		});
+		expect(refused.kind).toBe("account");
+		if (refused.kind !== "read")
+			expect(refused.findings).toContainEqual(
+				expect.objectContaining({
+					code: "questions/savetocase-case-type-given-as-an-xpath",
+					detail: expect.objectContaining({ name, reason }),
+				}),
+			);
+	}
 	const outcome = await readBack(doc);
 	expect(outcome.defects).toEqual([]);
 	if (outcome.kind !== "read")
@@ -1009,6 +1044,12 @@ it("round trips a create that chooses one of two declared case types from an ans
 		typeChoice: { condition: onYes, otherwise: "patient" },
 	});
 	expect(gateCodes(result)).toEqual([]);
+	for (const name of ["visit", "patient"])
+		expect(
+			result.caseTypes
+				?.find((type) => type.name === name)
+				?.properties.map((property) => property.name),
+		).toContain("saved_note");
 	const once = exportedBody(result);
 	const twice = await readBack(result);
 	expect(twice.kind).toBe("read");

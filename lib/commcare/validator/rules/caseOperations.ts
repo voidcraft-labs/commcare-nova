@@ -1743,6 +1743,11 @@ function validateCreateTypeChoice(
 	const primary = ctx.caseTypesByName.get(operation.caseType);
 	const alternate = ctx.caseTypesByName.get(choice.otherwise);
 	const compatibleWrites = (operation.writes ?? []).every((write) => {
+		if (
+			write.via !== undefined ||
+			(write.value.kind === "term" && write.value.term.kind === "capture-link")
+		)
+			return false;
 		if (Object.hasOwn(WRITABLE_STANDARD_CASE_PROPERTY_WORDS, write.property))
 			return true;
 		const from = primary?.properties.find(
@@ -1752,12 +1757,27 @@ function validateCreateTypeChoice(
 			(property) => property.name === write.property,
 		);
 		return (
-			from !== undefined && to !== undefined && from.data_type === to.data_type
+			from !== undefined &&
+			to !== undefined &&
+			from.data_type === to.data_type &&
+			from.data_type !== "single_select" &&
+			from.data_type !== "multi_select" &&
+			(from.options?.length ?? 0) === 0 &&
+			(to.options?.length ?? 0) === 0
 		);
 	});
 	const consumers = (ctx.form.caseOperations ?? []).some((other) =>
 		caseOperationDependencyUuids(other).has(operation.uuid),
 	);
+	const suppliesCaseList = Object.values(ctx.doc.modules).some((menu) => {
+		const action = menu.caseListRegistrationForm;
+		return (
+			action?.kind === "always" &&
+			action.formUuid === ctx.formUuid &&
+			action.target?.kind === "created-case" &&
+			action.target.operationUuid === operation.uuid
+		);
+	});
 	const owners = [
 		{ entity: "form" as const, uuid: ctx.formUuid },
 		...[...ctx.fields.keys()].map((uuid) => ({
@@ -1784,6 +1804,7 @@ function validateCreateTypeChoice(
 		expressionContainsIdOf(choice.condition) ||
 		consumers ||
 		expressionConsumer ||
+		suppliesCaseList ||
 		!compatibleWrites
 	)
 		errors.push(

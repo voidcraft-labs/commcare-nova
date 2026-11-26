@@ -603,7 +603,8 @@ function collectFormSlotReferences(
 		const operationLabel = `case operation "${operation.id || operation.uuid}"`;
 		if (
 			operation.caseType === caseType ||
-			operation.typeChoice?.otherwise === caseType
+			(operation.action === "create" &&
+				operation.typeChoice?.otherwise === caseType)
 		) {
 			out.push(sameRef(`${operationLabel} in ${where} targets "${caseType}"`));
 		}

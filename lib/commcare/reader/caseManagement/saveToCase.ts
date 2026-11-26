@@ -1548,15 +1548,15 @@ function readBlock(
 		);
 		if (reserved !== undefined)
 			return fail(
-				SAVE_TO_CASE_CLAIMS.reservedType,
-				{ name: reserved },
+				SAVE_TO_CASE_CLAIMS.caseTypeXPath,
+				{ name: reserved, reason: "platform-owned-output" },
 				typeBind,
 			);
 		const undeclared = names.find((type) => !isDeclared(type));
 		if (undeclared !== undefined)
 			return fail(
 				SAVE_TO_CASE_CLAIMS.caseTypeXPath,
-				{ name: undeclared },
+				{ name: undeclared, reason: "undeclared-output" },
 				typeBind,
 			);
 		choiceType = {

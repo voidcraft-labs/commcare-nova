@@ -5701,7 +5701,9 @@ describe("a single choice saved to a list of choices", () => {
 
 it("resolves a dynamic create type from this submission and rolls back an invalid declared range", async () => {
 	const store = makeStore();
-	const create = operation({
+	const create: TargetedCaseOperation = {
+		uuid: OP_A,
+		id: "op_a",
 		action: "create",
 		caseType: "patient",
 		target: { kind: "new" },
@@ -5711,7 +5713,7 @@ it("resolves a dynamic create type from this submission and rolls back an invali
 			condition: eq(formField(FLAG_FIELD), literal("patient")),
 			otherwise: "narrow",
 		},
-	});
+	};
 	const request = (type: string, other = "narrow") => ({
 		appId: APP_ID,
 		ordinary: { kind: "none" } as const,
