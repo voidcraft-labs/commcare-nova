@@ -625,6 +625,8 @@
 		"hq-search/registration-after-an-empty-search-offered-again",
 		"hq-search/registration-after-an-empty-search-to-home",
 		"hq-search/registry-workflow-with-no-registry",
+		"hq-search/related-case-property",
+		"hq-search/related-cases-included",
 		"hq-search/related-property-twice",
 		"hq-search/removed-search-key",
 		"hq-search/required-address-field",
