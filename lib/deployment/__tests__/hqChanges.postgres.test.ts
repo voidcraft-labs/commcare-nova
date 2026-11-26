@@ -6864,6 +6864,127 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			expect(refused.imported).toEqual([]);
 		});
 
+		it.each([false, true])(
+			"discloses unowned menu layouts independently of an unrelated HQ rename (bring in: %s)",
+			async (take) => {
+				const doc = clinic({});
+				const { appId, held } = await bornInNova(doc, (body) => {
+					body.use_grid_menus = true;
+				});
+				await h
+					.db()
+					.updateTable("app_deployment_baselines")
+					.set({ ownership: sql`ownership - 'menuLayouts'` })
+					.where("remote_app_id", "=", FIXTURE_REMOTE_APP_ID)
+					.execute();
+
+				const first = "The first menu would change from a grid to a list.";
+				const others =
+					"The layout for the other menus would change from a grid to a list.";
+				const unchanged = await withHttpPeer(async (peer) => {
+					serveEmission(peer, summarizeServedHqApp(held), 1, false);
+					return reviewHqChanges(scope(appId), KEY_TARGET, {
+						onEvent: () => {},
+					});
+				});
+				expect(unchanged).toMatchObject({
+					kind: "nothing",
+					publishChanges: [first],
+				});
+				const renamed = { ...held, name: "Renamed in CommCare HQ" };
+				const listed = await review(appId, renamed);
+				expect(listed).toMatchObject({
+					kind: "changes",
+					hqChanges: [first, "The app's name"],
+					novaChanges: [],
+				});
+				if (listed.kind !== "changes")
+					throw new Error(`The review answered ${JSON.stringify(listed)}`);
+				expect(listed.requiresReview).toBeUndefined();
+
+				const priorDiscard = {
+					kind: "app" as const,
+					novaResourceId: appId,
+					observedDigest: listed.observedDigest,
+				};
+				const version = Number(held.version);
+				const moved = { ...renamed, grid_form_menus: "all" };
+				const movedSource = summarizeServedHqApp(moved).source;
+				const stale = await publishOver(
+					appId,
+					movedSource,
+					false,
+					movedSource,
+					version,
+					[priorDiscard],
+				);
+				expect(stale.outcome.refusal).toMatchObject({
+					phase: "preflight",
+					failure: { code: "hq_changed" },
+					remoteChanges: [{ parts: [first, others, "The app's name"] }],
+				});
+				expect(stale.imported).toEqual([]);
+
+				if (take) {
+					const incoming = await withHttpPeer(async (peer) => {
+						serveEmission(peer, summarizeServedHqApp(renamed));
+						return bringInHqChanges(
+							scope(appId),
+							KEY_TARGET,
+							{
+								readingId: listed.readingId,
+								reviewDigest: listed.reviewDigest,
+								tableChoices: {},
+							},
+							{ onEvent: () => {} },
+						);
+					});
+					expect(incoming.kind).toBe("brought-in");
+					expect((await headDocOf(appId)).appName).toBe(
+						"Renamed in CommCare HQ",
+					);
+					expect(
+						(await headDocOf(appId)).appSettings.firstMenuLayout,
+					).toBeUndefined();
+					expect(await readAppBaseline(scope(appId), KEY_TARGET)).toMatchObject(
+						{
+							origin: "changes",
+						},
+					);
+					const live = summarizeServedHqApp(renamed).source;
+					const waiting = await publishOver(appId, live, false, live, version);
+					expect(waiting.outcome.refusal).toMatchObject({
+						phase: "preflight",
+						failure: { code: "hq_changed" },
+						remoteChanges: [{ parts: [first] }],
+					});
+					expect(waiting.imported).toEqual([]);
+					return;
+				}
+				const complete = await review(appId, moved);
+				if (complete.kind !== "changes")
+					throw new Error(`The review answered ${JSON.stringify(complete)}`);
+				expect(complete.hqChanges.slice(0, 2)).toEqual([first, others]);
+				expect(complete.hqChanges).toContain("The app's name");
+				expect(complete.observedDigest).not.toBe(listed.observedDigest);
+				const model = hqModel();
+				model.holdSource(moved);
+				const chosen = await publishOver(
+					appId,
+					movedSource,
+					true,
+					model,
+					version,
+					[{ ...priorDiscard, observedDigest: complete.observedDigest }],
+				);
+				expect(chosen.outcome.landed).toBe(true);
+				expect(chosen.imported[0]).toMatchObject({
+					use_grid_menus: false,
+					grid_form_menus: "none",
+				});
+			},
+		);
+
 		it("reports CommCare HQ renaming the app after the cutover as a change, as any other", async () => {
 			const doc = clinic({});
 			const { appId, held } = await bornInNova(doc, (body) => {

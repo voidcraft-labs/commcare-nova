@@ -3045,6 +3045,12 @@ async function reviewOverPeer(input: {
 		observedAt,
 		remoteRevision,
 		source,
+		layoutReplacements: legacyMenuLayoutLines({
+			doc: head.doc,
+			identity: exportIdentityOf(head.doc, input.targetIdentity).identity,
+			source,
+			ownership: baseline.ownership,
+		}),
 		modules: alignment.modules,
 		normalized,
 		published,
