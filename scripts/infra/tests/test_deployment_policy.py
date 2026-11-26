@@ -159,6 +159,8 @@ class JobExecutionTests(unittest.TestCase):
             ["conversation-source-scan.cjs", "--bucket", "synthetic-media"],
             ["conversation-source-cutover.cjs", "--scan-digest", "c" * 64, "--bucket", "synthetic-media"],
             ["conversation-source-cutover.cjs", "--scan-digest", "c" * 64, "--bucket", "synthetic-media", "--execute"],
+            ["hq-round-trip-completion.cjs", "--scan-digest", "d" * 64, "--plan-generation", "1795676400000000"],
+            ["hq-round-trip-completion.cjs", "--scan-digest", "d" * 64, "--plan-generation", "1795676400000000", "--execute"],
             ["thread-storage-scan.cjs"],
             ["thread-storage-cutover.cjs", "--scan-digest", "b" * 64],
             ["thread-storage-cutover.cjs", "--scan-digest", "b" * 64, "--execute"],
@@ -189,6 +191,22 @@ class JobExecutionTests(unittest.TestCase):
             self.assertEqual(json.loads(sent[1].data), {
                 "etag": "generation-3", "overrides": {"containerOverrides": [{"args": args}]},
             })
+
+    def test_completion_requires_exact_plan_generation_and_migration_job(self):
+        name = "commcare-nova-historical-repair"
+        prefix = ["hq-round-trip-completion.cjs", "--scan-digest", "d" * 64, "--plan-generation"]
+        for args in (
+            prefix,
+            prefix + ["0", "--execute"],
+            prefix + ["latest", "--execute"],
+            prefix + ["9007199254740992", "--execute"],
+            prefix + ["1795676400000000", "--execute", "--extra"],
+            ["hq-round-trip-completion.cjs", "--execute"],
+        ):
+            with self.subTest(args=args), self.assertRaises(deploy.DeploymentPolicyError):
+                deploy._effective_execution_args(name, args)
+        with self.assertRaises(deploy.DeploymentPolicyError):
+            deploy._effective_execution_args(JOB, prefix + ["1795676400000000", "--execute"])
 
     def test_choice_repair_refuses_missing_plans_extra_flags_and_other_jobs(self):
         encoded = base64.b64encode(b'[{"appId":"reviewed-app"}]').decode()

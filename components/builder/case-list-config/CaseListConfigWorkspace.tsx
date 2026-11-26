@@ -99,6 +99,10 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
+import {
+	planSearchInputGroups,
+	type SearchGroupLayout,
+} from "@/lib/doc/searchInputGroupMutations";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -134,6 +138,7 @@ import {
 import { formContextPatch } from "@/lib/domain/caseFormContext";
 import type { Expression } from "@/lib/domain/expression";
 import { resolveAppLanguage } from "@/lib/domain/localization";
+import { requestedRecordTypes } from "@/lib/domain/modules";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
@@ -170,7 +175,10 @@ import {
 	type CaseListConfigErrorAreas,
 	caseListConfigVerdicts,
 } from "./configValidity";
-import { SearchInputEditor } from "./inspector/SearchInputEditor";
+import {
+	SearchInputEditor,
+	type SearchInputEditorProps,
+} from "./inspector/SearchInputEditor";
 import type { SearchPanelInspectorBodyProps } from "./inspector/SearchPanelInspectorBody";
 import { LoadBehaviorSection } from "./LoadBehaviorSection";
 import { type MapLayerSetup, MapLayerSetupDialog } from "./MapLayerSetupDialog";
@@ -1393,12 +1401,19 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		const current = config.searchInputs.find((input) => input.uuid === uuid);
 		if (current === undefined) return;
 		// Hiding the last visible field opens the menu on its results.
+		const { group: _group, ...replacement } = withPreservedIdentity(
+			current,
+			next,
+		);
 		commitMany(
 			withWorkflowAfterInputChange(docApi.getState(), [
 				searchInputUpdateMutation(
 					requireRetainedModuleUuid(moduleUuid),
 					current,
-					withPreservedIdentity(current, next),
+					{
+						...replacement,
+						...(current.group !== undefined && { group: current.group }),
+					},
 				),
 			]),
 		);
@@ -1475,12 +1490,17 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	const cancelInputRemovalReview = useCallback(() => {
 		setInputRemovalReview(null);
 	}, []);
-	const completeInputRemovalReview = useCallback((inputLabel: string) => {
-		setInputRemovalReview(null);
-		setWorkspaceAnnouncement(
-			`No rules use ${inputLabel} now. You can remove the field.`,
-		);
-	}, []);
+	const completeInputRemovalReview = useCallback(
+		(inputLabel: string, isAddress: boolean) => {
+			setInputRemovalReview(null);
+			setWorkspaceAnnouncement(
+				isAddress
+					? `You can remove ${inputLabel} now.`
+					: `No rules use ${inputLabel} now. You can remove the field.`,
+			);
+		},
+		[],
+	);
 	const reviewInputRemovalDependency = useCallback(
 		(dependency: SearchInputRemovalDependency) => {
 			if (inputRemovalReview?.phase !== "dependencies") return;
@@ -1510,7 +1530,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			};
 			setInputRemovalReview(nextReview);
 			setWorkspaceAnnouncement(
-				`Reviewing ${dependency.label}. It uses the ${inputRemovalReview.inputLabel} answer.`,
+				dependency.kind === "search-address-receiver"
+					? `Reviewing ${dependency.label}. It fills from ${inputRemovalReview.inputLabel}.`
+					: `Reviewing ${dependency.label}. It uses the ${inputRemovalReview.inputLabel} answer.`,
 			);
 			if (dependency.kind === "search-field-condition") {
 				openSearchCondition({
@@ -1520,9 +1542,10 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				});
 				return;
 			}
-			if (dependency.kind === "search-field-default") {
-				// The starting value lives in the sibling field's inspector on
-				// the Search tab (where the review dialog already is).
+			if (
+				dependency.kind === "search-field-default" ||
+				dependency.kind === "search-address-receiver"
+			) {
 				setSel({ type: "input", uuid: dependency.inputUuid });
 				return;
 			}
@@ -1562,10 +1585,16 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			inputLabel: inputRemovalReview.inputLabel,
 			token: inputRemovalReviewTokenRef.current,
 		});
+		const isAddressReview =
+			inputRemovalReview.dependency.kind === "search-address-receiver";
 		setWorkspaceAnnouncement(
-			remaining === 0
-				? `No rules use ${inputRemovalReview.inputLabel} now. You can remove the field.`
-				: `${remaining} ${remaining === 1 ? "rule still uses" : "rules still use"} ${inputRemovalReview.inputLabel}`,
+			isAddressReview
+				? remaining === 0
+					? `You can remove ${inputRemovalReview.inputLabel} now.`
+					: `Review the remaining uses of ${inputRemovalReview.inputLabel}.`
+				: remaining === 0
+					? `No rules use ${inputRemovalReview.inputLabel} now. You can remove the field.`
+					: `${remaining} ${remaining === 1 ? "rule still uses" : "rules still use"} ${inputRemovalReview.inputLabel}`,
 		);
 		if (tab === "search") {
 			leaveSearchCondition({
@@ -1585,11 +1614,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		searchConfig,
 		tab,
 	]);
-	const addInput = (property: CaseProperty) => {
-		// The canvas owns the meaningful choice. This layer carries it into a
-		// working input with a unique internal name, a matching widget, and the
-		// established per-type match default.
-		const seed = seedSearchInputForProperty(config, property, projectProse);
+	const insertSearchField = (seed: SearchInputDef) => {
 		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
 		const outcome = commitMany(
 			withWorkflowAfterInputChange(docApi.getState(), [
@@ -1597,39 +1622,88 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				{
 					kind: "addSearchInput",
 					moduleUuid: retainedModuleUuid,
-					searchInput: seed,
-				},
-			]),
-		);
-		// Never select an identity the gate refused to create. The gate can still
-		// reject a concurrent structural edit even though the seed was valid when
-		// this interaction began.
-		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
-	};
-	const addHiddenInput = () => {
-		// A hidden value names no case information, so there is nothing to
-		// choose first: the seed is the search time, and the inspector opens on
-		// its expression.
-		const seed = seedHiddenSearchInput(config);
-		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
-		const outcome = commitMany(
-			withWorkflowAfterInputChange(docApi.getState(), [
-				enableCaseSearchMutation(retainedModuleUuid, searchConfig),
-				{
-					kind: "addSearchInput",
-					moduleUuid: retainedModuleUuid,
-					searchInput: seed,
+					searchInput: {
+						...seed,
+						...(config.searchInputGroups?.at(-1)?.uuid && {
+							group: config.searchInputGroups.at(-1)?.uuid,
+						}),
+					},
 				},
 			]),
 		);
 		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
+		return outcome.ok;
 	};
-	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
-		moveSearchInputToIndex(
-			requireRetainedModuleUuid(moduleUuid),
-			uuid,
-			toIndex,
+	const addInput = (property: CaseProperty) =>
+		insertSearchField(
+			seedSearchInputForProperty(config, property, projectProse),
 		);
+	const addParameterInput = (name: string, label: string) =>
+		insertSearchField({
+			kind: "parameter",
+			uuid: newUuid(),
+			name,
+			label,
+			type: "text",
+			sendAnswer: true,
+		});
+	const addHiddenInput = () => insertSearchField(seedHiddenSearchInput(config));
+	const addAddressInput = () => {
+		const names = new Set(
+			config.searchInputs.flatMap((input) =>
+				input.kind === "hidden" ||
+				input.kind === "address" ||
+				input.addressReceiver?.kind !== "unsubscribed"
+					? [input.name]
+					: [input.name, input.addressReceiver.topic],
+			),
+		);
+		let name = "address";
+		for (let index = 2; names.has(name); index++) name = `address_${index}`;
+		return insertSearchField({
+			kind: "address",
+			type: "address",
+			uuid: newUuid(),
+			name,
+			label: "Find an address",
+			excludeFromRequest: true,
+		});
+	};
+	const updateSearchGroups = (groups: readonly SearchGroupLayout[]) => {
+		const uuid = requireRetainedModuleUuid(moduleUuid);
+		const current = docApi.getState().modules[uuid]?.caseListConfig;
+		if (current === undefined) return;
+		const change = planSearchInputGroups(uuid, current, groups);
+		if ("mutations" in change) inline.commitMany(change.mutations);
+	};
+	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) => {
+		if (!config.searchInputGroups)
+			return moveSearchInputToIndex(
+				requireRetainedModuleUuid(moduleUuid),
+				uuid,
+				toIndex,
+			);
+		const position = config.searchInputs.findIndex(
+			(input) => input.uuid === uuid,
+		);
+		const target = config.searchInputs[toIndex];
+		if (position < 0 || !target || position === toIndex) return;
+		const reordered = config.searchInputs.filter(
+			(input) => input.uuid !== uuid,
+		);
+		reordered.splice(toIndex, 0, {
+			...config.searchInputs[position],
+			group: target.group,
+		});
+		updateSearchGroups(
+			config.searchInputGroups.map((group) => ({
+				...group,
+				inputs: reordered
+					.filter((input) => input.group === group.uuid)
+					.map((input) => input.uuid),
+			})),
+		);
+	};
 	const updateSearchFilter = useCallback(
 		(
 			edit: NonNullable<
@@ -2153,6 +2227,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			onCancelInputRemovalReview: cancelInputRemovalReview,
 			onCompleteInputRemovalReview: completeInputRemovalReview,
 			onReviewInputRemovalDependency: reviewInputRemovalDependency,
+			onReturnToInputRemovalReview: returnToInputRemovalReview,
 			tileOn: config.tile !== undefined,
 			tileIssues,
 			onPlaceTileCell: placeTileCell,
@@ -2348,8 +2423,11 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		resultsDependencyReview,
 		configureSearchAction,
 		addInput,
+		addParameterInput,
 		addHiddenInput,
+		addAddressInput,
 		moveInput,
+		updateSearchGroups,
 		addColumn,
 		addCalculatedColumn,
 		moveColumn,
@@ -2581,8 +2659,11 @@ export function CaseListWorkspaceCanvas() {
 		resultsDependencyReview,
 		configureSearchAction,
 		addInput,
+		addParameterInput,
 		addHiddenInput,
+		addAddressInput,
 		moveInput,
+		updateSearchGroups,
 		addColumn,
 		addCalculatedColumn,
 		moveColumn,
@@ -2648,6 +2729,8 @@ export function CaseListWorkspaceCanvas() {
 						{searchConditionSurface ?? (
 							<SearchCanvas
 								searchInputs={config.searchInputs}
+								searchInputGroups={config.searchInputGroups}
+								onUpdateSearchGroups={updateSearchGroups}
 								searchConfig={searchConfig}
 								caseTypes={caseTypes}
 								currentCaseType={caseType}
@@ -2655,7 +2738,9 @@ export function CaseListWorkspaceCanvas() {
 								onSelect={setSel}
 								onConfigureSearchAction={configureSearchAction}
 								onAddInput={addInput}
+								onAddParameterInput={addParameterInput}
 								onAddHiddenInput={addHiddenInput}
+								onAddAddressInput={addAddressInput}
 								addInputDisabledReason={addDisabledReason}
 								{...(formsAboveSearchNote !== undefined && {
 									formsAboveSearchNote,
@@ -2737,6 +2822,15 @@ export function CaseListWorkspaceCanvas() {
 							onApplyTilePreset={applyTilePreset}
 							onTilePersistOnFormsChange={setTilePersistOnForms}
 							onCaseSelectionChange={setCaseSelection}
+							onDeviceLookupChange={(next) =>
+								commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: { deviceLookup: next },
+									},
+								])
+							}
 							onWordingChange={(slot, next) =>
 								commitLayout([
 									{
@@ -2877,7 +2971,11 @@ interface ResolveInspectorArgs {
 	readonly inputRemovalReview: SearchInputRemovalReviewSession | null;
 	readonly onStartInputRemovalReview: (input: SearchInputDef) => void;
 	readonly onCancelInputRemovalReview: () => void;
-	readonly onCompleteInputRemovalReview: (inputLabel: string) => void;
+	readonly onCompleteInputRemovalReview: (
+		inputLabel: string,
+		isAddress: boolean,
+	) => void;
+	readonly onReturnToInputRemovalReview: () => void;
 	readonly onReviewInputRemovalDependency: (
 		dependency: SearchInputRemovalDependency,
 	) => void;
@@ -3021,11 +3119,24 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							args.inputRemovalReview?.phase === "dependencies" &&
 							args.inputRemovalReview.inputUuid === input.uuid
 						}
+						addressRemovalReview={
+							args.inputRemovalReview?.phase === "target" &&
+							args.inputRemovalReview.dependency.kind ===
+								"search-address-receiver" &&
+							args.inputRemovalReview.dependency.inputUuid === input.uuid
+								? {
+										sourceLabel: args.inputRemovalReview.inputLabel,
+										token: args.inputRemovalReview.token,
+										onReturn: args.onReturnToInputRemovalReview,
+									}
+								: undefined
+						}
 						onStartRemovalReview={() => args.onStartInputRemovalReview(input)}
 						onCancelRemovalReview={args.onCancelInputRemovalReview}
 						onCompleteRemovalReview={() =>
 							args.onCompleteInputRemovalReview(
 								input.label.trim() || input.name.trim() || "Search field",
+								input.kind === "address",
 							)
 						}
 						onReviewRemovalDependency={args.onReviewInputRemovalDependency}
@@ -3047,6 +3158,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 					: "Search action",
 				body: (
 					<SearchPanelInspectorBody
+						requestedTypes={requestedRecordTypes(args.caseType, config)}
 						moduleUuid={args.moduleUuid}
 						value={effectiveSearch}
 						onChange={args.onSearchConfigChange}
@@ -3267,6 +3379,7 @@ function SearchInputInspectorBody({
 	preservesAssignedCaseRule,
 	removalDependencies,
 	removalReviewOpen,
+	addressRemovalReview,
 	onStartRemovalReview,
 	onCancelRemovalReview,
 	onCompleteRemovalReview,
@@ -3288,6 +3401,7 @@ function SearchInputInspectorBody({
 	readonly preservesAssignedCaseRule: boolean;
 	readonly removalDependencies: readonly SearchInputRemovalDependency[];
 	readonly removalReviewOpen: boolean;
+	readonly addressRemovalReview: SearchInputEditorProps["addressRemovalReview"];
 	readonly onStartRemovalReview: () => void;
 	readonly onCancelRemovalReview: () => void;
 	readonly onCompleteRemovalReview: () => void;
@@ -3369,6 +3483,7 @@ function SearchInputInspectorBody({
 				currentCaseType={currentCaseType}
 				onChange={onChange}
 				onEditCondition={onEditCondition}
+				addressRemovalReview={addressRemovalReview}
 			/>
 			<div ref={removeRegionRef}>
 				<RemoveRow label="Remove search field" onClick={remove} />
@@ -3393,30 +3508,40 @@ function SearchInputInspectorBody({
 				>
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display tracking-tighter">
-							This field is used in other rules
+							{input.kind === "address"
+								? "Other fields or rules use this address field"
+								: "This field is used in other rules"}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							Open each rule or form field and remove or replace {inputLabel}'s
-							answer. Then you can remove the field.
+							{input.kind === "address"
+								? "Open each use and clear the link or choose a different source. Then you can remove the address field."
+								: `Open each rule or form field and remove or replace ${inputLabel}'s answer. Then you can remove the field.`}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogBody>
-						<ul aria-label={`Rules using ${inputLabel}`} className="grid gap-2">
+						<ul
+							aria-label={`${input.kind === "address" ? "Uses of" : "Rules using"} ${inputLabel}`}
+							className="grid gap-2"
+						>
 							{removalDependencies.map((dependency) => (
 								<li
-									key={`${dependency.kind}:${
-										dependency.kind === "search-field-condition"
-											? `${dependency.inputUuid}:${dependency.slot}`
-											: dependency.kind === "form-field"
-												? dependency.fieldUuid
-												: dependency.kind === "search-filter"
-													? dependency.filterUuid
-													: "results"
-									}:${
-										dependency.kind === "form-field"
-											? dependency.uses
-											: JSON.stringify(dependency.paths)
-									}`}
+									key={
+										dependency.kind === "search-address-receiver"
+											? `address:${dependency.inputUuid}`
+											: `${dependency.kind}:${
+													dependency.kind === "search-field-condition"
+														? `${dependency.inputUuid}:${dependency.slot}`
+														: dependency.kind === "form-field"
+															? dependency.fieldUuid
+															: dependency.kind === "search-filter"
+																? dependency.filterUuid
+																: "results"
+												}:${
+													dependency.kind === "form-field"
+														? dependency.uses
+														: JSON.stringify(dependency.paths)
+												}`
+									}
 								>
 									<Button
 										type="button"
@@ -3430,9 +3555,11 @@ function SearchInputInspectorBody({
 										<span className="min-w-0 flex-1 break-words font-medium text-nova-text">
 											<span className="block">{dependency.label}</span>
 											<span className="mt-0.5 block text-[12px] font-normal text-nova-text-muted">
-												{searchInputDependencyUses(dependency) === 1
-													? "Uses this answer once"
-													: `Uses this answer in ${searchInputDependencyUses(dependency)} places`}
+												{dependency.kind === "search-address-receiver"
+													? "Fills from this address field"
+													: searchInputDependencyUses(dependency) === 1
+														? "Uses this answer once"
+														: `Uses this answer in ${searchInputDependencyUses(dependency)} places`}
 											</span>
 										</span>
 										<span className="shrink-0 font-medium text-nova-violet-bright">

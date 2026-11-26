@@ -516,8 +516,16 @@ export function platformFeatureUses(
 				);
 			if (wanted("web-apps-form-behavior"))
 				for (const role of formBehaviorRoles)
-					if (form[role])
+					if (role !== "savedFormDescriptorText" && form[role])
 						formUses.push(slotUse("web-apps-form-behavior", formOwner, role));
+			if (form.savedFormDescriptorText && wanted("saved-form-descriptor"))
+				formUses.push(
+					slotUse(
+						"saved-form-descriptor",
+						formOwner,
+						"savedFormDescriptorText",
+					),
+				);
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(
@@ -607,6 +615,10 @@ function moduleUses(
 	// form, ride on it.
 	const formsReadSearch = moduleFormsReadSearch(module);
 	const own: PlatformFeatureUse[] = [];
+	if (list?.deviceLookup !== undefined && wanted("case-list-android-lookup"))
+		own.push(
+			slotUse("case-list-android-lookup", owner, "caseListConfig.deviceLookup"),
+		);
 	if (formsReadSearch && wanted("forms-read-search"))
 		own.push(
 			slotUse("forms-read-search", owner, "caseSearchConfig.formsReadSearch"),
@@ -744,6 +756,10 @@ function moduleUses(
 	}
 	const byOwner = (target: PlatformFeatureOwner) =>
 		usesByMember.get(memberUuid(target)) ?? [];
+	if (list?.searchInputGroups && wanted("search-field-groups"))
+		own.push(
+			slotUse("search-field-groups", owner, "caseListConfig.searchInputGroups"),
+		);
 	own.push(...byOwner(owner));
 	const out = inFeatureOrder(own);
 
@@ -756,6 +772,14 @@ function moduleUses(
 		if (column.sort?.comparator === "distance" && wanted("sort-by-distance")) {
 			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
 		}
+		if (
+			column.kind === "image-map" &&
+			column.entryPointUuid &&
+			wanted("case-list-icon-actions")
+		)
+			uses.push(
+				slotUse("case-list-icon-actions", target, slot("entryPointUuid")),
+			);
 		const cell = tileCellFor(column, list?.tile);
 		if (tileCellOnlyOnAndroid(column, cell)) {
 			const feature =
@@ -878,6 +902,8 @@ function searchInputUses(
 			uses.push(slotUse("hidden-search-field", owner, `${path}.kind`));
 		return uses;
 	}
+	if (input.kind === "address" && wanted("search-address-picker"))
+		uses.push(slotUse("search-address-picker", owner, `${path}.kind`));
 	if (!isVisibleSearchInput(input)) return uses;
 	if (input.hidden === true && wanted("hidden-search-field"))
 		uses.push(slotUse("hidden-search-field", owner, `${path}.hidden`));
@@ -950,6 +976,13 @@ function fieldUses(
 		uses.push(slotUse("image-size", owner, "maxDimension"));
 	// Every display setting whose value a platform reads differently, found
 	// through the one registry, so a new setting needs no detector here.
+	if ("androidApp" in field && field.androidApp !== undefined) {
+		const feature =
+			field.androidApp.kind === "use-question"
+				? "android-app-answer"
+				: "android-app-question";
+		if (wanted(feature)) uses.push(slotUse(feature, owner, "androidApp"));
+	}
 	const settings = fieldDisplayValues(field);
 	for (const { key, row } of settings) {
 		if (row.feature !== undefined && wanted(row.feature))

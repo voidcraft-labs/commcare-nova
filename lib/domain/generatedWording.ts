@@ -30,8 +30,10 @@ import type { Uuid } from "./uuid";
 export const generatedWordingRoles = {
 	caseRows: "Case list wording",
 	caseDetails: "Case detail wording",
+	caseDetailTabTitle: "Case detail tab title",
 	searchRows: "Search results wording",
 	searchDetails: "Search result detail wording",
+	searchDetailTabTitle: "Search result detail tab title",
 	registrationMenuTitle: "Registration menu title",
 	caseTitle: "Case details title",
 	appDisplayName: "App name workers see",
@@ -66,6 +68,13 @@ export function generatedWordingId(
 	...slot: string[]
 ): TranslationUnitId {
 	return makeTranslationUnitId("generated", owner, role, ...slot);
+}
+
+export function detailTabWordingId(tabUuid: Uuid, search: boolean) {
+	return generatedWordingId(
+		tabUuid,
+		search ? "searchDetailTabTitle" : "caseDetailTabTitle",
+	);
 }
 
 /** One view's own description of an image rule. A saved-value row from before
@@ -249,6 +258,28 @@ export function generatedWordingUnits(
 				registration?.label ??
 					(registration && doc.forms[registration.formUuid]?.name) ??
 					"",
+				base,
+			);
+		}
+		for (const tab of mod.caseListConfig?.detailTabs ?? []) {
+			const base = makeTranslationUnitId("detail-tab", tab.uuid, "title");
+			const tabPath = [...path, "Details", tab.title];
+			add(
+				false,
+				owner,
+				tab.uuid,
+				"caseDetailTabTitle",
+				tabPath,
+				tab.title,
+				base,
+			);
+			add(
+				!search || search.formsReadSearch === true,
+				owner,
+				tab.uuid,
+				"searchDetailTabTitle",
+				tabPath,
+				tab.title,
 				base,
 			);
 		}

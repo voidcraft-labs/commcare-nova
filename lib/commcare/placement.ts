@@ -78,7 +78,11 @@ import { openActionViewBefore } from "./advancedPlacement";
 import type { PlannedLoad } from "./advancedSelections";
 import { allocateAdvancedTags } from "./advancedTags";
 import { emittedModuleKind } from "./moduleKind";
-import { collectFieldLocations, saveToCaseBlockShape } from "./xform/caseOps";
+import {
+	authoredCaseChangePaths,
+	collectFieldLocations,
+	saveToCaseBlockShape,
+} from "./xform/caseOps";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
 import { planGeneratedNodes } from "./xform/generatedNodes";
 
@@ -209,6 +213,15 @@ function saveToCaseReasons(
 			? f.operations.find((op) => op.uuid === subject.operationUuid)
 			: undefined;
 	const reasons: PlacementIneligibility[] = [];
+	const authored =
+		operation === undefined
+			? undefined
+			: authoredCasePlacement(f, operation.uuid);
+	if (authored !== undefined) {
+		if (!sameCasePlacement(authored, placement))
+			reasons.push({ reason: "block-shape" });
+		return reasons;
+	}
 	const writes = operation?.writes ?? [];
 	if (operation !== undefined && operationSavesOnlyChanged(operation))
 		reasons.push({ reason: "only-if-changed" });
@@ -275,10 +288,22 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 	});
 	/** The own arm's or a create's Save to Case place: its held block, or
 	 *  the one the allocator gives it. */
+	const positioned = (op: CaseOperation): PlannedPlacement | undefined => {
+		const placement = authoredCasePlacement(f, op.uuid);
+		return placement === undefined
+			? undefined
+			: {
+					placement,
+					held:
+						op.placement !== undefined &&
+						sameCasePlacement(op.placement, placement),
+				};
+	};
 	const saveToCaseOf = (op: CaseOperation, held: boolean): PlannedPlacement =>
-		held && op.placement?.kind === "save-to-case"
+		positioned(op) ??
+		(held && op.placement?.kind === "save-to-case"
 			? { placement: op.placement, held: true }
-			: { placement: derivedPath(asSubject(op)), held: false };
+			: { placement: derivedPath(asSubject(op)), held: false });
 
 	// The own arm and the worker's record take their slots first: each slot
 	// has one subject, and the subcases read whether the own arm is basic.
@@ -370,6 +395,11 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		sharedBy.set(close.uuid, createUuid);
 	for (const op of f.operations) {
 		if (placements.has(op.uuid)) continue;
+		const authored = positioned(op);
+		if (authored !== undefined) {
+			placements.set(op.uuid, authored);
+			continue;
+		}
 		const createUuid = sharedBy.get(op.uuid);
 		const shared =
 			createUuid === undefined ? undefined : placements.get(createUuid);
@@ -466,6 +496,29 @@ function receiverSafeOperationName(facts: CaseSlotFacts, id: string): string {
  * reserved every held path's segment first), and the block named by the
  * operation's id.
  */
+function authoredCasePlacement(
+	f: CaseSlotFacts,
+	operationUuid: Uuid,
+): SaveToCasePlacement | undefined {
+	const located = authoredCaseChangePaths(f.doc, f.formUuid).get(operationUuid);
+	if (located === undefined) return undefined;
+	const scope =
+		located.repeat === undefined
+			? undefined
+			: repeatRowPath(f.doc, f.formUuid, located.repeat);
+	const names = located.path
+		.segments()
+		.slice(scope?.segments().length ?? 1)
+		.map((segment) => segment.name);
+	const [first, ...rest] = names;
+	if (first === undefined) return undefined;
+	return {
+		kind: "save-to-case",
+		...(located.repeat !== undefined && { repeat: located.repeat }),
+		path: [first, ...rest],
+	};
+}
+
 function derivedSaveToCase(
 	f: CaseSlotFacts,
 	subject: PlacementSubject,
@@ -475,6 +528,11 @@ function derivedSaveToCase(
 		subject.kind === "operation"
 			? f.operations.find((op) => op.uuid === subject.operationUuid)
 			: undefined;
+	const authored =
+		operation === undefined
+			? undefined
+			: authoredCasePlacement(f, operation.uuid);
+	if (authored !== undefined) return authored;
 	const repeat = operation?.forEach?.repeat;
 	let scope =
 		repeat === undefined
@@ -701,6 +759,16 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		loadIndex({ kind: "worker" });
 
 	for (const op of f.operations) {
+		const authored = authoredCasePlacement(f, op.uuid);
+		if (authored !== undefined) {
+			elsewhere.set(op.uuid, {
+				placement: authored,
+				held:
+					op.placement !== undefined &&
+					sameCasePlacement(op.placement, authored),
+			});
+			continue;
+		}
 		const createUuid = sharedBy.get(op.uuid);
 		const shared =
 			createUuid === undefined ? undefined : onAction.get(createUuid);
@@ -940,7 +1008,22 @@ function corePlan(
 	if (known !== undefined) return known;
 	const f = caseSlotFacts(doc, formUuid);
 	const core: CoreOptions = {
-		exclude: new Set(exclude),
+		exclude: new Set([
+			...exclude,
+			...authoredCaseChangePaths(doc, formUuid).keys(),
+			...f.operations
+				.filter(
+					(operation) =>
+						(operation.action === "create" &&
+							(operation.typeCalculation !== undefined ||
+								operation.typeChoice !== undefined)) ||
+						operation.closeAfter === true ||
+						operation.closeCondition !== undefined ||
+						operation.ownerCondition !== undefined ||
+						operation.ownerAfterCreate !== undefined,
+				)
+				.map((operation) => operation.uuid),
+		]),
 		carried: new Set(carriedCreates(doc, formUuid).keys()),
 		...(forceBasic !== undefined && { forceBasic }),
 	};

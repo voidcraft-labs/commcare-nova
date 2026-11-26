@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"code\": \"north\", \"name\": \"Hill clinic\"}, \"fixture_type\": \"visit_sites\", \"id\": \"87722fc288a540dc97ca38f41c193d8d\", \"resource_uri\": \"\"}, {\"fields\": {\"code\": \"south\", \"name\": \"River clinic\"}, \"fixture_type\": \"visit_sites\", \"id\": \"90abc43742f04733913501bef136e38b\", \"resource_uri\": \"\"}]}"
+}

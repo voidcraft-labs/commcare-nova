@@ -1,3 +1,4 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FormSpec, f } from "@/lib/__tests__/docHelpers";
@@ -9,10 +10,19 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
-import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import {
+	clockKeepingJoin,
+	INSTANT_TEXT_PATTERN,
+} from "@/lib/domain/expression/datePattern";
+import { hiddenWriterVerdicts } from "@/lib/domain/expression/inference";
 import { proseText } from "@/lib/domain/prose";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
+import { planFormCaseWire } from "../../../casePlacementPlan";
+import {
+	formsUsingWorkerRecord,
+	requiredPlanPrivileges,
+} from "../../../planPrivileges";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { entriesAt } from "../../__tests__/readerInput";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
@@ -289,7 +299,20 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 								f({
 									kind: "hidden",
 									id: "seen",
-									calculate: "now()",
+									calculate: {
+										kind: "date-coerce",
+										value: {
+											kind: "format-date",
+											date: {
+												kind: "term",
+												term: {
+													kind: "literal",
+													value: "2025-04-05T23:24:47.321Z",
+												},
+											},
+											pattern: INSTANT_TEXT_PATTERN,
+										},
+									},
 									caseWrite: { caseType: "patient", property: "seen_at" },
 								}),
 							],
@@ -313,6 +336,87 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			},
 		});
 		expect(codes(straight)).toContain(STRAIGHT);
+	});
+
+	it("keeps an explicitly typed hidden stamp separate from the day Case Management writes", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "seen_on", label: proseText("Seen on"), data_type: "date" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "seen",
+									answerType: "datetime",
+									calculate: { kind: "now" },
+									caseWrite: { caseType: "patient", property: "seen_on" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const reading = await readCases(doc);
+		expect(codes(reading)).toEqual([]);
+		expect(entries(reading)).toContain(
+			`${F}/a-datetime-question-saved-straight-to-a-case`,
+		);
+		const whole = await reading.whole;
+		if (whole?.kind !== "read")
+			throw new Error("The typed hidden instant should read.");
+		const held = whole.draft.doc;
+		expect(
+			Object.values(held.fields).find(({ id }) => id === "seen"),
+		).toMatchObject({
+			kind: "hidden",
+			answerType: "datetime",
+		});
+		expect(held.caseTypes).toContainEqual(
+			expect.objectContaining({
+				name: "patient",
+				properties: expect.arrayContaining([
+					expect.objectContaining({ name: "seen_on", data_type: "date" }),
+				]),
+			}),
+		);
+		const form = Object.values(held.forms).find(({ name }) => name === "Visit");
+		if (form === undefined) throw new Error("Missing visit form.");
+		const plan = planFormCaseWire(held, form.uuid);
+		if (plan.kind !== "basic")
+			throw new Error("Expected basic Case Management.");
+		expect(plan.actions.update_case.update.seen_on?.question_path).toBe(
+			"/data/seen",
+		);
+
+		const stamp = Object.values(held.fields).find(({ id }) => id === "seen");
+		if (stamp === undefined) throw new Error("Missing hidden clock.");
+		const withOpening = produce(held, (draft) => {
+			draft.forms[form.uuid].openingAssignments = [
+				{
+					uuid: testUuid("direct-hidden-day-opening"),
+					field: stamp.uuid,
+					source: { kind: "own" },
+					property: "seen_on",
+				},
+			];
+		});
+		expect(hiddenWriterVerdicts(withOpening)[0]?.findings).toContainEqual(
+			expect.objectContaining({ reason: "type", type: "datetime" }),
+		);
 	});
 
 	it("reads `open_case.external_id` as the external id write", async () => {
@@ -722,6 +826,65 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					(one.place as { menu?: number }).menu === 0,
 			);
 			expect(visitFindings.map((one) => one.code)).toEqual([]);
+		});
+
+		it("holds a basic save through a declared user index and retains its editor privilege", async () => {
+			const base = app([visit], [household]);
+			const doc = produce(base, (draft) => {
+				draft.caseTypes = [
+					{
+						name: "patient",
+						properties: [],
+						relations: [
+							{
+								identifier: "user",
+								targetType: "household",
+								relationship: "child",
+							},
+						],
+					},
+					{ name: "household", properties: [] },
+				];
+			});
+			const addUserWrite = (json: AppJson) => {
+				const update = actionsOf(json).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update["user/size"] = { question_path: "/data/other" };
+			};
+			const reading = await readCases(doc, { edit: addUserWrite });
+			expect(codes(reading)).toEqual([]);
+			expect(
+				ownWrites(reading).find((write) => write.property === "size")?.via,
+			).toEqual([{ identifier: "user", throughCaseType: "household" }]);
+			const outcome = await reading.whole;
+			if (outcome?.kind !== "read")
+				throw new Error("Expected a complete reading.");
+			const held = outcome.draft.doc;
+			const form = Object.values(held.forms).find(
+				(candidate) => candidate.name === visit.name,
+			);
+			if (form === undefined) throw new Error("Expected the visiting form.");
+			const plan = planFormCaseWire(held, form.uuid);
+			if (plan.kind !== "basic")
+				throw new Error("Expected basic Case Management.");
+			expect(plan.actions.update_case.update["user/size"]).toMatchObject({
+				question_path: "/data/other",
+			});
+			expect(formsUsingWorkerRecord(held)).toEqual([]);
+			expect(
+				requiredPlanPrivileges(
+					held,
+					{ lookupTables: false, places: false },
+					null,
+				),
+			).toContainEqual(expect.objectContaining({ id: "user_case" }));
+
+			const untyped = await readCases(base, { edit: addUserWrite });
+			expect(codes(untyped)).toContain(
+				`${F}/update-key-whose-index-segments-include-user-each-parent-host-or`,
+			);
 		});
 
 		it("refuses a write through an index no link fixes", async () => {
@@ -1279,18 +1442,28 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 		);
 	}
 
-	it("refuses a key holding a non-ASCII name character once, with no difference raised at the form's actions", async () => {
-		const reading = await readMenusOf(app([visit]), (json) => {
-			const update = actionsOf(json as AppJson).update_case.update as Record<
-				string,
-				unknown
-			>;
-			update.größe = { question_path: "/data/other" };
-		});
-		expect(atActions(reading)).toEqual([
-			`${F}/update-key-holding-a-non-ascii-core-name-character`,
-		]);
-	});
+	it.each([
+		["n名字", `${F}/basic-update-key-with-an-unaddressable-uncased-letter`],
+		["estado_é", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		["aⅣ", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		["größe", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		[
+			"note½",
+			`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+		],
+	])(
+		"attributes a basic update of %s to its own name class once",
+		async (key, entry) => {
+			const reading = await readMenusOf(app([visit]), (json) => {
+				const update = actionsOf(json as AppJson).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update[key] = { question_path: "/data/other" };
+			});
+			expect(atActions(reading)).toEqual([entry]);
+		},
+	);
 
 	it("refuses a key with one trailing newline once, which HQ's grammar takes and its build cannot write", async () => {
 		// `validate_property`'s `re.match` with a closing `$` takes the newline, and HQ's build

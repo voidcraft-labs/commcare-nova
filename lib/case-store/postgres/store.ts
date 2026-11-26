@@ -1,5 +1,7 @@
+import { recordWebFormActivity } from "@/lib/db/previewWebActivity";
 import { submittedActivityFacts } from "@/lib/domain/connectSubmissionFacts";
 import { CaptureSubmissionRejectedError } from "../errors";
+import { searchSupportingIds } from "./searchSupportingIds";
 // lib/case-store/postgres/store.ts
 //
 // `PostgresCaseStore` — the only implementation of the `CaseStore`
@@ -131,6 +133,7 @@ import type {
 	ResetSampleDataArgs,
 	RestoreScope,
 	SchemaChangeKind,
+	SearchClaimSelection,
 	SearchResultInstance,
 	SearchResultsPage,
 	SelectedParentCases,
@@ -853,7 +856,7 @@ export class PostgresCaseStore implements CaseStore {
 				from cases as selected_parent_case
 				where selected_parent_case.app_id = ${appId}
 					and selected_parent_case.project_id = ${projectId}
-					and selected_parent_case.case_type = ${parentCases.caseType}
+					and selected_parent_case.case_type = any(${[parentCases.caseType, ...(parentCases.additionalCaseTypes ?? [])]}::text[])
 					and selected_parent_case.case_id in (${parentIds})
 			) = ${parentCases.caseIds.length}
 			and exists (
@@ -1047,7 +1050,10 @@ export class PostgresCaseStore implements CaseStore {
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
-			.where("c.case_type", "=", args.caseType)
+			.where("c.case_type", "in", [
+				args.caseType,
+				...(args.additionalCaseTypes ?? []),
+			])
 			.where("c.project_id", "=", this.requireProjectId());
 		if (args.searchPopulation !== undefined) {
 			qb = qb.where("c.status", "is distinct from", "closed");
@@ -1160,7 +1166,11 @@ export class PostgresCaseStore implements CaseStore {
 		read: (
 			built: ReturnType<PostgresCaseStore["buildCaseSelect"]>,
 			db: Kysely<Database>,
-			primaryCount?: number,
+			response?: {
+				readonly tx: Transaction<Database>;
+				readonly primary: readonly string[];
+				readonly supporting: readonly string[];
+			},
 		) => Promise<T>,
 		transaction?: Transaction<Database>,
 	): Promise<T> {
@@ -1177,11 +1187,11 @@ export class PostgresCaseStore implements CaseStore {
 				population,
 				request,
 			);
-			const supporting = await this.searchSupportingIds(
+			const supporting = await searchSupportingIds(
 				tx,
-				args,
+				{ appId: args.appId, projectId: this.requireProjectId() },
 				ids,
-				request.relatedPaths ?? [],
+				request,
 			);
 			const device = this.buildCaseSelect(
 				{
@@ -1195,12 +1205,18 @@ export class PostgresCaseStore implements CaseStore {
 			// The worker's datum excludes every returned case marked related.
 			// A primary hit can itself carry an author-written property of
 			// that name. Core unpacks its text and converts it to boolean.
-			const qb = device.qb
+			let qb = device.qb
 				.where(sql<boolean>`c.case_id = any(${ids}::text[])`)
 				.where(
 					sql<boolean>`coalesce(c.properties ->> 'commcare_is_related_case', '') = ''`,
 				);
-			return read({ ...device, qb }, tx, ids.length);
+			if (args.datumOrder)
+				qb = qb.orderBy(sql`array_position(${ids}::text[], c.case_id)`);
+			return read({ ...device, qb }, tx, {
+				tx,
+				primary: ids,
+				supporting,
+			});
 		};
 		return transaction === undefined
 			? this.dataTransaction(resolve, true)
@@ -1223,7 +1239,12 @@ export class PostgresCaseStore implements CaseStore {
 						tx,
 						{ appId: args.appId, projectId: this.requireProjectId() },
 						selected,
-						[args.caseType],
+						[
+							args.caseType,
+							...(request.additionalRequestTypes ??
+								args.additionalCaseTypes ??
+								[]),
+						],
 					);
 		if (
 			selected?.revision !== undefined &&
@@ -1238,6 +1259,8 @@ export class PostgresCaseStore implements CaseStore {
 		const server = this.buildCaseSelect(
 			{
 				...args,
+				additionalCaseTypes:
+					request.additionalRequestTypes ?? args.additionalCaseTypes,
 				predicate: indexed ? undefined : args.predicate,
 				reading: { filter: "search", columns: "results" },
 				bindings: {
@@ -1275,67 +1298,25 @@ export class PostgresCaseStore implements CaseStore {
 		);
 	}
 
-	/** HQ delivers the last case of each requested path. An intermediate
-	 * case is delivered only when a detail also asks for that prefix. */
-	private async searchSupportingIds(
-		tx: Transaction<Database>,
-		args: QueryArgs,
-		primary: readonly string[],
-		paths: readonly (readonly string[])[],
-	): Promise<string[]> {
-		if (!primary.length || !paths.length) return [];
-		const projectId = this.requireProjectId();
-		const prefixes = new Map<string, readonly string[]>();
-		const related = new Set<string>();
-		for (const path of paths) {
-			let ids = primary;
-			for (let step = 0; step < path.length; step++) {
-				const prefix = JSON.stringify(path.slice(0, step + 1));
-				const cached = prefixes.get(prefix);
-				if (cached !== undefined) {
-					ids = cached;
-					continue;
-				}
-				if (!ids.length) break;
-				const found = await tx
-					.selectFrom("case_indices as edge")
-					.innerJoin("cases as target", "target.case_id", "edge.ancestor_id")
-					.select("target.case_id")
-					.distinct()
-					.where("edge.depth", "=", 1)
-					.where("edge.identifier", "=", path[step])
-					.where("edge.case_id", "in", ids)
-					.where("target.app_id", "=", args.appId)
-					.where("target.project_id", "=", projectId)
-					.where(({ not, exists, selectFrom }) =>
-						not(
-							exists(
-								selectFrom("parked_case_values as held")
-									.select("held.id")
-									.whereRef("held.case_id", "=", "target.case_id")
-									.where("held.dismissed_at", "is", null),
-							),
-						),
-					)
-					.execute();
-				ids = found.map((row) => row.case_id);
-				prefixes.set(prefix, ids);
-			}
-			for (const id of ids) related.add(id);
-		}
-		for (const id of primary) related.delete(id);
-		return [...related];
-	}
-
 	/** The primary count powers the empty-search transition. The inline
 	 * predicate and transport page must see that very same set of hits. */
 	async querySearchResults(
 		args: QueryArgs,
 		grouping?: string,
+		captureInstance?: true,
 	): Promise<SearchResultsPage> {
-		return this.withCaseSelect(args, async (built, tx, primaryCount) => {
-			if (primaryCount === undefined)
+		return this.withCaseSelect(args, async (built, tx, response) => {
+			if (response === undefined)
 				throw new Error("A search result page requires a completed request.");
+			const primaryCount = response.primary.length;
+			const instance = captureInstance
+				? await this.readSearchInstanceByIds(
+						response.tx,
+						args.appId,
+						response.primary,
+						response.supporting,
+					)
+				: undefined;
 			const limit = args.limit;
 			const offset = Math.max(0, args.offset ?? 0);
 			const clamp = (total: number) =>
@@ -1360,6 +1341,7 @@ export class PostgresCaseStore implements CaseStore {
 					page = await pageAt(position);
 				return {
 					primaryCount,
+					...(instance && { instance }),
 					totalRows: page.totalRows,
 					rows: page.groups.flatMap((group) => group.rows),
 					offset: position,
@@ -1374,6 +1356,7 @@ export class PostgresCaseStore implements CaseStore {
 			const position = clamp(totalRows);
 			return {
 				primaryCount,
+				...(instance && { instance }),
 				totalRows,
 				offset: position,
 				rows: totalRows
@@ -1403,32 +1386,41 @@ export class PostgresCaseStore implements CaseStore {
 							.select("c.case_id")
 							.execute()
 					).map((row) => row.case_id);
-			const supporting = await this.searchSupportingIds(
+			const supporting = await searchSupportingIds(
 				tx,
-				args,
+				{ appId: args.appId, projectId: this.requireProjectId() },
 				ids,
-				request?.relatedPaths ?? [],
+				request,
 			);
-			const allIds = [...ids, ...supporting];
-			const patch = await this.readCaseDatabasePatchInTransaction(tx, {
-				appId: args.appId,
-				projectId: this.requireProjectId(),
-				caseIds: allIds,
-			});
-			const rows = new Map(patch.rows.map((row) => [row.case_id, row]));
-			return {
-				...patch,
-				primaryIds: ids,
-				rows: allIds.map((id) => {
-					const row = rows.get(id);
-					if (!row)
-						throw new Error(
-							"A search result is missing from the snapshot that selected it.",
-						);
-					return row;
-				}),
-			};
+			return this.readSearchInstanceByIds(tx, args.appId, ids, supporting);
 		}, true);
+	}
+
+	private async readSearchInstanceByIds(
+		tx: Transaction<Database>,
+		appId: string,
+		primary: readonly string[],
+		supporting: readonly string[],
+	): Promise<SearchResultInstance> {
+		const allIds = [...primary, ...supporting];
+		const patch = await this.readCaseDatabasePatchInTransaction(tx, {
+			appId,
+			projectId: this.requireProjectId(),
+			caseIds: allIds,
+		});
+		const rows = new Map(patch.rows.map((row) => [row.case_id, row]));
+		return {
+			...patch,
+			primaryIds: primary,
+			rows: allIds.map((id) => {
+				const row = rows.get(id);
+				if (!row)
+					throw new Error(
+						"A search result is missing from the snapshot that selected it.",
+					);
+				return row;
+			}),
+		};
 	}
 
 	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
@@ -1455,7 +1447,7 @@ export class PostgresCaseStore implements CaseStore {
 					qb = qb.orderBy(part.expression, part.direction);
 				}
 			}
-		} else {
+		} else if (!args.datumOrder || !args.searchPopulation?.request) {
 			// The durable default ordering fact: creation time, then the
 			// id purely as a deterministic total-order key. Authored
 			// opaque ids carry no timestamp, so heap order and id order
@@ -2563,14 +2555,16 @@ export class PostgresCaseStore implements CaseStore {
 				throw new CaptureSubmissionRejectedError(activities.issue);
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
-			const { deviceExternalIds, ...effects } = await executeSubmissionEnvelope(
-				trx,
-				this.submissionEnvelopeHost(),
-				args,
-			);
+			const { deviceExternalIds, reachedWriteCaseIds, ...effects } =
+				await executeSubmissionEnvelope(
+					trx,
+					this.submissionEnvelopeHost(),
+					args,
+				);
 			const affectedCaseIds = [
 				...effects.primaryCaseIds,
 				...effects.createdChildren.map((child) => child.caseId),
+				...reachedWriteCaseIds,
 				...effects.operations.flatMap((operation) =>
 					operation.executed ? [operation.caseId] : [],
 				),
@@ -2595,6 +2589,19 @@ export class PostgresCaseStore implements CaseStore {
 				}),
 				caseDatabasePatch,
 			};
+			if (args.webActivity !== undefined)
+				await recordWebFormActivity(
+					trx,
+					{
+						appId: args.appId,
+						projectId: this.requireProjectId(),
+						actorId: this.requireActorUserId(),
+						workerId: this.requireOwnerId(),
+					},
+					args.submissionReceipt.entryKey,
+					args.webActivity,
+					"submitted",
+				);
 			await completeSubmissionReceipt(trx, {
 				appId: args.appId,
 				projectId: this.requireProjectId(),
@@ -3066,6 +3073,8 @@ export class PostgresCaseStore implements CaseStore {
 	async claimCases(args: {
 		readonly appId: string;
 		readonly caseIds: readonly string[];
+		readonly fromSearches?: readonly SearchClaimSelection[];
+		readonly expectedAppMutationSeq?: number;
 	}): Promise<{
 		readonly created: readonly string[];
 		readonly alreadyClaimed: readonly string[];
@@ -3075,7 +3084,15 @@ export class PostgresCaseStore implements CaseStore {
 		const ownerId = this.requireOwnerId();
 		const caseIds = [...args.caseIds].sort();
 		return await this.dataTransaction(async (trx) => {
-			await this.authorizeMutation(trx, args.appId);
+			const authorization = await this.authorizeMutation(trx, args.appId);
+			if (
+				args.expectedAppMutationSeq !== undefined &&
+				args.expectedAppMutationSeq !== authorization?.appMutationSeq
+			) {
+				throw new CaseSearchUnavailableError({
+					kind: "search-settings-changed",
+				});
+			}
 			await this.lockRelationshipWrites(trx, args.appId);
 			// The claim row's schema lock, before any row lock. A missing row
 			// refuses here with `SchemaNotSyncedError`, which a healing store
@@ -3096,6 +3113,44 @@ export class PostgresCaseStore implements CaseStore {
 			const hostById = new Map(hosts.map((row) => [row.case_id, row]));
 			const missing = caseIds.find((caseId) => !hostById.has(caseId));
 			if (missing !== undefined) throw new CaseNotFoundError(missing);
+
+			// Reapply the completed search after the host locks. The server limit
+			// and inline datum run before the chosen IDs narrow the read. Neither a
+			// supporting row nor a request-only type can become a claim this way.
+			if (args.fromSearches !== undefined) {
+				const accepted = new Set<string>();
+				for (const source of args.fromSearches) {
+					const completed =
+						source.query.searchPopulation?.request !== undefined;
+					const heldParent =
+						source.prerequisite && source.query.restoreScope !== undefined;
+					if (
+						source.query.appId !== args.appId ||
+						!(completed || heldParent) ||
+						!source.caseIds.length
+					) {
+						throw new CaseNotFoundError(caseIds[0]);
+					}
+					const rows = await this.withCaseSelect(
+						source.query,
+						({ qb }) =>
+							qb
+								.clearSelect()
+								.select("c.case_id")
+								.where("c.case_id", "in", source.caseIds)
+								.execute(),
+						trx,
+					);
+					const found = new Set(rows.map((row) => row.case_id));
+					for (const id of source.caseIds) {
+						if (!found.has(id) || (!source.prerequisite && !hostById.has(id)))
+							throw new CaseNotFoundError(id);
+						if (!source.prerequisite) accepted.add(id);
+					}
+				}
+				const refused = caseIds.find((id) => !accepted.has(id));
+				if (refused !== undefined) throw new CaseNotFoundError(refused);
+			}
 
 			// HQ's existing claim: an open claim-type case the worker owns whose
 			// extension index targets the host (`get_first_claims`).
@@ -5332,6 +5387,7 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 	const ordinary = args.ordinary;
 	if (ordinary.kind === "followup" || ordinary.kind === "close") {
 		types.add(ordinary.caseType);
+		for (const type of ordinary.additionalCaseTypes ?? []) types.add(type);
 	}
 	const ownCase = args.operations?.ownCase;
 	if (ownCase !== undefined) types.add(ownCase.caseType);

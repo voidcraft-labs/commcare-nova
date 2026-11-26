@@ -660,7 +660,7 @@ function readsScanner(
 			}
 			const read = casedbRow(at) ?? siblingCaseRow(at);
 			const results =
-				(instance === "results" || instance === "results:inline") &&
+				(instance === "results" || instance?.startsWith("results:")) &&
 				path.steps[0]?.name === "results" &&
 				path.steps[1]?.name === "case";
 			const rowStep = read?.row ?? (results ? path.steps[1] : undefined);
@@ -693,7 +693,10 @@ function readsScanner(
 			const searched =
 				results && context?.supplies.searchResults !== undefined
 					? context.facts.moduleCaseTypes.get(
-							context.supplies.searchResults.module,
+							context.form?.searchSuppliers?.find(
+								(search) =>
+									instance === `results:${search.resultsName ?? "inline"}`,
+							)?.module ?? context.supplies.searchResults.module,
 						)
 					: undefined;
 			const caseType =

@@ -24,6 +24,7 @@ import { sql } from "kysely";
 import { Client } from "pg";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { deploymentSession } from "@/__tests__/helpers/deploymentSession";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedPublishRead,
@@ -1491,7 +1492,9 @@ describe("refreshKeptValuesAction", () => {
 	it("answers a refresh whose write landed as landed when its kept list cannot be read after it, and logs the fault by its class and code alone", async () => {
 		await seedApp();
 		await published(baselineOf(liveSource()));
-		vi.mocked(getSession).mockResolvedValue({ user: { id: ACTOR } } as never);
+		vi.mocked(getSession).mockResolvedValue(
+			(await deploymentSession(h.db(), ACTOR)) as never,
+		);
 		/* A fault whose message quotes what it was reading: no log line may
 		 * carry it. */
 		const words = "Mother's Visit Checklist";

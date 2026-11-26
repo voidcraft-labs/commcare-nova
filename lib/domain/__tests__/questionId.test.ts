@@ -177,7 +177,7 @@ describe("names inside a form's Save to Case blocks", () => {
 		expect(sourceWritePropertyProblem("closed_on_visit")).toBeUndefined();
 	});
 
-	it("refuses an operation id for the three names only, and a link for close and create too", () => {
+	it("refuses an action name as a link unless the block already has that direct action", () => {
 		expect(caseOperationIdNameProblem("instance")).toBe("stops_form_builder");
 		expect(caseOperationIdNameProblem("close")).toBeUndefined();
 		expect(caseOperationIdNameProblem("_close")).toBeUndefined();
@@ -185,6 +185,15 @@ describe("names inside a form's Save to Case blocks", () => {
 			"stops_form_builder",
 		);
 		expect(caseOperationLinkNameProblem("create")).toBe("reads_as_case_action");
+		expect(
+			caseOperationLinkNameProblem("create", (action) => action === "close"),
+		).toBe("reads_as_case_action");
+		expect(
+			caseOperationLinkNameProblem("create", (action) => action === "create"),
+		).toBeUndefined();
+		expect(
+			caseOperationLinkNameProblem("close", (action) => action === "close"),
+		).toBeUndefined();
 		expect(caseOperationLinkNameProblem("_parent")).toBeUndefined();
 	});
 });

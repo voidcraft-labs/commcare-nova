@@ -412,7 +412,24 @@ export async function loadAppInTransaction(
 	tx: Transaction<AppDatabase>,
 	appId: string,
 ): Promise<AppDoc | null> {
-	const row = (await tx
+	return readStableApp(tx, appId, "shared-lock");
+}
+
+/** The caller owns a REPEATABLE READ snapshot. PostgreSQL already holds the
+ * root row and entities at one revision for the duration of that snapshot. */
+export function loadAppInRepeatableReadSnapshot(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<AppDoc | null> {
+	return readStableApp(tx, appId, "repeatable-read");
+}
+
+async function readStableApp(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	consistency: "shared-lock" | "repeatable-read",
+): Promise<AppDoc | null> {
+	const query = tx
 		.selectFrom("apps")
 		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
 		.select(
@@ -430,9 +447,11 @@ export async function loadAppInTransaction(
 				"app_settings_text",
 			),
 		)
-		.where("id", "=", appId)
-		.forShare()
-		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
+		.where("id", "=", appId);
+	const row = (await (consistency === "shared-lock"
+		? query.forShare()
+		: query
+	).executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
 	if (!row) return null;
 	return (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app;
 }

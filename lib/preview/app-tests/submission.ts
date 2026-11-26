@@ -99,6 +99,20 @@ export async function submitAppTest(
 		throw new AppTestActionError(
 			"Media capture needs a check in the running app. This test cannot submit attachment bytes.",
 		);
+	const form = context.doc.forms[formContentUuid(context.doc, screen.formUuid)];
+	// These two effects choose their physical target at entry, so the
+	// submission reads the journey server's held opening, not its live data.
+	const retainsOpening = form?.caseOperations?.some(
+		(operation) =>
+			operation.ownerAfterCreate !== undefined ||
+			(operation.action === "create" &&
+				operation.target.kind === "new" &&
+				operation.target.expr !== undefined) ||
+			(operation.action === "update" &&
+				operation.target.kind === "worker-record" &&
+				operation.condition !== undefined),
+	);
+
 	const built = await buildSubmissionOperationProgram({
 		appId: scope.appId,
 		committedApp: { blueprint: context.doc, mutation_seq: scope.blueprintSeq },
@@ -112,6 +126,25 @@ export async function submitAppTest(
 			role: scope.role,
 		},
 		testWorkerGroups: context.workerGroups,
+		...(retainsOpening && {
+			testOpening: {
+				createIds: screen.entry.checkpoint.caseCreateIds,
+				reads: {
+					cases: formContext.cases,
+					locations: formContext.cases.locations,
+					currentOwnerIds: context.restoreScope.ownerIds,
+					lookupRows: [...formContext.lookup.rowsByTable].flatMap(
+						([table, rows]) =>
+							rows.map((row, order) => ({
+								id: row.id,
+								table_id: table,
+								order_key: order,
+								values: row.values,
+							})),
+					),
+				},
+			},
+		}),
 		lookupTableSchemas: workerLookupSchemas(scope.projectId, context.lookup),
 		mutation,
 		projection,
@@ -339,6 +372,7 @@ export async function submitAppTest(
 					appId: scope.appId,
 					menuSelections: launch?.selections ?? state.selections,
 				},
+				searches: formContext.searches,
 				...(formContext.searchResults === undefined
 					? {}
 					: { searchResults: formContext.searchResults }),
@@ -371,7 +405,11 @@ export async function submitAppTest(
 		};
 		/* The back stack records destinations; Back opens a fresh entry,
 		 * which takes its own search results. */
-		const { searchResults: _taken, ...retiredScreen } = screen;
+		const {
+			searchResults: _taken,
+			searches: _searches,
+			...retiredScreen
+		} = screen;
 		const home =
 			next.route.kind === "module" || next.route.kind === "form"
 				? firstMenuSelections(
@@ -537,6 +575,7 @@ export async function submitAppTest(
 					entry: undefined,
 					entryCases: cases,
 					searchResults: undefined,
+					searches: undefined,
 				},
 			};
 		return {

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 from proof.matrix import ops
+from proof.matrix.bases import _pages
 from proof.matrix.bases.lookups import changes_lookup_data
 
 # The ends of a form HQ's form builder saves, which a question added last goes before.
@@ -139,6 +140,62 @@ def _open(tag, case_type, name_path, indices, repeat_context=""):
         "close_condition": _condition("never"),
         "doc_type": "AdvancedOpenCaseAction",
     }
+
+
+def open_member_with_parent_index(authoring, app_id):
+    """Open another member under the existing household connection."""
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
+        _open("open_member_0", "member", "/data/notes", [_index("load_household0")]),
+    ])
+
+
+def open_visitor_with_hyphenated_index(authoring, app_id):
+    """Use the distinct connection for a type whose menu has no existing child chain."""
+    from proof.matrix.bases.hq_advanced import _source
+
+    _pages.new_case_module(authoring, app_id, name="Visitors", case_type="visitor")
+    ops.upload_form_source(
+        authoring, app_id, 3, 0, _source(("visitor_name", "Visitor name", "string")), "visit-registration-source",
+    )
+    _pages.save_case_actions(authoring, app_id, 3, 0, name_path="/data/visitor_name")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
+        _open(
+            "open_member_0", "visitor", "/data/notes",
+            [{**_index("load_household0"), "reference_id": "my-parent"}],
+        ),
+    ])
+
+
+def write_through_typed_user_index(authoring, app_id):
+    """A declared user edge links an ordinary member to an ordinary household."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    from proof.matrix.bases.hq_advanced import new_advanced_module
+
+    def registration(name):
+        form = XFormBuilder(name)
+        form.new_question("member_name", "Member name", "string")
+        return form.tostring(xml_declaration=True).decode("utf-8")
+
+    new_advanced_module(authoring, app_id, "Register linked members")
+    ops.upload_form_source(authoring, app_id, 2, 0, registration, "typed-user-index-registration")
+    ops.set_json(authoring, app_id, "/modules/2/case_type", "household")
+    ops.set_json(authoring, app_id, "/modules/2/forms/0/actions/load_update_cases", [
+        {
+            "case_type": "household",
+            "case_tag": "load_household0",
+            "details_module": {"$menu": 0},
+            "doc_type": "LoadUpdateAction",
+        },
+    ])
+    ops.set_json(authoring, app_id, "/modules/2/forms/0/actions/open_cases", [
+        _open("open_member_0", "member", "/data/member_name",
+              [{**_index("load_household0"), "reference_id": "user"}]),
+    ])
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/update_case/update/user~1status_note",
+        _update("/data/status_note"),
+    )
 
 
 # hq-advanced's Member visits form: its loads and open actions.
@@ -542,6 +599,31 @@ def seen_moment_through_the_join(authoring, app_id):
         app_id,
         "/modules/1/forms/0/actions/update_case/update/seen_moment",
         _update("/data/nova_datetime_seen_moment"),
+    )
+
+
+def hidden_clock_saved_as_a_day(authoring, app_id):
+    """The Member Followup keeps a timestamp and writes its day directly to the member."""
+    _change(
+        authoring, app_id, "hidden-day", *_hidden("recorded_at", "now()", "xsd:dateTime"),
+        menu=1, form=0,
+    )
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/update_case/update/visit_day",
+        _update("/data/recorded_at"),
+    )
+
+
+def datetime_answer_saved_through_parent_as_a_day(authoring, app_id):
+    """The member follow-up writes the day of an answered timestamp to the household."""
+    _change(
+        authoring, app_id, "parent-day",
+        ('type="xsd:string"', 'type="xsd:dateTime"', 1),
+        menu=1, form=0,
+    )
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/update_case/update/parent~1visit_day",
+        _update("/data/status_note"),
     )
 
 

@@ -44,6 +44,7 @@ import type { Uuid } from "./uuid";
  */
 export type AdvancedKindBlocker =
 	| { readonly kind: "several-cases" }
+	| { readonly kind: "several-record-types" }
 	| { readonly kind: "forms-read-search" }
 	| { readonly kind: "individual-grid" }
 	| {
@@ -436,6 +437,14 @@ export function advancedKindBlockers(
 	const blockers: AdvancedKindBlocker[] = [];
 	if (caseSelectionCardinality(module) === "multiple")
 		blockers.push({ kind: "several-cases" });
+	// Advanced manual loads and the advanced case-list item bind only their
+	// own case type, including a load supplied by an earlier menu.
+	if (
+		parentSelectionChain(doc, moduleUuid).some(
+			(uuid) => doc.modules[uuid]?.caseListConfig?.additionalCaseTypes?.length,
+		)
+	)
+		blockers.push({ kind: "several-record-types" });
 	if (moduleFormsReadSearch(module))
 		blockers.push({ kind: "forms-read-search" });
 	if (module.menuLayout === "grid") blockers.push({ kind: "individual-grid" });
