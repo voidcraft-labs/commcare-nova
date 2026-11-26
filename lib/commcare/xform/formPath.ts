@@ -25,6 +25,7 @@
  */
 
 import type { Field } from "@/lib/domain";
+import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { XML_ELEMENT_NAME_REGEX } from "../constants";
 import { w } from "../xpath/wire/builders";
 import type { WirePath, WireStep } from "../xpath/wire/tree";
@@ -44,8 +45,10 @@ export class FormPath {
 	 * `FormPath` is rooted here (the wire emitter only emits one `<data>`
 	 * element per form, so there's no other anchor).
 	 */
-	static root(): FormPath {
-		return new FormPath([{ kind: "element", name: "data" }]);
+	static root(name = "data"): FormPath {
+		if (name !== "data" && !formRootNameSchema.safeParse(name).success)
+			throw new Error(`FormPath.root received an invalid form root "${name}".`);
+		return new FormPath([{ kind: "element", name }]);
 	}
 
 	/**
@@ -60,23 +63,16 @@ export class FormPath {
 	 * HQ JSON serializes it verbatim) and the typed pipeline that
 	 * consumes it inside the emitter.
 	 */
-	static parse(raw: string): FormPath {
-		if (!raw.startsWith("/data")) {
+	static parse(raw: string, rootName = "data"): FormPath {
+		const root = FormPath.root(rootName);
+		const prefix = `/${rootName}`;
+		if (raw === prefix) return root;
+		if (!raw.startsWith(`${prefix}/`))
 			throw new Error(
-				`FormPath.parse expected a path anchored at /data, got "${raw}". ` +
-					`Nova XForm paths always start at the primary <data> instance; ` +
-					`an XPath expression body (with predicates or function calls) ` +
-					`isn't a path. Route it through the Lezer XPath parser instead.`,
+				`FormPath.parse expected a path anchored at ${prefix}, got "${raw}".`,
 			);
-		}
-		if (raw === "/data") return FormPath.root();
-		if (raw[5] !== "/") {
-			throw new Error(
-				`FormPath.parse expected "/data" or "/data/...", got "${raw}".`,
-			);
-		}
-		const parts = raw.slice("/data/".length).split("/");
-		const segments: FormPathSegment[] = [{ kind: "element", name: "data" }];
+		const parts = raw.slice(prefix.length + 1).split("/");
+		const segments = [...root.segments()];
 		for (const part of parts) {
 			if (!part) {
 				throw new Error(
@@ -196,6 +192,7 @@ export class FormPath {
 						: w.attr(segment.name),
 				),
 			spelling,
+			this._segments[0].name,
 		);
 	}
 

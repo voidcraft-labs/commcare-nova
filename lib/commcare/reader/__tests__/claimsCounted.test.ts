@@ -280,18 +280,18 @@ describe("the claims a reading counts", () => {
 			editForm(app, (xml) => xml.replaceAll("visitnote", "case")),
 		);
 		expect(findingCodes(outcome)).toEqual([
-			`${Q}/question-id-case-registration-script`,
+			`${Q}/submitted-node-consumed-as-case`,
 		]);
 		expect(
 			records(outcome).filter(
 				(one) =>
-					one.entry === `${Q}/question-id-case-registration-script` &&
+					one.entry === `${Q}/submitted-node-consumed-as-case` &&
 					one.where.includes("/model[1]/instance[1]/"),
 			),
 		).toEqual([
 			expect.objectContaining({
 				key: "xform:model/instance/*/*",
-				standing: "not-yet",
+				standing: "fix-in-hq",
 			}),
 		]);
 	});

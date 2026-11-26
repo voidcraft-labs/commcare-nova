@@ -185,8 +185,9 @@ def opportunity_record(opportunity) -> dict:
 class Forwarder:
     """One served state forwarding to the opportunity: each run's forwards."""
 
-    def __init__(self, served, opportunity):
+    def __init__(self, served, opportunity, *, observe_submission=None):
         self.served, self.opportunity = served, opportunity
+        self.observe_submission = observe_submission
         self.views = _views(served)
         self.runs: dict = {}
         self._reader = None
@@ -230,6 +231,9 @@ class Forwarder:
         posts = [exchange for exchange in collected["exchanges"] if exchange["path"] == RECEIVER]
         if reader is None or not (posts or forwards or received):
             return
+        if self.observe_submission is not None and posts:
+            # The walk fork still holds HQ's saved forms and attachment bytes.
+            self.observe_submission(reader, watched, posts)
         name = name or hashlib.sha256(label).hexdigest()[:16]
         self.runs.setdefault(reader, []).append(
             {
@@ -302,7 +306,7 @@ class Forwarder:
 
 
 @contextmanager
-def forwarded(served, opportunity, label: str):
+def forwarded(served, opportunity, label: str, *, observe_submission=None):
     """While the block runs, the served state forwards what HQ receives to the opportunity's Connect; the
     block's value is the ``Forwarder``, or None where the document has no opportunity (no Connect app)."""
     if opportunity is None:
@@ -311,7 +315,7 @@ def forwarded(served, opportunity, label: str):
     from proof.connect import hq as connect_hq
 
     with connect_hq.forwarding(served.unit, opportunity.session.url, served.operation, label):
-        forwarder = Forwarder(served, opportunity)
+        forwarder = Forwarder(served, opportunity, observe_submission=observe_submission)
         served.forwarding = forwarder
         try:
             yield forwarder

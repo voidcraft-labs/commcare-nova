@@ -22,6 +22,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { CaseWriteEditor } from "@/components/builder/editor/fields/CaseWriteEditor";
+import { ConfirmationEditor } from "@/components/builder/editor/fields/ConfirmationEditor";
 import { FieldListEditor } from "@/components/builder/editor/fields/FieldListEditor";
 import type { HiddenValueEditor as HiddenValueEditorComponent } from "@/components/builder/editor/fields/HiddenValueEditor";
 import { KeypadEditor } from "@/components/builder/editor/fields/KeypadEditor";
@@ -64,12 +65,17 @@ import type {
 	VideoField,
 } from "@/lib/domain";
 import { fieldDisplaySettingsFor } from "@/lib/domain";
+import type { ConnectActivityField } from "@/lib/domain/fields/connectActivity";
 import type {
 	FieldEditorComponentProps,
 	FieldEditorSchema,
 	FormExpressionKeys,
 } from "@/lib/domain/kinds";
 import { ChoiceLayoutEditor } from "./fields/ChoiceLayoutEditor";
+import type { ConnectActivityEditor as ConnectActivityEditorComponent } from "./fields/ConnectActivityEditor";
+import { HiddenAnswerNamespaceEditor } from "./fields/HiddenAnswerNamespaceEditor";
+import { HiddenAnswerTypeEditor } from "./fields/HiddenAnswerTypeEditor";
+import { ImageSizeEditor } from "./fields/ImageSizeEditor";
 import { QuestionDisplayEditor } from "./fields/QuestionDisplayEditor";
 import { requiredEntry } from "./requiredEntry";
 
@@ -154,9 +160,15 @@ function WarmXPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 }
 const XPathEditor = WarmXPathEditor as typeof XPathEditorComponent;
 
-/* The hidden field's single Value control renders CodeMirror, so it rides
+/* The hidden field's calculation editor renders CodeMirror, so it rides
  * the same lazy boundary the XPath editor does rather than joining Builder
  * startup. */
+const ConnectActivityEditor = dynamic(() =>
+	import("./fields/ConnectActivityEditor").then(
+		(module) => module.ConnectActivityEditor,
+	),
+) as typeof ConnectActivityEditorComponent;
+
 const HiddenValueEditor = dynamic(
 	() =>
 		import("@/components/builder/editor/fields/HiddenValueEditor").then(
@@ -474,11 +486,11 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 	],
 };
 
-// Geopoint is input-capable but has no `validate` / `validate_msg`.
 const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	data: [caseWriteEntry<GeopointField>()],
 	logic: [
 		requiredEntry<GeopointField>(),
+		xpathEntry<GeopointField, "validate">("validate", "Validation"),
 		xpathEntry<GeopointField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<GeopointField>(),
 	],
@@ -561,21 +573,27 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 	],
 };
 
-// Capture kinds (image/audio/video/signature/file) carry a display `label`
-// + `label_media` but no help/required/validate message slots, the
-// label-media entry joins each kind's pre-existing hint entry.
 const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
 	data: [caseWriteEntry<ImageField>()],
 	logic: [
 		requiredEntry<ImageField>(),
+		xpathEntry<ImageField, "validate">("validate", "Validation"),
 		xpathEntry<ImageField, "relevant">("relevant", "Show when"),
+		defaultValueEntry<ImageField>(),
 	],
 	ui: [
+		{
+			key: "maxDimension",
+			component: ImageSizeEditor,
+			label: "Longest side in pixels",
+		},
 		mediaEntry<ImageField, "label_media">("label_media", "Label media"),
 		textEntry<ImageField, "extended_text">("extended_text", "Extended text"),
 		textEntry<ImageField, "qr_code">("qr_code", "QR code"),
 		textEntry<ImageField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<ImageField>(),
+		textEntry<ImageField, "help">("help", "Help"),
+		mediaEntry<ImageField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -583,7 +601,9 @@ const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
 	data: [caseWriteEntry<AudioField>()],
 	logic: [
 		requiredEntry<AudioField>(),
+		xpathEntry<AudioField, "validate">("validate", "Validation"),
 		xpathEntry<AudioField, "relevant">("relevant", "Show when"),
+		defaultValueEntry<AudioField>(),
 	],
 	ui: [
 		mediaEntry<AudioField, "label_media">("label_media", "Label media"),
@@ -591,6 +611,8 @@ const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
 		textEntry<AudioField, "qr_code">("qr_code", "QR code"),
 		textEntry<AudioField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<AudioField>(),
+		textEntry<AudioField, "help">("help", "Help"),
+		mediaEntry<AudioField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -598,7 +620,9 @@ const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
 	data: [caseWriteEntry<VideoField>()],
 	logic: [
 		requiredEntry<VideoField>(),
+		xpathEntry<VideoField, "validate">("validate", "Validation"),
 		xpathEntry<VideoField, "relevant">("relevant", "Show when"),
+		defaultValueEntry<VideoField>(),
 	],
 	ui: [
 		mediaEntry<VideoField, "label_media">("label_media", "Label media"),
@@ -606,6 +630,8 @@ const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
 		textEntry<VideoField, "qr_code">("qr_code", "QR code"),
 		textEntry<VideoField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<VideoField>(),
+		textEntry<VideoField, "help">("help", "Help"),
+		mediaEntry<VideoField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -613,7 +639,9 @@ const fileFieldEditorSchema: FieldEditorSchema<FileField> = {
 	data: [caseWriteEntry<FileField>()],
 	logic: [
 		requiredEntry<FileField>(),
+		xpathEntry<FileField, "validate">("validate", "Validation"),
 		xpathEntry<FileField, "relevant">("relevant", "Show when"),
+		defaultValueEntry<FileField>(),
 	],
 	ui: [
 		mediaEntry<FileField, "label_media">("label_media", "Label media"),
@@ -621,6 +649,8 @@ const fileFieldEditorSchema: FieldEditorSchema<FileField> = {
 		textEntry<FileField, "qr_code">("qr_code", "QR code"),
 		textEntry<FileField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<FileField>(),
+		textEntry<FileField, "help">("help", "Help"),
+		mediaEntry<FileField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -628,7 +658,9 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	data: [caseWriteEntry<SignatureField>()],
 	logic: [
 		requiredEntry<SignatureField>(),
+		xpathEntry<SignatureField, "validate">("validate", "Validation"),
 		xpathEntry<SignatureField, "relevant">("relevant", "Show when"),
+		defaultValueEntry<SignatureField>(),
 	],
 	ui: [
 		mediaEntry<SignatureField, "label_media">("label_media", "Label media"),
@@ -639,24 +671,30 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 		textEntry<SignatureField, "qr_code">("qr_code", "QR code"),
 		textEntry<SignatureField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<SignatureField>(),
+		textEntry<SignatureField, "help">("help", "Help"),
+		mediaEntry<SignatureField, "help_media">("help_media", "Help media"),
 	],
 };
 
-// Hidden's value comes from at most ONE of `calculate` (keep in step) or
-// `default_value` (set once), so the rail shows one Value control with a
-// mode switch rather than two slots. The entry is keyed on `calculate` for
-// its mount and `data-field-id` plumbing, but `HiddenValueEditor` writes
-// both slots on every gesture; it is always visible and never a pill (a
-// hidden field with no value still has a mode to choose and, when it writes
-// a case property, a sentence saying what it saves). No separate `default_value` entry. No
-// `required` entry: a hidden field is never shown, so it can't be required
-// (the `requiredOnHidden` validator enforces this, mirroring Vellum's
-// DataBindOnly). No `ui` section (hidden fields have no label, no label
-// media, and never render to the user).
+// Both value slots are visible together so an author can see what the form
+// starts with and what later updates the answer. Each editor writes only its slot.
 const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
-	data: [caseWriteEntry<HiddenField>()],
+	data: [
+		caseWriteEntry<HiddenField>(),
+		{
+			key: "answerNamespace",
+			component: HiddenAnswerNamespaceEditor,
+			label: "Receiving service",
+		},
+	],
 	logic: [
-		{ key: "calculate", component: HiddenValueEditor, label: "Value" },
+		{ key: "default_value", component: XPathEditor, label: "Starting value" },
+		{ key: "calculate", component: HiddenValueEditor, label: "Calculation" },
+		{
+			key: "answerType",
+			component: HiddenAnswerTypeEditor,
+			label: "Answer type",
+		},
 		xpathEntry<HiddenField, "relevant">("relevant", "Show when"),
 	],
 	ui: [],
@@ -690,14 +728,33 @@ const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 	data: [{ key: "repeat_mode", component: RepeatRowsEditor, label: "Rows" }],
 	logic: [xpathEntry<RepeatField, "relevant">("relevant", "Show when")],
-	ui: [],
+	ui: [
+		textEntry<RepeatField, "addFirstLabel">(
+			"addFirstLabel",
+			"First entry button",
+		),
+		textEntry<RepeatField, "addLabel">("addLabel", "Another entry button"),
+	],
 };
 
 const labelFieldEditorSchema: FieldEditorSchema<LabelField> = {
-	data: [],
-	logic: [xpathEntry<LabelField, "relevant">("relevant", "Show when")],
+	data: [caseWriteEntry<LabelField>()],
+	logic: [
+		requiredEntry<LabelField>(),
+		xpathEntry<LabelField, "validate">("validate", "Validation"),
+		xpathEntry<LabelField, "relevant">("relevant", "Show when"),
+		defaultValueEntry<LabelField>(),
+	],
 	ui: [
+		{
+			key: "askForConfirmation",
+			component: ConfirmationEditor,
+			label: "Ask for confirmation",
+		},
 		mediaEntry<LabelField, "label_media">("label_media", "Label media"),
+		hintEntry<LabelField>(),
+		textEntry<LabelField, "help">("help", "Help"),
+		mediaEntry<LabelField, "help_media">("help_media", "Help media"),
 		textEntry<LabelField, "extended_text">("extended_text", "Extended text"),
 		textEntry<LabelField, "qr_code">("qr_code", "QR code"),
 		textEntry<LabelField, "spoken_text">("spoken_text", "Spoken text"),
@@ -738,6 +795,15 @@ const coreSchemas: {
 	signature: signatureFieldEditorSchema,
 	label: labelFieldEditorSchema,
 	hidden: hiddenFieldEditorSchema,
+	connect_activity: {
+		data: [
+			{ key: "activity", label: "Activity", component: ConnectActivityEditor },
+		],
+		logic: [
+			xpathEntry<ConnectActivityField, "relevant">("relevant", "Record when"),
+		],
+		ui: [],
+	},
 	secret: secretFieldEditorSchema,
 	group: groupFieldEditorSchema,
 	section: sectionFieldEditorSchema,

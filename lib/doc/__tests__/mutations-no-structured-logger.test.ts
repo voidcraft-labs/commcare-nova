@@ -74,7 +74,6 @@ describe("client document code avoids the structured server logger", () => {
 		for (const file of [
 			"lib/doc/commitVerdicts.ts",
 			"lib/doc/identifierVerdicts.ts",
-			"lib/doc/connectConfig.ts",
 		])
 			sources[file] = readFileSync(file, "utf8");
 		expect(Object.keys(sources).length).toBeGreaterThan(3);

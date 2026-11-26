@@ -282,6 +282,22 @@ class Scenario:
         flags.save()
         return {}
 
+    def assign_area_step(self, step):
+        from commcare_connect.microplanning.models import WorkAreaStatus
+        from commcare_connect.microplanning.tests.factories import WorkAreaFactory
+        from commcare_connect.opportunity.tests.factories import (
+            OpportunityAccessFactory,
+        )
+
+        access = self.access if step.get("worker", True) else OpportunityAccessFactory(opportunity=self.opportunity)
+        WorkAreaFactory(
+            opportunity=self.opportunity,
+            opportunity_access=access,
+            case_id=step["case"],
+            status=WorkAreaStatus.NOT_VISITED,
+        )
+        return {}
+
     def assign_task_step(self, step):
         """A task of the named type assigned to the worker."""
         from commcare_connect.opportunity.models import TaskType
@@ -326,7 +342,36 @@ class Scenario:
 
     # What Connect holds --------------------------------------------------------------------------------------
 
-    def state(self):
+    def area_state(self, access):
+        from commcare_connect.microplanning.models import (
+            WorkArea,
+            WorkAreaInaccessibilityRequest,
+        )
+
+        return {
+            "areas": [
+                {
+                    "case": str(area.case_id),
+                    "status": area.status,
+                    "assignedToWorker": area.opportunity_access_id == access.id,
+                }
+                for area in WorkArea.objects.filter(opportunity=self.opportunity).order_by("case_id")
+            ],
+            "areaRequests": [
+                {
+                    "case": str(request.work_area.case_id),
+                    "xform": request.xform_id,
+                    "reason": request.reason,
+                    "details": request.additional_details,
+                    "status": request.status,
+                }
+                for request in WorkAreaInaccessibilityRequest.objects.filter(work_area__opportunity=self.opportunity)
+                .select_related("work_area")
+                .order_by("pk")
+            ],
+        }
+
+    def state(self, *, observe_areas=False):
         """Every row the receiver reads or writes for the opportunity, by the names the app and HQ gave them."""
         from commcare_connect.opportunity.models import (
             Assessment,
@@ -420,6 +465,7 @@ class Scenario:
                 {"slug": t.task_type.slug, "status": t.status, "xform": t.xform_id}
                 for t in AssignedTask.objects.filter(opportunity_access=access).order_by("task_type__slug", "pk")
             ],
+            **(self.area_state(access) if observe_areas or self.spec.get("observeAreas") else {}),
             "queued": queued_tasks(),
         }
 
@@ -624,7 +670,7 @@ class Served:
         and the rows Connect holds after them."""
         tasks = self.run_queued()
         exchanges, self.exchanges, self.raised = self.exchanges, [], []
-        state = self.scenario.state()
+        state = self.scenario.state(observe_areas=step.get("observeAreas", False))
         if state is not None:
             state.pop("queued", None)
         return {"exchanges": exchanges, "tasks": tasks, "state": state}

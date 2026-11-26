@@ -127,6 +127,8 @@ def _got(answer):
 
     if answer.get("kind") == "read":
         return "that it reads"
+    if answer.get("kind") == "declaration-not-offered":
+        return f"that it does not offer {answer.get('stated')}, offering {answer.get('offered')}"
     findings = answer.get("findings") or []
     return "; ".join(finding_line(finding) for finding in findings) or f"{answer.get('kind')} with no finding"
 

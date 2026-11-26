@@ -707,6 +707,7 @@ export function datetimeSpellingOf(
 /** The owner value an owner node's calculate holds. */
 function ownerValueOf(
 	calculate: string,
+	rootName: string,
 ): "acting-user" | "unowned" | undefined {
 	for (const value of ["acting-user", "unowned"] as const) {
 		const built = buildOwnerNodes(
@@ -714,7 +715,7 @@ function ownerValueOf(
 				{
 					purpose: "owner",
 					operationUuid: "reader" as never,
-					scope: FormPath.root(),
+					scope: FormPath.root(rootName),
 					name: "nova_owner_reader",
 					value,
 				},
@@ -829,7 +830,7 @@ export function recognizeGenerated(
 		bindHoldsOnly(bind, ["calculate"]) &&
 		endsScope(node)
 	) {
-		const ownerValue = ownerValueOf(calculate);
+		const ownerValue = ownerValueOf(calculate, node.rootName);
 		if (ownerValue !== undefined)
 			return {
 				kind: "generated-candidate",
@@ -1083,6 +1084,13 @@ export function readQueryPlacement(
 	// wrapper holding it is no count placement but the group HQ's form builder shows.
 	const parts = new Set([ids, count, position, row]);
 	if (wrapper.children.some((child) => !parts.has(child))) return undefined;
+	// Nor does it bind the wrapper: a condition there, which HQ's form builder can give the
+	// unlabelled group it shows, leaves the generated ids and count out of the submission with
+	// the rows, which a query repeat's condition (written on its rows) does not; the wrapper is
+	// then that group, its condition its own.
+	const wrapperBind = binds.get(wrapper);
+	if (wrapperBind !== undefined && !bindHoldsOnly(wrapperBind, []))
+		return undefined;
 	const idsBind = binds.get(ids);
 	const countBind = binds.get(count);
 	const trees = countPlacementTrees({ ids: ids.name, count: count.name });

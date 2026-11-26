@@ -15,7 +15,7 @@ const ACTIVE_APP: AppSummary = {
 	id: "active-app",
 	project_id: "proj-1",
 	app_name: "Active app",
-	connect_type: null,
+	connect_roles: [],
 	module_count: 1,
 	form_count: 1,
 	status: "complete",

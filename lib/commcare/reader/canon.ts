@@ -315,7 +315,7 @@ export const CANONICALIZATIONS: readonly Canonicalization[] = [
 		id: "connect-requires-app-location",
 		kind: "one-wire",
 		apply: (doc) =>
-			doc.connectType !== null && doc.appSettings.captureLocation === true
+			doc.connectRoles.length > 0 && doc.appSettings.captureLocation === true
 				? withCandidate(doc, (draft) => {
 						delete draft.appSettings.captureLocation;
 					})

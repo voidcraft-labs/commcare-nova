@@ -44,10 +44,9 @@ import {
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import {
-	FIRST_PUBLISH_CHANGE_IDS,
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+	type CurrentFirstPublishChangeId,
 	FIRST_PUBLISH_PLATFORM,
-	type FirstPublishChangeId,
-	retiredSearchFilterNotices,
 } from "@/lib/publish/firstPublishChangeIds";
 import { KEPT_AT_HQ, type KeptRow } from "../keptAtHq";
 import { schemaPropertyDefault } from "../schemaDefaults";
@@ -522,8 +521,11 @@ describe("the register ids rule 3 reads from a base's firstPublish", () => {
 
 	it("are each a first-publish change predicted exactly where a reading records a rewrite under it, under every declaration a worker meets it", () => {
 		for (const id of REGISTER_IDS) {
-			expect(FIRST_PUBLISH_CHANGE_IDS as readonly string[], id).toContain(id);
-			const key = id as FirstPublishChangeId;
+			expect(
+				CURRENT_FIRST_PUBLISH_CHANGE_IDS as readonly string[],
+				id,
+			).toContain(id);
+			const key = id as CurrentFirstPublishChangeId;
 			const change = FIRST_PUBLISH_CHANGES[key];
 			for (const runsOnlyOn of [null, ...PLATFORMS]) {
 				const under = `${id} where the app runs on ${runsOnlyOn ?? "every platform"}`;
@@ -549,10 +551,7 @@ describe("the repository's coverage", () => {
 		inputs = {
 			...repositoryInputs(manifest.inventory),
 			kept: KEPT_AT_HQ,
-			// A retired notice stays renderable for a stored review, and no reading makes it.
-			firstPublishIds: FIRST_PUBLISH_CHANGE_IDS.filter(
-				(id) => !retiredSearchFilterNotices.has(id),
-			),
+			firstPublishIds: CURRENT_FIRST_PUBLISH_CHANGE_IDS,
 			registerIds: REGISTER_IDS,
 			refusingClaims: [...claimRegistry()]
 				.filter(([, claim]) => claim.use === "refuse")

@@ -33,6 +33,13 @@ describe("which kinds carry a validation", () => {
 		}
 		expect(fieldKinds.filter(fieldKindCarriesValidation).sort()).toEqual(
 			[
+				"label",
+				"audio",
+				"geopoint",
+				"image",
+				"video",
+				"file",
+				"signature",
 				"barcode",
 				"date",
 				"datetime",

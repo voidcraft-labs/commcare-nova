@@ -92,7 +92,7 @@ export function previewFormNodeProjection(
 		path(node) {
 			const coordinates = path(node);
 			if (coordinates === undefined) return undefined;
-			let result = FormPath.root();
+			let result = FormPath.root(form.dataRootName);
 			for (const coordinate of coordinates.slice(1)) {
 				const projected = step(coordinate);
 				if (projected === undefined) return undefined;
@@ -238,9 +238,8 @@ export function formExpressionRuntime(
 	): string => {
 		for (const { node } of formReads(expression)) {
 			if (
-				node.kind !== "field" &&
-				node.kind !== "repeat-row" &&
-				!(node.kind === "repeat" && node.role !== "count-result")
+				node.kind === "form-root" ||
+				(node.kind === "repeat" && node.role === "count-result")
 			)
 				throw new Error(
 					`Preview cannot yet evaluate the generated form node ${formNodeKey(node)}.`,
@@ -266,7 +265,7 @@ export function formExpressionRuntime(
 			startingDatetime
 				? startingDatetimeWire(expression, build)
 				: toWire(expression, build),
-			{ target: "preview" },
+			{ target: "preview", formRootName: doc.forms[formUuid]?.dataRootName },
 		).text;
 	};
 	const texts = new Map<string, string | undefined>();
