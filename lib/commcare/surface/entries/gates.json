@@ -102,6 +102,7 @@
 		"contentEntries": [
 			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
+			"menus-and-case-lists/lookup-extra-relative-without-case-context",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
 			"menus-and-case-lists/lookup-autolaunch",
@@ -110,6 +111,7 @@
 			"menus-and-case-lists/lookup-extras-key-value",
 			"menus-and-case-lists/lookup-responses-key",
 			"menus-and-case-lists/lookup-case-id-confidence",
+			"menus-and-case-lists/lookup-case-id-result-without-a-header-map",
 			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
 		],
 		"platforms": "n/a",
@@ -227,6 +229,7 @@
 		"contentEntries": [
 			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
+			"menus-and-case-lists/lookup-extra-relative-without-case-context",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
 			"menus-and-case-lists/lookup-autolaunch",
@@ -235,6 +238,7 @@
 			"menus-and-case-lists/lookup-extras-key-value",
 			"menus-and-case-lists/lookup-responses-key",
 			"menus-and-case-lists/lookup-case-id-confidence",
+			"menus-and-case-lists/lookup-case-id-result-without-a-header-map",
 			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
 		],
 		"platforms": "n/a",
@@ -390,9 +394,11 @@
 			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
 			"case-search/inline-search-default-search-on-a-module-with-visible-inputs",
 			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			"case-search/an-effective-results-instance-equal-to-a-module-s-that-does-not",
 			"case-search/additional-case-types",
 			"case-search/custom-related-case-property",
 			"case-search/search-on-clear",
+			"case-search/address-picker-on-a-search-screen",
 			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
 			"case-search/input-checkbox-itemset",
 			"case-search/input-date",
@@ -404,7 +410,9 @@
 			"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
 			"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
 			"case-search/exclude",
+			"case-search/address-picker-receiver-on-a-search-screen",
 			"case-search/receiver-expression",
+			"case-search/additional-record-type-without-menu",
 			"questions/text-address",
 			"questions/secret-address",
 			"questions/barcode-numeric-address-or-receive-topic-field"
@@ -452,6 +460,8 @@
 			"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
 			"case-search/include-all-related-cases-implied-by-nova-relation-reads",
 			"case-search/include-all-related-cases-authored-without-relation-reads",
+			"case-search/prompt-key-matching-a-direct-parent-property",
+			"case-search/prompt-key-matching-two-parent-links",
 			"case-search/subcase-exists-id-q-subcase-count-id-q-op-n-ancestor-exists-path"
 		],
 		"platforms": "n/a",
@@ -2866,6 +2876,7 @@
 			"menus-and-case-lists/case-type-commcare-user-on-an-advancedmodule",
 			"menus-and-case-lists/user-prop-usercase",
 			"menus-and-case-lists/user-steps-prop",
+			"forms-and-case-writes/update-key-through-a-typed-user-index",
 			"forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
 			"forms-and-case-writes/usercase-update-with-condition-always-or-if-read-as-always-xform",
 			"forms-and-case-writes/usercase-preload-into-a-question-outside-any-repeat-on-a-form",
@@ -3321,7 +3332,9 @@
 		},
 		"content": "HELD (Appearances `address`, asked at publish with CASE_SEARCH_ADVANCED for an app that runs in Web Apps) / HELD-NEW (Search prompts geocoder)",
 		"contentEntries": [
+			"case-search/address-picker-on-a-search-screen",
 			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/address-picker-receiver-on-a-search-screen",
 			"case-search/receiver-expression",
 			"questions/text-address",
 			"questions/secret-address",

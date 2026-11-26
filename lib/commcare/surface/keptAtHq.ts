@@ -383,15 +383,6 @@ export const KEPT_AT_HQ: Readonly<Record<string, KeptRow>> = {
 		elsewhere: defaultsTo("the server's default build"),
 		base: "hq-new-app",
 	},
-	/* No label: the row holds an app with no build profile. */
-	"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker":
-		{
-			kind: "setting",
-			ccz: { does: "no-reader", why: "An archive is one build." },
-			preview: NO_CLAIM,
-			elsewhere: defaultsTo("none"),
-			base: "hq-new-app",
-		},
 	"application-and-settings/32-features-credentials": {
 		kind: "setting",
 		label: "worker-activity-credential",
