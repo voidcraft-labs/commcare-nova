@@ -25,8 +25,12 @@ export function groupedSearchWire(
 	);
 }
 
+export function searchGroupLocaleId(moduleId: string, key: string): string {
+	return `search_property.${moduleId}.${key}`;
+}
+
 export function searchGroupElement(moduleId: string, key: string) {
-	const localeId = `search_property.${moduleId}.${key}`;
+	const localeId = searchGroupLocaleId(moduleId, key);
 	return {
 		localeId,
 		element: el("group", { key }, [

@@ -3380,8 +3380,12 @@ export function CaseListScreen({
 								...group,
 								label:
 									(localizedValues.get(
+										generatedWordingId(group.uuid, "searchGroupHeading"),
+									) as string | undefined) ??
+									(localizedValues.get(
 										searchInputGroupLabelUnitId(group.uuid),
-									) as string | undefined) ?? group.label,
+									) as string | undefined) ??
+									group.label,
 							}))}
 							filter={config?.filter}
 							caseType={caseType}

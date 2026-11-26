@@ -33,6 +33,10 @@ import {
 import { buildLongDetail } from "./suite/case-list/longDetail";
 import { buildShortDetail } from "./suite/case-list/shortDetail";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
+import {
+	groupedSearchWire,
+	searchGroupLocaleId,
+} from "./suite/case-search/searchGroups";
 import { formSubmitLabelLocaleId } from "./suite/formStrings";
 
 /** The two keys CommCare HQ's build writes from the app's name, each with its own wording unit:
@@ -148,6 +152,17 @@ export function generatedWordingKeys(
 				moduleUuid,
 				"searchDescription",
 			);
+			const list = mod.caseListConfig;
+			if (list?.searchInputGroups && effectiveCaseSearchConfig(mod))
+				for (const group of groupedSearchWire(
+					list.searchInputs,
+					list.searchInputGroups,
+				))
+					register(
+						searchGroupLocaleId(menu, group.key),
+						group.uuid,
+						"searchGroupHeading",
+					);
 			const searchChecks =
 				projection &&
 				searchModules.has(moduleUuid) &&

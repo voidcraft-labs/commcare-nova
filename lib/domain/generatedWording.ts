@@ -18,10 +18,12 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	moduleHasCaseListMenuItem,
+	searchInputGroupsWithMembers,
 } from "./modules";
 import { projectProseTemplate } from "./prose";
 import {
 	caseListWordingUnitId,
+	searchInputGroupLabelUnitId,
 	type TranslationUnit,
 	type TranslationUnitOwner,
 } from "./translationUnits";
@@ -51,6 +53,7 @@ export const generatedWordingRoles = {
 	searchButton: "Search button",
 	searchTitle: "Search screen title",
 	searchDescription: "Search screen description",
+	searchGroupHeading: "Search group heading",
 	promptLabel: "Search field label",
 	promptHint: "Search field hint",
 	promptRequired: "Search field required message",
@@ -429,6 +432,18 @@ export function generatedWordingUnits(
 				id,
 			);
 		}
+		if (mod.caseListConfig)
+			for (const group of searchInputGroupsWithMembers(mod.caseListConfig)) {
+				add(
+					!search || group.inputs.length === 0,
+					{ kind: "search-input-group", moduleUuid, groupUuid: group.uuid },
+					group.uuid,
+					"searchGroupHeading",
+					[...path, "Search", group.label],
+					group.label,
+					searchInputGroupLabelUnitId(group.uuid),
+				);
+			}
 		for (const input of mod.caseListConfig?.searchInputs ?? []) {
 			const hidden = !search || input.kind === "hidden";
 			const field = {
