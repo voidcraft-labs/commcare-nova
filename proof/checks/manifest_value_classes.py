@@ -10344,7 +10344,17 @@ def exact_create_id(use, manifest):
         holder = _save_to_case_create_id(form, setvalue, target)
         if holder is None or form.in_repeat(form.paths[holder]) or setvalue.get("event") != "xforms-ready":
             return False
-        return (setvalue.get("value") or "").strip() not in ("", "''", '""', "uuid()")
+        value = (setvalue.get("value") or "").strip()
+        if value in ("", "''", '""', "uuid()"):
+            return False
+        if form.node(value) is not None:
+            return any(
+                step.get("ref") == value and step.get("event") == "xforms-ready"
+                and (step.get("value") or "").strip() not in ("", "''", '""')
+                for step in setvalue.itersiblings(preceding=True)
+                if step.tag == f"{{{XFORMS}}}setvalue"
+            )
+        return True
     form, bind, target = _bind(use)
     if form is None:
         return None
@@ -10354,7 +10364,9 @@ def exact_create_id(use, manifest):
     if holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase" or not _creates(holder):
         return False
     value = (bind.get("calculate") or "").strip()
-    return form.in_repeat(form.paths[holder]) and bool(value) and value != "uuid()" and not value.startswith("if(")
+    if "nova-case-v1:" in value:
+        return None  # The derived-key envelope has a separate judgment.
+    return form.in_repeat(form.paths[holder]) and bool(value) and value != "uuid()"
 
 
 def conditioned_create_owner(use, manifest):
