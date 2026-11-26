@@ -122,6 +122,16 @@ export function useShowsSourceLanguage(): boolean {
 	return useContext(BuilderLocalizationContext)?.isSource ?? true;
 }
 
+/**
+ * The source language where the builder shows another language, which a
+ * text cleared there falls back to; undefined under the source, or outside
+ * the provider.
+ */
+export function useSourceLanguageBehindLens(): LanguageTag | undefined {
+	const value = useContext(BuilderLocalizationContext);
+	return value === null || value.isSource ? undefined : value.sourceLanguage;
+}
+
 export function useLocalizedTranslationUnit(
 	unitId: TranslationUnitId,
 ): LocalizedTranslationUnit | undefined {

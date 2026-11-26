@@ -52,6 +52,7 @@ import {
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
+import { useSourceLanguageBehindLens } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
@@ -137,6 +138,7 @@ import {
 	type RelationPath,
 	relationStep,
 } from "@/lib/domain/expression";
+import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 import {
 	hiddenSearchFieldRefusal,
 	projectSpaceMatchingFits,
@@ -1444,6 +1446,19 @@ interface RequiredSlotProps {
 	readonly onEditCondition: () => void;
 }
 
+/** What leaving a message blank shows, under a language other than the
+ *  source: that language takes the source's message (the Builder clears its
+ *  own translation), not CommCare's or Nova's standard sentence. Undefined
+ *  under the source, whose own line says what a blank shows. */
+function useBlankMessageLine(): string | undefined {
+	const sourceLanguage = useSourceLanguageBehindLens();
+	if (sourceLanguage === undefined) return undefined;
+	const source = languageDisplayLabel(sourceLanguage);
+	return source === undefined
+		? "Leave it blank to show the source language's message"
+		: `Leave it blank to show the ${source} message`;
+}
+
 function RequiredSlot({
 	expressionContext,
 	value,
@@ -1452,6 +1467,7 @@ function RequiredSlot({
 	onChange,
 	onEditCondition,
 }: RequiredSlotProps) {
+	const blankMessageLine = useBlankMessageLine();
 	const choice = requiredChoiceOf(value);
 	const pick = (next: RequiredChoice) => {
 		if (next === choice) return;
@@ -1588,7 +1604,8 @@ function RequiredSlot({
 								ariaLabel={`Search field ${rowIndex + 1} required message`}
 							/>
 							<p className="text-[13px] leading-relaxed text-nova-text-muted">
-								Leave it blank to use the standard message
+								{blankMessageLine ??
+									"Leave it blank to use the standard message"}
 							</p>
 						</div>
 					)}
@@ -1623,6 +1640,7 @@ function CheckSlot({
 	onChange,
 	onEditRule,
 }: CheckSlotProps) {
+	const blankMessageLine = useBlankMessageLine();
 	return (
 		<FieldRow
 			label="Check on the answer"
@@ -1685,7 +1703,8 @@ function CheckSlot({
 							ariaLabel={`Search field ${rowIndex + 1} check message`}
 						/>
 						<p className="text-[13px] leading-relaxed text-nova-text-muted">
-							Leave it blank to show CommCare's own message
+							{blankMessageLine ??
+								"Leave it blank to show CommCare's own message"}
 						</p>
 					</div>
 					<Button
