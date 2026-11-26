@@ -683,7 +683,7 @@ export function readSearchPrompts(
 		);
 		if (reading !== undefined) out.push(reading);
 	}
-	const linkedPrompts = out.map((prompt) => {
+	const linkedPrompts = out.map((prompt): PromptReading => {
 		const input = prompt.input;
 		if (
 			input.kind === "address" ||
