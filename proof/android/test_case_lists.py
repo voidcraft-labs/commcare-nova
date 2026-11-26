@@ -45,6 +45,7 @@ cell drawn at an alignment Preview does not draw.
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -410,3 +411,154 @@ def test_search_on_clear_keeps_androids_search_button_without_adding_a_clear_act
                 buttons = list(_visible_query_buttons(query["controls"]))
                 evidence(f"{label}-{menu}-query-buttons", buttons)
                 assert query["submitButton"]["text"].strip() and buttons == [query["submitButton"]], (label, menu, buttons)
+
+
+def _step_summary(step):
+    """One step of a walk, as a failure names it: its screen, the session's command and datum, and what it chose."""
+    session = step.get("session") or {}
+    listing = step.get("list") or {}
+    detail = listing.get("detail") if isinstance(listing, dict) else None
+    return (
+        step.get("screen"),
+        session.get("command"),
+        session.get("datum"),
+        step.get("chose") or (listing.get("chose") if isinstance(listing, dict) else None),
+        bool(detail),
+    )
+
+
+def _sent_summary(instance):
+    """A sent form, as a failure names it: its root and the case ids its blocks change."""
+    from lxml import etree
+
+    root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+    blocks = root.iter("{http://commcarehq.org/case/transaction/v2}case")
+    return (etree.QName(root).localname, root.get("name"), sorted(block.get("case_id") or "" for block in blocks))
+
+
+def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(android_documents, hq):
+    from lxml import etree
+
+    from proof.android import observe
+    from proof.android.navigation import nav
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    doc = android_documents["targeted-independent-form-choices"]
+    database = casedata.document_case_database(doc)
+    ordinary = [record for record in database.cases if record.case_type == "person"]
+    only = replace(ordinary[0], case_id="proof-standalone-list", name="Standalone list only")
+    # An owned claim restores its host onto the device even though another
+    # worker owns it. Both form choices apply their list's owner exclusion.
+    excluded = replace(ordinary[0], case_id="proof-excluded-person", name="Restored contact",
+                       owner_id="proof-excluded-person-owner")
+    claim = replace(ordinary[0], case_id="proof-contact-claim", name="Contact claim",
+                    case_type="commcare-case-claim", properties=(),
+                    indices=(("host", "person", excluded.case_id, "extension"),))
+    database = replace(database, cases=(*database.cases, only, excluded, claim))
+    own = ["m0", "m0-case-list"]
+    first = ["m0", "m0-f0"]
+    second = [*first, "@case:" + ordinary[0].case_id]
+    completed = [*second, "@case:" + ordinary[1].case_id]
+    with _archives(doc, database) as (served, archives):
+        for name, archive in archives.items():
+            blobs = Blobs()
+            sent = []
+            answer = nav(served, blobs, label="independent-choices-" + name, archive=archive,
+                         paths=[own, first, second, completed], sent=sent)
+            navs = blobs.get_json(answer["answer"])["navs"]
+
+            def last_list(path):
+                walk = navs["path:" + "/".join(path)]
+                assert "raised" not in walk, walk
+                last = walk["steps"][-1]
+                assert last["screen"] == LIST, (name, path, last)
+                return set(last["list"]["order"])
+
+            expected = {record.case_id for record in ordinary}
+            # The forms' choices read the list's filter, which leaves out a case of the list-only name (the
+            # document's own cases hold one); the standalone list item reads none.
+            chosen = {record.case_id for record in ordinary if record.name != only.name}
+            assert last_list(own) == expected | {only.case_id, excluded.case_id}, name
+            assert last_list(first) == chosen, name
+            assert last_list(second) == chosen, name
+            # Only the walk that completes the form sends it. A walk goes on past a form to where its
+            # after-submit leads (Screens.follow, up to MAX_FORMS forms), here back to the second list, which it
+            # answers with its own case, so it sends that one form each time it completes it.
+            summaries = [_sent_summary(one) for one in sent]
+            if not sent or any(one != summaries[0] for one in summaries):
+                print(json.dumps({
+                    "archive": name,
+                    "sent": summaries,
+                    "walks": {
+                        "/".join(path): [_step_summary(step) for step in navs["path:" + "/".join(path)]["steps"]]
+                        for path in (own, first, second, completed)
+                    },
+                }, indent=1))
+            assert sent and all(one == summaries[0] for one in summaries), (name, len(sent))
+            instance = sent[0]
+            submitted = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+            assert [submitted.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
+                "Before", ordinary[0].name, ordinary[1].name
+            ], name
+            blocks = [block for block in submitted.iter("{http://commcarehq.org/case/transaction/v2}case")]
+            assert {block.get("case_id") for block in blocks} >= {ordinary[0].case_id, ordinary[1].case_id}, name
+
+            resumed = []
+            again = observe.app(served, blobs, label="resume-independent-choices-" + name, archive=archive,
+                                commands=[], questions={"/data/note": ["After resuming"]},
+                                save_incomplete="m0-f0", reopen=True, sent=resumed)
+            reopened = blobs.get_json(again["answer"])["savedIncomplete"]["reopened"]
+            assert reopened["screen"] == "FormEntryActivity", reopened
+            assert reopened["form"]["saved"]["finishing"] is True, reopened
+            (instance,) = resumed
+            submission = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+            names = {case.case_id: case.name for case in ordinary}
+            chosen_ids = {block.get("case_id") for block in submission.iter("{http://commcarehq.org/case/transaction/v2}case")}
+            # The incomplete-form driver picks the first available record in each list.
+            (chosen,) = chosen_ids
+            assert [submission.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
+                "Before", names[chosen], names[chosen]
+            ], name
+
+
+def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_documents, hq):
+    from proof.android.navigation import nav
+    from proof.observe.casedata import document_case_database
+    from proof.observe.record import Blobs
+
+    doc = android_documents["targeted-shared-visit-entries"]
+    database = document_case_database(doc)
+    people = [row.case_id for row in database.cases if row.case_type == "person"]
+    assert len(people) >= 3, people
+    choices = [
+        ("m0-f0", [people[1], people[0]]),
+        ("m0-f1", [people[1], people[2], people[0]]),
+        ("m0-f2", [people[2]]),
+    ]
+    paths = [["m0", command, *["@case:" + person for person in picked]] for command, picked in choices]
+    with _archives(doc, database) as (served, archives):
+        for name, archive in archives.items():
+            blobs = Blobs()
+            result = nav(served, blobs, label="shared-visits-" + name, archive=archive, paths=paths)
+            navs = blobs.get_json(result["answer"])["navs"]
+            for (command, picked), path in zip(choices, paths, strict=True):
+                walk = navs["path:" + "/".join(path)]
+                assert "raised" not in walk, walk
+                steps = walk["steps"]
+                # The lists the walk chose at on its way to the form: a walk goes on past a form to where its
+                # after-submit leads (Screens.follow), which is that form's last list again.
+                entered = next(
+                    (index for index, step in enumerate(steps) if step["screen"] == "FormEntryActivity"), len(steps)
+                )
+                on_the_way = [step for step in steps[:entered] if step["screen"] == LIST]
+                if len(on_the_way) != len(picked):
+                    print(json.dumps({"archive": name, "path": path, "steps": [_step_summary(s) for s in steps]}, indent=1))
+                assert len(on_the_way) == len(picked), (path, len(steps))
+                opened = next(step for step in steps if step["screen"] == "FormEntryActivity")
+                assert opened["session"]["command"] == command, (path, opened)
+                form = opened["form"]
+                assert form["loaded"] is True and form["formTitle"] == "Visit", (path, form)
+                # A navigation path walks the loaded form through save, where the reader records any alert.
+                saved = form["saved"]
+                assert saved["finishing"] is True and saved["alert"] is None, (path, saved)

@@ -30,6 +30,7 @@ import {
 } from "@/components/shadcn/popover";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { humanizeId } from "@/lib/domain";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { SELECTED_TINT_CLS } from "@/lib/styles";
 
 import { caseTypeDisplays, planCaseTypeCreation } from "./caseTypePickerModel";
@@ -38,6 +39,8 @@ const ROW_BASE =
 	"h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-left text-sm whitespace-normal";
 
 interface CaseTypePickerContentProps {
+	/** A list can show the worker’s own system-maintained record. */
+	readonly offerWorkerRecord?: boolean;
 	/** The currently-bound case type, highlighted in the list. */
 	readonly value?: string;
 	/** Fired when a case type is chosen (existing) or created (new). */
@@ -67,6 +70,7 @@ export function CaseTypePickerContent({
 	onChange,
 	onClear,
 	exclude,
+	offerWorkerRecord,
 	choiceVerdict,
 	clearVerdict = { ok: true },
 	clearLabel = "Stop managing cases",
@@ -80,10 +84,14 @@ export function CaseTypePickerContent({
 		() => new Set(caseTypes.map((c) => c.name)),
 		[caseTypes],
 	);
-	const availableCaseTypes = useMemo(
-		() => caseTypes.filter((caseType) => !exclude?.has(caseType.name)),
-		[caseTypes, exclude],
-	);
+	const availableCaseTypes = useMemo(() => {
+		const available = caseTypes.filter(
+			(ct) => ct.name !== USERCASE_CASE_TYPE && !exclude?.has(ct.name),
+		);
+		return offerWorkerRecord && !exclude?.has(USERCASE_CASE_TYPE)
+			? [...available, { name: USERCASE_CASE_TYPE, properties: [] }]
+			: available;
+	}, [caseTypes, exclude, offerWorkerRecord]);
 	const displays = useMemo(
 		() => caseTypeDisplays(availableCaseTypes.map((caseType) => caseType.name)),
 		[availableCaseTypes],
@@ -296,6 +304,7 @@ export function CaseTypePicker({
 	onChange,
 	onClear,
 	exclude,
+	offerWorkerRecord,
 	choiceVerdict,
 	clearVerdict,
 	clearLabel,
@@ -316,7 +325,10 @@ export function CaseTypePicker({
 				needsDisambiguation: false,
 			})
 		: null;
-	const triggerLabel = selectedDisplay?.label ?? placeholder;
+	const triggerLabel =
+		value === USERCASE_CASE_TYPE
+			? "Worker’s own record"
+			: (selectedDisplay?.label ?? placeholder);
 	const storedValueHint =
 		value && selectedDisplay?.needsDisambiguation ? value : null;
 
@@ -375,6 +387,7 @@ export function CaseTypePicker({
 						setOpen(false);
 					}}
 					exclude={exclude}
+					offerWorkerRecord={offerWorkerRecord}
 					choiceVerdict={choiceVerdict}
 					clearVerdict={clearVerdict}
 					clearLabel={clearLabel}

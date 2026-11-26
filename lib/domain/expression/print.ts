@@ -32,6 +32,7 @@ export interface FormPrintContext {
 		field: Uuid,
 		options: readonly Uuid[],
 	) => readonly string[] | undefined;
+	readonly namedEntrySupply?: (datum: DatumRef) => string | undefined;
 	readonly datumId?: (datum: DatumRef) => string | undefined;
 	readonly selectedCasesId?: (module: Uuid) => string | undefined;
 	readonly tableTag?: (table: LookupTableId) => string | undefined;
@@ -420,6 +421,11 @@ function printWith(
 				emit(`instance('commcaresession')/session/context/${term.field}`);
 				break;
 			case "session-datum": {
+				const source = ctx.namedEntrySupply?.(term.datum);
+				if (source !== undefined) {
+					emit(source);
+					break;
+				}
 				const id = named(ctx.datumId?.(term.datum), path);
 				if (id !== undefined)
 					emit(`instance('commcaresession')/session/data/${id}`);

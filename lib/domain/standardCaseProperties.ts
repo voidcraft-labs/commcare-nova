@@ -174,20 +174,53 @@ export const CASE_SCALAR_PROPERTY_NAMES: ReadonlySet<string> = new Set([
 	"case_id",
 	"case_type",
 	...STANDARD_CASE_LIST_PROPERTIES,
+	"location_id",
 ]);
 
 /**
  * Standard scalar properties a form's case operations may save a question's
  * answer to.
  *
- * These are authored with their stable Nova names even though neither value
+ * These are authored with their stable Nova names even though none of them
  * belongs in the custom JSON property document. Lowering and persistence route
  * each one through its dedicated case-action / row-scalar path.
+ *
+ * `location_id` is the case's own location as CommCare HQ keeps it: a case
+ * block's `location_id` key becomes the case's location column there rather
+ * than a property (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`),
+ * and its restore writes it back as the case's `location_id` element when it
+ * holds text (`V2CaseXMLGenerator.add_custom_properties`), so a device reads
+ * it as a property of that name either side of a sync. It is opaque text, not
+ * one of the Project's places, and grants no access. It is no standard list
+ * property every case carries: a case type holds it where the app saves or
+ * declares it, and HQ's case search, which indexes no location
+ * (`corehq/pillows/case_search.py::_get_case_properties`), never reads it
+ * (`isDeviceOnlyCaseProperty`).
  */
 export const WRITABLE_STANDARD_CASE_PROPERTIES: ReadonlySet<string> = new Set([
 	"case_name",
 	"external_id",
+	"location_id",
 ]);
+
+/**
+ * Case values a device holds that CommCare HQ's case search does not:
+ * `location_id`, which HQ keeps as the case's own column and its search index
+ * leaves out (it indexes `case_json` and `INDEXED_METADATA_BY_KEY`, which names
+ * no location). The type checker refuses a read of one in a slot HQ's search
+ * evaluates, so a search never answers on a value the server can't see.
+ */
+export const DEVICE_ONLY_CASE_PROPERTIES: ReadonlySet<string> = new Set([
+	"location_id",
+]);
+
+/** The case's own location (`WRITABLE_STANDARD_CASE_PROPERTIES`), a text
+ *  column whatever writes or declares it. */
+export const CASE_LOCATION_PROPERTY = "location_id";
+
+export function isDeviceOnlyCaseProperty(name: string): boolean {
+	return DEVICE_ONLY_CASE_PROPERTIES.has(name);
+}
 
 /**
  * Platform-owned or runtime-divergent names a question's answer may never be
@@ -195,10 +228,19 @@ export const WRITABLE_STANDARD_CASE_PROPERTIES: ReadonlySet<string> = new Set([
  *
  * This is domain admission policy, not a compatibility alias table. The set is
  * deliberately exact: custom properties remain open-ended, while every
- * standard/system spelling except the two members of
+ * standard/system spelling except the members of
  * `WRITABLE_STANDARD_CASE_PROPERTIES` is rejected before wire or storage
  * projection. Retired spellings such as `name` are included so a
  * validation-bypassing historical document still fails closed.
+ *
+ * `hq_user_id` is no member: it is an ordinary property a form may save on
+ * any case but the worker's record, whose copy of it CommCare HQ's user-case
+ * sync owns (`usercase.ts::USERCASE_BUILT_IN_KEYS`). HQ's server also copies
+ * the value it saves into the case's external id
+ * (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`), which
+ * the case store does at the same write while a device, which keeps it as a
+ * property alone (`CaseXmlParser.updateCase`), shows the copy only after its
+ * next sync.
  */
 export const FORBIDDEN_CASE_WRITE_PROPERTIES: ReadonlySet<string> = new Set([
 	"actions",
@@ -238,8 +280,6 @@ export const FORBIDDEN_CASE_WRITE_PROPERTIES: ReadonlySet<string> = new Set([
 	"version",
 	"xform_id",
 	"xform_ids",
-	"location_id",
-	"hq_user_id",
 ]);
 
 /**
@@ -250,11 +290,63 @@ export const FORBIDDEN_CASE_WRITE_PROPERTIES: ReadonlySet<string> = new Set([
 export const FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES: ReadonlySet<string> =
 	new Set([...FORBIDDEN_CASE_WRITE_PROPERTIES, "case_name"]);
 
+/**
+ * The name and the owner of a case above the operation's own, which a write
+ * through `via` saves: an operation renames and gives an owner to its own
+ * case through its facets, and to the case its links reach through a write
+ * of `case_name` or `owner_id`. CommCare HQ's build writes such a key into
+ * the reached case's block, mapping `name` to its `case_name`
+ * (`xform.py::XFormCaseBlock.add_case_updates`), where Core sets the case's
+ * name and owner (`CaseXmlParser.updateCase`) and HQ's server its name and
+ * known `owner_id` (`update_strategy.py::_apply_update_action`).
+ */
+export const CASE_FACETS_THROUGH_INDEX: ReadonlySet<string> = new Set([
+	"case_name",
+	"owner_id",
+]);
+
+/** Whether a write saves the name or the owner of a case above its
+ *  operation's own (`CASE_FACETS_THROUGH_INDEX`). */
+export function isFacetWriteThroughIndex(write: {
+	readonly property: string;
+	readonly via?: readonly unknown[];
+}): boolean {
+	return (
+		write.via !== undefined && CASE_FACETS_THROUGH_INDEX.has(write.property)
+	);
+}
+
+/** Whether an operation's write of `property` is refused as one of its own
+ *  facets: always, but for the name and owner of a case above it. */
+export function isReservedCaseOperationWrite(write: {
+	readonly property: string;
+	readonly via?: readonly unknown[];
+}): boolean {
+	return (
+		FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(write.property) &&
+		!isFacetWriteThroughIndex(write)
+	);
+}
+
+export type WritableStandardCaseProperty =
+	| "case_name"
+	| "external_id"
+	| "location_id";
+
 export function isWritableStandardCaseProperty(
 	property: string,
-): property is "case_name" | "external_id" {
+): property is WritableStandardCaseProperty {
 	return WRITABLE_STANDARD_CASE_PROPERTIES.has(property);
 }
+
+/** How a person reads each writable standard value: "the case's name". */
+export const WRITABLE_STANDARD_CASE_PROPERTY_WORDS: Readonly<
+	Record<WritableStandardCaseProperty, string>
+> = {
+	case_name: "name",
+	external_id: "external id",
+	location_id: "location ID",
+};
 
 /** Core exposes these stored instants as calendar-only DateData in casedb. */
 export function isCalendarCaseProperty(name: string): boolean {

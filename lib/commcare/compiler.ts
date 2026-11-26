@@ -68,6 +68,7 @@ import {
 	type HqAnyForm,
 	type HqApplication,
 } from "@/lib/commcare";
+import { ENTRY_ASSERTION_MESSAGES } from "@/lib/commcare/advancedEntryValues";
 import {
 	type FormCaseWirePlan,
 	planFormCaseWire,
@@ -151,10 +152,6 @@ import {
 	FORM_SUBMIT_LABEL,
 	formSubmitLabelLocaleId,
 } from "@/lib/commcare/suite/formStrings";
-import {
-	USERCASE_MISSING_LOCALE_ID,
-	USERCASE_MISSING_MESSAGE,
-} from "@/lib/commcare/usercaseWire";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import {
@@ -198,11 +195,7 @@ import {
 	caseContextDetailIds,
 	caseContextLineDetail,
 } from "./suite/case-list/formContext";
-import {
-	GROUP_OWNER_ASSERTION,
-	GROUP_OWNER_MESSAGE,
-	needsSingleGroup,
-} from "./workerGroupsWire";
+import { needsSingleGroup } from "./workerGroupsWire";
 import { w } from "./xpath/wire/builders";
 import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
 
@@ -435,6 +428,15 @@ export function compileCczParts(
 	const doc = plan.doc;
 	const hqModules = hqJson.modules;
 	const attachments = hqJson._attachments;
+	const ordinaryForms = new Map(
+		hqModules.flatMap((module) =>
+			module.forms.flatMap((form) =>
+				form.doc_type === "AdvancedForm"
+					? [[form.unique_id, form] as const]
+					: [],
+			),
+		),
+	);
 	const assets = opts.assets;
 	const lookupNaming = opts.lookupNaming;
 	const localization = commCareLocalization(authoredDoc);
@@ -490,6 +492,7 @@ export function compileCczParts(
 		"app.display.name": appName,
 		"cchq.case": "Case",
 	};
+	const submitLabels = new Map<string, Readonly<Record<string, string>>>();
 	for (const { id, name } of requiredAndroidPackages(
 		doc.appSettings.requiredAndroidApps,
 	))
@@ -975,7 +978,15 @@ export function compileCczParts(
 			);
 
 			const formName = form.name;
-			const xmlns = hqForm.xmlns;
+			const content =
+				hqForm.doc_type === "ShadowForm"
+					? ordinaryForms.get(hqForm.shadow_parent_form_id)
+					: hqForm;
+			if (!content)
+				throw new Error(
+					`Shared entry ${hqForm.unique_id} needs its ordinary form.`,
+				);
+			const xmlns = content.xmlns;
 			const uniqueId = hqForm.unique_id;
 			const cmdId = `m${mIdx}-f${fIdx}`;
 			const filePath = formMemberPath(sourceIndex, fIdx);
@@ -986,11 +997,10 @@ export function compileCczParts(
 				formUuid,
 				"name",
 			);
-			// HQ's build writes every form's submit label, "Submit" where none
-			// is set, which Nova never sets. Nova's own system copy, so every
-			// language takes it verbatim.
-			appStrings[formSubmitLabelLocaleId(sourceIndex, fIdx)] =
-				FORM_SUBMIT_LABEL;
+			const submitId = formSubmitLabelLocaleId(sourceIndex, fIdx);
+			appStrings[submitId] = FORM_SUBMIT_LABEL;
+			if (hqForm.submit_label !== undefined)
+				submitLabels.set(submitId, hqForm.submit_label);
 
 			// Build-time injection. The emitter produces a clean XForm (no case
 			// blocks, no meta — those are CCHQ render-time artifacts the HQ-upload
@@ -1014,7 +1024,7 @@ export function compileCczParts(
 				visible === undefined ? attachments[`${uniqueId}.xml`] : undefined;
 			// An advanced form's blocks are `_create_casexml_advanced`'s, in its
 			// place (`XForm.add_case_and_meta_advanced`).
-			if (xform) {
+			if (xform && hqForm.doc_type !== "ShadowForm") {
 				xform =
 					hqForm.doc_type === "AdvancedForm"
 						? addAdvancedCaseBlocks(
@@ -1158,8 +1168,8 @@ export function compileCczParts(
 			Object.assign(appStrings, formNav.strings);
 			const entryDef = deriveEntryDefinition({
 				groupAssertion:
-					doc.appSettings.caseSharing && needsSingleGroup(hqForm.actions)
-						? hqForm.doc_type === "AdvancedForm"
+					doc.appSettings.caseSharing && needsSingleGroup(content.actions)
+						? content.doc_type === "AdvancedForm"
 							? "advanced"
 							: "basic"
 						: undefined,
@@ -1229,7 +1239,7 @@ export function compileCczParts(
 				}
 			}
 
-			if (visible === undefined) {
+			if (visible === undefined && hqForm.doc_type !== "ShadowForm") {
 				if (xform === undefined)
 					throw new Error("The source form has no XForm attachment.");
 				files[filePath] = xform;
@@ -1252,20 +1262,18 @@ export function compileCczParts(
 			// it doesn't, so the no-media shape is unchanged. Its app_strings
 			// (the jr:// path locales) merge into the table the suite oracle
 			// resolves `<locale id>` against.
-			// The worker-record assertion's message. CommCare throws
+			// Each entry assertion's message. CommCare throws
 			// `NoLocalizedTextException` on a locale id with no app_strings
-			// entry, so the string travels with the assertion that references
-			// it rather than being seeded unconditionally — a suite that never
+			// entry, so a string travels with the assertion that references it
+			// rather than being seeded unconditionally: a suite that never
 			// asserts carries no orphaned message.
 			//
 			// It carries no translation unit: it is Nova's own system copy
 			// rather than something an author wrote, so every language table
 			// takes the source text verbatim.
 			for (const assertion of entryDef.assertions ?? []) {
-				if (assertion.localeId === USERCASE_MISSING_LOCALE_ID)
-					appStrings[USERCASE_MISSING_LOCALE_ID] = USERCASE_MISSING_MESSAGE;
-				if (assertion.localeId === GROUP_OWNER_ASSERTION.localeId)
-					appStrings[GROUP_OWNER_ASSERTION.localeId] = GROUP_OWNER_MESSAGE;
+				appStrings[assertion.localeId] =
+					ENTRY_ASSERTION_MESSAGES[assertion.localeId];
 			}
 			suiteEntryDefinitions.push({
 				definition: entryDef,
@@ -1606,6 +1614,11 @@ export function compileCczParts(
 	const generatedText = (language: string, key: string): string | undefined => {
 		const own = ownEntry(ownEntry(overrides, language), key);
 		if (own !== undefined) return own;
+		// A form's own submit wording, under the override as HQ's build puts
+		// the app's translations over `submit_label`. A language with none
+		// shows the built default.
+		const labels = submitLabels.get(key);
+		if (labels !== undefined) return labels[language] ?? FORM_SUBMIT_LABEL;
 		if (!Object.hasOwn(appStrings, key)) return undefined;
 		const base = ownEntry(appStringUnits, key);
 		return base === undefined

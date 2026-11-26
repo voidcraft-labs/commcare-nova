@@ -132,6 +132,7 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"module-name": "Module name",
 	"menu-badge": "Menu badge",
 	"form-name": "Form name",
+	"form-submit-label": "Submit button",
 	"case-list-registration-label": "Register action label",
 	"case-list-menu-item-label": "Case list entry label",
 	"field-label": "Field label",
