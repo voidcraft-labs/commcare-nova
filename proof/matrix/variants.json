@@ -19561,6 +19561,11 @@
 		},
 		"holds": [
 			{
+				"key": ["field", { "$xmlns": [1, 0] }, ["status_note"]],
+				"pointer": "/kind",
+				"value": "datetime"
+			},
+			{
 				"key": ["form", { "$xmlns": [1, 0] }],
 				"pointer": "/caseOperations/0/writes/1/property",
 				"value": "visit_day"
