@@ -129,7 +129,7 @@ COUNT_WITH_SESSION = (
 def test_the_hq_search_button_counts_restored_cases_without_loading_new_instances(hq, core_runner, tmp_path):
     from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
     from proof.core.artifacts import SESSION_RESTORE
-    from proof.core.test_session import person_cases
+    from proof.core.test_session import CASE_XMLNS, person_cases
     from proof.observe.build import arrange
 
     def archive(domain, name, condition, unexpected_session):
@@ -148,9 +148,12 @@ def test_the_hq_search_button_counts_restored_cases_without_loading_new_instance
         return arrange(files, tmp_path / name)
 
     def restore(ids):
-        return person_cases(SESSION_RESTORE.read_bytes(), ids).replace(
-            b"<case_type>person</case_type>", b"<case_type>client</case_type>"
-        )
+        restore = etree.fromstring(person_cases(SESSION_RESTORE.read_bytes(), ids))
+        case_ns = f"{{{CASE_XMLNS}}}"
+        for case in restore.iter(f"{case_ns}case"):
+            if case.get("case_id") in ids:
+                case.find(f"{case_ns}create/{case_ns}case_type").text = "client"
+        return etree.tostring(restore)
 
     def walk(path, ids):
         report = core_runner.admit(path)
