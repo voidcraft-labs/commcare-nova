@@ -82,6 +82,7 @@ def test_editor_keeps_malformed_receiver_and_only_the_matching_topic_fails(
     ]
     read = {
         "eval": """() => Object.fromEntries([...document.querySelectorAll('input.query-field[data-receive]')]
+            .filter(input => input.dataset.receive)
             .map(input => [input.dataset.receive, input.value]))"""
     }
 
