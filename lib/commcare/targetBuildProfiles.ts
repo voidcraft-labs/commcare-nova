@@ -41,7 +41,7 @@ export interface BuildProfileLanguageGap {
 
 /**
  * One gap per profile that names a code outside `langs`, in HQ's profile
- * order. A profile with no languages names none, so it gives no gap.
+ * order. An empty list has no default language, which HQ needs to build.
  */
 export function buildProfileLanguageGaps(
 	langs: readonly string[],
@@ -53,7 +53,7 @@ export function buildProfileLanguageGaps(
 		const missing = [
 			...new Set(profile.langs.filter((code) => !held.has(code))),
 		];
-		if (missing.length === 0) continue;
+		if (missing.length === 0 && profile.langs.length > 0) continue;
 		gaps.push({
 			id: profile.id,
 			name: profile.name,

@@ -656,6 +656,7 @@ class Unit:
         self.blob_db = blob_db
         self.changes = changes
         self.database = database
+        self.project_visit_table = None
         self.web_user = None
         self.record = None
         # HQ's Elasticsearch as the unit holds it (``proof.hq.elasticsearch.UnitIndexes``), where seams are open.
@@ -848,6 +849,22 @@ class Unit:
         ):
             self._check_deferred(describe)
             self._run_commit_callbacks()
+
+    @contextmanager
+    def app_save(self):
+        """An HQ application save can add a case type or property. With
+        ProjectDB enabled its post-save signal schedules schema synchronization
+        after commit. Run that callback at its real transaction boundary.
+        Fresh databases commit themselves; reusable nonrollback units retain
+        their existing refusal of callbacks.
+        """
+        if self._transactional and "PROJECT_DB" in self.configuration.flags:
+            from proof.hq import redis as hq_redis
+
+            with hq_redis.shared(None), self.committing():
+                yield
+        else:
+            yield
 
     @contextmanager
     def committing(self):

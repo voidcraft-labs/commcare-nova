@@ -56,6 +56,7 @@ import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
 } from "./modulePatchMutations";
+import { offeredSearchResultsName } from "./searchResultsNaming";
 import { initialSharedChild, sharedChildUuid } from "./sharedFormChildren";
 import type { Mutation } from "./types";
 
@@ -351,7 +352,15 @@ export function caseListModuleMutations(
 	return {
 		mutations: [
 			...declareCaseTypeMutations(doc, caseType),
-			addModuleMutation(module, after),
+			addModuleMutation(
+				{
+					...module,
+					...(offeredSearchResultsName(doc, module) && {
+						searchResultsName: offeredSearchResultsName(doc, module),
+					}),
+				},
+				after,
+			),
 		],
 		moduleUuid,
 	};
@@ -519,7 +528,15 @@ export function surveyModuleMutations(
 	const field: TextField = defaultQuestion();
 	return {
 		mutations: [
-			addModuleMutation(module, after),
+			addModuleMutation(
+				{
+					...module,
+					...(offeredSearchResultsName(doc, module) && {
+						searchResultsName: offeredSearchResultsName(doc, module),
+					}),
+				},
+				after,
+			),
 			{ kind: "addForm", moduleUuid, form },
 			{ kind: "addField", parentUuid: formUuid, field },
 		],

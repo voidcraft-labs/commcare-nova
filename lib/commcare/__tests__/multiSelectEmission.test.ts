@@ -537,3 +537,31 @@ it("closes every selected case on a condition the Case Management tab cannot sta
 		selectedIdentity(form, "nova_condition_close/nova_close_selected_cases");
 	}
 });
+
+it("writes automatic selection on the ordinary list and its collection datum", () => {
+	const doc = fixture("followup", [
+		f({
+			kind: "text",
+			id: "note",
+			caseWrite: { caseType: "patient", property: "note" },
+		}),
+	]);
+	const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+	if (!config?.selection) throw new Error("Missing case selection");
+	config.selection = { ...config.selection, autoSelect: true };
+	const { hq, entry } = artifacts(doc);
+	const pair = hq.modules[0]?.case_details;
+	expect(pair?.short).toMatchObject({
+		multi_select: true,
+		auto_select: true,
+		max_select_value: 15,
+	});
+	expect(pair?.long).not.toHaveProperty("auto_select");
+	expect(
+		one(findAll((element) => element.name === "instance-datum", entry.children))
+			.attribs,
+	).toMatchObject({
+		autoselect: "true",
+		"max-select-value": "15",
+	});
+});

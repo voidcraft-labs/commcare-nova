@@ -510,6 +510,26 @@ describe("every place Nova keeps a case operation in", () => {
 		expect(updateBesideBareOwnAsOwnArm(doc)).toBe(doc);
 	});
 
+	it("keeps a conditional owner transfer on the targeted update beside a bare own arm", async () => {
+		const doc = updateBesideBareOwn({
+			writes: [{ property: "external_id", value: term(literal("intake-01")) }],
+			owner: term(literal("team-01")),
+			ownerCondition: conditionalNote.condition,
+		});
+		expect(updateBesideBareOwnAsOwnArm(doc)).toBe(doc);
+
+		const outcome = await readBack(doc);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		expect(outcome.draft.doc.forms[id("form")].caseOperations).toContainEqual(
+			expect.objectContaining({
+				uuid: id("update"),
+				action: "update",
+				ownerCondition: conditionalNote.condition,
+			}),
+		);
+	});
+
 	it("puts an operation in every place the plan gives one", () => {
 		const places = new Set<string>();
 		for (const make of Object.values(DOCUMENTS)) {
@@ -659,7 +679,7 @@ function saveMapMoved(
 }
 
 describe("a several-case close form's own close with the condition on its close", () => {
-	it("is the finding a-close-only-savetocase-block-with-a-close-condition at the block, and no document", async () => {
+	it("holds a close whose surrounding selected-case transaction is still submitted when the close is absent", async () => {
 		const doc =
 			OWN_ARMS["a several-case close form's, with a close condition"]?.();
 		if (doc === undefined) throw new Error("The fixture is missing.");
@@ -681,7 +701,7 @@ describe("a several-case close form's own close with the condition on its close"
 			})),
 		).toEqual([
 			{
-				code: "questions/a-close-only-savetocase-block-with-a-close-condition",
+				code: "questions/savetocase-block-outside-nova-s-own-block-shape",
 				path: `nova_selected_cases/item/nova_operations/${CLOSE_BLOCK}`,
 			},
 		]);

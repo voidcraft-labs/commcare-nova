@@ -1,3 +1,4 @@
+import { workerLocalizedValues } from "@/lib/doc/localizationWorkspace";
 import {
 	computeFieldPath,
 	findContainingForm,
@@ -5,6 +6,7 @@ import {
 import {
 	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
+	moduleFormsReadSearch,
 	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
@@ -15,7 +17,9 @@ import {
 	projectLocalizedForm,
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
+import { recordsReadSearch } from "../engine/serverSearchRead";
 import { previewScreenEntries } from "../menuProjection";
+import { projectWorkerModule, workerDetailTabTitle } from "../workerModule";
 import { AppTestActionError } from "./errors";
 import {
 	type AppTestAuthoredAction,
@@ -145,18 +149,29 @@ export function bindAppTestAction(
 				throw new AppTestActionError(
 					"Open case details before choosing a tab.",
 				);
-			const menu = projectLocalizedModule(
+			const menu = projectWorkerModule(
 				doc,
 				state.language,
 				state.screen.moduleUuid,
 			);
+			const search =
+				menu !== undefined &&
+				!moduleFormsReadSearch(menu) &&
+				recordsReadSearch(menu, state.screen.source);
+			const localized = workerLocalizedValues(doc, state.language);
+			const tabs = (menu?.caseListConfig?.detailTabs ?? []).map((tab) => ({
+				uuid: tab.uuid,
+				ordinary: tab.title,
+				visible: workerDetailTabTitle(tab, search, localized),
+			}));
+			const visibleMatch = tabs.some((tab) => tab.visible === action.tabUuid);
 			bound = {
 				...action,
 				tabUuid: one(
 					action.tabUuid,
-					(menu?.caseListConfig?.detailTabs ?? []).map((tab) => ({
+					tabs.map((tab) => ({
 						uuid: tab.uuid,
-						names: [tab.title],
+						names: [visibleMatch ? tab.visible : tab.ordinary],
 					})),
 					"Detail tab",
 				),

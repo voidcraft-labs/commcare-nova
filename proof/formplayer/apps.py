@@ -196,6 +196,21 @@ def with_a_starting_value(path, value):
     return write
 
 
+def with_initial_instance_text(path, value):
+    """A form rewrite that writes text directly in a node of the primary instance."""
+    def write(source):
+        from lxml import etree
+
+        tree = etree.fromstring(source.encode() if isinstance(source, str) else source)
+        node, = tree.xpath("//*[local-name()='model']/*[local-name()='instance' and not(@id)]")
+        for step in path.strip("/").split("/"):
+            node, = node.xpath("./*[local-name()=$name]", name=step)
+        node.text = value
+        return etree.tostring(tree, encoding="unicode")
+
+    return write
+
+
 # The forms Nova emitted before defect 16, by document id (``<id>.form.xml``).
 MEDIA_SLOTS = Path(__file__).parent / "media_slots"
 

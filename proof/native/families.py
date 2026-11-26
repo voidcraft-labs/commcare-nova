@@ -133,6 +133,7 @@ FAMILIES = {
         _script("static-quote", "emit-static-quote-evidence.ts"),
         _script("tile", "emit-tile-evidence.ts"),
         _script("worker", "emit-worker-evidence.ts"),
+        _script("worker-journey", "emit-worker-journey-evidence.ts"),
         _script("xml", "emit-xml-evidence.ts"),
         _script("xpath", "emit-xpath-evidence.ts"),
         # The admitted expander corpus and the HQ-JSON oracle probes are

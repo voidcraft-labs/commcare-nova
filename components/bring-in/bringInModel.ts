@@ -571,7 +571,9 @@ function reduceCreateDone(
 				refusal: null,
 			};
 		case "refused":
-			return { ...ended, refusal: answer.refusal };
+			return answer.refusal === "session_ended"
+				? { ...ended, signedOut: true, leftCreate: null }
+				: { ...ended, refusal: answer.refusal };
 	}
 }
 
@@ -1850,9 +1852,13 @@ export function recordedFeaturesLine(
 	const labels = choice.recordedFeatures.flatMap((key) =>
 		key.kind === "plan-feature" ? [PLAN_FEATURES[key.subject].label] : [],
 	);
-	return labels.length === 0
-		? null
-		: adoptionRecordedFeaturesLine(labels, domain);
+	const lines = [];
+	if (labels.length) lines.push(adoptionRecordedFeaturesLine(labels, domain));
+	if (choice.installationPlanChecks?.length)
+		lines.push(
+			`Before the first publish, Nova will ask you to confirm that “${domain}” has ${choice.installationPlanChecks.map((id) => PLAN_FEATURES[id].label).join(" and ")}. CommCare HQ can retain these profiles when its plan does not support their use.`,
+		);
+	return lines.length ? lines.join(" ") : null;
 }
 
 /**
@@ -1875,6 +1881,7 @@ const REVIEW_REFUSAL_AT = {
 	no_project_access: null,
 	invalid_input: null,
 	app_unavailable: null,
+	session_ended: null,
 	publish_in_flight: "footer",
 } as const satisfies Record<ReadingRefusal, "name" | "footer" | null>;
 

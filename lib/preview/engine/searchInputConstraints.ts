@@ -341,7 +341,7 @@ function constraintChecks(
 	);
 	const checks: ConstraintCheck[] = [];
 	for (const input of searchInputs) {
-		if (input.kind === "hidden") continue;
+		if (input.kind === "hidden" || input.kind === "address") continue;
 		const answer = expressionValues.get(input.name) ?? "";
 		if (answer === "") {
 			const required = requiredCheck(input);

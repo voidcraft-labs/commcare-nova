@@ -23,6 +23,7 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { openingAssignmentPropertyType } from "@/lib/domain/formOpeningAssignments";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import { moduleCaseProperties } from "./moduleCaseProperties";
 import {
 	rewriteFieldReferenceSlots,
 	rewriteFormReferenceSlots,
@@ -39,7 +40,8 @@ export type CasePropertyRenamePlanIssueReason =
 	| "standard-scalar-property"
 	| "source-missing"
 	| "occupied-destination"
-	| "related-read-changes-meaning";
+	| "related-read-changes-meaning"
+	| "shared-menu-property";
 
 export interface CasePropertyRenamePlanIssue {
 	readonly mutationIndex: 0;
@@ -224,6 +226,25 @@ export function planCasePropertyRenames(
 			}
 		}
 	}
+	for (const menu of Object.values(doc.modules)) {
+		for (const property of moduleCaseProperties(doc, menu)) {
+			if (property.types.length < 2) continue;
+			const indexes = property.types.map((type) =>
+				sources.get(pairKey(type, property.name)),
+			);
+			const first = indexes.find((index) => index !== undefined);
+			if (
+				first !== undefined &&
+				indexes.some(
+					(index) =>
+						index === undefined ||
+						mutation.renames[index].to !== mutation.renames[first].to,
+				)
+			) {
+				return issue(mutation.renames[first], first, "shared-menu-property");
+			}
+		}
+	}
 
 	return {
 		ok: true,
@@ -309,7 +330,7 @@ export function rewriteCasePropertyCarriers(
 		}
 	}
 	for (const module of Object.values(doc.modules)) {
-		rewriteModuleCaseRefs(module, resolve, relationTypes);
+		rewriteModuleCaseRefs(module, resolve, doc);
 	}
 	for (const automation of Object.values(doc.automations ?? {})) {
 		rewriteAutomationCaseProperties(doc, automation, resolve);

@@ -302,7 +302,10 @@ The requests (`Reader.java`):
   read before the table's `controls` and `dataTypes` (`Answers.java::valuesFor`);
   the lane's own table holds none, so no walk of the lane reads one.
   `saveIncomplete` names a form whose first screen is answered and saved as
-  the quit dialog's Save saves it (`Updates.saveIncomplete`), and with
+  the quit dialog's Save saves it (`Updates.saveIncomplete`).
+  `firstScreenChoice` taps the single choice with the given saved value and
+  records the saved instance. `reopenRestore` applies a data pull from the
+  named file after the save. With
   `reopen` that record is reopened from home's incomplete forms, as
   `Updates.reopen` reopens one, walked to its end with the request's
   answers, finished, saved and sent where the device is served; the answer

@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getEntryPointLink } from "@/lib/deployment/entryPointLinks";
 import { getEntryPointLinkSchema } from "@/lib/deployment/entryPointTypes";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { toMcpErrorResult } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { registerScopedTool } from "../scopedTool";
@@ -56,6 +57,7 @@ export function registerGetEntryPointLink(
 						projectId: access.projectId,
 						role: access.role,
 						actorUserId: ctx.userId,
+						requireOperation: toolWriteGrant(ctx, "get_entry_point_link", args),
 					},
 					target: { server: args.server, domain: args.domain },
 					doc,

@@ -24,7 +24,9 @@ export const imageDimensionSchema = z.int32().positive();
 export const imageFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("image"),
 	sendTopics: displaySchemas.sendTopics.optional(),
-	captureSource: z.literal("camera").optional(),
+	captureSource: displaySchemas.captureSource
+		.extract(["camera", "face-camera"])
+		.optional(),
 	overlaySize: displaySchemas.overlaySize.optional(),
 	webSignature: displaySchemas.webSignature.optional(),
 	maxDimension: imageDimensionSchema.optional(),

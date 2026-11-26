@@ -860,22 +860,36 @@ export class Accounting implements ClaimLedger {
 	/**
 	 * `finding`'s relation, made of the value at `pointer` in the app's JSON (a basic case
 	 * action's condition, judged against the question it names): its entry is recorded at
-	 * every node its class reads there (`#recordAround`).
+	 * every node its class reads there (`#recordAround`). Where the effective default is
+	 * itself the cause, the relation can be located there without claiming a source use.
 	 */
 	findingAt(
 		claim: Claim,
 		place: HqPlace,
 		pointer: string,
 		detail?: FindingDetail,
+		options?: { readonly atDefault: boolean },
 	): void {
 		this.finding(claim, place, detail);
 		const entry = this.#index.entry(claim.entry);
 		if (
-			entry !== undefined &&
-			(claim.use === "refuse" || claim.use === "account") &&
-			this.#makesFinding("account", entry.standing)
+			entry === undefined ||
+			(claim.use !== "refuse" && claim.use !== "account") ||
+			!this.#makesFinding("account", entry.standing)
 		)
+			return;
+		if (options?.atDefault) {
+			if (this.#full)
+				this.#records.push({
+					artifact: "app.json",
+					where: () => pointer,
+					key: null,
+					entry: entry.id,
+					standing: entry.standing,
+				});
+		} else {
 			this.#recordAround(pointer, entry.id);
+		}
 	}
 
 	/**

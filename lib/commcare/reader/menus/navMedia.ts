@@ -3,14 +3,32 @@
  * determine the shared value. Sparse entries keep the worker-visible fallback
  * of both the full app and installations limited to selected languages.
  */
-import type { MediaKind } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	effectiveAppLocalization,
+	type MediaKind,
+} from "@/lib/domain";
+import type { IconRef } from "@/lib/domain/builtinIcons";
+import {
+	navigationMediaOverride,
+	ordinaryNavigationAsset,
+	storedNavigationFile,
+} from "@/lib/domain/navigationMedia";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { applicationReading } from "../appShell";
-import { type Claim, defineClaims, derived, take } from "../claims";
+import { applicationReading, type HeldTranslationKey } from "../appShell";
+import {
+	account,
+	type Claim,
+	defineClaims,
+	derived,
+	refuse,
+	take,
+} from "../claims";
 import type { ReadContext } from "../context";
 import { compareCodePoints } from "../hqText";
-import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { isJsonObject, type JsonCursor, pointerToken } from "../jsonCursor";
+import type { PendingMedia } from "../types";
 
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
@@ -269,6 +287,241 @@ function recordRespelling(
 		});
 }
 
+const generatedMediaClaim = take(
+	"application-and-settings/translations-generated-navigation-file",
+	"schema:Application.translations",
+);
+const generatedMediaNotPackaged = refuse(
+	"application-and-settings/translations-generated-navigation-file-not-packaged",
+	"schema:Application.translations",
+);
+const generatedMediaNoEffect = account(
+	"application-and-settings/translations-generated-key-with-no-effect",
+	"schema:Application.translations",
+);
+defineClaims("menus.navMedia", {
+	generatedMediaClaim,
+	generatedMediaNotPackaged,
+	generatedMediaNoEffect,
+});
+const acceptedOverrides = new WeakMap<
+	HeldTranslationKey,
+	{
+		language: string;
+		role: "icon" | "audioLabel";
+		path: string;
+		place: HqPlace;
+		carrierClass: string;
+		repeatsStrictAsset?: true;
+		assetId?: IconRef;
+		pending?: PendingMedia;
+	}
+>();
+
+const ordinaryPathsByLanguage = new WeakMap<
+	ReadContext,
+	ReadonlyMap<string, ReadonlySet<string>>
+>();
+
+/** HQ gathers the raw ordinary path in each installed language. A fallback
+ * or a different path to the same asset does not package this path. */
+function ordinarySourcePaths(ctx: ReadContext) {
+	const known = ordinaryPathsByLanguage.get(ctx);
+	if (known !== undefined) return known;
+	const languages = applicationReading(ctx)?.languages;
+	const paths = new Map<string, Set<string>>(
+		(languages?.codes ?? []).map((code) => [code, new Set<string>()]),
+	);
+	const codeForTag = new Map(
+		[...(languages?.tagOf ?? [])].map(([code, tag]) => [tag, code]),
+	);
+	const addMap = (value: unknown) => {
+		if (!isJsonObject(value)) return;
+		for (const [code, path] of Object.entries(value))
+			if (typeof path === "string" && path) paths.get(code)?.add(path);
+	};
+	const addCarrier = (value: unknown) => {
+		if (!isJsonObject(value)) return;
+		addMap(value.media_image);
+		addMap(value.media_audio);
+	};
+	const raw = ctx.input.source.raw.modules;
+	if (Array.isArray(raw))
+		for (const module of raw) {
+			if (!isJsonObject(module)) continue;
+			addCarrier(module);
+			const item = module.case_list;
+			if (isJsonObject(item) && item.show === true) addCarrier(item);
+			const registration = module.case_list_form;
+			if (isJsonObject(registration) && registration.form_id)
+				addCarrier(registration);
+			if (Array.isArray(module.forms))
+				for (const form of module.forms) addCarrier(form);
+		}
+	for (const ref of [...ctx.facts.mediaReferences, ...ctx.facts.pendingMedia]) {
+		if (ref.slot === "image_map_mapping")
+			for (const code of ref.shownLanguages ?? [])
+				paths.get(code)?.add(ref.path);
+		if (ref.slot === "field_media_bundle" || ref.slot === "option_media")
+			for (const recipient of ref.itextRecipients ?? []) {
+				const code = codeForTag.get(recipient.language);
+				if (code !== undefined) paths.get(code)?.add(ref.path);
+			}
+	}
+	ordinaryPathsByLanguage.set(ctx, paths);
+	return paths;
+}
+
+export function accountNavigationMediaOverride(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	held: HeldTranslationKey,
+): boolean {
+	const override = acceptedOverrides.get(held);
+	if (override === undefined) return false;
+	// HQ decides what to pack from ordinary carriers, even when the asset
+	// index cannot resolve the path. Check that source fact before handoff.
+	if (!ordinarySourcePaths(ctx).get(held.language)?.has(override.path)) {
+		held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
+		return true;
+	}
+	if (override.pending !== undefined) {
+		ctx.accounting.handOffAt(held, "media-reference", override.path);
+		ctx.facts.pendingMedia.push(override.pending);
+	}
+	if (override.assetId !== undefined) {
+		const { place, carrierClass, role, language, assetId } = override;
+		const menu =
+			"menu" in place
+				? ctx.draft.modules.find((one) => one.index === place.menu)
+				: undefined;
+		const module = menu === undefined ? undefined : doc.modules[menu.uuid];
+		const form =
+			place.kind === "form"
+				? menu?.forms.find((one) => one.index === place.form)
+				: undefined;
+		const registration = module?.caseListRegistrationForm;
+		const carrier =
+			form !== undefined
+				? doc.forms[form.uuid]
+				: carrierClass === "CaseList"
+					? module?.caseListMenuItem
+					: carrierClass === "CaseListForm"
+						? registration?.kind === "always"
+							? registration
+							: undefined
+						: module;
+		const carrierAsset =
+			carrier === undefined
+				? undefined
+				: override.repeatsStrictAsset
+					? storedNavigationFile(carrier, role, language)
+					: navigationMediaOverride(carrier, role, language);
+		if (
+			carrierAsset !== assetId ||
+			!ordinaryNavigationAsset(
+				doc,
+				effectiveAppLocalization(doc.localization),
+				role,
+				language,
+				assetId,
+			)
+		) {
+			held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
+			return true;
+		}
+		if (override.repeatsStrictAsset) {
+			held.json.account(held.key, generatedMediaNoEffect);
+			return true;
+		}
+	}
+	held.json.take(held.key, generatedMediaClaim, () => override.path).value;
+	return true;
+}
+
+function navigationLocale(
+	node: JsonCursor,
+	place: HqPlace,
+): string | undefined {
+	if (place.kind === "form") return `forms.m${place.menu}f${place.form}`;
+	if (!("menu" in place)) return undefined;
+	if (node.cls === "CaseList") return `case_lists.m${place.menu}`;
+	if (node.cls === "CaseListForm") return `case_list_form.m${place.menu}`;
+	return `modules.m${place.menu}`;
+}
+
+/** Resolve authored locale overrides separately from the map whose default
+ * remains active when the installation omits the override's language. */
+function readOverrides(
+	ctx: ReadContext,
+	locale: string,
+	carrierClass: string,
+	shown: Readonly<Record<string, string>>,
+	strictFile: (code: string) => unknown,
+	mediaKind: MediaKind,
+	slot: string,
+	place: HqPlace,
+): Map<string, string> {
+	const overrides = new Map<string, string>();
+	if (!Object.values(shown).some(Boolean)) return overrides;
+	const app = applicationReading(ctx);
+	const key = `${locale}.${mediaKind === "image" ? "icon" : "audio"}`;
+	for (const held of app?.generatedKeys ?? []) {
+		if (
+			held.key !== key ||
+			typeof held.value !== "string" ||
+			!held.value ||
+			held.value === strictFile(held.language)
+		)
+			continue;
+		const tag = app?.languages.tagOf.get(held.language);
+		if (tag === undefined) continue;
+		const path = held.value;
+
+		const resolution = ctx.input.media.resolve(path);
+		const strictPath = strictFile(held.language);
+		const strict =
+			typeof strictPath === "string" && strictPath
+				? ctx.input.media.resolve(strictPath)
+				: undefined;
+		// A second path to the strict asset has no independent override,
+		// provided HQ really packs that exact path on an ordinary carrier.
+		const repeatsStrictAsset =
+			resolution.kind === "asset" &&
+			strict?.kind === "asset" &&
+			strict.assetId === resolution.assetId &&
+			strict.mediaKind === resolution.mediaKind;
+		const occurrence = {
+			path,
+			mediaKind,
+			place,
+			pointer: `${held.json.pointer}/${pointerToken(held.key)}`,
+			slot,
+		};
+		if (resolution.kind === "asset") {
+			if (!repeatsStrictAsset) {
+				overrides.set(tag, resolution.assetId);
+				ctx.facts.mediaReferences.push({
+					...occurrence,
+					assetId: resolution.assetId,
+				});
+			}
+		}
+		acceptedOverrides.set(held, {
+			language: tag,
+			role: mediaKind === "image" ? "icon" : "audioLabel",
+			path,
+			place,
+			carrierClass,
+			...(repeatsStrictAsset && { repeatsStrictAsset: true }),
+			...(resolution.kind === "asset"
+				? { assetId: resolution.assetId as IconRef }
+				: { pending: { ...occurrence, resolution: resolution.kind } }),
+		});
+	}
+	return overrides;
+}
+
 /** Resolve every visible file through the Project index, keeping a missing
  * or blank language separate when a named installation's default can differ. */
 function readMap(
@@ -283,6 +536,7 @@ function readMap(
 ): {
 	asset?: string;
 	translations?: Map<string, string | null>;
+	overrides?: Map<string, string>;
 	former?: [string, string];
 } {
 	if (!node.used(key)) return {};
@@ -293,6 +547,20 @@ function readMap(
 	const shown = shownBlockMedia((one) => node.peek(one), key, codes);
 	if (!shown || !isJsonObject(stored)) return {}; // The cursor retains the unreadable map for its close.
 	const all = node.peek(FOR_ALL[key]) === true;
+	const locale = navigationLocale(node, place);
+	const overrides =
+		locale === undefined
+			? undefined
+			: readOverrides(
+					ctx,
+					locale,
+					node.cls,
+					shown,
+					(code) => stored[all ? (codes[0] ?? "en") : code],
+					mediaKind,
+					slot,
+					place,
+				);
 	const resolved = new Map<string, string>();
 	const missing = new Set<string>();
 	for (const path of new Set(Object.values(shown))) {
@@ -368,7 +636,7 @@ function readMap(
 	return node.take(
 		key,
 		new Set(resolved.values()).size > 1 ? differs : same,
-		() => ({ asset, translations, former }),
+		() => ({ asset, translations, overrides, former }),
 	).value;
 }
 
@@ -384,7 +652,12 @@ export function readNavMedia(
 	readonly audioLabel?: string;
 	readonly mediaByLanguage?: Record<
 		string,
-		{ icon?: string | null; audioLabel?: string | null }
+		{
+			icon?: string | null;
+			audioLabel?: string | null;
+			iconOverride?: string;
+			audioLabelOverride?: string;
+		}
 	>;
 	readonly mediaByFormerCode?: Record<
 		string,
@@ -422,6 +695,8 @@ export function readNavMedia(
 	const byLanguage = recordFromEntries<{
 		icon?: string | null;
 		audioLabel?: string | null;
+		iconOverride?: string;
+		audioLabelOverride?: string;
 	}>([]);
 	for (const [tag, file] of icon.translations ?? []) {
 		byLanguage[tag] = { icon: file };
@@ -429,6 +704,10 @@ export function readNavMedia(
 	for (const [tag, file] of audioLabel.translations ?? []) {
 		byLanguage[tag] = { ...byLanguage[tag], audioLabel: file };
 	}
+	for (const [tag, file] of icon.overrides ?? [])
+		byLanguage[tag] = { ...byLanguage[tag], iconOverride: file };
+	for (const [tag, file] of audioLabel.overrides ?? [])
+		byLanguage[tag] = { ...byLanguage[tag], audioLabelOverride: file };
 	const former = recordFromEntries<{ icon?: string; audioLabel?: string }>([]);
 	if (icon.former) {
 		const [code, file] = icon.former;
