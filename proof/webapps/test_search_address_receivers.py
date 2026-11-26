@@ -95,6 +95,7 @@ def test_editor_keeps_malformed_receiver_and_only_the_matching_topic_fails(
         menu = app.modules[0]
         menu_id = menu.unique_id
         menu.search_config.properties = [CaseSearchProperty.wrap(field) for field in fields]
+        app.cloudcare_enabled = source["cloudcare_enabled"]
         app.save()
 
         saved = pages.fresh_section_save(editor_driver, project.unit, pages.CASE_LIST, project.app_id, menu_id)
