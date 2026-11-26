@@ -1,11 +1,18 @@
 import { z } from "zod";
 import type { CaseType } from "./blueprint";
+import {
+	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
+	isAdvancedCaseIndexIdentifier,
+} from "./caseOperationIdentifiers";
 import type { RelationStep } from "./expression/types";
 
 /** A case index points from the case that owns it to the case it names. A
  * typed load can name the destination without observing the relationship kind. */
-export const CASE_INDEX_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
-export const caseIndexNameSchema = z.string().regex(CASE_INDEX_NAME_PATTERN);
+export const CASE_INDEX_NAME_PATTERN = ADVANCED_CASE_INDEX_IDENTIFIER_REGEX;
+export const caseIndexNameSchema = z
+	.string()
+	.regex(CASE_INDEX_NAME_PATTERN)
+	.refine(isAdvancedCaseIndexIdentifier);
 /** A link a case list column can walk through: one word of CommCare HQ's
  * case list field grammar (`suite/wire.ts::HQ_FIELD_WORD`), a letter first
  * and then letters, digits, `_` and `-`. A case index name may also hold a

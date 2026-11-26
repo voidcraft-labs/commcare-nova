@@ -13,7 +13,6 @@
  */
 
 import {
-	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -22,7 +21,9 @@ import {
 	type FormCaseSelection,
 	type FormSelectionSource,
 	type FormType,
+	isAdvancedCaseIndexIdentifier,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	ownCaseOperationId,
 	type TargetedCaseOperation,
 	type Term,
@@ -536,7 +537,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
-	dottedOpenIndexReference: take(
+	extendedOpenIndexReference: take(
 		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
 		"schema:CaseIndex.reference_id",
 	),
@@ -2425,7 +2426,7 @@ function readOrdinaryAdvancedActions(
 				const namesOpen = openIndex !== undefined && loadIndex === undefined;
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
-				if (!ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(identifier)) {
+				if (!isAdvancedCaseIndexIdentifier(identifier)) {
 					I.refuseWhole(
 						XML_NCNAME_PATTERN.test(identifier)
 							? ADVANCED_CLAIMS.openIndexName
@@ -2551,8 +2552,8 @@ function readOrdinaryAdvancedActions(
 						relationship,
 					});
 				if (I.used("reference_id")) {
-					const claim = identifier.includes(".")
-						? ADVANCED_CLAIMS.dottedOpenIndexReference
+					const claim = !isCaseOperationLinkIdentifier(identifier)
+						? ADVANCED_CLAIMS.extendedOpenIndexReference
 						: ADVANCED_CLAIMS.openIndices;
 					consume(I.take("reference_id", claim, (value) => value));
 				}

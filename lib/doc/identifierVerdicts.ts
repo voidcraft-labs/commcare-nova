@@ -37,7 +37,6 @@ import {
 } from "@/lib/commcare/constants";
 import {
 	ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE,
-	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	authoredCasePropertyNameSchema,
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
@@ -45,6 +44,7 @@ import {
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type FreeNameOffer,
+	isAdvancedCaseIndexIdentifier,
 	isCaseOperationIdentifier,
 	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
@@ -610,7 +610,7 @@ export function caseOperationLinkIdentifierVerdict(
 		return { ok: false, code: "empty", userMessage: "Name this connection." };
 	}
 	const valid = allowAdvancedCandidate
-		? ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(trimmed)
+		? isAdvancedCaseIndexIdentifier(trimmed)
 		: isCaseOperationLinkIdentifier(trimmed);
 	if (identifier !== trimmed || !valid) {
 		return {

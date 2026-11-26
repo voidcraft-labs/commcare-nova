@@ -20,6 +20,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	isCaseOperationLinkIdentifier,
 	proseText,
 	type Uuid,
 } from "@/lib/domain";
@@ -247,7 +248,16 @@ describe("an advanced form's tags", () => {
 });
 
 describe("an advanced form's loads and open actions", () => {
-	it.each(["my-parent", "my.parent", "my.", "my..parent", "my.2parent"])(
+	it.each([
+		"my-parent",
+		"my.parent",
+		"my.",
+		"my..parent",
+		"my.2parent",
+		"métrique",
+		"mé-trique",
+		"Équipe",
+	])(
 		"keeps the exact %s connection on an explicit case list and its automatic lookup",
 		async (identifier) => {
 			const { doc } = advancedFixture({
@@ -340,7 +350,16 @@ describe("an advanced form's loads and open actions", () => {
 		},
 	);
 
-	it.each(["my-parent", "my.parent", "my.", "my..parent", "my.2parent"])(
+	it.each([
+		"my-parent",
+		"my.parent",
+		"my.",
+		"my..parent",
+		"my.2parent",
+		"métrique",
+		"mé-trique",
+		"Équipe",
+	])(
 		"retains the %s open index through import and advanced Case Management emission",
 		async (identifier) => {
 			const { doc } = registration([kid]);
@@ -363,7 +382,7 @@ describe("an advanced form's loads and open actions", () => {
 					record.where.endsWith("/open_cases/1/case_indices/0/reference_id"),
 			);
 			expect(exactReferenceClaims).toMatchObject(
-				identifier.includes(".")
+				!isCaseOperationLinkIdentifier(identifier)
 					? [
 							{
 								entry: `${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
@@ -419,7 +438,7 @@ describe("an advanced form's loads and open actions", () => {
 					LOOKUP_CONTEXT_UNAVAILABLE,
 				);
 				const findings = verdict.ok ? [] : verdict.findings;
-				if (identifier.includes(".")) {
+				if (!isCaseOperationLinkIdentifier(identifier)) {
 					expect(findings).toContainEqual(
 						expect.objectContaining({
 							code: "CASE_OPERATION_LINK_INVALID",
@@ -442,7 +461,9 @@ describe("an advanced form's loads and open actions", () => {
 		["my/parent", "index-identifier-invalid-xml-local-name"],
 		[".parent", "index-identifier-invalid-xml-local-name"],
 		["my:parent", "index-identifier-invalid-xml-local-name"],
-		["métrique", "index-identifier-outside-an-xml-element-name"],
+		["me\u0301trique", "index-identifier-outside-an-xml-element-name"],
+		["Øst→", "index-identifier-invalid-xml-local-name"],
+		["mét·rique", "index-identifier-outside-an-xml-element-name"],
 	])(
 		"refuses the unsupported open index %s for %s",
 		async (identifier, code) => {
