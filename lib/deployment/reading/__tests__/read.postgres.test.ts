@@ -889,8 +889,9 @@ describe("readHqAppForReview", () => {
 			 * CommCare HQ could not summarize beside the form's own finding. The ordinary
 			 * form reader in instanceSources.test.ts drives both data-source conflicts. A place field
 			 * the app cannot carry and one whose worker text HQ's answer sorted are driven where the
-			 * place plan is built, in projectData/places.test.ts and worldEntities.test.ts. A new code
-			 * with no case fails here. */
+			 * place plan is built, in projectData/places.test.ts and worldEntities.test.ts. A file past
+			 * what Nova reads of one file (a gigabyte, or a picture past 64 MB) is driven where its
+			 * verdict is worded, in projectData/media.test.ts. A new code with no case fails here. */
 			const elsewhere: readonly ReadCircumstance[] = [
 				"too-large",
 				"too-intricate",
@@ -901,6 +902,7 @@ describe("readHqAppForReview", () => {
 				"unbuildable-data-source-name",
 				"place-field-unusable",
 				"place-value-order-unknown",
+				"media-file-too-large",
 			];
 			const driven = new Set([...cases.map(({ code }) => code), ...elsewhere]);
 			expect(READ_CIRCUMSTANCES.filter((code) => !driven.has(code))).toEqual(
