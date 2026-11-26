@@ -13394,7 +13394,6 @@ VALUE_CLASSES = {
     # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
-    "case-search/prompt-key-matching-a-direct-parent-property": direct_parent_text_prompt_key,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,

@@ -7424,13 +7424,6 @@ def _held_new():
             # A load's index is another class's.
             accepted("app", load_indexed("my-parent"), reference, f"{loads}/1/case_index/reference_id"),
         ),
-        "case-search/prompt-key-matching-a-direct-parent-property": (
-            refused("app", search(name="parent/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
-            accepted("app", search(name="host/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
-            accepted("app", search(name="parent/parent/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
-            accepted("app", search(name="parent/location_id", label={"en": "Location"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
-            accepted("app", search(name="parent/village", label={"en": "Village"}, input_="date"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
-        ),
         "case-search/prompt-key-outside-nova-s-name-grammar": (
             refused("app", search(name="parent/dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             refused("app", search(name="_x"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
@@ -8349,6 +8342,26 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
 )
 def test_a_reader_places_each_shape_of_its_class(entry_id, manifest):
     _holds_its_shapes(entry_id, manifest)
+
+
+@pytest.mark.parametrize(("name", "widget", "matches"), [
+    ("parent/village", None, True),
+    ("host/village", None, False),
+    ("parent/parent/village", None, False),
+    ("parent/location_id", None, False),
+    ("parent/village", "date", False),
+])
+def test_retained_search_matches_only_the_direct_parent_text_prompt(manifest, name, widget, matches):
+    from proof.checks import parity
+
+    assert parity.DIRECT_PARENT_PROMPT not in manifest.readers
+    source = _app([_search_module(properties=[_prompt(name=name, label={"en": "Village"}, input_=widget)])])
+    key = "schema:CaseSearchProperty.name"
+    pointer = "/modules/0/search_config/properties/0/name"
+    shape = accepted("app", source, key, pointer)
+    found = _shape_uses(shape, manifest)
+    use, = (one for one in found.uses if one.key == key and one.where.endswith(pointer))
+    assert classes.direct_parent_text_prompt_key(use, manifest) is matches
 
 
 def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):
