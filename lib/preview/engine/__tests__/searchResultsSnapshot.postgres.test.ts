@@ -694,8 +694,8 @@ describe("a completed search's snapshot", () => {
 		}
 		// A malformed imported edge can point to a different Project; membership
 		// and each target hop use the authorized app and Project.
-		await sql`insert into cases(app_id,project_id,case_id,case_type,case_name,status)
-			values (${APP_ID},'elsewhere','private','visit','Private','open')`.execute(
+		await sql`insert into cases(app_id,project_id,case_id,case_type,case_name,status,properties)
+			values (${APP_ID},'elsewhere','private','visit','Private','open','{}'::jsonb)`.execute(
 			dbHandle.db,
 		);
 		for (const [child, ancestor, name, type] of [
