@@ -370,26 +370,24 @@ it.each(["default filter", "dedicated setting"] as const)(
 						},
 					})
 				: patients(columns, { search: { requestOrder: [term] } });
-			const caseTypes = (doc.caseTypes ?? []).map((type) =>
-				type.name === "patient"
-					? {
-							...type,
-							properties: [
-								...type.properties,
-								{
-									name: "hq_user_id",
-									label: proseText("Linked worker"),
-									data_type: "text",
-								},
-								{
-									name: "location_id",
-									label: proseText("Location"),
-									data_type: "text",
-								},
-							],
-						}
-					: type,
-			);
+			const caseTypes = [
+				...(doc.caseTypes ?? []).filter((type) => type.name !== "patient"),
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "hq_user_id",
+							label: proseText("Linked worker"),
+							data_type: "text" as const,
+						},
+						{
+							name: "location_id",
+							label: proseText("Location"),
+							data_type: "text" as const,
+						},
+					],
+				},
+			];
 			return runValidation({ ...doc, caseTypes }, LOOKUP_CONTEXT_UNAVAILABLE);
 		};
 		expect(authoredFindings("location_id")).toEqual([
