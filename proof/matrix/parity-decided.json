@@ -659,6 +659,7 @@
 		"hq-search/search-button-label",
 		"hq-search/search-endpoint",
 		"hq-search/search-on-clear",
+		"hq-search/search-widened-to-its-own-type",
 		"hq-search/second-validation",
 		"hq-search/slider-field",
 		"hq-search/value-received-on-a-barcode-field",
