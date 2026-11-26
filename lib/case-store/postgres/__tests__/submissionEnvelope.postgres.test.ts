@@ -2063,57 +2063,75 @@ describe("pre-submission snapshot", () => {
 		});
 	});
 
-	it("makes one child under each selected case for a create linked to the loaded case", async () => {
-		const store = makeStore();
-		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
-		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
-		const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
-		const result = await submit(store, {
-			appId: APP_ID,
-			ordinary: {
-				kind: "followup",
-				caseIds,
-				selection: { kind: "multiple", maximum: 2 },
-				caseType: "patient",
-			},
-			operations: {
-				...rootProgram([
-					envOp(
-						operation({
-							uuid: OP_A,
-							id: "visit",
-							action: "create",
-							caseType: "visit",
-							target: { kind: "new" },
-							name: term(literal("Visit")),
-							links: [
-								{
-									identifier: "parent",
-									targetType: "patient",
-									target: { kind: "session" },
-									relationship: "child",
-								},
-							],
-						}),
-					),
-				]),
-				sessionCaseIds: caseIds,
-			},
-		});
-		expect(result.operations.map((item) => item.operationUuid)).toEqual([
-			OP_A,
-			OP_A,
-		]);
-		const visits = await store.query({
-			reading: SEARCH_READING,
-			appId: APP_ID,
-			caseType: "visit",
-		});
-		expect(visits.map((visit) => visit.parent_case_id).sort()).toEqual(
-			[...caseIds].sort(),
-		);
-		expect(new Set(visits.map((visit) => visit.case_id)).size).toBe(2);
-	});
+	it.each(["parent", "my-parent"])(
+		"makes one child under each selected case using the %s connection",
+		async (identifier) => {
+			const store = makeStore();
+			await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
+			await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
+			const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
+			const result = await submit(store, {
+				appId: APP_ID,
+				ordinary: {
+					kind: "followup",
+					caseIds,
+					selection: { kind: "multiple", maximum: 2 },
+					caseType: "patient",
+				},
+				operations: {
+					...rootProgram([
+						envOp(
+							operation({
+								uuid: OP_A,
+								id: "visit",
+								action: "create",
+								caseType: "visit",
+								target: { kind: "new" },
+								name: term(literal("Visit")),
+								links: [
+									{
+										identifier,
+										targetType: "patient",
+										target: { kind: "session" },
+										relationship: "child",
+									},
+								],
+							}),
+						),
+					]),
+					sessionCaseIds: caseIds,
+				},
+			});
+			expect(result.operations.map((item) => item.operationUuid)).toEqual([
+				OP_A,
+				OP_A,
+			]);
+			const visits = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			});
+			expect(visits.map((visit) => visit.parent_case_id).sort()).toEqual(
+				identifier === "parent" ? [...caseIds].sort() : [null, null],
+			);
+			const visitIds = visits.map(({ case_id }) => case_id);
+			expect(new Set(visitIds).size).toBe(2);
+			const device = await store.readCaseDatabasePatch({
+				appId: APP_ID,
+				caseIds: visitIds,
+			});
+			const links = device.indices.filter(({ case_id }) =>
+				visitIds.includes(case_id),
+			);
+			expect(links.map(({ identifier }) => identifier)).toEqual([
+				identifier,
+				identifier,
+			]);
+			expect(links.map(({ ancestor_id }) => ancestor_id).sort()).toEqual(
+				[...caseIds].sort(),
+			);
+		},
+	);
 
 	it("refuses a link to the loaded case on a batch operation that runs once for the form", async () => {
 		const store = makeStore();

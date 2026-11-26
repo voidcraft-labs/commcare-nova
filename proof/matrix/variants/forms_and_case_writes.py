@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 from proof.matrix import ops
+from proof.matrix.bases import _pages
 from proof.matrix.bases.lookups import changes_lookup_data
 
 # The ends of a form HQ's form builder saves, which a question added last goes before.
@@ -139,6 +140,30 @@ def _open(tag, case_type, name_path, indices, repeat_context=""):
         "close_condition": _condition("never"),
         "doc_type": "AdvancedOpenCaseAction",
     }
+
+
+def open_member_with_parent_index(authoring, app_id):
+    """Open another member under the existing household connection."""
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
+        _open("open_member_0", "member", "/data/notes", [_index("load_household0")]),
+    ])
+
+
+def open_visitor_with_hyphenated_index(authoring, app_id):
+    """Use the distinct connection for a type whose menu has no existing child chain."""
+    from proof.matrix.bases.hq_advanced import _source
+
+    _pages.new_case_module(authoring, app_id, name="Visitors", case_type="visitor")
+    ops.upload_form_source(
+        authoring, app_id, 3, 0, _source(("visitor_name", "Visitor name", "string")), "visit-registration-source",
+    )
+    _pages.save_case_actions(authoring, app_id, 3, 0, name_path="/data/visitor_name")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
+        _open(
+            "open_member_0", "visitor", "/data/notes",
+            [{**_index("load_household0"), "reference_id": "my-parent"}],
+        ),
+    ])
 
 
 def write_through_typed_user_index(authoring, app_id):
