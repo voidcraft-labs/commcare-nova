@@ -14,6 +14,7 @@ import pytest
 
 from proof.formplayer import hq as formplayer_hq
 from proof.hq import operations, redis as hq_redis
+from proof.hq.seams import api_rate_limits
 from proof.hq.state import Configuration, hq_check
 from proof.matrix import retain
 from proof.observe import casedata, hqside
@@ -137,6 +138,11 @@ def _read_from_hq(unit, app_id, credential, label, english, french, previous=Non
     )
     answers = retain.app_reads(authoring, app_id, credential)
     project, media = retain.project_data_reads(authoring, app_id, credential)
+    required = {
+        **{key: answers[key].status for key in ("source", "application", "currentVersion")},
+        "lookupTables": project["lookupTables"].status,
+    }
+    assert all(status == 200 for status in required.values()), required
     base = SimpleNamespace(id="worker-journey", declaration=None, owner_rule_choices={})
     key = retain.hold_key(
         ["field", {"$xmlns": [0, 1]}, ["clinic"]], json.loads(answers["source"].body),
@@ -258,8 +264,12 @@ def _journey(native, runner=None):
     family = native.family("worker-journey")
     paths = json.loads((family / "media.json").read_text())
     _generic_archive((family / "archive.ccz").read_bytes())
-    config = Configuration(privileges={"CLOUDCARE", "LOOKUP_TABLES"})
-    with hq_redis.shared(None if runner is None else runner.redis_address), hq_check(config) as (unit, _):
+    config = Configuration(privileges={"CLOUDCARE", "LOOKUP_TABLES", "API_ACCESS"})
+    with (
+        hq_redis.shared(None if runner is None else runner.redis_address),
+        hq_check(config) as (unit, _),
+        api_rate_limits(unit),
+    ):
         first_db = _database("worker-east", "case-east", "East patient")
         with unit.committing():
             published = operations.apply_upload(unit, _file_upload(
@@ -272,7 +282,9 @@ def _journey(native, runner=None):
                 "media.zip", "bulk_upload_file", (family / "media.zip").read_bytes(), "application/zip",
             ))
             assert uploaded.status == 200 and uploaded.processing, uploaded
-            credential = operations.seed_api_key(unit, unit.web_user.username, domain=unit.domain)
+            credential = operations.seed_api_user(
+                unit, "journey-reader@example.com", edit_locations=True, edit_data=True,
+            )
             _asset_bytes(unit, app_id, paths, credential)
 
         with formplayer_hq.serve(
