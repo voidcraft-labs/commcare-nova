@@ -13,6 +13,7 @@ export type AuthorableIdentityFamily =
 	| "case-list-sort"
 	| "case-detail-tab"
 	| "case-mapping-row"
+	| "installation-profile"
 	| "project-search"
 	| "project-search-parameter"
 	| "search-input"
@@ -165,6 +166,11 @@ export function classifyIdentity(
 		if (property === "table") return "lookup-table";
 		if (property === "column") return "lookup-column";
 	}
+	if (
+		(tool === "updateApp" || tool === "update_app") &&
+		pointer === "/installation_profile/uuid"
+	)
+		return "installation-profile";
 	if (tool === "configure_project_search") {
 		if (pointer === "/change/search/uuid" || pointer === "/change/uuid")
 			return "project-search";

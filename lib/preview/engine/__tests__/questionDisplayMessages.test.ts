@@ -78,7 +78,7 @@ function visitInput(receiverField = "filename") {
 				],
 			},
 		],
-		{ formUuid: FORM, formType: "survey" },
+		{ formUuid: FORM, formType: "survey", form: { dataRootName: "visit" } },
 	);
 }
 
@@ -101,13 +101,16 @@ describe("a worker question receiving a form update", () => {
 			await Promise.all(
 				controllers.map((controller) => controller.activateFormAsync(FORM)),
 			);
-			await first.setValueAtAsync("/data/stops[0]/plain_region", "north_id");
-			const row = "/data/stops[0]/";
+			const stops = testUuid("form.stops");
+			await Promise.all(
+				controllers.map((controller) => controller.addRepeatAsync(stops)),
+			);
+			await first.setValueAtAsync("/visit/stops[0]/plain_region", "north_id");
+			const row = "/visit/stops[0]/";
 			const message = { city: "Mtoni", province: "Missing", region: "South" };
 			const value = JSON.stringify(message);
 			const entry = first.entryKey;
 			if (entry === undefined) throw new Error("The form did not open.");
-			const stops = testUuid("form.stops");
 			const target = {
 				fieldUuid: testUuid("form.stops.address"),
 				repeatInstances: [
@@ -165,13 +168,14 @@ describe("a worker question receiving a form update", () => {
 		(receiverField) => {
 			const input = visitInput(receiverField);
 			const web = new FormEngine(input);
-			web.addRepeat("/data/stops");
+			web.addRepeat("/visit/stops");
+			web.addRepeat("/visit/stops");
 			const paths = web
-				.displayMessageAnswers("/data/stops[1]/document", {
+				.displayMessageAnswers("/visit/stops[1]/document", {
 					filename: "later.pdf",
 				})
 				.map(({ path, value }) => [path, value]);
-			expect(paths).toEqual([["/data/stops[1]/filename", "later.pdf"]]);
+			expect(paths).toEqual([["/visit/stops[1]/filename", "later.pdf"]]);
 			const android = new FormEngine(
 				input,
 				undefined,
@@ -181,8 +185,12 @@ describe("a worker question receiving a form update", () => {
 				undefined,
 				{ device: androidDevice() },
 			);
+			android.addRepeat("/visit/stops");
 			expect(
-				android.displayMessageAnswers("/data/stops[0]/document", {
+				android.store.getState()["/visit/stops[0]/document"],
+			).toBeDefined();
+			expect(
+				android.displayMessageAnswers("/visit/stops[0]/document", {
 					filename: "phone.pdf",
 				}),
 			).toEqual([]);

@@ -12583,6 +12583,5 @@ VALUE_CLASSES = {
     "questions/question-lock-the-designer-cannot-represent": unsupported_question_lock,
     "questions/ordinary-answer-in-stock-namespace": ordinary_stock_answer,
     "questions/submitted-namespace-the-form-designer-cannot-keep": namespace_the_designer_cannot_keep,
-    "menus-and-case-lists/column-field-outside-nova-s-property-grammar": column_field_outside_nova_s_grammar,
     "application-and-settings/build-profiles-invalid-language-subset": invalid_profile_languages,
 }
