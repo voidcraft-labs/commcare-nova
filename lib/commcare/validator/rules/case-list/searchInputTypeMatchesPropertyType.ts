@@ -47,6 +47,7 @@
 import {
 	type BlueprintDoc,
 	type Module,
+	projectSpaceMatchingFits,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type Uuid,
 } from "@/lib/domain";
@@ -107,12 +108,7 @@ export function searchInputTypeMatchesPropertyType(
 		// A field that searches its own property under the same name with exact
 		// or range matching can take the project space's own matching, which
 		// matches any type (`nativeSearchFilters`).
-		const projectSpaceCanMatch =
-			(!input.via || input.via.kind === "self") &&
-			(input.name === "name" ? "case_name" : input.name) === input.property &&
-			(!input.mode ||
-				input.mode.kind === "exact" ||
-				(input.type === "date-range" && input.mode.kind === "range"));
+		const projectSpaceCanMatch = projectSpaceMatchingFits(input);
 		errors.push(
 			validationError(
 				"CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH",

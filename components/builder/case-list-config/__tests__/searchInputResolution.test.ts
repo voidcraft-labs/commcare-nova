@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { caseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import {
 	advancedSearchInputDef,
 	type CaseType,
@@ -21,12 +22,15 @@ import {
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import {
 	canSeedCustomConditionFaithfully,
+	modeCandidate,
 	recoverAnchoredProperty,
 	resolveDestinationCaseType,
 	resolveProperty,
 	resolveRows,
+	searchFieldCandidateRefusal,
 	searchInputDecls,
 	seedCustomCondition,
+	typeCandidate,
 	withSearchForBlankItCanCarry,
 } from "../searchInputResolution";
 import { admittedWorkspace, commitWorkspace } from "./admittedWorkspace";
@@ -390,5 +394,88 @@ describe("search for blank across a Match change", () => {
 		expect(next.allowBlank).toBeUndefined();
 		const { allowBlank: _dropped, ...rest } = row;
 		expect(next).toEqual(rest);
+	});
+});
+
+// The Field type and match pickers disable a choice exactly where the gate
+// would refuse the row it makes: a widget over a property its type doesn't
+// fit is offered under the project space's matching, which matches any
+// type, and a field Web Apps hides keeps to what it can hide.
+describe("the Field type and match pickers offer what the gate admits", () => {
+	const text = (slots: Parameters<typeof simpleSearchInputDef>[5] = {}) =>
+		simpleSearchInputDef(
+			testUuid("picker-name"),
+			"case_name",
+			"Name",
+			"text",
+			"case_name",
+			slots,
+		);
+	const gateRefuses = (row: SimpleSearchInputDef) => {
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.searchInputs = [row];
+		expect(() =>
+			assertAdmittedDoc(
+				buildDoc({
+					caseTypes,
+					modules: [
+						{
+							name: "Clients",
+							caseType: "patient",
+							caseListMenuItem: {},
+							caseListConfig: config,
+						},
+					],
+				}),
+			),
+		).toThrow();
+	};
+
+	it("offers a date range over text under the project space's matching alone", () => {
+		expect(
+			searchFieldCandidateRefusal(
+				typeCandidate(text({ matching: "project-space" }), "date-range"),
+				"text",
+			),
+		).toBeUndefined();
+		workspace(
+			simpleSearchInputDef(
+				testUuid("picker-name"),
+				"case_name",
+				"Name",
+				"date-range",
+				"case_name",
+				{ mode: { kind: "range" }, matching: "project-space" },
+			),
+		);
+		expect(
+			searchFieldCandidateRefusal(typeCandidate(text(), "date-range"), "text"),
+		).toBe(
+			"This works with this information through project space matching. Turn it on first.",
+		);
+		gateRefuses(
+			simpleSearchInputDef(
+				testUuid("picker-name"),
+				"case_name",
+				"Name",
+				"date-range",
+				"case_name",
+				{ mode: { kind: "range" } },
+			),
+		);
+	});
+
+	it("keeps a hidden text field on the property of its own name, matched exactly", () => {
+		const hidden = text({ hidden: true });
+		workspace(hidden);
+		expect(
+			searchFieldCandidateRefusal(modeCandidate(hidden, "exact"), "text"),
+		).toBeUndefined();
+		const sentence =
+			"A hidden text field can only search the property of its own name exactly. Change how it matches, or use a hidden value that a condition reads.";
+		expect(
+			searchFieldCandidateRefusal(modeCandidate(hidden, "starts-with"), "text"),
+		).toBe(sentence);
+		gateRefuses(text({ hidden: true, mode: { kind: "starts-with" } }));
 	});
 });

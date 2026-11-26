@@ -139,6 +139,7 @@ import {
 } from "@/lib/domain/expression";
 import {
 	hiddenSearchFieldRefusal,
+	projectSpaceMatchingFits,
 	searchForBlankRefusal,
 	takesMultipleSearchChoices,
 } from "@/lib/domain/modules";
@@ -166,6 +167,7 @@ import {
 	canSeedCustomConditionFaithfully,
 	constraintForDefault,
 	effectiveModeKind,
+	modeCandidate,
 	NO_SEARCH_INPUTS,
 	type PropertyState,
 	type ResolvedRow,
@@ -178,9 +180,11 @@ import {
 	SEARCH_INPUT_TYPE_LABELS,
 	SEARCH_MODE_DESCRIPTIONS,
 	SEARCH_MODE_LABELS,
+	searchFieldCandidateRefusal,
 	searchInputDecls,
 	seedCustomCondition,
 	seedDefaultExpression,
+	typeCandidate,
 	withSearchForBlankItCanCarry,
 } from "../searchInputResolution";
 import {
@@ -447,6 +451,15 @@ function VisibleSearchInputEditor({
 				return;
 			}
 		}
+		// A hidden text field searches the property of its own name.
+		const hiddenRefusal =
+			value.hidden === true
+				? hiddenSearchFieldRefusal(rebuildRow(value, { name }))
+				: undefined;
+		if (hiddenRefusal !== undefined) {
+			setNameRefusal(hiddenRefusal);
+			return;
+		}
 		setNameRefusal(null);
 		onChange(rebuildRow(value, { name }));
 	};
@@ -492,7 +505,13 @@ function VisibleSearchInputEditor({
 		const choicesRemoved =
 			searchInputOptions(value) !== undefined &&
 			searchInputOptions(next) === undefined;
-		if (!modeChanged && !meaningfulDefaultRemoved && !choicesRemoved) {
+		const hiddenRemoved = value.hidden === true && next.hidden !== true;
+		if (
+			!modeChanged &&
+			!meaningfulDefaultRemoved &&
+			!choicesRemoved &&
+			!hiddenRemoved
+		) {
 			onChange(next);
 			return;
 		}
@@ -512,6 +531,11 @@ function VisibleSearchInputEditor({
 		if (choicesRemoved) {
 			consequences.push(
 				`The choice list will be removed because ${targetDescription} doesn't offer choices.`,
+			);
+		}
+		if (hiddenRemoved) {
+			consequences.push(
+				"Web Apps will show the field, because a hidden text field can only search the property of its own name exactly.",
 			);
 		}
 		consequences.push("You can undo this change.");
@@ -636,7 +660,18 @@ function VisibleSearchInputEditor({
 			);
 		}
 
-		if (propertyDef !== undefined) {
+		// The project space matches a field it still fits whatever the
+		// property's type, so the widget and the match stay as they are.
+		const keepsProjectSpaceMatching =
+			value.matching === "project-space" &&
+			projectSpaceMatchingFits({
+				name: patch.name ?? value.name,
+				property,
+				via,
+				type: value.type,
+				mode: value.mode,
+			});
+		if (propertyDef !== undefined && !keepsProjectSpaceMatching) {
 			const dataType = effectiveDataType(propertyDef);
 			// A multiple-choice field also has to keep riding the bare prompt
 			// (this case, a name equal to the property); a binding that breaks
@@ -673,7 +708,13 @@ function VisibleSearchInputEditor({
 			patch.default = undefined;
 		}
 
-		const next = rebuildRow(value, patch);
+		const bound = rebuildRow(value, patch);
+		// A hidden text field that no longer searches the property of its own
+		// name can't stay hidden: the transition says Web Apps will show it.
+		const next =
+			bound.hidden === true && hiddenSearchFieldRefusal(bound) !== undefined
+				? rebuildRow(bound, { hidden: undefined })
+				: bound;
 		const targetLabel =
 			propertyDef === undefined
 				? propertyFallbackDisplayLabel(property)
@@ -950,7 +991,14 @@ function VisibleSearchInputEditor({
 					<TypePicker
 						value={pendingChoiceType ?? value.type}
 						onChange={setType}
-						propertyDataType={propertyDataType}
+						candidateRefusal={(type) =>
+							type === value.type
+								? undefined
+								: searchFieldCandidateRefusal(
+										typeCandidate(value, type),
+										propertyDataType,
+									)
+						}
 						multiSelectRefusal={multiSelectRefusal}
 						platformRefusals={platformRefusals}
 						rowIndex={index}
@@ -1007,7 +1055,23 @@ function VisibleSearchInputEditor({
 				>
 					<MatchPicker
 						value={value}
-						propertyDataType={propertyDataType}
+						candidateRefusal={(kind) =>
+							value.kind === "simple"
+								? searchFieldCandidateRefusal(
+										modeCandidate(value, kind),
+										propertyDataType,
+									)
+								: undefined
+						}
+						customRefusal={
+							value.kind === "simple" && value.hidden === true
+								? hiddenSearchFieldRefusal({
+										...value,
+										kind: "advanced",
+										predicate: { kind: "match-all" },
+									} as VisibleSearchInputDef)
+								: undefined
+						}
 						invalid={resolved.typeCouplingErrors.length > 0}
 						rowIndex={index}
 						triggerRef={matchTriggerRef}
@@ -1018,17 +1082,14 @@ function VisibleSearchInputEditor({
 					/>
 				</FieldRow>
 
+				{/* Offered wherever the gate admits it (`projectSpaceMatchingFits`):
+				    a field over its own property, under that property's name,
+				    matched exactly or by a date range. With it on, the widget and
+				    the match need not fit the property's type. */}
 				{value.kind === "simple" &&
-					(!value.via || value.via.kind === "self") &&
-					(value.name === value.property ||
-						(value.name === "name" && value.property === "case_name")) &&
+					projectSpaceMatchingFits(value) &&
 					(effectiveModeKind(value) === "exact" ||
-						value.type === "date-range") &&
-					(value.type === "date" ||
-						value.type === "date-range" ||
-						["name", "case_id", "owner_id", "status"].includes(value.name) ||
-						resolved.typeCouplingErrors.length > 0 ||
-						value.matching === "project-space") && (
+						value.type === "date-range") && (
 						<ToggleRow
 							label="Use project space matching"
 							description="Send the answer to the project space using this field’s name."
@@ -2021,9 +2082,13 @@ function rebuildRow(
 		const matching = "matching" in patch ? patch.matching : value.matching;
 		const native =
 			matching &&
-			(!via || via.kind === "self") &&
-			(name === property || (name === "name" && property === "case_name")) &&
-			(!mode || mode.kind === "exact" || mode.kind === "range")
+			projectSpaceMatchingFits({
+				name,
+				property,
+				via,
+				type,
+				mode: type === "date-range" ? { kind: "range" } : mode,
+			})
 				? { matching }
 				: {};
 		// A change that leaves the field no way to search for blank (a linked
@@ -2096,11 +2161,10 @@ function rebuildRow(
 interface TypePickerProps {
 	readonly value: SearchInputType;
 	readonly onChange: (next: SearchInputType) => void;
-	/** Effective data type of the bound property (simple arm only):
-	 *  gates which field types are selectable, mirroring the Match
-	 *  picker. `undefined` (custom condition / unresolved property)
-	 *  gates nothing, matching the validator's skip. */
-	readonly propertyDataType: CasePropertyDataType | undefined;
+	/** Why the gate would refuse the row a field type makes
+	 *  (`searchFieldCandidateRefusal`): the type over the bound property,
+	 *  or a hidden field it can't keep hidden. */
+	readonly candidateRefusal: (type: SearchInputType) => string | undefined;
 	/** Why a multiple-choice widget is withheld from this row, when it is:
 	 *  the commit gate's own reason, shown on the disabled item. */
 	readonly multiSelectRefusal?: string;
@@ -2114,7 +2178,7 @@ interface TypePickerProps {
 function TypePicker({
 	value,
 	onChange,
-	propertyDataType,
+	candidateRefusal,
 	multiSelectRefusal,
 	platformRefusals,
 	rowIndex,
@@ -2162,14 +2226,11 @@ function TypePicker({
 						// than selectable into a validation error.
 						const refusal =
 							platformRefusals[t] ??
-							(takesMultipleSearchChoices(t) ? multiSelectRefusal : undefined);
-						const admitted =
-							refusal === undefined &&
-							(propertyDataType === undefined ||
-								(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
-									propertyDataType,
-								) ??
-									true));
+							(takesMultipleSearchChoices(t)
+								? multiSelectRefusal
+								: undefined) ??
+							candidateRefusal(t);
+						const admitted = refusal === undefined;
 						return (
 							<DropdownMenuRadioItem
 								key={t}
@@ -2198,10 +2259,7 @@ function TypePicker({
 												: "text-nova-text-muted"
 										}`}
 									>
-										{admitted
-											? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
-											: (refusal ??
-												"This field type doesn't work with this information")}
+										{refusal ?? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]}
 									</div>
 								</span>
 							</DropdownMenuRadioItem>
@@ -2217,10 +2275,15 @@ function TypePicker({
 
 interface MatchPickerProps {
 	readonly value: VisibleSearchInputDef;
-	/** Effective data type of the bound property: gates which modes
-	 *  are selectable. `undefined` (unresolved property / custom
-	 *  condition) gates nothing, matching the validator's skip. */
-	readonly propertyDataType: CasePropertyDataType | undefined;
+	/** Why the gate would refuse the row a standard match makes
+	 *  (`searchFieldCandidateRefusal`); a custom condition's row gates
+	 *  nothing here, as the validator skips it. */
+	readonly candidateRefusal: (
+		kind: SearchInputMode["kind"],
+	) => string | undefined;
+	/** Why the row can't become a custom condition: a hidden text field
+	 *  only searches the property of its own name. */
+	readonly customRefusal?: string;
 	readonly invalid: boolean;
 	readonly rowIndex: number;
 	readonly triggerRef: RefObject<HTMLButtonElement | null>;
@@ -2230,7 +2293,8 @@ interface MatchPickerProps {
 
 function MatchPicker({
 	value,
-	propertyDataType,
+	candidateRefusal,
+	customRefusal,
 	invalid,
 	rowIndex,
 	triggerRef,
@@ -2292,10 +2356,8 @@ function MatchPicker({
 						// property's data type can't run would only land the
 						// row in a validation error, so the item is disabled
 						// and says why instead.
-						const admitted =
-							propertyDataType === undefined ||
-							(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(propertyDataType) ??
-								true);
+						const refusal = candidateRefusal(kind);
+						const admitted = refusal === undefined;
 						return (
 							<DropdownMenuRadioItem
 								key={kind}
@@ -2314,9 +2376,7 @@ function MatchPicker({
 												: "text-nova-text-muted"
 										}`}
 									>
-										{admitted
-											? SEARCH_MODE_DESCRIPTIONS[kind]
-											: "This match doesn't work with this information"}
+										{refusal ?? SEARCH_MODE_DESCRIPTIONS[kind]}
 									</div>
 								</span>
 							</DropdownMenuRadioItem>
@@ -2325,6 +2385,7 @@ function MatchPicker({
 					<DropdownMenuSeparator />
 					<DropdownMenuRadioItem
 						value="custom"
+						disabled={customRefusal !== undefined}
 						className={
 							isCustom ? "text-nova-violet-bright bg-nova-violet/10" : ""
 						}
@@ -2344,7 +2405,8 @@ function MatchPicker({
 									isCustom ? "text-nova-violet-bright" : "text-nova-text-muted"
 								}`}
 							>
-								Combine case information to decide what matches
+								{customRefusal ??
+									"Combine case information to decide what matches"}
 							</div>
 						</span>
 					</DropdownMenuRadioItem>

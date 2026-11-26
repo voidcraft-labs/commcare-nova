@@ -28,12 +28,15 @@ import {
 	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
+	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
 	effectiveSimpleSearchModeKind,
 	exactMode,
 	fuzzyDateMode,
 	fuzzyMode,
+	hiddenSearchFieldRefusal,
 	phoneticMode,
+	projectSpaceMatchingFits,
 	rangeMode,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
@@ -44,6 +47,7 @@ import {
 	searchForBlankRefusal,
 	searchInputRuntimeValueType,
 	startsWithMode,
+	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import {
 	compatibleTypesFor,
@@ -391,6 +395,106 @@ export function computeTypeCouplingErrors(
 	}
 
 	return errors;
+}
+
+/**
+ * Why the builder can't offer the row an edit would make (a Field type, a
+ * match or a binding the author points at), or `undefined` where the gate
+ * admits it: the widget and the match fit the property's type unless the
+ * project space matches the field (`projectSpaceMatchingFits`, which
+ * matches any type), and a field Web Apps hides stays one it can hide
+ * (`hiddenSearchFieldRefusal`). The pickers disable a choice with this
+ * reason rather than let the author pick into a refusal.
+ */
+export function searchFieldCandidateRefusal(
+	candidate: VisibleSearchInputDef,
+	propertyDataType: CasePropertyDataType | undefined,
+): string | undefined {
+	if (
+		candidate.kind === "simple" &&
+		candidate.matching !== "project-space" &&
+		propertyDataType !== undefined
+	) {
+		const typeFits =
+			SEARCH_INPUT_TYPE_PROPERTY_TYPES[candidate.type]?.includes(
+				propertyDataType,
+			) ?? true;
+		// The gate reads only a stored match; a type's own match is absent.
+		const modeFits =
+			candidate.mode === undefined ||
+			(SEARCH_MODE_PROPERTY_TYPES[candidate.mode.kind]?.includes(
+				propertyDataType,
+			) ??
+				true);
+		if (!typeFits || !modeFits)
+			return projectSpaceMatchingFits(candidate)
+				? "This works with this information through project space matching. Turn it on first."
+				: typeFits
+					? "This match doesn't work with this information"
+					: "This field type doesn't work with this information";
+	}
+	if (candidate.hidden === true) return hiddenSearchFieldRefusal(candidate);
+	return undefined;
+}
+
+/** The row a Field type would make, as far as the gate reads it: the match
+ *  kept where the type takes it, a date range's own, and the project
+ *  space's matching kept only where the row still fits it. Choice widgets
+ *  need their table to be built for real, so this is a check, not a row. */
+export function typeCandidate(
+	value: VisibleSearchInputDef,
+	type: SearchInputType,
+): VisibleSearchInputDef {
+	if (value.kind !== "simple")
+		return { ...value, type } as VisibleSearchInputDef;
+	const keepMode =
+		value.mode === undefined ||
+		applicableSearchModes(type).includes(value.mode.kind);
+	const { mode: _mode, matching: _matching, ...rest } = value;
+	const mode =
+		type === "date-range"
+			? { kind: "range" as const }
+			: keepMode
+				? value.mode
+				: undefined;
+	return withFittingMatching(value, {
+		...rest,
+		type,
+		...(mode === undefined ? {} : { mode }),
+	} as SimpleSearchInputDef);
+}
+
+/** The row a standard match would make (`setModeKind`), as far as the gate
+ *  reads it. */
+export function modeCandidate(
+	value: SimpleSearchInputDef,
+	kind: SearchInputMode["kind"],
+): SimpleSearchInputDef {
+	const { mode: _mode, matching: _matching, ...rest } = value;
+	if (kind === "range" && value.type !== "date-range")
+		return withFittingMatching(value, {
+			...rest,
+			type: "date-range",
+			mode: { kind: "range" },
+		} as SimpleSearchInputDef);
+	return withFittingMatching(value, {
+		...rest,
+		...(kind === DEFAULT_SEARCH_MODE_KIND[value.type]
+			? {}
+			: { mode: { kind } }),
+	} as SimpleSearchInputDef);
+}
+
+/** The candidate keeps the project space's matching only where it still
+ *  fits it, as `rebuildRow` does. */
+function withFittingMatching(
+	value: SimpleSearchInputDef,
+	candidate: SimpleSearchInputDef,
+): SimpleSearchInputDef {
+	return value.matching === "project-space" &&
+		projectSpaceMatchingFits(candidate)
+		? ({ ...candidate, matching: "project-space" } as SimpleSearchInputDef)
+		: candidate;
 }
 
 export function rowHasStructuralError(resolved: ResolvedRow): boolean {

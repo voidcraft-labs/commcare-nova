@@ -1,7 +1,10 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
-import { isOrdinaryCaseSearchConfig } from "@/lib/domain/modules";
+import {
+	isOrdinaryCaseSearchConfig,
+	projectSpaceMatchingFits,
+} from "@/lib/domain/modules";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
@@ -116,14 +119,7 @@ export function nativeSearchFilters(
 	}
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
 		if (input.kind !== "simple" || input.matching !== "project-space") continue;
-		if (
-			(input.name === "name" ? "case_name" : input.name) === input.property &&
-			(!input.via || input.via.kind === "self") &&
-			(!input.mode ||
-				input.mode.kind === "exact" ||
-				(input.type === "date-range" && input.mode.kind === "range"))
-		)
-			continue;
+		if (projectSpaceMatchingFits(input)) continue;
 		errors.push(
 			validationError(
 				"CASE_SEARCH_FILTER_INVALID",

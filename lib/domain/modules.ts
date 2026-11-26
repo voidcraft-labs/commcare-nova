@@ -2399,6 +2399,31 @@ export function simpleSearchInputHasCoherentRangeWidget(
 }
 
 /**
+ * Whether a simple field can take the project space's own matching
+ * (`matching: "project-space"`): its prompt rides the bare key CommCare HQ
+ * matches by its own rule, so it searches this case's own property under the
+ * property's name (`name` is the case's name), with exact matching or a date
+ * range. HQ then matches the answer whatever the property's type, so a field
+ * whose widget doesn't fit the property's type can still search it there.
+ * Shared by the commit gate and the builder so the builder offers the
+ * matching, and the widgets it admits, exactly where the gate does.
+ */
+export function projectSpaceMatchingFits(
+	input: Pick<
+		SimpleSearchInputDef,
+		"name" | "property" | "via" | "type" | "mode"
+	>,
+): boolean {
+	return (
+		(input.via === undefined || input.via.kind === "self") &&
+		(input.name === "name" ? "case_name" : input.name) === input.property &&
+		(input.mode === undefined ||
+			input.mode.kind === "exact" ||
+			(input.type === "date-range" && input.mode.kind === "range"))
+	);
+}
+
+/**
  * Whether a simple field can let the worker search for blank. The blank rides
  * beside the answer as one more value of the prompt's own request key
  * (`query.js::encodeValue` joins `#,#` before the answer), and only CommCare
