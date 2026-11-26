@@ -267,61 +267,6 @@ test("a learning activity keeps its role and explains how to remove it", {
 	await openBuilder(page, `/build/${connectLearn.appId}`);
 	await openAppSettings(page);
 	const connect = page.getByRole("group", { name: "CommCare Connect" });
-
-	test("each form keeps its own location choice while the app requests every location", {
-		tag: "@seed:workspace",
-	}, async ({ scenario, page }) => {
-		const { caseWorkspace } = seedFor(scenario, "workspace");
-		await openBuilder(page, caseWorkspace.routes.tileForm);
-		const openForm = () =>
-			page.getByRole("button", { name: "Form settings", exact: true }).click();
-		const form = page.getByRole("switch", {
-			name: "Request location for this form",
-			exact: true,
-		});
-		const all = page.getByRole("switch", {
-			name: "Request location for every form",
-			exact: true,
-		});
-		const save = async (control: typeof all, needle: string) => {
-			const [response] = await Promise.all([
-				page.waitForResponse(
-					(r) =>
-						new URL(r.url()).pathname === `/api/apps/${caseWorkspace.appId}` &&
-						r.request().method() === "PUT" &&
-						(r.request().postData() ?? "").includes(needle),
-				),
-				control.click(),
-			]);
-			expect(response.ok()).toBe(true);
-		};
-		await openForm();
-		await expect(form).not.toBeChecked();
-		await save(form, '"captureLocation":true');
-		await page.getByRole("button", { name: "Close form settings" }).click();
-		await openAppSettings(page);
-		await expect(all).not.toBeChecked();
-		await save(all, '"captureLocation":true');
-		await page.getByRole("button", { name: "Close app settings" }).click();
-		await openForm();
-		await expect(form).toBeChecked();
-		await expect(
-			page.getByText("Your app requests location for every form.", {
-				exact: false,
-			}),
-		).toBeVisible();
-		await page.getByRole("button", { name: "Close form settings" }).click();
-		await openAppSettings(page);
-		await save(all, '"captureLocation":false');
-		await reloadBuilder(page);
-		await openForm();
-		await expect(form).toBeChecked();
-		await expect(
-			page.getByText(
-				"On Android, opening this form requests the worker’s location.",
-			),
-		).toBeVisible();
-	});
 	const learn = connect.getByRole("switch", { name: "Learn", exact: true });
 	await learn.click();
 	await expect(connect.getByRole("alert")).toContainText(/lesson_one.*role/);
@@ -329,6 +274,61 @@ test("a learning activity keeps its role and explains how to remove it", {
 	await reloadBuilder(page);
 	await openAppSettings(page);
 	await expect(learn).toBeChecked();
+});
+
+test("each form keeps its own location choice while the app requests every location", {
+	tag: "@seed:workspace",
+}, async ({ scenario, page }) => {
+	const { caseWorkspace } = seedFor(scenario, "workspace");
+	await openBuilder(page, caseWorkspace.routes.tileForm);
+	const openForm = () =>
+		page.getByRole("button", { name: "Form settings", exact: true }).click();
+	const form = page.getByRole("switch", {
+		name: "Request location for this form",
+		exact: true,
+	});
+	const all = page.getByRole("switch", {
+		name: "Request location for every form",
+		exact: true,
+	});
+	const save = async (control: typeof all, needle: string) => {
+		const [response] = await Promise.all([
+			page.waitForResponse(
+				(r) =>
+					new URL(r.url()).pathname === `/api/apps/${caseWorkspace.appId}` &&
+					r.request().method() === "PUT" &&
+					(r.request().postData() ?? "").includes(needle),
+			),
+			control.click(),
+		]);
+		expect(response.ok()).toBe(true);
+	};
+	await openForm();
+	await expect(form).not.toBeChecked();
+	await save(form, '"captureLocation":true');
+	await page.getByRole("button", { name: "Close form settings" }).click();
+	await openAppSettings(page);
+	await expect(all).not.toBeChecked();
+	await save(all, '"captureLocation":true');
+	await page.getByRole("button", { name: "Close app settings" }).click();
+	await openForm();
+	await expect(form).toBeChecked();
+	await expect(
+		page.getByText("Your app requests location for every form.", {
+			exact: false,
+		}),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Close form settings" }).click();
+	await openAppSettings(page);
+	await save(all, '"captureLocation":false');
+	await reloadBuilder(page);
+	await openForm();
+	await expect(form).toBeChecked();
+	await expect(
+		page.getByText(
+			"On Android, opening this form requests the worker’s location.",
+		),
+	).toBeVisible();
 });
 
 test(
