@@ -353,6 +353,37 @@ describe("settledClaims", () => {
 		]);
 	});
 
+	it("settles a table under the tag types, in any case, as the one whose sheet name CommCare HQ's workbook keeps", () => {
+		const records = settledClaims({
+			data: projectData([tableRead("Types", "t1")]),
+			reads: readsOf({ Types: ["name"] }),
+			doc: null,
+			media: null,
+		});
+		expect(
+			shown(records).filter((record) => record.artifact === "lookup-tables"),
+		).toEqual([
+			{
+				artifact: "lookup-tables",
+				where: "/Types/tag",
+				entry: `${E}/table-tag-in-nova-s-grammar`,
+			},
+			{
+				artifact: "lookup-tables",
+				where: "/Types/tag",
+				entry: `${E}/tag-types`,
+			},
+			{
+				artifact: "lookup-tables",
+				where: "/Types/id",
+				entry: `${E}/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table`,
+			},
+		]);
+		expect(
+			records.find((record) => record.entry === `${E}/tag-types`),
+		).toMatchObject({ standing: "held", key: null });
+	});
+
 	it("settles a rich table's field values, row attributes and absent cells where HQ's definition holds them, and none of a table HQ keeps per owner", () => {
 		const records = settledClaims({
 			data: projectData([
