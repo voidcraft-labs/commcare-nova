@@ -5133,6 +5133,13 @@ def _data_binds_and_itext():
           <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
             <label ref="name"/><value ref="id"/></itemset></select1>""",
     )
+    # A label read past one field (a nested path) the form editor cannot keep; a value read of one field it keeps.
+    lookup_refs = form(
+        data="<s/>",
+        model='<instance id="items" src="jr://fixture/item-list:items"/>',
+        body="""<select1 ref="/data/s"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="name/short"/><value ref="id"/></itemset></select1>""",
+    )
     translations = form(
         data="<q/>",
         model="""<itext><translation lang="en" default="">
@@ -5587,6 +5594,30 @@ def _data_binds_and_itext():
                 itemsets,
                 "xform:select1/itemset/label@ref",
                 "select1[2]/itemset[1]/label[1]/@ref",
+                readings=True,
+            ),
+        ),
+        "questions/lookup-choice-reference-the-form-editor-cannot-keep": (
+            refused(
+                "form",
+                lookup_refs,
+                "xform:select1/itemset/label@ref",
+                "select1[1]/itemset[1]/label[1]/@ref",
+                readings=True,
+            ),
+            accepted(
+                "form",
+                lookup_refs,
+                "xform:select1/itemset/value@ref",
+                "select1[1]/itemset[1]/value[1]/@ref",
+                readings=True,
+            ),
+            # a jr:itext label is questions/itemset-label-jr-itext-field's, never this class's
+            accepted(
+                "form",
+                itemsets,
+                "xform:select1/itemset/label@ref",
+                "select1[1]/itemset[1]/label[1]/@ref",
                 readings=True,
             ),
         ),
