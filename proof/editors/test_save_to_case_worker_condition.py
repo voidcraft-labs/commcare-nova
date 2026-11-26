@@ -118,7 +118,7 @@ MEMBER_NAME = "current()/../../../../../member_name"
 def _repeated_worker_form_source(xmlns, counted):
     count_node = "<count/>" if counted else ""
     count_bind = '<bind nodeset="/data/count" type="xsd:int"/>' if counted else ""
-    count_input = '<input ref="/data/count"><label ref="jr:itext('count-label')"/></input>' if counted else ""
+    count_input = '''<input ref="/data/count"><label ref="jr:itext('count-label')"/></input>''' if counted else ""
     count_attributes = ' jr:count="/data/count" jr:noAddRemove="true()"' if counted else ""
     return f'''<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="{XFORMS}"
       xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum"
