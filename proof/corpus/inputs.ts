@@ -71,9 +71,9 @@
  *   `first-publish.json` (`firstPublish`), and the refusal a document states
  *   in place of a local archive (`LOCAL_REFUSED`, `localRefused`, and
  *   `editLocalRefused` for D′'s).
- * - `importFile`: the HQ import file (`import-file.zip`), by its entries as a
- *   local archive is, which no check reads and the HQ package's import-page
- *   tests do (`proof/hq/test_import_file.py`): the corpus's `inputs.json`
+ * - `importFile`: the HQ import file (`import-file.zip`), and the edited
+ *   package where a native journey installs it (`edit/import-file.zip`).
+ *   Each digest records its ZIP entries as for a local archive. The corpus's `inputs.json`
  *   digest of the document's manifest is what that package's outcome is
  *   keyed by (`proof/store/queue.py::PACKAGE_DATA`), so a change to the file
  *   moves it.

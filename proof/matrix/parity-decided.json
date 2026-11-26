@@ -405,10 +405,10 @@
 		"hq-plain/update-from-a-label",
 		"hq-plain/update-never-alone"
 	],
-	"hq-project-languages": [],
-	"hq-question-display": [],
 	"hq-project-database-search": [],
+	"hq-project-languages": [],
 	"hq-project-search": [],
+	"hq-question-display": [],
 	"hq-questions": [
 		"hq-questions/action-inside-control",
 		"hq-questions/android-answer-name",
@@ -648,6 +648,7 @@
 		"hq-search/visits-form-reads-a-search-field",
 		"hq-search/visits-form-reads-the-inline-results"
 	],
+	"hq-shared-table-journey": [],
 	"starter-agriculture": [],
 	"starter-health": [],
 	"starter-wash": []
