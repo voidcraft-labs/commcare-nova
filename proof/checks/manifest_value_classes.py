@@ -12765,7 +12765,7 @@ CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
 
 # Case-operation links and tile grouping use the same portable connection name.
 CASE_OPERATION_LINK_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*")
-ADVANCED_OPEN_INDEX_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*")
+ADVANCED_OPEN_INDEX_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_.-]*")
 
 
 def _index_identifier(index):
@@ -12793,22 +12793,32 @@ def _dotted_open_index_to_first_choice(at, form, loads, opens, action, index):
 dotted_open_index_to_first_choice = _advanced_reader(_dotted_open_index_to_first_choice)
 
 
-def index_identifier_outside_an_xml_name(use, manifest):
-    """``forms-and-case-writes/index-identifier-outside-an-xml-element-name``: an advanced open action's index whose
-    identifier (``_index_identifier``) is outside the Advanced open-action index grammar
-    (``advancedActions.ts``, ``openIndexName``). A load's index is another class's."""
+def _open_indexes_for_name(use):
     at = _json(use)
     if at is None:
         return None
     if at.key == "case_indices" and at.scope[-1][0] == "AdvancedOpenCaseAction":
-        indices = [index for index in at.value or [] if isinstance(index, dict)] if isinstance(at.value, list) else []
-    elif at.scope[-1][0] == "CaseIndex":
-        if len(at.scope) < 2 or at.scope[-2][0] != "AdvancedOpenCaseAction":
-            return False
-        indices = [at.owner]
-    else:
-        return None
-    return any(ADVANCED_OPEN_INDEX_IDENTIFIER.fullmatch(_index_identifier(index)) is None for index in indices)
+        return [index for index in at.value if isinstance(index, dict)] if isinstance(at.value, list) else []
+    if at.scope[-1][0] == "CaseIndex":
+        return [at.owner] if len(at.scope) > 1 and at.scope[-2][0] == "AdvancedOpenCaseAction" else []
+    return None
+
+
+def _index_is_xml_name(name):
+    try:
+        etree.Element(f"{{{CASE}}}{name}")
+    except ValueError:
+        return False
+    return True
+
+
+def index_identifier_outside_an_xml_name(use, manifest):
+    """The residual: HQ can create this element, but Nova has not proved the name through Advanced entry."""
+    indices = _open_indexes_for_name(use)
+    return None if indices is None else any(
+        _index_is_xml_name(name) and ADVANCED_OPEN_INDEX_IDENTIFIER.fullmatch(name) is None
+        for index in indices if (name := _index_identifier(index))
+    )
 
 
 def _custom_short_tile_group(use):

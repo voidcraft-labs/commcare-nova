@@ -56,7 +56,11 @@ def _edit_connections(editor_driver, state, app_id, form_id, reference, bindings
     assert save.status == 200, save.response
 
 
-@pytest.mark.parametrize("reference", ["my-parent", "my.parent"], ids=["hyphen", "dot"])
+@pytest.mark.parametrize(
+    "reference",
+    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent"],
+    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore"],
+)
 def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner, tmp_path, reference):
     with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record):
         app_id = publish_hq_app(state, ADVANCED_APP)
@@ -128,7 +132,7 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
         restore.append(transaction)
         found = core_runner.evaluate(
             formBase64=base64.b64encode(LOOKUP_FORM).decode(),
-            restoreBase64=base64.b64encode(etree.tostring(restore)).decode(),
+            restoreBase64=base64.b64encode(etree.tostring(restore, encoding="utf-8")).decode(),
             expressions=[f"instance('casedb')/casedb/case[@case_id = '{case_id}']/index/{reference}"],
             instances=["casedb"],
         )
@@ -187,3 +191,17 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
             if screen.get("datum") == "case_id_case_requisition"
         ]
         assert [row["caseId"] for row in selection["rows"]] == [case_id]
+
+
+@pytest.mark.parametrize("reference", ["my/parent", "my:parent", ".parent"], ids=["slash", "colon", "leading-dot"])
+def test_advanced_editor_save_cannot_make_an_invalid_xml_index_buildable(editor_driver, hq, reference):
+    with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record):
+        app_id = publish_hq_app(state, ADVANCED_APP)
+        app = operations.held_app(state, app_id)
+        form = app.modules[1].forms[1]
+        _edit_connections(editor_driver, state, app_id, form.unique_id, reference, ["reference_id"])
+        current = operations.held_app(state, app_id).get_form(form.unique_id)
+        index, = current.actions.open_cases[0].case_indices
+        assert index.reference_id == reference
+        with pytest.raises(ValueError, match="Invalid tag name"):
+            compare.build(state, app_id, record)

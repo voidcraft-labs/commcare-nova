@@ -247,7 +247,7 @@ describe("an advanced form's tags", () => {
 });
 
 describe("an advanced form's loads and open actions", () => {
-	it.each(["my-parent", "my.parent"])(
+	it.each(["my-parent", "my.parent", "my.", "my..parent", "my.2parent"])(
 		"keeps the exact %s connection on an explicit case list and its automatic lookup",
 		async (identifier) => {
 			const { doc } = advancedFixture({
@@ -340,7 +340,7 @@ describe("an advanced form's loads and open actions", () => {
 		},
 	);
 
-	it.each(["my-parent", "my.parent"])(
+	it.each(["my-parent", "my.parent", "my.", "my..parent", "my.2parent"])(
 		"retains the %s open index through import and advanced Case Management emission",
 		async (identifier) => {
 			const { doc } = registration([kid]);
@@ -439,27 +439,26 @@ describe("an advanced form's loads and open actions", () => {
 	);
 
 	it.each([
-		"my/parent",
-		".parent",
-		"my.",
-		"my..parent",
-		"my:parent",
-		"my.2parent",
-	])("refuses the unsupported open index %s", async (identifier) => {
-		const { doc } = registration([kid]);
-		const reading = await readCases(doc, {
-			edit: (app) => {
-				const opens = actionsOf(app).open_cases;
-				const indices = (
-					opens[1] as { case_indices: Record<string, unknown>[] }
-				).case_indices;
-				(indices[0] as Record<string, unknown>).reference_id = identifier;
-			},
-		});
-		expect(findingCodes(reading)).toContain(
-			`${F}/index-identifier-outside-an-xml-element-name`,
-		);
-	});
+		["my/parent", "index-identifier-invalid-xml-local-name"],
+		[".parent", "index-identifier-invalid-xml-local-name"],
+		["my:parent", "index-identifier-invalid-xml-local-name"],
+		["métrique", "index-identifier-outside-an-xml-element-name"],
+	])(
+		"refuses the unsupported open index %s for %s",
+		async (identifier, code) => {
+			const { doc } = registration([kid]);
+			const reading = await readCases(doc, {
+				edit: (app) => {
+					const opens = actionsOf(app).open_cases;
+					const indices = (
+						opens[1] as { case_indices: Record<string, unknown>[] }
+					).case_indices;
+					(indices[0] as Record<string, unknown>).reference_id = identifier;
+				},
+			});
+			expect(findingCodes(reading)).toContain(`${F}/${code}`);
+		},
+	);
 
 	it("refuses an index whose relationship a question chooses under the entry its shape is, each once", async () => {
 		const { doc } = registration([kid]);

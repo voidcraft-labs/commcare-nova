@@ -2196,10 +2196,42 @@
 		]
 	},
 	{
-		"id": "hq-advanced/open-index-named-with-a-slash",
+		"id": "hq-advanced/open-index-named-with-two-dots",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+		"change": { "op": "named", "name": "open_visitor_with_repeated_dot_index" },
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/identifier",
+				"value": "my..parent"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/targetType",
+				"value": "household"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/open-index-named-with-an-accent",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"standing": "not-yet",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": { "op": "named", "name": "open_visitor_with_accented_index" }
+	},
+	{
+		"id": "hq-advanced/open-index-named-with-a-slash",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/index-identifier-invalid-xml-local-name",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,

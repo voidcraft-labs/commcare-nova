@@ -5873,7 +5873,7 @@
 		],
 		"valueClass": "load-child-of-previous-load",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: an explicit selection holds the exact name of the connection to the preceding load, including complete dotted names such as `my.parent`. An implicit selection derives its connection from the app's child links, using `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`).",
+		"dispositionCell": "**HELD**: an explicit selection holds the exact name of the connection to the preceding load, including names with periods after the first character such as `my.parent`. An implicit selection derives its connection from the app's child links, using `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6167,7 +6167,7 @@
 		],
 		"valueClass": "auto-select-case-index",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection, including complete dotted names such as `my.parent`.",
+		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection, including names with periods after the first character such as `my.parent`.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6783,10 +6783,41 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/index-identifier-invalid-xml-local-name",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` that is not an XML local name",
+		"surfaceKeys": [
+			"schema:AdvancedOpenCaseAction.case_indices",
+			"schema:CaseIndex.tag",
+			"schema:CaseIndex.reference_id",
+			"schema:CaseIndex.relationship"
+		],
+		"valueClass": "open-action-index-name-cannot-be-xml-element",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ's build cannot create the case transaction element from an invalid XML local name.",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`xform.py::CaseBlock.add_index_ref` requires a name that can form one case transaction element"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` outside the supported name grammar, including incomplete dotted names",
+		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` that is a valid XML local name outside the proved Advanced name grammar",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.tag",
@@ -6795,7 +6826,7 @@
 		],
 		"valueClass": "open-action-index-name-outside-xml-name",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a name outside the supported Advanced index grammar (`ADVANCED_CASE_INDEX_IDENTIFIER_REGEX`)",
+		"dispositionCell": "**HELD-NEW**: a name outside the proved Advanced index grammar (`ADVANCED_CASE_INDEX_IDENTIFIER_REGEX`)",
 		"subject": "advanced-forms",
 		"owner": "forms-and-case-management",
 		"platforms": {

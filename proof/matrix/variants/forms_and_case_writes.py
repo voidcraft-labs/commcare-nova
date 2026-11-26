@@ -174,6 +174,16 @@ def open_visitor_with_dotted_index(authoring, app_id):
     _open_visitor_with_index(authoring, app_id, "my.parent")
 
 
+def open_visitor_with_repeated_dot_index(authoring, app_id):
+    """Keep adjacent periods as part of one Advanced connection name."""
+    _open_visitor_with_index(authoring, app_id, "my..parent")
+
+
+def open_visitor_with_accented_index(authoring, app_id):
+    """Exhibit a valid XML name outside the current portable Advanced name class."""
+    _open_visitor_with_index(authoring, app_id, "métrique")
+
+
 def write_through_typed_user_index(authoring, app_id):
     """A declared user edge links an ordinary member to an ordinary household."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder
