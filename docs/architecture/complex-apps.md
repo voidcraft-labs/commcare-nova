@@ -1666,6 +1666,16 @@ depends on the order HQ returns its results in is refused
 (`search-results-order`), and Preview supplies the set the search returned,
 capped at HQ's 500.
 
+#### A Search field matched against its parent
+
+A visible text field can send the project space the key of an ordinary property
+on the direct parent. The key comes from the typed `parent` relationship and
+the property, so editing the field's Nova name leaves the request, generated
+labels and the field's UUID unchanged. Preview sends that same key to its
+native request compiler and uses the selected project's matching settings. The
+answer belongs to the match itself. Dependent formulas, choice widgets and
+multi-step paths need separate evidence before they can use this shape.
+
 #### Search headings
 
 A Search heading has a UUID and its own translation unit. Each field belongs

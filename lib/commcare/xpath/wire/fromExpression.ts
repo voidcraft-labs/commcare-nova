@@ -648,6 +648,14 @@ function term(input: Term, ctx: Context): WireExpr {
 			}
 		}
 		case "input": {
+			if (
+				ctx.types.profile.searchInputs.some(
+					(field) => field.uuid === input.searchInputUuid && field.matchingOnly,
+				)
+			)
+				throw new Error(
+					"A parent Search field cannot supply a formula answer.",
+				);
 			const name = bindings.searchInputNames?.get(input.searchInputUuid);
 			if (name === undefined)
 				throw new Error(

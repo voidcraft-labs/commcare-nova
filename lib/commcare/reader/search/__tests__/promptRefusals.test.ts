@@ -11,14 +11,26 @@
  * of which is required where the first is blank, with one prompt edited as CommCare HQ stores it,
  * and holds the reading's whole account.
  */
+import AdmZip from "adm-zip";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { compileCcz } from "@/lib/commcare/compiler";
+import { expandDoc } from "@/lib/commcare/expander";
+import { requiredProjectSpaceCapabilities } from "@/lib/commcare/projectSpaceCompatibility";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { eq, input, literal } from "@/lib/domain/expression";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { isVisibleSearchInput } from "@/lib/domain/modules";
 import { searchAddressReceiverCompatibility } from "../../../validator/rules/case-list/searchAddressReceiverCompatibility";
 import { runValidation } from "../../../validator/runner";
+import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { matchingResolver } from "../../identity";
+import {
+	externalIdentityMap,
+	knownDirectParentSearchNamesOf,
+} from "../../identityMap";
 import { readHqApp } from "../../index";
 import type { ReaderInput } from "../../types";
 
@@ -629,6 +641,119 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 				"search",
 				"status",
 			],
+		]);
+	});
+});
+
+describe("a plain native parent Search field", () => {
+	const village = { name: "parent/village", label: { en: "Village" } };
+
+	it("holds the exact parent key independently of a safe, unoccupied authoring name", async () => {
+		const { doc } = await documentOf((body) => {
+			promptsOf(body).push(village, {
+				name: "parent_village",
+				label: { en: "Code" },
+			});
+		});
+		const mod = doc.modules[doc.moduleOrder[0]];
+		expect(mod.caseListConfig?.searchInputs.at(-2)).toMatchObject({
+			name: "parent_village_2",
+			kind: "simple",
+			type: "text",
+			matching: "project-space",
+			property: "village",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		});
+		const renamed = produce(doc, (draft) => {
+			const field = draft.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
+			if (field === undefined) throw new Error("Expected the parent field");
+			field.name = "related_village";
+		});
+		const runtimeTarget = {
+			server: "production",
+			domain: "clinic",
+			appId: "app",
+		} as const;
+		const compiled = expandDoc(renamed, { runtimeTarget });
+		expect(
+			compiled.modules[0].search_config.properties.slice(-2),
+		).toMatchObject([
+			{ name: "parent/village", label: { en: "Village" } },
+			{ name: "parent_village", label: { en: "Code" } },
+		]);
+		const zip = new AdmZip(
+			compileCcz(compiled, renamed.appName, renamed, { runtimeTarget }),
+		);
+		expect(zip.readAsText("suite.xml")).toContain(
+			'<prompt key="parent/village"',
+		);
+		expect(zip.readAsText("suite.xml")).toContain(
+			'id="search_property.m0.parent/village"',
+		);
+		expect(zip.readAsText("default/app_strings.txt")).toContain(
+			"search_property.m0.parent/village=Village",
+		);
+		expect(requiredProjectSpaceCapabilities(renamed)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: "related-case-search" }),
+			]),
+		);
+		const reread = readHqApp(
+			await inputFor(exportedBody(renamed), {
+				resolver: matchingResolver(
+					renamed.appId,
+					externalIdentityMap(renamed, DERIVED_WIRE_IDENTITY),
+				),
+				knownDirectParentSearchNames: knownDirectParentSearchNamesOf(renamed),
+			}),
+		);
+		expect(reread.kind).toBe("read");
+		if (reread.kind !== "read") return;
+		const parent =
+			renamed.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
+		expect(
+			reread.draft.doc.modules[mod.uuid].caseListConfig?.searchInputs.at(-2),
+		).toMatchObject({ uuid: parent?.uuid, name: "related_village" });
+	});
+
+	it("refuses a dependent formula while retaining the parent match", async () => {
+		const { doc } = await documentOf((body) => {
+			promptsOf(body).push(village);
+		});
+		const candidate = produce(doc, (draft) => {
+			const rows =
+				draft.modules[draft.moduleOrder[0]].caseListConfig?.searchInputs;
+			const first = rows?.[0];
+			const parent = rows?.at(-1);
+			if (
+				!first ||
+				first.kind === "hidden" ||
+				first.kind === "address" ||
+				!parent
+			)
+				throw new Error("Expected the two visible fields");
+			first.required = { when: eq(input(parent.uuid), literal("Kibera")) };
+		});
+		expect(runValidation(candidate, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					message: expect.stringContaining(
+						"only available to match a property on the parent record",
+					),
+				}),
+			]),
+		);
+	});
+
+	it("keeps a parent prompt with a different widget outside the held slice", async () => {
+		expect(
+			await account((body) => {
+				promptsOf(body).push({ ...village, input_: "date" });
+			}),
+		).toContainEqual([
+			`${S}prompt-key-outside-nova-s-name-grammar`,
+			"search",
+			"parent/village",
 		]);
 	});
 });

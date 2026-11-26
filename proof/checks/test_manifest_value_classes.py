@@ -7424,6 +7424,13 @@ def _held_new():
             # A load's index is another class's.
             accepted("app", load_indexed("my-parent"), reference, f"{loads}/1/case_index/reference_id"),
         ),
+        "case-search/prompt-key-matching-a-direct-parent-property": (
+            refused("app", search(name="parent/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            accepted("app", search(name="host/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            accepted("app", search(name="parent/parent/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            accepted("app", search(name="parent/location_id", label={"en": "Location"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            accepted("app", search(name="parent/village", label={"en": "Village"}, input_="date"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+        ),
         "case-search/prompt-key-outside-nova-s-name-grammar": (
             refused("app", search(name="parent/dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             refused("app", search(name="_x"), "schema:CaseSearchProperty.name", f"{prompts}/name"),

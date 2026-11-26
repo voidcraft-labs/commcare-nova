@@ -25,6 +25,7 @@ import {
 	type WireStringSource,
 } from "@/lib/domain";
 import type { DatumRef } from "@/lib/domain/expression/types";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { LookupWireNaming } from "../../lookup/naming";
 import type {
@@ -163,11 +164,8 @@ export function searchScreenTranslationUnits(
 			: {}),
 	};
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
-		units[`search_property.${moduleId}.${input.name}`] = makeTranslationUnitId(
-			"search-input",
-			input.uuid,
-			"label",
-		);
+		units[`search_property.${moduleId}.${searchInputRequestKey(input)}`] =
+			makeTranslationUnitId("search-input", input.uuid, "label");
 	}
 	return units;
 }

@@ -41,6 +41,7 @@ import {
 } from "../menuForms";
 import { formRouteBeforeCase } from "../menuScreens";
 import {
+	directParentSearchRequestKey,
 	effectiveCaseSearchConfig,
 	isSearchAnswerInput,
 	moduleFormsReadSearch,
@@ -116,6 +117,7 @@ export type LookupDefinitionIndex = ReadonlyMap<
 	}
 >;
 export interface SearchInputDecl {
+	readonly matchingOnly?: true;
 	readonly supplier?: Uuid;
 	readonly supplierId?: string;
 	readonly uuid: Uuid;
@@ -400,6 +402,9 @@ export function untypedExpressionFacts(
 					.map((input) => ({
 						uuid: input.uuid,
 						name: input.name,
+						...(directParentSearchRequestKey(input) !== undefined && {
+							matchingOnly: true as const,
+						}),
 						data_type: searchInputRuntimeValueType(input),
 					})),
 			]),
@@ -637,6 +642,9 @@ function buildFormFacts(
 			.map((input) => ({
 				uuid: input.uuid,
 				name: input.name,
+				...(directParentSearchRequestKey(input) !== undefined && {
+					matchingOnly: true as const,
+				}),
 				data_type: searchInputRuntimeValueType(input),
 				...(uuid !== structure.moduleUuid && {
 					supplier: uuid,
@@ -811,6 +819,9 @@ export function slotContext(
 		.map((input) => ({
 			uuid: input.uuid,
 			name: input.name,
+			...(directParentSearchRequestKey(input) !== undefined && {
+				matchingOnly: true as const,
+			}),
 			data_type: searchInputRuntimeValueType(input),
 		}));
 	let profile: SlotProfile;

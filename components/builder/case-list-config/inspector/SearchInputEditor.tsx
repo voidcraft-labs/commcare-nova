@@ -143,6 +143,8 @@ import {
 } from "@/lib/domain/expression";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 import {
+	directParentSearchRequestKey,
+	directParentSearchSettingsFit,
 	hiddenSearchFieldRefusal,
 	projectSpaceMatchingFits,
 	searchForBlankRefusal,
@@ -566,6 +568,11 @@ function VisibleSearchInputEditor({
 	const typeTriggerRef = useRef<HTMLButtonElement>(null);
 	const matchTriggerRef = useRef<HTMLButtonElement>(null);
 	const projectProse = useProseProjection();
+	const parentKey = directParentSearchRequestKey(value);
+	const parentCandidate =
+		value.kind === "simple"
+			? directParentSearchRequestKey({ ...value, matching: "project-space" })
+			: undefined;
 	const transitionFocusRef = useRef<TransitionFocus>("type");
 	const resolved: ResolvedRow = useMemo(() => {
 		const rows = resolveRows(
@@ -1166,7 +1173,8 @@ function VisibleSearchInputEditor({
 					</FieldRow>
 				)}
 
-				{value.hidden !== true &&
+				{parentKey === undefined &&
+					value.hidden !== true &&
 					(value.type === "text" || value.type === "multi-select") && (
 						<AddressFillSetting
 							inputs={siblings}
@@ -1320,8 +1328,18 @@ function VisibleSearchInputEditor({
 						value.type === "date-range") && (
 						<ToggleRow
 							label="Use project space matching"
-							description="Send the answer to the project space using this field’s name."
+							description={
+								parentCandidate === undefined
+									? "Send the answer to the project space using this field’s name."
+									: "Match the answer against the field on the direct parent."
+							}
 							checked={value.matching === "project-space"}
+							disabledReason={
+								parentCandidate !== undefined &&
+								!directParentSearchSettingsFit(value)
+									? "Use a labeled text field with no starting value, checks or address filling."
+									: undefined
+							}
 							onChange={(enabled) =>
 								onChange(
 									rebuildRow(value, {
@@ -1344,7 +1362,11 @@ function VisibleSearchInputEditor({
 						)
 					}
 					disabledReason={
-						value.hidden === true ? undefined : hiddenSearchFieldRefusal(value)
+						parentKey !== undefined
+							? "A parent Search field stays visible."
+							: value.hidden === true
+								? undefined
+								: hiddenSearchFieldRefusal(value)
 					}
 				/>
 
@@ -1395,49 +1417,53 @@ function VisibleSearchInputEditor({
 
 				<InlineError errors={resolved.typeCouplingErrors} />
 
-				<DefaultValueSlot
-					slot={inputSlot("search_input_default")}
-					candidate={value}
-					value={searchInputDefault(value)}
-					inputType={value.type}
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					userProperties={userProperties}
-					rowIndex={index}
-					onChange={setDefault}
-				/>
-
-				{(value.hidden !== true || value.required !== undefined) && (
-					<RequiredSlot
-						expressionContext={requiredContext}
-						value={value.required}
+				{parentKey === undefined && (
+					<DefaultValueSlot
+						slot={inputSlot("search_input_default")}
+						candidate={value}
+						value={searchInputDefault(value)}
+						inputType={value.type}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						userProperties={userProperties}
 						rowIndex={index}
-						summaryContext={{
-							caseTypes,
-							currentCaseType,
-							knownInputs,
-							projectProse,
-						}}
-						onChange={setRequired}
-						onEditCondition={() => onEditCondition("required")}
+						onChange={setDefault}
 					/>
 				)}
 
-				{(value.hidden !== true || value.validation !== undefined) && (
-					<CheckSlot
-						expressionContext={validationContext}
-						value={value.validation}
-						rowIndex={index}
-						summaryContext={{
-							caseTypes,
-							currentCaseType,
-							knownInputs,
-							projectProse,
-						}}
-						onChange={setValidation}
-						onEditRule={() => onEditCondition("validation")}
-					/>
-				)}
+				{parentKey === undefined &&
+					(value.hidden !== true || value.required !== undefined) && (
+						<RequiredSlot
+							expressionContext={requiredContext}
+							value={value.required}
+							rowIndex={index}
+							summaryContext={{
+								caseTypes,
+								currentCaseType,
+								knownInputs,
+								projectProse,
+							}}
+							onChange={setRequired}
+							onEditCondition={() => onEditCondition("required")}
+						/>
+					)}
+
+				{parentKey === undefined &&
+					(value.hidden !== true || value.validation !== undefined) && (
+						<CheckSlot
+							expressionContext={validationContext}
+							value={value.validation}
+							rowIndex={index}
+							summaryContext={{
+								caseTypes,
+								currentCaseType,
+								knownInputs,
+								projectProse,
+							}}
+							onChange={setValidation}
+							onEditRule={() => onEditCondition("validation")}
+						/>
+					)}
 
 				<SearchInputPlatformNotes
 					moduleUuid={moduleUuid}
@@ -1446,8 +1472,16 @@ function VisibleSearchInputEditor({
 
 				<AdvancedInputSettings active={resolved.nameState.kind !== "ok"}>
 					<FieldRow
-						label="Name used in other conditions"
-						hint="A unique name for this search answer"
+						label={
+							parentKey === undefined
+								? "Name used in other conditions"
+								: "Field name"
+						}
+						hint={
+							parentKey === undefined
+								? "A unique name for this search answer"
+								: "Changing this name keeps the parent property the field searches."
+						}
 					>
 						<BlurCommitTextInput
 							value={value.name}

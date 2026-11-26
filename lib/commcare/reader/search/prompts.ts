@@ -20,6 +20,7 @@ import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { sameLookupRead } from "@/lib/domain/lookupRead";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
+	isDirectParentSearchProperty,
 	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -100,6 +101,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	order: take(`${S}prompt-order`, "schema:CaseSearch.properties"),
 	name: take(
 		`${S}name-prompt-key-case-property`,
+		"schema:CaseSearchProperty.name",
+	),
+	parentName: take(
+		`${S}prompt-key-matching-a-direct-parent-property`,
 		"schema:CaseSearchProperty.name",
 	),
 	nameOutside: refuse(
@@ -738,6 +743,28 @@ export function readSearchPrompts(
 			}),
 	);
 	const receiverDuplicates = addressReceiverDuplicates(prompts, sourceNames);
+	const occupiedNames = new Set(
+		prompts.flatMap((prompt) => {
+			const name = prompt.peek("name");
+			return typeof name === "string" && SEARCH_INPUT_NAME_PATTERN.test(name)
+				? [name]
+				: [];
+		}),
+	);
+	const savedNames = new Map<string, string>();
+	for (const prompt of prompts) {
+		const property = directParentPromptProperty(prompt);
+		if (property === undefined) continue;
+		const key = `parent/${property}`;
+		const uuid = ctx.input.resolver.uuidOf(
+			externalKey.searchInput(module.uniqueId, key),
+		);
+		const previous = ctx.input.knownDirectParentSearchNames?.get(uuid);
+		if (previous !== undefined && !occupiedNames.has(previous)) {
+			savedNames.set(key, previous);
+			occupiedNames.add(previous);
+		}
+	}
 	const out: PromptReading[] = [];
 	for (const prompt of prompts) {
 		if (prompt.peek("is_group") === true) continue;
@@ -756,6 +783,8 @@ export function readSearchPrompts(
 			projectService,
 			sourceNames,
 			receiverDuplicates.has(prompt),
+			occupiedNames,
+			savedNames,
 		);
 		if (reading !== undefined) out.push(reading);
 	}
@@ -818,6 +847,43 @@ function canReadAddressPrompt(
 	);
 }
 
+/** A visible ordinary text prompt with a native direct-parent key. Its
+ * wider settings would need their own editor and worker evidence. */
+function directParentPromptProperty(prompt: JsonCursor): string | undefined {
+	const name = prompt.peek("name");
+	if (typeof name !== "string" || !name.startsWith("parent/")) return undefined;
+	const property = name.slice("parent/".length);
+	const required = prompt.peek("required");
+	const validations = prompt.peek("validations");
+	const itemset = prompt.peek("itemset");
+	return isDirectParentSearchProperty(property) &&
+		prompt.peek("hidden") !== true &&
+		prompt.peek("exclude") !== true &&
+		prompt.peek("allow_blank_value") !== true &&
+		!prompt.peek("group_key") &&
+		!prompt.peek("input_") &&
+		!prompt.peek("appearance") &&
+		!prompt.peek("receiver_expression") &&
+		!prompt.peek("default_value") &&
+		(!isJsonObject(required) || !required.test) &&
+		(!Array.isArray(validations) || validations.length === 0) &&
+		(!isJsonObject(itemset) ||
+			Object.keys(itemset).every((key) => key === "doc_type"))
+		? property
+		: undefined;
+}
+
+function reserveParentPromptAlias(
+	property: string,
+	occupied: Set<string>,
+): string {
+	const base = `parent_${property}`;
+	let name = base;
+	for (let suffix = 2; occupied.has(name); suffix++) name = `${base}_${suffix}`;
+	occupied.add(name);
+	return name;
+}
+
 function readPrompt(
 	ctx: ReadContext,
 	module: DraftModule,
@@ -830,6 +896,8 @@ function readPrompt(
 	projectService: boolean,
 	addressSources: ReadonlySet<string>,
 	receiverDuplicate: boolean,
+	occupiedNames: Set<string>,
+	savedNames: ReadonlyMap<string, string>,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
@@ -942,6 +1010,10 @@ function readPrompt(
 				texts: NO_ENTRIES,
 			};
 	const label = labelRead.texts;
+	const parentProperty =
+		!projectService && !grouped && sourceText(ctx, label).trim()
+			? directParentPromptProperty(prompt)
+			: undefined;
 	const hintMap = hintRead.texts;
 	const requiredMap = requiredRead.texts;
 	// A key CommCare HQ reads as part of the request (a setting, a tag, an unsearched key, an
@@ -952,7 +1024,10 @@ function readPrompt(
 			: isReservedSearchInputName(name)
 	)
 		refuseWith("name", P.nameReserved);
-	else if (!SEARCH_INPUT_NAME_PATTERN.test(name))
+	else if (
+		parentProperty === undefined &&
+		!SEARCH_INPUT_NAME_PATTERN.test(name)
+	)
 		refuseWith("name", P.nameOutside);
 	else if (defaultFilterNames.has(name)) {
 		refuseWith("name", P.nameShared);
@@ -1411,6 +1486,7 @@ function readPrompt(
 				!projectService &&
 				!exclude &&
 				!address &&
+				parentProperty === undefined &&
 				!ATTRIBUTE_PROMPT_NAMES.has(name) &&
 				!authoredCasePropertyNameSchema.safeParse(name).success
 			)
@@ -1430,9 +1506,11 @@ function readPrompt(
 	if (!refusedHere("name")) {
 		prompt.take(
 			"name",
-			!projectService && !exclude && ATTRIBUTE_PROMPT_NAMES.has(name)
-				? P.nameAttribute
-				: P.name,
+			parentProperty !== undefined
+				? P.parentName
+				: !projectService && !exclude && ATTRIBUTE_PROMPT_NAMES.has(name)
+					? P.nameAttribute
+					: P.name,
 			String,
 		).value;
 		if (!projectService && name === "owner_id" && exclude)
@@ -1687,7 +1765,11 @@ function readPrompt(
 
 	const common = {
 		uuid,
-		name,
+		name:
+			parentProperty === undefined
+				? name
+				: (savedNames.get(name) ??
+					reserveParentPromptAlias(parentProperty, occupiedNames)),
 		...(group !== undefined && { group }),
 		label: sourceText(ctx, label),
 		...(hint !== "" && { hint }),
@@ -1757,8 +1839,14 @@ function readPrompt(
 					: {
 							...widget,
 							kind: "simple",
-							property: name === "name" ? "case_name" : name,
-							...((ATTRIBUTE_PROMPT_NAMES.has(name) || type === "date") && {
+							property:
+								parentProperty ?? (name === "name" ? "case_name" : name),
+							...(parentProperty !== undefined && {
+								via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+							}),
+							...((parentProperty !== undefined ||
+								ATTRIBUTE_PROMPT_NAMES.has(name) ||
+								type === "date") && {
 								matching: "project-space",
 							}),
 							...(type === "date-range" && { mode: { kind: "range" } }),

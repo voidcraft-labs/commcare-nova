@@ -27,6 +27,7 @@ import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { relationDestinationCaseType } from "@/lib/domain/expression/rewrite";
 import type { Expression, Term } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import {
 	type ProjectSpaceAdvisoryUse,
 	type ProjectSpaceCapabilityUse,
@@ -246,7 +247,7 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 		...list.searchInputs.flatMap((input) => {
 			if (input.kind !== "simple" || searchInputSuppressesAutoMatch(input))
 				return [];
-			const target = readSearchFilterTarget(input.name);
+			const target = readSearchFilterTarget(searchInputRequestKey(input));
 			return target ? [target] : [];
 		}),
 	];

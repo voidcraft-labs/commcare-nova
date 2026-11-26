@@ -72,6 +72,7 @@ import {
 import type { Expression } from "@/lib/domain/expression";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { ModuleExpressionSlotRef } from "@/lib/domain/expression/types";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import { groupedSearchWire, searchGroupElement } from "./searchGroups";
@@ -276,8 +277,9 @@ export function searchPromptWire(
 	// When `input.label` is empty the locale registers `input.name`
 	// — gives the runtime something readable to render rather than
 	// the locale id itself.
+	const key = searchInputRequestKey(input);
 	const label: SearchPromptText = {
-		text: input.label !== "" ? input.label : input.name,
+		text: input.label !== "" ? input.label : key,
 		source: makeTranslationUnitId("search-input", input.uuid, "label"),
 	};
 	const hint =
@@ -305,7 +307,7 @@ export function searchPromptWire(
 					emission,
 				);
 	return {
-		key: input.name,
+		key,
 		label,
 		...(hint === undefined ? {} : { hint }),
 		...(mapping.appearance === undefined

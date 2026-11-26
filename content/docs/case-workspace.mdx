@@ -493,12 +493,19 @@ Project space matching also lets a date or a date range search information your
 forms save as text: the project space finds the cases whose saved text it reads
 as a date in that range, and Preview does the same.
 
+A text field can use project space matching for information on the direct
+parent case. Give the field a label and choose the parent information to match.
+Preview uses the matching settings you confirm for the project space. If the
+parent record is absent from the app’s data, or the project space is set to match
+similar words for this field, Preview shows why it cannot confirm the results.
+Changing the field's name in Nova keeps the parent information it searches.
+
 Turn on **Also find blank** to let workers include cases where the field's
 information is blank. In Web Apps a box appears under the field, and workers can
 tick it with or without an answer. Android shows the field without the box. The
 option is offered on a field that searches its own information under the same
 name, with exact matching or a date range, and on a field with project space
-matching, except one that searches the case owner. A form that
+matching on the current case, except one that searches the case owner. A form that
 reads the search answer sees the blank before the answer, the way CommCare sends
 it.
 

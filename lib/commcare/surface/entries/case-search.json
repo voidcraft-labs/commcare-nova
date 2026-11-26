@@ -2151,11 +2151,34 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/prompt-key-matching-a-direct-parent-property",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a labeled ordinary text prompt matched by its own direct parent property key",
+		"surfaceKeys": ["schema:CaseSearchProperty.name"],
+		"valueClass": "direct-parent-text-prompt-key",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: text matched by the project space on a property of the direct parent",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`name` derived from the parent's property",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_RELATED_LOOKUPS"]
+	},
+	{
 		"id": "case-search/prompt-key-outside-nova-s-name-grammar",
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`name` (prompt key) holding `/` (an ancestor path) or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`, or, on a prompt without `exclude`, a case property Nova cannot name (`_x`, `date-opened`, `external-id`)",
+		"item": "`name` (prompt key) holding an unsupported ancestor path or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`, or, on a prompt without `exclude`, a case property Nova cannot name (`_x`, `date-opened`, `external-id`)",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.name",
 			"parser:QueryPromptParser/prompt@key",

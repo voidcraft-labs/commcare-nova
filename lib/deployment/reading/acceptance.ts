@@ -45,7 +45,10 @@ import {
 import { placementsAsRead } from "@/lib/commcare/reader/assemble";
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
-import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
+import {
+	externalIdentityMap,
+	knownDirectParentSearchNamesOf,
+} from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import type {
 	ValidationError,
@@ -874,6 +877,7 @@ function* fixedPointCheck(
 					knownPositionedCaseOperationIds:
 						knownPositionedCaseOperationIdsOf(doc),
 					knownFormEntryChoices: knownFormEntryChoicesOf(doc),
+					knownDirectParentSearchNames: knownDirectParentSearchNamesOf(doc),
 					knownProjectSearchNames: doc.appSettings.projectSearches,
 					knownLanguageCodes: knownLanguageCodesOf(doc),
 				},

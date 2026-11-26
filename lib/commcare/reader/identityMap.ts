@@ -46,9 +46,11 @@ import { walkExpression } from "@/lib/domain/expression/walk";
 import { ownedFormSelections } from "@/lib/domain/formEntryCases";
 import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import {
+	directParentSearchRequestKey,
 	isDedicatedOwnerFilter,
 	moduleFormsReadSearch,
 	projectSearchOf,
+	searchInputRequestKey,
 } from "@/lib/domain/modules";
 import type { LookupTableId } from "@/lib/lookup/types";
 import { moduleExpressionContexts } from "../expressionContext";
@@ -141,6 +143,21 @@ function canNameCalculation(
  * two (two worker properties of one slug, say) is refused here rather than
  * mapped to one of them.
  */
+/** Nova keeps the display/editor name, while HQ keeps the parent request key. */
+export function knownDirectParentSearchNamesOf(
+	doc: BlueprintDoc,
+): ReadonlyMap<Uuid, string> {
+	return new Map(
+		Object.values(doc.modules).flatMap((module) =>
+			(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
+				directParentSearchRequestKey(input) === undefined
+					? []
+					: [[input.uuid, input.name] as const],
+			),
+		),
+	);
+}
+
 export function externalIdentityMap(
 	doc: BlueprintDoc,
 	identity: WireIdentity,
@@ -371,7 +388,10 @@ export function externalIdentityMap(
 					group.uuid,
 				);
 			for (const input of config.searchInputs)
-				add(externalKey.searchInput(uniqueId, input.name), input.uuid);
+				add(
+					externalKey.searchInput(uniqueId, searchInputRequestKey(input)),
+					input.uuid,
+				);
 		}
 	}
 

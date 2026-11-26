@@ -33,8 +33,20 @@ import {
 	expressionReferencesAnySearchInput,
 	walkPropertyRefs,
 } from "@/lib/domain/expression/walk";
+import {
+	directParentSearchRequestKey,
+	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
+} from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
 import { searchesForBlank } from "./runtimeBindings";
+
+/** Core splits even a text prompt in its request and discards trailing
+ * empty values. A leading blank is a separate HQ matching argument. */
+function nativeTextSearchValues(answer: string): string[] {
+	const parts = answer.split(MULTI_SELECT_SEARCH_ANSWER_DELIMITER);
+	while (parts.at(-1) === "") parts.pop();
+	return parts;
+}
 
 /** A completed request has its own source order and cap. A search action's
  * Results use its primary matches; an inline datum applies its local detail
@@ -127,7 +139,9 @@ export function completedSearchRequest(
 		const blank =
 			answers !== undefined && searchesForBlank(input, answers) ? [""] : [];
 		if ((answer === undefined || answer === "") && blank.length === 0) continue;
-		const target = readSearchFilterTarget(input.name);
+		const parentKey = directParentSearchRequestKey(input);
+		const key = parentKey ?? input.name;
+		const target = readSearchFilterTarget(key);
 		if (target === undefined || target.kind === "include-related-records")
 			throw new CaseSearchUnavailableError({
 				kind: "indexed-value-unavailable",
@@ -137,15 +151,19 @@ export function completedSearchRequest(
 			...blank,
 			...(answer === undefined || answer === ""
 				? []
-				: takesMultipleSearchChoices(input.type)
-					? splitMultiSelectSearchAnswer(answer)
-					: [answer]),
+				: parentKey !== undefined
+					? nativeTextSearchValues(answer)
+					: takesMultipleSearchChoices(input.type)
+						? splitMultiSelectSearchAnswer(answer)
+						: [answer]),
 		];
-		parameters.set(input.name, {
-			key: input.name,
+		if (values.length === 0) continue;
+		parameters.set(key, {
+			key,
 			field: input.label || input.name,
 			target,
 			readsAnswers: true,
+			...(parentKey === undefined ? {} : { directParentPrompt: true as const }),
 			values,
 		});
 	}
