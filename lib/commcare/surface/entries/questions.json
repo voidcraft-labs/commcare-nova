@@ -3134,7 +3134,7 @@
 		],
 		"valueClass": "advanced-data-source",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources; the case choices Nova writes (`optionsSource: cases`) are the row of their own shape",
+		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources; the case choices Nova writes are the row of their own shape",
 		"subject": "question-choices",
 		"owner": "xform",
 		"platforms": {
@@ -3157,7 +3157,7 @@
 		"id": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
 		"area": "questions",
 		"section": "Question types",
-		"item": "itemset over `casedb` whose value is `@case_id`, whose label is one property or attribute, and whose nodeset is the case query Nova writes for a question's case choices (`caseOptions.ts::caseOptionsNodeset`)",
+		"item": "itemset over `casedb` whose value is `@case_id`, over a specified case type or a single select over all of the worker's restored cases with the case name as label",
 		"surfaceKeys": [
 			"mug:SelectDynamic",
 			"mug:MSelectDynamic",
@@ -3174,7 +3174,7 @@
 		],
 		"valueClass": "case-choices",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource: cases`",
+		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3282,7 +3282,7 @@
 		],
 		"valueClass": "savetocase-create",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`. A literal-only concatenation stays a calculation and keeps its empty HQ type metadata. Its fixed value is the operation’s catalog type.",
+		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`. A literal-only concatenation stays a calculation and keeps its empty HQ type metadata. Its fixed value is the operation’s catalog type. A typed conditional choosing between two distinct declared types also keeps its empty HQ type metadata, when it creates a new case, writes the same compatible properties, and supplies no later case change.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3338,11 +3338,11 @@
 		"id": "questions/savetocase-case-type-given-as-an-xpath",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase `case_type` given as an XPath outside the fixed create shape",
+		"item": "SaveToCase `case_type` given as an XPath outside the supported typed create range",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "xpath-case-type",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a create whose calculation depends on form data or other runtime inputs, or a calculated change of type. A runtime-dependent type needs catalog and case relation contracts for every possible output.",
+		"dispositionCell": "**HELD-NEW**: a create with a computed type outside the supported declared range, or a calculated change of type. Every possible type must have a known case schema. Calculations cannot create platform-owned case types.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {
@@ -4199,7 +4199,7 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "A SaveToCase index named for an action absent from the block",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "index-name-adds-action",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum reads a descendant named create or close as an action, so it adds that action on save.",
@@ -4225,7 +4225,7 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "A SaveToCase link containing a period loses its calculation on save",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "index-period-loses-bind",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum cannot bind the link path containing a period, so its calculation is lost on save.",
@@ -9858,18 +9858,39 @@
 			"itext-form:hq/video-inline"
 		],
 		"valueClass": "other-text",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an inline video on a text other than a question's label, which no runtime shows (Android asks a question's label alone for it, `QuestionWidget.java`; Formplayer sends no such form, `PromptToJson`) while HQ ships its file (`xform.py::video_references`)",
-		"subject": "question-media",
-		"owner": "question-display",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: Android reads inline video only from question labels (`QuestionWidget.java`). Formplayer sends no inline video (`PromptToJson`). CommCare HQ packages the file (`xform.py::video_references`), so Nova lists the unused reference in the first-publish review.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "—",
-			"markers": []
+			"cell": "omit",
+			"markers": ["omit"]
 		},
+		"gates": []
+	},
+	{
+		"id": "questions/video-inline-as-the-only-content-of-a-help-text",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "A help text carrying inline video alone",
+		"surfaceKeys": [
+			"itext-form:android/video-inline",
+			"itext-form:hq/video-inline"
+		],
+		"valueClass": "empty-help-with-inline-video",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: Core's `hasHelp` detects the help element itself. Omitting an otherwise empty entry would remove its Android help button.",
+		"subject": "question-text",
+		"owner": "question-display",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": { "reading": "ignored" },
+			"android": { "reading": "runs" }
+		},
+		"emission": { "cell": "help presence", "markers": [] },
 		"gates": []
 	},
 	{
@@ -10016,10 +10037,9 @@
 		"item": "`long` form on a hint, a help text, a validation message or a choice",
 		"surfaceKeys": ["itext-form:core/long"],
 		"valueClass": "other-text",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an extended text on a hint, a help text, a validation message or a choice (both runtimes show it in place of the text: Core reads `long` first and the default after it, `FormEntryPrompt.getSelectItemText` for a choice and `FormEntryCaption.getQuestionText` for a hint, a help text and a validation message its alert names, which Formplayer sends and Android draws)",
-		"subject": "question-text",
-		"owner": "question-display",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: localized extended prose on the hint, help, validation message or inline choice",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -10043,10 +10063,9 @@
 		"item": "`long` form on a group's or repeat's label",
 		"surfaceKeys": ["itext-form:core/long"],
 		"valueClass": "container-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an extended text on a group, repeat or section label (both runtimes show it as the group's header where the label has no markdown form: Android `QuestionsView.java` reads `getLongText()`, Formplayer sends it as `caption`)",
-		"subject": "question-text",
-		"owner": "question-display",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an extended text on a group, repeat or section label (both runtimes show it as the group's header where the label has no markdown form: Android `QuestionsView.java` reads `getLongText()`, Formplayer sends it as `caption`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -10061,6 +10080,19 @@
 			"cell": "`form=\"long\"`",
 			"markers": []
 		},
+		"gates": []
+	},
+	{
+		"id": "questions/long-form-on-a-repeat-action-caption",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "`long` form on a repeat action caption",
+		"surfaceKeys": ["itext-form:core/long"],
+		"valueClass": "repeat-action-caption",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: Core's `FormEntryCaption.getCaptionText` looks up the default value only for custom repeat action captions. The repeat label's extended text still supplies the default action's title.",
+		"platforms": { "kind": "not-applicable", "cell": "n/a" },
+		"emission": { "cell": "omit", "markers": ["omit"] },
 		"gates": []
 	},
 	{

@@ -716,49 +716,51 @@ const startingRangeSchema = z
 
 export const searchInputDefInputSchema = z
 	.union([
-		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
+		simpleScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+		simpleDateRangeSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			default: startingRangeSchema.optional(),
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 		}),
-		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
+		simpleSelectSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		advancedScalarSearchInputSchema.omit({ uuid: true }).extend({
-			...searchInputUuidSlot,
-			...visibleSearchInputSlots,
-			default: valueExpressionInputSchema.optional(),
-			predicate: predicateInputSchema,
-		}),
-		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
-			default: startingRangeSchema.optional(),
-			...searchInputUuidSlot,
-			...visibleSearchInputSlots,
-			predicate: predicateInputSchema,
-		}),
-		advancedSelectSearchInputSchema.omit({ uuid: true }).extend({
+		advancedScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 			predicate: predicateInputSchema,
 		}),
-		projectScalarSearchInput.omit({ uuid: true }).extend({
+		advancedDateRangeSearchInputSchema
+			.omit({ uuid: true, group: true })
+			.extend({
+				default: startingRangeSchema.optional(),
+				...searchInputUuidSlot,
+				...visibleSearchInputSlots,
+				predicate: predicateInputSchema,
+			}),
+		advancedSelectSearchInputSchema.omit({ uuid: true, group: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+		projectScalarSearchInput.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		projectRangeSearchInput.omit({ uuid: true }).extend({
+		projectRangeSearchInput.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 		}),
-		projectChoiceSearchInput.omit({ uuid: true }).extend({
+		projectChoiceSearchInput.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
@@ -766,6 +768,7 @@ export const searchInputDefInputSchema = z
 		addressSearchInputSchema
 			.omit({
 				uuid: true,
+				group: true,
 				required: true,
 				validation: true,
 				default: true,
@@ -773,7 +776,7 @@ export const searchInputDefInputSchema = z
 				addressReceiver: true,
 			})
 			.extend(searchInputUuidSlot),
-		hiddenSearchInputSchema.omit({ uuid: true }).extend({
+		hiddenSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
 			 * `.describe()` here would clone the node past the projection's
@@ -788,53 +791,56 @@ export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
  * by the enclosing tool and cannot be changed by the body. */
 export const searchInputUpdateInputSchema = z
 	.union([
-		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
+		simpleScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+		simpleDateRangeSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			default: startingRangeSchema.optional(),
 			...visibleSearchInputSlots,
 		}),
-		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
+		simpleSelectSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		advancedScalarSearchInputSchema.omit({ uuid: true }).extend({
-			...visibleSearchInputSlots,
-			default: valueExpressionInputSchema.optional(),
-			predicate: predicateInputSchema,
-		}),
-		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
-			default: startingRangeSchema.optional(),
-			...visibleSearchInputSlots,
-			predicate: predicateInputSchema,
-		}),
-		advancedSelectSearchInputSchema.omit({ uuid: true }).extend({
+		advancedScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 			predicate: predicateInputSchema,
 		}),
-		projectScalarSearchInput.omit({ uuid: true }).extend({
+		advancedDateRangeSearchInputSchema
+			.omit({ uuid: true, group: true })
+			.extend({
+				default: startingRangeSchema.optional(),
+				...visibleSearchInputSlots,
+				predicate: predicateInputSchema,
+			}),
+		advancedSelectSearchInputSchema.omit({ uuid: true, group: true }).extend({
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+		projectScalarSearchInput.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		projectRangeSearchInput.omit({ uuid: true }).extend({
+		projectRangeSearchInput.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 		}),
-		projectChoiceSearchInput.omit({ uuid: true }).extend({
+		projectChoiceSearchInput.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
 		addressSearchInputSchema.omit({
 			uuid: true,
+			group: true,
 			required: true,
 			validation: true,
 			default: true,
 			hidden: true,
 			addressReceiver: true,
 		}),
-		hiddenSearchInputSchema.omit({ uuid: true }).extend({
+		hiddenSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			value: valueExpressionInputSchema.optional(),
 		}),
 	])

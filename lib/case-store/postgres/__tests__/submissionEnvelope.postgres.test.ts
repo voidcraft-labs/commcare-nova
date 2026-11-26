@@ -778,6 +778,68 @@ describe("whole-envelope atomicity", () => {
 });
 
 describe("ordered selected-case batches", () => {
+	it("refuses a 101-case selection before a shared write or receipt can land", {
+		timeout: 25_000,
+	}, async () => {
+		const store = makeStore();
+		const caseIds = Array.from(
+			{ length: 101 },
+			(_, index) => `bounded-case-${index}`,
+		);
+		for (const caseId of caseIds) await seedPatient(store, caseId, caseId);
+		const apply = (selected: readonly string[], maximum: number) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: {
+					kind: "followup",
+					caseType: "patient",
+					caseIds: selected,
+					selection: { kind: "multiple", maximum },
+				},
+				operations: {
+					...ownProgram("followup", [
+						ownOp({
+							writes: literalWrites({ notes: "from the selected form" }),
+						}),
+					]),
+					sessionCaseIds: selected,
+				},
+			});
+		for (const maximum of [100, 101]) {
+			await expect(apply(caseIds, maximum)).rejects.toMatchObject({
+				rejection: { kind: "selection", reason: "too-many", maximum: 100 },
+			});
+		}
+		const read = () =>
+			store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
+		expect((await read()).map((row) => row.properties.notes)).toEqual(
+			caseIds.map(() => "original"),
+		);
+		const receipts = () =>
+			sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
+				dbHandle.db,
+			);
+		expect((await receipts()).rows).toEqual([]);
+		const selected = caseIds.slice(0, 100).reverse();
+		expect(await apply(selected, 100)).toMatchObject({
+			primaryCaseIds: selected,
+		});
+		const rows = await read();
+		expect(
+			rows
+				.filter((row) => row.properties.notes === "from the selected form")
+				.map((row) => row.case_id)
+				.sort(),
+		).toEqual(selected.toSorted());
+		expect(
+			rows.find((row) => row.case_id === caseIds[100])?.properties.notes,
+		).toBe("original");
+		expect((await receipts()).rows).toHaveLength(1);
+	});
 	it("applies the own case's shared answers to every selected case, then each later operation", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
@@ -5697,4 +5759,64 @@ describe("a single choice saved to a list of choices", () => {
 			(await patientRow(store, SESSION_CASE_ID))?.properties,
 		).not.toHaveProperty("meds");
 	});
+});
+
+it("resolves a dynamic create type from this submission and rolls back an invalid declared range", async () => {
+	const store = makeStore();
+	const create: TargetedCaseOperation = {
+		uuid: OP_A,
+		id: "op_a",
+		action: "create",
+		caseType: "patient",
+		target: { kind: "new" },
+		name: term(literal("Case selected at submit")),
+		writes: literalWrites({ notes: "same saved property" }),
+		typeChoice: {
+			condition: eq(formField(FLAG_FIELD), literal("patient")),
+			otherwise: "narrow",
+		},
+	};
+	const request = (type: string, other = "narrow") => ({
+		appId: APP_ID,
+		ordinary: { kind: "none" } as const,
+		operations: rootProgram(
+			[
+				envOp({
+					...create,
+					typeChoice: {
+						condition: eq(formField(FLAG_FIELD), literal("patient")),
+						otherwise: other,
+					},
+				}),
+			],
+			{ sessionCaseId: null, formFields: [[FLAG_FIELD, type]] },
+		),
+	});
+	const valid = request("narrow");
+	const invalid = request("narrow", "unknown");
+	const receipt = receiptFor(valid);
+	await expect(
+		store.applySubmission({ ...invalid, submissionReceipt: receipt }),
+	).rejects.toMatchObject({
+		rejection: {
+			kind: "expression",
+			reason: "invalid-value",
+			slot: "case type",
+		},
+	});
+	const result = await store.applySubmission({
+		...valid,
+		submissionReceipt: receipt,
+	});
+	expect(result.caseDatabasePatch?.rows).toEqual([
+		expect.objectContaining({
+			case_type: "narrow",
+			properties: { notes: "same saved property" },
+		}),
+	]);
+	expect(
+		await store.applySubmission({ ...valid, submissionReceipt: receipt }),
+	).toEqual(result);
+	const direct = await submit(store, request("patient"));
+	expect(direct.caseDatabasePatch?.rows[0]?.case_type).toBe("patient");
 });

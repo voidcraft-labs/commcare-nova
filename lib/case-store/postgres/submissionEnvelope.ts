@@ -62,6 +62,7 @@ import {
 	deriveAuthoredCaseId,
 	isFacetWriteThroughIndex,
 	prepareCaseScalarTextValue,
+	RESERVED_CASE_OPERATION_TYPES,
 	type TargetedCaseOperation,
 	USERCASE_BUILT_IN_KEYS,
 	USERCASE_CASE_TYPE,
@@ -1728,6 +1729,7 @@ async function resolveOperationProgram(
 			| "owner"
 			| "target"
 			| "close"
+			| "case type"
 			| { write: number }
 			| { link: number };
 	}
@@ -1762,6 +1764,11 @@ async function resolveOperationProgram(
 		const operation = instance.envelope.operation;
 		if (operation.name !== undefined) {
 			request(index, "name", { expression: operation.name });
+		}
+		if (operation.action === "create" && operation.typeChoice !== undefined) {
+			request(index, "case type", {
+				predicate: operation.typeChoice.condition,
+			});
 		}
 		if (operation.rename !== undefined) {
 			request(index, "rename", { expression: operation.rename });
@@ -1815,6 +1822,7 @@ async function resolveOperationProgram(
 			owner?: unknown;
 			target?: unknown;
 			close?: unknown;
+			caseTypeChoice?: unknown;
 			writes: Map<number, unknown>;
 			links: Map<number, unknown>;
 		}
@@ -1834,6 +1842,7 @@ async function resolveOperationProgram(
 		else if (slot.kind === "owner") bag.owner = value;
 		else if (slot.kind === "target") bag.target = value;
 		else if (slot.kind === "close") bag.close = value;
+		else if (slot.kind === "case type") bag.caseTypeChoice = value;
 		else if ("write" in slot.kind) bag.writes.set(slot.kind.write, value);
 		else bag.links.set(slot.kind.link, value);
 	}
@@ -1907,8 +1916,9 @@ async function resolveOperationProgram(
 		opening &&
 		new Map(opening.cases.rows.map((row) => [row.case_id, row.case_type]));
 	const resolvedInstances: ResolvedInstance[] = [];
-	for (const [index, instance] of instances.entries()) {
-		const operation = instance.envelope.operation;
+	for (const [index, openedInstance] of instances.entries()) {
+		let instance = openedInstance;
+		let operation = instance.envelope.operation;
 		if (!executing[index]) {
 			resolvedInstances.push({
 				instance,
@@ -1924,6 +1934,33 @@ async function resolveOperationProgram(
 			continue;
 		}
 		const bag = valuesByInstance.get(index);
+		if (operation.action === "create" && operation.typeChoice !== undefined) {
+			const branch = bag?.caseTypeChoice;
+			if (
+				typeof branch !== "boolean" ||
+				allocations.get(index)?.identity !== "fresh" ||
+				program.entryCaseKeys?.has(operation.uuid) === true ||
+				operation.caseType === operation.typeChoice.otherwise ||
+				[operation.caseType, operation.typeChoice.otherwise].some(
+					(type) =>
+						RESERVED_CASE_OPERATION_TYPES.has(type) ||
+						!program.caseTypeSchemas.has(type),
+				)
+			)
+				throw new SubmissionRejectedError({
+					kind: "expression",
+					reason: "invalid-value",
+					operationUuid: operation.uuid,
+					operationId: operation.id,
+					slot: "case type",
+					fieldUuids: [],
+				});
+			operation = {
+				...operation,
+				caseType: branch ? operation.caseType : operation.typeChoice.otherwise,
+			};
+			instance = { ...instance, envelope: { ...instance.envelope, operation } };
+		}
 		const closeLeaf = instance.envelope.closeLeaf;
 		const closes =
 			closeLeaf !== undefined &&

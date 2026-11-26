@@ -66,6 +66,8 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
+import { expandDoc } from "../../../expander";
+
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import {
 	type ExportEdits,
@@ -844,6 +846,43 @@ it("accounts for a positioned block whose write may race the managed action on t
 	]);
 });
 
+it("keeps a positioned create and its text guard together in submission order", async () => {
+	const change = visitCreate({});
+	const position = testUuid("authored-case-create");
+	const doc = produce(app("survey", [change]), (draft) => {
+		delete draft.modules[draft.moduleOrder[0]].caseType;
+		draft.fields[position] = {
+			kind: "case_change",
+			id: "save_visit",
+			uuid: position,
+			operationUuid: change.uuid,
+		};
+		draft.fieldParent[position] = FORM;
+		draft.fieldOrder[FORM].splice(1, 0, position);
+	});
+	expect(gateCodes(doc)).toEqual([]);
+	const attachment = Object.values(expandDoc(doc)._attachments).find(
+		(xml): xml is string =>
+			typeof xml === "string" && xml.includes("save_visit"),
+	);
+	expect(attachment).toMatch(
+		/<save_visit[^>]+>[\s\S]+?<\/save_visit><nova_guard_save_visit_text[ >]/,
+	);
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	expect(outcome.draft.doc.fieldOrder[FORM].slice(0, 3)).toEqual([
+		NOTE,
+		position,
+		MANY,
+	]);
+	expect(outcome.draft.doc.forms[FORM].caseOperations?.[0]).toMatchObject({
+		action: "create",
+		uuid: change.uuid,
+	});
+});
+
 it.each(["close", "update", "create"] as const)(
 	"keeps the %s block's close condition separate from its own relevance",
 	async (action) => {
@@ -1017,4 +1056,138 @@ describe("a Save to Case create's calculated type", () => {
 			}),
 		]);
 	});
+});
+
+it("round trips a create that chooses one of two declared case types from an answer", async () => {
+	const doc = buildDoc(
+		{
+			appId: "app-1",
+			caseTypes: [
+				{ name: "visit", properties: [] },
+				{ name: "patient", properties: [] },
+			],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "visit",
+					forms: [
+						{
+							uuid: "block-gate-form",
+							name: "Visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note", uuid: NOTE })],
+						},
+					],
+				},
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Note",
+							type: "survey",
+							fields: [f({ kind: "text", id: "remark" })],
+						},
+					],
+				},
+			],
+		},
+		(draft) => {
+			draft.forms[FORM].caseOperations = [
+				visitCreate({
+					typeChoice: { condition: onYes, otherwise: "patient" },
+					writes: [{ property: "saved_note", value: answer }],
+				}),
+			];
+		},
+	);
+	const body = exportedBody(doc);
+	const attachments = Object.values(
+		body._attachments as Record<string, string>,
+	);
+	const xml = attachments.find(
+		(attachment) =>
+			attachment.includes("'saved_note'") || attachment.includes("<saved_note"),
+	);
+	expect(xml).toContain('vellum:role="SaveToCase" vellum:case_type=""');
+	expect(xml).toContain("current()/../../../../mk/case/create/case_type");
+	const first = await readHqApp(await inputFor(body));
+	if (first.kind !== "read") throw new Error(JSON.stringify(first.findings));
+	expect(
+		Object.values(first.draft.doc.forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.find((operation) => operation.action === "create"),
+	).toMatchObject({ typeChoice: { otherwise: "patient" } });
+	for (const [name, reason] of [
+		["missing_type", "undeclared-output"],
+		["commcare-user", "platform-owned-output"],
+	]) {
+		const refused = await readBack(doc, {
+			xml: (source) =>
+				source.replace("&apos;patient&apos;)", `&apos;${name}&apos;)`),
+		});
+		expect(refused.kind).toBe("account");
+		if (refused.kind !== "read")
+			expect(refused.findings).toContainEqual(
+				expect.objectContaining({
+					code: "questions/savetocase-case-type-given-as-an-xpath",
+					detail: expect.objectContaining({ name, reason }),
+				}),
+			);
+	}
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	const result = outcome.draft.doc;
+	expect(result.forms[FORM].caseOperations?.[0]).toMatchObject({
+		uuid: VISIT,
+		caseType: "visit",
+		typeChoice: { condition: onYes, otherwise: "patient" },
+	});
+	expect(gateCodes(result)).toEqual([]);
+	for (const name of ["visit", "patient"])
+		expect(
+			result.caseTypes
+				?.find((type) => type.name === name)
+				?.properties.map((property) => property.name),
+		).toContain("saved_note");
+
+	const incompatible = produce(result, (draft) => {
+		const alternate = draft.caseTypes?.find((type) => type.name === "patient");
+		const notes = alternate?.properties.find(
+			(property) => property.name === "saved_note",
+		);
+		if (notes === undefined)
+			throw new Error("Expected the alternate type to hold the write.");
+		notes.data_type = "date";
+	});
+	expect(gateCodes(incompatible)).toContain(
+		"CASE_OPERATION_TYPE_CHOICE_INVALID",
+	);
+
+	const operation = result.forms[FORM].caseOperations?.[0];
+	if (operation?.action !== "create") throw new Error("Expected the create.");
+	const changed = produce(result, (draft) => {
+		applyMutations(
+			draft,
+			updateCaseOperationMutations(result, FORM, {
+				...operation,
+				caseType: "patient",
+			}),
+		);
+	});
+	expect(changed.forms[FORM].caseOperations?.[0]).toMatchObject({
+		caseType: "patient",
+	});
+	expect(changed.forms[FORM].caseOperations?.[0]).not.toHaveProperty(
+		"typeChoice",
+	);
+	expect(gateCodes(changed)).toEqual([]);
+
+	const once = exportedBody(result);
+	const twice = await readBack(result);
+	expect(twice.kind).toBe("read");
+	if (twice.kind === "read")
+		expect(exportedBody(twice.draft.doc)).toEqual(once);
 });

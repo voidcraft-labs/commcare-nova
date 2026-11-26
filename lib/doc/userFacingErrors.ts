@@ -230,6 +230,8 @@ function formMediaLanguageCopy(e: ValidationError): string {
 			return `A file on ${where} follows a language the app no longer has. You can choose a shared file for it.`;
 		case "language-outside-app":
 			return `A file on ${where} is set for a language the app doesn't have. You can choose the file in one of the app's languages.`;
+		case "override-needs-package":
+			return `CommCare needs the translated file on an ordinary menu or form in the same language before it can show it on ${where}. You can keep that file available or choose a different translation.`;
 		case "needs-shared":
 			return `${where} has a translated ${role} but no shared ${role}. You can choose the shared ${role} first, or remove the translated one.`;
 		default:
@@ -1426,6 +1428,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`Nothing sits in ${q(modName(e))}'s group header, so every group would open with an empty band. Move a field the group shares into the header, or give the header fewer rows.`,
 	MULTI_SELECT_PERSISTENT_TILE: (e) =>
 		`${q(modName(e))} lets people choose several cases, so its Results tile can't stay above a form. Turn off “Keep tile visible in forms.”`,
+	MULTI_SELECT_SEARCH_ON_CLEAR: (e) =>
+		`${q(modName(e))} can choose matching cases automatically once Search on clear is off.`,
 	MULTI_SELECT_NO_BATCH_CONSUMER: (e) =>
 		`${q(modName(e))} is set to Several cases, but it has no follow-up or close form that can use the complete selection and no compatible child workflow can receive it. Add one of those forms, carry the same case selection into a child that has one, or switch Selection to One case.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
@@ -1497,6 +1501,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_NOT_ON_DEVICE: (e) =>
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} uses a date calculation the device can't run. Use a whole date with seconds, minutes, hours, days, or weeks.`,
+	CASE_SEARCH_GROUP_FIELD_NAME_COLLISION: (e) =>
+		`CommCare reserves the Search field name ${q(det(e, "inputName", ""))} for a heading. You can rename the field under More settings.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
 	PROJECT_SEARCH_REQUEST: (e) => {
@@ -2103,6 +2109,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A close change can save these properties and close the case.",
 	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: () =>
 		"This change needs a calculation that always gives its chosen case type.",
+	CASE_OPERATION_TYPE_CHOICE_INVALID: () =>
+		"This form can choose between case types when it creates a new case with the same saved properties and no connected case changes.",
 	CASE_OPERATION_CLOSE_CONDITION_INVALID: () =>
 		"This change needs to close the case before you can set a close condition.",
 	CASE_CHANGE_POSITION_INVALID: (e) => {
@@ -2231,10 +2239,13 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using an answer that comes later in the form. Move the source question earlier or remove that dependency.`,
 	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using a repeated answer from a different repetition context. Use a root answer or an earlier answer from the current or an enclosing repeat.`,
-	CASE_SELECT_SOURCE_INVALID: (e) =>
-		e.details?.part === "sort"
-			? `${q(fieldName(e))} uses a property that isn't available to order its choices. You can choose another property in the choice source settings.`
-			: `${q(fieldName(e))} needs a record type and label property that are available in this app. You can choose them in the choice source settings.`,
+	CASE_SELECT_SOURCE_INVALID: (e) => {
+		if (e.details?.part === "single-select")
+			return `${q(fieldName(e))} can offer all available cases when it lets workers choose one answer. You can change it to single select or choose a different source.`;
+		if (e.details?.part === "sort")
+			return `${q(fieldName(e))} uses a property that isn't available to order its choices. You can choose another property in the choice source settings.`;
+		return `${q(fieldName(e))} needs a record type and label property that are available in this app. You can choose them in the choice source settings.`;
+	},
 	CASE_SELECT_FILTER_INVALID: (e) =>
 		recordFindingCopy(e, `The choice filter of ${q(fieldName(e))}`) ??
 		`${q(fieldName(e))} uses information that isn't available in its choice filter. You can use candidate records, the selected record, worker information, and earlier answers in the same form and repeat.`,
@@ -2414,8 +2425,15 @@ const USER_MESSAGE_BY_CODE: Record<
 			: `“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.`,
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
-	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
-		"This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.",
+	LOOKUP_HQ_PUSH_TOO_LARGE: (e) => {
+		const delivery = det(e, "delivery", "");
+		const table = det(e, "tableName", "This table");
+		if (delivery === "json-definition")
+			return `The definition of “${table}” is too large for Nova to verify in CommCare HQ. You can prepare the table in the destination project space.`;
+		if (delivery === "json")
+			return `Nova can prepare up to 10,000 rows and 16 MiB of data per publish for tables that need individual row writes. You can prepare “${table}” in the destination project space.`;
+		return "This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.";
+	},
 	HQ_NESTED_SELECTION_UNREPRESENTABLE: (e) => {
 		const named = (key: string, fallback: string) => {
 			const name = det(e, key, "");

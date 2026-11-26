@@ -33,6 +33,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	collectTranslationUnits,
+	columnSort,
 	makeTranslationUnitId,
 	mapLayerColumn,
 	mapLocationColumn,
@@ -5347,3 +5348,110 @@ for (const platform of PLATFORMS) {
 		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
 	});
 }
+
+it("automatically opens and atomically closes the whole ordered case datum", {
+	timeout: 30_000,
+}, async () => {
+	const nameColumn = plainColumn(
+		testUuid("automatic-batch-case-name"),
+		"case_name",
+		"Name",
+		{
+			sort: columnSort("asc", 0),
+		},
+	);
+	const doc = buildDoc({
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "Batch work",
+				caseType: "person",
+				caseListConfig: {
+					columns: [nameColumn],
+					listColumnOrder: [nameColumn.uuid],
+					detailColumnOrder: [nameColumn.uuid],
+					searchInputs: [],
+					selection: { kind: "multiple", maximum: 51, autoSelect: true },
+				},
+				forms: [
+					{
+						name: "Read batch",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
+					{
+						name: "Close batch",
+						type: "close",
+						fields: [f({ kind: "hidden", id: "done", calculate: "'yes'" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const closeUuid = doc.formOrder[moduleUuid][1];
+	const records = Array.from({ length: 51 }, (_, i) => ({
+		id: `case-${String(i).padStart(2, "0")}`,
+		caseType: "person",
+		name: `Name ${51 - i}`,
+	}));
+	const caseIds = records.map((row) => row.id);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "auto-batch-start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Close everyone the device restores",
+			scenario: { records },
+		},
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `auto-batch-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	try {
+		expect(await step({ kind: "menu", moduleUuid })).toMatchObject({
+			screen: "menu",
+			selected: caseIds.map((caseId) => expect.objectContaining({ caseId })),
+		});
+		expect(await step({ kind: "form", formUuid: closeUuid })).toMatchObject({
+			screen: "form",
+			name: "Close batch",
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({
+			savedInTest: true,
+			effects: { primaryCaseIds: caseIds },
+		});
+		const rows = await sql<{
+			case_id: string;
+			case_type: string;
+			status: string;
+		}>`
+			SELECT case_id, case_type, status FROM ${sql.id(appTestNamespace(current.testId), "cases")} ORDER BY case_id
+		`.execute(h.db());
+		expect(rows.rows.filter((row) => row.case_type === "person")).toEqual(
+			caseIds.map((case_id) => ({
+				case_id,
+				case_type: "person",
+				status: "closed",
+			})),
+		);
+		expect(rows.rows.filter((row) => row.case_type !== "person")).toEqual([
+			expect.objectContaining({ case_type: "commcare-user", status: "open" }),
+		]);
+	} finally {
+		await step({ kind: "finish" });
+	}
+});

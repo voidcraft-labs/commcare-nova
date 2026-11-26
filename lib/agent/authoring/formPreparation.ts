@@ -118,13 +118,14 @@ function choices(
 		};
 	if (source.kind === "cases")
 		return { kind: "cases", caseType: z.string().parse(source.caseType) };
+	if (source.kind === "available-cases") return { kind: "available-cases" };
 	if (source.kind === "lookup")
 		return {
 			kind: "lookup",
 			tableId: lookupTableIdSchema.parse(source.tableId),
 		};
 	throw new AuthoringInputError(
-		"Choose an inline, case, or table choice source.",
+		"Choose an inline, case, all available cases, or table choice source.",
 	);
 }
 

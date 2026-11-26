@@ -681,7 +681,10 @@ export function applyModuleMutation(
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			if (!config) return;
 			const idx = config.searchInputs.findIndex((s) => s.uuid === mut.uuid);
-			if (idx !== -1) config.searchInputs.splice(idx, 1);
+			if (idx !== -1) {
+				config.searchInputs.splice(idx, 1);
+				if (!config.searchInputs.length) delete config.searchInputGroups;
+			}
 			return;
 		}
 		case "moveSearchInput": {
@@ -721,9 +724,20 @@ export function applyModuleMutation(
 				filter,
 				listCondition,
 				searchCondition,
+				searchGroupAssignments,
 				searchFilterEdit,
 				...rest
 			} = mut.patch;
+			if (searchGroupAssignments !== undefined) {
+				const assignments = new Map(
+					searchGroupAssignments.map(({ input, group }) => [input, group]),
+				);
+				for (const input of config.searchInputs) {
+					const group = assignments.get(input.uuid);
+					if (group === null) delete input.group;
+					else if (group !== undefined) input.group = group;
+				}
+			}
 			if (searchFilterEdit !== undefined) {
 				const edit = searchFilterEdit;
 				const rows = config.searchFilters ?? [];

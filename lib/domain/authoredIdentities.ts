@@ -14,6 +14,7 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"caseListSort",
 	"caseDetailTab",
 	"searchInput",
+	"searchInputGroup",
 	"searchFilter",
 	"projectSearch",
 	"projectSearchParameter",
@@ -137,6 +138,12 @@ export function authoredBlueprintIdentities(
 			identities.push({
 				uuid: filter.uuid,
 				kind: "searchFilter",
+				ownerUuid: module.uuid,
+			});
+		for (const group of module.caseListConfig?.searchInputGroups ?? [])
+			identities.push({
+				uuid: group.uuid,
+				kind: "searchInputGroup",
 				ownerUuid: module.uuid,
 			});
 		for (const input of module.caseListConfig?.searchInputs ?? []) {

@@ -1661,6 +1661,19 @@ depends on the order HQ returns its results in is refused
 (`search-results-order`), and Preview supplies the set the search returned,
 capped at HQ's 500.
 
+#### Search headings
+
+A Search heading has a UUID and its own translation unit. Each field belongs
+to one heading when the screen is grouped. Reordering or removing a heading
+changes the field sequence with it in one mutation batch. The heading never
+becomes a Search request parameter.
+
+CommCare HQ's Case List editor derives a group key from the heading's physical
+row position. Nova emits the same keys and restores a populated heading by
+its member field identity when HQ reorders the screen. Web Apps renders
+collapsible headings and keeps their answers when collapsed. Android renders
+the fields in the same order.
+
 #### Starting dates on a Search field
 
 A fixed range has two inclusive calendar dates. The editors share one expression slot for its starting value. Fixed dates compile to a single encoded answer that survives the worker’s time zone. Imported calculations can produce a human-readable pair. At the pinned Core revision, `RemoteQuerySessionManager.initUserAnswers` reads it through `DateRangeUtils.formatDateRangeAnswer`. A successful parse uses lenient Java calendar fields and formats the converted midnight in the JVM zone. On parse failure Core retains the evaluated text. Android shows that value and submits it through its query manager. The Web Apps query view decodes the text for its calendars and encodes the visible inputs again on explicit Search. A malformed value can prevent that view from opening. Preview keeps the original answer for an automatic query and identifies the field if Web Apps cannot display it. Its explicit Search encodes every readable piece, including a single date or three dates. Such a value remains visible and replaceable. A simple property criterion refuses an invalid encoded interval. An automatic Search can send an unwrapped value as ordinary property text. Only the saved field’s evaluated answer and its platform’s visible projection may supply a starting answer outside the paired picker.
@@ -3699,6 +3712,13 @@ and HQ exports. Candidate records and the form's scalar selected record have
 distinct typed references. Filters admit earlier eligible answers, worker values
 and existing case relationships; no filter expands restore scope. Preview uses
 its existing captured device snapshot.
+
+A single-select question over all available cases emits the bare casedb case
+nodeset with `case_name` and `@case_id`. It can offer retained cases outside the
+current Blueprint catalog because Preview's existing snapshot already covers
+the authorized worker restore closure for the app and Project. The form
+treats the answer as an opaque ID. A case operation checks the live target
+against its expected type when it resolves that ID.
 
 A batch attendance workflow uses a stable roster query, per-row identity, and
 explicit updates conditioned on final checklist membership. It does not bind

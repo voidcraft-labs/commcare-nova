@@ -313,6 +313,7 @@ export interface DetailBase<XPath = string> {
 	 * Omission keeps CommCare's single-select defaults.
 	 */
 	multi_select?: boolean;
+	auto_select?: true;
 	max_select_value?: number;
 	sort_elements: SortElement<XPath>[];
 	/**

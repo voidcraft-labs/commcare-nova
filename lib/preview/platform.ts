@@ -147,6 +147,7 @@ export interface PreviewPlatformRules {
 	 *  `hint-lang`, which Android ignores). */
 	readonly searchScreenText: boolean;
 	readonly searchAddressPicker: boolean;
+	readonly searchFieldGroups: boolean;
 	/** The pinned case tile above the search screen. Formplayer sets it on
 	 *  every response, a search's included
 	 *  (`MenuSessionRunnerService.getNextMenu`, `setPersistentCaseTile`);
@@ -613,6 +614,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		searchOnlyTileCell: "hidden",
 		searchScreenText: true,
 		searchAddressPicker: true,
+		searchFieldGroups: true,
 		searchScreenCaseTile: true,
 		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
@@ -719,6 +721,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		searchOnlyTileCell: "drawn",
 		searchScreenText: false,
 		searchAddressPicker: false,
+		searchFieldGroups: false,
 		searchScreenCaseTile: false,
 		caseDetailsCaseTile: true,
 		searchFieldChecks: false,

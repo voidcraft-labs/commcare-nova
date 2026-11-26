@@ -24,7 +24,11 @@ import {
 	bindCarriesConstraint,
 	constraintMessageNeedsProtection,
 } from "./constraintMessage";
-import { behaviorWireIds, ordinaryFormItextUnits } from "./itextIds";
+import {
+	additionalItextUnitIds,
+	behaviorWireIds,
+	ordinaryFormItextUnits,
+} from "./itextIds";
 
 /** Presence is tested after HQ fills translations and normalizes equal text
  * groups (`XForm.normalize_itext` keeps the lexically first id of each group
@@ -76,7 +80,16 @@ export function formBehaviorTextIssue(
 		const values = localization.languages.map((code) =>
 			localization.prose(code, key),
 		);
+		const additional = additionalItextUnitIds(field, unit).map(
+			({ form, id }) => ({
+				form,
+				values: localization.languages.map((code) =>
+					localization.prose(code, id),
+				),
+			}),
+		);
 		if (
+			additional.length === 0 &&
 			!option &&
 			!media?.image &&
 			!media?.audio &&
@@ -102,11 +115,15 @@ export function formBehaviorTextIssue(
 						!helpShowsAsTyped(form, "plainHelp" in field ? field : {});
 		return {
 			values,
+			additional,
 			media: [media?.image, media?.audio, media?.video],
 			markdown,
 			protectedId:
 				unit.role === "field-validation-message" &&
-				constraintMessageNeedsProtection(values)
+				constraintMessageNeedsProtection(
+					additional.find((entry) => entry.form === "extended_text")?.values ??
+						values,
+				)
 					? id
 					: undefined,
 		};

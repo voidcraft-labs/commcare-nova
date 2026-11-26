@@ -437,6 +437,8 @@ export interface QueryArgs {
 	knownInputs?: readonly SearchInputDecl[];
 	predicate?: DomainExpression;
 	sort?: SortKey[];
+	/** A session datum's case instance order before a list's display sort. */
+	datumOrder?: true;
 	calculated?: ReadonlyArray<
 		| CalculatedColumn
 		| {

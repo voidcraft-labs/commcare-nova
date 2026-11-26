@@ -145,6 +145,7 @@ import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
 import { numberKeypad } from "./documents/numberKeypad";
 import { plainHelp } from "./documents/plainHelp";
 import { platformDeclaration } from "./documents/platformDeclaration";
+import { positionedCaseCreate } from "./documents/positionedCaseCreate";
 import { previewAndroidRenders } from "./documents/previewAndroidRenders";
 import { proseValue } from "./documents/proseValue";
 import { qualifiedLookupValues } from "./documents/qualifiedLookupValues";
@@ -267,6 +268,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectLearnRename,
 	saveToCaseRead,
 	saveToCaseShapes,
+	positionedCaseCreate,
 	mediaSlots,
 	labelContent,
 	missingMedia,

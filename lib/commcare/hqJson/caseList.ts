@@ -161,6 +161,7 @@ import {
 } from "../suite/case-search/projectSearch";
 import { includeSearchHierarchy } from "../suite/case-search/relatedCaseProjection";
 import { projectRequestOrder } from "../suite/case-search/requestOrder";
+import { groupedSearchWire } from "../suite/case-search/searchGroups";
 import {
 	type RuntimeCsqlPromptValidation,
 	type SearchPromptAssertion,
@@ -1041,7 +1042,7 @@ function projectSearchInput(
  * implicit case-property match.
  */
 function projectSearchProperties(
-	searchInputs: ReadonlyArray<SearchInputDef>,
+	config: CaseListConfig | undefined,
 	runtimeValidations: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
 	localization: CommCareLocalization,
 	expressions: ModuleExpressionContexts,
@@ -1049,22 +1050,30 @@ function projectSearchProperties(
 	inputInstanceId?: `search-input:${string}`,
 	rewrites?: SearchConfigRewrites,
 ): CaseSearchProperty<HqXPath>[] {
-	const out: CaseSearchProperty<HqXPath>[] = [];
-
-	// Search prompts render in searchInputs array order.
-	for (const input of searchInputs) {
-		out.push(
-			projectSearchInput(
-				input,
-				runtimeValidations.get(input.name),
-				localization,
-				expressions,
-				lookupNaming,
-				inputInstanceId,
-				rewrites,
-				searchInputs,
-			),
+	const inputs = config?.searchInputs ?? [];
+	const project = (input: SearchInputDef) =>
+		projectSearchInput(
+			input,
+			runtimeValidations.get(input.name),
+			localization,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			rewrites,
+			inputs,
 		);
+	if (!config?.searchInputGroups) return inputs.map(project);
+
+	const out: CaseSearchProperty<HqXPath>[] = [];
+	for (const group of groupedSearchWire(inputs, config.searchInputGroups)) {
+		out.push({
+			name: group.key,
+			is_group: true,
+			group_key: group.key,
+			label: localization.textMapFor(group.labelUnit),
+		});
+		for (const input of group.inputs)
+			out.push({ ...project(input), group_key: group.key });
 	}
 	return out;
 }
@@ -1263,7 +1272,7 @@ function buildSearchConfigDocument(
 		if (projectSearchId !== undefined)
 			config.case_search_endpoint_id = requiredProjectSearchId(projectSearchId);
 		config.properties = projectSearchProperties(
-			caseListConfig?.searchInputs ?? [],
+			caseListConfig,
 			new Map(),
 			localization,
 			expressions,
@@ -1293,7 +1302,7 @@ function buildSearchConfigDocument(
 			datumId,
 		);
 		config.properties = projectSearchProperties(
-			caseListConfig.searchInputs,
+			caseListConfig,
 			buildRuntimeCsqlPromptValidations(xpathQueryEmission),
 			localization,
 			expressions,
@@ -1681,6 +1690,7 @@ export function projectCaseListForHq(
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {
 		pair.short.multi_select = true;
+		if (caseListConfig.selection.autoSelect) pair.short.auto_select = true;
 		pair.short.max_select_value = caseListConfig.selection.maximum;
 	}
 	const deviceLookup = caseListConfig?.deviceLookup;

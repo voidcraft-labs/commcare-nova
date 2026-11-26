@@ -21,6 +21,7 @@ export const datetimeFieldSchema = inputFieldBaseSchema.extend({
 	androidApp: androidAppQuestionSchema.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
+	extended_validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),
 });
 

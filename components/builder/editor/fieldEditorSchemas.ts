@@ -64,7 +64,7 @@ import type {
 	TimeField,
 	VideoField,
 } from "@/lib/domain";
-import { fieldDisplaySettingsFor } from "@/lib/domain";
+import { fieldDisplaySettingsFor, fieldKindDeclaresKey } from "@/lib/domain";
 import type { ConnectActivityField } from "@/lib/domain/fields/connectActivity";
 import type {
 	FieldEditorComponentProps,
@@ -721,6 +721,7 @@ const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	data: [],
 	logic: [xpathEntry<GroupField, "relevant">("relevant", "Show when")],
 	ui: [
+		textEntry<GroupField, "extended_text">("extended_text", "Extended text"),
 		{
 			key: "fieldList",
 			component: FieldListEditor,
@@ -739,6 +740,7 @@ const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 	data: [{ key: "repeat_mode", component: RepeatRowsEditor, label: "Rows" }],
 	logic: [xpathEntry<RepeatField, "relevant">("relevant", "Show when")],
 	ui: [
+		textEntry<RepeatField, "extended_text">("extended_text", "Extended text"),
 		textEntry<RepeatField, "addFirstLabel">(
 			"addFirstLabel",
 			"First entry button",
@@ -840,9 +842,19 @@ function withDisplay<K extends FieldKind>(kind: K) {
 			...(setting.input === "flag" && { valueOnAdd: true }),
 			visible: (field: F) => Object.hasOwn(field, setting.key),
 		}));
+	const extendedEntries = [
+		["extended_hint", "Extended hint"],
+		["extended_help", "Extended help"],
+		["extended_validate_msg", "Extended validation message"],
+	] as const;
+	const extended = extendedEntries
+		.filter(([key]) => fieldKindDeclaresKey(kind, key))
+		.map(([key, label]) =>
+			textEntry<F, typeof key & keyof F>(key as typeof key & keyof F, label),
+		);
 	return {
 		...base,
-		ui: [...base.ui, ...entries],
+		ui: [...base.ui, ...entries, ...extended],
 	} as unknown as FieldEditorSchema<F>;
 }
 export const fieldEditorSchemas = Object.fromEntries(

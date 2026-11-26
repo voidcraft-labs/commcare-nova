@@ -919,7 +919,7 @@ function repeatCountRefusal(
 				repeatCount: {
 					select: select.uuid,
 					selectId: select.id,
-					source: choices.kind,
+					source: choices.kind === "lookup" ? "lookup" : "cases",
 				},
 			};
 		const notWhole = choices.options.find(

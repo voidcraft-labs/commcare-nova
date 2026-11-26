@@ -74,6 +74,11 @@ const english = {
 	chooseCaseTask: "Choose what to do with this case",
 	chooseCasesForm: "Choose the form to run for these cases",
 	chooseCases: "Choose the cases this form should work with",
+	automaticSelectionTooMany:
+		"{count} cases match. This list can continue with up to {maximum}.",
+	automaticSelectionFailed: "These cases could not continue automatically.",
+	automaticSelectionUnavailable:
+		"Go back, or narrow your search and try again.",
 	chooseAllShown: "Choose all cases shown",
 	reviewSelectedCases: "Review selected cases",
 	selectedCases: "Selected cases",
@@ -471,6 +476,12 @@ const spanish: Record<RuntimeMessage, string> = {
 	chooseCaseTask: "¿Qué desea hacer con este registro?",
 	chooseCasesForm: "Puede elegir el formulario para estos registros",
 	chooseCases: "Puede elegir los registros para este formulario",
+	automaticSelectionTooMany:
+		"Coinciden {count} registros. La lista admite hasta {maximum}.",
+	automaticSelectionFailed:
+		"No se pudo continuar automáticamente con estos registros.",
+	automaticSelectionUnavailable:
+		"Puede volver o limitar la búsqueda e intentarlo de nuevo.",
 	chooseAllShown: "Seleccionar todos los registros mostrados",
 	reviewSelectedCases: "Revisar los registros seleccionados",
 	selectedCases: "Registros seleccionados",

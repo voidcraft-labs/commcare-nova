@@ -288,10 +288,22 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 	});
 	/** The own arm's or a create's Save to Case place: its held block, or
 	 *  the one the allocator gives it. */
+	const positioned = (op: CaseOperation): PlannedPlacement | undefined => {
+		const placement = authoredCasePlacement(f, op.uuid);
+		return placement === undefined
+			? undefined
+			: {
+					placement,
+					held:
+						op.placement !== undefined &&
+						sameCasePlacement(op.placement, placement),
+				};
+	};
 	const saveToCaseOf = (op: CaseOperation, held: boolean): PlannedPlacement =>
-		held && op.placement?.kind === "save-to-case"
+		positioned(op) ??
+		(held && op.placement?.kind === "save-to-case"
 			? { placement: op.placement, held: true }
-			: { placement: derivedPath(asSubject(op)), held: false };
+			: { placement: derivedPath(asSubject(op)), held: false });
 
 	// The own arm and the worker's record take their slots first: each slot
 	// has one subject, and the subcases read whether the own arm is basic.
@@ -383,14 +395,9 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		sharedBy.set(close.uuid, createUuid);
 	for (const op of f.operations) {
 		if (placements.has(op.uuid)) continue;
-		const authored = authoredCasePlacement(f, op.uuid);
+		const authored = positioned(op);
 		if (authored !== undefined) {
-			placements.set(op.uuid, {
-				placement: authored,
-				held:
-					op.placement !== undefined &&
-					sameCasePlacement(op.placement, authored),
-			});
+			placements.set(op.uuid, authored);
 			continue;
 		}
 		const createUuid = sharedBy.get(op.uuid);
@@ -1008,7 +1015,8 @@ function corePlan(
 				.filter(
 					(operation) =>
 						(operation.action === "create" &&
-							operation.typeCalculation !== undefined) ||
+							(operation.typeCalculation !== undefined ||
+								operation.typeChoice !== undefined)) ||
 						operation.closeAfter === true ||
 						operation.closeCondition !== undefined ||
 						operation.ownerCondition !== undefined,

@@ -11,6 +11,10 @@ survey that updates one case per row someone filled in.
 **Case changes** are how a form says what else happens. Each one creates a case,
 updates a case, or closes a case, and they happen in the order you put them in.
 
+When you bring in a form from CommCare HQ, a supported case change stored
+among its questions keeps that position. Nova keeps any checks on its case
+name and connections next to the change in the submitted form.
+
 For an approval time that must survive later edits, save it in a dedicated
 property that holds a date and time. A date property holds only the calendar
 day: a date and time question saved to one keeps the day it was answered on,
@@ -249,7 +253,10 @@ never appear. You can choose an available option knowing it will save.
 
 If a create brought in from CommCare HQ joins pieces of fixed text to name a case
 type, Nova shows the resulting type and keeps the calculation when you publish.
-Choosing a different case type replaces that calculation.
+An imported create can also choose between two types already in the app using
+a condition, when both types accept the same saved values and the create
+has no case connections. Preview creates the case with the type selected by
+the condition. Choosing a different case type replaces an imported calculation.
 
 Values can come from a **form answer**, from information already on a case, from
 fixed values, from information about the person using the app, from Project data,

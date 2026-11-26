@@ -49,6 +49,7 @@ DOCUMENTS = (
     "targeted-listed-forms",
     "targeted-independent-form-choices",
     "targeted-invalid-question-ids",
+    "targeted-case-choice-reopen",
     "targeted-lookup-reserved-tags",
     "targeted-label-content",
     "targeted-web-form-activity",

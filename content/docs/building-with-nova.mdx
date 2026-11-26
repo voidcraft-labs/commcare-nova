@@ -123,7 +123,9 @@ the inspector under **Extended text**, **QR code** and **Spoken text**, each
 translated like the label:
 
 - **Extended text** shows in place of the label wherever the label's
-  **Format text** is off.
+  **Format text** is off. Groups, repeats and sections also offer extended
+  text for their headings. A repeat's default add button uses its extended
+  text whenever it has one.
 - **QR code** is the text Android draws as a QR code beside the question, in
   place of the label's image. Web Apps shows no QR code.
 - **Spoken text** is what Android reads aloud from a speaker button beside a
@@ -137,7 +139,9 @@ A question's label media can also hold an **Inline video**, which you can
 attach beside its image, audio and video, and choose per language like them.
 Android plays it inside the question, in place of the QR code and the label's
 image. Web Apps doesn't show it. A help text and a choice hold no inline
-video; you can attach a video there instead, which plays from a button.
+video. You can attach a video there and workers can play it from a button.
+When an app brought in from HQ has inline video outside question labels,
+the first-publish review shows the references that workers never see.
 
 You can type `<`, `>` and `&` directly in your wording. With formatting off,
 spellings such as `&amp;` and `&#65;` also stay as written. With formatting on,

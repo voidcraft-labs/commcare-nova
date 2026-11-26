@@ -609,9 +609,17 @@ function readDefaultFilters(
 						: undefined;
 
 			const finding = manifestFindingOf(claim, row.place, detail);
-			if (beside !== undefined && !coveredSettings.has(beside)) {
-				accounting.cover({ json: cursor, key: beside }, finding);
+			if (claim === C.relatedTwice && beside !== undefined) {
+				if (!coveredSettings.has(beside))
+					accounting.cover({ json: cursor, key: beside }, finding);
 				coveredSettings.add(beside);
+			} else if (beside !== undefined) {
+				accounting.findingAt(
+					claim,
+					row.place,
+					`${cursor.pointer}/${beside}`,
+					detail,
+				);
 			}
 			accounting.cover({ json: row, key: "defaultValue" }, finding);
 			addName(property, row);
@@ -888,7 +896,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			? readProjectSearch(ctx, module, cursor, endpoint, config)
 			: readDefaultFilters(ctx, module, cursor, hasPrompts);
 		const caseType = module.module.caseType;
-		const prompts = readSearchPrompts(
+		const { prompts, groups, groupRefused } = readSearchPrompts(
 			ctx,
 			module,
 			cursor,
@@ -1030,7 +1038,12 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		ctx.writeDraft(() => {
 			const list = module.module.caseListConfig as CaseListConfig | undefined;
 			if (list !== undefined) {
-				list.searchInputs = prompts.map((prompt) => prompt.input);
+				list.searchInputs = prompts.map(({ input }) => {
+					if (!groupRefused || input.group === undefined) return input;
+					const { group: _group, ...ungrouped } = input;
+					return ungrouped;
+				});
+				if (groups.length > 0 && !groupRefused) list.searchInputGroups = groups;
 				if (filters.filters.length) list.searchFilters = filters.filters;
 			}
 			const target = module.module as { caseSearchConfig?: CaseSearchConfig };
@@ -1057,7 +1070,8 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				settings.ok &&
 				ownersHeld &&
 				workflow !== undefined &&
-				prompts.length === declared &&
+				!groupRefused &&
+				prompts.length + groups.length === declared &&
 				prompts.every((prompt) => !prompt.refused),
 		});
 	}

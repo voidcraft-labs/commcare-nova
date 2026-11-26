@@ -99,6 +99,10 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
+import {
+	planSearchInputGroups,
+	type SearchGroupLayout,
+} from "@/lib/doc/searchInputGroupMutations";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -1399,7 +1403,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				searchInputUpdateMutation(
 					requireRetainedModuleUuid(moduleUuid),
 					current,
-					withPreservedIdentity(current, next),
+					{ ...withPreservedIdentity(current, next), group: current.group },
 				),
 			]),
 		);
@@ -1594,7 +1598,12 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				{
 					kind: "addSearchInput",
 					moduleUuid: retainedModuleUuid,
-					searchInput: seed,
+					searchInput: {
+						...seed,
+						...(config.searchInputGroups?.at(-1)?.uuid && {
+							group: config.searchInputGroups.at(-1)?.uuid,
+						}),
+					},
 				},
 			]),
 		);
@@ -1636,12 +1645,41 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			excludeFromRequest: true,
 		});
 	};
-	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
-		moveSearchInputToIndex(
-			requireRetainedModuleUuid(moduleUuid),
-			uuid,
-			toIndex,
+	const updateSearchGroups = (groups: readonly SearchGroupLayout[]) => {
+		const uuid = requireRetainedModuleUuid(moduleUuid);
+		const current = docApi.getState().modules[uuid]?.caseListConfig;
+		if (current === undefined) return;
+		const change = planSearchInputGroups(uuid, current, groups);
+		if ("mutations" in change) inline.commitMany(change.mutations);
+	};
+	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) => {
+		if (!config.searchInputGroups)
+			return moveSearchInputToIndex(
+				requireRetainedModuleUuid(moduleUuid),
+				uuid,
+				toIndex,
+			);
+		const position = config.searchInputs.findIndex(
+			(input) => input.uuid === uuid,
 		);
+		const target = config.searchInputs[toIndex];
+		if (position < 0 || !target || position === toIndex) return;
+		const reordered = config.searchInputs.filter(
+			(input) => input.uuid !== uuid,
+		);
+		reordered.splice(toIndex, 0, {
+			...config.searchInputs[position],
+			group: target.group,
+		});
+		updateSearchGroups(
+			config.searchInputGroups.map((group) => ({
+				...group,
+				inputs: reordered
+					.filter((input) => input.group === group.uuid)
+					.map((input) => input.uuid),
+			})),
+		);
+	};
 	const updateSearchFilter = useCallback(
 		(
 			edit: NonNullable<
@@ -2364,6 +2402,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		addHiddenInput,
 		addAddressInput,
 		moveInput,
+		updateSearchGroups,
 		addColumn,
 		addCalculatedColumn,
 		moveColumn,
@@ -2599,6 +2638,7 @@ export function CaseListWorkspaceCanvas() {
 		addHiddenInput,
 		addAddressInput,
 		moveInput,
+		updateSearchGroups,
 		addColumn,
 		addCalculatedColumn,
 		moveColumn,
@@ -2664,6 +2704,8 @@ export function CaseListWorkspaceCanvas() {
 						{searchConditionSurface ?? (
 							<SearchCanvas
 								searchInputs={config.searchInputs}
+								searchInputGroups={config.searchInputGroups}
+								onUpdateSearchGroups={updateSearchGroups}
 								searchConfig={searchConfig}
 								caseTypes={caseTypes}
 								currentCaseType={caseType}

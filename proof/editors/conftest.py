@@ -63,6 +63,7 @@ TWO_LANGUAGE_APP = "yesno.json"
 # test_text_formatting_saves.py reads for markdown forms, and the document test_vellum_data_order.py builds the
 # form builder's saved source into.
 DOCUMENTS = (
+    "targeted-positioned-case-create",
     "targeted-receiving-answers",
     "targeted-receiving-answers-android",
 
@@ -80,6 +81,7 @@ DOCUMENTS = (
     "prompt-checkboxes",
     "targeted-named-answer-root",
     "targeted-android-app-answers",
+    "targeted-case-choice-reopen",
     "targeted-sorted-case-choices",
     "prompt-widgets",
     "prompt-periods",
@@ -93,6 +95,7 @@ DOCUMENTS = (
     "targeted-independent-case-order",
     "targeted-supply-point-text",
     "targeted-plain-help",
+    "targeted-media-slots",
     "targeted-menu-badges",
     "targeted-submitted-groups",
 )

@@ -1963,14 +1963,51 @@
 		"slotChanges": []
 	},
 	{
+		"id": "application-and-settings/translations-generated-navigation-file",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "Navigation icon or spoken label overridden in one generated locale string",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-navigation-file",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the language's Project media asset and the ordinary media map keep their own values.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "The localized path under the carrier's current generated icon or audio key",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-generated-navigation-file-not-packaged",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "a generated navigation locale names a file a matching ordinary media surface does not carry",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-navigation-file-not-packaged",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the locale can choose this file only while a native package includes it. HQ's locale files alone do not package media.",
+		"subject": "translation-overrides",
+		"owner": "settings-nova-comes-to-own",
+		"platforms": { "kind": "not-applicable", "cell": "n/a" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/translations-generated-key-anything-else",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "one navigation icon or audio label with a different file in one language",
+		"item": "effective generated translation that no retained wording or navigation file owns",
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "generated-key-other",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the menu, form, case list entry or registration button needs a distinct Project media asset in that language",
+		"dispositionCell": "**HELD-NEW**: an effective generated override outside the retained wording and navigation-file roles",
 		"subject": "translation-overrides",
 		"owner": "settings-nova-comes-to-own",
 		"platforms": {

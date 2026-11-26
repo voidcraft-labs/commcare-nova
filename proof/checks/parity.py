@@ -250,6 +250,7 @@ def source_uses(
     return found
 
 
+AUTOMATIC_MULTI = "menus-and-case-lists/detail-auto-select-multi-select"
 LOCATION_WRITE = "forms-and-case-writes/update-keys-location-id-hq-user-id"
 HYPHEN_TAG = "forms-and-case-writes/case-tag-holding-a-hyphen"
 SHADOW_LOAD = "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent"
@@ -368,15 +369,28 @@ def _registration_target(use):
         return CHILD_REGISTRATION
 
 
+def _automatic_multiple_case_selection(use):
+    at = use.at
+    if not isinstance(at, manifest_usage.JsonAt):
+        return False
+    menu = at.nearest("Module")
+    pair = at.nearest("DetailPair")
+    return (menu is not None and bool(menu.get("case_type")) and pair is not None
+            and pair.get("short") is at.owner and at.owner.get("multi_select") is True and at.value is True)
+
+
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
-    wanted = {LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, *REGISTRATION_ENTRIES}.intersection(entries)
+    wanted = {AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, *REGISTRATION_ENTRIES}.intersection(entries)
     if not wanted:
         return
     by_id = _entries_by_id(held)
     places = {(use.artifact, use.where, use.key) for use in found.uses}
     for use in found.uses:
         at = use.at
+        if (AUTOMATIC_MULTI in wanted and use.key == "schema:Detail.auto_select"
+                and _automatic_multiple_case_selection(use)):
+            yield Decided(use, manifest_usage.HELD, (by_id[AUTOMATIC_MULTI],))
         if LOCATION_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
             yield from _location_write_uses(use, by_id[LOCATION_WRITE])
         if HYPHEN_TAG in wanted and use.key in ADVANCED_TAG_KEYS:

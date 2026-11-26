@@ -139,6 +139,12 @@ function scalarOperationUpdate(
 				)
 					? { typeCalculation: clearable(after.typeCalculation) }
 					: {}),
+				...(!deepEqual(
+					before.action === "create" ? before.typeChoice : undefined,
+					after.typeChoice,
+				)
+					? { typeChoice: clearable(after.typeChoice) }
+					: {}),
 				...(!deepEqual(before.target, after.target)
 					? { target: structuredClone(after.target) }
 					: {}),
@@ -1002,6 +1008,16 @@ export function updateCaseOperationMutations(
 	);
 	if (existing === undefined) return [];
 	const value = { ...operation };
+	if (
+		value.action === "create" &&
+		existing.action === "create" &&
+		existing.typeChoice !== undefined
+	) {
+		if (value.caseType === existing.caseType)
+			value.typeChoice ??= existing.typeChoice;
+		else if (deepEqual(value.typeChoice, existing.typeChoice))
+			delete value.typeChoice;
+	}
 	if (
 		value.action === "create" &&
 		existing.action === "create" &&

@@ -9,6 +9,7 @@
  */
 import type { Document, Element } from "domhandler";
 import { isTag } from "domhandler";
+import { GUARD_KINDS, generatedBaseName } from "../../xform/generatedNodes";
 import {
 	type NamespaceScope,
 	namespaceScopes,
@@ -23,6 +24,7 @@ import {
 } from "../sameElement";
 import { sameXPathText } from "../syntaxCompare";
 import type { ReadSaveToCaseBlock } from "../xform";
+import { isAllocatedName } from "../xform/generated";
 import { heldSetvalueRef, pathSteps } from "../xform/model";
 import type { ParsedXForm } from "../xform/parse";
 
@@ -441,6 +443,42 @@ export function blockTreesEqual(
 		);
 	};
 	if (!sameSubtree(block.element, block.path)) return false;
+	if (block.authoredScopeLength !== undefined) {
+		const parentPath = block.path.slice(0, -1);
+		const name = block.path.at(-1) ?? "";
+		const ownGuard = (element: Element) =>
+			GUARD_KINDS.some((kind) =>
+				isAllocatedName(
+					splitName(element.name).local,
+					generatedBaseName("guard", name, kind),
+				),
+			);
+		const following = (model: FormSourceModel) => {
+			const parent = elementAt(model, parentPath);
+			if (!parent) return [];
+			const siblings = children(parent);
+			const start =
+				siblings.findIndex(
+					(element) => splitName(element.name).local === name,
+				) + 1;
+			const remaining = siblings.slice(start);
+			const end = remaining.findIndex((sibling) => !ownGuard(sibling));
+			return end === -1 ? remaining : remaining.slice(0, end);
+		};
+		const guards = following(form);
+		const printed = following(emitted);
+		if (
+			!sameLists(
+				guards,
+				printed,
+				(kept, expected) =>
+					kept.name === expected.name &&
+					sameSubtree(kept, [...parentPath, kept.name]),
+			)
+		)
+			return false;
+	}
+
 	const ownPath = new Set([
 		block.path.join("/"),
 		...block.wrappers.map((wrapper) => wrapper.path.join("/")),

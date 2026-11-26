@@ -583,6 +583,7 @@ export function deriveCaseSelectionDatum(args: {
 	readonly parentIndex?: string;
 	readonly detailConfirm?: boolean;
 	readonly maxSelectValue?: number;
+	readonly autoSelect?: boolean;
 	/** Where the selectable cases come from: the device's casedb, or the
 	 *  results of the own search of a menu whose forms read the search. */
 	readonly caseSource?: "casedb" | `results:${string}`;
@@ -601,6 +602,7 @@ export function deriveCaseSelectionDatum(args: {
 		...(args.maxSelectValue !== undefined && {
 			maxSelectValue: args.maxSelectValue,
 		}),
+		...(args.autoSelect === true && { autoselect: true }),
 	};
 	/* Whether the datum names a details screen is entry metadata too: it is
 	 * whether a runtime confirms a case chosen for it
