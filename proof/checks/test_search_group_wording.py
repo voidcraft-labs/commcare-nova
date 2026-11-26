@@ -49,6 +49,17 @@ def test_build_move_needs_the_right_group_prompt_and_equal_locale_strings():
         search_groups=SOURCES,
     )
     assert _held(rows, sites) == rows
+    assert changes.naming(rows[3], changes.load(), {}) == "unused-translation-keys-removed"
+    assert changes.naming(rows[5], changes.load(), {}) == "unused-translation-keys-removed"
+
+    named = [replace(row, artifact=f"profile-id/{row.artifact}") for row in rows]
+    named_sites = replace(
+        sites, builds={(f"profile-id/{key[0]}", *key[1:]): value for key, value in sites.builds.items()}
+    )
+    assert _held(named, named_sites) == named
+    assert not _held(named, sites)
+    assert not _held(rows, named_sites)
+
     assert not _held(rows, replace(sites, builds={**sites.builds, anchor: ("menu", "1")}))
     assert not _held(rows, replace(sites, search_groups={}))
     assert not _held(rows[1:], sites)

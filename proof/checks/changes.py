@@ -1497,14 +1497,20 @@ def naming(difference, changes, applying, sites=NO_SITES) -> str | None:
     None where no such row matches, where the most exact belong to several entries, or where they are an applying
     entry's, whose places miss the difference: the check that reports the difference says what it is, once, and
     the changes judge names no change for it."""
-    holders_of: dict[Row, set[str]] = {}
-    for change in changes:
-        for row in change.rows:
-            holders_of.setdefault(row, set()).add(change.change)
-    matching = [
-        (row, change.change)
+    # A compiled heading rekey borrows the locale row classes of ordinary removed strings.
+    # Its reviewed source is the certificate that gives the compiled companions their meaning.
+    named_rows = [
+        (row, change)
         for change in changes
         for row in change.rows
+        if change.change != LEGACY_SEARCH_GROUP_WORDING or row.check == "source"
+    ]
+    holders_of: dict[Row, set[str]] = {}
+    for row, change in named_rows:
+        holders_of.setdefault(row, set()).add(change.change)
+    matching = [
+        (row, change.change)
+        for row, change in named_rows
         if len(holders_of[row]) == 1
         and row.matches(difference)
         and change.matches_value(difference)
