@@ -34,8 +34,11 @@ export function nativeSearchFilters(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const filters = mod.caseListConfig?.searchFilters ?? [];
-	// An order names properties of the menu's record type, or a record
-	// attribute HQ's index holds (`case_search/const.py::INDEXED_METADATA_BY_KEY`).
+	const types = effectiveCaseTypes(doc);
+	const requested = mod.caseType
+		? requestedRecordTypes(mod.caseType, mod.caseListConfig)
+		: [];
+	// An order names a property of a requested record type or an indexed attribute (`case_search/const.py::INDEXED_METADATA_BY_KEY`).
 	const order = [
 		...(isOrdinaryCaseSearchConfig(mod.caseSearchConfig)
 			? (mod.caseSearchConfig.requestOrder ?? [])
@@ -43,9 +46,9 @@ export function nativeSearchFilters(
 		...filters.flatMap((row) => ("order" in row ? row.order : [])),
 	];
 	if (order.length > 0) {
-		const properties =
-			effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
-				?.properties ?? [];
+		const properties = types
+			.filter((type) => requested.includes(type.name))
+			.flatMap((type) => type.properties);
 		for (const term of order) {
 			const known =
 				CASE_NODE_ATTRIBUTE_PROPERTIES.has(term.property) ||
@@ -56,7 +59,7 @@ export function nativeSearchFilters(
 					validationError(
 						"CASE_SEARCH_FILTER_INVALID",
 						"module",
-						`Choose a property of ${mod.caseType} in place of “${term.property}” to order the matches.`,
+						`Choose a property from the records this search requests in place of “${term.property}” to order the matches.`,
 						{ moduleUuid, moduleName: mod.name },
 					),
 				);
@@ -79,7 +82,6 @@ export function nativeSearchFilters(
 	const names = new Set(
 		mod.caseListConfig?.searchInputs.map((input) => input.name),
 	);
-	const types = effectiveCaseTypes(doc);
 	const offered = new Set(
 		Object.values(doc.modules).map((menu) => menu.caseType),
 	);
@@ -94,9 +96,6 @@ export function nativeSearchFilters(
 				),
 			);
 	}
-	const requested = mod.caseType
-		? requestedRecordTypes(mod.caseType, mod.caseListConfig)
-		: [];
 	const checkRelatedId = (property: string) => {
 		if (
 			!types.some(

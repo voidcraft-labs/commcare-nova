@@ -62,27 +62,23 @@ export function SearchFilters({
 	const search = isOrdinaryCaseSearchConfig(module?.caseSearchConfig)
 		? module.caseSearchConfig
 		: undefined;
-	const properties =
-		caseTypes
-			.find((type) => type.name === currentCaseType)
-			?.properties.map((property) => ({
-				value: property.name,
-				label: projectProse(property.label) || property.name,
-			})) ?? [];
-	// The record's own information HQ's search index also holds
-	// (`case_search/const.py::INDEXED_METADATA_BY_KEY`).
+	const propertyOptions = new Map<string, { value: string; label: string }>();
+	for (const type of caseTypes) {
+		if (!requestedTypes.includes(type.name)) continue;
+		for (const property of type.properties)
+			if (!propertyOptions.has(property.name))
+				propertyOptions.set(property.name, {
+					value: property.name,
+					label: projectProse(property.label) || property.name,
+				});
+	}
+	const relatedProperties = [...propertyOptions.keys()];
+	const properties = [...propertyOptions.values()];
+	// The record's own indexed information also works for every type.
 	for (const [value, label] of Object.entries(
 		CANONICAL_STANDARD_CASE_PROPERTY_LABELS,
 	))
-		if (!properties.some((option) => option.value === value))
-			properties.push({ value, label });
-	const relatedProperties = [
-		...new Set(
-			caseTypes
-				.filter((type) => requestedTypes.includes(type.name))
-				.flatMap((type) => type.properties.map((property) => property.name)),
-		),
-	];
+		if (!propertyOptions.has(value)) properties.push({ value, label });
 	const [adding, setAdding] = useState(false);
 	const [text, setText] = useState("");
 	const [chosen, setChosen] = useState<SearchFilterTarget>({

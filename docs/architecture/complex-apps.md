@@ -1568,6 +1568,12 @@ Equality on a date-and-time property is sent as a closed instant range, which
 HQ answers by instant for every spelling its parser reads
 (`lib/commcare/csql/emitter.ts::readsInstantByRange`).
 
+#### Search request types and selectable records
+
+A case list's additional types are selectable and require a menu in the app. A request-only type contributes to the server's primary population and the results instance a form reads. The server orders all requested types and applies its result limit before the device selects the visible rows. A result carries its actual case type through details, selection and submission.
+
+Search includes an explicitly referenced related record before expanding the hierarchy or the paths required by the requested types' searchable details. Supporting cases retain their status and stay apart from selectable matches, including when reached through a supporting record. Claim admission repeats the current search under the worker's scope and checks prior selections in the same transaction.
+
 #### The search workflow
 
 What a worker sees first when a menu searches is `caseSearchConfig.workflow`,

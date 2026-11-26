@@ -900,18 +900,19 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		// `@status`) is the record's own, never a property (`requestOrder.ts::ATTRIBUTE_KEYS`).
 		const propertySource =
 			filters.relatedIdProperty ?? cursor.peek("custom_related_case_property");
+		const orderedProperties = [
+			...filters.filters.flatMap((row) => ("order" in row ? row.order : [])),
+			...(readDedicatedOrder(cursor.peek("custom_sort_properties")) ?? []),
+		]
+			.map((term) => term.property)
+			.filter((property) => !CASE_NODE_ATTRIBUTE_PROPERTIES.has(property));
 		const properties = [
 			...filters.filters.flatMap((row) =>
-				"order" in row
-					? row.order.map((term) => term.property)
-					: "target" in row &&
-							row.target.kind === "property" &&
-							!row.target.ancestors
-						? [row.target.property]
-						: [],
-			),
-			...(readDedicatedOrder(cursor.peek("custom_sort_properties")) ?? []).map(
-				(term) => term.property,
+				"target" in row &&
+				row.target.kind === "property" &&
+				!row.target.ancestors
+					? [row.target.property]
+					: [],
 			),
 			...filters.rows.flatMap((row) => searchRowProperties(row.text)),
 			...prompts.flatMap((prompt) =>
@@ -945,6 +946,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				(one) => one.links.length > 0 || one.properties.length > 0,
 			) ||
 			properties.length > 0 ||
+			orderedProperties.length > 0 ||
 			(typeof propertySource === "string" && propertySource !== "") ||
 			holeReads.length > 0 ||
 			filters.requestTypes.length > 0;
@@ -959,16 +961,16 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 						)
 							draft.push({ name, properties: [] });
 					}
+					const extras = cursor.peek("additional_case_types");
+					const requested = new Set([
+						caseType,
+						...filters.requestTypes,
+						...(Array.isArray(extras) ? extras : []),
+					]);
 					if (
 						typeof propertySource === "string" &&
 						authoredCasePropertyNameSchema.safeParse(propertySource).success
 					) {
-						const extras = cursor.peek("additional_case_types");
-						const requested = new Set([
-							caseType,
-							...filters.requestTypes,
-							...(Array.isArray(extras) ? extras : []),
-						]);
 						if (
 							!draft.some(
 								(type) =>
@@ -983,6 +985,20 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 					}
 					for (const property of properties)
 						noteProperty(draft, caseType, property, told);
+					for (const property of orderedProperties) {
+						const owners = [...requested].filter(
+							(name): name is string =>
+								typeof name === "string" &&
+								(draft.some(
+									(type) =>
+										type.name === name &&
+										type.properties.some((one) => one.name === property),
+								) ||
+									told?.declaredTypeOf(name, property) !== undefined),
+						);
+						for (const owner of owners.length ? owners : [caseType])
+							noteProperty(draft, owner, property, told);
+					}
 					for (const { links, properties: reads } of relations) {
 						for (const link of links) declareParent(draft, link);
 						for (const read of reads)

@@ -368,7 +368,9 @@ type FormMenuCase = Pick<
 	CaseRowWithCalculated,
 	"case_id" | "case_name" | "heldOnDevice"
 > &
-	Partial<Pick<CaseRowWithCalculated, "case_type">>;
+	Partial<Pick<CaseRowWithCalculated, "case_type">> & {
+		readonly searchSource?: PreviewCaseChoice["searchSource"];
+	};
 /** The Results while the device's cases a search reads have failed to load:
  * a cases-load failure, retried by reading the device's cases again. */
 const CASES_LOAD_FAILED: ReturnType<typeof useCases>["state"] = {
@@ -1640,20 +1642,22 @@ export function CaseListScreen({
 	 * the step the choice was made on (`step`) meanwhile. */
 	const choiceOf = (row: FormMenuCase): PreviewCaseChoice => ({
 		...previewCaseChoiceOf(row),
-		...(moduleUuid &&
-			row.heldOnDevice !== undefined &&
-			activeSearchInputValues !== undefined && {
-				searchSource: {
-					moduleUuid,
-					...(submittedSearchOf(searchState)?.automatic === true && {
-						defaultSearch: true,
-					}),
-					answers: [...activeSearchInputValues].map(([name, value]) => ({
-						name,
-						value,
-					})),
-				},
-			}),
+		...(row.searchSource
+			? { searchSource: row.searchSource }
+			: moduleUuid &&
+				row.heldOnDevice !== undefined &&
+				activeSearchInputValues !== undefined && {
+					searchSource: {
+						moduleUuid,
+						...(submittedSearchOf(searchState)?.automatic === true && {
+							defaultSearch: true,
+						}),
+						answers: [...activeSearchInputValues].map(([name, value]) => ({
+							name,
+							value,
+						})),
+					},
+				}),
 	});
 	const postClaim = async (
 		caseIds: readonly string[],
@@ -2182,6 +2186,8 @@ export function CaseListScreen({
 		return {
 			case_id: held.caseId,
 			case_name: held.caseName ?? "",
+			case_type: held.caseType,
+			searchSource: held.searchSource,
 			...(held.claimable === true && { heldOnDevice: false }),
 		};
 	}, [heldChoices, multipleSelection]);

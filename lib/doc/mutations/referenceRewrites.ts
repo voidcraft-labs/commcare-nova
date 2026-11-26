@@ -167,27 +167,6 @@ export function rewriteModuleCaseRefs(
 			astRefsRewritten += rewriteExpressions(mod, slot.path, ops);
 		if (slot.kind === "options-source")
 			astRefsRewritten += rewriteExpressions(mod, `${slot.path}.filter`, ops);
-		if (
-			mod.caseType !== undefined &&
-			(slot.slot === "search_order_property" ||
-				slot.slot === "search_filter_order_property")
-		) {
-			const terms =
-				slot.slot === "search_order_property"
-					? mod.caseSearchConfig && "requestOrder" in mod.caseSearchConfig
-						? (mod.caseSearchConfig.requestOrder ?? [])
-						: []
-					: (mod.caseListConfig?.searchFilters ?? []).flatMap((row) =>
-							"order" in row ? row.order : [],
-						);
-			for (const term of terms) {
-				const next = resolveCaseProperty(mod.caseType, term.property);
-				if (next !== undefined && next !== term.property) {
-					term.property = next;
-					astRefsRewritten++;
-				}
-			}
-		}
 	}
 	for (const property of moduleCaseProperties(doc, mod)) {
 		const next = property.types

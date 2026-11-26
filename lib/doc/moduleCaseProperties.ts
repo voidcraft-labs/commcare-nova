@@ -16,7 +16,9 @@ interface MenuProperty {
 		| "search_filter_property"
 		| "search_input_property"
 		| "search_related_property"
-		| "search_request_related_property";
+		| "search_request_related_property"
+		| "search_order_property"
+		| "search_filter_order_property";
 	readonly name: string;
 	readonly types: readonly string[];
 	readonly throughRelation: boolean;
@@ -83,6 +85,30 @@ export function* moduleCaseProperties(
 		};
 	}
 	const settings = mod.caseSearchConfig;
+	const ordinary =
+		settings && !("searchActionEnabled" in settings) ? settings : undefined;
+	for (const [slot, order] of [
+		["search_order_property", ordinary?.requestOrder ?? []],
+		[
+			"search_filter_order_property",
+			(list?.searchFilters ?? []).flatMap((row) =>
+				"order" in row ? row.order : [],
+			),
+		],
+	] as const) {
+		for (const term of order) {
+			const types = owners(requested, term.property);
+			yield {
+				slot,
+				name: term.property,
+				types: types.length > 0 ? types : [mod.caseType],
+				throughRelation: false,
+				rename(name) {
+					term.property = name;
+				},
+			};
+		}
+	}
 	if (
 		settings &&
 		!("searchActionEnabled" in settings) &&
