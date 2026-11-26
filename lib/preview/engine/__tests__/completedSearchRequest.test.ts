@@ -56,6 +56,19 @@ describe("completedSearchRequest", () => {
 		]);
 	});
 
+	it("sends no prompt's answer on the menu's default search, and names the prompts it left out", () => {
+		const request = completedSearchRequest(
+			moduleWith([village]),
+			new Map([["village", "Kibera"]]),
+			undefined,
+			{},
+			undefined,
+			true,
+		);
+		expect(request.parameters ?? []).toEqual([]);
+		expect(request.unsentPrompts).toEqual(["village"]);
+	});
+
 	it("sends nothing for a field with neither an answer nor the box", () => {
 		expect(sent([village], {})).toEqual([]);
 	});

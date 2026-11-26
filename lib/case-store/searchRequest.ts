@@ -17,6 +17,14 @@ export interface SearchConfigurationSelection {
 export interface CaseSearchRequest {
 	readonly maximum: 500 | 1500 | null;
 	readonly parameters?: readonly CaseSearchParameter[];
+	/** The fields whose prompts a default search leaves out of the request:
+	 *  Core skips every prompt answer on the menu's default search
+	 *  (`RemoteQuerySessionManager.getRawQueryParams(skipDefaultPromptValues)`,
+	 *  which Formplayer's `MenuSessionRunnerService.doQuery` calls with
+	 *  `isDefaultSearch`), so no starting value narrows it by matching the
+	 *  field's own property. The search-input instance still holds every
+	 *  starting value, which a `_xpath_query` row and a hidden value read. */
+	readonly unsentPrompts?: readonly string[];
 	/** The relationship paths the requested types' Search details ask HQ to deliver. */
 	readonly relatedPaths?: readonly (readonly string[])[];
 	readonly configuration?: SearchConfigurationSelection;

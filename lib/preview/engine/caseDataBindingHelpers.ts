@@ -298,6 +298,7 @@ function runningCasePredicate(args: Parameters<typeof readCases>[1]) {
 		args.parentCase,
 		args.searchCsql,
 		args.searchPopulation?.request?.parameters,
+		args.searchPopulation?.request?.unsentPrompts,
 	);
 }
 
@@ -855,11 +856,17 @@ function composeQueryPredicate(
 	parentCase?: ParentCaseSelection,
 	searchCsql?: SearchCsqlQuery,
 	parameters?: readonly import("@/lib/case-store/searchRequest").CaseSearchParameter[],
+	unsentPrompts: readonly string[] = [],
 ): ComposedCaseQuery {
 	const clauses: Expression[] = [];
 	let hasAuthoredConstraint = parameters?.some((p) => !p.readsAnswers) ?? false;
 	let hasWorkerConstraint = parameters?.some((p) => p.readsAnswers) ?? false;
-	const sentKeys = new Set(parameters?.map((p) => p.key));
+	/* A field the request matches by its own key, or whose prompt a default
+	 * search left out of it, adds no clause of its own here. */
+	const sentKeys = new Set([
+		...(parameters?.map((p) => p.key) ?? []),
+		...unsentPrompts,
+	]);
 	if (parentCase !== undefined) {
 		hasAuthoredConstraint = true;
 	}

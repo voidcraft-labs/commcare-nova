@@ -431,6 +431,9 @@ type RunningCaseReadArgs = {
 	 *  of a completed search, or a check of cases chosen from them. Submitted
 	 *  `inputValues` say the same. */
 	search?: boolean;
+	/** The search is the menu's default search, run as the list opened:
+	 *  its prompts' answers are not sent (`CaseSearchRequest.unsentPrompts`). */
+	defaultSearch?: boolean;
 	/** The viewer's latest position, which a calculated column's `here()`
 	 *  reads; `null` or omitted while the browser has shared none. It travels
 	 *  in this request and the query's bound parameters only, and is never
@@ -759,6 +762,7 @@ async function prepareRunningCaseRead(
 							csqlRuntime?.filterValues,
 							device.searchConfiguration,
 							{ doc: environment.doc, caseType: args.caseType },
+							args.defaultSearch === true,
 						)
 					: undefined,
 			),

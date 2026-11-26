@@ -273,7 +273,10 @@ export function useSearchResultsSnapshot(args: {
 			/* After the case list registration form registers a case, the search is that
 			 * one case, as the wire's return frame keys it. */
 			...(search.registeredCaseId === undefined
-				? { inputValues: { ...search.answers } }
+				? {
+						inputValues: { ...search.answers },
+						...(search.automatic === true && { defaultSearch: true }),
+					}
 				: { caseIds: [search.registeredCaseId] }),
 			...(input.parentCase === undefined
 				? {}

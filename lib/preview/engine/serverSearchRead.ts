@@ -295,6 +295,7 @@ export async function serverRecordsRead(
 											wire?.filterValues,
 											world.device.searchConfiguration,
 											{ doc: world.doc, caseType },
+											search.defaultSearch,
 										),
 									}),
 								},

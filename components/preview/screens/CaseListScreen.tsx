@@ -1560,6 +1560,12 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		 * screen. */
 		requestScopeKey: selectionScopeKey,
 		search: readsSearchResults,
+		/* The menu's default search sends no prompt's answer (Formplayer's
+		 * `doQuery` with `isDefaultSearch`), so a starting value narrows only
+		 * where a row or a hidden value reads it. */
+		defaultSearch:
+			activeSearchInputValues !== undefined &&
+			submittedSearchOf(searchState)?.automatic === true,
 		...(csqlRuntime !== undefined && { csqlRuntime }),
 		chosenCaseIds: stepSession.chosenCaseIds,
 		sortChoice,

@@ -42,6 +42,9 @@ export function completedSearchRequest(
 	filterValues?: Readonly<Record<string, string>>,
 	configuration: SearchConfigurationSelection = {},
 	world?: { doc: BlueprintDoc; caseType: string },
+	/** The menu's default search ran it, as the list opened: no prompt's
+	 *  answer is sent (`CaseSearchRequest.unsentPrompts`). */
+	defaultSearch = false,
 ): CaseSearchRequest {
 	// The default filters' orders reach HQ first, then the dedicated order
 	// (`remote_requests.py::_remote_request_query_datums`), and HQ sorts by
@@ -76,9 +79,14 @@ export function completedSearchRequest(
 				expressionReferencesAnySearchInput(filter.value),
 		});
 	}
+	const unsentPrompts: string[] = [];
 	for (const input of module.caseListConfig?.searchInputs ?? []) {
 		if (input.kind !== "simple" || searchInputSuppressesAutoMatch(input))
 			continue;
+		if (defaultSearch) {
+			unsentPrompts.push(input.name);
+			continue;
+		}
 		const start = answers?.get(`${input.name}:from`);
 		const end = answers?.get(`${input.name}:to`);
 		const answer =
@@ -127,6 +135,7 @@ export function completedSearchRequest(
 		});
 	return {
 		parameters: [...parameters.values()],
+		...(unsentPrompts.length > 0 && { unsentPrompts }),
 		...(order.length > 0 && {
 			order: order.map((entry) => ({
 				key: requestOrderKey(entry),

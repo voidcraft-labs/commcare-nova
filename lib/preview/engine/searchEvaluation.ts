@@ -60,6 +60,9 @@ export interface SearchEvaluationInput {
 	entry?: {
 		/** The worker cleared Search and remains on its manual screen until a successful submission. */
 		cleared?: true;
+		/** The search held is the menu's default search, which the list ran
+		 *  as it opened, and no worker has searched since. */
+		defaultSearch?: true;
 		draft: readonly { name: string; value: string }[];
 		errors: Readonly<Record<string, string>>;
 	};
@@ -303,13 +306,20 @@ async function searchSnapshot(
 	/* The case list's step decides what the worker sees, as on the running
 	 * app: where it is Results with nothing submitted, the default search
 	 * runs as the menu opens (skip to results). */
-	if (
+	const launchesDefaultSearch =
 		input.entry?.cleared !== true &&
 		!run.hasSubmitted &&
 		answers === undefined &&
-		initialStep === "results"
-	)
+		initialStep === "results";
+	if (launchesDefaultSearch)
 		run = changeSearchRunDraft(run, run, run.defaults, true);
+	/* The default search stands until the worker searches: a later step
+	 * reads the same Results, which no prompt answer narrows. */
+	const defaultSearch =
+		launchesDefaultSearch ||
+		(answers === undefined &&
+			run.hasSubmitted &&
+			input.entry?.defaultSearch === true);
 
 	const values = relevant
 		? withHiddenValues(run.submitted, run.submittedHidden)
@@ -382,6 +392,9 @@ async function searchSnapshot(
 			: undefined,
 		errors: Object.fromEntries(errors),
 		inputValues: values,
+		/** The menu's default search ran as the list opened, which sends no
+		 *  prompt's answer (`CaseSearchRequest.unsentPrompts`). */
+		defaultSearch,
 		expressionValues,
 		excludedOwnerIds:
 			exclusion.kind === "read" ? exclusion.value.excludedOwnerIds : undefined,

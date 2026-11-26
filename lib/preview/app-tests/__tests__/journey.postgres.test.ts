@@ -1260,6 +1260,125 @@ it("opens the results of a search with no visible field, its hidden Search value
 	});
 });
 
+it("runs a skip-to-results menu's default search without its fields' starting values, which a Search press sends", async () => {
+	const author = await makeDurableAuthoringHarness(h);
+	expect(
+		await author.call("createModule", { name: "People", case_type: "person" }),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("createForm", {
+			moduleUuid: "People",
+			name: "Visit",
+			type: "followup",
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addFields", {
+			formUuid: "Visit",
+			moduleUuid: "People",
+			fields: [
+				{
+					kind: "text",
+					id: "region",
+					label: "Region",
+					caseWrite: { caseType: "person", property: "region" },
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addSearchInputs", {
+			moduleUuid: "People",
+			searchInputs: [
+				{
+					kind: "simple",
+					type: "text",
+					name: "region",
+					label: "Region",
+					property: "region",
+					hidden: true,
+					default: "'north'",
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("setCaseSearchAdvanced", {
+			moduleUuid: "People",
+			excludedOwnerIds: null,
+			searchWorkflow: "skipToResults",
+			formsReadSearch: null,
+		}),
+	).toMatchObject({ ok: true });
+	const doc = await author.currentDoc();
+	const people = Object.values(doc.modules).find(
+		(module) => module.name === "People",
+	);
+	if (!people) throw new Error("Missing people menu");
+
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const begun = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Open every person, then search the assigned region",
+			scenario: {
+				records: [
+					{
+						id: "north-person",
+						caseType: "person",
+						name: "North person",
+						properties: { region: "north" },
+					},
+					{
+						id: "south-person",
+						caseType: "person",
+						name: "South person",
+						properties: { region: "south" },
+					},
+				],
+			},
+		},
+	});
+	const opened = await continueAppTest(scope, {
+		testId: begun.testId,
+		expectedStep: 0,
+		requestId: "open",
+		action: { kind: "menu", moduleUuid: people.uuid },
+	});
+	/* Formplayer's default search sends no prompt's answer
+	 * (`RemoteQuerySessionManager.getRawQueryParams(true)`), so the region's
+	 * starting value narrows nothing as the menu opens. */
+	expect(opened.observation).toMatchObject({ screen: "results" });
+	expect(
+		(
+			opened.observation as { results?: { rows?: { case_id: string }[] } }
+		).results?.rows
+			?.map((row) => row.case_id)
+			.sort(),
+	).toEqual(["north-person", "south-person"]);
+	const searched = await continueAppTest(scope, {
+		testId: begun.testId,
+		expectedStep: 1,
+		requestId: "search",
+		action: { kind: "search", answers: [] },
+	});
+	/* A Search press sends every answer, the hidden field's among them, so
+	 * the request now matches region by the project space's own matching,
+	 * which this local app has not confirmed; the default search sent no
+	 * prompt and needed none. */
+	expect(searched.observation).toMatchObject({
+		completed: false,
+		error:
+			"Confirm how the project space matches “Region” in Preview search settings.",
+	});
+});
+
 it("searches every open record of the type when only the device list has a condition", async () => {
 	const author = await makeDurableAuthoringHarness(h);
 	expect(

@@ -213,6 +213,9 @@ export function useCases(args: {
 	 *  (submitted `inputValues` say the same), so it reads the search's
 	 *  population rather than the worker's restore. */
 	search?: boolean;
+	/** The search is the menu's default search, run as the list opened,
+	 *  which sends no prompt's answer (`CaseSearchRequest.unsentPrompts`). */
+	defaultSearch?: boolean;
 	/** What the device worked out for the search's `_xpath_query` rows,
 	 *  which the server folds (`useSearchCsqlRuntime`). */
 	csqlRuntime?: SearchCsqlRuntimeWire;
@@ -253,6 +256,7 @@ export function useCases(args: {
 		page,
 		requestScopeKey = "",
 		search = false,
+		defaultSearch = false,
 		csqlRuntime,
 		chosenCaseIds,
 		sortChoice,
@@ -288,7 +292,7 @@ export function useCases(args: {
 	 * re-reads through the case data revision and the settled rows stay on
 	 * screen. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${deviceKey}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${defaultSearch}\u0000${deviceKey}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -367,6 +371,7 @@ export function useCases(args: {
 								viewerTimeZone: viewerTimeZone(),
 								personaUuid,
 								...(search && { search }),
+								...(defaultSearch && { defaultSearch }),
 								...(csqlRuntime !== undefined && { csqlRuntime }),
 								...(chosenCaseIds !== undefined && { chosenCaseIds }),
 								...(sortChoice !== undefined &&

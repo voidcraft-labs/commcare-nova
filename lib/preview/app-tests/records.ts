@@ -83,6 +83,7 @@ export async function prepareAppTestRecords(
 			searchEntry: {
 				draft: search.draft,
 				errors: search.errors,
+				...(search.defaultSearch && { defaultSearch: true as const }),
 				...(screen.searchEntry?.cleared &&
 					!search.hasSubmitted && { cleared: true as const }),
 			},
