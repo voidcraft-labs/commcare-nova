@@ -354,6 +354,29 @@ def fixed_text_callout_with_worker_name(authoring, app_id):
     ])
 
 
+def fixed_text_callout_with_count(authoring, app_id):
+    """A follow-up reads the guarded count from its one case list in an Android-only app."""
+    from lxml import etree
+
+    from proof.matrix.variants.expressions_and_data import _declare
+
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+
+    def edit(root, _held):
+        _declare(root, "commcaresession", "jr://instance/session")
+        model, = root.xpath("//*[local-name()='model']")
+        data, = model.xpath("./*[local-name()='instance'][not(@id)]/*")
+        data.append(etree.Element(f"{{{etree.QName(data).namespace}}}lookup_count"))
+        bind = etree.Element(f"{{{etree.QName(model).namespace}}}bind")
+        bind.set("nodeset", "/data/lookup_count")
+        result = "instance('commcaresession')/session/data/fingerprintquery"
+        bind.set("calculate", f"if(count({result}) = 1, number({result}[1]), '')")
+        model.append(bind)
+
+    ops.set_form_source(authoring, app_id, 0, 1, edit, what="guarded companion lookup count")
+
+
 def fixed_text_callout_with_confidence(authoring, app_id):
     """Patients' lookup matches the returned IDs to the cases and has a visible confidence heading."""
     fixed_text_callout(authoring, app_id)

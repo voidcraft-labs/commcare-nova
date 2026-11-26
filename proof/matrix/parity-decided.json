@@ -96,6 +96,7 @@
 		"hq-case-lists/filter-column",
 		"hq-case-lists/fixed-text-callout",
 		"hq-case-lists/fixed-text-callout-confidence",
+		"hq-case-lists/fixed-text-callout-count",
 		"hq-case-lists/fixed-text-callout-extras",
 		"hq-case-lists/fixed-text-callout-icon",
 		"hq-case-lists/fixed-text-callout-name",
