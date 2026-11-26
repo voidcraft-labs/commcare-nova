@@ -16,6 +16,7 @@ import {
 	emptyCaseListConfig,
 	NO_SEARCH_SCREEN_TITLE,
 	type OrdinaryCaseSearchConfig,
+	type SearchInputDef,
 	searchResultsNameSchema,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
@@ -1661,6 +1662,72 @@ function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
 	};
 }
 
+function callArgs(
+	node: FormSyntax,
+	name: string,
+	count: number,
+): readonly FormSyntax[] | undefined {
+	const expression = core(node);
+	return expression.kind === "call" &&
+		expression.name === name &&
+		expression.args.length === count
+		? expression.args
+		: undefined;
+}
+
+/** Core checks only a nonempty answer. A lowercase ASCII rule on this same
+ * input already rejects an answer containing either quote. Accept only the
+ * exact direct-input guard we generate after that rule. A computed value,
+ * another field's answer, or any additional requirement needs its own proof.
+ */
+function redundantQuoteCheck(
+	field: SearchInputDef,
+	stored: unknown,
+	printed: unknown,
+): boolean {
+	if (field.kind === "hidden" || field.validation?.message !== undefined)
+		return false;
+	const rule = field.validation?.rule;
+	if (
+		rule?.kind !== "matches-pattern" ||
+		rule.pattern !== "^[a-z]+$" ||
+		rule.left.kind !== "term" ||
+		rule.left.term.kind !== "input" ||
+		rule.left.term.searchInputUuid !== field.uuid ||
+		typeof stored !== "string" ||
+		typeof printed !== "string"
+	)
+		return false;
+	const before = readFormSyntax(stored);
+	const after = readFormSyntax(printed);
+	if (!before.ok || !before.node || !after.ok || !after.node) return false;
+	const merged = core(after.node);
+	if (
+		merged.kind !== "binary" ||
+		merged.op !== "and" ||
+		!sameSyntax(merged.left, before.node)
+	)
+		return false;
+	const [text] = callArgs(merged.left, "regex", 2) ?? [];
+	// Core reads the input via its node-set-to-value conversion, as printed
+	// by the expression emitter. The typed rule above already binds its UUID.
+	const answer = text && (callArgs(text, "if", 3)?.[1] ?? text);
+	const [rejection] = callArgs(merged.right, "not", 1) ?? [];
+	if (!answer || !rejection) return false;
+	const parts = clauses(rejection, "and");
+	if (parts.length !== 3) return false;
+	const [present] = callArgs(parts[0], "count", 1) ?? [];
+	if (!present || !sameSyntax(present, answer)) return false;
+	const quotes = parts.slice(1).map((part) => {
+		const [value, quote] = callArgs(part, "contains", 2) ?? [];
+		const literal = quote && core(quote);
+		return value && sameSyntax(value, answer) && literal?.kind === "string"
+			? literal.value
+			: undefined;
+	});
+	return quotes.includes("'") && quotes.includes('"');
+}
+
 /** The surface key of the first difference between the stored search and the projection's,
  *  `default_properties` aside (the rows are held by `rows.ts`). Each expression slot prints at
  *  the level the reading held it (`heldSearchLevels`), so a slot held with a rewrite withheld is
@@ -1795,6 +1862,20 @@ function searchDifference(
 					}
 				}
 			}
+		}
+		if (
+			field &&
+			stored.length === 1 &&
+			ours.length === 1 &&
+			stored[0] &&
+			ours[0] &&
+			redundantQuoteCheck(field, stored[0].test, ours[0].test)
+		) {
+			addedGuards?.add(prompt.pointer);
+			projected = {
+				...projected,
+				validations: [{ ...ours[0], test: stored[0].test }],
+			};
 		}
 		const key = promptDifference(
 			codes,

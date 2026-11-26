@@ -730,6 +730,35 @@ def _forms_variant_uses(found, held, entries):
         yield from _companion_count_uses(found, by_id[LOOKUP_COUNT])
 
 
+SEARCH_CHECK_NO_MESSAGE = "case-search/a-required-or-validation-test-with-no-message-in-any-language"
+
+
+def _empty_search_check_messages(found, held):
+    """Decide a deliberately empty message map even though there is no text value to extract."""
+    from proof.checks.xpath_tree import tree
+
+    entry = _entries_by_id(held)[SEARCH_CHECK_NO_MESSAGE]
+    for use in found.uses:
+        if use.key != "schema:Assertion.test" or use.at is None:
+            continue
+        prompt = use.at.nearest("CaseSearchProperty")
+        assertion = use.at.nearest("Assertion")
+        if (
+            prompt is None or assertion is None or assertion.get("text") != {}
+            or len(prompt.get("validations") or []) != 1
+            or prompt["validations"][0] is not assertion or prompt.get("hidden")
+            or not isinstance(use.at.value, str)
+        ):
+            continue
+        answer = changes.lowercase_search_answer(tree(use.at.value))
+        if answer is not None and answer[1] == prompt.get("name"):
+            yield Decided(
+                manifest_usage.Use("schema:Assertion.text", use.artifact, use.where.removesuffix("/test") + "/text"),
+                manifest_usage.HELD,
+                (entry,),
+            )
+
+
 def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[Decided]:
     """The uses the lane decides in a variant's source answer that it does not decide alike in its base's: each use
     whose key, place, standing and entries the base's source holds none of."""
@@ -739,6 +768,9 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
         found = source_uses(source, held, keep_expressions=bool({SUPPLY_POINT, LOOKUP_COUNT}.intersection(entries)))
         decided, _ = decided_uses(found, held)
         decided.extend(_forms_variant_uses(found, held, entries))
+        if SEARCH_CHECK_NO_MESSAGE in entries:
+            decided.extend(_empty_search_check_messages(found, held))
+
         for entry_id in PARENT_PROMPT_SHAPES.keys() & set(entries):
             entry = _entries_by_id(held)[entry_id]
             classifier = PARENT_PROMPT_SHAPES[entry_id]

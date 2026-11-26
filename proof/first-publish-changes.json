@@ -799,6 +799,12 @@
 			{
 				"check": "proof2",
 				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/validation[*]/@test",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
 				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
 				"kind": "added"
 			},
@@ -807,6 +813,12 @@
 				"artifact": "suite.xml",
 				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/validation[*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/validation[*]/@test",
+				"kind": "changed"
 			},
 			{
 				"check": "proof2",

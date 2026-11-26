@@ -428,6 +428,7 @@ async function documentOf(edit: (body: JsonObject) => void) {
 		);
 	return {
 		doc: outcome.draft.doc,
+		rewrites: outcome.draft.facts.rewrites,
 		respelled: outcome.draft.facts.sameStateRewrites.map(
 			(one) => [one.entry, one.path, one.register] as const,
 		),
@@ -676,16 +677,55 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
-	// HQ's own check of `status` holds no guard of Nova's: Nova's first publish would join one to
-	// it, and a check with no message has none for the guard's sentence to follow.
-	it("is the same finding where the stored check holds no guard of Nova's", async () => {
-		const found = await account((body) => {
-			third(body).validations = [
-				{
-					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'status'], ''), '^[a-z]+$')",
-					text: {},
+	const answer = (field: string) =>
+		`instance('search-input:results')/input/field[@name = '${field}']`;
+	const typedRule = (field: string, pattern: string) =>
+		`regex(if(count(instance('search-input:results')/input/field) > 0, ${answer(field)}, ''), '${pattern}')`;
+
+	it("keeps a lowercase check and reports its redundant first-publish guard", async () => {
+		const source = typedRule("status", "^[a-z]+$");
+		const { doc, rewrites } = await documentOf((body) => {
+			third(body).validations = [{ test: source, text: {} }];
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "status");
+		expect(field).toMatchObject({
+			validation: {
+				rule: {
+					kind: "matches-pattern",
+					left: { term: { searchInputUuid: field?.uuid } },
+					pattern: "^[a-z]+$",
 				},
-			];
+			},
+		});
+		expect(
+			field && "validation" in field && field.validation,
+		).not.toHaveProperty("message");
+		expect(rewrites.filter((one) => one.id === "search-value-guards")).toEqual([
+			expect.objectContaining({
+				pointer: "/modules/0/search_config/properties/2/validations",
+			}),
+		]);
+		const [published] = third(exportedBody(doc)).validations as JsonObject[];
+		expect(published).toEqual({
+			test: expect.stringContaining(source),
+			text: {},
+		});
+		expect(published.test).toContain(`contains(${answer("status")}`);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it.each([
+		["a different field's lowercase check", typedRule("case_name", "^[a-z]+$")],
+		["a rule allowing both quote kinds", typedRule("status", "^.+$")],
+		[
+			"a blank-message guard on its own",
+			`not(count(${answer("status")}) and contains(${answer("status")}, "'") and contains(${answer("status")}, '"'))`,
+		],
+	])("keeps the refusal for %s", async (_, test) => {
+		const found = await account((body) => {
+			third(body).validations = [{ test, text: {} }];
 		});
 		expect(found).toEqual([
 			[
