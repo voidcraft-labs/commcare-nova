@@ -31,6 +31,7 @@ test("a Results icon updates only the clicked record and returns to the list", {
 	await expect(action(first)).toBeEnabled();
 	await expect(first.getByText("ready", { exact: true })).toBeVisible();
 	await reloadBuilder(page);
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	await expect(second.getByText("visited", { exact: true })).toBeVisible({
 		timeout: 20_000,
 	});
