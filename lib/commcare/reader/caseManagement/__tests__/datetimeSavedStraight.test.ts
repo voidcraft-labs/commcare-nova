@@ -220,11 +220,14 @@ describe("a date-and-time question saved straight to a case", () => {
  * sibling and the day straight, whichever the operation writes first.
  */
 describe("one date and time saved to a property of the same name on two cases", () => {
-	const toHousehold = [
-		{ identifier: "host", throughCaseType: "household" },
-	] as const;
-	const own = { property: "visited", value: placementRead("seen") } as const;
-	const above = { ...own, via: [...toHousehold] } as const;
+	const own: CaseOperationWrite = {
+		property: "visited",
+		value: placementRead("seen"),
+	};
+	const above: CaseOperationWrite = {
+		...own,
+		via: [{ identifier: "host", throughCaseType: "household" }],
+	};
 
 	function exported(writes: readonly CaseOperationWrite[]) {
 		const { doc } = placementFixture("followup", {
@@ -268,10 +271,11 @@ describe("one date and time saved to a property of the same name on two cases", 
 		);
 	}
 
-	for (const [order, writes] of [
+	const orders: readonly (readonly [string, CaseOperationWrite[]])[] = [
 		["own case first", [own, above]],
 		["case above first", [above, own]],
-	] as const)
+	];
+	for (const [order, writes] of orders)
 		it(`exports each to its own destination with the ${order}`, () => {
 			expect(exported(writes)).toEqual({
 				visited: "/data/nova_datetime_seen",
