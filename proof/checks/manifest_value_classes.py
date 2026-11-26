@@ -35,6 +35,7 @@ import posixpath
 import unicodedata
 from dataclasses import dataclass
 from functools import cache, cached_property
+from pathlib import Path
 
 from lxml import etree
 
@@ -12330,8 +12331,7 @@ NOT_CANONICAL_STANDARD_NAMES = frozenset({"name", "date-opened", "external-id"})
 # ``case-reserved-words.json`` and HQ's own hyphenated spellings, which HQ's validator refuses as a written key
 # (``lib/commcare/constants.ts::HQ_CASE_RESERVED_WORDS``).
 HQ_CASE_RESERVED_WORDS = (RESERVED_CASE_PROPERTIES - {"owner_id"}) | {"date-opened", "external-id"}
-# The code point ranges of a name character of Core's XPath grammar, as Nova's reader reads a written key
-# (``basicActions.ts::CORE_NAME_RANGES``).
+# The XML ranges Nova's reader uses for this broad class (``basicActions.ts::CORE_NAME_RANGES``).
 CORE_NAME_RANGES = (
     (0x2D, 0x2E),
     (0x30, 0x39),
@@ -12370,8 +12370,8 @@ def _core_name_character(character):
 def _non_ascii_core_name(name):
     """Whether a written property name is in the ``non-ascii`` class of Nova's reader
     (``basicActions.ts::propertyNameClass``): outside Nova's grammar, inside HQ's (``HQ_PROPERTY``) and none of its
-    reserved words, and every character one of Core's name characters, which leaves one past ASCII. A name a
-    character of which Core does not read as a name's is HQ's build's to refuse (the bar's), and none of this."""
+    reserved words, and every character in the inventory's XML name range, which leaves one past ASCII. The witnessed runtime
+    refusal is classified separately by slot and pinned name tables."""
     if AUTHORED_CASE_PROPERTY_NAME.fullmatch(name) and name not in RESERVED_CASE_PROPERTIES:
         return False  # Nova's grammar, or only past its length
     if HQ_PROPERTY.fullmatch(name) is None or name in HQ_CASE_RESERVED_WORDS or name in RESERVED_CASE_PROPERTIES:
@@ -12425,7 +12425,7 @@ def _written_maps(at):
 
 
 def _written_properties(at):
-    """The property each key of a use's maps writes (``_written_maps``), where Nova's reader reads the key as a
+    """The slot, key and property a use's maps write (``_written_maps``), where Nova's reader reads the key as a
     write of that property: a key with an index step on a child case, the worker's record or an open action is
     refused before its property is read (``basicActions.ts``: ``illegalChildKey``, ``usercaseSlash``;
     ``advancedActions.ts``: the open action's ``slash``), as is one outside HQ's grammar with parents (a child
@@ -12446,21 +12446,52 @@ def _written_properties(at):
             *steps, written = key.split("/")
             if any(step not in UPDATE_INDEX_STEPS for step in steps):
                 continue
-            found.append(written)
+            found.append((slot, key, written))
     return found
 
 
-def non_ascii_core_name_key(use, manifest):
-    """``forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character``: an action's key whose written
-    property is Nova's reader's ``non-ascii`` class (``_non_ascii_core_name``): every character after the ASCII
-    letter HQ's grammar starts it with one of Core's name characters, at least one past ASCII. ``name`` and
-    ``owner_id`` are a case's own facts, and ``category`` and ``state`` a row of their own, neither of which this
-    class holds; none is past ASCII."""
+@cache
+def _worker_name_ranges():
+    source = Path(__file__).resolve().parents[2] / "lib" / "domain"
+    return tuple(
+        json.loads((source / filename).read_text(encoding="utf-8"))
+        for filename in ("portableNameRanges.json", "androidNameRanges.json")
+    )
+
+
+def _basic_update_has_unaddressable_letter(slot, key, property_name):
+    if slot != "own" or key != property_name or not _non_ascii_core_name(property_name):
+        return False
+
+    def addressable(code, table):
+        return any(
+            low <= code <= high
+            for ranges in (table["initial"], table["continuationOnly"])
+            for low, high in zip(ranges[::2], ranges[1::2])
+        )
+
+    return any(
+        unicodedata.category(character) == "Lo"
+        and not any(addressable(ord(character), table) for table in _worker_name_ranges())
+        for character in property_name
+    )
+
+
+def basic_update_key_with_unaddressable_letter(use, manifest):
+    """The own-case update whose generated bind holds an uncased, unaddressable letter."""
     at = _json(use)
-    if at is None:
-        return None
-    written = _written_properties(at)
-    return None if written is None else any(_non_ascii_core_name(name) for name in written)
+    written = _written_properties(at) if at is not None else None
+    return None if written is None else any(_basic_update_has_unaddressable_letter(*entry) for entry in written)
+
+
+def non_ascii_core_name_key(use, manifest):
+    """Non-ASCII XML names outside the witnessed basic runtime refusal."""
+    at = _json(use)
+    written = _written_properties(at) if at is not None else None
+    return None if written is None else any(
+        _non_ascii_core_name(property_name) and not _basic_update_has_unaddressable_letter(slot, key, property_name)
+        for slot, key, property_name in written
+    )
 
 
 # The keys a prompt reaches CommCare HQ under as a request setting of its own (``case_search/models.py``:
@@ -13517,6 +13548,7 @@ VALUE_CLASSES = {
     "expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp": av1_mov_avi_theora_h263,
     "forms-and-case-writes/form-filter-using-fixture-value": fixture_value,
     # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
+    "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": basic_update_key_with_unaddressable_letter,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,

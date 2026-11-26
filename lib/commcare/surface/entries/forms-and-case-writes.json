@@ -3534,7 +3534,7 @@
 		"id": "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key whose characters after the ASCII first are all Core's name characters, at least one of them non-ASCII",
+		"item": "update key with a non-ASCII XML name character after the ASCII first, outside the separately refused basic update class",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3545,7 +3545,7 @@
 		],
 		"valueClass": "non-ascii-core-name-key",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the property grammar over what both HQ (`validate_property`) and Core read, which needs a name token proven on each runtime's Unicode tables",
+		"dispositionCell": "**HELD-NEW**: non-ASCII property keys, including `estado_é`, whose editing and runtime behavior Nova has yet to prove outside the separately refused basic update class",
 		"subject": "case-property-names",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3565,10 +3565,40 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "basic Case Management update of the form's own case, with an XML name containing an uncased letter outside both pinned worker name tables",
+		"surfaceKeys": [
+			"schema:Form.actions",
+			"schema:FormActions.update_case",
+			"schema:UpdateCaseAction.update"
+		],
+		"valueClass": "basic-update-with-unaddressable-uncased-letter",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime. HQ builds the ordinary Case Management update, but Formplayer rejects the generated XPath bind at an uncased letter, as it does for `/data/case/update/n名字`. The class takes only a letter that neither pinned worker name table accepts.",
+		"subject": "case-property-names",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ builds the ordinary Case Management update, but Formplayer rejects the generated XPath bind at an uncased letter, as it does for `/data/case/update/n名字`. The class takes only a letter that neither pinned worker name table accepts."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/update-key-holding-a-character-validate-property-accepts-that-is",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key holding a character `validate_property` accepts that is not one of Core's name characters: a letter without case (`名字`, `محل`), a titlecase letter (`ǅ`), most numbers other than decimal digits (`½`, `⁴`, `〇`; `Ⅷ`, which Java counts as uppercase, is read), or a character outside the Basic Multilingual Plane (`𐐀`), or one newline that ends the key (`notes\\n`), which `validate_property`'s `re.match` of a pattern ending in `$` takes",
+		"item": "update key outside the XML name range used by the inventory, where HQ's property validator accepts the key",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3579,12 +3609,16 @@
 		],
 		"valueClass": "non-core-name-key",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-buildable: `validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser); a key ending in a newline fails earlier, where HQ's build makes the update's element (`xform.py::make_case_elem`: lxml raises `ValueError: Invalid tag name`, which `models/applications.py::_get_form_files` does not catch)",
+		"dispositionCell": "**REFUSED**: A key such as `note½` or a key ending in a newline cannot become an XML update element, so HQ's XML emission fails. Other keys outside the name grammar can reach the generated XPath bind, which the worker must still be able to parse.",
 		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
-				"named": "`validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser); a key ending in a newline fails earlier, where HQ's build makes the update's element (`xform.py::make_case_elem`: lxml raises `ValueError: Invalid tag name`, which `models/applications.py::_get_form_files` does not catch)"
+				"named": "HQ's XML builder refuses keys that cannot become an element, such as `note½` and keys ending in a newline."
+			},
+			{
+				"kind": "broken-at-runtime",
+				"named": "Other generated keys require an addressable XPath name in the consuming worker."
 			}
 		],
 		"platforms": {

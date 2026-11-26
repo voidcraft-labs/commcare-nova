@@ -28,6 +28,7 @@ import {
 import { formField, matchAll, term } from "@/lib/domain/expression/builders";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { isPortableNameContinuation } from "@/lib/domain/portableName";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	circumstanceFinding,
@@ -273,6 +274,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	nonCoreChildKey: refuse(
 		`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
 		"schema:OpenSubCaseAction.case_properties",
+	),
+	uncasedUpdateKey: refuse(
+		`${F}/basic-update-key-with-an-unaddressable-uncased-letter`,
+		"schema:UpdateCaseAction.update",
 	),
 	nonAsciiKey: refuse(
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
@@ -1054,7 +1059,7 @@ export const HQ_PROPERTY = /^[a-zA-Z][\p{L}\p{N}_-]*\n?$/u;
  *  very end. */
 export const HQ_PROPERTY_PATH =
 	/^[a-zA-Z][\p{L}\p{N}_-]*(?:\/[a-zA-Z][\p{L}\p{N}_-]*)*\n?$/u;
-/** The code point ranges of a name character of CommCare Core's XPath grammar (`localName`). */
+/** The inventory's XML name range, used for the broad legacy classification. */
 const CORE_NAME_RANGES: readonly (readonly [number, number])[] = [
 	[0x2d, 0x2e],
 	[0x30, 0x39],
@@ -1167,6 +1172,19 @@ export function namesAttachment(
 		typeof questionPath === "string" &&
 		uploadRefs(parsed).has(questionPath)
 	);
+}
+
+/** The generated bind fails on a name unit neither pinned worker reads.
+ * Only ordinary direct writes of the form's own case exercise this claim. */
+function basicUpdateHasUnaddressableLetter(name: string): boolean {
+	return [...name].some((character) => {
+		const unit = character.charCodeAt(0);
+		return (
+			/\p{Lo}/u.test(character) &&
+			!isPortableNameContinuation(unit, ["web-apps"]) &&
+			!isPortableNameContinuation(unit, ["android"])
+		);
+	});
 }
 
 /** The claim of a basic update's (`child` false) or child's property key
@@ -1630,7 +1648,14 @@ function readUpdateMap(
 				continue;
 			}
 			if (named !== undefined) {
-				refuseEntry(cursor, named, key);
+				const claim =
+					named === BASIC_CLAIMS.nonAsciiKey &&
+					slot === "own" &&
+					indices.length === 0 &&
+					basicUpdateHasUnaddressableLetter(property)
+						? BASIC_CLAIMS.uncasedUpdateKey
+						: named;
+				refuseEntry(cursor, claim, key);
 				continue;
 			}
 		}

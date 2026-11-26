@@ -1442,18 +1442,28 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 		);
 	}
 
-	it("refuses a key holding a non-ASCII name character once, with no difference raised at the form's actions", async () => {
-		const reading = await readMenusOf(app([visit]), (json) => {
-			const update = actionsOf(json as AppJson).update_case.update as Record<
-				string,
-				unknown
-			>;
-			update.größe = { question_path: "/data/other" };
-		});
-		expect(atActions(reading)).toEqual([
-			`${F}/update-key-holding-a-non-ascii-core-name-character`,
-		]);
-	});
+	it.each([
+		["n名字", `${F}/basic-update-key-with-an-unaddressable-uncased-letter`],
+		["estado_é", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		["aⅣ", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		["größe", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		[
+			"note½",
+			`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+		],
+	])(
+		"attributes a basic update of %s to its own name class once",
+		async (key, entry) => {
+			const reading = await readMenusOf(app([visit]), (json) => {
+				const update = actionsOf(json as AppJson).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update[key] = { question_path: "/data/other" };
+			});
+			expect(atActions(reading)).toEqual([entry]);
+		},
+	);
 
 	it("refuses a key with one trailing newline once, which HQ's grammar takes and its build cannot write", async () => {
 		// `validate_property`'s `re.match` with a closing `$` takes the newline, and HQ's build
