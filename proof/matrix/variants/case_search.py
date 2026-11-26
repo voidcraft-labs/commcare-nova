@@ -394,11 +394,10 @@ def related_record_id_sent_twice(authoring, app_id):
 # Search fields ------------------------------------------------------------------------------------------------------
 
 
-def _grouped_search_rows(authoring, app_id, label):
+def _grouped_search_rows(authoring, app_id, label, *, key="group_header_0"):
     from proof.hq import operations
 
     module = operations.held_app(authoring.state, app_id).get_module(0)
-    key = "group_header_0"
     return [
         {**_field(key, label), "is_group": True, "group_key": key},
         *({**field.to_json(), "group_key": key} for field in module.search_config.properties),

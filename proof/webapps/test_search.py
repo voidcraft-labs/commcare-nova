@@ -740,24 +740,41 @@ def test_web_apps_keeps_grouped_search_headings_and_answers_after_hq_save(
 
 
 
+@pytest.mark.parametrize("group_key", ["group_header_0", "g"], ids=["current", "saved-legacy"])
 def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
-    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, group_key
 ):
     from proof.hq import operations
-    from proof.matrix.ops import upload_commcare_translation
+    from proof.matrix import ops
+    from proof.matrix.authoring import Authoring
 
     document = webapps_documents["search-grouped-prompts"]
-    key = "search_property.m0.group_header_0"
+    current_group = "group_header_0"
+    key = f"search_property.m0.{group_key}"
     text = "Find a client"
     with webapps_hq.project(document) as project:
         state = project.unit
+        if group_key != current_group:
+            # Reopen the same representable saved group shape as the matrix's
+            # grouped-fields control, whose legacy name is independent of row order.
+            app = operations.held_app(state, project.app_id)
+            properties = [prop.to_json() for prop in app.get_module(0).search_config.properties]
+            for prop in properties:
+                if prop.get("group_key") == current_group:
+                    prop["group_key"] = group_key
+                    if prop.get("is_group"):
+                        prop["name"] = group_key
+            authoring = Authoring(state, {}, "saved-legacy-search-group", operation=state.operation)
+            ops.set_json(authoring, project.app_id, "/modules/0/search_config/properties", properties)
         with state.operation("search-group-heading-upload", document.id.encode()):
-            messages = upload_commcare_translation(state, project.app_id, key, text)
+            messages = ops.upload_commcare_translation(state, project.app_id, key, text)
         with project.released(
             formplayer_runner, saves=((pages.CASE_LIST, project.module_id(0)),), driver=editor_driver,
         ) as release:
             app = operations.held_app(state, project.app_id)
-            assert app.get_module(0).search_config.properties[0].label["en"] == "Personal details"
+            heading = app.get_module(0).search_config.properties[0]
+            assert heading.group_key == group_key and heading.name == group_key
+            assert heading.label["en"] == "Personal details"
             assert app.translations["en"][key] == text
             opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
             run = Session(release, editor_driver).run([
@@ -776,7 +793,8 @@ def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
             for entry in request["queryData"].values()
             if isinstance(entry, dict) and entry.get("execute")
         ]
-        result = {"headings": run.value(len(opening)), "inputs": sent, "messages": messages, "errors": run.page_errors}
+        result = {"groupKey": group_key, "headings": run.value(len(opening)), "inputs": sent,
+                  "messages": messages, "errors": run.page_errors}
         evidence("uploaded-search-group-heading", result)
         assert result["headings"] == [text, "Case details"]
         assert sent == [{"first_name": "North", "case_name": "River"}]
