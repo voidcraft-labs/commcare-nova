@@ -503,3 +503,67 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
     extracted = [Use(TOKEN_KEY, "form:0.0", APPEARANCE)]
     found = parity.join([], "", held=APPEARANCES, row_of=_row(TOKEN_ROW.id), extracted=extracted)
     assert _whats(found) == ["unclaimed"]
+
+
+@pytest.mark.parametrize(
+    "entry,variant_id,key,artifact,where,standing,member",
+    [
+        (
+            parity.LOCATION_WRITE, "hq-case-management/location-id-write",
+            "schema:UpdateCaseAction.update", "app.json",
+            "/modules/1/forms/0/actions/update_case/update", HELD, "location_id",
+        ),
+        (
+            parity.HYPHEN_TAG, "hq-advanced/tag-with-a-hyphen",
+            "schema:LoadUpdateAction.case_tag", "app.json",
+            "/modules/1/forms/0/actions/load_update_cases/1/case_tag", HELD, None,
+        ),
+        (
+            parity.SHADOW_LOAD, "hq-advanced/shadow-form",
+            "schema:ShadowForm.extra_actions", "app.json",
+            "/modules/1/forms/1/extra_actions", REFUSED, None,
+        ),
+        (
+            parity.SUPPLY_POINT, "hq-advanced/supply-point-id-from-a-computed-datum",
+            "session-path:session/data/*", "form:1.0",
+            "/h:html/h:head[1]/model[1]/bind[3]/@relevant", HELD, None,
+        ),
+    ],
+)
+def test_retained_forms_decide_the_specific_source_fact(
+    monkeypatch, entry, variant_id, key, artifact, where, standing, member
+):
+    from types import SimpleNamespace
+
+    from proof.matrix import ops, registry
+
+    root = Path(__file__).resolve().parents[1]
+    row = next(row for row in json.loads((root / "matrix/variants.json").read_text()) if row["id"] == variant_id)
+    source = root / "hq-apps" / row["base"] / "app-source.json"
+    base = json.loads(json.loads(source.read_text())["body"])
+    variant = copy.deepcopy(base)
+
+    def set_form_source(authoring, app_id, menu, form, transform, **kwargs):
+        filename = variant["modules"][menu]["forms"][form]["unique_id"] + ".xml"
+        xml = variant["_attachments"][filename]
+        root = etree.fromstring(xml.encode())
+        returned = transform(root, SimpleNamespace(source=xml))
+        variant["_attachments"][filename] = returned if isinstance(returned, str) else etree.tostring(root, encoding="unicode")
+
+    def set_json(authoring, app_id, pointer, value):
+        ops.set_at(variant, pointer, ops.resolve_references(value, ops.ids_at(variant)))
+
+    monkeypatch.setattr(ops, "set_form_source", set_form_source)
+    monkeypatch.setattr(ops, "set_json", set_json)
+    change = row["change"]
+    if change["op"] == "named":
+        registry.named_change(change["name"])(None, "fixture")
+    else:
+        set_json(None, "fixture", change["pointer"], change["value"])
+
+    assert row["entry"] == entry
+    uses, differences = parity.variant_differences(base, variant, [], [entry])
+    assert [(one.use.key, one.use.artifact, one.use.where, one.standing, one.at) for one in uses] == [
+        (key, artifact, where, standing, f"{where}/{member}" if member else None),
+    ]
+    assert [difference.path for difference in differences] == [f"/{parity.pointer_token(key)}/unclaimed"]
