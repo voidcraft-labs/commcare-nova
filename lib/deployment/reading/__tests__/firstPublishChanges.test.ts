@@ -3132,8 +3132,10 @@ describe("each entry", () => {
 					place,
 					true,
 				]);
-				// A form's or a menu's place names one the source holds.
+				// A form's or a menu's place names one the source holds, but a key naming no string of
+				// the app: its place is the menu or form its key spells, which the app may not hold.
 				const [root, at] = placeSteps(place);
+				if (id === "unused-translation-keys-removed") continue;
 				if (root === "form")
 					expect([place, positions.all.includes(at ?? "")]).toEqual([
 						place,

@@ -24,6 +24,7 @@ import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import { pythonStrip } from "@/lib/commcare/localeFile";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { readsTrimmedSibling } from "@/lib/commcare/placement";
+import { generatedKeyOwner } from "@/lib/commcare/reader/generatedTranslationKeys";
 import type {
 	MediaRecipients,
 	ReadFacts,
@@ -1562,11 +1563,21 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		scope: "reading",
 		applies: (facts) => facts.facts.unusedTranslationKeys.length > 0,
 		at: {
-			kinds: ["app"],
+			kinds: ["app", "menu", "form"],
+			// The stored key, and the menu, form or app its built string is of, which the string HQ's
+			// build no longer writes stands at.
 			places: (facts) =>
 				facts.facts.unusedTranslationKeys.flatMap((pointer) => {
 					const stored = placeOfStoredPointer(facts.positions, pointer);
-					return stored === null ? [] : [stored];
+					const owner = generatedKeyOwner(placeSteps(pointer).at(-1) ?? "");
+					return [
+						...(stored === null ? [] : [stored]),
+						owner.kind === "form"
+							? placeOf("form", `${owner.menu}.${owner.form}`)
+							: owner.kind === "menu"
+								? placeOf("menu", owner.menu)
+								: placeOf("app"),
+					];
 				}),
 		},
 		paths: ["/translations/*/*"],

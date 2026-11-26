@@ -1384,7 +1384,7 @@
 	},
 	{
 		"change": "unused-translation-keys-removed",
-		"placeKinds": ["app"],
+		"placeKinds": ["app", "menu", "form"],
 		"rows": [
 			{
 				"check": "source",
