@@ -6252,6 +6252,20 @@ def _literal_lookup_text(tree):
     return tree[:2] == ["call", "concat"] and all(_literal_lookup_text(argument) for argument in tree[2])
 
 
+def _worker_lookup_value(tree):
+    return bool(
+        tree and tree[:2] == ["path", "instance:commcaresession"]
+        and tree[3] == [["text", "commcaresession"]]
+        and tree[4][:2] == [["child", "session", 0], ["child", "context", 0]]
+        and tree[4][2:] in ([["child", "username", 0]], [["child", "userid", 0]])
+    )
+
+
+def _supported_lookup_value(text):
+    tree = expression_tree(text)
+    return _literal_lookup_text(tree) or _worker_lookup_value(tree)
+
+
 def lookup_with_nonliteral_arguments(use, manifest):
     """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
     detail = _short_lookup(use)
@@ -6260,14 +6274,25 @@ def lookup_with_nonliteral_arguments(use, manifest):
     return any(
         isinstance(extra, dict)
         and isinstance(value := extra.get("value"), str)
-        and not _literal_lookup_text(expression_tree(value))
+        and not _supported_lookup_value(value)
         for extra in detail["lookup_extras"]
     )
 
 
 def lookup_with_result_column(use, manifest):
+    """The active result columns outside the plain-list case-ID carrier."""
     detail = _short_lookup(use)
-    return detail is not None and detail.get("lookup_display_results") is True
+    if detail is None or detail.get("lookup_display_results") is not True:
+        return False
+    template, headings = detail.get("lookup_field_template"), detail.get("lookup_field_header")
+    parsed = expression_tree(template) if isinstance(template, str) else None
+    return bool(
+        detail.get("case_tile_template") or not parsed
+        or parsed[:2] != ["path", "relative"] or parsed[3] != []
+        or parsed[4] != [["attribute", "case_id", 0]]
+        or not isinstance(headings, dict)
+        or not any(isinstance(value, str) and value.strip() for value in headings.values())
+    )
 
 
 def _lookup_names(entries, keys):

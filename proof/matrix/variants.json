@@ -8620,6 +8620,27 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/fixed-text-callout-confidence",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-case-id-confidence",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_confidence"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/resultHeading",
+				"value": "Confidence"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/fixed-text-callout-extras",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-extras-fixed-text",
@@ -8709,6 +8730,36 @@
 				],
 				"pointer": "/caseListConfig/deviceLookup/responses",
 				"value": ["patient_id", "fallback"]
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/callout-with-worker-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-worker-context",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_worker_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/extras/1",
+				"value": {
+					"name": "worker",
+					"expression": {
+						"kind": "term",
+						"term": {
+							"kind": "session-context",
+							"field": "username"
+						}
+					}
+				}
 			}
 		]
 	},

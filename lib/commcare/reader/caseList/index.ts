@@ -787,6 +787,17 @@ function listDifference(
 		long: JsonObject;
 	};
 	const codes = appCodes(ctx);
+	if (
+		mod.caseListConfig?.deviceLookup?.resultHeading !== undefined &&
+		!sameHeldTexts(
+			codes,
+			sourceCode(ctx),
+			"case-list-lookup-result-heading",
+			reading.short.peek("lookup_field_header"),
+			pair.short.lookup_field_header,
+		)
+	)
+		return "schema:Detail.lookup_field_header";
 	const handed = handedOffListSlots(ctx, reading);
 	// A column an inert row dropped is written by no build.
 	const kept = (detail: unknown, dropped: ReadonlySet<number>) =>

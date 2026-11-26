@@ -14,9 +14,12 @@ export function caseListDeviceLookup(
 	const message =
 		mod.caseType === undefined || config.tile?.namedSlots
 			? "Use a case list or a custom case tile to look up cases with an Android app."
-			: caseListDeviceLookupSchema.safeParse(config.deviceLookup).success
-				? undefined
-				: "Give the Android app an action, a label, and named values and responses.";
+			: config.deviceLookup.resultHeading !== undefined &&
+					config.tile !== undefined
+				? "Show lookup confidence in a case list with rows."
+				: caseListDeviceLookupSchema.safeParse(config.deviceLookup).success
+					? undefined
+					: "Give the Android app an action, a lookup name, and named values and responses.";
 	return message === undefined
 		? []
 		: [

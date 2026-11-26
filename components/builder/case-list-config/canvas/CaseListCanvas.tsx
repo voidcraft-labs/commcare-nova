@@ -224,6 +224,7 @@ export function CaseListCanvas({
 						moduleUuid={moduleUuid}
 						disabled={caseType === undefined || tile?.namedSlots !== undefined}
 						value={config.deviceLookup}
+						allowConfidence={tile === undefined}
 						canEdit={canEdit}
 						onChange={onDeviceLookupChange}
 					/>

@@ -85,6 +85,7 @@ export const translationUnitRoles = [
 	"case-list-interval-text",
 	"case-list-empty-text",
 	"case-list-select-text",
+	"case-list-lookup-result-heading",
 	"search-input-label",
 	"search-input-group-label",
 	"search-input-hint",
@@ -128,11 +129,11 @@ export const EXTENDED_FIELD_TEXT_SLOT_OF_ROLE = {
 } as const;
 type ExtendedFieldTextRole = keyof typeof EXTENDED_FIELD_TEXT_SLOT_OF_ROLE;
 
-/** The unit of a case list's own empty-list text (`"empty"`) or Continue
- *  label (`"select"`): the module's, since the list has no identity of its own. */
+/** A case list's wording unit for empty text, the Continue label or the
+ *  lookup confidence heading. The module supplies the identity. */
 export function caseListWordingUnitId(
 	moduleUuid: Uuid,
-	slot: "empty" | "select",
+	slot: "empty" | "select" | "lookup",
 ): TranslationUnitId {
 	return makeTranslationUnitId("module", moduleUuid, `list-${slot}-text`);
 }
@@ -244,6 +245,7 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"case-list-sort-label",
 	"case-list-empty-text",
 	"case-list-select-text",
+	"case-list-lookup-result-heading",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-input-label",
@@ -827,6 +829,12 @@ export function collectTranslationUnits(
 				"case-list-select-text",
 				list?.selectButtonText,
 				"Continue button",
+			],
+			[
+				"lookup",
+				"case-list-lookup-result-heading",
+				list?.deviceLookup?.resultHeading,
+				"Lookup confidence column",
 			],
 		] as const) {
 			if (source === undefined) continue;

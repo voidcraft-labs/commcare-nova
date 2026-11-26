@@ -144,6 +144,11 @@ import {
 	SELECT_TEXT,
 	selectTextLocaleId,
 } from "./detailTexts";
+import {
+	deviceLookupExtraWire,
+	lookupConfidenceColumn,
+	lookupConfidenceLocaleId,
+} from "./deviceLookup";
 import { buildNamedTileFields } from "./namedTile";
 import { withDetailLoadBehavior } from "./optimizations";
 import { moduleCaseListOrderPlan } from "./orderPlanOptions";
@@ -532,6 +537,12 @@ export function buildShortDetail(args: {
 			);
 	}
 
+	if (config.deviceLookup?.resultHeading !== undefined) {
+		const locale = lookupConfidenceLocaleId(moduleIndex);
+		strings[locale] = config.deviceLookup.resultHeading;
+		translationUnits[locale] = caseListWordingUnitId(mod.uuid, "lookup");
+	}
+
 	for (const calc of plan.calculations) {
 		const emission = buildCalculatedSortField(calc, ctx);
 		fields.push(emission.element);
@@ -681,14 +692,20 @@ function buildDetailShell(
 					auto_launch: String(deviceLookup.automatic === true),
 				},
 				[
-					...deviceLookup.extras.map(({ name, value }) =>
+					...deviceLookup.extras.map((extra) =>
 						xel(
 							"extra",
-							{ attributes: { key: name }, xpath: { value: w.str(value) } },
+							{
+								attributes: { key: extra.name },
+								xpath: { value: deviceLookupExtraWire(extra) },
+							},
 							wire,
 						),
 					),
 					...deviceLookup.responses.map((key) => el("response", { key })),
+					...(deviceLookup.resultHeading === undefined
+						? []
+						: [lookupConfidenceColumn(moduleIndex, wire)]),
 				],
 			),
 		);
