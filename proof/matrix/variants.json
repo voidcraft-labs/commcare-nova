@@ -42435,6 +42435,35 @@
 		]
 	},
 	{
+		"id": "hq-search/address-choice-shares-its-receiver-with-text",
+		"base": "hq-search",
+		"entry": "case-search/address-receiver-shared-with-a-choice-field",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "address_picker_and_two_receivers"
+		},
+		"second": {
+			"entry": "case-search/address-receiver-shared-with-a-choice-field",
+			"standing": "fix-in-hq",
+			"place": {
+				"kind": "search",
+				"menu": 0,
+				"name": "Clients"
+			},
+			"change": {
+				"op": "set-json",
+				"pointer": "/modules/0/search_config/properties/2/receiver_expression",
+				"value": "home-region"
+			}
+		}
+	},
+	{
 		"id": "hq-search/value-received-with-invalid-topic",
 		"base": "hq-search",
 		"entry": "case-search/receiver-expression",

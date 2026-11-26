@@ -613,6 +613,7 @@
 		"hq-saved-pages/tile-cell-bordered-and-shaded"
 	],
 	"hq-search": [
+		"hq-search/address-choice-shares-its-receiver-with-text",
 		"hq-search/blank-answer-searched-for",
 		"hq-search/blank-searched-for-beside-the-owner",
 		"hq-search/blank-searched-for-on-a-hidden-prompt",

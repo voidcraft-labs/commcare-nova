@@ -3622,9 +3622,28 @@ export function searchAddressReceiverProblem(
 				? source.uuid === receiver.source
 				: source.name === receiver.topic),
 	);
-	return active === (receiver.kind === "address")
-		? undefined
-		: "Choose an address field from this Search screen or clear the link.";
+	if (active !== (receiver.kind === "address"))
+		return "Choose an address field from this Search screen or clear the link.";
+	if (receiver.kind === "address") {
+		const parts = receiver.parts.join("||");
+		if (
+			inputs.some(
+				(other) =>
+					other.uuid !== input.uuid &&
+					isVisibleSearchInput(other) &&
+					other.hidden !== true &&
+					(other.type === "text" ||
+						other.type === "select" ||
+						other.type === "multi-select") &&
+					other.addressReceiver?.kind === "address" &&
+					other.addressReceiver.source === receiver.source &&
+					other.addressReceiver.parts.join("||") === parts &&
+					(input.type !== "text" || other.type !== "text"),
+			)
+		)
+			return "Choose different address parts or a different address field for each linked choice field.";
+	}
+	return undefined;
 }
 
 export const caseListConfigSchema = z

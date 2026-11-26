@@ -555,7 +555,9 @@ A `Module` (`modules.ts`) carries an optional `caseType`, the `caseListConfig` (
 A Search address picker (`kind: "address"`) supplies address parts in Web
 Apps. It has its own field identity and no search answer. A visible text
 or multiple-choice field can link to the picker by identity and list the parts
-it tries in order. A source brought in with no active address topic retains
+it tries in order. Text fields can share an identical subscription. A
+multiple-choice field needs its own address parts or picker across the Search
+screen. A source brought in with no active address topic retains
 its exact dormant spelling, and a mutation cannot accidentally make that
 topic active. The search compiler resolves linked identities to current
 names at the wire boundary.

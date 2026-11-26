@@ -3980,6 +3980,33 @@ def _search_and_menus():
                 ),
             )
         ),
+        "case-search/address-receiver-shared-with-a-choice-field": tuple(
+            make(
+                "app",
+                search(_search_module(properties=fields)),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{config}/properties/1/receiver_expression",
+            )
+            for make, fields in (
+                (refused, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("district", receiver_expression="home-city", input_="select",
+                            itemset={"doc_type": "Itemset", "nodeset": "instance('places')/rows/place"}),
+                ]),
+                (accepted, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("other_town", receiver_expression="home-city"),
+                ]),
+                (accepted, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("district", receiver_expression="home-region", input_="select",
+                            itemset={"doc_type": "Itemset", "nodeset": "instance('places')/rows/place"}),
+                ]),
+            )
+        ),
         # HQ's build reads these three only on a search the menu offers; on one it does not, each is part of the
         # search configuration HQ stores and builds nothing of.
         "case-search/case-search-endpoint-id": (
