@@ -64,7 +64,7 @@ export function ManualLookupInstaller({
 			} else if (result.status === "complete") {
 				setComplete(true);
 				setMessage(
-					"The lookup data is ready. You can import the app JSON into this CommCare HQ project space.",
+					"The lookup data is ready in this project space. You can continue with the import guide.",
 				);
 			} else {
 				setResume(result.status === "checkpoint");
