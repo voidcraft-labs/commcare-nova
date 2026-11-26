@@ -72,6 +72,7 @@ import {
 	formatDateDefault,
 } from "./cards/expression/FormatDateCard";
 import {
+	CaseListLookupCountCard,
 	CaseListSearchTextCard,
 	ChoicePositionCard,
 	HereCard,
@@ -235,6 +236,21 @@ export const expressionCardSchemas: {
 		description: "The worker's location when the case list shows",
 		component: HereCard,
 		defaultValue: () => ({ kind: "here" }),
+	},
+	"case-list-lookup-count": {
+		kind: "case-list-lookup-count",
+		label: "Companion lookup count",
+		icon: tablerHash,
+		description: "How many distinct results the Android companion app returned",
+		component: CaseListLookupCountCard,
+		defaultValue: ({ expressionContext }) => {
+			const module = expressionContext.caseListLookupCountSource;
+			if (module === undefined)
+				throw new Error(
+					"This form does not open from a single supported companion lookup.",
+				);
+			return { kind: "case-list-lookup-count", module };
+		},
 	},
 	"case-list-search-text": {
 		kind: "case-list-search-text",
@@ -459,6 +475,8 @@ export function isAuthorableExpressionKind(
 	// (`typeChecker.ts::caseListSearchTextReachable`). A declared platform
 	// that lacks it leaves the choice offered, disabled by the rule
 	// admission with that platform's picker line.
+	if (kind === "case-list-lookup-count")
+		return ctx?.expressionContext?.caseListLookupCountSource !== undefined;
 	if (kind === "case-list-search-text")
 		return (
 			ctx?.expressionContext !== undefined &&

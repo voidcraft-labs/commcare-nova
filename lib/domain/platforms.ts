@@ -236,6 +236,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"search-field-multiple-choice",
 	"connect-app",
 	"case-list-search-text",
+	"case-list-lookup-count",
 	"window-width",
 	"location-question",
 	"barcode-question",
@@ -328,6 +329,7 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"search-field-multiple-choice",
 	"connect-app",
 	"case-list-search-text",
+	"case-list-lookup-count",
 	"window-width",
 	"android-app-question",
 ] as const satisfies readonly PlatformFeatureId[];
@@ -596,6 +598,23 @@ export const PLATFORM_FEATURES: Readonly<
 				'You can set the app to run only on Android (updateApp/update_app, runs_only_on "android"), or remove the Connect activities and clear the app’s roles (configureConnect/configure_connect, roles []).',
 			pickerLine:
 				"Not available for a Connect app. You can turn off Connect, then choose this.",
+		},
+	},
+	"case-list-lookup-count": {
+		label: "Companion lookup count",
+		channel: "expression",
+		webApps: {
+			reading: "unavailable",
+			note: "the Android companion app cannot return a result in Web Apps",
+		},
+		android: {
+			reading: "runs",
+			note: "the number of distinct result keys from the companion app, blank when it supplies no result",
+		},
+		refusal: {
+			what: "reads the companion lookup count",
+			why: "Only Android can receive the companion app’s result.",
+			alternative: "take the read out",
 		},
 	},
 	"case-list-search-text": {
@@ -1421,6 +1440,8 @@ export function expressionLeafFeature(
 	expression: Expression,
 ): PlatformFeatureId | undefined {
 	if (expression.kind === "here") return "case-list-here";
+	if (expression.kind === "case-list-lookup-count")
+		return "case-list-lookup-count";
 	if (expression.kind === "case-list-search-text")
 		return "case-list-search-text";
 	if (

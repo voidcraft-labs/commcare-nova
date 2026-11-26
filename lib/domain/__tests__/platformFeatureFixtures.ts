@@ -731,6 +731,33 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		),
 	},
 	"connect-app": CONNECT,
+	"case-list-lookup-count": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.deviceLookup = {
+						action: "org.nova.proof.CASE_LOOKUP",
+						label: "Find a visit",
+						extras: [{ name: "mode", value: "visit" }],
+						responses: ["key"],
+					};
+				},
+				fields: [
+					f({ kind: "text", id: "note", label: proseText("Note") }),
+					f({
+						kind: "hidden",
+						id: "value",
+						uuid: FIXTURE_FIELD,
+						calculate: {
+							kind: "case-list-lookup-count",
+							module: FIXTURE_MODULE,
+						},
+					}),
+				],
+			}),
+		without: () => followupCalculated("0"),
+		use: calculateUse("case-list-lookup-count"),
+	},
 	"case-list-search-text": {
 		with: () =>
 			followupCalculated(

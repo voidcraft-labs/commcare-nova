@@ -247,12 +247,20 @@ function sessionUse(
 	steps: readonly string[],
 	context: ExpressionContext,
 	facts: SurfaceUseFacts,
+	holdsLookupCount: boolean,
 ): { readonly key: string; readonly valueClass?: string } | undefined {
 	const [root, group, next, field] = steps;
 	if (root !== "session" || next === undefined) return undefined;
 	if (group === "data") {
-		if (next === "stringquery" || next === "fingerprintquery")
-			return { key: `session-path:session/data/${next}` };
+		if (next === "stringquery")
+			return { key: "session-path:session/data/stringquery" };
+		if (next === "fingerprintquery")
+			return {
+				key: "session-path:session/data/fingerprintquery",
+				valueClass: holdsLookupCount
+					? "guarded-numeric-lookup-count-from-one-supplier"
+					: "count-outside-a-guarded-single-supplier",
+			};
 		return {
 			key: "session-path:session/data/*",
 			valueClass:
@@ -462,9 +470,11 @@ function xpathUses(
 	const expression = (name: string, valueClass?: string) =>
 		uses.add(`xpath-expr:${name}`, valueClass ?? OPERAND_CLASS);
 	const staticChoices = new Set<string>();
+	let holdsLookupCount = false;
 	if (candidate !== undefined)
 		walkExpression(candidate, {
 			visitExpression(node) {
+				if (node.kind === "case-list-lookup-count") holdsLookupCount = true;
 				if (
 					node.kind === "choice-name" &&
 					context.facts.options.has(node.field)
@@ -611,7 +621,12 @@ function xpathUses(
 					classifiedInstanceId(path.id, facts.instanceSources.get(path.id)) ===
 						"commcaresession"
 				) {
-					const session = sessionUse(path.steps, context, facts);
+					const session = sessionUse(
+						path.steps,
+						context,
+						facts,
+						holdsLookupCount,
+					);
 					if (session !== undefined) uses.add(session.key, session.valueClass);
 				}
 				if (node.left !== undefined) visit(node.left, node);

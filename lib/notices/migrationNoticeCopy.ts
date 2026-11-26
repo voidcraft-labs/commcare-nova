@@ -339,6 +339,7 @@ function expressionCount(
 export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"datetime-question": "date-and-time questions",
 	"case-list-here": "case-list columns that read the worker's location",
+	"case-list-lookup-count": "reads of the companion lookup count",
 	"case-list-search-text": "reads of the case list's search text",
 	"forms-read-search": "menus whose forms read the search",
 	"list-first": "menus that open on their case list first",

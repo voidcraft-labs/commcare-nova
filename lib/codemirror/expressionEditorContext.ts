@@ -64,6 +64,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import { datumRefKey } from "@/lib/domain/expression/types";
 import { operationCaseType, orderedCaseOperations } from "@/lib/domain/forms";
+import { unavailablePlatform } from "@/lib/domain/platforms";
 import { userPropertiesOf } from "@/lib/domain/users";
 import { lookupPathNameIssue } from "@/lib/lookup/pathNames";
 import {
@@ -385,8 +386,8 @@ function slotReads(
 			.filter((row) => row.scalar)
 			.map((row) => datumRefKey(row.ref)),
 	);
-	const openingSupplies =
-		form &&
+	const openingSupplies = [
+		...(form &&
 		(doc.forms[form.formUuid].caseSelections !== undefined ||
 			doc.forms[form.formUuid].computedDatums?.length)
 			? namedEntrySupplies(doc, form.formUuid).flatMap((supply) => {
@@ -394,7 +395,18 @@ function slotReads(
 					const formula = namedEntrySupplyRead(doc, form.formUuid, supply.ref);
 					return formula ? [{ formula, label: supply.name }] : [];
 				})
-			: [];
+			: []),
+		...(context.caseListLookupCountSource !== undefined &&
+		unavailablePlatform("case-list-lookup-count", context.platforms) ===
+			undefined
+			? [
+					{
+						formula: "case-list-lookup-count()",
+						label: "Companion lookup count",
+					},
+				]
+			: []),
+	];
 	const levels = orderedOrganizationLevels(doc);
 	const chosen =
 		context.slot.entity === "field"

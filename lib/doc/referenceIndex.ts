@@ -1340,6 +1340,7 @@ function expressionEdges(
 						if (node.unit.role === "select-option-label")
 							sink.edge(entityTargetKey(node.unit.option), slot);
 						break;
+					case "case-list-lookup-count":
 					case "selected-cases":
 						sink.edge(entityTargetKey(node.module), slot);
 						break;

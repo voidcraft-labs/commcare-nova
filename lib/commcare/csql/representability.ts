@@ -662,6 +662,7 @@ function checkRuntimeNode(
 		case "choice-name":
 		case "here":
 		case "case-list-search-text":
+		case "case-list-lookup-count":
 		case "selected-cases":
 			issues.push({
 				reason: "form-context-value-not-csql",

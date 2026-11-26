@@ -329,6 +329,16 @@ export function bindFormSyntax(
 		node: Extract<FormSyntax, { kind: "call" }>,
 		ctx: ExpressionContext,
 	): Expression {
+		if (!scope.reading && node.name === "case-list-lookup-count") {
+			const module = ctx.caseListLookupCountSource;
+			if (node.args.length !== 0 || module === undefined)
+				refuse(
+					"unknown-datum",
+					node,
+					"This form needs to open directly from one case list with a companion lookup before it can read the lookup count.",
+				);
+			return remember({ kind: "case-list-lookup-count", module }, node);
+		}
 		if (
 			!scope.reading &&
 			(node.name === "opening-record" || node.name === "opening-value")

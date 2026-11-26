@@ -8641,6 +8641,22 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/fixed-text-callout-count",
+		"base": "hq-case-lists",
+		"entry": "expressions-and-data/companion-lookup-count",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_count"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 1] }, ["lookup_count"]],
+				"pointer": "/calculate/kind",
+				"value": "case-list-lookup-count"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/fixed-text-callout-extras",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-extras-fixed-text",

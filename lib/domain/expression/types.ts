@@ -713,6 +713,7 @@ export type ValueArm =
 	/** What the worker typed into the case list's search box, on the entry's
 	 * one case list: `session/data/stringquery`, which only Android sets. */
 	| { kind: "case-list-search-text" }
+	| { kind: "case-list-lookup-count"; module: Uuid }
 	| { kind: "value-list"; items: [Expression, ...Expression[]] };
 export type InstanceArm =
 	| {
@@ -775,6 +776,7 @@ const VALUE_KINDS = new Set<string>([
 	"choice-name",
 	"here",
 	"case-list-search-text",
+	"case-list-lookup-count",
 	"value-list",
 ]);
 const INSTANCE_KINDS = new Set<string>([
@@ -1078,6 +1080,10 @@ const valueSchemas = [
 	}),
 	z.strictObject({ kind: z.literal("here") }),
 	z.strictObject({ kind: z.literal("case-list-search-text") }),
+	z.strictObject({
+		kind: z.literal("case-list-lookup-count"),
+		module: uuidSchema,
+	}),
 	z.strictObject({ kind: z.literal("value-list"), items: manyE }),
 ] as const;
 const instanceSchemas = [

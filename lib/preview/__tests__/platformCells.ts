@@ -252,6 +252,9 @@ export const PLATFORM_CELLS: Readonly<
 	// ── Refused, expression ────────────────────────────────────────────
 	"expressions-and-data/here-in-a-case-list-calculated-column-or-sort@web-apps":
 		expression("case-list-here"),
+	"expressions-and-data/companion-lookup-count@web-apps": expression(
+		"case-list-lookup-count",
+	),
 	"expressions-and-data/session-data-stringquery@web-apps": expression(
 		"case-list-search-text",
 	),

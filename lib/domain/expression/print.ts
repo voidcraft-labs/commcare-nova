@@ -644,6 +644,9 @@ function printWith(
 			case "here":
 				emit(`${node.kind}()`);
 				break;
+			case "case-list-lookup-count":
+				emit("case-list-lookup-count()");
+				return;
 			case "case-list-search-text":
 				emit(CASE_LIST_SEARCH_TEXT_PATH);
 				break;

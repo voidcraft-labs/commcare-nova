@@ -66,7 +66,11 @@ from dataclasses import dataclass
 
 from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
-from proof.checks.manifest_value_classes import save_to_case_before_optional_own_update, save_to_case_retype_property_types
+from proof.checks.manifest_value_classes import (
+    _guarded_lookup_count,
+    save_to_case_before_optional_own_update,
+    save_to_case_retype_property_types,
+)
 from proof.observe.manifest import expression_tree
 
 CHECK = "parity"
@@ -293,6 +297,7 @@ AUTOMATIC_MULTI = "menus-and-case-lists/detail-auto-select-multi-select"
 LOCATION_WRITE = "forms-and-case-writes/update-keys-location-id-hq-user-id"
 HYPHEN_TAG = "forms-and-case-writes/case-tag-holding-a-hyphen"
 SHADOW_LOAD = "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent"
+LOOKUP_COUNT = "expressions-and-data/companion-lookup-count"
 SUPPLY_POINT = "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed"
 PARENT_FOLLOW_UP = "menus-and-case-lists/case-list-form-pointing-at-a-follow-up-form-of-the-parent-case"
 CHILD_REGISTRATION = (
@@ -370,6 +375,33 @@ def _supplied_point_uses(found, held, entry):
             yield Decided(use, manifest_usage.HELD, (entry,))
 
 
+def _companion_count_uses(found, entry):
+    """Find the retained canonical calculation on a direct basic lookup form."""
+    guard = _guarded_lookup_count()
+    for expression in found.expressions:
+        if "fingerprintquery" not in expression.text or not isinstance(expression.at, manifest_usage.XmlAt):
+            continue
+        form = expression.at.document
+        if not isinstance(form, manifest_usage.Form) or form.app_form is None:
+            continue
+        app, source = form.app_form
+        menu = app.module_of(source)
+        if (
+            menu is None or menu.get("doc_type") != "Module" or menu.get("root_module_id")
+            or not menu.get("case_type") or app.doc.get("cloudcare_enabled") is not False
+            or source.get("doc_type") != "Form" or source.get("requires") != "case"
+        ):
+            continue
+        short = (menu.get("case_details") or {}).get("short") or {}
+        if short.get("lookup_enabled") is not True or short.get("multi_select"):
+            continue
+        if guard is not None and expression_tree(expression.text) == guard:
+            use = manifest_usage.Use(
+                "session-path:session/data/fingerprintquery", expression.artifact, expression.where, expression.at
+            )
+            yield Decided(use, manifest_usage.HELD, (entry,))
+
+
 def _registration_target(use):
     """A basic form reached from a list, with the particular selection or creation that supplies its case."""
     at = use.at
@@ -424,7 +456,10 @@ def _automatic_multiple_case_selection(use):
 
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
-    wanted = {AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, OWN_CASE_BESIDE, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES}.intersection(entries)
+    wanted = {
+        AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT,
+        OWN_CASE_BESIDE, LOOKUP_COUNT, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
+    }.intersection(entries)
     if not wanted:
         return
     by_id = _entries_by_id(held)
@@ -459,6 +494,8 @@ def _forms_variant_uses(found, held, entries):
                 yield Decided(use, manifest_usage.HELD, (by_id[entry],))
     if SUPPLY_POINT in wanted:
         yield from _supplied_point_uses(found, held, by_id[SUPPLY_POINT])
+    if LOOKUP_COUNT in wanted:
+        yield from _companion_count_uses(found, by_id[LOOKUP_COUNT])
 
 
 def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[Decided]:
@@ -467,7 +504,7 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
     held = manifest()
 
     def decisions(source):
-        found = source_uses(source, held, keep_expressions=SUPPLY_POINT in entries)
+        found = source_uses(source, held, keep_expressions=bool({SUPPLY_POINT, LOOKUP_COUNT}.intersection(entries)))
         decided, _ = decided_uses(found, held)
         decided.extend(_forms_variant_uses(found, held, entries))
         return decided

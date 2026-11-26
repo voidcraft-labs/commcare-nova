@@ -70,6 +70,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"connect-app": [
 		"application-and-settings/connect-app-opened-in-the-connect-app",
 	],
+	"case-list-lookup-count": ["expressions-and-data/companion-lookup-count"],
 	"case-list-search-text": ["expressions-and-data/session-data-stringquery"],
 	"window-width": [
 		"expressions-and-data/session-context-window-width",

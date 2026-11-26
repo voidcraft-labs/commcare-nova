@@ -2,6 +2,7 @@ import { formCaseSelections } from "../advancedEntryDatums";
 import { ancestorWalk } from "../advancedModule";
 import { registrationMintsOwnCaseId } from "../basicCaseSlots";
 import type { BlueprintDoc, CaseType } from "../blueprint";
+import { caseListLookupCountSource } from "../caseListLookupCount";
 import type { CasePropertyDataType } from "../casePropertyTypes";
 import {
 	caseDataTypeForFieldKind,
@@ -254,6 +255,7 @@ export interface ExpressionContext {
 	readonly lookupTables: LookupTypeIndex;
 	readonly supplies: EntryDatumSupplies;
 	readonly targetSupplies?: EntryDatumSupplies;
+	readonly caseListLookupCountSource?: Uuid;
 	readonly detailConditionFixtures?: ReadonlySet<LookupTableId | "places">;
 	/** A value of a server search condition that a device works out before
 	 * the search runs (`searchRuntimeValues.ts`): the slot names no device
@@ -1472,8 +1474,13 @@ export function slotContext(
 			(slot.entity === "form" &&
 				(slot.slot === "form_display_condition" || slot.slot === "form_badge")),
 	};
+	const lookupCountSource =
+		profile.caseListSearchText && formUuid !== undefined
+			? caseListLookupCountSource(doc, formUuid)
+			: undefined;
 	return {
 		slot,
+		...(lookupCountSource && { caseListLookupCountSource: lookupCountSource }),
 		...(slot.entity === "module" &&
 			slot.slot === "case_detail_tab_condition" &&
 			module.caseListConfig && {
