@@ -54,8 +54,8 @@ function body(answer: RetainedHqAnswer): Record<string, unknown> {
 	return JSON.parse(answer.body ?? "") as Record<string, unknown>;
 }
 
-function answersFrom(peer: MockAgent, target: typeof origin) {
-	const host = peer.get(COMMCARE_SERVERS[target.server].baseUrl);
+function answersFrom(peer: MockAgent, server: ReadingKey["server"]) {
+	const host = peer.get(COMMCARE_SERVERS[server].baseUrl);
 	return (
 		path: string,
 		answer: RetainedHqAnswer,
@@ -79,7 +79,7 @@ function serveReading(
 	changed: boolean,
 ) {
 	const root = `/a/${key.domain}`;
-	const serve = answersFrom(peer, key);
+	const serve = answersFrom(peer, key.server);
 	const source = body(first.source);
 	const application = body(first.application);
 	const counter = body(first.currentVersion);
@@ -412,7 +412,7 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 	await withHttpPeer(async (peer) => {
 		// Confirm the origin has readable rows before checking that the
 		// second project space still needs its own destination binding.
-		serveLookup(retained, `/a/${key.domain}`, answersFrom(peer, key));
+		serveLookup(retained, `/a/${key.domain}`, answersFrom(peer, key.server));
 		const upload = vi.fn();
 		const refused = await publish(appId, overseas, upload);
 		if (refused.landed)
