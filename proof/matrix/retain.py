@@ -638,17 +638,32 @@ def served_ids(base_source, source):
     return resolve
 
 
-def hold_key(key, base_source) -> str:
+def hold_key(key, base_source, served_source=None) -> str:
     """A ``holds`` fragment's key as the bundle reads it, the external key's text (``identity.ts::externalKeyText``,
     ``JSON.stringify`` of ``[kind, ...parts]``): text as written, or a list whose menu references
-    (``{"$menu": m}``) are the id HQ keeps for the base's menu at that position and whose ``xmlns`` references
+    (``{"$menu": m}``) are the id HQ keeps for the base's menu at that position, whose ``xmlns`` references
     (``{"$xmlns": [m, f]}``) the ``xmlns`` of the base's form there, so the key names the same entity however often
-    the base is authored again."""
-    from proof.matrix.ops import ids_at, resolve_references
+    the base is authored again, and whose form references (``{"$form": [m, f]}``) the id the variant's own source
+    read (``served_source``) serves for the form at that position. A source read gives every form a new id
+    (``util.py::update_form_unique_ids``), and a shared entry holds no ``xmlns`` of its own, so the reader keys it
+    by the id that one read serves; the position is the variant's, since such a form may exist only after its
+    change."""
+    from proof.matrix.ops import ValueNotSet, ids_at, resolve_references
 
     if isinstance(key, str):
         return key
-    return json.dumps(resolve_references(key, ids_at(base_source)), separators=(",", ":"), ensure_ascii=False)
+    base = ids_at(base_source)
+
+    def resolve(kind, position):
+        if kind != "form":
+            return base(kind, position)
+        if served_source is None:
+            raise ValueNotSet(
+                f"The form at {list(position)} in a holds key is read where the variant's source read is in hand."
+            )
+        return ids_at(served_source)(kind, position)
+
+    return json.dumps(resolve_references(key, resolve), separators=(",", ":"), ensure_ascii=False)
 
 
 def make_change(authoring, app_id, change):
@@ -706,7 +721,7 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
         "mode": "first-read",
         "input": reading_input(answers, project_answers, media, base, claims="full"),
     }
-    held = [{**hold, "key": hold_key(hold["key"], base_source)} for hold in variant.holds]
+    held = [{**hold, "key": hold_key(hold["key"], base_source, source)} for hold in variant.holds]
     if held:
         request["holds"] = held
     (answer,) = run_bundle([request])

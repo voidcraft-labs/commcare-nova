@@ -17,13 +17,13 @@ A row names a menu or a form of its base by position, never by an id or an
 f]}`` and, for the form's ``xmlns``, ``{"$xmlns": [m, f]}``, each an object
 with that one key (``proof.matrix.ops.reference_of``). A reference stands in
 a set-json change's value, at any depth, which ``ops.set_json`` resolves to
-what the stored app holds at that position before the change, and a menu or
-an ``xmlns`` reference in a ``holds`` fragment's key given as a list
-(``[kind, ...parts]``), which the lane writes as the key's text with the id
-HQ keeps for the base's menu there and the base's form's ``xmlns``
-(``retain.py::hold_key``). ``load_variants`` refuses one anywhere else, a
-form's id in a ``holds`` key (no external key names a form by its id), and
-one that is not well formed.
+what the stored app holds at that position before the change, and in a
+``holds`` fragment's key given as a list (``[kind, ...parts]``), which the
+lane writes as the key's text with the id HQ keeps for the base's menu there,
+the base's form's ``xmlns``, and for a form reference the id the variant's own
+source read serves for the form at that position, as the reader keys a
+shared entry, which holds no ``xmlns`` (``retain.py::hold_key``).
+``load_variants`` refuses one anywhere else and one that is not well formed.
 
 A holding row names ``holds``, a list, which is empty where no fragment of
 the document changes (an INERT entry, or one whose held value Nova derives).
@@ -297,13 +297,13 @@ def _check_place(row_id, place):
 def _refused_reference(row_id, error):
     return VariantsRefused(
         f"The variant {row_id} names a menu or form by position where the lane cannot resolve it: {error} A row names"
-        " one by position only in a set-json value, and a menu or a form's xmlns in a holds key given as a list."
+        " one by position only in a set-json value and in a holds key given as a list."
     )
 
 
 def _check_references(row_id, row):
-    """Each reference a row holds well formed, and only where the lane resolves one: a set-json value, and a menu or a
-    form's xmlns in a list key of a ``holds`` fragment."""
+    """Each reference a row holds well formed, and only where the lane resolves one: a set-json value and a list key
+    of a ``holds`` fragment."""
     from proof.matrix.ops import ValueNotSet, references_in
 
     allowed = []
@@ -318,12 +318,8 @@ def _check_references(row_id, row):
         if isinstance(key, list):
             allowed.append(("in a holds key", key))
     try:
-        for where, value in allowed:
-            found = references_in(value)
-            if where == "in a holds key" and any(kind == "form" for kind, _ in found):
-                raise _refused_reference(
-                    row_id, 'a holds key names a form by its xmlns ({"$xmlns": [m, f]}), never by its id.'
-                )
+        for _where, value in allowed:
+            references_in(value)
         # Every reference the row holds, beside those where the lane resolves one, is misplaced.
         everywhere = len(references_in(dict(row)))
     except ValueNotSet as error:

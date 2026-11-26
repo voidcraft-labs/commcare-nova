@@ -2878,10 +2878,12 @@ at a pointer of the stored app (`set-json`) or a function of
 function no row names. A row or a change names a menu or a form of its base
 by position, never by an id or an `xmlns` an authoring of the base minted:
 `{"$menu": m}`, `{"$form": [m, f]}` and, for a form's `xmlns`,
-`{"$xmlns": [m, f]}`, in a set-json value at any depth and, for a menu or a
-form's `xmlns`, in a `holds` key given as a list (`retain.py::hold_key` writes the
-key's text with the id HQ keeps for the base's menu and the `xmlns` of its
-form). `ops.set_json` writes what the stored app holds there before the
+`{"$xmlns": [m, f]}`, in a set-json value at any depth and in a `holds` key
+given as a list (`retain.py::hold_key` writes the key's text with the id HQ
+keeps for the base's menu, the `xmlns` of its form, and for a form reference
+the id the variant's own source read serves for the form at that position,
+which is how the reader keys a shared entry: it holds no `xmlns`, and a source
+read mints its id anew). `ops.set_json` writes what the stored app holds there before the
 change (a form's as stored, since HQ's source read gives every form a new id
 on every read and moves each reference to it), the served check reads the id
 the variant's source read serves for that menu or for the form of that

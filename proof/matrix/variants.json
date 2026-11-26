@@ -3837,12 +3837,12 @@
 		},
 		"holds": [
 			{
-				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
 				"pointer": "/name",
 				"value": "Visit from a referral"
 			},
 			{
-				"key": ["form", ["shared-form", "5ad0bea25ad0bea25ad0bea25ad0bea2"]],
+				"key": ["form", ["shared-form", { "$form": [2, 1] }]],
 				"pointer": "/name",
 				"value": "Visit from a callback"
 			}
@@ -3858,7 +3858,7 @@
 		},
 		"holds": [
 			{
-				"key": ["form", ["shared-form", "5ad0bea25ad0bea25ad0bea25ad0bea2"]],
+				"key": ["form", ["shared-form", { "$form": [2, 1] }]],
 				"pointer": "/shadowOf/selections/0/kind",
 				"value": "replace"
 			}
@@ -3874,12 +3874,12 @@
 		},
 		"holds": [
 			{
-				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
 				"pointer": "/shadowOf/selections/1/kind",
 				"value": "replace"
 			},
 			{
-				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
 				"pointer": "/shadowOf/selections/1/caseType",
 				"value": "member"
 			}
@@ -3895,12 +3895,12 @@
 		},
 		"holds": [
 			{
-				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
 				"pointer": "/shadowOf/selections/0/kind",
 				"value": "add"
 			},
 			{
-				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"key": ["form", ["shared-form", { "$form": [1, 1] }]],
 				"pointer": "/shadowOf/selections/0/tag",
 				"value": "referring_household"
 			}
