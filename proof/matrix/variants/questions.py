@@ -1830,8 +1830,49 @@ def save_to_case_type_expression(authoring, app_id):
         app_id,
         "save-to-case-type-expression",
         (
+            'make_household vellum:role="SaveToCase" vellum:case_type="household"',
+            'make_household vellum:role="SaveToCase" vellum:case_type=""',
+            1,
+        ),
+        (
             STC_TYPE_BIND,
             f'<bind nodeset="{MAKE}/create/case_type" calculate="concat(&apos;house&apos;, &apos;hold&apos;)"/>',
+            1,
+        ),
+    )
+    # The source upload and the reference rows together reproduce a Vellum save.
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {
+        f"{OPS}/make_household": {
+            "doc_type": "CaseSaveReference",
+            "case_type": "",
+            "properties": ["head", "case_type", "case_name", "owner_id"],
+            "create": True,
+            "close": False,
+        },
+        f"{OPS}/nova_guard_make_household_text": {
+            "doc_type": "CaseSaveReference",
+            "case_type": "household",
+            "properties": ["case_type"],
+            "create": False,
+            "close": False,
+        },
+    })
+
+
+def save_to_case_dynamic_type(authoring, app_id):
+    """Vellum clears the fixed-type metadata when the create's type uses an answer."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-dynamic-type",
+        (
+            'make_household vellum:role="SaveToCase" vellum:case_type="household"',
+            'make_household vellum:role="SaveToCase" vellum:case_type=""',
+            1,
+        ),
+        (
+            STC_TYPE_BIND,
+            f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
             1,
         ),
     )
