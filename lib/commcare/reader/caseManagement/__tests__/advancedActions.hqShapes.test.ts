@@ -13,7 +13,10 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { updateCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
+import {
+	addCaseOperationMutations,
+	updateCaseOperationMutations,
+} from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -44,7 +47,10 @@ import {
 } from "../../../__tests__/advancedPlacementFixture";
 import { planFormCaseWire } from "../../../casePlacementPlan";
 import { expandDoc } from "../../../expander";
+import { planPlacements } from "../../../placement";
+import { targetWireIdentity } from "../../../wireIdentity";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { matchingResolver } from "../../identity";
 import {
 	codesOf,
 	formNamed,
@@ -109,6 +115,102 @@ it("reads back a passive Advanced label with a separate close of its selected re
 			},
 		},
 	]);
+});
+
+it("adds a close beside an adopted passive label without moving its held block", async () => {
+	const held = {
+		kind: "save-to-case",
+		path: ["nova_operations", "member"],
+	} as const;
+	const { doc: source } = advancedFixture({
+		menu: "members",
+		formType: "followup",
+		operations: () => [
+			{
+				uuid: OP("own"),
+				id: "member",
+				action: "own",
+				placement: { ...held, path: [...held.path] },
+				writes: [{ property: "seen", value: read("note") }],
+			},
+		],
+	});
+	const adopted = await readCases(source);
+	if (adopted.whole?.kind !== "read")
+		throw new Error("Expected the held source to read");
+	const { doc, identities } = adopted.whole.draft;
+	const identity = targetWireIdentity([
+		...identities.modules.map((module) => ({
+			entityKind: "module" as const,
+			novaEntityUuid: module.uuid,
+			uniqueId: module.uniqueId,
+			xmlns: null,
+		})),
+		...identities.forms.map((form) => ({
+			entityKind: "form" as const,
+			novaEntityUuid: form.uuid,
+			uniqueId: null,
+			xmlns: form.xmlns,
+		})),
+	]);
+	const form = formNamed(doc, "Under test");
+	const own = form.caseOperations?.find((one) => one.action === "own");
+	if (!own) throw new Error("Expected the adopted own change");
+	expect(own.placement).toEqual(held);
+	const moduleUuid = doc.moduleOrder.find((uuid) =>
+		doc.formOrder[uuid]?.includes(form.uuid),
+	);
+	if (!moduleUuid) throw new Error("Expected the member menu");
+	const otherMenu = doc.modules[moduleUuid].parentCaseModuleUuid;
+	if (!otherMenu) throw new Error("Expected the household menu");
+
+	for (const [targetMenu, caseType, selected] of [
+		[moduleUuid, "member", true],
+		[otherMenu, "household", false],
+	] as const) {
+		const close: CaseOperation = {
+			uuid: OP("finish-record"),
+			id: "finish_record",
+			action: "close",
+			caseType,
+			target: { kind: "expression", expr: chosen(targetMenu) },
+		};
+		const verdict = mutationCommitVerdict(
+			doc,
+			addCaseOperationMutations(doc, form.uuid, close),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+		const plan = planPlacements(verdict.nextDoc, form.uuid);
+		expect(plan.placements.get(own.uuid)).toEqual({
+			placement: held,
+			held: true,
+		});
+		const closePlacement = selected
+			? { kind: "save-to-case", path: ["nova_operations", "finish_record"] }
+			: { kind: "advanced", tag: "load_household0" };
+		expect(plan.placements.get(close.uuid)?.placement).toEqual(closePlacement);
+		const reread = await readCases(verdict.nextDoc, {
+			expand: { identity },
+			input: (input) => ({
+				...input,
+				resolver: matchingResolver(input.appId, identities.entries),
+			}),
+		});
+		if (reread.whole?.kind !== "read")
+			throw new Error(JSON.stringify(findingCodes(reread)));
+		const next = formNamed(reread.whole.draft.doc, "Under test");
+		expect(next.type).toBe("followup");
+		expect(next.caseOperations).toMatchObject([
+			{ action: "own", id: own.id, uuid: own.uuid, placement: held },
+			{
+				action: "close",
+				caseType,
+				placement: closePlacement,
+				target: { kind: "expression", expr: chosen(targetMenu) },
+			},
+		]);
+	}
 });
 
 /** The stored actions of the form under test, the first advanced form. */
