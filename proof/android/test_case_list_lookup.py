@@ -102,8 +102,8 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
 
 
 
-@pytest.mark.parametrize("extra", ["scan", "'scan'"], ids=["relative", "text"])
-def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_driver, extra):
+@pytest.mark.parametrize(("scenario", "extra"), [("relative", "scan"), ("text", "'scan'")], ids=["relative", "text"])
+def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_driver, scenario, extra):
     database = casedata.CaseDatabase(
         user_id=casedata.USER_ID,
         username=casedata.USERNAME,
@@ -126,11 +126,11 @@ def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_
             )
             installed = blobs.get_json(record["answer"])
 
-    write_evidence("android-case-list-lookup-extra", installed)
+    write_evidence(f"android-case-list-lookup-extra-{scenario}", installed)
     assert installed["install"] == "Installed", installed
     assert installed["signIn"].startswith("Success("), installed
     walks = installed["walks"].values()
-    if extra == "scan":
+    if scenario == "relative":
         (failure,) = [walk["raised"] for walk in walks if "raised" in walk]
         assert "Cannot evaluate the reference [/scan]" in failure["stack"], failure
         assert "No default instance has been declared!" in failure["stack"], failure
