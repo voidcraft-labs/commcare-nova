@@ -698,7 +698,7 @@ function parseReceiptKeys(
 	}
 	if (
 		seq !== 1 ||
-		blueprint.connectType !== null ||
+		blueprint.connectRoles.length > 0 ||
 		blueprint.caseTypes !== null ||
 		blueprint.moduleOrder.length !== 1 ||
 		Object.keys(blueprint.modules).length !== 1 ||

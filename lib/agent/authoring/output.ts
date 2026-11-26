@@ -61,6 +61,7 @@ import { openingAssignmentName } from "@/lib/domain/formOpeningAssignments";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { referenceNames } from "@/lib/domain/referenceNames";
+import { FIELD_REFERENCE_SLOTS } from "@/lib/domain/referenceSlots";
 import { log } from "@/lib/logger";
 import {
 	type AuthoringScopeOptions,
@@ -139,22 +140,11 @@ export function authoringEncoders(
 		const content = record.parse(source);
 		const uuid = uuidSchema.safeParse(content.uuid);
 		if (uuid.success && options.doc.fields[uuid.data] !== undefined) {
-			const slot =
-				path.length === 1
-					? path[0]
-					: path[0] === "data_source" && path[1] === "ids_query"
-						? "ids_query"
-						: undefined;
-			if (
-				slot === "relevant" ||
-				slot === "validate" ||
-				slot === "calculate" ||
-				slot === "default_value" ||
-				slot === "required" ||
-				slot === "repeat_count" ||
-				slot === "ids_query"
-			)
-				return { entity: "field", uuid: uuid.data, slot };
+			const entry = FIELD_REFERENCE_SLOTS.find(
+				(entry) => entry.kind === "expression" && entry.path === path.join("."),
+			);
+			if (entry?.kind === "expression")
+				return { entity: "field", uuid: uuid.data, slot: entry.slot };
 		}
 		if (options.formUuid !== undefined) {
 			const uuid = options.formUuid;
@@ -173,14 +163,6 @@ export function authoringEncoders(
 								: "form_entry_value",
 						member: { supplyUuid: uuidSchema.parse(member.uuid) },
 					};
-			}
-			if (path[0] === "connect") {
-				if (path[1] === "assessment" && path[2] === "user_score")
-					return { entity: "form", uuid, slot: "assessment_user_score" };
-				if (path[1] === "deliver_unit" && path[2] === "entity_id")
-					return { entity: "form", uuid, slot: "deliver_entity_id" };
-				if (path[1] === "deliver_unit" && path[2] === "entity_name")
-					return { entity: "form", uuid, slot: "deliver_entity_name" };
 			}
 			const otherwise = options.doc.forms[uuid]?.otherwise;
 			if (
@@ -541,6 +523,7 @@ const readProjectors: {
 			openCondition,
 			closeCondition,
 			ownClosePlacement: _heldClose,
+			dataRootName,
 			captureLocation,
 			plainText,
 			shadowOf,
@@ -610,6 +593,7 @@ const readProjectors: {
 					doc.forms[formContentUuid(doc, form.uuid)],
 				),
 				...(plainText === true && { plain_text: true }),
+				...(dataRootName !== undefined && { answerRoot: dataRootName }),
 				...(closeCondition !== undefined && {
 					closeCondition: formCondition(
 						form.uuid,
@@ -836,10 +820,12 @@ export function projectAuthoringRead(args: {
 				}),
 				...(result.repeat_mode === "query_bound" && {
 					ids_query: record.parse(result.data_source).ids_query,
+					...(result.rowTiming === undefined ? {} : { when: result.rowTiming }),
 				}),
 			};
 			delete result.repeat_mode;
 			delete result.repeat_count;
+			delete result.rowTiming;
 			delete result.data_source;
 			// A held placement is an identity no author chooses: the read
 			// states it as `rows`, with `rowsKept` where it is held, from

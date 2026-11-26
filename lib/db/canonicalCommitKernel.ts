@@ -191,7 +191,7 @@ export const PERSISTED_BLUEPRINT_APP_COLUMNS = [
 	"project_id",
 	"app_name",
 	"app_name_lower",
-	"connect_type",
+	"connect_roles",
 	"logo",
 	"module_count",
 	"form_count",
@@ -229,7 +229,7 @@ export function rowToAppDoc(
 			row.mutation_seq,
 			`apps.mutation_seq for app ${row.id}`,
 		),
-		connect_type: row.connect_type,
+		connect_roles: blueprint.connectRoles,
 		module_count: row.module_count,
 		form_count: row.form_count,
 		status: parsePersistedAppLifecycleStatus(row.status),
@@ -337,7 +337,7 @@ export async function loadSchemaAdmittedAppSnapshotFromRowInTransaction(
 		row.id,
 		{
 			app_name: row.app_name,
-			connect_type: row.connect_type,
+			connect_roles: row.connect_roles,
 			case_types_text: row.case_types_text,
 			localization_text: row.localization_text,
 			app_settings_text: row.app_settings_text,
@@ -448,7 +448,7 @@ export function denormalize(doc: PersistableDoc) {
 	return {
 		app_name: doc.appName,
 		app_name_lower: doc.appName.toLowerCase(),
-		connect_type: doc.connectType ?? null,
+		connect_roles: doc.connectRoles,
 		case_types: doc.caseTypes === null ? null : JSON.stringify(doc.caseTypes),
 		localization:
 			doc.localization === undefined ? null : JSON.stringify(doc.localization),

@@ -78,7 +78,7 @@ import {
 import type { PlacementHold } from "@/lib/doc/placementHolds";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
-import { uuidSchema } from "@/lib/domain";
+import { type Uuid, uuidSchema } from "@/lib/domain";
 import { getLookupManifestAction } from "@/lib/lookup/actions";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
@@ -199,6 +199,10 @@ export interface ReconcilerRuntime {
 	readonly registerOwnHqChangesBatch: (batchId: string) => void;
 }
 
+const publishedQuestionsFrame = z.strictObject({
+	questions: z.array(uuidSchema),
+});
+
 export interface ReconcilerProviderProps {
 	/** The app id, or `undefined` for a brand-new build (dormant reconciler). */
 	appId?: string;
@@ -207,6 +211,7 @@ export interface ReconcilerProviderProps {
 	/** The hold each target's latest recording wrote, read with the first
 	 *  document (`AppReadSnapshot.recordedHolds`); absent for a fresh app. */
 	recordedHolds?: readonly PlacementHold[];
+	publishedQuestions?: readonly Uuid[];
 	/** The session user id — echo classification keys on it. */
 	userId: string;
 	children: ReactNode;
@@ -243,6 +248,7 @@ export function createReconcilerRuntime(
 		appId?: string;
 		baseSeq: number;
 		recordedHolds?: readonly PlacementHold[];
+		publishedQuestions?: readonly Uuid[];
 		userId: string;
 	},
 	/** Leaves preview mode — the conversion toast's "Review data" action
@@ -824,6 +830,18 @@ export function createReconcilerRuntime(
 			 * simply wins; there is no cursor and no ordering to reconcile. */
 			publishPreviewProjectSpace(frame.projectSpace);
 		});
+		es.addEventListener("published-questions", (ev) => {
+			if (es !== eventSource) return;
+			try {
+				const result = publishedQuestionsFrame.safeParse(
+					JSON.parse((ev as MessageEvent).data),
+				);
+				if (result.success)
+					reconciler.setPublishedQuestions(result.data.questions);
+			} catch {
+				// Malformed frames cannot replace the authorized snapshot.
+			}
+		});
 		const receiveTargetFacts = (ev: Event) => {
 			if (es !== eventSource) return;
 			const frame = parsePreviewTargetFactsFrame((ev as MessageEvent).data);
@@ -1179,6 +1197,7 @@ export function createReconcilerRuntime(
 			blueprint: data.blueprint,
 			seq: data.baseSeq,
 			recordedHolds: recordedPlacementHoldsOf(data.recordedHolds),
+			publishedQuestions: data.publishedQuestions,
 		};
 	};
 
@@ -1281,6 +1300,7 @@ export function createReconcilerRuntime(
 			baseSeq: init.baseSeq,
 			baseDoc: docStore.getState(),
 			recordedHolds: recordedPlacementHoldsOf(init.recordedHolds ?? []),
+			publishedQuestions: init.publishedQuestions,
 			userId: init.userId,
 		},
 		deps,
@@ -1369,6 +1389,7 @@ export function ReconcilerProvider({
 	appId,
 	baseSeq,
 	recordedHolds,
+	publishedQuestions,
 	userId,
 	children,
 }: ReconcilerProviderProps) {
@@ -1385,6 +1406,7 @@ export function ReconcilerProvider({
 				appId,
 				baseSeq,
 				recordedHolds,
+				publishedQuestions,
 				userId,
 			},
 			() => sessionStore.getState().setPreviewing(false),

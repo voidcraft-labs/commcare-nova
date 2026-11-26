@@ -355,6 +355,12 @@ function liftedDoc(raw: RawDoc): BlueprintDoc {
 		forms: Record<string, Record<string, unknown>>;
 		fields: Record<string, Record<string, unknown>>;
 	};
+	// The stored documents predate Connect roles; neither holds a block.
+	const root = lifted as unknown as Record<string, unknown>;
+	if (Object.hasOwn(root, "connectType")) {
+		root.connectRoles = root.connectType === null ? [] : [root.connectType];
+		delete root.connectType;
+	}
 	const writes = new Map<Uuid, FieldWriteFact[]>();
 	for (const [formUuid, fieldUuids] of Object.entries(raw.fieldOrder)) {
 		for (const fieldUuid of fieldUuids) {

@@ -30,7 +30,7 @@
 //   - Derived case wiring (form actions, Save to Case blocks): never
 //     stored on the doc — `lib/commcare` derives it from the form's case
 //     operations on demand.
-//   - Blueprint-root slots (`appId` / `appName` / `connectType` /
+//   - Blueprint-root slots (`appId` / `appName` / `connectRoles` /
 //     `logo` / the order arrays / the `caseTypes` catalog): the
 //     registry's owning entities are field / form / module. The
 //     `caseTypes` catalog is outside this field/form/module registry;
@@ -51,7 +51,12 @@ import {
 } from "./expression/types";
 import type { Field } from "./fields";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
-import { FORM_TYPES, type FormType } from "./forms";
+import {
+	FORM_TYPES,
+	type FormBehaviorRole,
+	type FormType,
+	formBehaviorRoles,
+} from "./forms";
 import { LABEL_TEXT_SLOTS } from "./labelForms";
 import {
 	makeTranslationUnitId,
@@ -131,9 +136,7 @@ export interface FieldReferenceSlot {
  * structural: `formTypes` lists the types the slot is VALID on per the
  * validator's rules (a `closeCondition` off a registration or a close
  * form is `CLOSE_CONDITION_WRONG_TYPE`), while the path
- * resolves on every form. Connect slots are additionally gated by the app-level
- * `connectType` (learn apps carry `assessment`, deliver apps carry
- * `deliver_unit`) — an app-level axis, so it isn't encoded per-slot.
+ * resolves on every form.
  */
 export interface FormReferenceSlot {
 	readonly entity: "form";
@@ -181,8 +184,9 @@ export type ReferenceSlot =
 // reads as a contract, not a list to eyeball. The audit test proves
 // each group exact against the per-kind schemas.
 
-/** Kinds extending `inputFieldBaseSchema` — full input wiring
- *  (hint / help / required / relevant). */
+/** The kinds with a worker prompt, starting value, validation and help.
+ * Labels participate because workers submit their acknowledgment. The
+ * schema audit checks each slot's exact set of kinds independently. */
 const INPUT_KINDS = [
 	"text",
 	"int",
@@ -195,29 +199,9 @@ const INPUT_KINDS = [
 	"geopoint",
 	"barcode",
 	"secret",
+	"label",
+	...captureFieldKinds,
 ] as const satisfies readonly FieldKind[];
-
-/** Input kinds that also carry `validate` / `validate_msg` /
- *  `default_value` (every input kind except `geopoint`, whose
- *  sensor-shaped value takes a default but no constraint). */
-const VALIDATED_INPUT_KINDS = [
-	"text",
-	"int",
-	"decimal",
-	"date",
-	"time",
-	"datetime",
-	"single_select",
-	"multi_select",
-	"barcode",
-	"secret",
-] as const satisfies readonly FieldKind[];
-
-/** Binary capture kinds — label + hint + required + relevant plus the
- *  capture case-write destination (no help, no validation, no default).
- *  Aliases the domain's `captureFieldKinds`; the audit test proves the
- *  group exact against the per-kind schemas. */
-const CAPTURE_KINDS = captureFieldKinds;
 
 const SELECT_KINDS = [
 	"single_select",
@@ -249,6 +233,7 @@ const RELEVANT_KINDS = [
 	"secret",
 	"group",
 	"repeat",
+	"connect_activity",
 ] as const satisfies readonly FieldKind[];
 
 /** Every kind with a display label — all but `hidden` (never shown,
@@ -279,11 +264,7 @@ const LABELED_KINDS = [
 
 /** Kinds whose label carries media and the label's other texts
  *  (`labelForms.ts`): every visible question, a display label included. */
-const LABEL_TEXT_KINDS = [
-	...INPUT_KINDS,
-	...CAPTURE_KINDS,
-	"label",
-] as const satisfies readonly FieldKind[];
+const LABEL_TEXT_KINDS = INPUT_KINDS;
 
 // ── Field slots ───────────────────────────────────────────────────
 
@@ -305,7 +286,7 @@ export const FIELD_REFERENCE_SLOTS = [
 		slot: "validate",
 		path: "validate",
 		kind: "expression",
-		appliesTo: VALIDATED_INPUT_KINDS,
+		appliesTo: INPUT_KINDS,
 	},
 	{
 		entity: "field",
@@ -319,17 +300,45 @@ export const FIELD_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "field",
+		slot: "assessment_user_score",
+		path: "activity.score",
+		kind: "expression",
+		appliesTo: ["connect_activity"],
+	},
+	{
+		entity: "field",
+		slot: "deliver_entity_id",
+		path: "activity.entityId",
+		kind: "expression",
+		appliesTo: ["connect_activity"],
+	},
+	{
+		entity: "field",
+		slot: "deliver_entity_name",
+		path: "activity.entityName",
+		kind: "expression",
+		appliesTo: ["connect_activity"],
+	},
+	{
+		entity: "field",
+		slot: "deliver_work_area_id",
+		path: "activity.workAreaId",
+		kind: "expression",
+		appliesTo: ["connect_activity"],
+	},
+	{
+		entity: "field",
 		slot: "default_value",
 		path: "default_value",
 		kind: "expression",
-		appliesTo: [...VALIDATED_INPUT_KINDS, "geopoint", "hidden"],
+		appliesTo: [...INPUT_KINDS, "hidden"],
 	},
 	{
 		entity: "field",
 		slot: "required",
 		path: "required",
 		kind: "expression",
-		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS],
+		appliesTo: INPUT_KINDS,
 	},
 	{
 		entity: "field",
@@ -369,7 +378,7 @@ export const FIELD_REFERENCE_SLOTS = [
 		slot: "hint",
 		path: "hint",
 		kind: "prose",
-		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS],
+		appliesTo: INPUT_KINDS,
 	},
 	{
 		entity: "field",
@@ -383,7 +392,21 @@ export const FIELD_REFERENCE_SLOTS = [
 		slot: "validate_msg",
 		path: "validate_msg",
 		kind: "prose",
-		appliesTo: VALIDATED_INPUT_KINDS,
+		appliesTo: INPUT_KINDS,
+	},
+	{
+		entity: "field",
+		slot: "addFirstLabel",
+		path: "addFirstLabel",
+		kind: "prose",
+		appliesTo: ["repeat"],
+	},
+	{
+		entity: "field",
+		slot: "addLabel",
+		path: "addLabel",
+		kind: "prose",
+		appliesTo: ["repeat"],
 	},
 	{
 		entity: "field",
@@ -402,6 +425,14 @@ export const FIELD_REFERENCE_SLOTS = [
 ] as const satisfies readonly FieldReferenceSlot[];
 
 // ── Form slots ────────────────────────────────────────────────────
+
+/** Each form behavior's slot-name stem (`Form.<role>`'s carrier and shared
+ *  texts, by field and by choice). */
+const FORM_BEHAVIOR_SLOT_NAMES = {
+	automaticSubmissionText: "automatic_submission_text",
+	skipAutomaticSyncText: "skip_automatic_sync_text",
+	validateChangedAnswersText: "validate_changed_answers_text",
+} as const satisfies Record<FormBehaviorRole, string>;
 
 export const FORM_REFERENCE_SLOTS = [
 	{
@@ -459,6 +490,19 @@ export const FORM_REFERENCE_SLOTS = [
 		kind: "expression",
 		formTypes: ["registration", "close"],
 	},
+	// A form behavior names the question or choice text that carries it, by
+	// identity (`Form.<role>.carrier` and each `alsoUsedBy[]` alias).
+	...formBehaviorRoles.flatMap((role) =>
+		(["carrier", "alsoUsedBy[]"] as const).flatMap((member) =>
+			(["field", "option"] as const).map((part) => ({
+				entity: "form" as const,
+				slot: `${FORM_BEHAVIOR_SLOT_NAMES[role]}_${member === "carrier" ? "carrier" : "shared"}_${part}` as const,
+				path: `${role}.${member}.${part}`,
+				kind: "entity-uuid" as const,
+				formTypes: FORM_TYPES,
+			})),
+		),
+	),
 	{
 		entity: "form",
 		slot: "form_link_condition",
@@ -511,27 +555,6 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "form_link_datum_xpath",
 		path: "otherwise.datums[].xpath",
-		kind: "expression",
-		formTypes: FORM_TYPES,
-	},
-	{
-		entity: "form",
-		slot: "assessment_user_score",
-		path: "connect.assessment.user_score",
-		kind: "expression",
-		formTypes: FORM_TYPES,
-	},
-	{
-		entity: "form",
-		slot: "deliver_entity_id",
-		path: "connect.deliver_unit.entity_id",
-		kind: "expression",
-		formTypes: FORM_TYPES,
-	},
-	{
-		entity: "form",
-		slot: "deliver_entity_name",
-		path: "connect.deliver_unit.entity_name",
 		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
@@ -1034,9 +1057,12 @@ export type FieldProseSlotId = Extract<
 /** Connect-block XPath slot ids — the registry side of the validator's
  *  `ConnectXPathSlot` union. */
 export type ConnectExpressionSlotId = Extract<
-	FormSlotEntry,
-	{ path: `connect.${string}` }
->["slot"];
+	FieldSlotEntry["slot"],
+	| "assessment_user_score"
+	| "deliver_entity_id"
+	| "deliver_entity_name"
+	| "deliver_work_area_id"
+>;
 
 /** Form-link XPath slot ids — fan-out form carriers validated and emitted
  *  once per link (and, for datum XPath, once per datum). */
@@ -1299,9 +1325,6 @@ function expressionRefForEntry(
 		case "form_display_condition":
 		case "form_open_condition":
 		case "form_close_condition":
-		case "assessment_user_score":
-		case "deliver_entity_id":
-		case "deliver_entity_name":
 			return { entity: "form", uuid, slot: entry.slot };
 		case "form_link_condition": {
 			const link = form.formLinks?.[indices[0] ?? -1];
@@ -1981,9 +2004,17 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	uuid: "identity",
 	id: "declaration",
 	kind: "discriminator",
+	"activity.kind": "discriminator",
+	"activity.name": "display-text",
+	"activity.description": "display-text",
+	"activity.estimatedHours": "config",
 	repeat_mode: "discriminator",
 	// A query repeat's held placement: a closed enum, naming nothing.
 	placement: "config",
+	// A query repeat's chosen row timing and a Hidden Value's chosen answer
+	// type: closed enums, naming nothing.
+	rowTiming: "config",
+	answerType: "config",
 	// Display flags: a group shown on one screen, a label (a field's or a
 	// choice's) or a help text written with no markdown form, and a Text
 	// question's number keypad. Literals, naming nothing.
@@ -2015,6 +2046,19 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	repeatsPerRow: "config",
 	textAlignment: "config",
 	webSignature: "config",
+	maxDimension: "config",
+	// A message's Android confirmation box and a question's HQ form
+	// designer lock: literals, naming nothing.
+	askForConfirmation: "config",
+	lockedInHq: "config",
+	// The namespace a receiving service identifies a hidden value by: a
+	// literal URI, naming nothing in the document.
+	answerNamespace: "config",
+	// Where the answer is submitted, apart from its screen. The parent is a
+	// group's UUID resolved by `submissionLayout.ts`, whose invalid-reference
+	// finding gates a change that leaves it naming nothing; no expression
+	// reads it.
+	"submissionPlacement.parent": "config",
 	"optionsSource.options[].plainLabel": "config",
 	label_media: "media",
 	help_media: "media",
@@ -2095,8 +2139,17 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	// rename follows them; the commit gate places a finding on one that no
 	// longer names a creation on the form's frame.
 	"entryCaseCreations[]": "identity",
+	...Object.fromEntries(
+		formBehaviorRoles.flatMap((role) => [
+			[`${role}.carrier.role`, "discriminator" as const],
+			[`${role}.alsoUsedBy[].role`, "discriminator" as const],
+		]),
+	),
 	id: "declaration",
 	name: "display-text",
+	// The submitted answer envelope's element name: the name every absolute
+	// answer path starts with, never a reference to another entity.
+	dataRootName: "declaration",
 	type: "discriminator",
 	purpose: "display-text",
 	postSubmit: "config",
@@ -2133,16 +2186,6 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].placement.row": "config",
 	"ownClosePlacement.kind": "discriminator",
 	"ownClosePlacement.path": "wire-token",
-	"connect.learn_module.id": "declaration",
-	"connect.learn_module.name": "display-text",
-	"connect.learn_module.description": "display-text",
-	"connect.learn_module.time_estimate": "config",
-	"connect.assessment.id": "declaration",
-	"connect.deliver_unit.id": "declaration",
-	"connect.deliver_unit.name": "display-text",
-	"connect.task.id": "declaration",
-	"connect.task.name": "display-text",
-	"connect.task.description": "display-text",
 	icon: "media",
 	audioLabel: "media",
 	mediaByLanguage: "media",

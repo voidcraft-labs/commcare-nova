@@ -37,6 +37,7 @@ export const SMOKE_PROFILES = [
 	"register-from-list",
 	"localization",
 	"sections",
+	"visit-report",
 	"threads",
 	"scroll",
 	"design",

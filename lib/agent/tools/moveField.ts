@@ -44,7 +44,7 @@
  *   6. Success → a human-readable `message` + a UI `summary`.
  */
 
-import type { z } from "zod";
+import { z } from "zod";
 import { planFieldMoveCaseWrites } from "@/lib/doc/fieldCaseWriteMutations";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { fieldPlacementVerdict } from "@/lib/doc/formSectionVerdicts";
@@ -52,6 +52,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { Field, Uuid } from "@/lib/domain";
 import { isContainer, uuidSchema } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
@@ -69,6 +70,12 @@ import type {
 
 export const moveFieldInputSchema = fieldAddressSchema
 	.extend({
+		where: z
+			.enum(["screen", "submission"])
+			.optional()
+			.describe(
+				"Move only where the question appears on screen, or only where its answer is saved in the submitted form. With submission, name the group with parentUuid and no anchor: the answer follows that group's own values, in the order CommCare HQ's form designer keeps, and naming the question's own group puts it back. Omit to move a question with its answer.",
+			),
 		beforeFieldUuid: uuidSchema
 			.optional()
 			.describe(
@@ -118,6 +125,8 @@ export const moveFieldTool = {
 			if (!target.ok) return fail(target.error);
 			const moved = target.field;
 			const formName = target.form.name;
+			const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
+			const submitted = input.where === "submission" ? layout : undefined;
 			const resolveOther = (fieldUuid: string) =>
 				resolveFieldAddress(doc, { moduleUuid, formUuid, fieldUuid });
 
@@ -132,6 +141,10 @@ export const moveFieldTool = {
 				);
 			}
 
+			if (input.where === "submission" && anchorRef !== undefined)
+				return fail(
+					`A submitted answer names only the group that holds it: "${moved.id}"'s answer follows that group's own values, in the order CommCare HQ's form designer keeps. Pass parentUuid alone.`,
+				);
 			let anchor: Field | undefined;
 			if (anchorRef !== undefined) {
 				const resolvedAnchor = resolveOther(anchorRef);
@@ -198,7 +211,8 @@ export const moveFieldTool = {
 				kind: moved.kind,
 				toParentUuid: destParentUuid,
 			});
-			if (!sectionPlacement.ok) return fail(sectionPlacement.message);
+			if (submitted === undefined && !sectionPlacement.ok)
+				return fail(sectionPlacement.message);
 
 			// A container can't move into its own subtree — the splice would
 			// detach the subtree from every walk, so the reducer refuses it
@@ -217,14 +231,22 @@ export const moveFieldTool = {
 					);
 				}
 				seen.add(cursor);
-				cursor = doc.fieldParent[cursor] ?? undefined;
+				cursor = submitted?.parents.get(cursor) ?? doc.fieldParent[cursor];
 			}
 
-			const collision = (doc.fieldOrder[destParentUuid] ?? [])
+			const collision = (layout.children.get(destParentUuid) ?? [])
 				.filter((uuid) => uuid !== moved.uuid)
 				.map((uuid) => doc.fields[uuid])
 				.find((sibling) => sibling?.id === moved.id);
-			if (collision !== undefined) {
+			// An ordinary move carries the value with its question where the two
+			// share a place (the reducer's rule), so the value lands beside the
+			// destination's values too.
+			const valueFollows =
+				input.where === undefined && moved.submissionPlacement === undefined;
+			if (
+				(input.where === "submission" || valueFollows) &&
+				collision !== undefined
+			) {
 				return fail(
 					`"${moved.id}" can't move there because that level already has a field with the same ID. Rename this field explicitly, then move it again.`,
 				);
@@ -235,21 +257,27 @@ export const moveFieldTool = {
 			// the same gesture land in the same array position. The moved field
 			// is excluded from the neighbor set so a same-parent reorder anchors
 			// among the other siblings.
-			const after = fieldSlotAfter(
-				doc,
-				destParentUuid,
-				anchor
-					? anchorSide === "before"
-						? { beforeUuid: anchor.uuid }
-						: { afterUuid: anchor.uuid }
-					: {},
-				moved.uuid,
-			);
+			const after =
+				submitted !== undefined
+					? null
+					: fieldSlotAfter(
+							doc,
+							destParentUuid,
+							anchor
+								? anchorSide === "before"
+									? { beforeUuid: anchor.uuid }
+									: { afterUuid: anchor.uuid }
+								: {},
+							moved.uuid,
+						);
 
 			// A question saving to a new child case of its repeat moves that
 			// save to the child case of its new repeat, in the same batch
 			// (`planFieldMoveCaseWrites`, planned before the move).
-			const carried = planFieldMoveCaseWrites(doc, moved.uuid, destParentUuid);
+			const carried =
+				input.where === undefined
+					? planFieldMoveCaseWrites(doc, moved.uuid, destParentUuid)
+					: { ok: true as const, mutations: [] };
 			if (!carried.ok) return fail(carried.message);
 			const mutations: Mutation[] = [
 				{
@@ -257,6 +285,7 @@ export const moveFieldTool = {
 					uuid: moved.uuid,
 					toParentUuid: destParentUuid,
 					after,
+					...(input.where && { where: input.where }),
 				},
 				...carried.mutations,
 			];
@@ -267,15 +296,22 @@ export const moveFieldTool = {
 			// Report the placement in the committed document. Admission rejects
 			// missing targets and anchors before the reducer runs.
 			const postField = newDoc.fields[moved.uuid];
-			const landedInDest =
-				newDoc.fieldOrder[destParentUuid]?.includes(moved.uuid) ?? false;
+			const landing =
+				submitted === undefined
+					? (newDoc.fieldOrder[destParentUuid] ?? [])
+					: (submissionLayout(
+							formUuid,
+							newDoc.fields,
+							newDoc.fieldOrder,
+						).children.get(destParentUuid) ?? []);
+			const landedInDest = landing.includes(moved.uuid);
 			if (!postField || !landedInDest) {
 				return fail(
 					`The move of "${moved.id}" didn't land: a collaborator's edit changed the form while it was in flight (the field or its destination was moved or removed). Re-read the form with getForm and re-issue against its current shape.`,
 				);
 			}
 			const landedAfter = (() => {
-				const seq = newDoc.fieldOrder[destParentUuid] ?? [];
+				const seq = landing;
 				const at = seq.indexOf(moved.uuid);
 				return at <= 0 ? null : seq[at - 1];
 			})();

@@ -20,7 +20,7 @@ import {
 	moveFixture,
 	OPEN_PATIENTS,
 	PATIENTS,
-	PATIENTS_NAMED,
+	PATIENTS_BY_ENTERED_ID,
 	U,
 } from "@/lib/doc/__tests__/placementMoveFixture";
 import { projectFormExpression } from "@/lib/doc/expressionText";
@@ -113,7 +113,7 @@ it("stages a move with its sentence, returns it again on recovery, and saves it 
 	const call = {
 		...args,
 		requestId: "strand",
-		...editQuery(doc, PATIENTS_NAMED),
+		...editQuery(doc, PATIENTS_BY_ENTERED_ID),
 	};
 	const staged = await executeWorkTool(call);
 	if (staged.kind !== "mutate") throw new Error("A staged edit mutates.");
@@ -180,7 +180,7 @@ it("saves with no move where a later step puts the earlier content back", async 
 	const first = await executeWorkTool({
 		...args,
 		requestId: "strand",
-		...editQuery(doc, PATIENTS_NAMED),
+		...editQuery(doc, PATIENTS_BY_ENTERED_ID),
 	});
 	expect(first).toMatchObject({
 		result: { identityMoves: [{ subject: { kind: "query-repeat" } }] },

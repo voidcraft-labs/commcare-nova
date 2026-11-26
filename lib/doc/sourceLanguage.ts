@@ -117,6 +117,8 @@ export function sourceSlotWriter(
 		case "field-label":
 		case "field-hint":
 		case "field-help":
+		case "field-first-add-label":
+		case "field-add-label":
 		case "field-validation-message":
 		case "field-extended-text":
 		case "field-qr-code":
@@ -127,6 +129,8 @@ export function sourceSlotWriter(
 				"field-help": "help",
 				"field-validation-message": "validate_msg",
 				...LABEL_TEXT_SLOT_OF_ROLE,
+				"field-first-add-label": "addFirstLabel",
+				"field-add-label": "addLabel",
 			}[unit.role];
 			return owner.kind === "field"
 				? (draft, value) => {

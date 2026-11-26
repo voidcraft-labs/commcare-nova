@@ -36,7 +36,7 @@ function canonicalReceipt(appId: string) {
 	const empty: BlueprintDoc = {
 		appId,
 		appName: "",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
