@@ -221,3 +221,89 @@ it("checks a required section revealed by rows initialized during a forward jump
 		},
 	);
 });
+
+it.each([1, 2])(
+	"rechecks visited sections when deferred rows are started on page %i",
+	async (targetIndex) => {
+		const sections: FieldSpec[] = [
+			{
+				kind: "section",
+				id: "first",
+				label: "First",
+				children: [
+					{ kind: "text", id: "always" },
+					{
+						kind: "text",
+						id: "note",
+						required: "count(/data/second/rows/value) > 0",
+					},
+				],
+			},
+			{
+				kind: "section",
+				id: "second",
+				label: "Second",
+				children: [
+					{
+						kind: "repeat",
+						id: "rows",
+						repeat_mode: "count_bound",
+						repeat_count: "1",
+						children: [
+							{ kind: "text", id: "value", default_value: "'exists'" },
+						],
+					},
+				],
+			},
+			{
+				kind: "section",
+				id: "third",
+				label: "Third",
+				children: [{ kind: "text", id: "end_note" }],
+			},
+		];
+		await withPaging(
+			sections,
+			"sections",
+			async ({ controller, result, refuse, revealInvalid }) => {
+				const target = result.current.pages[targetIndex];
+				const noteUuid = testUuid("form.first.note");
+				expect(controller.store.getState()[noteUuid]?.required).toBe(false);
+				await act(async () => {
+					await result.current.goTo(target.uuid);
+					await controller.awaitSettled();
+				});
+				expect(result.current.current?.path).toBe("/data/first");
+				expect(controller.store.getState()[noteUuid]).toMatchObject({
+					required: true,
+					valid: false,
+				});
+				expect(refuse).toHaveBeenCalledOnce();
+				expect(revealInvalid).toHaveBeenCalledWith(
+					expect.objectContaining({ instancePath: "/data/first/note" }),
+				);
+
+				await act(async () => {
+					await controller.setValueAtAsync("/data/first/note", "Completed");
+					await result.current.goTo(target.uuid);
+					await controller.awaitSettled();
+				});
+				expect(result.current.current?.path).toBe(target.path);
+
+				await act(async () => {
+					await result.current.goBack();
+					await controller.awaitSettled();
+				});
+				expect(result.current.current?.path).toBe(
+					targetIndex === 1 ? "/data/first" : "/data/second",
+				);
+				await act(async () => {
+					await result.current.goNext();
+					await controller.awaitSettled();
+				});
+				expect(result.current.current?.path).toBe(target.path);
+				expect(refuse).toHaveBeenCalledOnce();
+			},
+		);
+	},
+);

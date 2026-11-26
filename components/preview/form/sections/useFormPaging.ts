@@ -414,18 +414,13 @@ export function useFormPaging({
 	}, [identityOf, pages, retireTurn, showPage]);
 
 	/** Validate one page; on failure refuse, turn to it if needed, reveal. */
-	const pagePasses = useCallback(
+	const validatePage = useCallback(
 		async (
 			page: FormScreenPage,
 			entryKey: string | undefined,
 			version: number,
 		): Promise<boolean> => {
-			if (
-				!ownsNavigation(entryKey, version) ||
-				!(await enterPage(page)) ||
-				!ownsNavigation(entryKey, version)
-			)
-				return false;
+			if (!ownsNavigation(entryKey, version)) return false;
 			const validation =
 				mode === "sections"
 					? await controller.validateSectionAsync(page.uuid)
@@ -445,7 +440,6 @@ export function useFormPaging({
 		},
 		[
 			controller,
-			enterPage,
 			identityOf,
 			mode,
 			ownsNavigation,
@@ -453,6 +447,18 @@ export function useFormPaging({
 			revealInvalid,
 			showPage,
 		],
+	);
+
+	const pagePasses = useCallback(
+		async (
+			page: FormScreenPage,
+			entryKey: string | undefined,
+			version: number,
+		) =>
+			ownsNavigation(entryKey, version) &&
+			(await enterPage(page)) &&
+			(await validatePage(page, entryKey, version)),
+		[enterPage, ownsNavigation, validatePage],
 	);
 
 	/* The relevant prompts before the first visible screen (every screen
@@ -569,9 +575,9 @@ export function useFormPaging({
 				return;
 			const source = identityOf(current);
 			const checked = new Set<string>();
-			const checkLimit = readPages().length;
-			// Entering a section can materialize its repeats and reveal a
-			// later required page. Use the settled route after each check.
+			// Entering a section can materialize its deferred repeats, changing
+			// even earlier answers' relevance and validation. Recheck the route
+			// after each such entry, including entry to the destination.
 			while (ownsNavigation(entryKey, version)) {
 				const livePages = readPages();
 				if (!livePages.some((page) => identityOf(page) === source)) return;
@@ -582,24 +588,41 @@ export function useFormPaging({
 				const next = pagesToValidate(livePages, source, id, identityOf).find(
 					(page) => !checked.has(identityOf(page)),
 				);
-				if (next === undefined) {
+				const page = next ?? target;
+				if (next === undefined && !page.needsEntry) {
 					await turnTo(target, entryKey, version);
 					return;
 				}
-				if (checked.size === checkLimit) return;
-				checked.add(identityOf(next));
-				if (!(await pagePasses(next, entryKey, version))) return;
+				if (!(await enterPage(page)) || !ownsNavigation(entryKey, version))
+					return;
+				if (page.needsEntry) {
+					// An entry that left its own deferred work pending made no
+					// progress. Leave the worker on the current visible page.
+					if (
+						readPages().some(
+							(candidate) =>
+								identityOf(candidate) === identityOf(page) &&
+								candidate.needsEntry,
+						)
+					)
+						return;
+					checked.clear();
+					continue;
+				}
+				if (!(await validatePage(page, entryKey, version))) return;
+				checked.add(identityOf(page));
 			}
 		},
 		[
 			controller,
 			current,
+			enterPage,
 			identityOf,
 			pages,
-			pagePasses,
 			readPages,
 			turnTo,
 			ownsNavigation,
+			validatePage,
 		],
 	);
 
