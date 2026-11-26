@@ -861,7 +861,9 @@ function phoneDisplayXpath(field: WireExpr): WireExpr {
  * membership test — true for either a single-value property
  * equal to `<v>` or a multi-select property whose token list
  * contains `<v>`. The `replace(join(...), '\s+', ' ')` collapse
- * trims double-space artifacts from the empty-arm fall-throughs.
+ * collapses consecutive separators from the empty arms. It keeps a
+ * leading or trailing space when unmatched mappings precede or follow
+ * the match, as HQ's enum template does.
  *
  * Each value and label is a string literal quoted by the serializer.
  * An empty mapping array short-circuits
