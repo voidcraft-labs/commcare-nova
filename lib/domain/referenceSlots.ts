@@ -52,6 +52,7 @@ import {
 import type { Field } from "./fields";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
 import { FORM_TYPES, type FormType } from "./forms";
+import { LABEL_TEXT_SLOTS } from "./labelForms";
 import {
 	makeTranslationUnitId,
 	type TranslationEntry,
@@ -277,6 +278,14 @@ const LABELED_KINDS = [
 	"section",
 ] as const satisfies readonly FieldKind[];
 
+/** Kinds whose label carries media and the label's other texts
+ *  (`labelForms.ts`): every visible question, a display label included. */
+const LABEL_TEXT_KINDS = [
+	...INPUT_KINDS,
+	...CAPTURE_KINDS,
+	"label",
+] as const satisfies readonly FieldKind[];
+
 // ── Field slots ───────────────────────────────────────────────────
 
 export const FIELD_REFERENCE_SLOTS = [
@@ -346,6 +355,16 @@ export const FIELD_REFERENCE_SLOTS = [
 		kind: "prose",
 		appliesTo: LABELED_KINDS,
 	},
+	...LABEL_TEXT_SLOTS.map(
+		(slot) =>
+			({
+				entity: "field",
+				slot,
+				path: slot,
+				kind: "prose",
+				appliesTo: LABEL_TEXT_KINDS,
+			}) as const,
+	),
 	{
 		entity: "field",
 		slot: "hint",

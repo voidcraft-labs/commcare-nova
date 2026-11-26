@@ -112,6 +112,50 @@ test("restoring a shared question picture updates the worker’s current languag
 	}
 });
 
+test("a language that shares the inline video offers no way to remove it", async ({
+	page,
+}) => {
+	const peer = await languageMediaPeer();
+	try {
+		await page.goto(`${peer.origin}/?inlineVideo&editMedia`);
+		const inlineVideo = page.getByRole("group", {
+			name: "Question picture and recordings inline video",
+			exact: true,
+		});
+		const replace = inlineVideo.getByRole("button", {
+			name: "Replace video",
+			exact: true,
+		});
+		const remove = inlineVideo.getByRole("button", {
+			name: "Remove video",
+			exact: true,
+		});
+		await expect(replace).toBeVisible();
+		await expect(remove).toBeVisible();
+		// Spanish shows the shared file it can't hide, so the chip keeps only
+		// Replace video, as the image, audio and video chips beside it do.
+		await page.getByRole("button", { name: "Español", exact: true }).click();
+		await expect(
+			page.getByText("Shared inline video from English", { exact: true }),
+		).toBeVisible();
+		await expect(replace).toBeVisible();
+		await expect(inlineVideo.getByRole("button")).toHaveCount(2);
+		await expect(remove).toHaveCount(0);
+		await expect(
+			inlineVideo.getByRole("button", {
+				name: "Use shared inline video",
+				exact: true,
+			}),
+		).toHaveCount(0);
+	} finally {
+		try {
+			await closePageWithUnload(page);
+		} finally {
+			await peer.close();
+		}
+	}
+});
+
 test("a rejected submission keeps required errors and review announcements in the current language", async ({
 	page,
 }, testInfo) => {

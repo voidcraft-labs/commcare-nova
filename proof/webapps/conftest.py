@@ -36,6 +36,7 @@ DOCUMENTS = (
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
     "targeted-hidden-from-menu",
+    "targeted-label-content",
     "targeted-media-slots",
     "targeted-missing-media",
     "targeted-multi-select-destinations",

@@ -346,6 +346,24 @@ export interface PreviewPlatformRules {
 	/** Choice images, audio and video (manifest `questions/choice-image`,
 	 *  `choice-audio-video`; Android `views/media/MediaLayout.java`). */
 	readonly choiceMedia: boolean;
+	/** A label's inline video (`label_media.videoInline`, its `video-inline`
+	 *  form). Android plays it inside the question, in the label's media pane
+	 *  ahead of a QR code and the label image
+	 *  (`views/media/MediaLayout.java::setAVT`, `setupInlineVideoView`);
+	 *  Formplayer sends no such form (`api/json/PromptToJson.java`), so Web
+	 *  Apps shows none. Neither shows one on a question shown compact. */
+	readonly labelInlineVideo: "played" | "ignored";
+	/** A label's QR code (`qr_code`, its `qrcode` form). Android draws it in
+	 *  the label's media pane in place of the label image
+	 *  (`views/media/MediaLayout.java::setAVT`, `setupQRView`); Formplayer
+	 *  sends no such form (`api/json/PromptToJson.java`), so Web Apps draws
+	 *  none. Neither draws one on a question shown compact. */
+	readonly labelQrCode: "drawn" | "ignored";
+	/** A label's spoken text (`spoken_text`, its `tts` form). Android shows a
+	 *  speaker button that reads it aloud where the label has no audio
+	 *  (`MediaLayout.java::buildComprehensiveLayout`, `showTtsButton`);
+	 *  Formplayer sends no such form, so Web Apps shows none. */
+	readonly labelSpeech: "button" | "ignored";
 	/** Web Apps `form_entry/entries.js::GeoPointEntry`; Android
 	 *  `views/widgets/GeoPointWidget.java`, `activities/GeoPointActivity.java`. */
 	readonly locationQuestion: "map" | "record-location";
@@ -548,6 +566,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		questionChannels: true,
 		repeatAdd: "buttons",
 		choiceMedia: false,
+		labelInlineVideo: "ignored",
+		labelQrCode: "ignored",
+		labelSpeech: "ignored",
 		locationQuestion: "map",
 		barcodeQuestion: "text",
 		numberKeypad: "pattern",
@@ -634,6 +655,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		questionChannels: false,
 		repeatAdd: "prompt",
 		choiceMedia: true,
+		labelInlineVideo: "played",
+		labelQrCode: "drawn",
+		labelSpeech: "button",
 		locationQuestion: "record-location",
 		barcodeQuestion: "scan-or-text",
 		numberKeypad: "keys",

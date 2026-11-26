@@ -1618,6 +1618,9 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	hint: PROSE,
 	help: PROSE,
 	validate_msg: PROSE,
+	extended_text: PROSE,
+	qr_code: PROSE,
+	spoken_text: PROSE,
 	option_label: PROSE,
 	form_display_condition: displayCondition(
 		C["form-filter-lifting-into-predicate-a-direct-own-case-property-in"].entry,

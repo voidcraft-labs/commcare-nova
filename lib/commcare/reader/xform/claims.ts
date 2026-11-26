@@ -1332,12 +1332,77 @@ export const X = {
 		Q("validation-message-markdown-form"),
 		"itext-form:core/markdown",
 	),
-	videoInline: one(
+	/** A question label's inline video (`label_media.videoInline`), held as the label's other
+	 *  media are: one file, files differing by language, and the two refusals a media form
+	 *  meets in a language (`lib/commcare/reader/xform/media.ts`). */
+	videoInline: {
+		held: one(
+			"take",
+			Q("label-video-inline"),
+			"itext-form:android/video-inline",
+		),
+		differing: one(
+			"take",
+			Q("label-or-option-media-differing-by-language"),
+			"itext-form:android/video-inline",
+		),
+		missingDefault: one(
+			"refuse",
+			Q("media-form-missing-in-default-language"),
+			"itext-form:android/video-inline",
+		),
+		blankBesideFile: one(
+			"refuse",
+			Q("empty-media-form-beside-a-translated-file"),
+			"itext-form:android/video-inline",
+		),
+	},
+	/** An inline video on a text other than a question's label, which no runtime shows. */
+	videoInlineElsewhere: one(
 		"refuse",
-		Q("label-video-inline"),
+		Q("video-inline-form-on-a-text-other-than-a-question-label"),
 		"itext-form:android/video-inline",
 	),
-	longForm: one("refuse", Q("long-form"), "itext-form:core/long"),
+	/** A question label's other texts (`lib/domain/labelForms.ts`), by the slot each is held in. */
+	labelText: {
+		extended_text: one("take", Q("long-form"), "itext-form:core/long"),
+		qr_code: one("take", Q("label-qrcode"), "itext-form:android/qrcode"),
+		spoken_text: one("take", Q("label-tts"), "itext-form:android/tts"),
+	},
+	/** One of them held outside the form's default language, which Core refuses as that language
+	 *  loads. */
+	labelTextMissingDefault: under(
+		"refuse",
+		Q("long-qrcode-or-tts-form-missing-in-default-language"),
+		{
+			extended_text: "itext-form:core/long",
+			qr_code: "itext-form:android/qrcode",
+			spoken_text: "itext-form:android/tts",
+		},
+	),
+	/** A QR code or spoken text on a text no runtime reads it of: a hint, a help text, a validation
+	 *  message, a choice, or a group's or repeat's label. */
+	labelTextElsewhere: under(
+		"drop",
+		Q("qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of"),
+		{
+			qr_code: "itext-form:android/qrcode",
+			spoken_text: "itext-form:android/tts",
+		},
+	),
+	/** A `long` form on a group's or repeat's label, which both runtimes show as its header. */
+	longFormOnContainer: one(
+		"refuse",
+		Q("long-form-on-a-group-or-repeat-label"),
+		"itext-form:core/long",
+	),
+	/** A `long` form on a hint, a help text, a validation message or a choice, which both runtimes
+	 *  show in place of the text. */
+	longFormOnOtherText: one(
+		"refuse",
+		Q("long-form-on-a-hint-help-text-validation-message-or-choice"),
+		"itext-form:core/long",
+	),
 	shortForm: one("account", Q("short-form"), "itext-form:core/short"),
 	labelBigImage: one(
 		"refuse",
@@ -1349,8 +1414,6 @@ export const X = {
 		Q("choice-big-image"),
 		"itext-form:android/big-image",
 	),
-	qrcode: one("refuse", Q("label-qrcode"), "itext-form:android/qrcode"),
-	tts: one("refuse", Q("label-tts"), "itext-form:android/tts"),
 	customForm: one(
 		"account",
 		Q("custom-form-names"),

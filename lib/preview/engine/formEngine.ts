@@ -47,8 +47,10 @@ import type {
 	CaseSelectionCardinality,
 	CaseType,
 	Field,
+	FieldProseSlot,
 	Form,
 	FormType,
+	LabelTextSlot,
 	LanguageTag,
 	LookupOptionsSource,
 	ProseAtomPart,
@@ -64,6 +66,7 @@ import {
 	isCaptureFieldKind,
 	isContainer,
 	isReadableTemporalValue,
+	LABEL_TEXT_SLOTS,
 	orderedCaseOperations,
 	prepareCaseScalarTextValue,
 	proseSource,
@@ -217,11 +220,20 @@ import {
 
 /** The prose slot a field's own text sits in, which its references print
  * under. */
-function fieldProseSlot(
-	field: Field,
-	slot: "label" | "hint" | "help" | "validate_msg",
-): ProseSlotRef {
+function fieldProseSlot(field: Field, slot: FieldProseSlot): ProseSlotRef {
 	return { entity: "field", uuid: field.uuid, slot };
+}
+
+/** The label's other texts with their refs evaluated, by slot; undefined
+ *  where none holds a ref. */
+function resolvedLabelTextsOf(
+	resolve: (slot: LabelTextSlot) => string | undefined,
+): Readonly<Partial<Record<LabelTextSlot, string>>> | undefined {
+	const entries = LABEL_TEXT_SLOTS.flatMap((slot) => {
+		const value = resolve(slot);
+		return value === undefined ? [] : [[slot, value] as const];
+	});
+	return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
 function optionProseSlot(field: Field, optionUuid: Uuid): ProseSlotRef {
@@ -4004,6 +4016,7 @@ export class FormEngine {
 		let resolvedLabel = current.resolvedLabel;
 		let resolvedHint = current.resolvedHint;
 		let resolvedHelp = current.resolvedHelp;
+		let resolvedLabelTexts = current.resolvedLabelTexts;
 		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
 		let rowConditions = current.rowConditions;
@@ -4080,6 +4093,17 @@ export class FormEngine {
 						fieldProseTemplate(field, "help"),
 						resolve(fieldProseSlot(field, "help")),
 					);
+					const labelTexts = new Map<LabelTextSlot, string>();
+					for (const slot of LABEL_TEXT_SLOTS) {
+						const text = await resolveLabelAsync(
+							fieldProseTemplate(field, slot),
+							resolve(fieldProseSlot(field, slot)),
+						);
+						if (text !== undefined) labelTexts.set(slot, text);
+					}
+					const nextLabelTexts = resolvedLabelTextsOf((slot) =>
+						labelTexts.get(slot),
+					);
 					let nextOptions: Record<string, string> | undefined;
 					if (
 						(field.kind === "single_select" || field.kind === "multi_select") &&
@@ -4099,11 +4123,13 @@ export class FormEngine {
 						nextLabel !== resolvedLabel ||
 						nextHint !== resolvedHint ||
 						nextHelp !== resolvedHelp ||
+						!stringRecordsEqual(nextLabelTexts, resolvedLabelTexts) ||
 						!stringRecordsEqual(nextOptions, resolvedOptionLabels)
 					) {
 						resolvedLabel = nextLabel;
 						resolvedHint = nextHint;
 						resolvedHelp = nextHelp;
+						resolvedLabelTexts = nextLabelTexts;
 						resolvedOptionLabels = nextOptions;
 						changed = true;
 					}
@@ -4152,6 +4178,7 @@ export class FormEngine {
 					resolvedLabel,
 					resolvedHint,
 					resolvedHelp,
+					resolvedLabelTexts,
 					resolvedOptionLabels,
 					choices,
 					rowConditions,
@@ -4168,6 +4195,7 @@ export class FormEngine {
 				resolvedLabel,
 				resolvedHint,
 				resolvedHelp,
+				resolvedLabelTexts,
 				resolvedOptionLabels,
 				choices,
 				rowConditions,
@@ -4275,6 +4303,7 @@ export class FormEngine {
 		let resolvedLabel = current.resolvedLabel;
 		let resolvedHint = current.resolvedHint;
 		let resolvedHelp = current.resolvedHelp;
+		let resolvedLabelTexts = current.resolvedLabelTexts;
 		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
 		let rowConditions = current.rowConditions;
@@ -4352,6 +4381,12 @@ export class FormEngine {
 							fieldProseTemplate(f, "help"),
 							resolve(fieldProseSlot(f, "help")),
 						);
+						const rtexts = resolvedLabelTextsOf((slot) =>
+							resolveLabel(
+								fieldProseTemplate(f, slot),
+								resolve(fieldProseSlot(f, slot)),
+							),
+						);
 						const roptions =
 							(f.kind === "single_select" || f.kind === "multi_select") &&
 							f.optionsSource.kind === "inline"
@@ -4375,11 +4410,13 @@ export class FormEngine {
 							rl !== resolvedLabel ||
 							rh !== resolvedHint ||
 							rhelp !== resolvedHelp ||
+							!stringRecordsEqual(rtexts, resolvedLabelTexts) ||
 							!stringRecordsEqual(normalizedOptions, resolvedOptionLabels)
 						) {
 							resolvedLabel = rl;
 							resolvedHint = rh;
 							resolvedHelp = rhelp;
+							resolvedLabelTexts = rtexts;
 							resolvedOptionLabels = normalizedOptions;
 							changed = true;
 						}
@@ -4431,6 +4468,7 @@ export class FormEngine {
 					resolvedLabel,
 					resolvedHint,
 					resolvedHelp,
+					resolvedLabelTexts,
 					resolvedOptionLabels,
 					choices,
 					rowConditions,
@@ -4447,6 +4485,7 @@ export class FormEngine {
 				resolvedLabel,
 				resolvedHint,
 				resolvedHelp,
+				resolvedLabelTexts,
 				resolvedOptionLabels,
 				choices,
 				rowConditions,

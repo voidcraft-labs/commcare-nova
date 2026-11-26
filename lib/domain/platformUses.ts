@@ -45,6 +45,7 @@ import {
 	type SearchInputDef,
 	tileCellFor,
 } from "./modules";
+import { holdsLabelOnlyMedia } from "./multimedia";
 import {
 	declaredPlatforms,
 	expressionLeafFeature,
@@ -696,6 +697,24 @@ function fieldUses(
 		wanted("help-media")
 	)
 		uses.push(slotUse("help-media", owner, "help_media"));
+	if (
+		"label_media" in field &&
+		holdsLabelOnlyMedia(field.label_media) &&
+		wanted("label-inline-video")
+	)
+		uses.push(slotUse("label-inline-video", owner, "label_media"));
+	if (
+		"qr_code" in field &&
+		field.qr_code !== undefined &&
+		wanted("label-qr-code")
+	)
+		uses.push(slotUse("label-qr-code", owner, "qr_code"));
+	if (
+		"spoken_text" in field &&
+		field.spoken_text !== undefined &&
+		wanted("label-spoken-text")
+	)
+		uses.push(slotUse("label-spoken-text", owner, "spoken_text"));
 	uses.push(
 		...expressionUses({ entity: "field", uuid: owner.fieldUuid }, () => owner),
 	);

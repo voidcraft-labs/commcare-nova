@@ -208,6 +208,7 @@ const MEDIA_ROLE_NAMES: Readonly<Record<string, string>> = {
 	image: "image",
 	audio: "audio file",
 	video: "video",
+	videoInline: "inline video",
 };
 
 /** The case operation's authored id, or "this case change". */

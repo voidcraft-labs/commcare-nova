@@ -90,7 +90,7 @@ import type {
 	MutationResult,
 	PlacementHoldEntry,
 } from "@/lib/doc/types";
-import { recordFromEntries } from "@/lib/domain";
+import { FIELD_PROSE_SLOTS, recordFromEntries } from "@/lib/domain";
 import {
 	APP_GENESIS_FALLBACK_NAME,
 	NEW_APP_SETTINGS,
@@ -731,7 +731,7 @@ export function createBlueprintDocStore() {
 		/* Clearing one of these removes its translation unit and may prune an
 		 * authored target entry. A slot-only inverse could not reconstruct that
 		 * dependent entry, so keep the complete diff for this uncommon case. */
-		for (const key of ["label", "hint", "help", "validate_msg"]) {
+		for (const key of FIELD_PROSE_SLOTS) {
 			if (patch[key] === null) return undefined;
 		}
 

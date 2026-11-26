@@ -25,8 +25,9 @@ export const IMAGE = testUuid("language-screen-image");
  * mutation boundary is covered separately by its real controller/browser tests. */
 export const ENGLISH_IMAGE = testMediaAssetId("label-media-eng");
 export const SPANISH_IMAGE = testMediaAssetId("label-media-spa");
+export const INLINE_VIDEO = testMediaAssetId("label-inline-video");
 
-export function languageScreenDoc(localizedMedia = false) {
+export function languageScreenDoc(localizedMedia = false, inlineVideo = false) {
 	const doc = buildDoc({
 		appId: "native-language-screen",
 		appName: "Visit language",
@@ -181,6 +182,12 @@ export function languageScreenDoc(localizedMedia = false) {
 			image: ENGLISH_IMAGE,
 			mediaByLanguage: { spa: { image: SPANISH_IMAGE } },
 		};
+	}
+	if (inlineVideo) {
+		// One inline video every language shares: Spanish has none of its own.
+		const name = source.fields[NAME];
+		if (name.kind !== "text") throw Error("The name is not a text question.");
+		name.label_media = { ...name.label_media, videoInline: INLINE_VIDEO };
 	}
 	// Re-admit the complete translated document; no test reaches a renderer
 	// with field topology or localization that the product would reject.

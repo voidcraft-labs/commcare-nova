@@ -155,6 +155,7 @@
 		"hq-kept-settings/custom-property",
 		"hq-kept-settings/duplicate-android-requirement",
 		"hq-kept-settings/form-icon-by-language",
+		"hq-kept-settings/label-text-one-language",
 		"hq-kept-settings/logo-holding-only-a-path",
 		"hq-kept-settings/markdown-one-language",
 		"hq-kept-settings/media-empty-translation",
@@ -183,10 +184,7 @@
 		"hq-lookups/itemset-copy",
 		"hq-lookups/itemset-property-as-label"
 	],
-	"hq-media": [
-		"hq-media/form-media-for-every-language",
-		"hq-media/label-video-inline"
-	],
+	"hq-media": ["hq-media/form-media-for-every-language"],
 	"hq-menus": [
 		"hq-menus/browse-households-with-a-picture",
 		"hq-menus/case-list-optimizations",
@@ -338,12 +336,12 @@
 		"hq-questions/label-tts",
 		"hq-questions/locked-question",
 		"hq-questions/long",
-		"hq-questions/long-form",
 		"hq-questions/model-iteration-nested",
 		"hq-questions/no-add-remove-without-count",
 		"hq-questions/number-appearance-read-by-no-runtime",
 		"hq-questions/output-ref",
 		"hq-questions/pollsensor",
+		"hq-questions/qrcode-on-help",
 		"hq-questions/question-comment",
 		"hq-questions/question-id-grammar",
 		"hq-questions/question-id-script",

@@ -204,6 +204,9 @@ function editPatchToFieldPatch(
 	const scalarKeys = [
 		"id",
 		"label",
+		"extended_text",
+		"qr_code",
+		"spoken_text",
 		"hint",
 		"help",
 		"required",

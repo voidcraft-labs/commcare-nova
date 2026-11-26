@@ -1309,19 +1309,25 @@ def print_callout(use, manifest):
     return intent is not None and intent.get("class") == PRINT_ACTION
 
 
-# The itext forms that carry a file, as Core's Localizer keys them (``<id>;<form>``).
-MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video"})
+# The itext forms that carry a file, as Core's Localizer keys them (``<id>;<form>``): a question label's inline
+# video (``video-inline``) among them, whose file HQ ships beside a video's (``xform.py::video_references``).
+MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video", "video-inline"})
 
 
-def _media_itext_group(use):
-    """The media value a use sits on and every value of the same text id and form across the form's
-    translations, as ``(form, values by translation, form name)``; None where the use sits on no media value."""
+# A question label's other texts, as Core's Localizer keys them (``<id>;<form>``): ``long``, ``qrcode`` and
+# ``tts`` (``lib/domain/labelForms.ts``).
+LABEL_TEXT_ITEXT_FORMS = frozenset({"long", "qrcode", "tts"})
+
+
+def _media_itext_group(use, forms=MEDIA_ITEXT_FORMS):
+    """The value of one of ``forms`` a use sits on and every value of the same text id and form across the form's
+    translations, as ``(form, values by translation)``; None where the use sits on no such value."""
     form, element = _form_element(use)
     if form is None or _local(element) != "value":
         return None
     kind = element.get("form")
     text = element.getparent()
-    if kind not in MEDIA_ITEXT_FORMS or text is None or _local(text) != "text" or not text.get("id"):
+    if kind not in forms or text is None or _local(text) != "text" or not text.get("id"):
         return None
     text_id = text.get("id")
     values = {}
@@ -1336,7 +1342,7 @@ def _media_itext_group(use):
 
 
 def media_missing_in_default(use, manifest):
-    """``questions/media-form-missing-in-default-language``: an image, audio or video value whose text the
+    """``questions/media-form-missing-in-default-language``: an image, audio, video or inline video value whose text the
     form's default translation holds without that form. Core keys each locale's forms over the default's
     (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
     group = _media_itext_group(use)
@@ -1346,8 +1352,19 @@ def media_missing_in_default(use, manifest):
     return form.default_translation is not None and form.default_translation not in values
 
 
+def label_text_missing_in_default(use, manifest):
+    """``questions/long-qrcode-or-tts-form-missing-in-default-language``: a ``long``, ``qrcode`` or ``tts`` value
+    whose text the form's default translation holds without that form. Core keys each locale's forms over the
+    default's (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
+    group = _media_itext_group(use, LABEL_TEXT_ITEXT_FORMS)
+    if group is None:
+        return None if _form_element(use)[0] is None else False
+    form, values = group
+    return form.default_translation is not None and form.default_translation not in values
+
+
 def media_blank_beside_file(use, manifest):
-    """``questions/empty-media-form-beside-a-translated-file``: an image, audio or video value of a text one
+    """``questions/empty-media-form-beside-a-translated-file``: an image, audio, video or inline video value of a text one
     translation holds blank and another holds a file of. Vellum's save fills the blank one from the file
     (``javaRosa/itext.js::getValueOrDefault``); Core keeps the empty string as that translation's own."""
     group = _media_itext_group(use)
@@ -5940,7 +5957,7 @@ def media_reference_drawn_without_entry(use, manifest):
                     continue
                 for value in _children(text):
                     medium = value.get("form")
-                    if _local(value) != "value" or medium not in ("image", "audio", "video"):
+                    if _local(value) != "value" or medium not in ("image", "audio", "video", "video-inline"):
                         continue
                     path = (value.text or "").strip()
                     if not path or path in mapped:
@@ -10022,6 +10039,7 @@ VALUE_CLASSES = {
     "questions/a-secret-whose-bind-has-no-type-with-numeric-or-numbers-ignoring": _untyped_numeric("secret"),
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
+    "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,

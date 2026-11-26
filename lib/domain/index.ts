@@ -45,6 +45,7 @@ export * from "./hashtagSegments";
 export * from "./idSlug";
 export * from "./jsonNumber";
 export * from "./kinds";
+export * from "./labelForms";
 export * from "./localization";
 export * from "./localizedBlueprintProjection";
 export * from "./locationCapture";

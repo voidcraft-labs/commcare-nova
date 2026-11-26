@@ -19,6 +19,7 @@ import {
 	columnSort,
 	hiddenSearchInputDef,
 	linkColumn,
+	type ProseTemplate,
 	plainColumn,
 	proseText,
 	simpleSearchInputDef,
@@ -64,6 +65,7 @@ import {
 } from "../engine/searchInputConstraints";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
 import { drawnSearchInputs } from "../hooks/useSearchInputRunState";
+import { labelPresentation } from "../labelPresentation";
 import {
 	ANDROID_DEVICE_ID_PREFIX,
 	androidAppVersion,
@@ -467,6 +469,64 @@ export const PLATFORM_MODEL_CHECKS = {
 			label: "Register patient",
 			icon: REGISTER_ICON,
 			audioLabel: REGISTER_AUDIO,
+		});
+	},
+
+	/* A label's QR code takes the image's place on Android and shows nowhere
+	 * in Web Apps, and an inline video takes the place of both; its spoken text's speaker button shows on Android where the
+	 * label has no audio, and nowhere in Web Apps. */
+	"label-texts": () => {
+		const image = asMediaAssetId(testUuid("platform-cells-label-image"));
+		const card = {
+			uuid: testUuid("platform-cells-label-card"),
+			id: "card",
+			kind: "label",
+			label: proseText("Show the card"),
+			qr_code: proseText("ID-17"),
+			spoken_text: proseText("Show the card"),
+			label_media: { image },
+		} as const;
+		const project = (template: ProseTemplate) =>
+			template.parts
+				.map((part) => (part.kind === "text" ? part.text : ""))
+				.join("");
+		const shown = (platform: Platform) =>
+			labelPresentation(
+				card,
+				false,
+				previewPlatformRules(platform),
+				{},
+				project,
+			);
+		expect(shown("web-apps")).toMatchObject({
+			qrCode: undefined,
+			speech: undefined,
+			media: { image },
+		});
+		expect(shown("android")).toMatchObject({
+			qrCode: "ID-17",
+			speech: "Show the card",
+			media: { image: undefined },
+		});
+		/* An inline video plays on Android in the place of the QR code and the
+		 * image alike, and shows nowhere in Web Apps. */
+		const video = asMediaAssetId(testUuid("platform-cells-label-video"));
+		const film = { ...card, label_media: { image, videoInline: video } };
+		const played = (platform: Platform) =>
+			labelPresentation(
+				film,
+				false,
+				previewPlatformRules(platform),
+				{},
+				project,
+			);
+		expect(played("web-apps")).toMatchObject({
+			qrCode: undefined,
+			media: { image, videoInline: undefined },
+		});
+		expect(played("android")).toMatchObject({
+			qrCode: undefined,
+			media: { image: undefined, videoInline: video },
 		});
 	},
 

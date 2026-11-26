@@ -128,6 +128,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"choice-media": ["questions/choice-image", "questions/choice-audio-video"],
 	"help-media": ["questions/help-media"],
+	"label-inline-video": ["questions/label-video-inline"],
+	"label-qr-code": ["questions/label-qrcode"],
+	"label-spoken-text": ["questions/label-tts"],
 	now: ["expressions-and-data/now"],
 	today: ["expressions-and-data/today"],
 	"random-and-unique-id": [

@@ -1195,7 +1195,14 @@ export type ProseSlotRef =
 	| {
 			readonly entity: "field";
 			readonly uuid: Uuid;
-			readonly slot: "label" | "hint" | "help" | "validate_msg";
+			readonly slot:
+				| "label"
+				| "hint"
+				| "help"
+				| "validate_msg"
+				| "extended_text"
+				| "qr_code"
+				| "spoken_text";
 	  }
 	| {
 			readonly entity: "field";
@@ -1210,6 +1217,9 @@ const PROSE_SLOT_NAMES: ReadonlySet<string> = new Set<ProseSlotRef["slot"]>([
 	"hint",
 	"help",
 	"validate_msg",
+	"extended_text",
+	"qr_code",
+	"spoken_text",
 	"option_label",
 ]);
 

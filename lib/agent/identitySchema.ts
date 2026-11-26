@@ -310,6 +310,7 @@ export function classifyIdentity(
 		property === "image" ||
 		property === "audio" ||
 		property === "video" ||
+		property === "videoInline" ||
 		property === "icon" ||
 		property === "audioLabel" ||
 		property === "logo"

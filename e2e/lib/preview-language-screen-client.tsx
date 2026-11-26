@@ -58,7 +58,10 @@ import {
 // Read before the Builder route below replaces the page's address.
 const query = new URLSearchParams(window.location.search);
 const editMedia = query.has("editMedia");
-const doc = languageScreenDoc(query.has("localizedMedia"));
+const doc = languageScreenDoc(
+	query.has("localizedMedia"),
+	query.has("inlineVideo"),
+);
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
 docStore.getState().startTracking();

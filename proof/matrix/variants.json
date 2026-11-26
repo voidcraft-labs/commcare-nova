@@ -21077,7 +21077,9 @@
 		"base": "hq-kept-settings",
 		"entry": "application-and-settings/repeated-android-app-dependency",
 		"standing": "fix-in-hq",
-		"place": { "kind": "app" },
+		"place": {
+			"kind": "app"
+		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/profile/features/dependencies",
@@ -21316,6 +21318,24 @@
 		}
 	},
 	{
+		"id": "hq-kept-settings/label-text-one-language",
+		"base": "hq-kept-settings",
+		"entry": "questions/long-qrcode-or-tts-form-missing-in-default-language",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Rounds",
+			"formName": "Survey",
+			"path": "note"
+		},
+		"change": {
+			"op": "named",
+			"name": "label_text_one_language"
+		}
+	},
+	{
 		"id": "hq-kept-settings/media-one-language",
 		"base": "hq-kept-settings",
 		"entry": "questions/media-form-missing-in-default-language",
@@ -21396,14 +21416,32 @@
 		"entry": "questions/a-text-whose-languages-show-different-values",
 		"holds": [
 			{
-				"key": ["field", { "$xmlns": [0, 0] }, ["note"]],
-				"translation": { "language": "fra", "slot": "label" },
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["note"]
+				],
+				"translation": {
+					"language": "fra",
+					"slot": "label"
+				},
 				"pointer": "/valueMode",
 				"value": "independent-values"
 			},
 			{
-				"key": ["field", { "$xmlns": [0, 0] }, ["note"]],
-				"translation": { "language": "fra", "slot": "label" },
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["note"]
+				],
+				"translation": {
+					"language": "fra",
+					"slot": "label"
+				},
 				"pointer": "/value/parts/1/kind",
 				"value": "field-ref"
 			}
@@ -22049,6 +22087,30 @@
 		"id": "hq-media/label-video-inline",
 		"base": "hq-media",
 		"entry": "questions/label-video-inline",
+		"change": {
+			"op": "named",
+			"name": "label_video_inline"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["animal_name"]
+				],
+				"pointer": "/label_media/videoInline",
+				"value": {
+					"$projectFile": "jr://file/commcare/video/data/animal_name.mp4"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-media/video-inline-on-help",
+		"base": "hq-media",
+		"entry": "questions/video-inline-form-on-a-text-other-than-a-question-label",
 		"standing": "not-yet",
 		"place": {
 			"kind": "question",
@@ -22060,7 +22122,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "label_video_inline"
+			"name": "video_inline_on_help"
 		}
 	},
 	{
@@ -31567,19 +31629,30 @@
 		"id": "hq-questions/label-qrcode",
 		"base": "hq-questions",
 		"entry": "questions/label-qrcode",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "label_qrcode"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/qr_code",
+				"value": {
+					"parts": [
+						{
+							"kind": "text",
+							"text": "household"
+						}
+					]
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/label-selectable",
@@ -31607,19 +31680,30 @@
 		"id": "hq-questions/label-tts",
 		"base": "hq-questions",
 		"entry": "questions/label-tts",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "label_tts"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/spoken_text",
+				"value": {
+					"parts": [
+						{
+							"kind": "text",
+							"text": "Say the full name"
+						}
+					]
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/label-without-default-text",
@@ -31714,6 +31798,53 @@
 		"id": "hq-questions/long-form",
 		"base": "hq-questions",
 		"entry": "questions/long-form",
+		"change": {
+			"op": "named",
+			"name": "long_form"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/extended_text",
+				"value": {
+					"parts": [
+						{
+							"kind": "text",
+							"text": "Full name of the person"
+						}
+					]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-questions/long-form-on-group-label",
+		"base": "hq-questions",
+		"entry": "questions/long-form-on-a-group-or-repeat-label",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "members"
+		},
+		"change": {
+			"op": "named",
+			"name": "long_form_on_group_label"
+		}
+	},
+	{
+		"id": "hq-questions/long-form-on-help",
+		"base": "hq-questions",
+		"entry": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
 		"standing": "not-yet",
 		"place": {
 			"kind": "question",
@@ -31725,7 +31856,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "long_form"
+			"name": "long_form_on_help"
 		}
 	},
 	{
@@ -32192,6 +32323,16 @@
 		"change": {
 			"op": "named",
 			"name": "protected_validation_message"
+		},
+		"holds": []
+	},
+	{
+		"id": "hq-questions/qrcode-on-help",
+		"base": "hq-questions",
+		"entry": "questions/qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of",
+		"change": {
+			"op": "named",
+			"name": "qrcode_on_help"
 		},
 		"holds": []
 	},

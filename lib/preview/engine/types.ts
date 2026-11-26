@@ -1,4 +1,4 @@
-import type { Uuid } from "@/lib/domain";
+import type { LabelTextSlot, Uuid } from "@/lib/domain";
 import type { AppSetupSection } from "@/lib/routing/types";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import type { SetvalueRefusalDetails } from "./answerCast";
@@ -39,6 +39,9 @@ export interface FieldState {
 	resolvedHint?: string;
 	/** Help text with structural refs evaluated to runtime values. */
 	resolvedHelp?: string;
+	/** The label's other texts (`lib/domain/labelForms.ts`) with refs
+	 *  evaluated to runtime values, by slot. Only set when one contains refs. */
+	resolvedLabelTexts?: Readonly<Partial<Record<LabelTextSlot, string>>>;
 	/** Structural option-label refs evaluated by stable option uuid. */
 	resolvedOptionLabels?: Readonly<Record<string, string>>;
 	/** Live instance count for repeat fields. Only set on `repeat` kinds —
@@ -123,6 +126,7 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.resolvedLabel === b.resolvedLabel &&
 		a.resolvedHint === b.resolvedHint &&
 		a.resolvedHelp === b.resolvedHelp &&
+		stringRecordsEqual(a.resolvedLabelTexts, b.resolvedLabelTexts) &&
 		stringRecordsEqual(a.resolvedOptionLabels, b.resolvedOptionLabels) &&
 		a.repeatCount === b.repeatCount &&
 		a.insertRefusal === b.insertRefusal &&

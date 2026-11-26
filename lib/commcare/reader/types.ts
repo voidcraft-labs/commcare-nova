@@ -19,6 +19,7 @@ import type {
 	WireStringSource,
 } from "@/lib/domain";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
+import type { LabelTextSlot } from "@/lib/domain/labelForms";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
@@ -457,8 +458,14 @@ export interface ReadFormFacts {
 	 *  blank, each read as no translation. */
 	readonly blankTranslations: number;
 	/** Blank non-default slots filled at publication, by field, role, choice and language. */
-	readonly blankTranslationSlots?: readonly ItextRecipient[];
+	readonly blankTranslationSlots?: readonly BlankTranslationSlot[];
 }
+
+/** One blank non-default value filled at publication: a text slot's, or one of a question
+ *  label's other texts (`lib/domain/labelForms.ts`). */
+export type BlankTranslationSlot = Omit<ItextRecipient, "slot"> & {
+	readonly slot: ItextRecipient["slot"] | LabelTextSlot;
+};
 
 export interface ReadGeneratedNode {
 	readonly purpose: GeneratedNodePurpose;
