@@ -1612,16 +1612,31 @@ function readRelationTranslatableEnum(
 	column.take("format", C.translatableEnumRelationDoes, String).value;
 	claimPropertySource(ctx, column, field, relation, false);
 	if (!calculationKeysAreEditable(column)) return undefined;
-	return readGeneralCalculation(
+	const expression = imageMapPropertyText(
+		relation.name,
+		relation.via,
+		relation,
+	);
+	const proposed = readGeneralCalculation(
 		ctx,
 		column,
-		imageMapPropertyText(relation.name, relation.via, relation),
+		expression,
 		header,
 		base,
 		others,
 		C.translatableEnumRelationDoes,
 		false,
 	);
+	// HQ substitutes each enum variable key throughout the original XPath.
+	// Only a field whose calculation uses none of those keys is a spelling change.
+	if (proposed?.textKeys?.every((key) => !expression.includes(key))) {
+		ctx.facts.sameStateRewrites.push({
+			entry: C.translatableEnumRelationDoes.entry,
+			path: column.pointer,
+			register: "legacy-related-case-text-rekeyed",
+		});
+	}
+	return proposed;
 }
 
 function calculationKeysAreEditable(column: JsonCursor): boolean {

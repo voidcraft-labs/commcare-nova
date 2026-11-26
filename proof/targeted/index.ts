@@ -97,7 +97,10 @@ import {
 	hqChangesQuestions,
 	hqChangesResave,
 } from "./documents/hqChanges";
-import { hqChangesCaseFormats } from "./documents/hqChangesCaseFormats";
+import {
+	hqChangesCaseFormats,
+	legacyRelatedCaseText,
+} from "./documents/hqChangesCaseFormats";
 import { hqChangesCaseImage } from "./documents/hqChangesCaseImage";
 import { hqChangesCaseTabs } from "./documents/hqChangesCaseTabs";
 import { hqSideLookup } from "./documents/hqSideLookup";
@@ -378,6 +381,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hqChangesFormSetting,
 	hqChangesCaseManagement,
 	hqChangesCaseFormats,
+	legacyRelatedCaseText,
 	hqChangesCaseImage,
 	hqChangesCaseTabs,
 	hqChangesMenu,
