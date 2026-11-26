@@ -28,7 +28,7 @@ def _save_with_link(editor_driver, name, *, action_present=None):
             and node.find(f"{{{CASE}}}index") is None
             and (
                 action_present is None
-                or (node.find(f"{{{CASE}}}{name}") is not None) == action_present
+                or node.find(f"{{{CASE}}}{name}") is None
             )
         )
         index = etree.SubElement(transaction, f"{{{CASE}}}index")
@@ -41,6 +41,27 @@ def _save_with_link(editor_driver, name, *, action_present=None):
             for node in (*reversed(list(link.iterancestors())), link)[4:]
         )
         assert path.endswith(f"/case/index/{name}") and path.startswith("/data/"), path
+        if action_present:
+            case_path = path.removesuffix(f"/index/{name}")
+            create = etree.Element(f"{{{CASE}}}create")
+            transaction.insert(0, create)
+            case_type = transaction.getparent().get(f"{{{VELLUM}}}case_type")
+            assert case_type
+            for field, expression in (
+                ("case_type", repr(case_type)),
+                ("case_name", "'Witness case'"),
+                ("owner_id", "/data/meta/userID"),
+            ):
+                etree.SubElement(create, f"{{{CASE}}}{field}")
+                etree.SubElement(
+                    model, f"{{{XFORMS}}}bind", nodeset=f"{case_path}/create/{field}", calculate=expression
+                )
+            for bind in model.findall(f"{{{XFORMS}}}bind"):
+                if bind.get("nodeset") == f"{case_path}/@case_id":
+                    model.remove(bind)
+            etree.SubElement(
+                model, f"{{{XFORMS}}}setvalue", event="xforms-ready", ref=f"{case_path}/@case_id", value="uuid()"
+            )
         etree.SubElement(
             model, f"{{{XFORMS}}}bind", nodeset=path, calculate="'household-123'"
         )
