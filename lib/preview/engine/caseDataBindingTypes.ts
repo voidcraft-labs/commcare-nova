@@ -1,3 +1,7 @@
+import type {
+	ActivityFact,
+	SubmittedActivity,
+} from "@/lib/domain/connectSubmissionFacts";
 // lib/preview/engine/caseDataBindingTypes.ts
 //
 // Discriminated-union result shapes for the running-app view's
@@ -519,6 +523,7 @@ interface SubmissionProtocol {
 	readonly entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
 	readonly formOpening?: import("./formOpeningSnapshot").FormOpeningBinding;
 	readonly locationFix?: DeviceLocation;
+	readonly activities?: readonly SubmittedActivity[];
 	readonly formUuid: string;
 	readonly entryKey: string;
 	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
@@ -579,6 +584,7 @@ export type SubmissionResult =
 			/** Absent only when replaying a historical flat child-id receipt whose
 			 * authored-child/parent mapping cannot be reconstructed safely. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -598,6 +604,7 @@ export type SubmissionResult =
 			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only for a historical flat child-id receipt. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -617,6 +624,7 @@ export type SubmissionResult =
 			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only for a historical flat child-id receipt. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -628,6 +636,7 @@ export type SubmissionResult =
 	| {
 			kind: "survey";
 			submissionLocation?: DeviceLocation | null;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];

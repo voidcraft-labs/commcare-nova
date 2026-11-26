@@ -250,6 +250,19 @@ export function classifyIdentity(
 			))
 	)
 		return "form";
+	/* A Connect activity's part names the activity, a field of the form. */
+	if (
+		property === "activity" &&
+		discriminators.some((kind) =>
+			[
+				"connect-learn",
+				"connect-assessment",
+				"connect-delivery",
+				"connect-task",
+			].includes(kind),
+		)
+	)
+		return "field";
 	if (property === "entryPointUuid") return "entry-point";
 	if (property === "automationUuid" || property === "afterAutomationUuid") {
 		return "automation";
@@ -289,7 +302,9 @@ export function classifyIdentity(
 	if (
 		property === "optionUuid" ||
 		(property === "options" && discriminators.includes("choice")) ||
-		(property === "option" && discriminators.includes("itext"))
+		(property === "option" && discriminators.includes("itext")) ||
+		// A form behavior's carrier or shared text names its choice.
+		(property === "option" && tool === "update_form")
 	)
 		return "select-option";
 	if (

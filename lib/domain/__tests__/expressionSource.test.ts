@@ -251,9 +251,10 @@ describe("stored field expressions and prose", () => {
 });
 
 describe("stored form expressions", () => {
-	it("reads separate Connect carriers by their owning form", () => {
+	it("reads separate Connect carriers by their owning activity", () => {
+		const delivery = testUuid("source-delivery");
 		const doc = buildDoc({
-			connectType: "deliver",
+			connectRoles: ["deliver"],
 			modules: [
 				{
 					name: "Deliver",
@@ -262,15 +263,19 @@ describe("stored form expressions", () => {
 							uuid: FORM,
 							name: "Delivery",
 							type: "survey",
-							fields: [],
-							connect: {
-								deliver_unit: {
+							fields: [
+								{
+									kind: "connect_activity",
+									uuid: delivery,
 									id: "unit",
-									name: "Unit",
-									entity_id: term(literal("id")),
-									entity_name: term(literal("Name")),
+									activity: {
+										kind: "delivery",
+										name: "Unit",
+										entityId: term(literal("id")),
+										entityName: term(literal("Name")),
+									},
 								},
-							},
+							],
 						},
 					],
 				},
@@ -278,22 +283,22 @@ describe("stored form expressions", () => {
 		});
 		expect(
 			expressionAt(doc, {
-				entity: "form",
-				uuid: FORM,
+				entity: "field",
+				uuid: delivery,
 				slot: "deliver_entity_id",
 			}),
 		).toEqual(term(literal("id")));
 		expect(
 			expressionAt(doc, {
-				entity: "form",
-				uuid: FORM,
+				entity: "field",
+				uuid: delivery,
 				slot: "deliver_entity_name",
 			}),
 		).toEqual(term(literal("Name")));
 		expect(
 			expressionAt(doc, {
-				entity: "form",
-				uuid: FORM,
+				entity: "field",
+				uuid: delivery,
 				slot: "assessment_user_score",
 			}),
 		).toBeUndefined();

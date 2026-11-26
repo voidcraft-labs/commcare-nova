@@ -103,7 +103,18 @@ def _answers() -> dict:
 
 
 def _read(
-    served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False, sent=None, about=None
+    served,
+    blobs,
+    label,
+    op,
+    archives: dict,
+    options: dict,
+    *,
+    delivered: bool = False,
+    sent=None,
+    submissions=None,
+    about=None,
+    stored=None,
 ) -> dict:
     from proof.android.hq import DevicePeer
     from proof.formplayer.hq import DEVICE_REPORT
@@ -136,13 +147,17 @@ def _read(
             report = progress.activity(stage, count="native")
         with report:
             reader = services.android()
-            peer = DevicePeer(served, label, delivered=delivered, device=options.get("device", "phone"))
+            peer = DevicePeer(
+                served, label, delivered=delivered, device=options.get("device", "phone"), stored=stored
+            )
             try:
                 answer = reader.request(op, peer=peer, drawn=drawn, worker=worker(served), **arguments)
             finally:
                 peer.close()
         # Each picture the device drew, as a blob the record names (a record names every blob it reads).
         pictures = sorted(blobs.put(path.read_bytes()) for path in drawn.glob("*.png"))
+    if submissions is not None:
+        submissions.extend(one for one in peer.views.submissions if DEVICE_REPORT not in one.instance)
     if sent is not None:
         # Each form the device sent HQ's receiver, as it sent it; its log reports are not forms.
         sent.extend(
@@ -181,6 +196,8 @@ def app(
     location_granted=False,
     clock=None,
     sent=None,
+    submissions=None,
+    stored=None,
     device: str = "phone",
     commands=None,
     views: bool = False,
@@ -188,6 +205,7 @@ def app(
     keys: bool = False,
     controls: bool = False,
     questions=None,
+    repeat_additions=None,
     save_incomplete: str | None = None,
     reopen: bool = False,
     searches=None,
@@ -195,9 +213,11 @@ def app(
     """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's requests made as
     the worker HQ made and its restore and forms delivered to HQ's own addresses for the worker and the app
     (``proof.android.hq``); ``fix`` where the device's GPS puts it (``[latitude, longitude, altitude,
-    accuracy]``, or None for a GPS that finds no fix); ``location_granted`` when the worker has given the app location access before opening the list; ``clock`` the device's instant where it is not the lane's;
-    ``sent``, a list each form the device sent HQ is added to; ``device`` a phone or a tablet held in landscape
-    (``Reader.device``). Every walk is walked again in each language the served app holds but the one it starts
+    accuracy]``, or None for a GPS that finds no fix); ``location_granted`` if the worker gave the app location access
+    before opening the list; ``clock`` the device's instant where it is not the lane's; ``sent``, a list each form the
+    device sent HQ is added to; ``stored``, a list what HQ's receiver stored of each such form is added to
+    (``proof.android.hq.DevicePeer.stored``); ``device`` a phone or a tablet held in landscape (``Reader.device``).
+    Every walk is walked again in each language the served app holds but the one it starts
     in, as every reader's walk is (``proof.observe.walks.chosen``), the same languages for every archive of the
     state so the walks of two archives pair by name.
 
@@ -205,14 +225,18 @@ def app(
     ``app`` request): ``commands``, the forms walked alone, each from home (``m<menu>-f<form>``); ``views``, each
     screen's views as Android laid them out; ``type_refused``, a value the form refused typed into the
     question's own box; ``keys``, a number keypad question's value entered into its own box one character at a
-    time, so the box keeps what its own filters keep; ``controls``, the drawn widgets' input methods, grid widths, and offered actions; ``questions``, the values for each question the answer
-    table carries, by its reference (``Answers.java::valuesFor``); ``save_incomplete``, a form whose first screen is answered and saved
+    time, so the box keeps what its own filters keep; ``controls``, the drawn widgets' input methods, grid widths and
+    offered actions; ``questions``, the values for each question the answer table carries, by its reference
+    (``Answers.java::valuesFor``); ``repeat_additions``, how many times the worker selects the button to add a repeat;
+    ``save_incomplete``, a form whose first screen is answered and saved
     incomplete; ``reopen``, that record reopened from home's incomplete forms and completed; and ``searches``,
     terms each list the walk opens is searched for beside the words its rows show (``Lists.java::searched``),
     what each finds held under the list's ``searches`` with fuzzy search as installed, on and off."""
     from proof.observe import walks
 
     answers = _answers()
+    if repeat_additions is not None:
+        answers["repeats"] = {"add": repeat_additions}
     if questions is not None:
         answers["questions"] = {
             reference: [values] if isinstance(values, str) else list(values) for reference, values in questions.items()
@@ -245,7 +269,18 @@ def app(
         options["reopen"] = True
     if searches is not None:
         options["searches"] = list(searches)
-    return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered, sent=sent)
+    return _read(
+        served,
+        blobs,
+        label,
+        "app",
+        {"archive": archive},
+        options,
+        delivered=delivered,
+        sent=sent,
+        submissions=submissions,
+        stored=stored,
+    )
 
 
 def automatic_location(served, blobs, archive, fix, label):

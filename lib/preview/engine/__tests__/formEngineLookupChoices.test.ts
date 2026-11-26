@@ -239,6 +239,46 @@ describe("lookup-backed choices in the engine", () => {
 		expect(engine.getState("/data/clinic").value).toBe("c3");
 	});
 
+	// Core sorts an itemset's choices by its `<sort ref>` text as Java strings, code unit by
+	// code unit, with a stable sort (`ItemsetBinding.sortChoices`), so ties keep row order.
+	it("orders the choices by the sort column's text, ties in row order", () => {
+		const rows = [
+			clinicRow("018f0000-0000-7000-8000-0000000000b1", "z", "Zeta", "b"),
+			clinicRow("018f0000-0000-7000-8000-0000000000b2", "a", "alpha", "a"),
+			clinicRow("018f0000-0000-7000-8000-0000000000b3", "B", "Beta", "b"),
+		];
+		const data = previewLookupData({
+			projectRevision: parseLookupRevision("7"),
+			definitions: [DEFINITION],
+			rowsByTable: new Map([[TABLE, rows]]),
+		});
+		const sortedBy = (sortColumnId: LookupColumnId) => {
+			const select = clinicSelect("single_select", false);
+			const source = select.optionsSource as LookupOptionsSource;
+			select.optionsSource = { ...source, sortColumnId };
+			const engine = new FormEngine(
+				dTree([select]),
+				undefined,
+				undefined,
+				null,
+				data,
+			);
+			return engine.getState("/data/clinic").choices?.map((c) => c.label);
+		};
+		expect(sortedBy(COL_NAME)).toEqual(["Beta", "Zeta", "alpha"]);
+		expect(sortedBy(COL_REGION)).toEqual(["alpha", "Zeta", "Beta"]);
+		const unsorted = new FormEngine(
+			dTree([clinicSelect("single_select", false)]),
+			undefined,
+			undefined,
+			null,
+			data,
+		);
+		expect(
+			unsorted.getState("/data/clinic").choices?.map((c) => c.label),
+		).toEqual(["Zeta", "alpha", "Beta"]);
+	});
+
 	it("leaves choices undefined (loading) without a snapshot, unselecting nothing", () => {
 		const engine = new FormEngine(
 			dTree([clinicSelect("single_select", false)]),

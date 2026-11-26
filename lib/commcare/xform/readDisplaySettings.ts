@@ -169,6 +169,16 @@ function hintInEntry(
 	);
 }
 
+/** TriggerWidget shows an Android checkbox except for its two passive
+ * spellings and the appearances FormNavigationUI hides. */
+function appearanceShowsConfirmation(value: string): boolean {
+	return (
+		value !== "minimal" &&
+		value !== "selectable" &&
+		!value.startsWith("floating-")
+	);
+}
+
 /** The facts that differentiate a spelling beyond its set of typed slots.
  * In particular Vellum changes mug type only on exact appearance strings. */
 function wholeValueEffects(kind: FieldKind, value: string) {
@@ -188,12 +198,7 @@ function wholeValueEffects(kind: FieldKind, value: string) {
 			kind === "signature" || kind === "image"
 				? value === "signature"
 				: undefined,
-		trigger:
-			kind === "label"
-				? value === "minimal" ||
-					value === "selectable" ||
-					value.startsWith("floating-")
-				: undefined,
+		trigger: kind === "label" ? appearanceShowsConfirmation(value) : undefined,
 		ethiopian: kind === "date" && lower === "ethiopian",
 		groupLayout:
 			kind === "group" || kind === "section"
@@ -347,6 +352,7 @@ export function readFieldAppearance(
 	kind: FieldKind,
 	value: string,
 	hasRepeatingRows = true,
+	askForConfirmation = false,
 ): DisplaySettings | undefined {
 	let settings = settingsReadAt(kind, value);
 	if (!hasRepeatingRows) delete settings.repeatsPerRow;
@@ -360,7 +366,8 @@ export function readFieldAppearance(
 			if (pair) settings = { ...settings, choiceLayout: pair };
 		}
 	}
-	const candidate = writeFieldAppearance(kind, settings) ?? "";
+	const candidate =
+		writeFieldAppearance(kind, { ...settings, askForConfirmation }) ?? "";
 	return deepEqual(
 		wholeValueEffects(kind, value),
 		wholeValueEffects(kind, candidate),
@@ -389,15 +396,26 @@ export function fieldDisplayProblem(field: Field): string | undefined {
 			field: questionReceiverProperty(field.receiveFrom.field),
 		};
 	if (field.kind === "group" && field.fieldList) held.fieldList = true;
-	const emitted = writeFieldAppearance(field.kind, held) ?? "";
-	const read = readFieldAppearance(field.kind, emitted);
+	const asksForConfirmation =
+		field.kind === "label" && field.askForConfirmation === true;
+	const emitted =
+		writeFieldAppearance(field.kind, {
+			...held,
+			askForConfirmation: asksForConfirmation,
+		}) ?? "";
 	if (
 		field.kind === "label" &&
-		emitted !== "minimal" &&
-		emitted !== "selectable" &&
-		!emitted.startsWith("floating-")
+		appearanceShowsConfirmation(emitted) !== asksForConfirmation
 	)
-		return "These settings would turn the label into a question the worker must acknowledge. You can keep a banner or use the label's ordinary display.";
+		return asksForConfirmation
+			? "These settings would hide the worker’s confirmation checkbox on Android. You can remove the banner or turn off text selection."
+			: "These settings would turn the label into a question the worker must acknowledge. You can keep a banner or use the label's ordinary display.";
+	const read = readFieldAppearance(
+		field.kind,
+		emitted,
+		true,
+		asksForConfirmation,
+	);
 	if (field.kind === "signature" && emitted !== "signature")
 		return "These settings would replace the signature pad on Android. You can keep this signature's ordinary display.";
 	if (field.kind === "image" && emitted === "signature")

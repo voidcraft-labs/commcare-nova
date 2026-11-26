@@ -89,13 +89,13 @@ describe("a data table read in form logic, Connect or a link", () => {
 			],
 			[
 				"deliver_entity_name",
-				INSTANCE_READS.visitForm,
+				INSTANCE_READS.delivery,
 				"/k:resultColumnId",
 				label.id,
 			],
 			[
 				"deliver_entity_name",
-				INSTANCE_READS.visitForm,
+				INSTANCE_READS.delivery,
 				"/k:table-lookup/k:where/k:left/k:columnId",
 				value.id,
 			],
@@ -131,7 +131,7 @@ describe("a data table read in form logic, Connect or a link", () => {
 			["region_label", INSTANCE_READS.visitForm],
 			["region_count", INSTANCE_READS.visitForm],
 			["region_labels", INSTANCE_READS.visitForm],
-			["form", INSTANCE_READS.visitForm],
+			["visit", INSTANCE_READS.visitForm],
 			["form", INSTANCE_READS.visitForm],
 		]);
 	});
@@ -173,7 +173,13 @@ describe("a data table read in form logic, Connect or a link", () => {
 		const alone = produce(doc, (draft) => {
 			for (const id of ["region_label", "region_count", "region_labels"])
 				delete draft.fields[fieldUuid(draft, id)];
-			for (const form of Object.values(draft.forms)) delete form.connect;
+			for (const field of Object.values(draft.fields))
+				if (field.kind === "connect_activity") {
+					delete draft.fields[field.uuid];
+					for (const order of Object.values(draft.fieldOrder))
+						if (order.includes(field.uuid))
+							order.splice(order.indexOf(field.uuid), 1);
+				}
 		});
 		expect(extractLookupReferenceTargets(alone).tableIds).toEqual([table.id]);
 		const gone = runValidation(doc, {

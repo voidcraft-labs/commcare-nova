@@ -93,3 +93,19 @@ def test_the_name_formplayer_gives_an_uploaded_file_holds_a_generated_id_and_a_g
         "dotted": f"{canonical.TOKEN}1.",
     }
     assert generated == 1
+
+
+def test_a_java_objects_identity_hash_is_left_out_of_a_message():
+    """Core's parser names the reader it refused a submission from by ``Object.toString``, whose hash differs on
+    every run; the record keeps the class. A word that only looks like a class with an ``@`` stays."""
+    said = "Invalid XML Structure(TEXT   proof  @1:405 in java.io.InputStreamReader@7161e1cc): Expected tag username"
+    again = said.replace("7161e1cc", "578d2195")
+    first, _ = canonical.mark({"notification": {"message": said}}, set())
+    second, _ = canonical.mark({"notification": {"message": again}}, set())
+    assert first == second == {
+        "notification": {
+            "message": "Invalid XML Structure(TEXT   proof  @1:405 in java.io.InputStreamReader): Expected tag username"
+        }
+    }
+    kept, _ = canonical.mark({"text": "write to worker@example.org at @1:405"}, set())
+    assert kept == {"text": "write to worker@example.org at @1:405"}

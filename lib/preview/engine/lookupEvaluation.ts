@@ -287,7 +287,7 @@ function deviceChoiceText(
  * rows, which is the order the fixture instance holds them in.
  *
  * Without `sortColumnId` the choices keep the nodeset's order, the table's
- * row order, as a form select's do. With it they are ordered by that
+ * row order, as a form select's without a sort do. With it they are ordered by that
  * column's cell text compared code unit by code unit, ties in row order: the
  * order Core gives an `<itemset>` with a `<sort>`
  * (`ItemsetBinding.sortChoices` compares Java strings with a stable sort),

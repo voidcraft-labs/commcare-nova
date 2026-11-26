@@ -41,9 +41,11 @@ import {
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
+import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { connectActivityRole } from "@/lib/domain/fields/connectActivity";
 import { openingAssignmentsInRunOrder } from "@/lib/domain/formOpeningAssignments";
 import type { FormOpeningAssignment } from "@/lib/domain/forms";
 import { formWireName } from "@/lib/domain/formWireName";
@@ -64,6 +66,10 @@ import {
 	recordFromEntries,
 } from "@/lib/domain/records";
 import {
+	designerScreenOrder,
+	submissionLayout,
+} from "@/lib/domain/submissionLayout";
+import {
 	defaultWording,
 	hasGeneratedWording,
 	localizeTranslationUnit,
@@ -82,6 +88,7 @@ import {
 import { outputLocaleRole } from "../localeFile";
 import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
+import { fieldBindType, hiddenAnswerTypeOf } from "../xform/bindType";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
 import {
@@ -171,7 +178,7 @@ import {
 	namedWorkerReadsAreProperties,
 	worldPropertiesAsRead,
 } from "./worldEntities";
-import { connectDefaultsUnset } from "./xform/afterBinding";
+import { accountConnectSubmissionConflicts } from "./xform/connect";
 import {
 	blankItextFilled,
 	blankOptionalTextAbsent,
@@ -184,7 +191,7 @@ const TRANSLATIONS = "schema:Application.translations";
 const AUTO_GPS = "schema:Application.auto_gps_capture";
 
 const CLAIMS = defineClaims("assemble", {
-	/** `auto_gps_capture` on a Connect app: Nova writes `true` from `connectType`. */
+	/** `auto_gps_capture` on a Connect app: Nova writes `true` from the configured Connect roles. */
 	autoGpsConnect: derived(`${A}/45-hq-auto-gps-capture`, AUTO_GPS),
 	/** On an ordinary app the author chooses the app-wide setting. */
 	autoGpsOther: take(
@@ -307,7 +314,110 @@ function flagPrintsNothing(
 	return !carriesMedia(media) && blankEverywhere(doc, template, unit);
 }
 
+/**
+ * A form's screen order and placements as the reader returns them
+ * (`xform/join.ts::order`): the order the form designer's question tree holds
+ * (`submissionLayout.ts::designerScreenOrder`), which differs from an
+ * authored one only in where a value with no question, or a question whose
+ * answer stands under another group, sits among its group's questions; and no
+ * placement naming the question's own group. The export prints the same bytes
+ * for both.
+ */
+function placementAsRead(doc: BlueprintDoc, form: Uuid): BlueprintDoc {
+	const layout = submissionLayout(form, doc.fields, doc.fieldOrder);
+	if (layout.problems.size > 0) return doc;
+	const screens = designerScreenOrder(form, doc.fields, doc.fieldOrder);
+	const redundant = [...layout.controlParents].flatMap(([uuid, parent]) =>
+		doc.fields[uuid]?.submissionPlacement?.parent === parent ? [uuid] : [],
+	);
+	const unchanged =
+		redundant.length === 0 &&
+		[...screens].every(([parent, list]) =>
+			sameJson(list, doc.fieldOrder[parent]),
+		);
+	if (unchanged) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const [parent, list] of screens) draft.fieldOrder[parent] = [...list];
+		for (const uuid of redundant) delete draft.fields[uuid].submissionPlacement;
+	});
+}
+
+/** Every form of `doc` with its controls and submitted answers as the reader
+ *  returns them (`placementAsRead`). */
+export function placementsAsRead(doc: BlueprintDoc): BlueprintDoc {
+	return Object.keys(doc.forms).reduce(
+		(next, form) => placementAsRead(next, form as Uuid),
+		doc,
+	);
+}
+
 export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
+	{
+		/** A form whose answers are submitted apart from their screens: the
+		 *  screen order the form designer's question tree holds, which places a
+		 *  value with no question and a question whose answer stands elsewhere
+		 *  where the export cannot say otherwise, as the reader returns them
+		 *  (`placementAsRead`). */
+		id: "submitted-placement-as-read",
+		kind: "one-wire",
+		apply: (doc) => placementsAsRead(doc),
+	},
+	{
+		/** A Hidden Value whose chosen answer type is the class Nova's automatic
+		 *  type already writes (`xsd:string`, or `xsd:dateTime` where its write or
+		 *  its calculate keeps a clock): both print one bind, and the reader
+		 *  returns the automatic type (`xform/afterBinding.ts::settleHiddenAnswerTypes`). */
+		id: "hidden-answer-type-as-automatic",
+		kind: "one-wire",
+		apply: (doc) => {
+			const chosen = Object.values(doc.fields).filter(
+				(field) => field.kind === "hidden" && field.answerType !== undefined,
+			);
+			if (chosen.length === 0) return doc;
+			const types = effectiveCaseTypes(doc);
+			const automatic = chosen.filter((field) => {
+				if (field.kind !== "hidden") return false;
+				const { answerType, ...rest } = field;
+				return (
+					hiddenAnswerTypeOf(
+						fieldBindType(rest, types, fieldCaseWriteViews(doc, field.uuid)) ??
+							undefined,
+					) === answerType
+				);
+			});
+			if (automatic.length === 0) return doc;
+			return withCandidate(doc, (draft) => {
+				for (const field of automatic)
+					delete (draft.fields[field.uuid] as { answerType?: unknown })
+						.answerType;
+			});
+		},
+	},
+	{
+		id: "active-connect-roles-as-read",
+		kind: "one-wire",
+		apply: (doc) => {
+			const exercised = new Set(
+				Object.values(doc.fields).flatMap((field) =>
+					field.kind === "connect_activity"
+						? [connectActivityRole(field.activity.kind)]
+						: [],
+				),
+			);
+			// The export shows a role only through an activity that uses it,
+			// and every role through automatic location. A role no activity
+			// uses has no wire of its own, so the reading holds the roles its
+			// activities use, and an app with no activity left holds the
+			// automatic location as its own setting (`assembleDocument`).
+			if (exercised.size === doc.connectRoles.length) return doc;
+			return withCandidate(doc, (draft) => {
+				draft.connectRoles = doc.connectRoles.filter((role) =>
+					exercised.has(role),
+				);
+				if (exercised.size === 0) draft.appSettings.captureLocation = true;
+			});
+		},
+	},
 	{
 		/** A root of `fieldList` groups with no condition and no worker-added repeat, and a root of
 		 *  sections, print one source; the reader returns sections. */
@@ -316,7 +426,11 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: (doc) =>
 			withCandidate(doc, (draft) => {
 				for (const formUuid of Object.keys(draft.forms) as Uuid[]) {
-					const roots = draft.fieldOrder[formUuid] ?? [];
+					// A root Connect activity keeps its own submitted place beside
+					// the pages (`xform/containers.ts`).
+					const roots = (draft.fieldOrder[formUuid] ?? []).filter(
+						(uuid) => doc.fields[uuid]?.kind !== "connect_activity",
+					);
 					const lists = roots.every((uuid) => {
 						const field = doc.fields[uuid];
 						return (
@@ -639,14 +753,6 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "blank-optional-text-is-absent",
 		kind: "one-wire",
 		apply: blankOptionalTextAbsent,
-	},
-	{
-		/** A Connect assessment's score or a deliver unit's entity id or name holding the default
-		 *  an unset one takes, and unset: the emitter writes one calculate for both, and the reader
-		 *  returns unset (`xform/afterBinding.ts::connectDefaultsUnset`). */
-		id: "connect-defaults-are-unset",
-		kind: "one-wire",
-		apply: connectDefaultsUnset,
 	},
 	{
 		/** A document whose source language is not the one a reading of its export takes, and the
@@ -1259,6 +1365,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			return withCandidate(doc, (draft) => {
 				if (holds.length > 0)
 					applyHoldPlacements(draft, { kind: "holdPlacements", holds });
+				// The source says which event selects the rows. It does not say
+				// whether the author picked the timing or kept Nova's choice.
+				for (const field of Object.values(draft.fields))
+					if (
+						field.kind === "repeat" &&
+						field.repeat_mode === "query_bound" &&
+						field.rowTiming !== undefined
+					)
+						delete field.rowTiming;
 			});
 		},
 	},
@@ -2109,7 +2224,7 @@ export function* assembleDocumentSteps(
 	ctx: ReadContext,
 ): Generator<void, void, void> {
 	// 1. The claims that waited for every form.
-	if (ctx.draft.connectType !== null)
+	if (ctx.draft.connectRoles.length > 0)
 		ctx.app.derived("auto_gps_capture", CLAIMS.autoGpsConnect);
 	else {
 		const capture = ctx.app.take(
@@ -2139,6 +2254,7 @@ export function* assembleDocumentSteps(
 			? withReadTexts(working, ctx.translations)
 			: undefined;
 	if (whole !== undefined && !parsesWhole(ctx, whole)) whole = undefined;
+	if (whole !== undefined) accountConnectSubmissionConflicts(ctx, whole);
 	yield;
 
 	// 4. The generated translation keys, in every reading.

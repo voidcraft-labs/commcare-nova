@@ -68,7 +68,11 @@ export interface WirePath {
 }
 
 export type WireRoot =
-	| { readonly k: "form"; readonly spelling: "hashtag" | "absolute" }
+	| {
+			readonly k: "form";
+			readonly name?: string;
+			readonly spelling: "hashtag" | "absolute";
+	  }
 	| { readonly k: "context" | "current" | "hq-case" | "hq-worker" }
 	| { readonly k: "instance"; readonly decl: InstanceDecl }
 	/** The chosen cases a multi-select list's auto-launch condition reads,
@@ -83,7 +87,7 @@ export interface WireStep {
 	readonly predicates: readonly WireExpr[];
 }
 
-export type WireMode =
+export type WireMode = { readonly formRootName?: string } & (
 	| { readonly target: "xform"; readonly constraint: boolean }
 	| { readonly target: "vellum"; readonly constraint: boolean }
 	| { readonly target: "suite" | "preview" }
@@ -95,7 +99,8 @@ export type WireMode =
 				| "no-case"
 				| "no-dots"
 				| "enum-key";
-	  };
+	  }
+);
 
 export type NonShadowWireMode = Exclude<
 	WireMode,

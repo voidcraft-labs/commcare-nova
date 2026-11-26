@@ -2833,7 +2833,7 @@ function carriedName(
 /** A field's ids from the form's root. */
 function fieldIdsOf(field: DraftField): string[] {
 	const ids: string[] = [];
-	for (let at: DraftField | null = field; at !== null; at = at.parent)
+	for (let at: DraftField | null = field; at !== null; at = at.dataParent)
 		ids.unshift(at.id);
 	return ids;
 }
@@ -3831,6 +3831,7 @@ function emittedForm(ctx: ReadContext, doc: BlueprintDoc, form: DraftForm) {
 		try {
 			attachments = expandDoc(doc, {
 				...inputs,
+				readingComparison: true,
 				keyedCaseIdPrefixes: keyedCaseIdPrefixes(ctx),
 			})._attachments as Record<string, unknown>;
 		} catch (error) {

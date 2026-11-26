@@ -4,23 +4,16 @@
 // geopoint data type — CommCare renders a map UI that populates a
 // "lat lon alt accuracy" space-separated string into the binding.
 //
-// No validate/validate_msg — coordinate values from the GPS sensor are
-// structurally fixed and don't benefit from XPath constraint expressions.
-// `default_value` is valid for pre-populating coordinates (e.g. loading a
-// saved location from a case property); a computed coordinate belongs on a
-// `hidden` field, not a `calculate` on this visible capture control.
-
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { displaySchemas } from "../questionDisplaySchemas";
-import { formLogicSchema, inputFieldBaseSchema } from "./base";
+import { checkedInputFieldBaseSchema } from "./base";
 
-export const geopointFieldSchema = inputFieldBaseSchema.extend({
+export const geopointFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("geopoint"),
 	inputWidth: displaySchemas.inputWidth.optional(),
 	locationPicker: displaySchemas.locationPicker.optional(),
-	default_value: formLogicSchema.optional(),
 });
 
 export type GeopointField = z.infer<typeof geopointFieldSchema>;
@@ -33,7 +26,7 @@ export const geopointFieldMetadata: FieldKindMetadata<"geopoint"> = {
 	label: "Location",
 	isStructural: false,
 	isContainer: false,
-	carriesValidation: false,
+	carriesValidation: true,
 	saDocs: "GPS coordinate capture.",
 	convertTargets: [],
 };

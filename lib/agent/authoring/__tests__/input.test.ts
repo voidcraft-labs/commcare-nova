@@ -689,21 +689,33 @@ it("binds named Connect participants and their score expressions to each form", 
 			fieldUuid: "fixture_placeholder",
 		});
 	}
-	await h.call("configureConnect", {
-		mode: "learn",
-		participants: ["First assessment", "Second assessment"].map((formUuid) => ({
-			formUuid,
-			connect: { assessment: { user_score: "#form/score" } },
-		})),
-	});
+	await h.call("configureConnect", { roles: ["learn"] });
+	for (const formUuid of ["First assessment", "Second assessment"]) {
+		expect(
+			await h.call("addFields", {
+				formUuid,
+				fields: [
+					{
+						kind: "connect_activity",
+						id: "quiz",
+						activity: { kind: "assessment", score: "#form/score" },
+					},
+				],
+			}),
+		).toMatchObject({ ok: true });
+	}
 	const doc = h.currentDoc();
 	for (const form of Object.values(doc.forms).filter((form) =>
 		form.name.endsWith("assessment"),
 	)) {
-		const scoreUuid = doc.fieldOrder[form.uuid][0];
-		expect(form.connect).toMatchObject({
-			assessment: {
-				user_score: { kind: "term", term: { kind: "field", uuid: scoreUuid } },
+		const [score, quiz] = doc.fieldOrder[form.uuid];
+		expect(doc.fields[quiz]).toMatchObject({
+			activity: {
+				kind: "assessment",
+				score: {
+					kind: "term",
+					term: { kind: "field", uuid: score },
+				},
 			},
 		});
 	}
@@ -1011,4 +1023,197 @@ it("reads and writes #case on a menu that lists another menu's forms as that men
 	};
 	expect(read.case_type).toBe("patient");
 	expect(read.case_list_config.filter).toBe("(#case/case_name = 'Ada')");
+});
+
+it("names a form behavior's choice text by its value beside the question that holds it", async () => {
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Garden", forms: [{ name: "Weekly check", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fields: [
+			{ kind: "text", id: "note", label: "Note" },
+			{
+				kind: "single_select",
+				id: "done",
+				label: "Finished?",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{ value: "yes", label: "Yes, send it" },
+						{ value: "no", label: "Not yet" },
+					],
+				},
+			},
+		],
+	});
+	await h.call("updateForm", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		automaticSubmissionText: {
+			carrier: { field: "done", role: "select-option-label", option: "yes" },
+		},
+		skipAutomaticSyncText: {
+			carrier: { field: "done", role: "select-option-label", option: "no" },
+		},
+	});
+	const doc = h.currentDoc();
+	const form = Object.values(doc.forms).find(
+		(item) => item.name === "Weekly check",
+	);
+	const done = Object.values(doc.fields).find((item) => item.id === "done");
+	if (done?.kind !== "single_select" || done.optionsSource.kind !== "inline")
+		throw new Error("Missing the choice question.");
+	const [yes, no] = done.optionsSource.options;
+	expect(form?.automaticSubmissionText).toEqual({
+		carrier: {
+			field: done.uuid,
+			role: "select-option-label",
+			option: yes?.uuid,
+		},
+	});
+	expect(form?.skipAutomaticSyncText).toEqual({
+		carrier: {
+			field: done.uuid,
+			role: "select-option-label",
+			option: no?.uuid,
+		},
+	});
+});
+
+it("lets Nova choose a question label for automatic submission that no other behavior holds", async () => {
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Garden", forms: [{ name: "Weekly check", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fields: [
+			{ kind: "text", id: "first", label: "First" },
+			{ kind: "text", id: "second", label: "Second" },
+		],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fieldUuid: "fixture_placeholder",
+	});
+	// The first label holds one behavior and, in the same call, a second.
+	await h.call("updateForm", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		skipAutomaticSyncText: { carrier: { field: "first", role: "field-label" } },
+		automaticSubmissionText: true,
+	});
+	const doc = h.currentDoc();
+	const form = Object.values(doc.forms).find(
+		(item) => item.name === "Weekly check",
+	);
+	const second = Object.values(doc.fields).find((item) => item.id === "second");
+	expect(form?.automaticSubmissionText).toEqual({
+		carrier: { field: second?.uuid, role: "field-label" },
+	});
+});
+
+it("reads a form without listing each of its texts again, and names a behavior's text from the question tree", async () => {
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Garden", forms: [{ name: "Weekly check", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fields: [{ kind: "text", id: "note", label: "Note", hint: "Any note" }],
+	});
+	const read = await h.call("getForm", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+	});
+	expect(read).not.toHaveProperty("behaviorTextChoices");
+	await h.call("updateForm", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		validateChangedAnswersText: {
+			carrier: { field: "note", role: "field-hint" },
+		},
+	});
+	const note = Object.values(h.currentDoc().fields).find(
+		(item) => item.id === "note",
+	);
+	const form = Object.values(h.currentDoc().forms).find(
+		(item) => item.name === "Weekly check",
+	);
+	expect(form?.validateChangedAnswersText).toEqual({
+		carrier: { field: note?.uuid, role: "field-hint" },
+	});
+});
+
+it("admits a delivery in each row a worker adds where the row asks for a recipient ID no other row repeats, as its refusal says", async () => {
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Visits", forms: [{ name: "Round", type: "survey" }] },
+		]),
+	);
+	await h.call("updateApp", { runs_only_on: "android" });
+	await h.call("configureConnect", { roles: ["deliver"] });
+	const fields = (validate?: { expr: string; msg: string }) => ({
+		moduleUuid: "Visits",
+		formUuid: "Round",
+		fields: [
+			{
+				kind: "repeat",
+				id: "visits",
+				label: "Visits",
+				repeat: { mode: "user_controlled" },
+			},
+			{
+				kind: "text",
+				id: "recipient_id",
+				parentUuid: "visits",
+				label: "Recipient ID",
+				required: "true()",
+				...(validate && { validate }),
+			},
+			{
+				kind: "connect_activity",
+				id: "visit",
+				parentUuid: "visits",
+				activity: {
+					kind: "delivery",
+					name: "Visit",
+					entityId: "../../../recipient_id",
+				},
+			},
+		],
+	});
+	const refused = await makeAuthoringHarness({}, h.currentDoc()).call(
+		"addFields",
+		fields(),
+	);
+	expect(refused).toMatchObject({
+		error: expect.stringContaining(
+			"string-length(join('|', distinct-values(#form/<repeat>[true()]/<id>)))",
+		),
+	});
+	await h.call(
+		"addFields",
+		fields({
+			expr: "string-length(join('|', #form/visits[true()]/recipient_id)) = string-length(join('|', distinct-values(#form/visits[true()]/recipient_id)))",
+			msg: "Each visit needs its own recipient ID.",
+		}),
+	);
+	const visit = Object.values(h.currentDoc().fields).find(
+		(item) => item.id === "visit",
+	);
+	expect(visit?.kind).toBe("connect_activity");
 });

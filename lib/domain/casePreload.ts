@@ -111,6 +111,9 @@ export function saveOffersPreload(save: {
 	if (via !== undefined || property.length === 0 || property === "owner_id")
 		return false;
 	if (isCaptureField(field)) return false;
+	// A message's answer is its confirmation, OK or blank: a case value
+	// loaded into it would stand for a confirmation the worker never gave.
+	if (field.kind === "label") return false;
 	if (!fieldKindDeclaresKey(field.kind, "default_value")) return false;
 	if (
 		("calculate" in field && field.calculate !== undefined) ||

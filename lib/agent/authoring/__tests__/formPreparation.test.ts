@@ -240,19 +240,25 @@ it("binds Connect scoring and record naming from their real pending evaluation n
 			fields: [{ kind: "int", id: "score", label: "Score" }],
 		}),
 	).toMatchObject({ ok: true });
+	expect(await h.call("configureConnect", { roles: ["learn"] })).toMatchObject({
+		ok: true,
+	});
 	expect(
-		await h.call("configureConnect", {
-			mode: "learn",
-			participants: [
+		await h.call("addFields", {
+			formUuid: "Visit",
+			fields: [
 				{
-					formUuid: "Visit",
-					connect: { assessment: { user_score: "../../../score" } },
+					kind: "connect_activity",
+					id: "quiz",
+					activity: { kind: "assessment", score: "../../../score" },
 				},
 			],
 		}),
 	).toMatchObject({ ok: true });
-	expect(await h.call("getForm", { formUuid: "Visit" })).toMatchObject({
-		form: { connect: { assessment: { user_score: "../../../score" } } },
+	expect(
+		await h.call("getField", { formUuid: "Visit", fieldUuid: "quiz" }),
+	).toMatchObject({
+		field: { activity: { kind: "assessment", score: "../../../score" } },
 	});
 	// The record name is the own case's name, read where the case changes
 	// are made, so it names an answer by its form path.
@@ -609,4 +615,43 @@ it("prints a new-case session reference while its private registration name is i
 				"instance('commcaresession')/session/data/case_id_new_patient_0",
 		},
 	});
+});
+
+it("uses the submitted root from the same form edit and reads its absolute condition back by that name", async () => {
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "People",
+				caseType: "person",
+				forms: [{ name: "Register", type: "registration" }],
+			},
+		]),
+	);
+	expect(
+		await h.call("addFields", {
+			formUuid: "Register",
+			fields: [{ kind: "text", id: "name", label: "Name" }],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await h.call("updateForm", {
+			formUuid: "Register",
+			answerRoot: "screening",
+			open_condition: "/screening/name = 'Lee'",
+		}),
+	).toMatchObject({ ok: true });
+	expect(await h.call("getForm", { formUuid: "Register" })).toMatchObject({
+		form: { answerRoot: "screening", openCondition: "/screening/name = 'Lee'" },
+	});
+	expect(
+		await h.call("updateForm", {
+			formUuid: "Register",
+			answerRoot: null,
+			open_condition: "/data/name = 'Lee'",
+		}),
+	).toMatchObject({ ok: true });
+	const read = await h.call("getForm", { formUuid: "Register" });
+	expect(read).toMatchObject({ form: { openCondition: "/data/name = 'Lee'" } });
+	expect(read).not.toHaveProperty("form.answerRoot");
 });

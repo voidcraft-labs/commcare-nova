@@ -19,7 +19,7 @@ import type {
 	RecordedPlacementHolds,
 } from "@/lib/doc/placementHolds";
 import { placementHoldSchema, placementTargetKey } from "@/lib/doc/types";
-import { blueprintDocSchema } from "@/lib/domain";
+import { blueprintDocSchema, uuidSchema } from "@/lib/domain";
 
 /** One recorded hold: a target and the placement its latest recording wrote.
  *  A recording that clears nothing is no recording, so `null` is refused. */
@@ -58,6 +58,7 @@ export const appReadSnapshotSchema = z.strictObject({
 	blueprint: blueprintDocSchema,
 	baseSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
 	recordedHolds: recordedPlacementHoldsSchema,
+	publishedQuestions: z.array(uuidSchema).optional(),
 });
 
 export type AppReadSnapshot = z.infer<typeof appReadSnapshotSchema>;

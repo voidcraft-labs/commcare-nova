@@ -38,7 +38,9 @@
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import { type ProjectAccess, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
+import { getAppDb } from "@/lib/db/pg";
 import type { AppDoc } from "@/lib/db/types";
+import { publishedQuestions } from "@/lib/deployment/publishedQuestions";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
@@ -103,6 +105,14 @@ export async function loadAppBlueprint(
 	const doc: BlueprintDoc = hydratePersistedBlueprint(
 		blueprint as PersistableDoc,
 	);
+	if (required === "edit")
+		doc.publishedQuestions = await publishedQuestions(
+			await getAppDb(),
+			appId,
+			resolvedAccess.projectId,
+			loaded.mutation_seq,
+			blueprint,
+		);
 	ensureReferenceIndex(doc);
 	return {
 		doc,
