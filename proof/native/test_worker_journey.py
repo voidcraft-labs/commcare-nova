@@ -136,14 +136,14 @@ def _read_from_hq(unit, app_id, credential, label, english, french):
     project, media = retain.project_data_reads(authoring, app_id, credential)
     base = SimpleNamespace(id="worker-journey", declaration=None, owner_rule_choices={})
     key = retain.hold_key(
-        ["field", {"$xmlns": [0, 1]}, "/data/clinic"], json.loads(answers["source"].body),
+        ["field", {"$xmlns": [0, 1]}, ["clinic"]], json.loads(answers["source"].body),
     )
-    English = "/label_media/image"
-    French = "/label_media/mediaByLanguage/fra/image"
-    options = "/optionsSource"
+    english_slot = "/label_media/image"
+    french_slot = "/label_media/mediaByLanguage/fra/image"
+    options_slot = "/optionsSource"
     expected = {
-        English: retain.hold_value({"$projectFile": english}, base.id, media),
-        French: retain.hold_value({"$projectFile": french}, base.id, media),
+        english_slot: retain.hold_value({"$projectFile": english}, base.id, media),
+        french_slot: retain.hold_value({"$projectFile": french}, base.id, media),
     }
     (answer,) = retain.run_bundle([{
         "id": label,
@@ -151,14 +151,14 @@ def _read_from_hq(unit, app_id, credential, label, english, french):
         "input": retain.reading_input(answers, project, media, base, claims="counts"),
         "holds": [
             {"key": key, "pointer": path, "value": expected.get(path)}
-            for path in (English, French, options)
+            for path in (english_slot, french_slot, options_slot)
         ],
     }])
     assert answer["kind"] == "read", answer
     assert all(item["named"] for item in answer["held"]), answer
     held = {item["pointer"]: item["found"] for item in answer["held"]}
     assert {path: held[path] for path in expected} == expected, answer
-    return held[options]
+    return held[options_slot]
 
 
 def _edit_and_read_form_translation(unit, app_id, paths, evidence):
@@ -184,6 +184,17 @@ _CHECK_CHOICES = {
     "eval": """() => [...document.querySelectorAll('#webforms .q input[type=radio]')]
         .map(input => input.labels[0].textContent.trim())"""
 }
+
+
+@pytest.fixture
+def evidence(native, request):
+    directory = native.out / "worker-journey-reads" / request.node.name
+    directory.mkdir(parents=True, exist_ok=True)
+
+    def keep(name, record):
+        (directory / f"{name}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+
+    return keep
 
 
 @contextmanager
