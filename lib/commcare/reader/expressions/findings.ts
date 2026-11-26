@@ -552,6 +552,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/session-data-stringquery",
 		"session-path:session/data/stringquery",
 	),
+	"companion-lookup-count": take(
+		"expressions-and-data/companion-lookup-count",
+		"session-path:session/data/fingerprintquery",
+	),
 	"session-data-fingerprintquery": refuse(
 		"expressions-and-data/session-data-fingerprintquery",
 		"session-path:session/data/fingerprintquery",

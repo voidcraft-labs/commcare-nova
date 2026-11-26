@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -10,6 +11,8 @@ import type { Expression, SlotContextRef } from "@/lib/domain/expression/types";
 import { androidDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { buildEngineInput } from "@/lib/preview/engine/engineInput";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { readHqApp } from "../../index";
 import { readExpression } from "../readExpression";
 import { readEnv, registration } from "./expressionReadFixture";
 
@@ -95,6 +98,22 @@ it("binds only the guarded number to the physical entry's one lookup", () => {
 		readExpression(doc, registration(doc, slot, arbitraryFirst), readEnv()),
 	).toMatchObject({
 		kind: "refused",
+	});
+});
+
+it("holds the count's surface claim through an HQ app reading", async () => {
+	const input = await inputFor(exportedBody(document()), {
+		appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE),
+	});
+	const read = readHqApp(input);
+	if (read.kind === "account") throw new Error(JSON.stringify(read.findings));
+	const doc = read.draft.doc;
+	const count = Object.values(doc.fields).find(
+		(field) => field.id === "lookup_count",
+	);
+	expect(count?.calculate).toEqual({
+		kind: "case-list-lookup-count",
+		module: doc.moduleOrder[0],
 	});
 });
 
