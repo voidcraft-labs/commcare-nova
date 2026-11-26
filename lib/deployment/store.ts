@@ -2672,7 +2672,11 @@ export interface RecordRemoteAppInput
 	};
 	readonly practicePublication?: {
 		readonly expected: InstallationProfileCheckpoint;
-		readonly promotesPreparedContent?: true;
+		/** Install the final manifest with the exact prepared-content promotion. */
+		readonly promotedEntry?: Pick<
+			PublishedEntryPointManifest,
+			"generation" | "entries"
+		>;
 		readonly next?: InstallationProfileCheckpoint;
 		readonly requireHqImport: HqManagementGrant | null;
 		readonly failure?: NonNullable<
@@ -2862,8 +2866,22 @@ export async function recordRemoteResource(
 					.select("source_digest")
 					.where("deployment_id", "=", row.id)
 					.executeTakeFirst();
+				const competingWrite =
+					practice.promotedEntry &&
+					(await tx
+						.selectFrom("hq_remote_writes")
+						.select("id")
+						.where("deployment_id", "=", row.id)
+						.where("write_kind", "!=", "worker")
+						.where(openRemoteWrite)
+						.executeTakeFirst());
 				if (
-					(practice.promotesPreparedContent &&
+					competingWrite ||
+					(practice.promotedEntry &&
+						(input.pushedRevision === null ||
+							input.pushedRevision !== practice.expected.sequence ||
+							input.remoteRevision !== practice.expected.workingVersion)) ||
+					(practice.promotedEntry &&
 						(saved?.source_digest !==
 							practice.expected.preparedContent?.baselineDigest ||
 							live?.pushed_revision !== null)) ||
@@ -3027,6 +3045,16 @@ export async function recordRemoteResource(
 						: undefined,
 				);
 
+			const entryManifest: PublishedEntryPointManifest | undefined =
+				practice?.promotedEntry && input.pushedRevision !== null
+					? {
+							...practice.promotedEntry,
+							remoteAppId: input.remoteId,
+							sourceSequence: input.pushedRevision,
+							dependencies: await contentDependencies(tx, row.id),
+						}
+					: undefined;
+
 			const record = toDeploymentRecord(row);
 			const progress = applyPhaseOutcome(
 				record,
@@ -3050,6 +3078,10 @@ export async function recordRemoteResource(
 						clearObservationOutcomes(progress.phases),
 						now,
 					),
+					...(entryManifest && {
+						content_generation: entryManifest.generation,
+						entry_point_manifest: JSON.stringify(entryManifest),
+					}),
 					...(input.targetEmptyCaseListText !== undefined && {
 						target_empty_case_list_text: input.targetEmptyCaseListText,
 					}),
@@ -3934,19 +3966,26 @@ export async function recordImportAcknowledgement(
 	target: DeploymentTargetKey,
 	writeId: string,
 	appId: string,
-	version: number | null,
-	acceptedVersion: number | null,
+	reply: {
+		readonly version: number | null;
+		readonly acceptedVersion: number | null;
+		readonly managesInstallations: boolean;
+	},
 ): Promise<void> {
+	const { version, acceptedVersion, managesInstallations } = reply;
+	if (acceptedVersion === null && !managesInstallations) return;
 	await (await getAppDb())
 		.updateTable("hq_remote_writes")
 		.set({
-			import_acknowledged_at: sql<Date>`COALESCE(import_acknowledged_at,now())`,
-			import_acknowledged_version: version,
+			...(managesInstallations && {
+				import_acknowledged_at: sql<Date>`COALESCE(import_acknowledged_at, now())`,
+				import_acknowledged_version: version,
+			}),
 			...(acceptedVersion !== null && {
 				accepted_remote_revision: acceptedVersion,
-				settled_generation: sql<
-					string | null
-				>`(SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id)`,
+				settled_generation: sql<string | null>`COALESCE(settled_generation, (
+					SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id
+				))`,
 			}),
 		})
 		.where("id", "=", writeId)
@@ -3958,8 +3997,15 @@ export async function recordImportAcknowledgement(
 		.where("actor_user_id", "=", scope.actorUserId)
 		.where("server", "=", target.server)
 		.where("domain", "=", target.domain)
-		.where(
-			sql<SqlBool>`(import_acknowledged_at IS NULL OR import_acknowledged_version IS NOT DISTINCT FROM ${version}::bigint)`,
+		.$if(managesInstallations, (query) =>
+			query.where(
+				sql<SqlBool>`(import_acknowledged_at IS NULL OR import_acknowledged_version IS NOT DISTINCT FROM ${version}::bigint)`,
+			),
+		)
+		.$if(acceptedVersion !== null, (query) =>
+			query.where(
+				sql<SqlBool>`(accepted_remote_revision IS NULL OR accepted_remote_revision = ${acceptedVersion}::bigint)`,
+			),
 		)
 		.returning("id")
 		.executeTakeFirstOrThrow();

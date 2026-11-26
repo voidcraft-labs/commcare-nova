@@ -1130,13 +1130,20 @@ it.each(["reconcile", "successor", "changed-on-HQ"] as const)(
 				const receipt = await h
 					.db()
 					.selectFrom("hq_remote_writes")
-					.select(["settled_at", "import_acknowledged_version"])
+					.select([
+						"settled_at",
+						"settled_generation",
+						"accepted_remote_revision",
+						"import_acknowledged_version",
+					])
 					.where("deployment_id", "=", deploymentId)
 					.where("import_acknowledged_at", "is not", null)
 					.execute();
 				expect(receipt).toEqual([
 					{
 						settled_at: expect.any(Date),
+						settled_generation: expect.any(String),
+						accepted_remote_revision: String(hqSaves.at("working-app")),
 						import_acknowledged_version: String(hqSaves.at("working-app")),
 					},
 				]);
