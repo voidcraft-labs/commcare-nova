@@ -1690,6 +1690,9 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].links[].target.kind": "discriminator",
 	"caseOperations[].links[].relationship": "config",
 	"caseOperations[].writes[].onlyIfChanged": "config",
+	"caseOperations[].nameOnlyIfChanged": "config",
+	"caseOperations[].renameOnlyIfChanged": "config",
+	"caseOperations[].ownerOnlyIfChanged": "config",
 	// A held placement names the slot or the block CommCare HQ keeps the
 	// change in: closed enums, an index, and the element names of a Save to
 	// Case block's path in the form's source.
