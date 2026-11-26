@@ -98,7 +98,8 @@ def _check_form(record, suite):
     if content:
         native, local = content
         native_parts = _case_parts(native, parsed)
-        assert native_parts["blocks"], (record["form"], "HQ's build wrote no case block")
+        # A form that loads its cases and changes none (an entry whose choices only open it) has no case block in
+        # HQ's build, and must have none in the local archive.
         assert _case_parts(local, parsed) == native_parts, record["form"]
         blocks = sorted(native_parts["blocks"])
     hq_datums = [(datum["id"], structure(datum["nodeset"]), structure(datum["function"])) for datum in record["datums"]]
@@ -128,6 +129,9 @@ def test_hq_builds_each_advanced_form_as_nova_wrote_it_into_the_local_archive(na
         advanced_forms += len(forms)
         evidence.append({"name": whole["name"], "inputSha256": whole["inputSha256"], "forms": forms})
     assert advanced_forms > 0, "No document the case family emits whole holds an advanced form"
+    assert any(form["blocks"] for one in evidence for form in one["forms"]), (
+        "No advanced form the case family emits whole writes a case block, so nothing compared HQ's blocks"
+    )
     write_evidence(
         native.family("case"),
         "advanced-emission",
