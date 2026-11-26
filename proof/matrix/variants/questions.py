@@ -2130,6 +2130,16 @@ def save_to_case_link_name_outside_grammar(authoring, app_id):
     _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
 
 
+def save_to_case_unicode_link_name(authoring, app_id):
+    """A valid XML index name outside Vellum's ASCII bind matcher."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-unicode-link-name", "parént")
+
+
+def save_to_case_unicode_link_name_cjk(authoring, app_id):
+    """An XML index name for which Nova's XPath layer cannot own the bind."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-unicode-link-name-cjk", "亲属")
+
+
 def save_to_case_link_stops_form_designer(authoring, app_id):
     """An ordinary case link whose element uses the reserved instance name."""
     _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "instance")

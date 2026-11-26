@@ -101,6 +101,41 @@ def test_an_index_to_a_case_that_exists_nowhere_is_refused(hq, core_runner):
     assert str(refused.refusal) == "Case 'c-child' references non-existent case 'no-such-parent'"
 
 
+def test_unicode_index_identifiers_keep_their_exact_case_target(hq, core_runner):
+    from corehq.apps.hqcase.utils import submit_case_blocks
+    from corehq.form_processor.models import CommCareCase
+
+    from proof.hq import redis as hq_redis
+
+    identifiers = ("parént", "parént", "亲属", "par.ent", "par-ent")
+    index = "<index>" + "".join(
+        f'<{name} case_type="person" relationship="child">c-parent</{name}>' for name in identifiers
+    ) + "</index>"
+    with hq_check(CONFIGURATION) as (state, _):
+        with hq_redis.shared(None), state.committing():
+            with state.operation("unicode-case-indices", "parént".encode()):
+                submit_case_blocks(
+                    [_person("c-parent"), _case("c-child", _create("visit", "B") + index)],
+                    state.domain,
+                    user_id="u-1",
+                    device_id="proof",
+                )
+                child = CommCareCase.objects.get_case("c-child", state.domain)
+                assert {(index.identifier, index.referenced_type, index.referenced_id)
+                        for index in child.indices} == {(name, "person", "c-parent") for name in identifiers}
+                submit_case_blocks(
+                    [_case("c-child", '<index><parént case_type="person" relationship="child"/></index>')],
+                    state.domain,
+                    user_id="u-1",
+                    device_id="proof",
+                )
+                updated = CommCareCase.objects.get_case("c-child", state.domain)
+                assert {(index.identifier, index.referenced_type, index.referenced_id)
+                        for index in updated.live_indices} == {
+                    (name, "person", "c-parent") for name in identifiers if name != "parént"
+                }
+
+
 def test_a_date_modified_that_is_not_a_date_is_refused(hq, core_runner):
     from casexml.apps.case.exceptions import PhoneDateValueError
 

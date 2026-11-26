@@ -488,6 +488,33 @@ public class CaseOperationRuntimeTest {
             assertEquals("2026-04-17", record.getPropertyString("seen_on"));
         }
     }
+    @Test public void submittedUnicodeIndexIdentifiersAreExact() throws Exception {
+        MockUserDataSandbox sandbox = MockDataUtils.getStaticStorage();
+        Case parent = new Case("Parent", "household");
+        parent.setCaseId("household-unicode");
+        sandbox.getCaseStorage().write(parent);
+        Case child = new Case("Child", "member");
+        child.setCaseId("member-unicode");
+        sandbox.getCaseStorage().write(child);
+        String[] names = {"parént", "pare\u0301nt", "亲属", "par.ent", "par-ent"};
+        StringBuilder submission = new StringBuilder("<data><case xmlns='http://commcarehq.org/case/transaction/v2'"
+                + " case_id='member-unicode' date_modified='2026-04-17T00:00:00.000Z' user_id='worker'><index>");
+        for (String name : names) {
+            submission.append("<").append(name).append(" case_type='household' relationship='child'>")
+                    .append("household-unicode</").append(name).append(">");
+        }
+        submission.append("</index></case></data>");
+        XmlFormRecordProcessor.process(sandbox, new ByteArrayInputStream(
+                submission.toString().getBytes(StandardCharsets.UTF_8)));
+        Case saved = sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, "member-unicode");
+        assertEquals(names.length, saved.getIndices().size());
+        for (String name : names) {
+            assertTrue(name, saved.getIndices().stream().anyMatch(index ->
+                    name.equals(index.getName()) && "household-unicode".equals(index.getTarget())
+                            && "household".equals(index.getTargetType())));
+        }
+    }
+
     @Test public void sameCaseUpdatesFollowSubmittedBlockOrder() throws Exception {
         for (String[] writes : new String[][]{
                 {"From the authored block", "From Case Management"},

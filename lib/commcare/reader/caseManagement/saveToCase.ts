@@ -87,7 +87,11 @@ import {
 	operationGuardKinds,
 	writesFixedTextColumn,
 } from "../../xform/generatedNodes";
-import { attributeNamespace, VELLUM_NS } from "../../xmlNamespaces";
+import {
+	attributeNamespace,
+	elementNamespace,
+	VELLUM_NS,
+} from "../../xmlNamespaces";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import {
@@ -156,6 +160,7 @@ const Q = "questions";
 const F = "forms-and-case-writes";
 const MUG = "mug:SaveToCase";
 const ROLE = "vellum-markup:model/instance//*@vellum:role";
+const CASE_TRANSACTION_NS = "http://commcarehq.org/case/transaction/v2";
 
 /** A Save to Case expression outside the typed vocabulary of its slot, the
  *  expression stage's entry. */
@@ -169,9 +174,9 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/savetocase-block-outside-nova-s-own-block-shape`,
 		MUG,
 	),
-	linkName: refuse(
+	linkUnicodeName: refuse(
 		`${Q}/savetocase-link-name-outside-nova-s-identifier-grammar`,
-		MUG,
+		ROLE,
 	),
 	linkActionOnSave: refuse(
 		`${Q}/savetocase-link-name-changes-actions-on-save`,
@@ -989,6 +994,20 @@ function bindsUnder(
 	return out;
 }
 
+/** Binds of an exact XML index leaf, even when its name cannot be parsed as
+ * a portable XPath. A refusal never uses this path as a new expression. */
+function sourceIndexBinds(
+	xform: ReadXForm,
+	block: ReadSaveToCaseBlock,
+	identifier: string,
+): readonly Element[] {
+	const root = xform.parsed.dataRoot.name;
+	const path = `/${[root, ...block.path, "case", "index", identifier].join("/")}`;
+	return xform.parsed.binds.filter(
+		({ attribs }) => attribs.nodeset?.trim() === path,
+	);
+}
+
 /** Each bind under `prefix` after the first on its node (`bindsUnder` holds
  *  the first), which the xform stage reads as no bind of its node
  *  (`xform/model.ts::readBinds`): a block that holds one is no block Nova
@@ -1511,7 +1530,11 @@ function readBlock(
 		(element) => stopsFormBuilder(localName(element)),
 	);
 	if (unopenable !== undefined)
-		return fail(X.questionIdGrammar, { name: localName(unopenable) });
+		return fail(
+			X.questionIdGrammar,
+			{ name: localName(unopenable) },
+			unopenable,
+		);
 	const caseElement = children(block.element).find(
 		(child) => localName(child) === "case",
 	);
@@ -2041,21 +2064,31 @@ function readBlock(
 	if (index !== undefined)
 		for (const link of children(index)) {
 			const identifier = link.name;
+			const linkPath = [...casePath, "index", identifier];
 			const nameProblem = caseOperationLinkNameProblem(identifier, (action) =>
 				parts.has(action),
 			);
 			if (nameProblem === "reads_as_case_action")
 				return fail(SAVE_TO_CASE_CLAIMS.linkActionOnSave, { name: identifier });
+			if (identifier.includes("."))
+				return fail(SAVE_TO_CASE_CLAIMS.linkBindLost, { name: identifier });
+			// Vellum only recognizes ASCII case index bind names. The Unicode
+			// XML element is valid on the wire and is already a key of case data.
+			if (
+				!identifier.includes(":") &&
+				/[^ -~]/u.test(identifier) &&
+				elementNamespace(link, xform.parsed.scope(link)) ===
+					CASE_TRANSACTION_NS &&
+				sourceIndexBinds(xform, block, identifier).some(({ attribs }) =>
+					attribs.calculate?.trim(),
+				)
+			)
+				return fail(SAVE_TO_CASE_CLAIMS.linkUnicodeName, { name: identifier });
 			if (
 				!isCaseOperationLinkIdentifier(identifier) ||
 				nameProblem !== undefined
 			)
-				return fail(
-					identifier.includes(".")
-						? SAVE_TO_CASE_CLAIMS.linkBindLost
-						: SAVE_TO_CASE_CLAIMS.linkName,
-					{ name: identifier },
-				);
+				return { ok: false };
 			// A name longer than CommCare HQ's index column holds
 			// (`CommCareCaseIndex.identifier`, 255 characters), which the gate refuses
 			// (`CASE_OPERATION_LINK_INVALID`, reason `too-long`).
@@ -2074,7 +2107,6 @@ function readBlock(
 				return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
 			const key = `case/index/${identifier}`;
 			const text = calc(key);
-			const linkPath = [...casePath, "index", identifier];
 			let linkTarget: ProposedLink["target"] = null;
 			// A link whose value is the block's own case id links the case to itself,
 			// which Core refuses on every submission (`CaseXmlParser.indexCase`, "cannot
@@ -3069,6 +3101,12 @@ function refuseBlock(
 				)
 					reachNode(xform, { element: bind, attribute }, claim);
 	}
+	if (
+		claim === SAVE_TO_CASE_CLAIMS.linkUnicodeName &&
+		typeof detail?.name === "string"
+	)
+		for (const bind of sourceIndexBinds(xform, block, detail.name))
+			reachElement(xform, bind, claim);
 	for (const bind of laterBindsUnder(xform, block.path))
 		reachElement(xform, bind, claim);
 	for (const setvalue of setvaluesUnder(xform, block.path))
@@ -3326,7 +3364,9 @@ function claimAccepted(
 				for (const one of iterationSetvalues(xform, node))
 					reachElement(xform, one.element, claim);
 			}
-			reachNode(xform, { element: node.element }, claim);
+			if (claim === X.questionIdGrammar && failedIn.at !== undefined)
+				xform.cursor.partOf({ element: node.element }, claim);
+			else reachNode(xform, { element: node.element }, claim);
 			for (const attribute of Object.keys(node.element.attribs))
 				if (!attribute.startsWith("xmlns"))
 					reachNode(xform, { element: node.element, attribute }, claim);

@@ -7909,12 +7909,18 @@ def invalid_question_id(use, manifest):
     ``parsererror``, which HQ's form builder cannot open a form holding (``NEVER_OPENED``), as Nova's reader reads
     each question's data node (``lib/commcare/reader/xform/join.ts``'s question id rule over
     ``questionId.ts::questionIdProblem``)."""
-    form, element = _question_node(use)
+    form, element = _data_node(use)
     if form is None:
         return None
     if element is None:
         return False
     name = _node_name(element)
+    if name in NEVER_OPENED and any(
+        holder.get(f"{{{VELLUM}}}role") == "SaveToCase" for holder in element.iterancestors()
+    ):
+        return True
+    if element not in form.vellum_nodes:
+        return False
     return VELLUM_ELEMENT_NAME.fullmatch(name) is None or name.lower() == "meta" or name in NEVER_OPENED
 
 
@@ -11062,6 +11068,24 @@ def index_period_loses_bind(use, manifest):
     return index is not None and any("." in _local(link) for link in index)
 
 
+def unicode_index_name_loses_bind(use, manifest):
+    """A valid, unprefixed XML name outside Vellum's ASCII index bind matcher.
+    Periods, absent action names and reserved editor names have distinct rows."""
+    form, _, index = _savetocase_index_at(use)
+    if form is None:
+        return None
+    if index is None:
+        return False
+    for link in _children(index):
+        name = _local(link)
+        if link.tag != f"{{{CASE}}}{name}" or link.prefix is not None or "." in name or name.isascii():
+            continue
+        bind = form.bind(form.paths.get(link))
+        if bind is not None and (bind.get("calculate") or "").strip():
+            return True
+    return False
+
+
 # The body controls a question shows (XFormParser's question handlers; a group or repeat is no question Vellum
 # offers a Calculate Condition on).
 SHOWN_CONTROLS = frozenset({"input", "secret", "select", "select1", "trigger", "upload", "range"})
@@ -12819,6 +12843,7 @@ VALUE_CLASSES = {
     "questions/savetocase-update-owner-condition": conditioned_unsupported_update_owner,
     "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,
     "questions/savetocase-link-bind-lost-on-save": index_period_loses_bind,
+    "questions/savetocase-link-name-outside-nova-s-identifier-grammar": unicode_index_name_loses_bind,
     "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": savetocase_blank_create_id,
     "questions/default-other-than-blank-on-a-capture-question": default_other_than_blank_on_a_capture_question,
     "questions/actions-nested-inside-controls": action_nested_in_control,

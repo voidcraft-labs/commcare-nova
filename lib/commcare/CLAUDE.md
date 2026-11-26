@@ -973,6 +973,14 @@ the matching direct action. The reader checks the raw block's direct children.
 The validator uses the planned Save to Case placement and the same action
 shape as the emitter, including whether the form's own close shares the
 block. The basic and advanced Case Management name rules are unchanged.
+Save to Case link identifiers keep the exact key used by existing case
+data. Raw submissions can carry non-ASCII XML index names, but Vellum's
+`parseBindElement` only recognizes ASCII calculation paths under
+`case/index`. The reader refuses a calculated Unicode link at its block
+and never rewrites the key. Dotted bind loss, source names Vellum cannot
+open, action names it changes on save, and the HQ column limit have their
+own findings.
+
 A Save to Case write may not use the property name `close`. HQ's build
 adds the basic Case Management block outside the form's authored source.
 
@@ -2741,7 +2749,12 @@ Hidden datetime writers derive their `xsd:dateTime` bind from the effective
 case-property catalog. The bind follows the property the Hidden Value writes,
 not the type inferred from its calculation, because an `xsd:dateTime` bind
 makes Core cast the case's text at form open, and malformed text stops the form.
-A Hidden Value that writes nothing binds `xsd:dateTime` only where its calculation is the clock-keeping date (`lib/domain/expression/datePattern.ts::isClockKeepingDate`), as the date-and-time split's joined value is, so Core keeps its clock. A date-and-time question saved to a `date` property is printed straight, as HQ's builder writes it, and Core keeps its day (`lib/domain/fieldValueType.ts::writesMoment`). Ordinary datetime writes use a sibling text node,
+A Hidden Value that writes nothing binds `xsd:dateTime` only where its calculation is the clock-keeping date (`lib/domain/expression/datePattern.ts::isClockKeepingDate`), as the date-and-time split's joined value is, so Core keeps its clock. A date-and-time question saved to a `date` property is printed straight, as HQ's builder writes it, and Core keeps its day (`lib/domain/fieldValueType.ts::writesMoment`). An explicitly typed hidden timestamp calculated by `now()` can likewise save
+its day through basic Case Management on a follow-up. The source bind stays
+`xsd:dateTime`, and the untyped case update saves the viewer's local date.
+This form of direct write uses one ordinary declared date property, with no
+starting answer, field relevance, or save-only-if-changed mode. Ordinary
+datetime writes use a sibling text node,
 `nova_datetime_<question>` (`xform/datetimeCaseValue.ts`, named by the
 allocator), as their HQ action question path. HQ creates
 untyped case-update binds, where Core would otherwise wrap a Date as DateData

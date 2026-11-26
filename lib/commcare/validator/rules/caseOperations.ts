@@ -103,6 +103,7 @@ import {
 	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
+import { keepsHiddenClock } from "@/lib/domain/fieldValueType";
 import {
 	caseOperationIdNameProblem,
 	caseOperationLinkNameProblem,
@@ -1166,6 +1167,28 @@ function validateWrites(
 			);
 		}
 		const read = caseWriteValueField(write.value);
+		if (
+			read !== undefined &&
+			keepsHiddenClock(ctx.doc.fields[read.field]) &&
+			ctx.doc.caseTypes
+				?.find(({ name }) => name === reached)
+				?.properties.some(
+					({ name, data_type }) =>
+						name === write.property && data_type === "date",
+				) &&
+			planPlacements(ctx.doc, ctx.formUuid).placements.get(operation.uuid)
+				?.placement.kind !== "basic"
+		) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_EXPRESSION_TYPE",
+					"A hidden timestamp can save its day through basic Case Management. You can save the day as a separate calculated answer here.",
+					{ property: write.property, reason: "hidden-day-placement" },
+				),
+			);
+		}
 		if (
 			read?.link === true &&
 			(isWritableStandardCaseProperty(write.property) ||

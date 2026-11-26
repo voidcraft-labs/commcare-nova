@@ -19455,6 +19455,24 @@
 		}
 	},
 	{
+		"id": "hq-case-management/hidden-clock-saved-as-a-day",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-datetime-question-saved-straight-to-a-case",
+		"change": { "op": "named", "name": "hidden_clock_saved_as_a_day" },
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [1, 0] }, ["recorded_at"]],
+				"pointer": "/answerType",
+				"value": "datetime"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "visit_day"
+			}
+		]
+	},
+	{
 		"id": "hq-case-management/write-through-a-typed-user-index",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-key-through-a-typed-user-index",
@@ -35722,6 +35740,42 @@
 		"change": {
 			"op": "named",
 			"name": "save_to_case_link_name_outside_grammar"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-unicode-link-name",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_unicode_link_name"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-unicode-link-name-cjk",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_unicode_link_name_cjk"
 		}
 	},
 	{
