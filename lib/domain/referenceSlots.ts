@@ -154,11 +154,9 @@ export interface FormReferenceSlot {
 type SearchInputArmKind = SearchInputDef["kind"];
 
 /**
- * The search-input union's second axis. `searchInputDefSchema` is seven arms over
- * TWO independent dimensions — `kind` (simple | advanced | hidden) and widget
- * shape (scalar | date-range | select; the hidden arm has no widget).
- * Options live only on choice widgets. Starting values live on every
- * visible widget, including both date-range arms.
+ * The search input's widget determines which fields it can carry. Hidden
+ * inputs have no widget. A visible date range supplied by the Project has
+ * no starting value, while ordinary date ranges do.
  */
 type SearchInputWidget = "scalar" | "date-range" | "select";
 
@@ -176,6 +174,10 @@ export interface ModuleReferenceSlot {
 	readonly columnKinds?: readonly ColumnKind[];
 	readonly searchInputKinds?: readonly SearchInputArmKind[];
 	readonly searchInputWidgets?: readonly SearchInputWidget[];
+	readonly searchInputWidgetExceptions?: readonly {
+		readonly kind: SearchInputArmKind;
+		readonly widget: SearchInputWidget;
+	}[];
 }
 
 export type ReferenceSlot =
@@ -1016,9 +1018,7 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.searchInputs[].default",
 		kind: "expression",
 		searchInputKinds: ["simple", "advanced", "parameter"],
-		// Scalar and choice widgets. A date-range input owns its range mode and
-		// never carries a scalar default, so the two date-range arms declare no key.
-		searchInputWidgets: ["scalar", "select"],
+		searchInputWidgetExceptions: [{ kind: "parameter", widget: "date-range" }],
 	},
 	{
 		entity: "module",
@@ -2439,6 +2439,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].kind": "discriminator",
 	"caseListConfig.searchInputs[].matching": "config",
 	"caseListConfig.searchInputs[].allowBlank": "config",
+	"caseListConfig.searchInputs[].sendAnswer": "config",
 	"caseListConfig.searchInputs[].hidden": "config",
 	"caseListConfig.searchFilters[].uuid": "identity",
 	"caseListConfig.searchFilters[].target.kind": "discriminator",

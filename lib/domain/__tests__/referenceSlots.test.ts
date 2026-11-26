@@ -564,8 +564,13 @@ describe("module slots — paths resolve with the promised shape", () => {
 					(slot?.searchInputKinds?.includes(armKind) ?? false) &&
 					(slot?.searchInputWidgets === undefined ||
 						(armWidget !== undefined &&
-							slot.searchInputWidgets.includes(armWidget)));
-				expect(key in arm.shape).toBe(applies);
+							slot.searchInputWidgets.includes(armWidget))) &&
+					!slot?.searchInputWidgetExceptions?.some(
+						({ kind, widget }) => kind === armKind && widget === armWidget,
+					);
+				expect(key in arm.shape, `${slotId} on ${armKind}/${armWidget}`).toBe(
+					applies,
+				);
 			}
 		}
 	});
