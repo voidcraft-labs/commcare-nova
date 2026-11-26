@@ -1419,7 +1419,6 @@ export function runFormRules(
 				menuMediaProblemDetails(mediaProblem),
 			),
 		);
-	errors.push(...emptyForm(doc, form, ctx));
 	for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {})) {
 		if (tag === emittedSelectionTag(doc, formUuid, uuid as Uuid)) continue;
 		const subjectWords = `The opening record saved as “${tag}”`;
