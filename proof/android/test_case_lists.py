@@ -137,18 +137,25 @@ def test_reached_choice_columns_show_both_paths_in_each_android_language(android
     with _archives(document, _restored(document)) as (served, archives):
         for label, archive in archives.items():
             blobs = Blobs()
-            found = observe.app(served, blobs, label=label, archive=archive, commands=["m0-f0"])
+            # Walking the worker's menu lets the Android harness choose each
+            # language through its own picker. Command-only reads skip that.
+            found = observe.app(served, blobs, label=label, archive=archive)
             answer = blobs.get_json(found["answer"])
             assert answer["install"] == "Installed", answer["install"]
-            heard = {}
-            for locale, command in (("en", "m0-f0"), ("fr", "m0-f0@language:fr")):
-                listed = _first_list(answer["walks"][command])
-                heard[locale] = [_texts(row) for row in listed["rows"]]
+            heard = {"en": [], "fr": []}
+            for path, walk in answer["walks"].items():
+                locale = "fr" if "@language:fr" in path else "en"
+                if not any(step["screen"] == LIST for step in walk.get("steps", ())):
+                    continue
+                listed = _first_list(walk)
+                rows = [_texts(row) for row in listed["rows"]]
+                if rows not in heard[locale]:
+                    heard[locale].append(rows)
             observations[label] = heard
     evidence("android-reached-choice-columns", observations)
     expected = {
-        "en": [["Ada", "East bank", "West bank", "Hello!"], ["Bea", "Hello!"]],
-        "fr": [["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "Bonjour!"]],
+        "en": [[["Ada", "East bank", "West bank", "Hello!"], ["Bea", "Hello!"]]],
+        "fr": [[["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "Bonjour!"]]],
     }
     assert observations == {"hq": expected, "local": expected}
 
