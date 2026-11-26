@@ -46,6 +46,11 @@ def prepare_hidden_day(state):
     app = operations.held_app(state, app_id)
     module = app.modules[0]
     form = module.forms[0]
+    # The legacy app contains an unrelated image form and a catalog of images
+    # whose bytes the synthetic app has never uploaded.
+    module.forms = [form]
+    module.media_image = {}
+    app.multimedia_map = {}
     module.case_type = "person"
     for detail in (module.case_details.short, module.case_details.long):
         detail.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
