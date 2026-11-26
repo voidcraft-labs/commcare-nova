@@ -55,11 +55,20 @@ export const WORKFLOW_CLAIMS = {
 			"schema:CaseSearch.default_search",
 		),
 	}),
+	listFirstWithDefaultResults: defineClaims(
+		"search.workflow.listFirstWithDefaultResults",
+		{
+			autoLaunch: take(
+				`${S}list-first-with-a-search-that-skips-to-results`,
+				"schema:CaseSearch.auto_launch",
+			),
+			defaultSearch: take(
+				`${S}list-first-with-a-search-that-skips-to-results`,
+				"schema:CaseSearch.default_search",
+			),
+		},
+	),
 	other: defineClaims("search.workflow.other", {
-		listFirstSkips: refuse(
-			`${S}list-first-with-a-search-that-skips-to-results`,
-			"schema:CaseSearch.default_search",
-		),
 		classic: refuse(
 			`${S}workflow-legacy-classic-auto-launch-false-in-an-app-with`,
 			"schema:CaseSearch.auto_launch",
@@ -68,17 +77,9 @@ export const WORKFLOW_CLAIMS = {
 			`${S}inline-search-true-with-auto-launch-false`,
 			"schema:CaseSearch.inline_search",
 		),
-		putInRoot: refuse(
+		putInRoot: take(
 			`${S}search-on-a-put-in-root-module`,
 			"schema:CaseSearch.auto_launch",
-		),
-		putInRootDefault: refuse(
-			`${S}search-on-a-put-in-root-module`,
-			"schema:CaseSearch.default_search",
-		),
-		putInRootInline: refuse(
-			`${S}search-on-a-put-in-root-module`,
-			"schema:CaseSearch.inline_search",
 		),
 	}),
 };
@@ -142,15 +143,10 @@ export function readSearchWorkflow(
 	const autoLaunch = config.peek("auto_launch") === true;
 	const defaultSearch = config.peek("default_search") === true;
 	const inline = config.peek("inline_search") === true;
-	if (module.json.peek("put_in_root") === true) {
-		// The finding stands whatever the three booleans hold: a list-first search holds each at
-		// its default, which no claim records. Each one used is claimed under it.
-		config.refuse("auto_launch", W.other.putInRoot);
-		config.refuse("default_search", W.other.putInRootDefault);
-		config.refuse("inline_search", W.other.putInRootInline);
-		ctx.accounting.finding(W.other.putInRoot, config.place);
-		return undefined;
-	}
+	// An inline search on such a menu is the menu's refusal
+	// (`menus/modules.ts::readFormsInMenuAbove`, HQ's `inline search to display
+	// only forms`), which stands before any search is read.
+	const formsAbove = module.json.peek("put_in_root") === true;
 	let workflow: SearchWorkflow;
 	if (autoLaunch) {
 		const visible = hasVisiblePrompt(config);
@@ -177,13 +173,12 @@ export function readSearchWorkflow(
 			ctx.accounting.finding(W.other.classic, config.place);
 			return undefined;
 		}
-		if (defaultSearch) {
-			config.refuse("default_search", W.other.listFirstSkips);
-			return undefined;
-		}
-		config.take("auto_launch", W.listFirst.autoLaunch, Boolean).value;
-		config.take("default_search", W.listFirst.defaultSearch, Boolean).value;
-		workflow = { workflow: "listFirst" };
+		const claims = defaultSearch ? W.listFirstWithDefaultResults : W.listFirst;
+		config.take("auto_launch", claims.autoLaunch, Boolean).value;
+		config.take("default_search", claims.defaultSearch, Boolean).value;
+		workflow = {
+			workflow: defaultSearch ? "listFirstWithDefaultResults" : "listFirst",
+		};
 	}
 	// The booleans the projection writes for the reading are the stored ones.
 	const shape = searchWireShape(workflow as OrdinaryCaseSearchConfig);
@@ -196,6 +191,11 @@ export function readSearchWorkflow(
 			name: "schema:CaseSearch.auto_launch",
 		});
 		return undefined;
+	}
+	if (formsAbove) {
+		if (config.used("auto_launch"))
+			config.takePart("auto_launch", "forms-in-menu-above", W.other.putInRoot);
+		else config.takeDefault("auto_launch", W.other.putInRoot);
 	}
 	return workflow;
 }

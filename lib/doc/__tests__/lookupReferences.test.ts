@@ -261,7 +261,9 @@ describe("lookup reference extraction", () => {
 					},
 					caseSearchConfig: {
 						excludedOwnerIds: lookupExpression(9),
-						searchButtonDisplayCondition: lookupPredicate(10),
+						// The owner list's table is on the case list's selection, so the
+						// Search button may read it there.
+						searchButtonDisplayCondition: lookupPredicate(9),
 					},
 					forms: [
 						{
@@ -430,7 +432,7 @@ describe("lookup reference extraction", () => {
 			...expectedPredicateOccurrences(
 				"search_button_display_condition",
 				moduleUuid,
-				10,
+				9,
 			),
 			...expectedPredicateOccurrences("form_display_condition", formUuid, 11),
 			...expectedExpressionOccurrences(

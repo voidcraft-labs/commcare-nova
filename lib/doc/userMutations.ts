@@ -385,6 +385,7 @@ function describeUserPropertyReference(
 			case_list_column_worker_information: "case view column",
 			case_list_sort_expression: "default order calculation",
 			case_list_filter: "Cases available condition",
+			case_search_filter: "Search condition",
 			search_input_default: "search field starting value",
 			search_input_predicate: "search field condition",
 			search_input_options: "search field choice filter",

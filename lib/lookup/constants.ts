@@ -214,3 +214,7 @@ export function isReservedInstanceTag(tag: string): boolean {
 export const RESERVED_INSTANCE_TAG_WORD_SPELLING: Readonly<
 	Record<ReservedInstanceTagWord, string>
 > = { casedb: "case_db", ledgerdb: "ledger_db" };
+
+/** Limits for one worker fixture snapshot in Preview and app checks. */
+export const DEVICE_FIXTURE_MAX_TABLES = 500;
+export const DEVICE_FIXTURE_BYTES = 32 * 1024 * 1024;

@@ -59,6 +59,9 @@ export interface ConditionSlotSettingProps {
 	/** A viewer reads the rule; Add and Clear are not offered. Editing
 	 *  stays available so the condition can still be opened and read. */
 	readonly canEdit?: boolean;
+	/** The condition Add commits, where the slot's own placeholder could be
+	 *  refused (`firstComparisonDefault` otherwise). */
+	readonly seed?: () => Expression;
 }
 
 export function ConditionSlotSetting({
@@ -78,6 +81,7 @@ export function ConditionSlotSetting({
 	currentCaseType,
 	knownInputs = [],
 	canEdit = true,
+	seed,
 }: ConditionSlotSettingProps) {
 	/* The Clear control unmounts with the condition it removed, so the intent
 	 * to move focus has to outlive it. `useClearedSlotFocus` is that rule's one
@@ -88,6 +92,11 @@ export function ConditionSlotSetting({
 
 	const add = () => {
 		if (expressionContext === undefined) return;
+		if (seed !== undefined) {
+			onChange(seed());
+			onEdit(true);
+			return;
+		}
 		onChange(
 			firstComparisonDefault({
 				expressionContext,
