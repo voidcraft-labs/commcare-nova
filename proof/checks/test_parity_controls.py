@@ -415,6 +415,37 @@ def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_ba
     assert parity.added_uses(variant, copy.deepcopy(variant)) == []
 
 
+def test_a_retained_location_write_needs_a_claim_on_its_own_update_member():
+    root = Path(__file__).resolve().parents[1]
+    rows = json.loads((root / "matrix/variants.json").read_text(encoding="utf-8"))
+    row = next(row for row in rows if row["id"] == "hq-case-management/location-id-write")
+    answer = root / "hq-apps" / row["base"] / "app-source.json"
+    base = json.loads(json.loads(answer.read_text(encoding="utf-8"))["body"])
+    change = row["change"]
+    variant = copy.deepcopy(base)
+    update = variant["modules"][1]["forms"][0]["actions"]["update_case"]["update"]
+    update["location_id"] = change["value"]
+    where = "/modules/1/forms/0/actions/update_case/update"
+    member = where + "/location_id"
+    entry = parity.LOCATION_WRITE
+    key = parity.LOCATION_UPDATE_KEY
+    assert row["entry"] == entry and change["pointer"] == member
+
+    def verdict(claims):
+        return parity.variant_differences(base, variant, claims, [entry])
+
+    uses, differences = verdict([])
+    assert [(one.use.artifact, one.use.where, one.use.key, one.standing, one.at) for one in uses] == [
+        ("app.json", where, key, HELD, member),
+    ]
+    assert _whats(differences) == ["unclaimed"]
+    exact = parity.Record("app.json", where, key, entry, "held", member)
+    assert verdict([exact]) == (uses, [])
+    sibling = parity.Record("app.json", where, key, entry, "held", where + "/status_note")
+    assert _whats(verdict([sibling])[1]) == ["entry"]
+    assert parity.added_uses(variant, copy.deepcopy(variant), entries=[entry]) == []
+
+
 def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():
     from proof.checks.manifest_usage import app_json_uses, Uses
 

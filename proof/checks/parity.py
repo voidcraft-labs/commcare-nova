@@ -244,12 +244,44 @@ def source_uses(source: dict, held=None, *, readings=None, case_types=None, entr
     return found
 
 
-def added_uses(base_source: dict, variant_source: dict) -> list[Decided]:
+LOCATION_WRITE = "forms-and-case-writes/update-keys-location-id-hq-user-id"
+LOCATION_UPDATE_KEY = "schema:UpdateCaseAction.update"
+
+
+def _location_write_uses(use, entry):
+    """The retained direct own-case write, judged at its exact update member."""
+    at = use.at
+    if not isinstance(at, manifest_usage.JsonAt) or not isinstance(at.value, dict):
+        return
+    form = at.nearest("Form")
+    condition = at.owner.get("condition")
+    if form is None or form.get("requires") != "case" or not isinstance(condition, dict):
+        return
+    if condition.get("type") != "always":
+        return
+    for name in ("location_id", "hq_user_id"):
+        write = at.value.get(name)
+        if (isinstance(write, dict) and write.get("update_mode") == "always"
+                and isinstance(write.get("question_path"), str) and write["question_path"].strip()):
+            yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{name}")
+
+
+def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[Decided]:
     """The uses the lane decides in a variant's source answer that it does not decide alike in its base's: each use
     whose key, place, standing and entries the base's source holds none of."""
     held = manifest()
-    base, _ = decided_uses(source_uses(base_source, held), held)
-    variant, _ = decided_uses(source_uses(variant_source, held), held)
+
+    def decisions(source):
+        found = source_uses(source, held)
+        decided, _ = decided_uses(found, held)
+        if LOCATION_WRITE in entries:
+            entry = _entries_by_id(held)[LOCATION_WRITE]
+            for use in found.uses:
+                if use.key == LOCATION_UPDATE_KEY:
+                    decided.extend(_location_write_uses(use, entry))
+        return decided
+
+    base, variant = decisions(base_source), decisions(variant_source)
     seen = {_identity(one) for one in base}
     return [one for one in variant if _identity(one) not in seen]
 
@@ -295,7 +327,7 @@ def row_uses(uses, claims, entries, held=None) -> list[Decided]:
 def variant_differences(base_source: dict, variant_source: dict, claims, entries, *, document: str = ""):
     """A variant's parity, as the lane judges one (the row's own uses, ``row_uses``, joined to its claim log): the
     uses judged, and the differences. A row whose judged uses are none is one the lane's check does not decide."""
-    uses = row_uses(added_uses(base_source, variant_source), claims, entries)
+    uses = row_uses(added_uses(base_source, variant_source, entries=entries), claims, entries)
     if lookup_parity.CONDITION_ENTRIES.intersection(entries):
         by_id = _entries_by_id(manifest())
         for key, where, entry in lookup_parity.changed_form_condition_refusals(base_source, variant_source):
