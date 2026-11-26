@@ -1226,6 +1226,7 @@ export function buildCaseOperations(
 				| "case_operation_close_condition"
 				| "case_operation_name"
 				| "case_operation_owner"
+				| "case_operation_type_condition"
 				| "case_operation_owner_condition"
 				| "case_operation_rename",
 		): FormExpressionSlotRef => ({
@@ -1286,6 +1287,10 @@ export function buildCaseOperations(
 			: operation.rename;
 		const typeCalculation =
 			operation.action === "create" ? operation.typeCalculation : undefined;
+		const typeChoice =
+			operation.action === "create" ? operation.typeChoice : undefined;
+		const computedType =
+			typeChoice !== undefined || typeCalculation !== undefined;
 		const writes = (operation.writes ?? []).filter((write) => {
 			if (write.via !== undefined)
 				throw new Error(
@@ -1428,14 +1433,24 @@ export function buildCaseOperations(
 						xpath: {
 							nodeset: createPath.child("case_type").toWire(),
 							calculate:
-								typeCalculation === undefined
-									? w.str(caseType)
-									: w.call(
-											"concat",
-											typeCalculation.parts.map(({ term }) =>
-												w.str(term.value),
+								typeChoice !== undefined
+									? w.call("if", [
+											emitExpression(
+												typeChoice.condition,
+												createPath.child("case_type"),
+												ownSlot("case_operation_type_condition"),
 											),
-										),
+											w.str(caseType),
+											w.str(typeChoice.otherwise),
+										])
+									: typeCalculation === undefined
+										? w.str(caseType)
+										: w.call(
+												"concat",
+												typeCalculation.parts.map(({ term }) =>
+													w.str(term.value),
+												),
+											),
 						},
 					},
 					context,
@@ -1843,9 +1858,11 @@ export function buildCaseOperations(
 				);
 			}
 			guards.push(
-				saveToCaseBlock(generatedNodes.guard(operation.uuid, kind), guardType, [
-					el("update", {}, [el("case_type", {})]),
-				]),
+				saveToCaseBlock(
+					generatedNodes.guard(operation.uuid, kind),
+					typeChoice === undefined ? guardType : "",
+					[el("update", {}, [el("case_type", {})])],
+				),
 			);
 			guardBinds.push(
 				xel(
@@ -1856,7 +1873,13 @@ export function buildCaseOperations(
 								.child("update")
 								.child("case_type")
 								.toWire(),
-							calculate: w.str(guardType),
+							calculate:
+								typeChoice === undefined
+									? w.str(guardType)
+									: originalContextWirePath(
+											guardCasePath.child("update").child("case_type"),
+											casePath.child("create").child("case_type"),
+										),
 						},
 					},
 					context,
@@ -1884,7 +1907,7 @@ export function buildCaseOperations(
 		// guard that ran while its operation did not would fail the submission.
 		const caseBlock = saveToCaseBlock(
 			site.name,
-			typeCalculation === undefined ? caseType : "",
+			computedType ? "" : caseType,
 			caseChildren,
 		);
 		if (site.authoredPath !== undefined) {

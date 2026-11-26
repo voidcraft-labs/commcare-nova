@@ -5760,3 +5760,63 @@ describe("a single choice saved to a list of choices", () => {
 		).not.toHaveProperty("meds");
 	});
 });
+
+it("resolves a dynamic create type from this submission and rolls back an invalid declared range", async () => {
+	const store = makeStore();
+	const create: TargetedCaseOperation = {
+		uuid: OP_A,
+		id: "op_a",
+		action: "create",
+		caseType: "patient",
+		target: { kind: "new" },
+		name: term(literal("Case selected at submit")),
+		writes: literalWrites({ notes: "same saved property" }),
+		typeChoice: {
+			condition: eq(formField(FLAG_FIELD), literal("patient")),
+			otherwise: "narrow",
+		},
+	};
+	const request = (type: string, other = "narrow") => ({
+		appId: APP_ID,
+		ordinary: { kind: "none" } as const,
+		operations: rootProgram(
+			[
+				envOp({
+					...create,
+					typeChoice: {
+						condition: eq(formField(FLAG_FIELD), literal("patient")),
+						otherwise: other,
+					},
+				}),
+			],
+			{ sessionCaseId: null, formFields: [[FLAG_FIELD, type]] },
+		),
+	});
+	const valid = request("narrow");
+	const invalid = request("narrow", "unknown");
+	const receipt = receiptFor(valid);
+	await expect(
+		store.applySubmission({ ...invalid, submissionReceipt: receipt }),
+	).rejects.toMatchObject({
+		rejection: {
+			kind: "expression",
+			reason: "invalid-value",
+			slot: "case type",
+		},
+	});
+	const result = await store.applySubmission({
+		...valid,
+		submissionReceipt: receipt,
+	});
+	expect(result.caseDatabasePatch?.rows).toEqual([
+		expect.objectContaining({
+			case_type: "narrow",
+			properties: { notes: "same saved property" },
+		}),
+	]);
+	expect(
+		await store.applySubmission({ ...valid, submissionReceipt: receipt }),
+	).toEqual(result);
+	const direct = await submit(store, request("patient"));
+	expect(direct.caseDatabasePatch?.rows[0]?.case_type).toBe("patient");
+});

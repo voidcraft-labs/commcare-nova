@@ -348,6 +348,12 @@ export function applyFormMutation(
 								!Object.hasOwn(patch, "typeCalculation"))
 						)
 							delete prospective.typeCalculation;
+						if (
+							prospective.action !== "create" ||
+							(prospective.caseType !== current.caseType &&
+								!Object.hasOwn(patch, "typeChoice"))
+						)
+							delete prospective.typeChoice;
 						// Saving a name or owner only when changed means nothing once
 						// the patch stops saving that name or owner. A flag the patch
 						// itself sets stays for the gate to judge.

@@ -1015,7 +1015,8 @@ function corePlan(
 				.filter(
 					(operation) =>
 						(operation.action === "create" &&
-							operation.typeCalculation !== undefined) ||
+							(operation.typeCalculation !== undefined ||
+								operation.typeChoice !== undefined)) ||
 						operation.closeAfter === true ||
 						operation.closeCondition !== undefined ||
 						operation.ownerCondition !== undefined,

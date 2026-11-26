@@ -1857,6 +1857,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["savetocase-owner"].entry,
 		SAVE_TO_CASE_REFUSED,
 	),
+	case_operation_type_condition: fixed(
+		C["savetocase-create-case-type-literal-case-name-owner-id-uuid-case"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
 	case_operation_owner_condition: fixed(
 		C["savetocase-owner-id-condition"].entry,
 		SAVE_TO_CASE_REFUSED,

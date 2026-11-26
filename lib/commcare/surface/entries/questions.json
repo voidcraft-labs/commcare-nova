@@ -3282,7 +3282,7 @@
 		],
 		"valueClass": "savetocase-create",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`. A literal-only concatenation stays a calculation and keeps its empty HQ type metadata. Its fixed value is the operation’s catalog type.",
+		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`. A literal-only concatenation stays a calculation and keeps its empty HQ type metadata. Its fixed value is the operation’s catalog type. A typed conditional choosing between two distinct declared types also keeps its empty HQ type metadata, when it creates a new case, writes the same compatible properties, and supplies no later case change.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3338,11 +3338,11 @@
 		"id": "questions/savetocase-case-type-given-as-an-xpath",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase `case_type` given as an XPath outside the fixed create shape",
+		"item": "SaveToCase `case_type` given as an XPath outside the supported typed create range",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "xpath-case-type",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a create whose calculation depends on form data or other runtime inputs, or a calculated change of type. A runtime-dependent type needs catalog and case relation contracts for every possible output.",
+		"dispositionCell": "**HELD-NEW**: a create with a computed type outside the supported declared range, or a calculated change of type. Every possible type must have a known case schema. Calculations cannot create platform-owned case types.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {

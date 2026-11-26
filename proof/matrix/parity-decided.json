@@ -525,6 +525,7 @@
 		"hq-questions/save-to-case-block-relevance",
 		"hq-questions/save-to-case-child-link",
 		"hq-questions/save-to-case-create-and-close",
+		"hq-questions/save-to-case-declared-type-choice",
 		"hq-questions/save-to-case-hyphenated-link-name",
 		"hq-questions/save-to-case-hyphenated-property",
 		"hq-questions/save-to-case-index-close-adds-action",

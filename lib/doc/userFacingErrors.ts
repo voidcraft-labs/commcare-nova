@@ -2108,6 +2108,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A close change can save these properties and close the case.",
 	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: () =>
 		"This change needs a calculation that always gives its chosen case type.",
+	CASE_OPERATION_TYPE_CHOICE_INVALID: () =>
+		"This form can choose between case types when it creates a new case with the same saved properties and no connected case changes.",
 	CASE_OPERATION_CLOSE_CONDITION_INVALID: () =>
 		"This change needs to close the case before you can set a close condition.",
 	CASE_CHANGE_POSITION_INVALID: (e) => {
