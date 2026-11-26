@@ -2724,6 +2724,15 @@ at both shared mutation gates. Ordinary list destinations retain manual values.
 
 Parent-record selection is explicit on `Module.parentCaseModuleUuid`. Both the HQ `parent_select` and shared session-datum projection read that identity; catalog ancestry and structural menu nesting do not infer it. Flat modules may contain child records and unparented records of the same type. Parent selectors follow direct non-extension child indexes; an advanced menu's chained load follows the one index name `advancedChainIndex` gives ("Advanced modules" above). The existing target-specific HQ refusal for a multiple-parent selector remains; Preview and local CCZ retain their supported union semantics.
 
+### Basic writes through a user connection
+
+A basic follow-up can save a property through the selected case's literal
+`user` connection when the catalog declares one ordinary destination type.
+The wire keeps the `user/<property>` update key. The case store resolves the
+same connection against the form's opening snapshot and refuses the
+submission if the connection is absent. HQ's Case Management editor needs
+the worker-records plan feature to keep this key.
+
 ### Ordinary datetime case writes
 
 Hidden datetime writers derive their `xsd:dateTime` bind from the effective

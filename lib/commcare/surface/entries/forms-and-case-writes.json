@@ -3190,7 +3190,7 @@
 		"id": "forms-and-case-writes/update-key-through-a-typed-user-index",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key `user/<property>` on the case opened by basic Case Management, where that index has one ordinary declared destination",
+		"item": "update key `user/<property>` on the case loaded by basic Case Management, where that index has one ordinary declared destination",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
