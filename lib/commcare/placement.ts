@@ -1008,7 +1008,8 @@ function corePlan(
 				.filter(
 					(operation) =>
 						operation.closeAfter === true ||
-						operation.closeCondition !== undefined,
+						operation.closeCondition !== undefined ||
+						operation.ownerCondition !== undefined,
 				)
 				.map((operation) => operation.uuid),
 		]),

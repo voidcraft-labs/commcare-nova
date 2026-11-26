@@ -3932,7 +3932,7 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a SaveToCase block that creates or updates and also closes (under its own Close Condition) or closes and links",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@relevant"],
 		"valueClass": "write-and-close",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: one change with a create or update and a close of the same case. Its close condition applies to the close leaf.",
@@ -3983,11 +3983,37 @@
 		"id": "questions/savetocase-owner-id-condition",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase Owner ID Condition",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"item": "SaveToCase Owner ID Condition on a create with a fresh case ID",
+		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@relevant"],
 		"valueClass": "owner-id-condition",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `ownerCondition` on the create's owner leaf. When the condition is false, the submitting worker owns the new case.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`relevant` on the `owner_id` bind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-owner-condition-on-an-aliased-create",
+		"area": "questions",
+		"section": "Question types",
+		"item": "SaveToCase Owner ID Condition on a create that can reuse an existing case ID",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "aliased-create-owner-id-condition",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a condition on the owner write (Vellum writes it as `relevant` on the `create/owner_id` leaf, and a non-relevant owner is left out of the block)",
+		"dispositionCell": "**HELD-NEW**: If the owner leaf is absent, HQ preserves an existing owner and CommCare Core assigns the submitting worker.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {
@@ -4001,7 +4027,34 @@
 			}
 		},
 		"emission": {
-			"cell": "`relevant` on the `owner_id` bind",
+			"cell": "`relevant` on the `create/owner_id` bind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-update-owner-condition",
+		"area": "questions",
+		"section": "Question types",
+		"item": "SaveToCase custom Owner ID Condition on a case update",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "update-owner-id-condition",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: A separate condition on the owner write of a targeted update.",
+		"subject": "save-to-case",
+		"owner": "xform",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`relevant` on the `update/owner_id` bind",
 			"markers": []
 		},
 		"gates": []

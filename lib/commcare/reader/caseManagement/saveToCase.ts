@@ -179,7 +179,11 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/create-case-id-live-calculate-outside-a-repeat`,
 		"xform:model/bind@calculate",
 	),
-	ownerCondition: refuse(`${Q}/savetocase-owner-id-condition`, MUG),
+	aliasedOwnerCondition: refuse(
+		`${Q}/savetocase-owner-condition-on-an-aliased-create`,
+		MUG,
+	),
+	updateOwnerCondition: refuse(`${Q}/savetocase-update-owner-condition`, MUG),
 	blockRelevance: refuse(
 		`${Q}/relevance-bound-on-the-savetocase-node-itself`,
 		"xform:model/bind@relevant",
@@ -759,6 +763,7 @@ export interface ProposedBlock {
 	readonly condition?: { readonly text: string; readonly site: ClaimSite };
 	/** A close in the block: an operation's own close, or the own close's condition. */
 	readonly closes: boolean;
+	readonly ownerCondition?: { readonly text: string; readonly site: ClaimSite };
 	readonly closeCondition?: { readonly text: string; readonly site: ClaimSite };
 	readonly place: HqPlace;
 	/**
@@ -1627,6 +1632,7 @@ function readBlock(
 	}
 
 	// The name and the owner of a create.
+	let ownerCondition: ProposedBlock["ownerCondition"];
 	let name: ProposedBlock["name"];
 	let owner: ProposedOwner | undefined;
 	if (creates) {
@@ -1663,8 +1669,14 @@ function readBlock(
 			...(nameField !== undefined && { readsField: nameField }),
 		};
 		const ownerBind = bindAt("case/create/owner_id");
-		if (ownerBind?.attribs.relevant !== undefined)
-			return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+		if (ownerBind?.attribs.relevant !== undefined) {
+			if (target.kind !== "new" || target.idFrom !== undefined)
+				return fail(SAVE_TO_CASE_CLAIMS.aliasedOwnerCondition);
+			ownerCondition = {
+				text: ownerBind.attribs.relevant,
+				site: site("case/create/owner_id", "relevant"),
+			};
+		}
 		const ownerText = ownerBind?.attribs.calculate;
 		if (ownerText === undefined) return { ok: false };
 		owner = readOwner(
@@ -1754,7 +1766,8 @@ function readBlock(
 			}
 			if (property === "owner_id") {
 				if (bind.attribs.relevant !== undefined) {
-					if (!sharedShape) return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+					if (!sharedShape)
+						return fail(SAVE_TO_CASE_CLAIMS.updateOwnerCondition);
 					ownerLed = true;
 				}
 				owner = readOwner(untrimmed(text).text, root, {
@@ -1988,7 +2001,8 @@ function readBlock(
 						),
 					);
 	} else sharedHolds = false;
-	if (ownerLed && !sharedHolds) return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+	if (ownerLed && !sharedHolds)
+		return fail(SAVE_TO_CASE_CLAIMS.updateOwnerCondition);
 
 	return {
 		ok: true,
@@ -2015,6 +2029,7 @@ function readBlock(
 			links,
 			...(condition !== undefined && { condition }),
 			closes,
+			...(ownerCondition !== undefined && { ownerCondition }),
 			...(closeCondition !== undefined && { closeCondition }),
 			place,
 			...(sharedHolds && { shared: sharedRows }),
@@ -2616,6 +2631,7 @@ export function readSaveToCaseBlocks(
 		firstBlock.caseType === menuType &&
 		firstBlock.target.kind === "new" &&
 		firstBlock.target.idFrom === undefined &&
+		firstBlock.ownerCondition === undefined &&
 		firstBlock.block.repeat === null &&
 		firstBlock.segments.join("/") === "operations/block" &&
 		firstBlock.name?.answer === undefined &&
@@ -2639,7 +2655,7 @@ export function readSaveToCaseBlocks(
 			reading.failed.push({
 				block: read.block,
 				place: read.place,
-				claim: SAVE_TO_CASE_CLAIMS.ownerCondition,
+				claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
 			});
 			proposed.splice(proposed.indexOf(one), 1);
 		}
@@ -2940,6 +2956,7 @@ function claimAccepted(
 		if (one.rename?.answer === undefined) note(one.rename?.site);
 		note(one.condition?.site);
 		note(one.closeCondition?.site);
+		note(one.ownerCondition?.site);
 		if (one.target.kind === "expression") note(one.target.site);
 		for (const write of one.writes) {
 			if (write.value.kind === "text") note(write.value.site);
@@ -3337,6 +3354,7 @@ function caseSlot(
 	slot:
 		| "case_operation_name"
 		| "case_operation_owner"
+		| "case_operation_owner_condition"
 		| "case_operation_rename"
 		| "case_operation_condition"
 		| "case_operation_close_condition"
@@ -3408,6 +3426,15 @@ function registerTexts(
 				one.owner.site,
 				one.place,
 				CALC,
+			);
+		if (one.ownerCondition !== undefined)
+			register(
+				`${op} owner condition`,
+				caseSlot(form.uuid, "case_operation_owner_condition", op),
+				one.ownerCondition.text,
+				one.ownerCondition.site,
+				one.place,
+				RELEVANT,
 			);
 		// A registration's own case opens under the form's open condition.
 		if (one.condition !== undefined)
@@ -3685,6 +3712,9 @@ function operationOf(
 		return {
 			...common,
 			action: "create",
+			...(one.ownerCondition !== undefined && {
+				ownerCondition: placeholder("condition"),
+			}),
 			caseType: one.caseType,
 			target: { kind: "new", ...(idFrom !== undefined && { idFrom }) },
 			name,

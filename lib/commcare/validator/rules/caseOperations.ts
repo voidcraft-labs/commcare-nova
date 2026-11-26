@@ -632,6 +632,28 @@ function validateOperation(
 			errors,
 		);
 	}
+	if (operation.ownerCondition !== undefined) {
+		if (
+			operation.action !== "create" ||
+			operation.target.kind !== "new" ||
+			operation.target.idFrom !== undefined
+		)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_OWNER_CONDITION_INVALID",
+					"A case with a conditional owner needs a fresh ID on each submission.",
+				),
+			);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.ownerCondition,
+			operationSlot(ctx, operation, "case_operation_owner_condition"),
+			errors,
+		);
+	}
 	validateNameExpression(ctx, operation, operation.name, "create name", errors);
 	validateTextExpression(
 		ctx,
@@ -1665,6 +1687,7 @@ type OperationScalarSlot =
 	| "case_operation_close_condition"
 	| "case_operation_name"
 	| "case_operation_owner"
+	| "case_operation_owner_condition"
 	| "case_operation_rename";
 function operationSlot(
 	ctx: OperationRuleContext,

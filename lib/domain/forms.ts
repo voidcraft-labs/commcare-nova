@@ -570,6 +570,7 @@ export const ownCaseOperationSchema = z.strictObject({
 	 *  the case's name (`caseFacetOnlyIfChanged`). */
 	nameOnlyIfChanged: z.literal(true).optional(),
 	owner: valueSchema.optional(),
+	ownerCondition: z.never().optional(),
 	/** The owner is saved only when the answer is not blank
 	 *  (`caseFacetOnlyIfChanged`). */
 	ownerOnlyIfChanged: z.literal(true).optional(),
@@ -592,6 +593,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("create"),
+		ownerCondition: conditionSchema.optional(),
 		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
 		name: valueSchema,
@@ -606,6 +608,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("update"),
+		ownerCondition: z.never().optional(),
 		closeAfter: z.literal(true).optional(),
 		target: updateCaseTargetSchema,
 		name: z.never().optional(),
@@ -620,6 +623,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("close"),
+		ownerCondition: z.never().optional(),
 		closeAfter: z.never().optional(),
 		target: existingCaseTargetSchema,
 		name: z.never().optional(),
@@ -698,6 +702,7 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	caseType?: undefined;
 	target?: undefined;
 	condition?: undefined;
+	ownerCondition?: undefined;
 	closeCondition?: undefined;
 	closeAfter?: undefined;
 	forEach?: undefined;
@@ -712,6 +717,7 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	caseType: string;
 	target: CaseTarget;
 	condition?: Expression;
+	ownerCondition?: Expression;
 	closeCondition?: Expression;
 	closeAfter?: true;
 	forEach?: { repeat: Uuid };

@@ -1218,6 +1218,7 @@ export function buildCaseOperations(
 				| "case_operation_close_condition"
 				| "case_operation_name"
 				| "case_operation_owner"
+				| "case_operation_owner_condition"
 				| "case_operation_rename",
 		): FormExpressionSlotRef => ({
 			entity: "form",
@@ -1293,6 +1294,7 @@ export function buildCaseOperations(
 		});
 		const links = operation.links ?? [];
 		const requiredScalarTextPaths: FormPath[] = [];
+		let conditionalOwnerPath: FormPath | undefined;
 		const optionalScalarTextPaths: FormPath[] = [];
 		const updateChildren: Element[] = [];
 		if (rename !== undefined) updateChildren.push(el("case_name", {}));
@@ -1444,13 +1446,22 @@ export function buildCaseOperations(
 				);
 			}
 			const ownerPath = createPath.child("owner_id");
-			requiredScalarTextPaths.push(ownerPath);
+			const ownerCondition = operation.ownerCondition;
+			if (ownerCondition === undefined) requiredScalarTextPaths.push(ownerPath);
+			else conditionalOwnerPath = ownerPath;
 			blockBinds.push(
 				xel(
 					"bind",
 					{
 						xpath: {
 							nodeset: ownerPath.toWire(),
+							...(ownerCondition !== undefined && {
+								relevant: emitExpression(
+									ownerCondition,
+									ownerPath,
+									ownSlot("case_operation_owner_condition"),
+								),
+							}),
 							calculate: caseScalarTextValueCalculation(
 								operation.owner === undefined
 									? META_USER_ID
@@ -1781,6 +1792,24 @@ export function buildCaseOperations(
 				// executor one normalized value; this check fails the submission
 				// before an invalid value can diverge.
 				check = w.and(
+					...(conditionalOwnerPath !== undefined &&
+					operation.ownerCondition !== undefined
+						? [
+								w.or(
+									w.not(
+										emitExpression(
+											operation.ownerCondition,
+											idPath,
+											ownSlot("case_operation_owner_condition"),
+										),
+									),
+									caseScalarTextValueGuard(
+										originalContextWirePath(idPath, conditionalOwnerPath),
+										"reject",
+									),
+								),
+							]
+						: []),
 					...requiredScalarTextPaths.map((path) =>
 						caseScalarTextValueGuard(
 							originalContextWirePath(idPath, path),

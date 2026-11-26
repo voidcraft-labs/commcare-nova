@@ -369,6 +369,7 @@ function describeUserPropertyReference(
 			case_operation_close_condition: "case closing condition",
 			case_operation_name: "case name calculation",
 			case_operation_owner: "case owner calculation",
+			case_operation_owner_condition: "case owner condition",
 			case_operation_write_value: "case property calculation",
 			case_operation_write_condition: "case property condition",
 			case_operation_link_target_expression: "linked-case target calculation",

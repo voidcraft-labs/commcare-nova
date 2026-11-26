@@ -349,6 +349,11 @@ const createOperationInputSchema = z
 			.describe("Repeat field UUID; omit to run once per submission"),
 		name: valueSchema,
 		owner: valueSchema.optional(),
+		ownerCondition: conditionSchema
+			.optional()
+			.describe(
+				"Assign the chosen owner only when this condition holds. Otherwise use the submitting worker.",
+			),
 		ownerOnlyIfChanged: ownerOnlyIfChangedInputSchema,
 		writes: z.array(writeInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
@@ -526,6 +531,9 @@ export function resolveCaseOperationInput(
 				target: input.target,
 				name: input.name,
 				...(input.owner !== undefined && { owner: input.owner }),
+				...(input.ownerCondition !== undefined && {
+					ownerCondition: input.ownerCondition,
+				}),
 				...(input.ownerOnlyIfChanged !== undefined && {
 					ownerOnlyIfChanged: input.ownerOnlyIfChanged,
 				}),
