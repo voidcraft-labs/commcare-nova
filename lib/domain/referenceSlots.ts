@@ -432,6 +432,9 @@ const FORM_BEHAVIOR_SLOT_NAMES = {
 	automaticSubmissionText: "automatic_submission_text",
 	skipAutomaticSyncText: "skip_automatic_sync_text",
 	validateChangedAnswersText: "validate_changed_answers_text",
+	activityKeyText: "activity_key_text",
+	activityTitleText: "activity_title_text",
+	activityWindowText: "activity_window_text",
 } as const satisfies Record<FormBehaviorRole, string>;
 
 export const FORM_REFERENCE_SLOTS = [

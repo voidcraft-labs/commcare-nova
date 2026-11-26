@@ -15,6 +15,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"worker-distance": ["menus-and-case-lists/9-distance"],
 	"sort-by-distance": ["menus-and-case-lists/type-distance"],
 	"web-apps-form-behavior": [
+		"questions/a-question-text-label-hint-help-validation-message-repeat-add",
 		"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
 	],
 	"case-list-here": [

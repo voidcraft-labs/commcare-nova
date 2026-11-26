@@ -53,6 +53,7 @@ import * as connectActivityRoles from "./20261208000000_connect_activity_roles";
 import * as lookupJsonDestinations from "./20261208000000_lookup_json_destinations";
 import * as caseIndexHistory from "./20261208020000_case_index_history";
 import * as previewSearchSettings from "./20261208050000_preview_search_settings";
+import * as previewWebActivity from "./20261208100000_preview_web_activity";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -279,6 +280,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261208000000_lookup_json_destinations": lookupJsonDestinations,
 	"20261208020000_case_index_history": caseIndexHistory,
 	"20261208050000_preview_search_settings": previewSearchSettings,
+	"20261208100000_preview_web_activity": previewWebActivity,
 	"20261208010000_form_opening_data": formOpeningData,
 	"20261208030000_cases_location_id": casesLocationId,
 	"20261208000000_connect_activity_roles": connectActivityRoles,

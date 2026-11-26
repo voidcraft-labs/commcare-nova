@@ -53,6 +53,11 @@ import {
 import { resolveAuthorizedPreviewContext } from "./previewAuthorization";
 import type { PreviewDevice } from "./previewDevice";
 import { signFormOpening, verifyFormOpening } from "./signedFormOpening";
+import {
+	evaluateWebFormActivityOpening,
+	InvalidWebActivityWindowError,
+	recordWebActivityOpening,
+} from "./webFormActivityOpening";
 import { workerLocationFixture, workerPlaceIds } from "./workerLocationFixture";
 
 const manualChoiceSchema = z.strictObject({
@@ -430,12 +435,27 @@ export async function readFormOpeningAction(
 			bound.length === 0
 		)
 			return reopen;
+		const primaryCaseIds = ownCaseId ? [ownCaseId] : bound;
+		const activity =
+			!reached.nextSelection && !args.restore
+				? await evaluateWebFormActivityOpening({
+						secret,
+						doc,
+						audience,
+						identity: context.identity,
+						reached,
+						caseIds: primaryCaseIds,
+						cases: snapshot,
+						lookup: lookupData,
+					})
+				: undefined;
 		const projection: FormOpeningProjection = {
 			...prior,
 			choices,
 			carried: [...carried.values()],
 			...(Object.keys(parentChoices).length && { parentChoices }),
-			primaryCaseIds: ownCaseId ? [ownCaseId] : bound,
+			primaryCaseIds,
+			...(activity && { webActivity: activity }),
 			...(submittedCaseIds.size > 0 && {
 				submittedCaseIds: [...submittedCaseIds],
 			}),
@@ -456,13 +476,19 @@ export async function readFormOpeningAction(
 			projection,
 			args.previous,
 		);
+		const activityNotice = activity
+			? await recordWebActivityOpening(audience, activity, snapshot)
+			: undefined;
 		return {
 			kind: "opening",
 			evidence,
 			projection,
 			next,
+			activityNotice,
 		} as const;
 	} catch (error) {
+		if (error instanceof InvalidWebActivityWindowError)
+			return { kind: "error", message: error.message } as const;
 		if (error instanceof AppAccessError)
 			return { kind: "error", message: "App not found." } as const;
 		const refusal = previewDataRefusalOf(error);

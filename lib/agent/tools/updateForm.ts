@@ -149,6 +149,24 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"In Web Apps, recheck changed answers and blanks at submission. A previously accepted nonblank answer can stay accepted after a related answer changes. Name a text of this form as automaticSubmissionText does. Null removes the setting.",
 			),
+		activityKeyText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Warn a Web Apps worker if another worker recently opened or submitted this form with the same evaluated key. Name a text as automaticSubmissionText does. Use a value that identifies the record. Clear the title and window along with the key when turning this off.",
+			),
+		activityTitleText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Name a text that describes the record in the Web Apps activity notice. Requires activityKeyText. Null removes the title.",
+			),
+		activityWindowText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Name a text that evaluates to the number of seconds the Web Apps activity notice lasts. Requires activityKeyText. A missing or unreadable value uses 300 seconds, and times are capped at one hour. Null restores the default.",
+			),
 		plain_text: z
 			.boolean()
 			.nullable()

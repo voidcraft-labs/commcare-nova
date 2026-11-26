@@ -825,3 +825,16 @@ You can give a message or a location a starting value, and a message, a location
 A repeating group that workers fill themselves starts empty. They can add as many entries as they need and remove the last one to leave the group empty again. Its add button can use different words before and after the first entry. In the group's display settings, **First entry button** sets the first invitation and **Another entry button** sets the next one. If you give only the second, workers see it for both. Each language can have its own wording.
 
 In a worker test, opening a form or editing an ordinary answer leaves messages unanswered. Turning a page on Android confirms the messages on that page. On Web Apps, submitting the form confirms its messages.
+
+### Show recent form activity in Web Apps
+
+In **Form settings → Form behavior**, **Activity notice key** lets the form
+warn a worker when another worker recently opened or submitted it for the
+same evaluated key. A question text that reads the record ID lets different
+records keep their own notices. The existing question text still appears
+on the form.
+
+**Activity notice record title** can give the notice a readable record name.
+**Activity notice window** can supply the number of seconds to keep it. The
+default is five minutes, and Web Apps keeps a notice for at most one hour.
+Android keeps showing the question texts and does not show the notice.

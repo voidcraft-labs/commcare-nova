@@ -3817,6 +3817,32 @@ export function FormScreen({
 				</div>
 			) : null}
 
+			{mode === "preview" && opening?.activityNotice ? (
+				<div
+					role="status"
+					data-form-activity-notice
+					className="mx-6 mt-4 space-y-1 rounded-lg border border-pv-input-border bg-pv-surface px-3 py-2 text-sm text-nova-text-secondary"
+				>
+					<p>
+						{runtimeMessage(
+							language.language,
+							opening.activityNotice.kind === "opened"
+								? "formActivityOpened"
+								: "formActivitySubmitted",
+							{
+								worker: opening.activityNotice.workerName,
+								record:
+									opening.activityNotice.title ??
+									runtimeMessage(language.language, "formActivitySameRecord"),
+							},
+						)}
+					</p>
+					{opening.activityNotice.dataMayHaveChanged ? (
+						<p>{runtimeMessage(language.language, "formActivityStale")}</p>
+					) : null}
+				</div>
+			) : null}
+
 			{/* Unified `pt-4` for flipbook parity: edit-mode `insertion(0)` row + live-mode `pt-6` both land the first field at Y = 40px so toggling modes never shifts reading position. Bottom symmetric via `insertion(N+1)` in edit / last field's `mb-6` in live. */}
 			<div
 				ref={formBodyRef}
