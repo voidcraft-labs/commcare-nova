@@ -646,14 +646,38 @@ def _model(authoring, app_id, what, model):
 
 
 def data_parent_other_group(authoring, app_id):
-    """The text question ``full_name``'s control moved into the question list ``details``, its data node left at
-    the form's root."""
+    """The nickname question is shown just after full name and still submits its answer under details."""
     _edit(
         authoring,
         app_id,
         "data-parent-other-group",
+        lambda text: _moved(text, NICKNAME_OPEN, NICKNAME_CLOSE, FULL_NAME_CLOSE),
+    )
+
+
+def data_parent_at_form_root(authoring, app_id):
+    """The full-name question is shown inside details but still submits its answer at the form root."""
+    _edit(
+        authoring,
+        app_id,
+        "data-parent-at-form-root",
         lambda text: _moved(text, FULL_NAME_INPUT, FULL_NAME_CLOSE, NICKNAME_CLOSE),
     )
+
+
+def data_parent_of_a_group(authoring, app_id):
+    """The details group remains on the main screen and submits its group under a separate container."""
+    def relocate(text):
+        text = _replaced(text, [("<details>", "<archive><details>", 1), ("</details>", "</details></archive>", 1)])
+        # Keep both the raw references and Vellum's companion references pointing at the source data nodes.
+        return text.replace("/data/details", "/data/archive/details").replace("#form/details", "#form/archive/details")
+
+    _edit(authoring, app_id, "data-parent-of-a-group", relocate)
+
+
+def file_default(authoring, app_id):
+    """A stored photo question supplies a file name as its default, without supplying that file."""
+    _change(authoring, app_id, "photo-file-default", ("<photo />", "<photo>opening.jpg</photo>", 1))
 
 
 def data_parent_crossing_repeat(authoring, app_id):

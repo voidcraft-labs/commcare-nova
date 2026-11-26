@@ -30338,16 +30338,64 @@
 		"id": "hq-questions/data-parent-other-group",
 		"base": "hq-questions",
 		"entry": "questions/data-parent-data-node-under-another-group-than-its-control",
-		"holds": [
-			{
-				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
-				"pointer": "/submissionPlacement/position",
-				"value": 1
-			}
-		],
+		"holds": [],
 		"change": {
 			"op": "named",
 			"name": "data_parent_other_group"
+		}
+	},
+	{
+		"id": "hq-questions/data-parent-at-form-root",
+		"base": "hq-questions",
+		"entry": "questions/data-parent-at-the-form-root-under-a-grouped-control",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "full_name"
+		},
+		"change": {
+			"op": "named",
+			"name": "data_parent_at_form_root"
+		}
+	},
+	{
+		"id": "hq-questions/data-parent-of-a-group",
+		"base": "hq-questions",
+		"entry": "questions/data-parent-on-a-group-or-repeat",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "archive/details"
+		},
+		"change": {
+			"op": "named",
+			"name": "data_parent_of_a_group"
+		}
+	},
+	{
+		"id": "hq-questions/photo-file-default",
+		"base": "hq-questions",
+		"entry": "questions/default-other-than-blank-on-a-capture-question",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "photo"
+		},
+		"change": {
+			"op": "named",
+			"name": "file_default"
 		}
 	},
 	{

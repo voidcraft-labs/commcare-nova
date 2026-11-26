@@ -112,7 +112,6 @@ describe("a control whose node lies under another group than the control", () =>
 			expect(question?.dataParent?.id).toBe("g");
 			expect(question?.field.submissionPlacement).toEqual({
 				parent: question?.dataParent?.uuid,
-				position: 0,
 			});
 			expect(refusalsAt(reading, "g/other")).toEqual([]);
 			expect(refusalsAt(reading, "g")).toEqual([]);
@@ -135,7 +134,7 @@ describe("a control whose node lies under another group than the control", () =>
 		expect(question?.parent?.id).toBe("a");
 	});
 
-	it("publishes the original submitted order and addresses after a wording edit", async () => {
+	it("publishes in the form designer’s submitted order and keeps addresses after a wording edit", async () => {
 		const outcome = await readWhole(
 			xformSource({
 				data: "<before/><hidden/><after/><group><child/></group>",
@@ -160,9 +159,9 @@ describe("a control whose node lies under another group than the control", () =>
 		const data = findOne((node) => node.name === "data", parsed.children, true);
 		expect(data?.children.filter(isTag).map((node) => node.name)).toEqual([
 			"before",
-			"hidden",
 			"after",
 			"group",
+			"hidden",
 		]);
 		const group = data?.children
 			.filter(isTag)
