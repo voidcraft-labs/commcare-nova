@@ -52,6 +52,26 @@ def case_list_deep_link_on_display_only_menu(authoring, app_id):
     )
 
 
+def conditional_registration_returning_to_search(authoring, app_id):
+    """Patients' empty-search action returns even when its form declines to open a case."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    def registration_source(name):
+        form = XFormBuilder(name)
+        form.new_question("case_name", "Name", "string")
+        form.new_question("create_record", "Register this patient?", "select1", choices={"yes": "Yes", "no": "No"})
+        return form.tostring(xml_declaration=True).decode("utf-8")
+
+    ops.upload_form_source(authoring, app_id, 1, 0, registration_source, "conditional-registration")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_case/condition", {
+        "doc_type": "FormActionCondition",
+        "type": "if",
+        "question": "/data/create_record",
+        "answer": "yes",
+        "operator": "=",
+    })
+
+
 def child_menu_registering_its_root_s_case_type(authoring, app_id):
     """Tools made a list of households under Follow-ups, whose first form chooses a household, its own form registering
     one."""

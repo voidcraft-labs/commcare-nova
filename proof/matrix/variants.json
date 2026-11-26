@@ -18548,15 +18548,8 @@
 			"name": "Patients"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/1/forms/0/actions/open_case/condition",
-			"value": {
-				"doc_type": "FormActionCondition",
-				"type": "if",
-				"question": "/data/case_name",
-				"answer": "Create patient",
-				"operator": "="
-			}
+			"op": "named",
+			"name": "conditional_registration_returning_to_search"
 		}
 	},
 	{
