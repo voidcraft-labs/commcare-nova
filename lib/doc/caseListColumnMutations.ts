@@ -5,7 +5,10 @@
  * writes that another surface already avoids.
  */
 
+import { produce } from "immer";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { wordingSourceUnit } from "@/lib/doc/localizationWorkspace";
+import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseListConfig, Column } from "@/lib/domain";
 import {
@@ -20,8 +23,11 @@ import {
 import {
 	effectiveAppLocalization,
 	languageEntries,
+	type TranslationEntry,
 	type TranslationUnitId,
+	translationSourceFingerprintsEqual,
 } from "@/lib/domain/localization";
+import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 
 type ColumnContent = NonNullable<
 	Extract<Mutation, { kind: "updateColumn" }>["column"]
@@ -246,13 +252,21 @@ function stripGranularSlots(column: Column): unknown {
  * paired by place, and only where both lists hold the same number of rows and neither unit is
  * another row's. Each view's own wording of the row (its generated override, in the original
  * language too) moves with it. `before` clears each old entry while its unit still exists; `after`
- * writes it under the new unit once the column's update has made that unit, so the batch is
- * `[...before, ...columnSnapshotMutations(...), ...after]`.
+ * writes it under the new unit once `columnMutations` (the column's update, as the gate reads it:
+ * in the Builder, as its worker-language lens shapes it) has made that unit, so the batch is
+ * `[...before, ...columnMutations, ...after]`. A language whose words the edit itself writes
+ * under the new unit keeps those.
+ *
+ * An entry whose source no longer matches the new unit's (the edit changed the row's text too, or
+ * the entry was already out of date) moves as the draft it is, out of date against the new unit,
+ * as an edit in place leaves it: it is written against the new unit's source (`restoreAgainst`),
+ * which target admission admits, rather than as a current translation, which it refuses.
  */
 export function mappingRowTranslationCarry(
 	doc: BlueprintDoc,
 	current: Column,
 	next: Column,
+	columnMutations: readonly Mutation[],
 ): { readonly before: Mutation[]; readonly after: Mutation[] } {
 	const before: Mutation[] = [];
 	const after: Mutation[] = [];
@@ -299,6 +313,11 @@ export function mappingRowTranslationCarry(
 			}
 	}
 	const localization = effectiveAppLocalization(doc.localization);
+	const moving: {
+		language: string;
+		to: TranslationUnitId;
+		entry: TranslationEntry;
+	}[] = [];
 	for (const { from, to } of pairs) {
 		if (from === to) continue;
 		for (const language of localization.languageOrder) {
@@ -310,13 +329,61 @@ export function mappingRowTranslationCarry(
 				unitId: from,
 				entry: null,
 			});
-			after.push({
-				kind: "setTranslation",
-				language,
-				unitId: to,
-				entry: structuredClone(entry),
-			});
+			moving.push({ language, to, entry });
 		}
+	}
+	if (moving.length === 0) return { before, after };
+	// The new units as admission reads each write: after the clears and the column's update, and
+	// after each original-language wording already moved, which a generated unit's source reads.
+	const sourceLanguage = localization.sourceLanguage;
+	moving.sort(
+		(left, right) =>
+			Number(left.language !== sourceLanguage) -
+			Number(right.language !== sourceLanguage),
+	);
+	let projected = produce(doc, (draft) => {
+		applyMutations(draft, [...before, ...columnMutations]);
+	});
+	const written = new Set(
+		columnMutations.flatMap((mutation) =>
+			mutation.kind === "setTranslation"
+				? [`${mutation.language}\u0000${mutation.unitId}`]
+				: [],
+		),
+	);
+	for (const { language, to, entry } of moving) {
+		if (written.has(`${language}\u0000${to}`)) continue;
+		const raw = snapshotTranslationUnits(projected).get(to);
+		if (raw === undefined) continue;
+		const unit = wordingSourceUnit(projected, raw);
+		const restoring =
+			entry.workerFallback !== undefined ||
+			!translationSourceFingerprintsEqual(
+				entry.sourceFingerprint,
+				unit.sourceFingerprint,
+			);
+		const previous =
+			languageEntries(
+				effectiveAppLocalization(projected.localization),
+				language,
+			)?.[to] ?? null;
+		const write: Mutation = {
+			kind: "setTranslation",
+			language,
+			unitId: to,
+			entry: structuredClone(entry),
+			...(restoring && {
+				restoreAgainst: {
+					sourceFingerprint: unit.sourceFingerprint,
+					previous: previous && structuredClone(previous),
+				},
+			}),
+		};
+		after.push(write);
+		if (language === sourceLanguage)
+			projected = produce(projected, (draft) => {
+				applyMutations(draft, [write]);
+			});
 	}
 	return { before, after };
 }

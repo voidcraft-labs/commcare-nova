@@ -132,10 +132,12 @@ export const updateCaseListColumnTool = {
 			const carry =
 				current === undefined
 					? { before: [], after: [] }
-					: mappingRowTranslationCarry(doc, current, {
-							...replacement,
-							uuid: columnUuid,
-						});
+					: mappingRowTranslationCarry(
+							doc,
+							current,
+							{ ...replacement, uuid: columnUuid },
+							result.mutations,
+						);
 			const commit = await guardedMutate(
 				ctx,
 				[...carry.before, ...result.mutations, ...carry.after],

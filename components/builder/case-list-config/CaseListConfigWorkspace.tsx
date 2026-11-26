@@ -33,6 +33,7 @@ import {
 	Activity,
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -58,6 +59,7 @@ import {
 } from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import { planDetailTabGroups } from "@/lib/doc/caseDetailTabMutations";
 import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
@@ -96,6 +98,7 @@ import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
+import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { menuAboveSearchSentence } from "@/lib/doc/userFacingErrors";
@@ -131,6 +134,7 @@ import {
 	type Expression,
 	effectiveFilterForEmission,
 } from "@/lib/domain/expression";
+import { resolveAppLanguage } from "@/lib/domain/localization";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -548,6 +552,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	const projectProse = useProseProjection();
 	const navigate = useNavigate();
 	const docApi = useBlueprintDocApi();
+	const authoringLanguage = useContext(BlueprintAuthoringLanguageContext);
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
 	/* This controller lives ABOVE the preview boundary, so entering preview does
@@ -1087,13 +1092,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		}
 		// A mapping row keyed by its saved value keeps its translations as it
 		// gains an identity or a new value.
-		const carry = mappingRowTranslationCarry(
-			docApi.getState(),
-			current,
-			replacement,
-		);
-		commitFieldChanges([
-			...carry.before,
+		const columnMutations = [
 			...loading.before,
 			...columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
@@ -1101,8 +1100,24 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				replacement,
 			),
 			...loading.after,
-			...carry.after,
-		]);
+		];
+		// The carry is planned over the column's update as the worker-language
+		// lens will shape it, which is what the gate reads before the carry.
+		const doc = docApi.getState();
+		const shaped = projectBuilderLanguageMutations(
+			doc,
+			authoringLanguage === null
+				? null
+				: resolveAppLanguage(doc.localization, authoringLanguage),
+			columnMutations,
+		);
+		const carry = mappingRowTranslationCarry(
+			doc,
+			current,
+			replacement,
+			shaped.ok ? shaped.mutations : columnMutations,
+		);
+		commitFieldChanges([...carry.before, ...columnMutations, ...carry.after]);
 	};
 	const saveMapLayer = ({ column, location, geometry }: MapLayerSetup) => {
 		if (!pendingMapLayer || pendingMapLayer.moduleUuid !== moduleUuid) return;

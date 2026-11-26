@@ -14,6 +14,7 @@ import {
 } from "@/lib/domain";
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
+import { translationSourceFingerprint } from "@/lib/domain/localization";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -172,6 +173,85 @@ describe("updateCaseListColumn", () => {
 		expect(spanish[from]).toBeUndefined();
 		expect(spanish[view(from)]).toBeUndefined();
 	});
+
+	// A row's words that no longer match its source move with it as the draft they are, out of
+	// date against the row's new text, as an edit in place leaves them; the move never refuses
+	// the edit itself.
+	for (const { name, staleBefore, next } of [
+		{
+			name: "a new value and label",
+			staleBefore: false,
+			next: { value: "office", label: "Office" },
+		},
+		{
+			name: "a new value over a translation already out of date",
+			staleBefore: true,
+			next: { value: "office", label: "Work" },
+		},
+	])
+		it(`commits ${name}, carrying the row's words as an out-of-date draft`, async () => {
+			const base = produce(fixtureWithMapping(), (draft) => {
+				applyMutations(draft, [
+					{
+						kind: "addLanguage",
+						language: { language: "spa" },
+						wireCode: "es",
+					},
+				]);
+			});
+			const work = mappingOf(base).mapping[1];
+			const from = caseMappingTextUnit(SIBLING_UUID, work ?? {}, "mapping");
+			const unit = collectTranslationUnits(base).find((one) => one.id === from);
+			if (unit === undefined) throw new Error("The row's label has no unit.");
+			const fingerprint = staleBefore
+				? translationSourceFingerprint(unit.valueKind, "Job")
+				: unit.sourceFingerprint;
+			const view = (id: string) =>
+				generatedWordingId(SIBLING_UUID, "caseRows", id);
+			const doc = produce(base, (draft) => {
+				const spanish = draft.localization?.translations.spa;
+				if (spanish === undefined) throw new Error("Spanish has no entries.");
+				for (const [unitId, value] of [
+					[from, "Trabajo"],
+					[view(from), "Oficina"],
+				] as const)
+					spanish[unitId] = {
+						value,
+						sourceFingerprint: fingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+					};
+			});
+			const h = makeCaseListFixture(doc);
+			const result = await h.runTool(updateCaseListColumnTool, {
+				moduleUuid: MOD_A,
+				columnUuid: SIBLING_UUID,
+				column: {
+					kind: "id-mapping",
+					field: "phone",
+					header: "Phone",
+					mapping: [{ value: "home", label: "Home" }, next],
+				},
+			});
+			if ("error" in result.result) throw new Error(result.result.error);
+			const after = h.currentDoc();
+			const moved = mappingOf(after).mapping[1];
+			expect(moved).toMatchObject(next);
+			const to = caseMappingTextUnit(SIBLING_UUID, moved ?? {}, "mapping");
+			const spanish = after.localization?.translations.spa ?? {};
+			expect(spanish[to]).toMatchObject({
+				value: "Trabajo",
+				sourceFingerprint: fingerprint,
+			});
+			expect(spanish[view(to)]?.value).toBe("Oficina");
+			expect(spanish[from]).toBeUndefined();
+			const toUnit = collectTranslationUnits(after).find(
+				(one) => one.id === to,
+			);
+			if (toUnit === undefined) throw new Error("The moved row has no unit.");
+			expect(toUnit.sourceFingerprint).not.toBe(fingerprint);
+		});
 
 	it("replaces the column body in place and preserves the existing uuid", async () => {
 		const h = makeCaseListFixture(fixtureWithColumn());

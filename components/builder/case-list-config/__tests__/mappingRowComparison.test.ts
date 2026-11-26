@@ -191,7 +191,12 @@ describe("a mapping row's comparison", () => {
 			{ value: "piped" },
 		]) {
 			const next = patched(column, patch);
-			const carry = mappingRowTranslationCarry(doc, column, next);
+			const carry = mappingRowTranslationCarry(
+				doc,
+				column,
+				next,
+				columnSnapshotMutations(doc.moduleOrder[0] as Uuid, column, next),
+			);
 			expect(carry.after).toHaveLength(1);
 			const verdict = commit(doc, next, carry);
 			if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
@@ -202,6 +207,31 @@ describe("a mapping row's comparison", () => {
 			expect(spanish[to]?.value).toBe("Grifo");
 			expect(spanish[unitId]).toBeUndefined();
 		}
+	});
+	it("carries a translation the row's earlier label edit left out of date as a new value moves it", () => {
+		// The card edits one of value and label at a time: a label edit leaves the Spanish words
+		// out of date, and the later value edit moves them as that draft rather than being refused.
+		const { doc, unitId } = translated();
+		const relabeled = patched(waterColumn(doc), { label: "Tap water" });
+		const first = commit(doc, relabeled);
+		if (!first.ok) throw new Error(JSON.stringify(first.findings));
+		const stale = first.nextDoc.localization?.translations.spa?.[unitId];
+		const column = waterColumn(first.nextDoc);
+		const next = patched(column, { value: "piped" });
+		const moduleUuid = doc.moduleOrder[0] as Uuid;
+		const carry = mappingRowTranslationCarry(
+			first.nextDoc,
+			column,
+			next,
+			columnSnapshotMutations(moduleUuid, column, next),
+		);
+		const verdict = commit(first.nextDoc, next, carry);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+		const [moved] = waterColumn(verdict.nextDoc).mapping;
+		const to = caseMappingTextUnit(WATER, moved ?? {}, "mapping");
+		const spanish = verdict.nextDoc.localization?.translations.spa ?? {};
+		expect(spanish[to]).toEqual(stale);
+		expect(spanish[unitId]).toBeUndefined();
 	});
 	it("carries the row's translation when the edit is made under the worker language", () => {
 		// The Builder runs every batch through the language projection; under Spanish the row
@@ -225,10 +255,22 @@ describe("a mapping row's comparison", () => {
 				},
 				{ ...patch, label: spanishLabel },
 			);
-			const carry = mappingRowTranslationCarry(doc, column, next);
+			const columnMutations = columnSnapshotMutations(moduleUuid, column, next);
+			const shaped = projectBuilderLanguageMutations(
+				doc,
+				"spa",
+				columnMutations,
+			);
+			if (!shaped.ok) throw new Error(shaped.message);
+			const carry = mappingRowTranslationCarry(
+				doc,
+				column,
+				next,
+				shaped.mutations,
+			);
 			const projection = projectBuilderLanguageMutations(doc, "spa", [
 				...carry.before,
-				...columnSnapshotMutations(moduleUuid, column, next),
+				...columnMutations,
 				...carry.after,
 			]);
 			if (!projection.ok) throw new Error(projection.message);
