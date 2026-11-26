@@ -1727,6 +1727,7 @@ export function FormScreen({
 		 * (`formOpeningAction.ts`). */
 		if (
 			submitted.entryKey !== undefined &&
+			!result.receiptOutsideRun &&
 			submitted.run === session.getState().previewSessionId
 		)
 			session
@@ -2739,7 +2740,7 @@ export function FormScreen({
 			settleAttempt({ kind: "idle" });
 			return;
 		}
-		const submittedRun = session.getState().previewSessionId;
+		const submittedRun = start.previewSessionId;
 		const submittedSnapshot = (doc: BlueprintDoc): SubmittedContextSnapshot => {
 			const submittedForm =
 				submittedBase.formUuid === undefined
@@ -2790,6 +2791,7 @@ export function FormScreen({
 			return (
 				attemptIsCurrent() &&
 				current.scopeEpoch === submitted.scopeEpoch &&
+				current.previewSessionId === submitted.run &&
 				current.accessPhase === "authorized" &&
 				current.canEdit &&
 				latest.scopeEpoch === submitted.scopeEpoch &&
