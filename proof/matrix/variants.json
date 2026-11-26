@@ -35865,6 +35865,27 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-date-as-text",
+		"base": "hq-questions",
+		"entry": "questions/a-savetocase-retype-that-keeps-a-date-as-text",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_date_as_text"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/1/retype",
+				"value": "visit"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/1/writes/0/property",
+				"value": "kept"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-retype-converts",
 		"base": "hq-questions",
 		"entry": "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type",

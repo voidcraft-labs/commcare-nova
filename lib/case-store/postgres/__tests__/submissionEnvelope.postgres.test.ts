@@ -130,13 +130,16 @@ const PATIENT: CaseType = {
 		{ name: "hq_user_id", label: proseText("Worker ID"), data_type: "text" },
 	],
 };
-// A superset of `patient` — every shared property keeps its exact
-// type (the wirePortable retype destination), plus a destination-only
-// `severity` slot a retyping operation's write may populate.
+// Every patient value has the same JSON representation here, including the
+// date widened to text. The promoted case can also hold a severity.
 const PATIENT_V2: CaseType = {
 	name: "patient_v2",
 	properties: [
-		...PATIENT.properties,
+		...PATIENT.properties.map((property) =>
+			property.name === "seen_on"
+				? { ...property, data_type: "text" as const }
+				: property,
+		),
 		{ name: "severity", label: proseText("Severity"), data_type: "text" },
 	],
 };
@@ -3301,9 +3304,10 @@ describe("owner stamping", () => {
 // ---------------------------------------------------------------
 
 describe("retype", () => {
-	it("executes the wirePortable subset: type flips, properties retained verbatim", async () => {
+	it("retypes the case and keeps its original date string in the text property", async () => {
 		const store = makeStore();
-		await seedSessionPatient(store, { notes: "kept", age: 30 });
+		const properties = { notes: "kept", age: 30, seen_on: "2026-04-17" };
+		await seedSessionPatient(store, properties);
 
 		await submit(store, {
 			appId: APP_ID,
@@ -3328,7 +3332,7 @@ describe("retype", () => {
 		});
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.case_id).toBe(SESSION_CASE_ID);
-		expect(rows[0]?.properties).toMatchObject({ notes: "kept", age: 30 });
+		expect(rows[0]?.properties).toEqual(properties);
 	});
 
 	it("applies destination-typed writes and the type change as one unit", async () => {

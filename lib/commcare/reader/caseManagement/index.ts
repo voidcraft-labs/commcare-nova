@@ -941,8 +941,18 @@ function settleCaseChanges(
 		if (!of.every(refusedAtBlock)) ctx.accounting.finding(claim, form.place);
 	for (const [uuid, claim] of atBlock) {
 		const place = placeOf(uuid);
-		if (!ctx.accounting.hasFindingAt(place))
+		if (!ctx.accounting.hasFindingAt(place)) {
 			ctx.accounting.finding(claim, place);
+			if (claim === SAVE_TO_CASE_CLAIMS.retypeConverts) {
+				const block = saveToCaseReading(form)?.proposals.find(
+					(one) => one.uuid === uuid,
+				)?.block;
+				if (block !== undefined)
+					form.xform?.cursor.within({ element: block.element }, claim, [
+						"mug:SaveToCase",
+					]);
+			}
+		}
 	}
 }
 

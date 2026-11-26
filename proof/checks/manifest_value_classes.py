@@ -10607,6 +10607,72 @@ def reserved_save_to_case_type(use, manifest):
     return any(case.find(f".//{{{CASE}}}{action}") is not None for action in ("create", "close", "index"))
 
 
+def _one_save_to_case_write(form, block, case):
+    update = case.find(f"{{{CASE}}}update")
+    names = [_local(node) for node in _children(update) if _local(node) != "case_type"] if update is not None else []
+    if len(names) != 1:
+        return None
+    name, = names
+    writer = form.bind(f"{form.paths[block]}/case/update/{name}")
+    text = writer.get("calculate") if writer is not None else None
+    path = expression_tree(text) if text else None
+    if not path or path[:2] != ["path", "absolute"] or len(path[4]) != 2:
+        return None
+    if not all(step[0] == "child" and step[2] == 0 for step in path[4]):
+        return None
+    if not form.controls.get(text):
+        return None
+    source_bind = form.bind(text)
+    return name, _data_type(source_bind.get("type", "string") if source_bind is not None else "string")
+
+
+def save_to_case_retype_property_types(use):
+    """The original and destination bind types for one same-property pair of
+    direct question writes across a literal retype of its earlier sibling's
+    freshly created case. Wider graphs need the typed reader's verdict."""
+    form, block = _form_element(use)
+    if form is None or block.get(f"{{{VELLUM}}}role") != "SaveToCase" or block not in form.paths:
+        return None
+    case = block.find(f"{{{CASE}}}case")
+    if case is None or case.find(f"{{{CASE}}}create") is not None:
+        return None
+    location = form.paths[block]
+    destination = form.bind(f"{location}/case/update/case_type")
+    target = form.bind(f"{location}/case/@case_id")
+    destination_type = _quoted(destination.get("calculate") or "") if destination is not None else None
+    if not destination_type or target is None or not target.get("calculate"):
+        return None
+    path = expression_tree(target.get("calculate"))
+    if not path or path[:2] != ["path", "call:current"] or len(path[4]) != 6:
+        return None
+    before, selected, after = path[4][:3], path[4][3], path[4][4:]
+    if (before != [["parent", "node()", 0]] * 3 or selected[0] != "child" or selected[2] != 0
+            or after != [["child", "case", 0], ["attribute", "case_id", 0]]):
+        return None
+    candidates = [node for node in block.itersiblings(preceding=True) if _local(node) == selected[1]]
+    if len(candidates) != 1:
+        return None
+    earlier, = candidates
+    if earlier.get(f"{{{VELLUM}}}role") != "SaveToCase" or earlier not in form.paths:
+        return None
+    prior = earlier.find(f"{{{CASE}}}case")
+    source_type_bind = form.bind(f"{form.paths[earlier]}/case/create/case_type")
+    source_type = _quoted(source_type_bind.get("calculate") or "") if source_type_bind is not None else None
+    if prior is None or not source_type or source_type == destination_type or block.get(f"{{{VELLUM}}}case_type") != source_type:
+        return None
+    case_id = f"{form.paths[earlier]}/case/@case_id"
+    if not any(
+        node.get("ref") == case_id and node.get("event") == "xforms-ready"
+        and expression_tree(node.get("value") or "") == ["call", "uuid", []]
+        for node in _children(form.model) if _local(node) == "setvalue"
+    ):
+        return None
+    source = _one_save_to_case_write(form, earlier, prior)
+    final = _one_save_to_case_write(form, block, case)
+    if source is not None and final is not None and source[0] == final[0]:
+        return source[1], final[1]
+
+
 # Binds -------------------------------------------------------------------------------
 
 
