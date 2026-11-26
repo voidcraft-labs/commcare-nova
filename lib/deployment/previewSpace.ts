@@ -5,6 +5,7 @@ import { log } from "@/lib/logger";
 import type { PreviewSearchCatalog } from "@/lib/preview/searchSettings";
 import {
 	type PreviewSearchTarget,
+	previewSearchTargetKey,
 	resolvePreviewSearchFacts,
 } from "@/lib/preview/searchSettings";
 import {
@@ -64,6 +65,34 @@ export async function previewProjectSpaceFor(
 		});
 		return null;
 	}
+}
+
+/** A new submission must use the same destination context as the form entry. */
+export async function previewProjectSpaceForSubmission(
+	scope: DeploymentScope,
+	selection?: {
+		readonly target?: PreviewSearchTarget;
+		readonly revision: string;
+	},
+): Promise<string | null | undefined> {
+	if (selection === undefined) return previewProjectSpaceFor(scope);
+	const catalog = await readAuthorizedPreviewSearchCatalog(
+		scope.appId,
+		scope.projectId,
+		scope.actorUserId,
+	);
+	if (selection.target !== undefined) {
+		const key = previewSearchTargetKey(selection.target);
+		if (
+			!catalog.profiles.some(
+				(profile) => previewSearchTargetKey(profile.target) === key,
+			)
+		)
+			return undefined;
+	}
+	const facts = resolvePreviewSearchFacts(catalog, selection.target);
+	if (facts.revision !== selection.revision) return undefined;
+	return facts.projectSpace ?? null;
 }
 
 /**
