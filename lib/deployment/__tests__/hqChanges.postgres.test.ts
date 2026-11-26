@@ -6494,6 +6494,45 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		const OWNER_SENTENCE =
 			FIRST_PUBLISH_SENTENCES["owner-rule-given-to-worker"];
 
+		it("keeps the answered owner change on a later list and in a later review", async () => {
+			const appId = await broughtInByWorker();
+			const changed = emission(locationOwnerFixture("direct"), 3);
+			const review = await listed(appId, changed);
+			const outcome = await bringIn(appId, changed, review, {
+				clinic: "worker",
+			});
+			if (outcome.kind !== "brought-in")
+				throw new Error(`The bring-in answered ${JSON.stringify(outcome)}`);
+			/* A list stored before a review bound its inputs: the review shows what it holds. */
+			const deployment = await h
+				.db()
+				.selectFrom("app_deployments")
+				.select("id")
+				.where("app_id", "=", appId)
+				.executeTakeFirstOrThrow();
+			const stored = await storedListOf(appId);
+			if (stored === null) throw new Error("The take stored no list.");
+			const { reviewedInputs: _bound, ...unbound } = stored;
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({ first_publish_changes: JSON.stringify(unbound) })
+				.where("deployment_id", "=", deployment.id)
+				.execute();
+
+			/* CommCare HQ saved the app again, the same: the review lists the answered change the
+			 * next publish still makes, and the record keeps it. */
+			const again = resaved(changed, 4);
+			const later = await reviewServing(appId, again, TWO_CLINICS);
+			if (later.kind !== "nothing" && later.kind !== "changes")
+				throw new Error(`The review answered ${JSON.stringify(later)}`);
+			expect(later.publishChanges).toContain(OWNER_SENTENCE);
+			await recorded(appId, again, TWO_CLINICS, later);
+			expect((await storedListOf(appId))?.ids).toContain(
+				"owner-rule-given-to-worker",
+			);
+		});
+
 		it("names no owner answer where the author gave a place's cases to the worker in Nova", async () => {
 			/* One clinic below the district: the rule names one place, so no question is asked. */
 			const ONE_CLINIC = TWO_CLINICS.slice(0, 3);

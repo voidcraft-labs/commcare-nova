@@ -121,6 +121,7 @@ import {
 	type AcceptedDeclaration,
 	acceptReadingSteps,
 } from "../reading/acceptance";
+import { withAnsweredChanges } from "../reading/firstPublishChanges";
 import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
 import { reviewMediaId } from "../reading/mediaIds";
 import {
@@ -1962,14 +1963,22 @@ export async function checkHqChanges(
 				`The next publish would rewrite another saved value in the form “${name}”.`,
 		),
 	];
+	/* The reading's list, with each change a person's answer made that the stored list holds and the
+	 * document the review would commit still makes of CommCare HQ's app, as a take keeps it. */
+	const listed = withAnsweredChanges(
+		declaration.firstPublish,
+		declaration.firstPublishFacts,
+		plan.kind === "changes" ? plan.target : fetched.head.doc,
+		fetched.baseline.answeredPublishChanges ?? [],
+	).ids;
 	const publishChanges = [
 		...publishChangeSentences(
 			priorNext
-				? declaration.firstPublish.ids.filter(
+				? listed.filter(
 						(id) => priorNext.includes(id) || plan.publishChanges.includes(id),
 					)
 				: legacy
-					? declaration.firstPublish.ids
+					? listed
 					: plan.publishChanges,
 		),
 	];
