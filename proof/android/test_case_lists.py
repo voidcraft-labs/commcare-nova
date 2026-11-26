@@ -128,7 +128,7 @@ def test_a_saved_choice_and_its_label_show_in_default_order_on_both_exports(andr
             ], name
 
 
-def test_reached_choice_columns_show_both_paths_in_each_android_language(android_documents, hq, evidence):
+def test_reached_choice_columns_show_both_paths_in_each_android_language(android_documents, hq, android_walk_evidence):
     from proof.android import observe
     from proof.observe.record import Blobs
 
@@ -152,7 +152,7 @@ def test_reached_choice_columns_show_both_paths_in_each_android_language(android
                 if rows not in heard[locale]:
                     heard[locale].append(rows)
             observations[label] = heard
-    evidence("android-reached-choice-columns", observations)
+    android_walk_evidence(observations)
     expected = {
         "en": [[["Ada", "East bank", "West bank", "Hello!"], ["Bea", "Hello!"]]],
         "fr": [[["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "Bonjour!"]]],
