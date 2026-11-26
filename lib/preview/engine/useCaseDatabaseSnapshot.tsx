@@ -5,6 +5,7 @@ import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type BlueprintDoc,
+	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	isDeviceCaseOptionsSource,
 	materializableCaseTypes,
@@ -130,9 +131,15 @@ export function caseDatabaseRequirements(
 	/* A search's runtime pieces are worked out on the device before it sends
 	 * them (`searchCsqlRuntime.ts::evaluateSearchCsqlRuntime`); one that reads
 	 * the device's cases waits on the same snapshot. */
-	const searchReference = Object.values(doc.modules).some(
-		moduleSearchReadsCaseDatabase,
-	);
+	const searchReference = Object.values(doc.modules).some((module) => {
+		const condition =
+			effectiveCaseSearchConfig(module)?.searchButtonDisplayCondition;
+		return (
+			(condition !== undefined &&
+				expressionReadsCaseDatabase(condition, doc)) ||
+			moduleSearchReadsCaseDatabase(module)
+		);
+	});
 	const listActionReference = Object.values(doc.modules).some((module) => {
 		const action = module.caseListRegistrationForm;
 		return (

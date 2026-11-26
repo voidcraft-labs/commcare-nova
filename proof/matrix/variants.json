@@ -41580,6 +41580,44 @@
 		]
 	},
 	{
+		"id": "hq-search/search-button-counts-restored-clients",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-lifting-into-predicate",
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/searchButtonDisplayCondition/left/via/source",
+				"value": "casedb"
+			}
+		],
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/search_button_display_condition",
+			"value": "count(instance('casedb')/casedb/case[@case_type = 'client']) > 1"
+		}
+	},
+	{
+		"id": "hq-search/search-button-counts-cases-by-a-session-the-list-does-not-load",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/search_button_display_condition",
+			"value": "count(instance('casedb')/casedb/case[@case_type = 'client'][@owner_id = instance('commcaresession')/session/context/userid]) > 1"
+		}
+	},
+	{
 		"id": "hq-search/search-button-shown-to-a-user-the-list-does-not-load",
 		"base": "hq-search",
 		"entry": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",

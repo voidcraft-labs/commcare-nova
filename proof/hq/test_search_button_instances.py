@@ -157,7 +157,7 @@ def test_the_hq_search_button_counts_restored_cases_without_loading_new_instance
     def lists(result):
         return [
             step for run in result["runs"] for step in run["trace"]
-            if step.get("screen") == "list"
+            if step.get("screen") == "case-list"
         ]
 
     with hq_check(Configuration()) as (state, _):

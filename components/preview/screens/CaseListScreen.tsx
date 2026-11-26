@@ -855,6 +855,21 @@ export function CaseListScreen({
 			(config?.searchInputGroups?.length ?? 0) > 0 &&
 			(config?.searchInputs.length ?? 0) > 0);
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
+	const formActionRule =
+		mod?.caseListRegistrationForm?.kind === "always"
+			? mod.caseListRegistrationForm.showWhen
+			: undefined;
+	const formActionCondition =
+		formActionRule?.kind === "condition" ? formActionRule.condition : undefined;
+	const waitsForCases = (condition: typeof searchButtonCondition) =>
+		condition !== undefined &&
+		navigationDeviceCases.snapshot === null &&
+		expressionReadsCaseDatabase(condition, menuSource.doc);
+	const searchActionAvailable =
+		searchConfig !== undefined && (!mod || !moduleShowsFormsInMenuAbove(mod));
+	const actionWaitsForCases =
+		(searchActionAvailable && waitsForCases(searchButtonCondition)) ||
+		waitsForCases(formActionCondition);
 	/* CommCare evaluates this predicate on the case-list Search action, before
 	 * the prompt screen exists. Preview's combined Search + Results composition
 	 * therefore gates the whole Search pane from the same session/global context;
@@ -876,6 +891,8 @@ export function CaseListScreen({
 			 * (`awaitsPreviewIdentity`): the condition is undecided until the
 			 * worker arrives, as it is while lookups load. */
 			if (awaitsPreviewIdentity(searchSession)) return "undecided";
+			if (waitsForCases(condition))
+				return deviceCaseLoad.status === "error" ? false : "undecided";
 			/* A condition whose carriers the held snapshot doesn't cover (still
 			 * loading, or a valid edit the stale snapshot predates) is undecided:
 			 * the Search pane stays withheld, and a step that depends on it waits
@@ -907,26 +924,13 @@ export function CaseListScreen({
 				EMPTY_SEARCH_INPUT_VALUES,
 			);
 		});
-	const searchActionRead =
-		searchConfig === undefined || (mod && moduleShowsFormsInMenuAbove(mod))
-			? { kind: "read" as const, value: false }
-			: readAction(searchButtonCondition, "search_button_display_condition");
-	const formActionRule =
-		mod?.caseListRegistrationForm?.kind === "always"
-			? mod.caseListRegistrationForm.showWhen
-			: undefined;
-	const actionWaitsForCases =
-		formActionRule?.kind === "condition" &&
-		navigationDeviceCases.snapshot === null &&
-		expressionReadsCaseDatabase(formActionRule.condition, menuSource.doc);
-	const formActionRead = actionWaitsForCases
-		? { kind: "read" as const, value: "undecided" as const }
-		: readAction(
-				formActionRule?.kind === "condition"
-					? formActionRule.condition
-					: undefined,
-				"case_list_action_condition",
-			);
+	const searchActionRead = searchActionAvailable
+		? readAction(searchButtonCondition, "search_button_display_condition")
+		: { kind: "read" as const, value: false };
+	const formActionRead = readAction(
+		formActionCondition,
+		"case_list_action_condition",
+	);
 	const searchActionIsRelevant =
 		searchActionRead.kind === "read" && searchActionRead.value === true;
 	/* The menu's forms read the search (CommCare's inline search): the

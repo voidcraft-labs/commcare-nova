@@ -1180,10 +1180,11 @@ function admission(
 				"A list button's condition reads one value here, and these records can hold several, which stops the list for that worker. You can count them with count(...), or read the record chosen before the list.",
 				"list-action-several-values",
 			);
-		// The list action runs on the device with its own casedb, before a
+		// Both list actions run on the device with its own casedb, before a
 		// worker chooses a row. Explicit case queries use that snapshot.
 		if (
-			ctx.slot.slot === "case_list_action_condition" &&
+			(ctx.slot.slot === "case_list_action_condition" ||
+				ctx.slot.slot === "search_button_display_condition") &&
 			((expression.kind === "cases" && expression.source === "casedb") ||
 				(expression.kind === "count" &&
 					expression.via.kind === "cases" &&
@@ -1623,7 +1624,11 @@ function termAdmission(
 			"form-answer-unavailable",
 			"Form answers are not available in this setting. Save the answer to the case and read it there.",
 		);
-	if (term.kind === "prop" && !profile.caseData)
+	if (
+		term.kind === "prop" &&
+		!profile.caseData &&
+		!(ctx.slot.slot === "search_button_display_condition" && caseScope(ctx))
+	)
 		return refusal(
 			"case-data-unavailable",
 			"Case information is not available before a case is chosen.",
