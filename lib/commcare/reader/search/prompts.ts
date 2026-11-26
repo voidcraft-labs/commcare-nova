@@ -419,11 +419,17 @@ const RECEIVER_REFUSED_APPEARANCES = new Set([
 	"checkbox",
 ]);
 
-/** Whether a prompt carries a widget: an itemset, an input type or an appearance, a blank input
- *  type or appearance being none (`readPrompt`). */
+/** Whether a prompt carries a widget: an itemset, an input type, or an appearance that gives one
+ *  (a barcode scan, an address); a blank input type is none, and any other appearance dresses no
+ *  widget Nova holds, which the reading drops (`P.appearanceOther`, `readPrompt`). */
 function carriesWidget(prompt: JsonCursor): boolean {
-	const holds = (key: string) => prompt.used(key) && prompt.peek(key) !== "";
-	return prompt.used("itemset") || holds("input_") || holds("appearance");
+	const appearance = prompt.peek("appearance");
+	return (
+		prompt.used("itemset") ||
+		(prompt.used("input_") && prompt.peek("input_") !== "") ||
+		appearance === "barcode_scan" ||
+		appearance === "address"
+	);
 }
 
 /**
@@ -716,6 +722,15 @@ function readPrompt(
 
 	let type: PromptReading["type"] =
 		hiddenArm || hiddenRefused ? "hidden" : "text";
+	// The hidden arm reads no widget, so an appearance that gives none is dropped here, as the
+	// widget block drops it on a shown field.
+	if (
+		hiddenArm &&
+		!hiddenRefused &&
+		typeof appearance === "string" &&
+		appearance !== ""
+	)
+		prompt.drop("appearance", P.appearanceOther);
 	let options: SearchInputLookupOptions | undefined;
 	let optionsFilterText: string | undefined;
 	let itemsetCursor: JsonCursor | undefined;

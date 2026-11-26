@@ -507,6 +507,24 @@ describe("a hidden Search field CommCare HQ holds", () => {
 		expect(field?.kind).not.toBe("hidden");
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
+
+	// An appearance other than a barcode scan or an address gives no widget (HQ's build writes it,
+	// and neither runtime draws anything of it), so a hidden prompt left out of the request with
+	// one is still a hidden value, its appearance dropped as on a shown field.
+	it("reads a hidden prompt left out of the request with an appearance that gives no widget as a hidden value", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.hidden = true;
+			prompt.exclude = true;
+			prompt.appearance = "minimal";
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		expect(field).toMatchObject({ kind: "hidden", name: "case_name" });
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
 });
 
 // HQ's build writes a requirement's text blank where it is blank in every language, and no text
