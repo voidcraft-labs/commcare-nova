@@ -138,6 +138,7 @@ final class Screens {
         }
         Answers.table = request.optJSONObject("answers");
         Forms.views = request.optBoolean("views");
+        Forms.helpQuestions = request.optJSONArray("helpQuestions");
         Forms.typeRefused = request.optBoolean("typeRefused");
         Forms.keys = request.optBoolean("keys");
         Forms.controls = request.optBoolean("controls");

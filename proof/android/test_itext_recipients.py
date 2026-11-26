@@ -10,7 +10,7 @@ import pytest
 
 from proof.android.observe import archive_bytes
 from proof.android.test_form_reads import FORM, _app, _forms, _served, _texts
-from proof.formplayer.test_itext_recipients import VIDEO, XF, with_recipient_forms
+from proof.formplayer.test_itext_recipients import VIDEO, XF, with_isolated_help, with_recipient_forms
 from proof.formplayer.test_media_slots import GROUPED
 
 
@@ -101,3 +101,46 @@ def test_android_uses_long_recipients_and_only_one_inline_video(android_document
     assert len(list(_visible_views(blank, "ImageButton"))) == len(list(_visible_views(absent, "ImageButton"))) + 1
     assert not list(_visible_views(blank, "VideoView"))
     assert form["saved"]["finishing"] and len(sent) == 1, (form.get("saved"), sent)
+
+
+def test_android_opens_an_empty_dialog_for_video_only_help(android_documents, hq, android_walk_evidence):
+    reference = "/data/isolated_help[1]"
+    evidence = {}
+    with _served(android_documents[GROUPED]) as (served, archive):
+        with zipfile.ZipFile(io.BytesIO(archive)) as zip_file:
+            entries = {name: zip_file.read(name) for name in zip_file.namelist()}
+        path, = (name for name in entries if name.endswith("modules-0/forms-0.xml"))
+        original = entries[path]
+        assert any(entry.endswith(VIDEO.rsplit("/", 1)[1]) for entry in entries)
+        for mode, values in {
+            "video-only": [(None, None), ("video-inline", VIDEO)],
+            "blank": [(None, None)],
+            "regular": [(None, "Ordinary question help")],
+            "regular-video": [(None, None), ("video", VIDEO)],
+            "absent": None,
+        }.items():
+            entries[path] = with_isolated_help(original, values).encode()
+            answer, sent = _app(
+                served, archive_bytes(entries.items()), f"help-affordance-{mode}",
+                commands=[FORM], help_questions=(reference,),
+                questions={"/data/household/address": ["proof"]},
+            )
+            walk = answer["walks"][FORM]
+            assert "raised" not in walk, walk
+            form, = _forms(walk)
+            read, = (
+                question["openedHelp"]
+                for screen in form["screens"] for question in screen.get("questions", ())
+                if question["reference"] == reference
+            )
+            evidence[mode] = read
+            assert form["saved"]["finishing"] and len(sent) == 1
+    android_walk_evidence(evidence)
+    assert evidence["absent"] is None, evidence
+    for mode in ("video-only", "blank", "regular", "regular-video"):
+        assert evidence[mode] is not None, evidence
+    assert set(_texts(evidence["video-only"])) == set(_texts(evidence["blank"]))
+    assert "Ordinary question help" in " ".join(_texts(evidence["regular"])), evidence
+    assert not list(_visible_views(evidence["video-only"], "VideoView")), evidence
+    assert not list(_visible_views(evidence["video-only"], "ImageButton")), evidence
+    assert len(list(_visible_views(evidence["regular-video"], "ImageButton"))) == 1, evidence

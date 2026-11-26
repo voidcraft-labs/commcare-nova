@@ -60,6 +60,28 @@ def with_recipient_forms(source, inline_video=VIDEO):
     return etree.tostring(root, encoding="unicode")
 
 
+def with_isolated_help(source, values):
+    """Add one standalone question, with a help entry only where requested."""
+    root = etree.fromstring(source.encode() if isinstance(source, str) else source)
+    model, = root.iter(f"{XF}model")
+    body, = root.iter(BODY)
+    data, = model.find(f"{XF}instance")
+    namespace = etree.QName(data).namespace
+    etree.SubElement(data, f"{{{namespace}}}isolated_help")
+    etree.SubElement(model, f"{XF}bind", nodeset="/data/isolated_help", type="xsd:string")
+    question = etree.SubElement(body, f"{XF}input", ref="/data/isolated_help")
+    etree.SubElement(question, f"{XF}label").text = "Help control"
+    if values is not None:
+        ref = "isolated-help-control"
+        etree.SubElement(question, f"{XF}help", ref=f"jr:itext('{ref}')")
+        for translation in root.iter(f"{XF}translation"):
+            entry = etree.SubElement(translation, f"{XF}text", id=ref)
+            for form, content in values:
+                value = etree.SubElement(entry, f"{XF}value", **({"form": form} if form else {}))
+                value.text = content
+    return etree.tostring(root, encoding="unicode")
+
+
 def test_formplayer_reads_long_recipients_and_never_sends_inline_video(
     hq, core_runner, formplayer_runner, formplayer_documents, evidence
 ):
