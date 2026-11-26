@@ -194,14 +194,46 @@ function readingSourceText(source: HqAppSource): string {
 	return parts.join("\n");
 }
 
+/** A narrow discovery trigger. The expression reader, not the spelling,
+ * decides whether these values actually read an instance. */
+function possibleInstance(value: unknown): boolean {
+	return (
+		typeof value === "string" &&
+		(value.includes("instance") || value.includes("&"))
+	);
+}
+
+function possibleNavigationInstance(
+	row: Record<string, unknown>,
+	filter: string,
+): boolean {
+	const badge = Array.isArray(row.custom_icons)
+		? row.custom_icons[0]
+		: undefined;
+	return (
+		possibleInstance(row[filter]) ||
+		(isJsonObject(badge) && possibleInstance(badge.xpath))
+	);
+}
+
 export function mayUseProjectFactory(source: string | HqAppSource): boolean {
 	const text = typeof source === "string" ? source : readingSourceText(source);
 	return (
 		(typeof source !== "string" &&
 			Array.isArray(source.raw.modules) &&
 			source.raw.modules.some((menu: unknown) => {
-				if (!isJsonObject(menu) || !isJsonObject(menu.case_details))
-					return false;
+				if (!isJsonObject(menu)) return false;
+				if (possibleNavigationInstance(menu, "module_filter")) return true;
+				if (
+					Array.isArray(menu.forms) &&
+					menu.forms.some(
+						(form: unknown) =>
+							isJsonObject(form) &&
+							possibleNavigationInstance(form, "form_filter"),
+					)
+				)
+					return true;
+				if (!isJsonObject(menu.case_details)) return false;
 				return [menu.case_details.short, menu.case_details.long].some(
 					(detail) =>
 						isJsonObject(detail) &&
@@ -210,9 +242,7 @@ export function mayUseProjectFactory(source: string | HqAppSource): boolean {
 							(column: unknown) =>
 								isJsonObject(column) &&
 								column.useXpathExpression === true &&
-								typeof column.field === "string" &&
-								(column.field.includes("instance") ||
-									column.field.includes("&")),
+								possibleInstance(column.field),
 						),
 				);
 			})) ||

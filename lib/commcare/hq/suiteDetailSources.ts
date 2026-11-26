@@ -8,14 +8,24 @@ import {
 import { elementChildren, elementNamespace } from "../xmlNamespaces";
 import { tryParseXml } from "../xmlParse";
 
-/** A null detail has no entry that reaches it. An empty map is a reached
- * detail whose entries share no requested declarations. A null value records an ID
- * missing or ambiguous in at least one reaching entry. */
+/** Detail IDs and tagged navigation scopes. A null scope was absent from
+ * the suite. A null source is missing or ambiguous in that evaluator. */
 export type SuiteDetailSources = ReadonlyMap<
 	string,
 	ReadonlyMap<string, string | null> | null
 >;
 export type SuiteDetailReads = ReadonlyMap<string, ReadonlySet<string>>;
+
+/** HQ gives each menu contributor the commands of one physical module, even
+ * when several contributors share the same rendered menu ID. */
+export function suiteMenuScope(module: number): string {
+	return `menu:m${module}`;
+}
+
+/** The ID of the entry evaluating a physical form command. */
+export function suiteFormScope(module: number, form: number): string {
+	return `entry:m${module}-f${form}`;
+}
 
 /** Intersect the scopes where the expression really runs. Never give a query
  * an instance declared only by another entry or by another build profile. */
@@ -79,13 +89,30 @@ function sourcesIn(
 		Array.from(reads.keys(), (id) => [id, null]),
 	);
 	for (const entry of top) {
-		if (
-			entry.element.name !== "entry" &&
-			entry.element.name !== "remote-request"
-		)
+		const kind = entry.element.name;
+		if (kind !== "entry" && kind !== "remote-request" && kind !== "menu")
 			continue;
 		const owned = children(entry);
 		const used = new Set<string>();
+		if (kind === "menu") {
+			const owners = new Set(
+				owned.flatMap((node) => {
+					if (node.element.name !== "command") return [];
+					const owner = /^(m[0-9]+)-/.exec(node.element.attribs.id ?? "")?.[1];
+					return owner ? [owner] : [];
+				}),
+			);
+			// A training or custom menu that mixes contributors supplies no
+			// declaration for an ordinary module's expressions.
+			if (owners.size === 1) {
+				const key = `menu:${[...owners][0]}`;
+				if (reads.has(key)) used.add(key);
+			}
+		} else if (kind === "entry") {
+			const command = owned.find((node) => node.element.name === "command");
+			const key = `entry:${command?.element.attribs.id ?? ""}`;
+			if (reads.has(key)) used.add(key);
+		}
 		for (const session of owned)
 			if (session.element.name === "session") {
 				for (const datum of children(session)) {
