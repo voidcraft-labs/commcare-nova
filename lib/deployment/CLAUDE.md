@@ -2817,8 +2817,16 @@ tables for that publish. The executor returns a checkpoint only between
 settled operations, after up to 200 writes or the wall-clock budget. An
 unfinished checkpoint retains the mapping and prevents sending app content.
 Publishing again reads the same destination ledger, rechecks the intended
-source and remote facts, and sends only outstanding work. The HQ app file
-has workbook carriers and instructions to prepare its destination.
+source and remote facts, and sends only outstanding work.
+
+An editor's HQ app download can opt in to the manual lookup installer.
+`lookup-install.json` identifies the exact app, data revision, and staged
+plan by digest. It carries no credentials or row bytes. The installer rebuilds
+the same bounded plan and requires current Project edit access and the named
+HQ connection. It checks the destination before explicit confirmation and
+uses the same lookup journal and operation fences for every wave. It records
+only lookup resources. The separate HQ app import remains a manual step.
+Workbook carriers and existing downloads still use their usual paths.
 
 ### Lookup workbooks, media receipts and device downloads
 

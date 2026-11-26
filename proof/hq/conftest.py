@@ -40,6 +40,7 @@ from proof.conftest import timed  # noqa: F401  (HQ's tests time their operation
 DOCUMENTS = (
     "lookup-app",
     "hq-lookup-data",
+    "hq-lookup-types",
     "hq-lookups",
     "media-rich",
     "location-multirung",
