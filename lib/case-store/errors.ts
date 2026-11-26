@@ -329,19 +329,29 @@ export type SubmissionRejection =
 	| {
 			readonly kind: "text-value";
 			readonly operationUuid: string;
-			readonly facet: "name" | "rename" | "owner" | "external_id";
+			readonly facet:
+				| "name"
+				| "rename"
+				| "owner"
+				| "external_id"
+				| "location_id"
+				| "hq_user_id";
 			readonly reason: "blank" | "too-long";
 	  }
 	| {
 			readonly kind: "target";
 			readonly operationUuid: string;
-			readonly slot: "target" | `link:${string}`;
-			readonly reason: "not-found-or-out-of-scope" | "case-type-mismatch";
+			readonly slot: "target" | `link:${string}` | `write:${number}`;
+			readonly reason:
+				| "not-found-or-out-of-scope"
+				| "case-type-mismatch"
+				| "missing-connection"
+				| "managed-worker-record";
 	  }
 	| {
 			readonly kind: "sequence";
 			readonly operationUuid: string;
-			readonly slot: "target" | `link:${string}`;
+			readonly slot: "target" | `link:${string}` | `write:${number}`;
 			readonly reason:
 				| "case-link-target-is-self"
 				| "rolling-case-type-mismatch"

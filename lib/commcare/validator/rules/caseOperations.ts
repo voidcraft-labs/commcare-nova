@@ -28,9 +28,11 @@ import {
 } from "@/lib/doc/caseOperationOrder";
 import {
 	type BlueprintDoc,
+	CASE_FACET_OF_ONLY_IF_CHANGED,
 	CASE_LOADING_FORM_TYPES,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
+	type CaseFacetOnlyIfChanged,
 	type CaseOperation,
 	type CaseOperationWrite,
 	type CaseTarget,
@@ -39,12 +41,13 @@ import {
 	caseWriteKeyOf,
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
-	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type Form,
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
+	isFacetWriteThroughIndex,
+	isReservedCaseOperationWrite,
 	isWritableStandardCaseProperty,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	type Module,
@@ -62,6 +65,7 @@ import {
 	type Uuid,
 	userPropertiesOf,
 } from "@/lib/domain";
+import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
 import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
 	activeRowScope,
@@ -89,6 +93,8 @@ import {
 	caseOperationNameSentence,
 	freeCaseOperationName,
 } from "@/lib/domain/questionId";
+import { WRITABLE_STANDARD_CASE_PROPERTY_WORDS } from "@/lib/domain/standardCaseProperties";
+import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
@@ -175,6 +181,94 @@ export type LinkInvalidReason =
  *  a link's target is, or an expression of the operation reads that case. */
 export type SessionUnavailableReason = "target" | "link-target" | "case-read";
 
+function operationRuleContext(
+	doc: BlueprintDoc,
+	form: Form,
+	module: Module,
+	formUuid: Uuid,
+	moduleUuid: Uuid,
+	lookupTables?: LookupTypeIndex,
+): OperationRuleContext {
+	const caseTypes = effectiveCaseTypes(doc);
+	const fields = collectFormFields(doc, formUuid);
+	return {
+		doc,
+		form,
+		module,
+		formUuid,
+		moduleUuid,
+		fields,
+		caseTypes,
+		caseTypesByName: new Map(
+			caseTypes.map((caseType) => [caseType.name, caseType]),
+		),
+		sessionCaseAvailable:
+			module.caseType !== undefined && CASE_LOADING_FORM_TYPES.has(form.type),
+		writerTypes: concreteCasePropertyWriterTypes(doc),
+		lookupTables,
+	};
+}
+
+/** The one XForm keeps its expression slots. An entry that puts another case
+ * type into a slot must also admit those writes on the record that receives them. */
+export function sharedEntryWriteFindings(
+	doc: BlueprintDoc,
+	entry: Form,
+	menuUuid: Uuid,
+	lookupTables?: LookupTypeIndex,
+): ValidationError[] {
+	const shared = entry.shadowOf;
+	const parent = shared && doc.forms[shared.form];
+	if (!parent || parent.shadowOf) return [];
+	const changed = orderedCaseOperations(parent).flatMap((op) => {
+		const actual = entryOperationCaseType(doc, entry.uuid, op);
+		return actual !== undefined &&
+			actual !== operationCaseType(doc, parent.uuid, op)
+			? [{ op, actual }]
+			: [];
+	});
+	if (!changed.length) return [];
+	const ctx = operationRuleContext(
+		doc,
+		entry,
+		doc.modules[menuUuid],
+		parent.uuid,
+		menuUuid,
+		lookupTables,
+	);
+	const errors: ValidationError[] = [];
+	for (const { op, actual } of changed) {
+		const worker = actual === USERCASE_CASE_TYPE;
+		if (worker && op.action === "own") {
+			validateOwnWorkerFacets(ctx, op, errors);
+			if (entry.type === "close")
+				errors.push(
+					opError(
+						ctx,
+						op,
+						"CASE_OPERATION_TARGET_INVALID",
+						`“${entry.name}” opens the worker’s own record. You can save worker details or choose a record this form can close.`,
+					),
+				);
+		} else if (worker && op.action !== "own") {
+			errors.push(
+				...workerRecordFindings(ctx, [
+					{ ...op, caseType: actual, target: { kind: "worker-record" } },
+				]),
+			);
+		}
+		validateWrites(ctx, op, op.retype ?? actual, worker, errors);
+	}
+	return errors.map((finding) => ({
+		...finding,
+		location: {
+			...finding.location,
+			formUuid: entry.uuid,
+			formName: entry.name,
+		},
+	}));
+}
+
 export function validateCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -193,24 +287,14 @@ export function validateCaseOperations(
 	});
 	if (operations.length === 0) return ownFindings;
 
-	const caseTypes = effectiveCaseTypes(doc);
-	const fields = collectFormFields(doc, formUuid);
-	const ctx: OperationRuleContext = {
+	const ctx = operationRuleContext(
 		doc,
 		form,
 		module,
 		formUuid,
 		moduleUuid,
-		fields,
-		caseTypes,
-		caseTypesByName: new Map(
-			caseTypes.map((caseType) => [caseType.name, caseType]),
-		),
-		sessionCaseAvailable:
-			module.caseType !== undefined && CASE_LOADING_FORM_TYPES.has(form.type),
-		writerTypes: concreteCasePropertyWriterTypes(doc),
 		lookupTables,
-	};
+	);
 
 	const errors: ValidationError[] = [...ownFindings];
 	const seenUuids = new Set<Uuid>();
@@ -349,7 +433,7 @@ function validateOperation(
 		validateOwnOperation(ctx, operation, errors);
 		return;
 	}
-	const workerRecord = operation.target.kind === "worker-record";
+	const workerRecord = addressesWorkerRecord(ctx.form, operation);
 	if (!workerRecord || operation.caseType !== USERCASE_CASE_TYPE)
 		validateCaseType(ctx, operation, operation.caseType, errors);
 	// A retype of the worker's record is refused as a facet it can't carry
@@ -488,6 +572,7 @@ function validateOperation(
 		workerRecord,
 		errors,
 	);
+	validateFacetOnlyIfChanged(ctx, operation, errors);
 	validateLinks(ctx, operation, priorCreates, errors);
 }
 
@@ -634,9 +719,42 @@ function validateOwnOperation(
 	const caseType = operationCaseType(ctx.doc, ctx.formUuid, operation);
 	// An own arm in a module without a case type is refused at the form
 	// (`CASE_OWN_OPERATION`, reason `form-type`); its writes save nowhere.
-	if (caseType !== undefined)
-		validateWrites(ctx, operation, caseType, false, errors);
+	if (caseType !== undefined) {
+		const worker = caseType === USERCASE_CASE_TYPE;
+		validateWrites(ctx, operation, caseType, worker, errors);
+		if (worker && ctx.form.type === "followup")
+			validateOwnWorkerFacets(ctx, operation, errors);
+	}
+	validateFacetOnlyIfChanged(ctx, operation, errors);
 	validateLinks(ctx, operation, new Map(), errors);
+}
+
+function validateOwnWorkerFacets(
+	ctx: OperationRuleContext,
+	operation: Extract<CaseOperation, { action: "own" }>,
+	errors: ValidationError[],
+): void {
+	for (const [facet, words] of [
+		["name", "rename it"],
+		["owner", "change its owner"],
+		["links", "link it to another case"],
+	] as const) {
+		const value = operation[facet];
+		if (value === undefined || (Array.isArray(value) && value.length === 0))
+			continue;
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_TARGET_INVALID",
+				`The worker's record belongs to their profile. This form can save a worker detail, but it can't ${words}.`,
+				{
+					reason: "worker-record-facet" satisfies WorkerRecordReason,
+					facet,
+				},
+			),
+		);
+	}
 }
 
 /**
@@ -673,10 +791,12 @@ function captureStandardPropertyError(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 	fieldUuid: Uuid,
-	property: "case_name" | "external_id",
+	property: string,
 ): ValidationError {
 	const fieldId = ctx.doc.fields[fieldUuid]?.id ?? "a capture question";
-	const what = property === "case_name" ? "name" : "external id";
+	const what = isWritableStandardCaseProperty(property)
+		? WRITABLE_STANDARD_CASE_PROPERTY_WORDS[property]
+		: "owner";
 	return opError(
 		ctx,
 		operation,
@@ -726,7 +846,7 @@ function validateWrites(
 		seenWrites.push(write);
 		if (workerRecord)
 			validateWorkerRecordProperty(ctx, operation, write, errors);
-		else if (reached !== undefined)
+		else if (reached !== undefined && !isFacetWriteThroughIndex(write))
 			validateWriteProperty(
 				ctx,
 				operation,
@@ -739,10 +859,10 @@ function validateWrites(
 				caseWriteValueField(write.value) !== undefined,
 				errors,
 			);
-		if (
-			!workerRecord &&
-			FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(write.property)
-		) {
+		// The name and owner of a case above are writes through `via`
+		// (`standardCaseProperties.ts::CASE_FACETS_THROUGH_INDEX`); the own
+		// case's are the operation's facets.
+		if (!workerRecord && isReservedCaseOperationWrite(write)) {
 			errors.push(
 				opError(
 					ctx,
@@ -753,7 +873,11 @@ function validateWrites(
 			);
 		}
 		const read = caseWriteValueField(write.value);
-		if (read?.link === true && isWritableStandardCaseProperty(write.property))
+		if (
+			read?.link === true &&
+			(isWritableStandardCaseProperty(write.property) ||
+				isFacetWriteThroughIndex(write))
+		)
 			errors.push(
 				captureStandardPropertyError(
 					ctx,
@@ -1009,10 +1133,14 @@ function validateVia(
 }
 
 /**
- * Saving only an answer that changed: only the own arm of a follow-up or
- * close form holds it, while Case Management saves that arm (HQ's
- * `update_mode: "edit"`; Vellum's Save to Case block has no such setting,
- * `saveToCase.js`).
+ * Saving only an answer that changed: any write Case Management or an
+ * advanced form's actions save, as HQ's build applies `update_mode: "edit"`
+ * to every update map it writes (`xform.py::XFormCaseBlock.add_case_updates`,
+ * over the own update, the worker's record, a child case, a load and an open
+ * action). It compares the case's value with the answer, and a case the form
+ * creates holds none, so there a blank answer saves nothing. Vellum's Save to
+ * Case block has no such setting (`saveToCase.js`), so a change saved through
+ * one is refused.
  */
 function validateOnlyIfChanged(
 	ctx: OperationRuleContext,
@@ -1021,46 +1149,139 @@ function validateOnlyIfChanged(
 	errors: ValidationError[],
 ): void {
 	if (write.onlyIfChanged !== true) return;
+	const placement =
+		operation.action === "own"
+			? ownSlotRefusal(ctx, operation)
+			: savedThroughSaveToCase(ctx, operation);
+	if (placement === undefined) return;
+	errors.push(
+		opError(
+			ctx,
+			operation,
+			"CASE_WRITE_ONLY_IF_CHANGED_INVALID",
+			operation.action === "own"
+				? `This form's case is saved through Save to Case, which can't save only changed answers. ${placement.sentence} You can save ${write.property} every time, or change the form so Case Management can hold it.`
+				: `“${operation.id}” is saved through Save to Case, which can't save only changed answers. You can save ${write.property} every time instead.`,
+			{
+				reason: "placement",
+				property: write.property,
+				...(placement.ineligibility !== undefined && {
+					ineligibility: placement.ineligibility,
+					placementSentence: placement.sentence,
+				}),
+			},
+		),
+	);
+}
+
+/**
+ * Saving a name or an owner only when changed (`CaseFacetOnlyIfChanged`): HQ's
+ * build applies `update_mode: "edit"` to the `name` and `owner_id` keys of an
+ * update map as to any other key. It needs the facet it qualifies, and a
+ * registration's own name is its `open_case.name_update`, whose mode HQ's
+ * build never reads (`xform.py::XForm.create_casexml_2`). Save to Case has no
+ * such setting, as for a write.
+ */
+function validateFacetOnlyIfChanged(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	errors: ValidationError[],
+): void {
+	const flags = (
+		Object.keys(CASE_FACET_OF_ONLY_IF_CHANGED) as CaseFacetOnlyIfChanged[]
+	).filter((flag) => operation[flag as keyof CaseOperation] === true);
+	if (flags.length === 0) return;
+	const property = (flag: CaseFacetOnlyIfChanged) =>
+		CASE_FACET_OF_ONLY_IF_CHANGED[flag] === "owner" ? "owner_id" : "case_name";
+	const words = (flag: CaseFacetOnlyIfChanged) =>
+		CASE_FACET_OF_ONLY_IF_CHANGED[flag] === "owner" ? "owner" : "new name";
 	const refuse = (
-		reason: "new-case" | "target" | "placement",
+		flag: CaseFacetOnlyIfChanged,
+		reason: "facet" | "never-blank" | "registration-name" | "placement",
 		message: string,
-		extra?: Record<string, string>,
-	): void => {
+		extra: Record<string, string> = {},
+	) =>
 		errors.push(
 			opError(ctx, operation, "CASE_WRITE_ONLY_IF_CHANGED_INVALID", message, {
 				reason,
-				property: write.property,
+				property: property(flag),
 				...extra,
 			}),
 		);
-	};
-	if (
-		operation.action === "create" ||
-		(operation.action === "own" && ctx.form.type === "registration")
-	) {
+	let placement:
+		| { readonly ineligibility?: string; readonly sentence: string }
+		| undefined
+		| null = null;
+	for (const flag of flags) {
+		const facet = CASE_FACET_OF_ONLY_IF_CHANGED[flag];
+		if (operation[facet] === undefined) {
+			refuse(
+				flag,
+				"facet",
+				`“${operation.id}” saves its ${words(flag)} only when it changed, but it saves no ${words(flag)}. You can choose one, or turn off saving it only when it changed.`,
+			);
+			continue;
+		}
+		// The worker and "no one" are never blank, so the owner they give is
+		// saved every time, and HQ's build sets either one beside the update
+		// map (`autoset_owner_id_for_*`), where no mode applies.
+		const ownerKind = operation.owner?.kind;
+		if (
+			flag === "ownerOnlyIfChanged" &&
+			(ownerKind === "acting-user" || ownerKind === "unowned")
+		) {
+			refuse(
+				flag,
+				"never-blank",
+				`“${operation.id}” saves its owner only when it changed, but ${ownerKind === "acting-user" ? "the worker who submits the form" : "no one"} is never a blank answer, so the owner is saved every time. You can turn off saving it only when it changed.`,
+			);
+			continue;
+		}
+		if (
+			flag === "nameOnlyIfChanged" &&
+			operation.action === "own" &&
+			ctx.form.type === "registration"
+		) {
+			refuse(
+				flag,
+				"registration-name",
+				`“${ctx.form.name}” makes a new case, so its name has no earlier value to compare with. You can save the name every time.`,
+			);
+			continue;
+		}
+		if (placement === null)
+			placement =
+				operation.action === "own"
+					? ownSlotRefusal(ctx, operation)
+					: savedThroughSaveToCase(ctx, operation);
+		if (placement === undefined) continue;
 		refuse(
-			"new-case",
-			`${write.property} is saved to a case this form creates, so there's no earlier value to compare with. You can save it every time instead.`,
-		);
-		return;
-	}
-	if (operation.action !== "own") {
-		refuse(
-			"target",
-			`Only this form's own case can save just the answers that changed. You can save ${write.property} every time instead.`,
-		);
-		return;
-	}
-	const placement = ownSlotRefusal(ctx, operation);
-	if (placement !== undefined)
-		refuse(
+			flag,
 			"placement",
-			`This form's case is saved through Save to Case, which can't save only changed answers. ${placement.sentence} You can save ${write.property} every time, or change the form so Case Management can hold it.`,
-			{
-				ineligibility: placement.ineligibility,
-				placementSentence: placement.sentence,
-			},
+			operation.action === "own"
+				? `This form's case is saved through Save to Case, which can't save only changed answers. ${placement.sentence} You can save its ${words(flag)} every time, or change the form so Case Management can hold it.`
+				: `“${operation.id}” is saved through Save to Case, which can't save only changed answers. You can save its ${words(flag)} every time instead.`,
+			placement.ineligibility === undefined
+				? {}
+				: {
+						ineligibility: placement.ineligibility,
+						placementSentence: placement.sentence,
+					},
 		);
+	}
+}
+
+/** A change other than the own arm that Nova saves through Save to Case. */
+function savedThroughSaveToCase(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+): { readonly ineligibility?: string; readonly sentence: string } | undefined {
+	const planned = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+		operation.uuid,
+	);
+	return planned?.placement.kind === "save-to-case"
+		? { sentence: "" }
+		: undefined;
 }
 
 /** Whether `target` is the form's own case as Nova can prove it: the loaded
@@ -1169,7 +1390,7 @@ function workerRecordFindings(
 	let first: CaseOperation | undefined;
 	for (const operation of operations) {
 		if (operation.action === "own") continue;
-		if (operation.target.kind !== "worker-record") continue;
+		if (!addressesWorkerRecord(ctx.form, operation)) continue;
 		if (
 			operation.action !== "update" ||
 			operation.caseType !== USERCASE_CASE_TYPE
@@ -1185,7 +1406,7 @@ function workerRecordFindings(
 			);
 			continue;
 		}
-		if (first !== undefined) {
+		if (operation.target.kind === "worker-record" && first !== undefined) {
 			errors.push(
 				opError(
 					ctx,
@@ -1198,7 +1419,7 @@ function workerRecordFindings(
 					},
 				),
 			);
-		} else first = operation;
+		} else if (operation.target.kind === "worker-record") first = operation;
 		for (const [facet, words] of WORKER_RECORD_FACETS) {
 			const value = operation[facet];
 			if (value === undefined || (Array.isArray(value) && value.length === 0))

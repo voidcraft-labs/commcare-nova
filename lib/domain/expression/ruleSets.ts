@@ -57,6 +57,12 @@ export function isValueStorageAssignable(
 	if (valueType === ANY_TYPE) return false;
 	if (valueType === destinationType) return true;
 	if (valueType === "int" && destinationType === "decimal") return true;
+	// One choice is a list of choices holding it alone: a device stores both
+	// as the text of their values, space-separated, and a several-choice
+	// question reads one choice's value as that one choice
+	// (`SelectMultiData.cast` splits the text on spaces).
+	if (valueType === "single_select" && destinationType === "multi_select")
+		return true;
 	return (
 		(valueType === "text" || valueType === "single_select") &&
 		(destinationType === "text" || destinationType === "single_select")
@@ -68,10 +74,11 @@ export function isValueStorageAssignable(
  * one of them is storage-assignable to (`isValueStorageAssignable`), so
  * `int` and `decimal` agree on `decimal` (an integer fits decimal storage).
  * `text` and `single_select` are assignable each to the other, since both
- * are stored as the same text, and agree on `text`. Undefined where no
- * such type exists, as for `multi_select` beside any other type: storage
- * keeps text out of a list of choices, and a list is no one choice or
- * number.
+ * are stored as the same text, and agree on `text`. `single_select` and
+ * `multi_select` agree on `multi_select`, one choice being a list of one.
+ * Undefined where no such type exists, as for `multi_select` beside any
+ * other type: storage keeps text out of a list of choices, and a list is
+ * no one choice or number.
  */
 export function agreedStorageType(
 	types: Iterable<CasePropertyDataType>,
@@ -113,8 +120,8 @@ export function joinsAsText(types: Iterable<CasePropertyDataType>): boolean {
  *   type stays `text`, so a comparison or ordering never treats it as a
  *   date. A `datetime` property stays strict, since a day text there saves
  *   midnight, as a `date` value would.
- * - A whole number, a decimal number or a date into a `text` property, which
- *   holds the text a device submits for it
+ * - A whole number, a decimal number, a date or a location into a `text`
+ *   property, which holds the text a device submits for it
  *   (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`). The value's type stays
  *   its own, and a single choice property stays strict, since a number is no
  *   choice of it.
@@ -131,6 +138,27 @@ export function isWriteAssignable(
 			valueType !== ANY_TYPE &&
 			valueType !== "boolean" &&
 			TEXT_JOINED_DATA_TYPES.has(valueType))
+	);
+}
+
+/**
+ * Whether a question's answer, saved as it is, can be saved to a
+ * destination: `isWriteAssignable`, or a date-and-time question's answer
+ * saved to a `date` property, which CommCare saves as the answer's day where
+ * the device is. HQ's build and Nova's both print a date-and-time question
+ * saved to a day straight into an untyped case leaf, and Core wraps the
+ * moment a leaf of no date-and-time type calculates as `DateData`, its day
+ * alone (`Recalculate.java::wrapData`). A calculation's moment stays strict:
+ * a Hidden Value's bind follows the property it writes
+ * (`fieldValueType.ts::fieldValueType`), so its own node would hold the day.
+ */
+export function isAnswerWriteAssignable(
+	kindType: ResolvedType,
+	destinationType: CasePropertyDataType,
+): boolean {
+	return (
+		isWriteAssignable(kindType, destinationType, false) ||
+		(kindType === "datetime" && destinationType === "date")
 	);
 }
 
@@ -385,19 +413,21 @@ export function valueExpressionKindResultClass(
 
 export type RecordPosition = "condition" | "value";
 /**
- * Whether an expression of `kind` stands in a record `position`. A condition
- * stands where a condition belongs and a value where a value belongs; `if`
- * and `switch` stand in either. One read stands as a condition too: a read
- * of a single node whose value CommCare holds as a yes or no (`heldYesNo`),
- * such as a Hidden Value calculated by a condition. Core holds a calculated
+ * Whether `expression` stands in a record `position`. A condition stands
+ * where a condition belongs and a value where a value belongs; `if` and
+ * `switch` stand in either. One read stands as a condition too: a read of a
+ * single node whose value CommCare holds as a yes or no (`heldYesNo`), such
+ * as a Hidden Value calculated by a condition. Core holds a calculated
  * `Boolean` as `BooleanData` whatever the node's bind
  * (`Recalculate.java::wrapData`) and reads it back as that `Boolean`
  * (`XPathPathExpr.java::unpackValue`), so its truth is the calculation's. A
  * worker property can also stand alone on a worker menu or list. Core
  * unpacks a single text value as true when nonempty, including "0".
+ * In a case action that reads a text answer as a condition, the explicit
+ * boolean call uses the same nonempty test.
  */
 export function recordPositionVerdict(
-	kind: Expression["kind"],
+	expression: Pick<Expression, "kind"> & { readonly fn?: unknown },
 	position: RecordPosition,
 	conditionRead = false,
 ):
@@ -406,10 +436,13 @@ export function recordPositionVerdict(
 			readonly ok: false;
 			readonly reason: "value-expected" | "condition-expected";
 	  } {
+	const kind = expression.kind;
 	if (kind === "if" || kind === "switch") return { ok: true };
 	if (kind === "term" && position === "condition" && conditionRead)
 		return { ok: true };
-	const condition = isConditionArm({ kind } as Expression);
+	const condition =
+		isConditionArm({ kind } as Expression) ||
+		(kind === "call" && expression.fn === "boolean");
 	return condition === (position === "condition")
 		? { ok: true }
 		: {

@@ -20,6 +20,7 @@ import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActio
 import type { HqAlignedModule } from "../../hq/appReading";
 import { type HqAppSource, readHqAppSource } from "../../hq/appSource";
 import type { HqLocationType } from "../../hq/locations";
+import { expectedXmlnsOf } from "../../hq/sharedFormSource";
 import { inventoryIndex } from "../../surface/inventory";
 import { applicationReading } from "../appShell";
 import { createReadContext, type ReadContext } from "../context";
@@ -73,13 +74,14 @@ export async function sourceFromBody(
 
 /** The menus aligned by position, each form under its own read id. */
 function aligned(source: HqAppSource): HqAlignedModule[] {
+	const xmlnsOf = expectedXmlnsOf(source);
 	return source.modules.map((menu) => ({
 		kind: "aligned",
 		uniqueId: menu.uniqueId,
 		docType: menu.docType,
 		forms: menu.forms.map((form) => ({
 			uniqueId: form.readUniqueId,
-			xmlns: form.xmlns,
+			xmlns: xmlnsOf(form),
 			source: form,
 			questions: [],
 		})),

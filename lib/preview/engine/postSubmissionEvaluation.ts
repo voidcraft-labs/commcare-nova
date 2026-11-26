@@ -113,6 +113,7 @@ export async function evaluatePostSubmissionSnapshot(
 	 * the form read, created cases included. */
 	const entry = entrySessionData(doc, args.formUuid, {
 		appId: context.session?.appId,
+		lookupData: previewLookupData(context.lookup),
 		entryKey: args.mutation.entryKey,
 		boundCases:
 			"caseIds" in args.mutation

@@ -355,7 +355,8 @@ const MODULE_REGISTRY_PATHS = new Set(moduleSlots.map((s) => s.path));
 describe("registry shape invariants", () => {
 	it("slot ids and paths are unique within each entity", () => {
 		// The otherwise link takes a destination's target and carried-value
-		// slots at its own paths; no other slot id is held twice.
+		// slots at its own paths, and a second entry's choices take a form's
+		// choice slot at theirs; no other slot id is held twice.
 		const sharedLinkSlots = new Set([
 			"form_link_target",
 			"form_link_datum_name",
@@ -365,7 +366,11 @@ describe("registry shape invariants", () => {
 			const ids = slots
 				.filter(
 					(s) =>
-						!(sharedLinkSlots.has(s.slot) && s.path.startsWith("otherwise.")),
+						!(sharedLinkSlots.has(s.slot) && s.path.startsWith("otherwise.")) &&
+						!(
+							s.slot === "form_selection_source" &&
+							s.path.startsWith("shadowOf.")
+						),
 				)
 				.map((s) => s.slot);
 			const paths = slots.map((s) => s.path);

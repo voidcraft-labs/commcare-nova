@@ -111,6 +111,8 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
+import { openingAssignmentPropertyType } from "@/lib/domain/formOpeningAssignments";
 import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	expressionSlotValues,
@@ -528,7 +530,7 @@ function extractCarrierEdges(
 	const form = ownRecordValue(doc.forms, carrier);
 	if (form) {
 		const sink = makeSink(index, carrier, ctx);
-		extractFormEdges(sink, form, ctx, relationTypes);
+		extractFormEdges(sink, doc, form, ctx, relationTypes);
 		for (const { ref, expression } of expressionSlotValues(doc, {
 			entity: "form",
 			uuid: form.uuid,
@@ -855,10 +857,50 @@ function formLinkDatumsAt(
 
 function extractFormEdges(
 	sink: EdgeSink,
+	doc: BlueprintDoc,
 	form: Form,
 	ctx: CarrierContext,
 	relationTypes: RelationTypes,
 ): void {
+	for (const assignment of form.openingAssignments ?? []) {
+		const slot = "opening_assignment";
+		sink.edge(entityTargetKey(assignment.field), slot);
+		if (assignment.source.kind === "selection")
+			sink.edge(entityTargetKey(assignment.source.selection), slot);
+		for (const step of assignment.via ?? [])
+			if (step.throughCaseType)
+				sink.edge(caseTypeTargetKey(step.throughCaseType), slot);
+		const type = openingAssignmentPropertyType(doc, form.uuid, assignment);
+		if (type) sink.edge(casePropertyTargetKey(type, assignment.property), slot);
+	}
+	if (form.shadowOf) {
+		sink.edge(entityTargetKey(form.shadowOf.form), "shared_form");
+		for (const choice of form.shadowOf.selections)
+			if (choice.kind === "replace")
+				sink.edge(entityTargetKey(choice.selection), "form_selection_source");
+	}
+	for (const choice of entrySelectionSettings(form) ?? []) {
+		const slot = "form_selection_source";
+		sink.edge(caseTypeTargetKey(choice.caseType), slot);
+		const src = choice.source;
+		if (src.kind === "choose") {
+			sink.edge(entityTargetKey(src.module), slot);
+			if (src.under) {
+				sink.edge(entityTargetKey(src.under.selection), slot);
+				if (typeof src.under.relationship === "object")
+					sink.edge(entityTargetKey(src.under.relationship.question), slot);
+			}
+		} else if (src.kind === "index")
+			sink.edge(entityTargetKey(src.selection), slot);
+		else if (src.kind === "worker-data") {
+			sink.edge(
+				src.property.kind === "session-user-property"
+					? userPropertyTargetKey(src.property.userPropertyUuid)
+					: workerFieldNameTargetKey(src.property.field),
+				slot,
+			);
+		}
+	}
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		switch (slot.kind) {
 			case "expression":
@@ -1085,6 +1127,12 @@ function datumEdges(
 	ctx: CarrierContext,
 ): void {
 	switch (datum.kind) {
+		case "form-selection":
+			sink.edge(entityTargetKey(datum.selection), slot);
+			break;
+		case "entry-value":
+			sink.edge(entityTargetKey(datum.datum), slot);
+			break;
 		case "selected-case":
 		case "tile-group-parents":
 			sink.edge(entityTargetKey(datum.module), slot);

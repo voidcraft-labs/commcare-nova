@@ -104,6 +104,14 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"case-search/native-filter-value-outside-screen-scope",
 		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
+	"entry-calculated-value": take(
+		"forms-and-case-writes/arbitrary-datums-datum-id-datum-function",
+		"schema:ArbitraryDatum.datum_function",
+	),
+	"entry-selected-by-expression": take(
+		"forms-and-case-writes/auto-select-mode-raw-value-key",
+		"schema:AutoSelectCase.value_key",
+	),
 	"search-button-display-condition-lifting-into-predicate": take(
 		"case-search/search-button-display-condition-lifting-into-predicate",
 		"schema:CaseSearch.search_button_display_condition",
@@ -535,7 +543,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
 		"session-path:session/data/*",
 	),
-	"session-data-supply-point-id-in-an-advanced-form-whose-computed": refuse(
+	"session-data-supply-point-id-in-an-advanced-form-whose-computed": take(
 		"expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed",
 		"session-path:session/data/*",
 	),
@@ -1763,6 +1771,8 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	),
 	// Part of the case reader's structured actions: no text is registered.
 	form_open_condition: formSlot(undefined),
+	form_entry_value: formSlot(C["entry-calculated-value"].entry),
+	form_selection_source: formSlot(C["entry-selected-by-expression"].entry),
 	// Registered only from a Save to Case block: the own close's condition,
 	// its group's `relevant` or the own arm's close in its block.
 	form_close_condition: fixed(
@@ -2515,9 +2525,7 @@ export function parseIssueEntry(
 			if (names.includes("supply_point_id"))
 				return answer(
 					form.computedDatums.has("supply_point_id")
-						? C[
-								"session-data-supply-point-id-in-an-advanced-form-whose-computed"
-							].entry
+						? M1
 						: C[
 								"session-data-supply-point-id-anywhere-except-in-an-advanced-form"
 							].entry,
@@ -2957,6 +2965,7 @@ export function formRefusalEntry(code: CheckErrorCode): string {
 		case "datetime-literal-precision":
 		case "format-date-pattern-not-fixed":
 		case "closed-on-not-on-device":
+		case "location-not-in-search":
 		case "case-type-ordering":
 		case "epoch-fraction-on-device":
 		case "runtime-selected-value-type":

@@ -1,3 +1,4 @@
+import { namedEntrySupplies } from "@/lib/domain/advancedEntryDatums";
 import { expressionChildren } from "@/lib/domain/expression/children";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { printFormExpression } from "@/lib/domain/expression/print";
@@ -314,6 +315,36 @@ export function bindFormSyntax(
 		node: Extract<FormSyntax, { kind: "call" }>,
 		ctx: ExpressionContext,
 	): Expression {
+		if (
+			!scope.reading &&
+			(node.name === "opening-record" || node.name === "opening-value")
+		) {
+			const label = node.args[0];
+			if (node.args.length !== 1 || label?.kind !== "string" || !ctx.form)
+				refuse(
+					"unknown-datum",
+					node,
+					"An opening value needs one record or value name in quotes.",
+				);
+			const kind =
+				node.name === "opening-record" ? "form-selection" : "entry-value";
+			const supplies = namedEntrySupplies(scope.doc, ctx.form.formUuid).filter(
+				(row) => row.ref.kind === kind,
+			);
+			const identity = supplies.find((row) => row.uuid === label.value);
+			const matches = identity
+				? [identity]
+				: supplies.filter((row) => row.name === label.value);
+			if (matches.length !== 1)
+				refuse(
+					"unknown-datum",
+					node,
+					matches.length
+						? "Several supplies have this name. You can use the stable ID of the one you mean."
+						: "This form has no opening record or value with that name. You can choose one of the form’s opening supplies.",
+				);
+			return term({ kind: "session-datum", datum: matches[0].ref }, node);
+		}
 		const special =
 			node.name === "jr:itext"
 				? { minArgs: 1, maxArgs: 1, returnType: "string" as const }

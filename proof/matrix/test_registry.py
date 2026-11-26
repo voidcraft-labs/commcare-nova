@@ -172,10 +172,10 @@ def test_a_set_json_row_names_its_pointer_and_value():
 
 def test_a_row_names_a_menu_or_a_form_by_position_only_where_the_lane_resolves_it():
     """Contract: a row names a menu or form of its base by position (``{"$menu": m}``, ``{"$form": [m, f]}``,
-    ``{"$xmlns": [m, f]}``) in a set-json value at any depth and, for a menu or a form's xmlns, in a holds key given as
-    a list, and nowhere else. The plausible failures: a misspelled reference stored as data, one in a place no code
-    resolves, each read as the literal object where an id was meant, and a form's id in a key, which names no
-    entity."""
+    ``{"$xmlns": [m, f]}``) in a set-json value at any depth and in a holds key given as a list (a form there the real
+    id the variant's own application resource serves, ``retain.hold_key``), and nowhere else. The plausible failures: a misspelled
+    reference stored as data and one in a place no code resolves, each read as the literal object where an id was
+    meant."""
     form = {"unique_id": {"$form": [0, 1]}, "case_list_form": {"form_id": {"$form": [2, 0]}}}
     value = {"op": "set-json", "pointer": "/modules/0", "value": {"root_module_id": {"$menu": 1}, "forms": [form]}}
     holding = {key: item for key, item in ROW.items() if key not in ("standing", "place")} | {
@@ -183,6 +183,7 @@ def test_a_row_names_a_menu_or_a_form_by_position_only_where_the_lane_resolves_i
         "holds": [
             {"key": ["module", {"$menu": 0}], "pointer": "/name", "value": "Visits"},
             {"key": ["field", {"$xmlns": [0, 0]}, ["age"]], "pointer": "/label", "value": "Age"},
+            {"key": ["form", ["shared-form", {"$form": [0, 1]}]], "pointer": "/name", "value": "Visit"},
         ],
     }
     path = _rows([{**ROW, "change": value}, {**holding, "id": "hq-plain/held"}])
@@ -202,11 +203,6 @@ def test_a_row_names_a_menu_or_a_form_by_position_only_where_the_lane_resolves_i
     ):
         _refused([{**ROW, "change": {**value, "value": {"x": [wrong]}}}], {}, "by position")
     _refused([{**ROW, "place": {"kind": "menu", "menu": {"$menu": 0}}}], {"made": made}, "a place")
-    _refused(
-        [{**holding, "change": ROW["change"], "holds": [{"key": ["form", {"$form": [0, 0]}], "pointer": "/x"}]}],
-        {"made": made},
-        "never by its id",
-    )
     _refused(
         [{**holding, "holds": [{"key": "x", "pointer": "/x", "value": {"$menu": 0}}]}],
         {"made": made},
@@ -274,6 +270,19 @@ def test_a_reference_is_the_id_the_app_holds_at_its_position_when_set_and_the_id
     assert ops.resolve_references({"$xmlns": [0, 0]}, ops.ids_at(stored)) == "x00"
     assert ops.resolve_references({"$xmlns": [0, 0]}, resolve) == "x00"
     assert retain.hold_key(["field", {"$xmlns": [0, 0]}, ["age"]], stored) == '["field","x00",["age"]]'
+    # A form in a holds key is the real id the variant's own application resource serves at that position: the
+    # reader keys a shared entry, which holds no xmlns, by it, and an authoring mints it anew.
+    shared = {"modules": [{"unique_id": "m0", "forms": [{"unique_id": "f00"}, {"unique_id": "read-1"}]}]}
+    assert retain.hold_key(["form", ["shared-form", {"$form": [0, 1]}]], stored, shared) == (
+        '["form",["shared-form","read-1"]]'
+    )
+    for unread in (None, stored):
+        try:
+            retain.hold_key(["form", ["shared-form", {"$form": [0, 1]}]], stored, unread)
+        except ops.ValueNotSet:
+            pass
+        else:
+            raise AssertionError("a form key resolved where the variant's read holds no form there")
 
 
 class _ReachesHq(Exception):
@@ -355,9 +364,14 @@ def _position_problems(variant, base_source, monkeypatch):
         patched.setitem(sys.modules, "proof.hq.operations", held)
         patched.setattr(proof.hq, "operations", held, raising=False)
         try:
+            base_ids = ops.ids_at(base_source)
             for hold in variant.holds:
                 if not isinstance(hold["key"], str):
-                    ops.resolve_references(hold["key"], ops.ids_at(base_source))
+                    # A form in a holds key is the variant's own read's, which may hold it only after the change
+                    # (``retain.hold_key``).
+                    ops.resolve_references(
+                        hold["key"], lambda kind, position: None if kind == "form" else base_ids(kind, position)
+                    )
             for change in variant.changes():
                 if change["op"] != "set-json":
                     patched.setattr(builtins, "__import__", guarded_import)

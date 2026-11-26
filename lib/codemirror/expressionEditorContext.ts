@@ -39,6 +39,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	namedEntrySupplies,
+	namedEntrySupplyRead,
+} from "@/lib/domain/advancedEntryDatums";
+import {
 	type ExpressionContext,
 	type LookupDefinitionIndex,
 	slotContext,
@@ -57,6 +61,7 @@ import type {
 	FormNodeRef,
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
+import { datumRefKey } from "@/lib/domain/expression/types";
 import { operationCaseType, orderedCaseOperations } from "@/lib/domain/forms";
 import { userPropertiesOf } from "@/lib/domain/users";
 import { lookupPathNameIssue } from "@/lib/lookup/pathNames";
@@ -115,6 +120,10 @@ export interface ExpressionReads {
 	readonly searchInputs?: readonly string[];
 	/** The session values the form's entry supplies, each labelled by what
 	 *  it holds. */
+	readonly openingSupplies?: ReadonlyArray<{
+		readonly formula: string;
+		readonly label: string;
+	}>;
 	readonly sessionData: ReadonlyArray<{
 		readonly id: string;
 		readonly label: string;
@@ -266,6 +275,24 @@ export function datumLabel(
 	ownCaseType: string | undefined,
 ): string {
 	switch (ref.kind) {
+		case "form-selection": {
+			for (const form of Object.values(doc.forms)) {
+				const choice = form.caseSelections?.find(
+					(row) => row.uuid === ref.selection,
+				);
+				if (choice) return choice.name;
+			}
+			return "The record chosen for this form";
+		}
+		case "entry-value": {
+			for (const form of Object.values(doc.forms)) {
+				const value = form.computedDatums?.find(
+					(row) => row.uuid === ref.datum,
+				);
+				if (value) return value.key;
+			}
+			return "A value calculated when this form opens";
+		}
 		case "selected-case":
 			return `The case chosen in ${doc.modules[ref.module]?.name ?? "a menu"}`;
 		case "new-case":
@@ -349,6 +376,21 @@ function slotReads(
 		form === undefined
 			? undefined
 			: context.facts.moduleCaseTypes.get(form.moduleUuid);
+	const readable = new Set(
+		context.supplies.refs
+			.filter((row) => row.scalar)
+			.map((row) => datumRefKey(row.ref)),
+	);
+	const openingSupplies =
+		form &&
+		(doc.forms[form.formUuid].caseSelections !== undefined ||
+			doc.forms[form.formUuid].computedDatums?.length)
+			? namedEntrySupplies(doc, form.formUuid).flatMap((supply) => {
+					if (!readable.has(datumRefKey(supply.ref))) return [];
+					const formula = namedEntrySupplyRead(doc, form.formUuid, supply.ref);
+					return formula ? [{ formula, label: supply.name }] : [];
+				})
+			: [];
 	const levels = orderedOrganizationLevels(doc);
 	const chosen =
 		context.slot.entity === "field"
@@ -450,9 +492,10 @@ function slotReads(
 		(form?.formsReadSearchModule === true && context.profile.scope === "form")
 			? { searchInputs: form.searchInputs.map((input) => input.name) }
 			: {}),
+		...(openingSupplies.length > 0 && { openingSupplies }),
 		sessionData: [
 			...rows.flatMap((row) => {
-				const ref = row.refs[0];
+				const ref = row.refs.find((ref) => readable.has(datumRefKey(ref)));
 				return row.scalar && ref !== undefined
 					? [{ id: row.id, label: datumLabel(doc, ref, ownCaseType) }]
 					: [];
