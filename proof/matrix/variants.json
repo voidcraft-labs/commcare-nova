@@ -24245,10 +24245,26 @@
 	{
 		"id": "hq-menus/translation-overrides-a-form-badge",
 		"base": "hq-menus",
+		"entry": "application-and-settings/translations-generated-wording",
+		"change": { "op": "named", "name": "translation_overrides_a_form_badge" },
+		"holds": [
+			{
+				"key": ["form", { "$form": [2, 0] }],
+				"pointer": "/badge",
+				"value": { "kind": "text", "text": "New" }
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/translation-overrides-a-lookup-heading",
+		"base": "hq-case-lists",
 		"entry": "application-and-settings/translations-generated-key-anything-else",
 		"standing": "not-yet",
 		"place": { "kind": "app" },
-		"change": { "op": "named", "name": "translation_overrides_a_form_badge" }
+		"change": {
+			"op": "named",
+			"name": "translation_overrides_a_lookup_heading"
+		}
 	},
 	{
 		"id": "hq-menus/badge-future-form-answer",

@@ -168,6 +168,9 @@ export function generatedWordingKeys(
 		}
 		for (const [f, formUuid] of orderedFormUuids(doc, moduleUuid).entries()) {
 			register(`forms.${menu}f${f}`, formUuid, "formTitle");
+			// Listed routes reuse the source form's locale under their own command IDs.
+			if (!hidden)
+				register(`forms.${menu}f${f}.badge`, formUuid, "formBadgeText");
 			register(formSubmitLabelLocaleId(m, f), formUuid, "submitButton");
 		}
 	}

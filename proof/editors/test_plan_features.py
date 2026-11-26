@@ -374,12 +374,21 @@ def test_menu_and_form_settings_keep_the_visible_badge_when_the_worker_app_is_sa
                 app = operations.held_app(opened.state, opened.app_id)
                 module = next(module for module in app.get_modules() if module.name.get("en") == "Visit forms")
                 form = next(form for form in module.get_forms() if form.name.get("en") == "Visits due")
-                return module, form
+                text_form = next(form for form in module.get_forms() if form.name.get("en") == "Word")
+                return module, form, text_form
 
-            module, form = owners()
+            module, form, text_form = owners()
+            key = "forms.m0f5.badge"
+            if granted:
+                app = operations.held_app(opened.state, opened.app_id)
+                app.set_translations("en", {**app.translations.get("en", {}), key: "Ready"})
+                app.save()
             pages_to_save = [(pages.FORM_SETTINGS, form, "xpath", "1234")]
             if granted:
-                pages_to_save.append((pages.MODULE_SETTINGS, module, "text", "New"))
+                pages_to_save.extend([
+                    (pages.MODULE_SETTINGS, module, "text", "New"),
+                    (pages.FORM_SETTINGS, text_form, "text", "Équipe"),
+                ])
             for page, target, kind, expected in pages_to_save:
                 saved = pages.fresh_section_save(editor_driver, opened.state, page, opened.app_id, target.unique_id)
                 assert saved.save is not None and saved.save.status == 200 and not saved.refused
@@ -389,9 +398,12 @@ def test_menu_and_form_settings_keep_the_visible_badge_when_the_worker_app_is_sa
                     assert fields["custom_icon_text_body" if kind == "text" else "custom_icon_xpath"] == expected
                 else:
                     assert "custom_icon_type" not in fields
-            saved_menu, saved_form = owners()
+            saved_menu, saved_form, saved_text_form = owners()
             assert dict(saved_menu.custom_icon.text) == {"en": "New"}
             assert saved_form.custom_icon.xpath == "1234"
+            assert dict(saved_text_form.custom_icon.text) == {"en": "Équipe"}
+            if granted:
+                assert operations.held_app(opened.state, opened.app_id).translations["en"][key] == "Ready"
 
 
 def test_vellum_changes_an_android_app_argument_and_keeps_shared_result_destinations(hq, editor_driver):

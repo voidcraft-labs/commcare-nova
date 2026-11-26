@@ -41,6 +41,7 @@ export const generatedWordingRoles = {
 	menuTitle: "Menu title",
 	menuBadgeText: "Menu badge wording",
 	formTitle: "Form menu label",
+	formBadgeText: "Form badge wording",
 	submitButton: "Submit button",
 	caseListEntry: "Case list menu label",
 	registerButton: "Registration button",
@@ -475,6 +476,20 @@ export function generatedWordingUnits(
 				formPath,
 				form.name,
 				makeTranslationUnitId("form", formUuid, "name"),
+			);
+			const badge = form.badge?.kind === "text" ? form.badge.text : undefined;
+			add(
+				badge === undefined ||
+					(registration?.kind === "after-empty-search" &&
+						registration.formUuid === formUuid),
+				formOwner,
+				formUuid,
+				"formBadgeText",
+				formPath,
+				badge ?? "",
+				badge === undefined
+					? undefined
+					: makeTranslationUnitId("form", formUuid, "badge"),
 			);
 			// A form's own submit wording is the default the worker wording overrides,
 			// as HQ's app translations override a form's `submit_label`.
