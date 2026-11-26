@@ -26,7 +26,7 @@ ROWS = (
     ("east-two", (("en", "Twin clinic"), ("fr", "Clinique jumelle"))),
     ("west-one", (("en", "West clinic"), ("fr", "Clinique ouest"))),
 )
-STAMP = "2025-02-01T12:00:00Z"
+STAMP = "2025-02-01T12:00:00.000Z"
 
 
 class FullRestores(formplayer_hq.HqViews):
@@ -101,6 +101,7 @@ def _fixture_rows(root, worker_id):
 def _restored_rows(restore, remote_ids, worker_id):
     rows = _fixture_rows(ElementTree.fromstring(restore), worker_id)
     for row in rows:
+        assert row.tag == "clinics", row.tag
         assert set(row.attrib) == {"code"}, row.attrib
         assert all(field.tag == "name" and set(field.attrib) == {"lang"} for field in row)
         assert not any(identifier.encode() in ElementTree.tostring(row) for identifier in remote_ids)
@@ -337,8 +338,10 @@ def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
             assert paths[f"menu{caption}"].rsplit("/", 1)[-1] in (people["image"] or ""), people
             if not expected:
                 assert not form.get("form"), form
-                error = run.answered("navigate_menu")[-1].json()
-                assert error["status"] == "error", error
+                (error,) = [
+                    exchange.json() for exchange in run.answered("navigate_menu")
+                    if exchange.json().get("status") == "error"
+                ]
                 assert "clinics" in error["exception"] and "lookup table" in error["exception"], error
                 continue
             (question,) = form["form"]["questions"]
