@@ -1317,7 +1317,8 @@ function relativeUnderChosenMember(
 		expect: [
 			{ pointer: "/values/0/value", value: "targeted-amina" },
 			{ pointer: "/values/1/value", value: "member" },
-			{ pointer: "/values/2/value", value: "child" },
+			// A child index carries no relationship attribute: CommCare reads it absent as `child`.
+			{ pointer: "/values/2/value", value: "" },
 		],
 	};
 }
