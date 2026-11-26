@@ -613,7 +613,7 @@ def test_android_displays_the_web_apps_icon_as_a_path_without_submitting(android
             listed = _list(served, observe.release_archive(served), "web-list-icon-on-android", "m0-f0", [])
             assert [_texts(row)[:2] for row in listed["rows"]] == [["First visit", path], ["Second visit", path]]
             assert not served.hq.submissions
-def test_android_keeps_named_search_results_without_prompt_answers(android_documents, hq, evidence):
+def test_android_keeps_named_search_results_without_prompt_answers(android_documents, hq, android_walk_evidence):
     """An HQ release exposes named results on Android, and Android leaves both prompt instances absent."""
     from proof.android import observe
     from proof.formplayer import hq as formplayer_hq
@@ -644,7 +644,7 @@ def test_android_keeps_named_search_results_without_prompt_answers(android_docum
                              commands=["m0-f0"], search_answers=prompts)
         answer = blobs.get_json(result["answer"])
         assert answer["install"] == "Installed", answer
-        evidence("named-searches-on-android", answer["completedSearches"])
+        android_walk_evidence({"walk": answer["walks"]["m0-f0"], "queries": answer["completedSearches"]})
         assert answer["completedSearches"] == [
             {
                 "query": query,
