@@ -105,6 +105,7 @@ import type {
 	OperationEffectRecord,
 	SubmissionEnvelopeResult,
 } from "../submission";
+import { replaceCaseIndex } from "./caseIndexWrites";
 
 /**
  * The store internals the executor borrows — narrow closures so the
@@ -2577,24 +2578,19 @@ export async function applyLinkEffect(
 	caseId: string,
 	link: ResolvedLink,
 ): Promise<void> {
-	await trx
-		.deleteFrom("case_indices")
-		.where("case_indices.case_id", "=", caseId)
-		.where("case_indices.identifier", "=", link.identifier)
-		.execute();
-	if (link.targetCaseId !== null) {
-		await trx
-			.insertInto("case_indices")
-			.values({
-				case_id: caseId,
-				ancestor_id: link.targetCaseId,
-				target_case_type: link.targetType,
-				identifier: link.identifier,
-				relationship: link.relationship,
-				depth: 1,
-			})
-			.execute();
-	}
+	await replaceCaseIndex(
+		trx,
+		{ appId, projectId: host.projectId },
+		caseId,
+		link.identifier,
+		link.targetCaseId === null
+			? null
+			: {
+					id: link.targetCaseId,
+					caseType: link.targetType,
+					relationship: link.relationship,
+				},
+	);
 	if (link.identifier === "parent") {
 		await trx
 			.updateTable("cases as c")

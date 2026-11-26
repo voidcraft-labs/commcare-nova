@@ -66,6 +66,7 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+import { CaseSearchUnavailableError } from "@/lib/case-store/searchRequest";
 import {
 	formSharingPlan,
 	planFormCaseWire,
@@ -400,6 +401,31 @@ function caseReadCore(
 	};
 }
 
+function runningCasePredicate(args: Parameters<typeof readCases>[1]) {
+	return composeQueryPredicate(
+		args.caseListConfig,
+		args.inputValues,
+		args.caseType,
+		args.caseTypeSchemas,
+		args.excludedOwnerIds,
+		args.authoredExcludedOwnerIds,
+		args.parentCase,
+		args.searchCsql,
+		args.searchPopulation?.request?.parameters,
+		args.searchPopulation?.request?.unsentPrompts,
+	);
+}
+
+/** The worker's entire Results query before its transport page. */
+export function runningCaseSelectionQuery(
+	args: Parameters<typeof readCases>[1],
+) {
+	return {
+		...caseReadCore(args, runningCasePredicate(args).predicate),
+		sort: buildCaseStoreSortKeys(args.order, args.caseType),
+	};
+}
+
 /**
  * The empty answer, built once for every reader that can produce one.
  *
@@ -484,7 +510,8 @@ async function emptyCaseResult(
  * sort order, and empty-state semantics all see the truthful population.
  */
 export async function readCases(
-	store: Pick<CaseStore, "query" | "count" | "queryGrouped">,
+	store: Pick<CaseStore, "query" | "count" | "queryGrouped"> &
+		Partial<Pick<CaseStore, "querySearchResults">>,
 	args: {
 		appId: string;
 		caseType: string;
@@ -508,7 +535,9 @@ export async function readCases(
 		inputValues?: SearchInputValues;
 		/** A search's `_xpath_query` rows, folded with what the device worked
 		 *  out (`searchCsqlRuntime.ts::foldSearchCsql`). Present, they stand
-		 *  for the case list filter and the advanced inputs' predicates. */
+		 *  for the search condition and the advanced inputs' predicates, and
+		 *  the device list's own condition never applies. Every searched read
+		 *  carries them, an unrestricted one as `match-all`. */
 		searchCsql?: SearchCsqlQuery;
 		bindings?: TermBindings;
 		/** Rows-free lookup definition types for the compiler's
@@ -539,16 +568,7 @@ export async function readCases(
 		searchPopulation?: SearchPopulation;
 	},
 ): Promise<LoadCasesResult> {
-	const composedQuery = composeQueryPredicate(
-		args.caseListConfig,
-		args.inputValues,
-		args.caseType,
-		args.caseTypeSchemas,
-		args.excludedOwnerIds,
-		args.authoredExcludedOwnerIds,
-		args.parentCase,
-		args.searchCsql,
-	);
+	const composedQuery = runningCasePredicate(args);
 	const page = normalizeCaseListPage(args.page);
 	// Grouping is a property of a BOUNDED running-list read. An unpaged
 	// caller (the form auto-selection candidate read) wants the complete
@@ -573,6 +593,64 @@ export async function readCases(
 	// the grouped path gets its totals from the page's own statement and needs
 	// no recount — so adding to the tail below still means asking whether the
 	// grouped reader needs it, and it will not be told by the compiler.
+	if (args.searchPopulation?.request) {
+		if (!store.querySearchResults)
+			throw new Error("This case store has no completed-search reader.");
+		const found = await store.querySearchResults(
+			{
+				...caseReadCore(args, composedQuery.predicate),
+				sort: buildCaseStoreSortKeys(args.order, args.caseType),
+				calculated: runtimeCalculatedColumns(args.caseListConfig),
+				related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+				offset: page?.offset,
+				limit: page?.limit ?? args.cap,
+			},
+			grouping?.identifier,
+		);
+		const common = {
+			constraintSource: composedQuery.constraintSource,
+			searchMatchCount: found.primaryCount,
+		};
+		if (!found.rows.length) {
+			// The empty state may explain what clearing a worker's answers
+			// would reveal. This second query can require a different cutoff
+			// or matcher. Its uncertainty does not invalidate the actual read.
+			let authoredMatchingCount: number | undefined;
+			if (composedQuery.constraintSource === "worker-search") {
+				try {
+					authoredMatchingCount = await countAuthoredCasePopulation(
+						store,
+						args,
+					);
+				} catch (error) {
+					if (!(error instanceof CaseSearchUnavailableError)) throw error;
+				}
+			}
+			return {
+				kind: "empty",
+				...common,
+				...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+			};
+		}
+		return {
+			kind: "rows",
+			...common,
+			rows: found.rows,
+			totalCount: found.totalRows,
+			...(page &&
+				(found.grouped
+					? {
+							grouped: {
+								groups: found.grouped.groups,
+								listOrder: found.grouped.listOrder,
+								pageOffset: found.offset,
+								pageSize: page.limit,
+								totalGroupCount: found.grouped.totalGroups,
+							},
+						}
+					: { pageOffset: found.offset, pageSize: page.limit })),
+		};
+	}
 	if (grouping !== undefined && page !== undefined) {
 		return readGroupedCases(store, args, composedQuery, page, grouping);
 	}
@@ -830,6 +908,17 @@ async function countAuthoredCasePopulation(
 	);
 	return store.count({
 		...caseReadCore(args, authoredQuery.predicate),
+		...(args.searchPopulation?.request && {
+			searchPopulation: {
+				...args.searchPopulation,
+				request: {
+					...args.searchPopulation.request,
+					parameters: args.searchPopulation.request.parameters?.filter(
+						(parameter) => !parameter.readsAnswers,
+					),
+				},
+			},
+		}),
 		// The same restore the caller's own count used. This number answers
 		// "would clearing Search reveal a case?", and a device that cannot
 		// hold the case would not reveal it either.
@@ -874,10 +963,18 @@ function composeQueryPredicate(
 	authoredExcludedOwnerIds: readonly string[] | undefined = excludedOwnerIds,
 	parentCase?: ParentCaseSelection,
 	searchCsql?: SearchCsqlQuery,
+	parameters?: readonly import("@/lib/case-store/searchRequest").CaseSearchParameter[],
+	unsentPrompts: readonly string[] = [],
 ): ComposedCaseQuery {
 	const clauses: Expression[] = [];
-	let hasAuthoredConstraint = false;
-	let hasWorkerConstraint = false;
+	let hasAuthoredConstraint = parameters?.some((p) => !p.readsAnswers) ?? false;
+	let hasWorkerConstraint = parameters?.some((p) => p.readsAnswers) ?? false;
+	/* A field the request matches by its own key, or whose prompt a default
+	 * search left out of it, adds no clause of its own here. */
+	const sentKeys = new Set([
+		...(parameters?.map((p) => p.key) ?? []),
+		...unsentPrompts,
+	]);
 	if (parentCase !== undefined) {
 		hasAuthoredConstraint = true;
 	}
@@ -938,10 +1035,10 @@ function composeQueryPredicate(
 			// Expression ASTs are canonical JSON-shaped values. A changed effective
 			// filter means submitted prompt values added narrowing the worker can
 			// remove; the empty-bound remainder is the always-authored contribution.
-			hasWorkerConstraint =
+			hasWorkerConstraint ||=
 				JSON.stringify(baseFilter) !==
 				JSON.stringify(baseFilterWithoutWorkerValues);
-			hasAuthoredConstraint = baseFilterWithoutWorkerValues !== undefined;
+			hasAuthoredConstraint ||= baseFilterWithoutWorkerValues !== undefined;
 		}
 	}
 
@@ -959,7 +1056,7 @@ function composeQueryPredicate(
 	if (inputValues !== undefined && answeredInputs.length > 0) {
 		const runtimeFilter = effectiveFilterForEmission(
 			composeRuntimeFilter(
-				answeredInputs,
+				answeredInputs.filter((input) => !sentKeys.has(input.name)),
 				inputValues,
 				caseType,
 				caseTypeSchemas,
@@ -2897,17 +2994,21 @@ export async function gatedCaseStoreWithScope(
  */
 /**
  * Fixture data (definitions + complete ordered rows) for the lookup
- * tables ONE scalar-evaluated expression references — the fold input
+ * tables the scalar-evaluated expressions reference in one revision — the fold input
  * for the excluded-owner value, which resolves server-side rather
  * than compiling to SQL. `undefined` when the expression is absent or
  * carrier-free, so the common path loads nothing.
  */
 export async function loadExpressionLookupData(
 	scope: PreviewLookupScope,
-	expression: Expression | undefined,
+	expressions: readonly (Expression | undefined)[],
 ): Promise<PreviewLookupData | undefined> {
-	if (expression === undefined) return undefined;
-	const tableIds = collectConfigLookupTableIds(undefined, [expression]);
+	const tableIds = collectConfigLookupTableIds(
+		undefined,
+		expressions.filter(
+			(expression): expression is Expression => expression !== undefined,
+		),
+	);
 	if (tableIds.length === 0) return undefined;
 	return previewLookupData(await readPreviewLookup(scope, tableIds));
 }
@@ -2968,6 +3069,9 @@ export function schemaHealingCaseStore(
 		// missing/stale-schema signals the wrapper remedies.
 		readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 		readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
+		readSearchResultInstance: (a) =>
+			heal(() => store.readSearchResultInstance(a)),
+		querySearchResults: (a, g) => heal(() => store.querySearchResults(a, g)),
 		queryGrouped: (a) => heal(() => store.queryGrouped(a)),
 		count: (a) => heal(() => store.count(a)),
 		insert: (a) => heal(() => store.insert(a)),

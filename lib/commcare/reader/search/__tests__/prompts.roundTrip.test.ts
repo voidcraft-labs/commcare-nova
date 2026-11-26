@@ -107,6 +107,35 @@ describe("Search fields Nova emits", () => {
 		]);
 	});
 
+	// HQ's build writes a requirement with no message as a blank text, and a check with no message
+	// as no text (`remote_requests.py`, `validation.has_text`), which Nova's projection prints the
+	// same way: each reads back with no message.
+	it("reads a requirement with no message and a check with none of its own", async () => {
+		const inputs: SearchInputDef[] = [
+			{
+				uuid: uuid(9),
+				name: "notes",
+				label: "Notes",
+				required: { noMessage: true },
+				kind: "simple",
+				type: "text",
+				property: "notes",
+			},
+			{
+				uuid: uuid(10),
+				name: "code",
+				label: "Code",
+				validation: { rule: neq(input(uuid(10)), literal("none")) },
+				kind: "simple",
+				type: "text",
+				property: "code",
+			},
+		];
+		const { reading, read } = await roundTrip(inputs);
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
+	});
+
 	it("reads a barcode field and a date range field", async () => {
 		const inputs: SearchInputDef[] = [
 			{
@@ -123,6 +152,10 @@ describe("Search fields Nova emits", () => {
 				label: "Born",
 				kind: "simple",
 				type: "date-range",
+				default: {
+					kind: "term",
+					term: { kind: "literal", value: "2024-01-01 to 2024-12-31" },
+				},
 				property: "dob",
 				mode: { kind: "range" },
 			},
@@ -132,6 +165,119 @@ describe("Search fields Nova emits", () => {
 		expect(read.searchInputs).toEqual(
 			inputs.map(({ uuid: _uuid, ...rest }) => rest),
 		);
+	});
+
+	// A field that searches for blank on its own property rides the bare prompt; one whose
+	// condition reads it keeps the condition, which reads the blank with the answer.
+	it("reads a search for blank on a simple and on an advanced field", async () => {
+		const inputs: SearchInputDef[] = [
+			{
+				uuid: uuid(9),
+				name: "notes",
+				label: "Notes",
+				allowBlank: true,
+				kind: "simple",
+				type: "text",
+				property: "notes",
+			},
+			{
+				uuid: uuid(10),
+				name: "words",
+				label: "Words",
+				allowBlank: true,
+				kind: "advanced",
+				type: "text",
+				predicate: whenInput(
+					input(uuid(10)),
+					eq(prop("patient", "notes"), input(uuid(10))),
+				),
+			},
+		];
+		const { reading, read } = await roundTrip(inputs);
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
+	});
+
+	// A field Web Apps does not draw is a `hidden` prompt beside the widget, the match and the
+	// starting value it has as a shown field: a text field matched by its own name, a date range,
+	// and a barcode field whose condition reads it, which keeps no check, since a hidden field
+	// shows none.
+	it("reads fields Web Apps does not draw", async () => {
+		const inputs: SearchInputDef[] = [
+			{
+				uuid: uuid(9),
+				name: "notes",
+				label: "Notes",
+				hidden: true,
+				kind: "simple",
+				type: "text",
+				property: "notes",
+				default: term(literal("north")),
+			},
+			{
+				uuid: uuid(10),
+				name: "dob",
+				label: "Born",
+				hidden: true,
+				kind: "simple",
+				type: "date-range",
+				property: "dob",
+				mode: { kind: "range" },
+			},
+			{
+				uuid: uuid(11),
+				name: "anything",
+				label: "Anything",
+				hidden: true,
+				kind: "advanced",
+				type: "barcode",
+				default: term(literal("00123")),
+				predicate: whenInput(
+					input(uuid(11)),
+					or(
+						eq(prop("patient", "notes"), input(uuid(11))),
+						eq(prop("patient", "phone"), input(uuid(11))),
+					),
+				),
+			},
+		];
+		const { reading, read } = await roundTrip(inputs);
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
+		const prompts = reading.app.modules[0]?.search_config.properties as {
+			name: string;
+			hidden?: boolean;
+			validations?: unknown[];
+		}[];
+		expect(
+			prompts.map(({ name, hidden, validations }) => [
+				name,
+				hidden,
+				validations ?? [],
+			]),
+		).toEqual([
+			["notes", true, []],
+			["dob", true, []],
+			["anything", true, []],
+		]);
+	});
+
+	// A hidden field with no value is a hidden, excluded prompt with no `default`, which reads
+	// back as a hidden field with none; one with a value keeps it.
+	it("reads a hidden field with no value beside one with a value", async () => {
+		const inputs: SearchInputDef[] = [
+			{ uuid: uuid(9), name: "region", label: "Region", kind: "hidden" },
+			{
+				uuid: uuid(10),
+				name: "district",
+				label: "District",
+				kind: "hidden",
+				value: term(literal("north")),
+			},
+		];
+		const { reading, read } = await roundTrip(inputs);
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
 	});
 });
 
@@ -220,8 +366,10 @@ describe("each Search field's slots and arm", () => {
 			expect(read.searchInputs).toEqual(asRead(inputs, reading));
 		});
 
-	it("raises a date range field over a property a text question saves", async () => {
-		const { reading } = await roundTrip([
+	// The field rides its bare key, which the project space matches by the date its index reads
+	// from the text, so it reads with the project space's matching, which the gate admits.
+	it("reads a date range field over a property a text question saves with the project space's matching", async () => {
+		const { reading, read } = await roundTrip([
 			{
 				uuid: uuid(9),
 				name: "notes",
@@ -232,11 +380,15 @@ describe("each Search field's slots and arm", () => {
 				mode: { kind: "range" },
 			},
 		]);
-		const finding = reading.findings.find(
-			(one) =>
-				one.code === "case-search/search-field-over-a-property-of-another-type",
-		);
-		expect(finding?.detail.name).toBe("notes");
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toMatchObject([
+			{
+				kind: "simple",
+				type: "date-range",
+				property: "notes",
+				matching: "project-space",
+			},
+		]);
 	});
 
 	it("declares a date range field's property `date` where no question types it", async () => {
@@ -287,19 +439,25 @@ describe("prompts HQ's pages write that Nova does not", () => {
 		);
 	}
 
-	for (const name of ["owner_id", "case_id", "status"])
-		it(`raises a bare prompt named ${name}`, async () => {
+	for (const name of ["owner_id", "case_id", "status", "name"])
+		it(`keeps a search field matched by the project space under ${name}`, async () => {
 			const reading = await edited({ name });
-			expect(codes(reading)).toContain(
-				"case-search/prompt-named-for-a-case-attribute-hq-matches-itself",
-			);
+			expect(codes(reading)).toEqual([]);
+			expect(listOf(reading).searchInputs[0]).toMatchObject({
+				kind: "simple",
+				matching: "project-space",
+				name,
+				property: name === "name" ? "case_name" : name,
+			});
 		});
 
-	it("raises a bare date prompt", async () => {
+	it("keeps a project space's date match", async () => {
 		const reading = await edited({ input_: "date" });
-		expect(codes(reading)).toContain(
-			"case-search/date-prompt-matched-by-hq-s-own-rule",
-		);
+		expect(codes(reading)).toEqual([]);
+		expect(listOf(reading).searchInputs[0]).toMatchObject({
+			type: "date",
+			matching: "project-space",
+		});
 	});
 
 	it("raises a second validation", async () => {
@@ -349,7 +507,7 @@ describe("Search fields over a table and over dates", () => {
 		},
 	});
 
-	for (const type of ["select", "multi-select"] as const)
+	for (const type of ["select", "multi-select", "checkboxes"] as const)
 		it(`reads a ${type} field whose choices come from a table, sorted and filtered`, async () => {
 			const inputs: SearchInputDef[] = [
 				{
@@ -436,6 +594,7 @@ describe("Search fields over a table and over dates", () => {
 		"date",
 		"select",
 		"multi-select",
+		"checkboxes",
 	] as const)
 		it(`reads a ${type} field that names exact matching as naming no mode`, async () => {
 			const property = type === "date" ? "dob" : "notes";
@@ -447,7 +606,7 @@ describe("Search fields over a table and over dates", () => {
 				property,
 			};
 			const field = (exact: boolean): SearchInputDef =>
-				type === "select" || type === "multi-select"
+				type === "select" || type === "multi-select" || type === "checkboxes"
 					? {
 							...base,
 							type,

@@ -87,7 +87,13 @@ export async function prepareAppTestRecords(
 		screen: {
 			...screen,
 			searchAnswers: search.submitted,
-			searchEntry: { draft: search.draft, errors: search.errors },
+			searchEntry: {
+				draft: search.draft,
+				errors: search.errors,
+				...(search.defaultSearch && { defaultSearch: true as const }),
+				...(screen.searchEntry?.cleared &&
+					!search.hasSubmitted && { cleared: true as const }),
+			},
 			registeredCaseId,
 			listsNoRow,
 			offset: answers === undefined ? screen.offset : 0,

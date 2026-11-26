@@ -1533,6 +1533,7 @@ What a worker sees first when a menu searches is `caseSearchConfig.workflow`,
 read by `lib/domain/modules.ts::searchWorkflow`: absent is search first, the
 Search screen; `skipToResults` runs the search as the menu opens and shows its
 matches; `listFirst` shows the worker's case list with a Search action.
+The Android-only `listFirstWithDefaultResults` also requests default results for the Search action when exported. Android opens the fields and waits for the worker to submit either list-first search.
 Separately, `caseSearchConfig.formsReadSearch: true`
 (`lib/domain/modules.ts::moduleFormsReadSearch`) runs the search as each case
 form of the menu opens, so the forms read what the worker searched for and what
@@ -1541,7 +1542,8 @@ is the one spelling of those two slots on both wire paths:
 
 | Workflow | Forms read the search | `auto_launch` | `default_search` | `inline_search` |
 |---|---|---|---|---|
-| list first | no (the pair is unrepresentable) | false | false | false |
+| list first | no | false | false | false |
+| list first with default results requested (`listFirstWithDefaultResults`) | no | false | true | false |
 | search first | no | true | false | false |
 | search first | yes | true | false | true |
 | skip to results | no | true | true | false |
@@ -1609,6 +1611,10 @@ HQ's related rows excluded) wherever its entry carries the query; a read that
 depends on the order HQ returns its results in is refused
 (`search-results-order`), and Preview supplies the set the search returned,
 capped at HQ's 500.
+
+#### Starting dates on a Search field
+
+A fixed range has two inclusive calendar dates. The editors share one expression slot for its starting value. Fixed dates compile to a single encoded answer that survives the worker’s time zone. Imported calculations can produce a human-readable pair. At the pinned Core revision, `RemoteQuerySessionManager.initUserAnswers` reads it through `DateRangeUtils.formatDateRangeAnswer`. A successful parse uses lenient Java calendar fields and formats the converted midnight in the JVM zone. On parse failure Core retains the evaluated text. Android shows that value and submits it through its query manager. The Web Apps query view decodes the text for its calendars and encodes the visible inputs again on explicit Search. A malformed value can prevent that view from opening. Preview keeps the original answer for an automatic query and identifies the field if Web Apps cannot display it. Its explicit Search encodes every readable piece, including a single date or three dates. Such a value remains visible and replaceable. A simple property criterion refuses an invalid encoded interval. An automatic Search can send an unwrapped value as ordinary property text. Only the saved field’s evaluated answer and its platform’s visible projection may supply a starting answer outside the paired picker.
 
 #### A search with no title
 
@@ -3209,7 +3215,7 @@ the setting, and Nova writes or refuses each:
 | 2 | An above menu's `<menu>` has that id and no `root` attribute; a menu not above has `root="<menu_id(P)>"`, which is `root` under an above parent | `menus.py::get_module_contributions`, `_generate_menu` | `compiler.ts`; such a submenu lists on the first menu (`menuTileScreenOf`) |
 | 3 | An above submenu's `<menu>` takes P's name where P is not above, and keeps its own image and audio locales | `suite_xml/utils.py::_should_use_root_display`; `_generate_menu` | `compiler.ts`; the menu's own name and media are shown nowhere |
 | 4 | An above submenu's condition is `(own) and (P's)`, or P's alone where it has none; nothing else is conjoined | `_generate_menu` | `compiler.ts`; `menuScreens.ts::conditionModulesOf` |
-| 5 | The case list of an above menu gets no Register action and no Search action | `details.py::build_detail` | `FORMS_IN_MENU_ABOVE_WITH_SEARCH`, `CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE` |
+| 5 | The case list of an above menu gets no Register action and no Search action. Its ordinary remote request and the form-entry claim on a project space that syncs cases when a form opens survive. | `details.py::build_detail`, `entries.py::include_post_in_entry` | `shortDetail.ts`, `menuAboveSearch`, `formEntrySyncReasons` |
 | 6 | The build refuses an above menu with an endpoint or with inline search | `validators.py::validate_display_only_forms` | `FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION`, `FORMS_IN_MENU_ABOVE_WITH_SEARCH` |
 | 7 | The build refuses the after-submit `module` in an above menu and `parent_module` under an above parent; the form page offers neither; the link editor never lists an above menu as a target, and lists its forms | `validators.py::FormBaseValidator`; `views/forms.py::get_form_view_context`, `_get_linkable_forms_context` | two reasons of `POST_SUBMIT_NOT_OFFERED`; `menuTargetOffered` |
 | 8 | A frame's module command is the menu id; where that is `root` there is none, and the common datums are those of every form of every above menu in the app, ahead of the form's command | `workflow.py::WorkflowHelper.get_frame_children`, `_root_module_datums` | `formLinkProjection.ts`; a frame that would open with a chosen case is refused at its source (`firstMenuSharedCase`) |

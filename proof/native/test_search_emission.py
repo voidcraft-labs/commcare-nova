@@ -35,7 +35,7 @@ CORPORA = {
         "remote-multiple",
         "remote-defaults",
     },
-    "prompt": {"prompt-widgets", "prompt-guards", "prompt-dataflow", "prompt-worker-place"},
+    "prompt": {"prompt-checkboxes", "prompt-widgets", "prompt-guards", "prompt-dataflow", "prompt-periods", "prompt-period-fallback", "prompt-period-spellings", "prompt-period-held", "prompt-worker-place"},
     "function": {"nested-lookup", "function-arguments"},
     "quote": {"runtime-quotes"},
     "static-quote": {"static-quotes"},

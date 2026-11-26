@@ -128,6 +128,7 @@ import {
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
 	firstPublishViewFromStored,
+	retiredSearchFilterNotices,
 } from "@/lib/publish/firstPublishChangeIds";
 import { connectDeliverRename } from "@/proof/targeted/documents/connectApps";
 import {
@@ -3151,26 +3152,34 @@ function mediaMapItem(id: string): Record<string, unknown> {
 }
 
 /** The entries whose `applies` reads only what the reader records, each pair a whole reading. */
-const READER_RECORDED: readonly FirstPublishChangeId[] =
-	FIRST_PUBLISH_CHANGE_IDS.filter(
-		(id) =>
-			(FIRST_PUBLISH_CHANGES[id].scope === "reading" ||
-				FIRST_PUBLISH_CHANGES[id].recorded !== undefined) &&
-			![
-				"forms-and-settings-rewritten",
-				"connect-app-captures-location",
-				"location-list-setting-reset",
-				"date-and-time-questions-split",
-				"media-paths-joined",
-				"media-files-renamed",
-				"media-references-with-no-file-removed",
-				"broken-pictures-removed",
-				"unused-media-entries-removed",
-			].includes(id),
-	);
+const activeChangeIds = FIRST_PUBLISH_CHANGE_IDS.filter(
+	(id) => !retiredSearchFilterNotices.has(id),
+);
+
+const READER_RECORDED: readonly FirstPublishChangeId[] = activeChangeIds.filter(
+	(id) =>
+		(FIRST_PUBLISH_CHANGES[id].scope === "reading" ||
+			FIRST_PUBLISH_CHANGES[id].recorded !== undefined) &&
+		![
+			"forms-and-settings-rewritten",
+			"connect-app-captures-location",
+			"location-list-setting-reset",
+			"date-and-time-questions-split",
+			"media-paths-joined",
+			"media-files-renamed",
+			"media-references-with-no-file-removed",
+			"broken-pictures-removed",
+			"unused-media-entries-removed",
+		].includes(id),
+);
 
 describe("each entry", () => {
-	for (const id of FIRST_PUBLISH_CHANGE_IDS)
+	for (const id of retiredSearchFilterNotices)
+		it(`preserves the former source of ${id} without a new notice`, async () => {
+			expect(applies(id, await PAIRS[id].on())).toBe(false);
+		});
+
+	for (const id of activeChangeIds)
 		it(`${id} applies on one reading and not on another`, {
 			timeout: 60_000,
 		}, async () => {
@@ -3181,7 +3190,7 @@ describe("each entry", () => {
 			);
 		});
 
-	for (const id of FIRST_PUBLISH_CHANGE_IDS)
+	for (const id of activeChangeIds)
 		it(`${id} stands at places of its own on the reading it applies on`, {
 			timeout: 60_000,
 		}, async () => {
@@ -3220,14 +3229,14 @@ describe("each entry", () => {
 			}
 		});
 
-	for (const id of FIRST_PUBLISH_CHANGE_IDS.filter(
+	for (const id of activeChangeIds.filter(
 		(one) => one !== "forms-and-settings-rewritten",
 	))
 		it(`${id} stands where its first publish changes what only it may change`, {
 			timeout: 60_000,
 		}, async () => {
 			const facts = await PAIRS[id].on();
-			const others = FIRST_PUBLISH_CHANGE_IDS.filter(
+			const others = activeChangeIds.filter(
 				(other) => other !== id && FIRST_PUBLISH_CHANGES[other].applies(facts),
 			);
 			const [placed] = firstPublishChangePlaces(facts, [id]);
@@ -3285,7 +3294,7 @@ describe("each entry", () => {
 		const view = firstPublishChangesFor(await PAIRS["case-names-checked"].on());
 		expect(view.of).toBe("first-publish");
 		expect(view.ids).toEqual(
-			FIRST_PUBLISH_CHANGE_IDS.filter((id) => view.ids.includes(id)),
+			activeChangeIds.filter((id) => view.ids.includes(id)),
 		);
 		expect(view.ids).toContain("case-names-checked");
 		expect(view.touchesWorkers).toBe(true);

@@ -1093,6 +1093,14 @@ export function slotContext(
 			)
 				return undefined;
 		}
+		if (
+			slot.slot === "search_filter_value" &&
+			!module.caseListConfig?.searchFilters?.some(
+				(filter) =>
+					"target" in filter && filter.uuid === slot.member.filterUuid,
+			)
+		)
+			return undefined;
 		if (slot.slot === "case_list_column_expression") {
 			const column = module.caseListConfig?.columns.find(
 				(entry) => entry.uuid === slot.member.columnUuid,
@@ -1126,6 +1134,7 @@ export function slotContext(
 			"case_detail_tab_rows",
 			"case_detail_tab_condition",
 			"case_list_filter",
+			"case_search_filter",
 			"case_list_column_expression",
 			"case_list_sort_expression",
 			"search_input_predicate",
@@ -1138,6 +1147,7 @@ export function slotContext(
 			"module_display_condition",
 			"case_list_action_condition",
 			"case_list_filter",
+			"case_search_filter",
 			"search_button_display_condition",
 			"search_input_predicate",
 			"search_input_options",
@@ -1146,7 +1156,9 @@ export function slotContext(
 		].includes(slot.slot);
 		const admitsInputs = [
 			"case_list_mapping_condition",
+			"search_filter_value",
 			"case_list_filter",
+			"case_search_filter",
 			"case_list_column_expression",
 			"case_list_sort_expression",
 			"search_input_predicate",
@@ -1163,10 +1175,12 @@ export function slotContext(
 						slot.slot === "case_detail_tab_condition" ||
 						slot.slot === "case_form_context_line"
 					? ["HQ", "SU", "PV", "PG"]
-					: slot.slot === "search_input_predicate"
+					: slot.slot === "search_input_predicate" ||
+							slot.slot === "case_search_filter"
 						? ["CS", "PG"]
 						: slot.slot === "case_list_filter"
-							? searchable
+							? searchable &&
+								module.caseListConfig?.searchCondition === undefined
 								? ["SU", "HQ", "CS", "PG"]
 								: ["SU", "HQ", "PG"]
 							: orderValue
@@ -1199,7 +1213,11 @@ export function slotContext(
 			rows = [
 				{
 					kind: "case",
-					root: slot.slot === "search_input_predicate" ? "results" : "casedb",
+					root:
+						slot.slot === "search_input_predicate" ||
+						slot.slot === "case_search_filter"
+							? "results"
+							: "casedb",
 					caseType: module.caseType,
 				},
 			];
@@ -1279,7 +1297,11 @@ export function slotContext(
 			// worker just chose a case on every path into its detail.
 			supplies = detailEntrySupplies(doc, moduleUuid);
 		}
-		if (slot.slot === "search_input_predicate")
+		if (
+			slot.slot === "search_input_predicate" ||
+			slot.slot === "search_filter_value" ||
+			slot.slot === "case_search_filter"
+		)
 			supplies = entryDatumSupplies(doc, {
 				kind: "search",
 				module: moduleUuid,
@@ -1303,17 +1325,7 @@ export function slotContext(
 				input.kind === "hidden"
 			)
 				return undefined;
-			if (
-				slot.slot === "search_input_default" &&
-				"type" in input &&
-				input.type === "date-range"
-			)
-				return undefined;
-			if (
-				slot.slot === "search_input_default" &&
-				"type" in input &&
-				input.type !== "date-range"
-			)
+			if (slot.slot === "search_input_default" && "type" in input)
 				profile = {
 					...profile,
 					expectation: {

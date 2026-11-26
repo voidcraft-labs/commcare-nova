@@ -1596,7 +1596,9 @@ test("blank and empty equality are one absence check over absent, empty and JSON
 				["Alice", "Bob", "Carol", "absent", "blank", "null"],
 			],
 			[gt(prop("patient", "age"), literal(null)), []],
-			[lt(name, literal(null)), []],
+			// HQ's search reads no number or date from a blank, so its range query fails
+			// (`comparison.py::_case_property_range_query`); a device orders nothing.
+			...(reading === "search" ? [] : [[lt(name, literal(null)), []] as const]),
 			[isIn(name, literal("Alice")), ["Alice"]],
 			[
 				isIn(name, literal("Alice"), literal("Bob"), literal(null)),
@@ -1607,6 +1609,11 @@ test("blank and empty equality are one absence check over absent, empty and JSON
 				await matchedIds(db, predicate, makeCtx(db, { reading })),
 				`${reading} ${JSON.stringify(predicate)}`,
 			).toEqual(expected);
+	await expect(
+		matchedIds(db, lt(name, literal(null)), makeCtx(db, { reading: "search" })),
+	).rejects.toMatchObject({
+		reason: { kind: "query-value-invalid", field: "nickname" },
+	});
 });
 
 test("negated atoms, inequality and blank comparisons keep the rows a device and HQ keep", async ({
@@ -2102,6 +2109,31 @@ test("a list of values matches each item as the exact text the case holds, a num
 	expect(
 		await matchedIds(db, neq(prop("patient", "age"), list("abc"))),
 	).toEqual(["absent", "empty", "five", "thirty"]);
+});
+
+test("a date or a number equal to text HQ's search does not convert finds the cases holding that exact text", async ({
+	db,
+}) => {
+	// HQ's search tests equality on the stored text whatever the property's
+	// type (`es/case_search.py::case_property_query`), so `dob = 'unknown'`
+	// finds a case some writer gave that text, and never a date.
+	await seedProperties(db, [
+		["text", { dob: "unknown", age: "unknown" }],
+		["dated", { dob: "2026-02-01", age: 5 }],
+		["absent", {}],
+	]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "dob"), literal("unknown"))),
+	).toEqual(["text"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), literal("unknown"))),
+	).toEqual(["text"]);
+	expect(
+		await matchedIds(db, neq(prop("patient", "dob"), literal("unknown"))),
+	).toEqual(["absent", "dated"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "dob"), literal("2026-02-01"))),
+	).toEqual(["dated"]);
 });
 
 test("a list of values matches a time by the wall clock Nova stores and a date by the text a device writes, as a single value does", async ({

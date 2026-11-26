@@ -8,7 +8,11 @@
 // which the platform table states (`lib/domain/platforms.ts`, `search-first`,
 // `skip-to-results`).
 
-import { type OrdinaryCaseSearchConfig, searchWorkflow } from "@/lib/domain";
+import {
+	type OrdinaryCaseSearchConfig,
+	searchOpensOnList,
+	searchWorkflow,
+} from "@/lib/domain";
 import type { WireShape } from "./types";
 
 /**
@@ -18,6 +22,7 @@ import type { WireShape } from "./types";
  *   | workflow      | formsReadSearch | auto_launch | default_search | inline |
  *   |---------------|-----------------|-------------|----------------|--------|
  *   | listFirst     | absent          | false       | false          | false  |
+ *   | listFirstWithDefaultResults | absent | false   | true           | false  |
  *   | searchFirst   | absent / true   | true        | false          | = forms|
  *   | skipToResults | absent / true   | true        | true           | = forms|
  *
@@ -31,8 +36,10 @@ export function searchWireShape(
 ): WireShape {
 	const workflow = searchWorkflow(caseSearchConfig);
 	return {
-		autoLaunch: workflow !== "listFirst",
-		defaultSearch: workflow === "skipToResults",
+		autoLaunch: !searchOpensOnList(workflow),
+		defaultSearch:
+			workflow === "skipToResults" ||
+			workflow === "listFirstWithDefaultResults",
 		inlineSearch: caseSearchConfig.formsReadSearch === true,
 	};
 }

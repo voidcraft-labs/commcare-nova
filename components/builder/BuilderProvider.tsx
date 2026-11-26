@@ -61,6 +61,7 @@ import {
 	BuilderSessionContext,
 	BuilderSessionProvider,
 } from "@/lib/session/provider";
+import { PreviewSearchConfigurationProvider } from "./PreviewSearchConfiguration";
 
 /** Existing-app data captured in one authorized server transaction. Keeping
  *  the cursor and capability tuple in one prop prevents independently stale
@@ -208,25 +209,27 @@ function BuilderProviderInner({
 								initialProjectSpace={initialProjectSpace ?? null}
 								initialTargetFacts={initialTargetFacts ?? null}
 							>
-								<BuilderFormEngineProvider>
-									<SyncBridge />
-									<LocationRecoveryEffect />
-									{/* Asks CommCare HQ once, after the builder is drawn,
-									 *  whether the app changed there. Renders nothing and
-									 *  nothing waits on it. */}
-									<HqChangesCheck />
-									<PreviewCaseDatabaseProvider>
-										<PreviewLookupDataProvider>
-											{/* Works out each pressed search's device values on
-											 *  the session, whichever screen is showing. */}
-											<SearchDeviceValuesRecorder />
-											<AppNoticesProvider initial={initialNotices}>
-												{initialDoc ? <LoadAppHydrator /> : null}
-												{children}
-											</AppNoticesProvider>
-										</PreviewLookupDataProvider>
-									</PreviewCaseDatabaseProvider>
-								</BuilderFormEngineProvider>
+								<PreviewSearchConfigurationProvider>
+									<BuilderFormEngineProvider>
+										<SyncBridge />
+										<LocationRecoveryEffect />
+										{/* Asks CommCare HQ once, after the builder is drawn,
+										 *  whether the app changed there. Renders nothing and
+										 *  nothing waits on it. */}
+										<HqChangesCheck />
+										<PreviewCaseDatabaseProvider>
+											<PreviewLookupDataProvider>
+												{/* Works out each pressed search's device values on
+												 *  the session, whichever screen is showing. */}
+												<SearchDeviceValuesRecorder />
+												<AppNoticesProvider initial={initialNotices}>
+													{initialDoc ? <LoadAppHydrator /> : null}
+													{children}
+												</AppNoticesProvider>
+											</PreviewLookupDataProvider>
+										</PreviewCaseDatabaseProvider>
+									</BuilderFormEngineProvider>
+								</PreviewSearchConfigurationProvider>
 							</DeploymentTargetProvider>
 						</ProjectDataWorkspaceProvider>
 					</CaseListWorkspaceProvider>
