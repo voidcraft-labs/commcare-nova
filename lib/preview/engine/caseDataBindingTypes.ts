@@ -580,6 +580,7 @@ export type SubmissionWireMutation =
 export type SubmissionResult =
 	| {
 			kind: "registration";
+			receiptOutsideRun?: true;
 			submissionLocation?: DeviceLocation | null;
 			caseId: string;
 			/** Flat compatibility alias for a pre-deploy FormScreen. */
@@ -598,6 +599,7 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "followup";
+			receiptOutsideRun?: true;
 			submissionLocation?: DeviceLocation | null;
 			caseIds: ReadonlyArray<string>;
 			/** Present only for a singleton result. A true batch has no scalar
@@ -618,6 +620,7 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "close";
+			receiptOutsideRun?: true;
 			submissionLocation?: DeviceLocation | null;
 			caseIds: ReadonlyArray<string>;
 			/** Present only for a singleton result. A true batch has no scalar
@@ -638,6 +641,7 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "survey";
+			receiptOutsideRun?: true;
 			submissionLocation?: DeviceLocation | null;
 			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {

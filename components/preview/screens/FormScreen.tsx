@@ -1987,6 +1987,7 @@ function ReadyFormScreen({
 		const listReturn = post.previewEntryPointLaunch?.listIconReturn;
 		if (
 			submitted.entryKey !== undefined &&
+			!result.receiptOutsideRun &&
 			submitted.run === post.previewSessionId
 		)
 			post.notePreviewSubmission(submitted.receiptRun, submitted.entryKey);

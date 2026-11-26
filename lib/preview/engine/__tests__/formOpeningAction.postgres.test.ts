@@ -552,30 +552,41 @@ it("carries the submission into its continuing device run even when the signed e
 	);
 	if (!resumed)
 		throw new Error("Could not authorize the saved entry's new device run");
-	const result = await submitFormAction(
-		{
-			kind: "followup" as const,
-			caseIds: ["training-2"],
-			entryKey: request.entry,
-			formUuid: request.form,
-			attachmentRefs: [],
-			formOpening: { run: request.run, module, evidence: opened.evidence },
-			operationAnswers: {
-				root: [{ fieldUuid: note.uuid, value: "Seen today" }],
-				repeats: [],
-			},
+	const mutation = {
+		kind: "followup" as const,
+		caseIds: ["training-2"],
+		entryKey: request.entry,
+		formUuid: request.form,
+		attachmentRefs: [],
+		formOpening: { run: request.run, module, evidence: opened.evidence },
+		operationAnswers: {
+			root: [{ fieldUuid: note.uuid, value: "Seen today" }],
+			repeats: [],
 		},
-		app,
-		request.blueprintDigest,
-		undefined,
-		undefined,
-		undefined,
-		device,
-		undefined,
-		continuingRun,
-		resumed,
-	);
+	};
+	const submit = (run: string, transition?: typeof resumed) =>
+		submitFormAction(
+			mutation,
+			app,
+			request.blueprintDigest,
+			undefined,
+			undefined,
+			undefined,
+			device,
+			undefined,
+			run,
+			transition,
+		);
+	expect(
+		(await submit(continuingRun, { ...resumed, to: request.run })).kind,
+	).not.toBe("followup");
+	const result = await submit(continuingRun, resumed);
 	expect(result.kind).toBe("followup");
+	expect(await submit(continuingRun, resumed)).toEqual(result);
+	expect(await submit(request.run)).toEqual({
+		...result,
+		receiptOutsideRun: true,
+	});
 	// The case leaves this worker's restore, as a case the entry closed does;
 	// the device keeps it until it syncs.
 	await pool.query(

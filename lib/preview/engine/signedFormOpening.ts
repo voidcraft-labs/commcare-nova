@@ -79,6 +79,17 @@ const transitionSchema = z.strictObject({
 	signature: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
+/** The requested journal for comparison with an already accepted receipt.
+ * This does not authorize a transition or change the immutable receipt. */
+export function requestedReceiptRun(
+	transition: unknown,
+	run: string | undefined,
+) {
+	if (transition === undefined) return run;
+	const parsed = transitionSchema.safeParse(transition);
+	return parsed.success ? parsed.data.to : undefined;
+}
+
 export function signReceiptRunTransition(
 	secret: string,
 	audience: TransitionAudience,

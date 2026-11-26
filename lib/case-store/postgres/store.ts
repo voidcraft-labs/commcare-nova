@@ -2555,6 +2555,9 @@ export class PostgresCaseStore implements CaseStore {
 				}),
 				...(activities ? { activities: activities.facts } : {}),
 				blueprintDigest: args.submissionReceipt.blueprintDigest,
+				...(args.submissionReceipt.openingCarryScope && {
+					openingCarryScope: args.submissionReceipt.openingCarryScope,
+				}),
 				caseDatabasePatch,
 			};
 			if (args.webActivity !== undefined)
