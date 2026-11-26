@@ -802,6 +802,37 @@ def _form_json(requires="case", **actions):
 ALWAYS, NEVER = {"type": "always"}, {"type": "never"}
 
 
+CONDITIONAL_REGISTER = {"type": "if", "question": "/data/accept", "answer": "yes", "operator": "="}
+
+
+def _conditional_registration_app(condition, *, inline=True, workflow="case_list", form_workflow="default", bare=False):
+    registration = {
+        **_form_json("none", open_case={"condition": condition}),
+        "unique_id": "register",
+        "post_form_workflow": form_workflow,
+    }
+    host = _module(
+        [] if bare else [_form_json()],
+        search_config={"inline_search": inline, "auto_launch": True, "properties": [{"name": "patient_name"}]},
+        case_list={"show": True},
+        case_list_form={"form_id": "register", "post_form_workflow": workflow},
+    )
+    return _app([host, _module([registration], unique_id="registration-menu")])
+
+
+def test_inline_search_reads_the_new_case_on_return_from_conditional_registration(manifest):
+    def returned(condition, **options):
+        app = _conditional_registration_app(condition, **options)
+        [use] = _app_uses(app, manifest, "schema:Module.case_list_form")
+        return classes.registration_return_search_needs_created_case(use, manifest)
+
+    assert returned(CONDITIONAL_REGISTER, workflow="default") is True
+    assert returned(NEVER) is False
+    assert returned(CONDITIONAL_REGISTER, inline=False) is False
+    assert returned(CONDITIONAL_REGISTER, form_workflow="root") is False
+    assert returned(CONDITIONAL_REGISTER, bare=True) is False
+
+
 def test_a_forms_case_actions_by_the_action_a_use_sits_in(manifest):
     extension = {"case_type": "child", "condition": ALWAYS, "relationship": "extension"}
     survey_child = _form_json("none", subcases=[extension])
@@ -4218,6 +4249,20 @@ def _search_and_menus():
                 columns_app(case_list_form={"form_id": "r"}, short={"case_tile_template": "person_simple"}),
                 "schema:CaseListForm.form_id",
                 "/modules/0/case_list_form/form_id",
+            ),
+        ),
+        "menus-and-case-lists/case-list-form-return-search-needs-the-created-case": (
+            refused(
+                "app",
+                _conditional_registration_app(CONDITIONAL_REGISTER),
+                "schema:Module.case_list_form",
+                "/modules/0/case_list_form",
+            ),
+            accepted(
+                "app",
+                _conditional_registration_app(ALWAYS),
+                "schema:Module.case_list_form",
+                "/modules/0/case_list_form",
             ),
         ),
         "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
