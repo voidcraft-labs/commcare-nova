@@ -243,10 +243,6 @@
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): every stored tab is refused by its kind, so no reading holds one."
 	},
-	"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.2): a slot of a template tile stands under the template's own finding, so no reading names this class on its own."
-	},
 	"menus-and-case-lists/hq-computed-datums-case-id-new-type-n-usercase-id-datum-parent": {
 		"reason": "only-in-a-build",
 		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
