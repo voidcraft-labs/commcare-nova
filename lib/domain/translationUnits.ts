@@ -14,6 +14,7 @@ import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
 import type { Field } from "./fields";
 import { isContainer } from "./fields";
+import { DEFAULT_FORM_SUBMIT_LABEL } from "./formSubmitLabel";
 import {
 	type GeneratedWording,
 	generatedWordingUnits,
@@ -713,7 +714,7 @@ export function collectTranslationUnits(
 						id: makeTranslationUnitId("form", formUuid, "submit-label"),
 						valueKind: "text",
 						role: "form-submit-label",
-						source: form.submitLabel.text ?? "Submit",
+						source: form.submitLabel.text ?? DEFAULT_FORM_SUBMIT_LABEL,
 						owner: { kind: "form", moduleUuid, formUuid },
 						breadcrumb: [...moduleBreadcrumb, form.name, "Submit button"],
 						context: { moduleName: module.name, formName: form.name },
@@ -1478,6 +1479,11 @@ export function defaultWording(
 	language: LanguageTag,
 	unit: TranslationUnit,
 ): LocalizedValue {
+	if (
+		unit.role === "form-submit-label" &&
+		language !== effectiveAppLocalization(doc.localization).sourceLanguage
+	)
+		return DEFAULT_FORM_SUBMIT_LABEL;
 	const base =
 		unit.generated?.base &&
 		snapshotTranslationUnits(doc).get(unit.generated.base);
@@ -1514,7 +1520,7 @@ function storedTranslation(
 			};
 		}
 		return {
-			effective: unitValue.source,
+			effective: defaultWording(doc, language, unitValue),
 			status:
 				isSource ||
 				(unitValue.role === "search-screen-title" && unitValue.source === "")
