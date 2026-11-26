@@ -3107,6 +3107,7 @@ describe("loadCasesAction", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as Awaited<ReturnType<typeof getSession>>);
 			const store = {
 				...actionStore(),
@@ -3171,6 +3172,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as Awaited<ReturnType<typeof getSession>>);
 		const first = {
 			...buildSyntheticRow({}),
@@ -3264,8 +3266,9 @@ describe("loadCasesAction", () => {
 			project_id: PROJECT_A,
 		});
 		let revision = 1;
-		getLookupFixtureDataMock.mockImplementation(
+		readWorkerLookupProjectionMock.mockImplementation(
 			async (_scope, ids: LookupTableId[]) => ({
+				projectId: PROJECT_A,
 				projectRevision: String(revision),
 				definitions: definitions.filter((table) => ids.includes(table.id)),
 				rowsByTable: new Map(
@@ -3304,11 +3307,15 @@ describe("loadCasesAction", () => {
 				"dob:starting": "opening 1 0",
 				"last_seen:starting": "opening 1 1",
 			});
-			expect(getLookupFixtureDataMock).toHaveBeenCalledExactlyOnceWith(
-				{ projectId: PROJECT_A, actorId: OWNER_A, role: "owner" },
+			expect(readWorkerLookupProjectionMock).toHaveBeenCalledExactlyOnceWith(
+				{
+					scope: { appId: APP_ID, projectId: PROJECT_A, actorUserId: OWNER_A },
+					grant: { kind: "session", sessionId: "preview-session" },
+					personaUuid: undefined,
+				},
 				tables,
-				"device",
 			);
+			expect(getLookupFixtureDataMock).not.toHaveBeenCalled();
 			revision = 2;
 			vi.setSystemTime(new Date("2024-05-03T12:00:00Z"));
 			const request = {
@@ -3351,7 +3358,7 @@ describe("loadCasesAction", () => {
 				await readCasesForSavedRange({ ...request, appId: "another-app" }),
 			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
 
-			expect(getLookupFixtureDataMock).toHaveBeenCalledTimes(1);
+			expect(readWorkerLookupProjectionMock).toHaveBeenCalledTimes(1);
 			const again = await openSearchRangesAction(target);
 			expect(
 				again.kind === "opened" &&
@@ -3379,7 +3386,7 @@ describe("loadCasesAction", () => {
 				utc.kind === "opened" && utc.fields[1].answers["last_seen:starting"],
 			).toBe("opening 2 1");
 			const { LookupError } = await import("@/lib/lookup/errors");
-			getLookupFixtureDataMock.mockRejectedValueOnce(
+			readWorkerLookupProjectionMock.mockRejectedValueOnce(
 				new LookupError(
 					"storage_limit",
 					"This app references more lookup data than Preview can load at once.",
