@@ -1,5 +1,7 @@
 """One worker's mixed case restore, read by the retained untyped case itemset on both clients."""
 
+from xml.etree import ElementTree
+
 from lxml import etree
 
 from proof.formplayer import apps, hq
@@ -52,7 +54,7 @@ def release_unfiltered(holder):
 
     def change(stored):
         blocks = [
-            etree.tostring(CaseBlock(
+            ElementTree.tostring(CaseBlock(
                 case_id=case_id, close=True, user_id=casedata.USER_ID,
                 date_modified=casedata._datetime("2025-12-02T08:00:00.000Z"),
             ).as_xml(), encoding="unicode")
