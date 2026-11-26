@@ -1642,6 +1642,51 @@ describe("ordered selected-case batches", () => {
 		expect(await store.applySubmission(claim)).toEqual(saved);
 	});
 
+	it("keeps the existing update owner when its condition is false and still saves other values", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const originalOwner = (await patientRow(store, SESSION_CASE_ID))?.owner_id;
+		const update = envOp(
+			operation({
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: term(formField(KEY_FIELD)),
+				ownerCondition: eq(formField(FLAG_FIELD), literal("transfer")),
+				writes: [{ property: "notes", value: term(formField(FLAG_FIELD)) }],
+			}),
+		);
+		const submit = (
+			formFields: NonNullable<Parameters<typeof rootProgram>[1]>["formFields"],
+		) =>
+			store.applySubmission({
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: rootProgram([update], { formFields }),
+			});
+
+		await submit([[FLAG_FIELD, "keep"]]);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			owner_id: originalOwner,
+			properties: { notes: "keep" },
+		});
+		await expect(submit([[FLAG_FIELD, "transfer"]])).rejects.toBeInstanceOf(
+			SubmissionRejectedError,
+		);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			owner_id: originalOwner,
+			properties: { notes: "keep" },
+		});
+		await submit([
+			[FLAG_FIELD, "transfer"],
+			[KEY_FIELD, "supervisor-9"],
+		]);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			owner_id: "supervisor-9",
+			properties: { notes: "transfer" },
+		});
+	});
+
 	it("applies authored case changes within a row and omits absent positions on replay", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);

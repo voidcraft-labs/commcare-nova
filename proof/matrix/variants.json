@@ -35404,20 +35404,18 @@
 	{
 		"id": "hq-questions/save-to-case-update-owner-condition",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-update-owner-condition",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
+		"entry": "questions/savetocase-targeted-update-owner-condition",
 		"change": {
 			"op": "named",
 			"name": "save_to_case_update_owner_condition"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/ownerCondition/kind",
+				"value": "gt"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-reserved-key",

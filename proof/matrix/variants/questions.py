@@ -1971,6 +1971,7 @@ def save_to_case_conditional_owner_aliased_create(authoring, app_id):
 
 def save_to_case_update_owner_condition(authoring, app_id):
     """The same conditional facet on a targeted update has its own standing."""
+    owner_path = GUARD_OWNER.replace("/create/", "/update/")
     _save_to_case(
         authoring,
         app_id,
@@ -1984,6 +1985,13 @@ def save_to_case_update_owner_condition(authoring, app_id):
             1,
         ),
         (STC_ID_SETVALUE, f'<bind nodeset="{MAKE}/@case_id" calculate="&apos;household-01&apos;"/>', 1),
+        (
+            f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+            f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
+            f"not(/data/age &gt; 5) or string-length({owner_path}) &gt; 0 and"
+            f" string-length({owner_path}) &lt;= 255",
+            1,
+        ),
     )
 
 

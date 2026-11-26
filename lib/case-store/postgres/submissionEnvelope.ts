@@ -2305,6 +2305,7 @@ async function resolveOperationProgram(
 		} else if (
 			operation.action === "update" &&
 			operation.owner !== undefined &&
+			!skippedOwners.has(index) &&
 			!ownerKept &&
 			!(
 				instance.envelope.blankSavesNothing &&

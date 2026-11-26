@@ -10582,6 +10582,27 @@ def conditioned_create_owner(use, manifest):
     )
 
 
+def conditioned_update_owner(use, manifest):
+    """A condition on the owner leaf of an ordinary targeted Save to Case update."""
+    form, bind, node = _bind(use)
+    if form is None:
+        return None
+    if bind is None or node is None or isinstance(node, tuple) or not bind.get("relevant"):
+        return False
+    update = node.getparent()
+    if node.tag != f"{{{CASE}}}owner_id" or update is None or update.tag != f"{{{CASE}}}update":
+        return False
+    case = update.getparent()
+    holder = case.getparent() if case is not None else None
+    return (
+        holder is not None
+        and holder.get(f"{{{VELLUM}}}role") == "SaveToCase"
+        and holder.get(f"{{{VELLUM}}}case_type") != USER_CASE_TYPE
+        and case.find(f"{{{CASE}}}create") is None
+    )
+
+
+
 def _savetocase_index_at(use):
     form, element = _data_node(use)
     if form is None or element is None:
@@ -12396,6 +12417,7 @@ VALUE_CLASSES = {
     "questions/savetocase-case-id-expression-on-a-create": exact_create_id,
     "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under": write_and_close,
     "questions/savetocase-owner-id-condition": conditioned_create_owner,
+    "questions/savetocase-targeted-update-owner-condition": conditioned_update_owner,
     "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,
     "questions/savetocase-link-bind-lost-on-save": index_period_loses_bind,
     "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": savetocase_blank_create_id,

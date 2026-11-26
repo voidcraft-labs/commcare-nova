@@ -1790,9 +1790,15 @@ function readBlock(
 			}
 			if (property === "owner_id") {
 				if (bind.attribs.relevant !== undefined) {
-					if (!sharedShape)
-						return fail(SAVE_TO_CASE_CLAIMS.updateOwnerCondition);
-					ownerLed = true;
+					if (sharedShape) ownerLed = true;
+					else {
+						if (creates || target.kind === "worker-record")
+							return fail(SAVE_TO_CASE_CLAIMS.updateOwnerCondition);
+						ownerCondition = {
+							text: bind.attribs.relevant,
+							site: { element: bind, attribute: "relevant" },
+						};
+					}
 				}
 				owner = readOwner(untrimmed(text).text, root, {
 					element: bind,
@@ -2600,7 +2606,8 @@ export function readSaveToCaseBlocks(
 						read.target.kind !== "session" ||
 						read.block.repeat !== null ||
 						read.segments.join("/") !== "operations/block" ||
-						read.retype !== undefined
+						read.retype !== undefined ||
+						read.ownerCondition !== undefined
 					)
 						return false;
 					const present = guardKindsBeside(read.block, guards);
@@ -3795,6 +3802,10 @@ function operationOf(
 		caseType: one.caseType,
 		target,
 		...(one.action === "update" && owner !== undefined && { owner }),
+		...(one.action === "update" &&
+			one.ownerCondition !== undefined && {
+				ownerCondition: placeholder("condition"),
+			}),
 		...(one.action === "update" &&
 			one.rename !== undefined && { rename: placeholder("value") }),
 		...(one.action === "update" &&

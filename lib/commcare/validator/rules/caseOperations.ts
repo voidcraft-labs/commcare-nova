@@ -778,18 +778,26 @@ function validateOperation(
 		);
 	}
 	if (operation.ownerCondition !== undefined) {
-		if (
-			operation.action !== "create" ||
-			operation.target.kind !== "new" ||
-			operation.target.idFrom !== undefined ||
-			operation.target.expr !== undefined
-		)
+		const reason =
+			operation.action === "create" &&
+			(operation.target.kind !== "new" ||
+				operation.target.idFrom !== undefined ||
+				operation.target.expr !== undefined)
+				? "fresh-id"
+				: operation.action === "update" && operation.owner === undefined
+					? "missing-owner"
+					: operation.action === "update" &&
+							operation.target.kind === "worker-record"
+						? "worker-record"
+						: undefined;
+		if (reason !== undefined)
 			errors.push(
 				opError(
 					ctx,
 					operation,
 					"CASE_OPERATION_OWNER_CONDITION_INVALID",
-					"A case with a conditional owner needs a fresh ID on each submission.",
+					"The owner condition requires an eligible owner write.",
+					{ reason },
 				),
 			);
 		validatePredicateSlot(
