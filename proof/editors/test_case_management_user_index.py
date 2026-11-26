@@ -1,4 +1,6 @@
-"""An HQ case-management update through the index actually named user."""
+"""HQ case-management updates through the loaded case’s own indices."""
+
+from datetime import datetime
 
 from lxml import etree
 
@@ -20,25 +22,25 @@ ORIGIN, LINKED = "member-with-index", "related-household"
 CONFIGURATION = Configuration(privileges={"CLOUDCARE", "USERCASE"})
 
 
-def _source(xmlns):
+def _source(xmlns, bind_type="string"):
     return f"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="{XFORMS}"
       xmlns:jr="http://openrosa.org/javarosa" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
       <h:head><h:title>Visit</h:title><model>
         <instance><data xmlns="{xmlns}" name="Visit" version="1" uiVersion="1"><note/></data></instance>
-        <bind nodeset="/data/note" type="xsd:string"/>
+        <bind nodeset="/data/note" type="xsd:{bind_type}"/>
         <itext><translation lang="en" default=""><text id="note-label"><value>Note</value></text></translation></itext>
       </model></h:head>
       <h:body><input ref="/data/note"><label ref="jr:itext('note-label')"/></input></h:body>
     </h:html>"""
 
 
-def _restore(linked):
+def _restore(linked, identifier="user"):
     result = etree.fromstring(person_cases(TEMPLATE_RESTORE.read_bytes(), [ORIGIN, LINKED]))
     cases = {case.get("case_id"): case for case in result.iter(f"{{{CASE}}}case")}
     cases[LINKED].find(f"{{{CASE}}}create/{{{CASE}}}case_type").text = "household"
     if linked:
         index = etree.SubElement(cases[ORIGIN], f"{{{CASE}}}index")
-        etree.SubElement(index, f"{{{CASE}}}user", case_type="household").text = LINKED
+        etree.SubElement(index, f"{{{CASE}}}{identifier}", case_type="household").text = LINKED
     return etree.tostring(result)
 
 
@@ -111,3 +113,70 @@ def test_basic_case_management_writes_through_user_index_and_refuses_a_missing_l
         assert result.touched[LINKED].case.case_json == {"linked_note": "A visit"}
         assert missing["end"] == "submission-refused"
         assert form_step(missing)["processing"]["class"] == "org.javarosa.xml.util.InvalidStructureException"
+
+
+def test_basic_date_and_time_saves_the_same_day_to_its_case_and_parent(hq, core_runner, tmp_path):
+    from corehq.apps.app_manager.models import ConditionalCaseUpdate, DetailColumn
+
+    instant = "2025-04-05T23:24:47.125Z"
+    day = instant.split("T", 1)[0]
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
+        app = operations.held_app(state, app_id)
+        module = app.modules[0]
+        form = module.forms[0]
+        module.forms = [form]
+        module.media_image = {}
+        app.multimedia_map = {}
+        module.case_type = "person"
+        for detail in (module.case_details.short, module.case_details.long):
+            detail.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
+        form.requires = "case"
+        form.actions.open_case.name_update = ConditionalCaseUpdate()
+        form.actions.update_case.condition.type = "always"
+        form.actions.update_case.update = {
+            key: ConditionalCaseUpdate(question_path="/data/note", update_mode="always")
+            for key in ("visit_day", "parent/visit_day")
+        }
+        app.save()
+        _patched(state, app_id, form.unique_id, _source(form.xmlns, "dateTime"), "save the visit day on two cases")
+        built = compare.build(state, app_id, record)
+        assert not built.errors, built.errors
+        archive = arrange(built.files, tmp_path)
+        with admitted(core_runner, archive) as admission:
+            assert admission["admitted"], admission["problems"]
+            trace = core_runner.session(
+                admission["app"], restore=_restore(True, "parent"), question_kinds={"/data/note": "datetime"},
+                clock=instant,
+            )
+
+        run, = (
+            run for run in trace["runs"]
+            if (step := form_step(run)) and step.get("xmlns") == form.xmlns
+        )
+        assert run["end"] == "submitted", run.get("refusal")
+        submission, tokens = unmarked_submission(run)
+        payload = etree.fromstring(submission)
+        assert datetime.fromisoformat(payload.findtext("{*}note")) == datetime.fromisoformat(instant)
+        blocks = {block.get("case_id"): block for block in payload.iter(f"{{{CASE}}}case")}
+        assert set(blocks) == {ORIGIN, LINKED}
+        for block in blocks.values():
+            assert block.findtext(f"{{{CASE}}}update/{{{CASE}}}visit_day") == day
+        snapshot = etree.fromstring(form_step(run)["caseDb"].encode())
+        for case_id in (ORIGIN, LINKED):
+            stored = snapshot.findtext(f"case[@case_id='{case_id}']/visit_day")
+            assert tokens.get(stored, stored) == day
+
+        initial = operations.process_case_blocks(
+            state,
+            _submission(
+                _case(ORIGIN, _create("person", "Person") + f'<index><parent case_type="household">{LINKED}</parent></index>'),
+                _case(LINKED, _create("household", "Household")),
+            ),
+        )
+        assert initial.refusal is None
+        stored = operations.process_case_blocks(state, submission, cases=[one.case for one in initial.touched.values()])
+        assert stored.refusal is None
+        assert {case_id: one.case.case_json for case_id, one in stored.touched.items()} == {
+            ORIGIN: {"visit_day": day}, LINKED: {"visit_day": day},
+        }
