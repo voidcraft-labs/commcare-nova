@@ -23,6 +23,7 @@ import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
+	caseOperationsInSubmissionOrder,
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolationDetails,
 	sameCaseOperationTargetIdentity,
@@ -40,6 +41,8 @@ import {
 	type CaseTarget,
 	type CaseWriteVia,
 	caseDataTypeForFieldKind,
+	caseOperationRunsPerSelectedCase,
+	caseSelectionCardinality,
 	caseWriteKeyOf,
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
@@ -274,6 +277,19 @@ export function sharedEntryWriteFindings(
 	}));
 }
 
+function positionedChangeHasConditionalContainer(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): boolean {
+	for (let parent = doc.fieldParent[fieldUuid]; parent !== undefined; ) {
+		const field = doc.fields[parent];
+		if (field === undefined) return false;
+		if ("relevant" in field && field.relevant !== undefined) return true;
+		parent = doc.fieldParent[parent];
+	}
+	return false;
+}
+
 export function validateCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -312,7 +328,13 @@ export function validateCaseOperations(
 								operationSavesOnlyChanged(operation) ||
 								operation.writes?.some((write) => write.via !== undefined)
 							? "Choose a direct update or close for this position."
-							: undefined;
+							: caseOperationRunsPerSelectedCase(operation) &&
+									caseSelectionCardinality(module) === "multiple"
+								? "Keep the case change that runs for each selected case in the form's case settings."
+								: operation.retype !== undefined &&
+										positionedChangeHasConditionalContainer(doc, uuid)
+									? "Place a change of case type outside sections that can be skipped."
+									: undefined;
 		positions.add(field.operationUuid);
 		if (invalid !== undefined)
 			ownFindings.push(
@@ -381,7 +403,11 @@ export function validateCaseOperations(
 			(violation) => [violation.operationUuid, violation],
 		),
 	);
-	for (const operation of operations) {
+	for (const operation of caseOperationsInSubmissionOrder(
+		doc,
+		formUuid,
+		operations,
+	)) {
 		const wireOrderViolation = wireOrderViolations.get(operation.uuid);
 		if (wireOrderViolation !== undefined) {
 			let message: string;

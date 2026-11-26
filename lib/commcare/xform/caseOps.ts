@@ -51,6 +51,7 @@ import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
+	caseOperationsInSubmissionOrder,
 } from "@/lib/doc/caseOperationOrder";
 import {
 	AUTHORED_CASE_ID_VERSION,
@@ -761,7 +762,7 @@ export function buildCaseOperations(
 	const basicSubcases = planBasicSubcases(doc, formUuid);
 	const registration = form.type === "registration";
 
-	const operations = orderedCaseOperations(form);
+	const operations = caseOperationsInSubmissionOrder(doc, formUuid);
 	const blockOf = new Map<Uuid | "own-close", SaveToCaseBlock>();
 	for (const block of written)
 		blockOf.set(

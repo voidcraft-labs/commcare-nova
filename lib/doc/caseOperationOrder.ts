@@ -13,6 +13,7 @@ import {
 import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import { firstModuleListingForm } from "@/lib/domain/formMembership";
 import { CASE_SCALAR_PROPERTY_NAMES } from "@/lib/domain/standardCaseProperties";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { deepEqual } from "./deepEqual";
 import { orderedFieldUuids } from "./fieldWalk";
 
@@ -110,6 +111,7 @@ export function caseOperationDependencyUuids(
 		operation.name,
 		operation.owner,
 		operation.rename,
+		operation.closeCondition,
 	]) {
 		if (expression !== undefined)
 			collectExpressionDependencies(expression, refs);
@@ -133,6 +135,104 @@ function collectExpressionDependencies(
 	walkExpressionNodes(expression, (node) => {
 		if (node.kind === "id-of") refs.add(node.opUuid);
 	});
+}
+
+type CaseEffectLayoutNode =
+	| {
+			readonly kind: "generated";
+			readonly operations: readonly CaseOperation[];
+	  }
+	| {
+			readonly kind: "positioned";
+			readonly fieldUuid: Uuid;
+			readonly operation: CaseOperation;
+	  }
+	| {
+			readonly kind: "repeat";
+			readonly repeat: Uuid;
+			readonly children: readonly CaseEffectLayoutNode[];
+	  };
+
+/** The case blocks' order in the authored submission template. The root's
+ * generated ordinary group leads; a repeat's group comes after its children.
+ * A live submission expands a repeat node in concrete row order. Documents
+ * without positioned blocks keep their established operation-group order. */
+export function caseEffectLayout(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operations: readonly CaseOperation[],
+): readonly CaseEffectLayoutNode[] | undefined {
+	const { children, parents } = submissionLayout(
+		formUuid,
+		doc.fields,
+		doc.fieldOrder,
+	);
+	const positions = new Map<Uuid, Uuid>();
+	for (const uuid of parents.keys()) {
+		const field = doc.fields[uuid];
+		if (field?.kind === "case_change") positions.set(field.operationUuid, uuid);
+	}
+	if (positions.size === 0) return undefined;
+
+	const positioned = new Map<Uuid, CaseOperation>();
+	const generated = new Map<Uuid | undefined, CaseOperation[]>();
+	for (const operation of operations) {
+		const fieldUuid = positions.get(operation.uuid);
+		if (fieldUuid !== undefined) positioned.set(fieldUuid, operation);
+		else {
+			const repeat = operation.forEach?.repeat;
+			const group = generated.get(repeat) ?? [];
+			group.push(operation);
+			generated.set(repeat, group);
+		}
+	}
+	const generatedAt = (repeat?: Uuid): CaseEffectLayoutNode[] => {
+		const group = generated.get(repeat);
+		return group ? [{ kind: "generated", operations: group }] : [];
+	};
+	const walk = (parent: Uuid): CaseEffectLayoutNode[] => {
+		const nodes: CaseEffectLayoutNode[] = [];
+		for (const uuid of children.get(parent) ?? []) {
+			const field = doc.fields[uuid];
+			if (field === undefined) continue;
+			if (field.kind === "case_change") {
+				const operation = positioned.get(uuid);
+				if (operation)
+					nodes.push({ kind: "positioned", fieldUuid: uuid, operation });
+			} else if (field.kind === "repeat") {
+				const nested = [...walk(uuid), ...generatedAt(uuid)];
+				if (nested.length > 0)
+					nodes.push({ kind: "repeat", repeat: uuid, children: nested });
+			} else nodes.push(...walk(uuid));
+		}
+		return nodes;
+	};
+	return [...generatedAt(), ...walk(formUuid)];
+}
+
+function caseOperationsInLayout(
+	layout: readonly CaseEffectLayoutNode[],
+): CaseOperation[] {
+	return layout.flatMap((node) => {
+		if (node.kind === "generated") return [...node.operations];
+		if (node.kind === "positioned") return [node.operation];
+		return caseOperationsInLayout(node.children);
+	});
+}
+
+/** Legacy and authored forms expose one conservative operation sequence to
+ * the compiler and validator. A malformed position is reported separately. */
+export function caseOperationsInSubmissionOrder(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operations: readonly CaseOperation[] = orderedCaseOperations(
+		doc.forms[formUuid] ?? {},
+	),
+): readonly CaseOperation[] {
+	const layout = caseEffectLayout(doc, formUuid, operations);
+	if (!layout) return operations;
+	const positioned = caseOperationsInLayout(layout);
+	return positioned.length === operations.length ? positioned : operations;
 }
 
 /**
@@ -222,6 +322,7 @@ export function caseOperationWireOrderViolationDetails(
 		doc.forms[formUuid] ?? {},
 	),
 ): CaseOperationWireOrderViolation[] {
+	const layout = caseEffectLayout(doc, formUuid, operations);
 	const scopeRank = new Map(
 		caseOperationMultiplicityScopes(doc, formUuid).map((scope, index) => [
 			scope,
@@ -234,8 +335,14 @@ export function caseOperationWireOrderViolationDetails(
 	const earlierNonCreates: TargetedCaseOperation[] = [];
 	let furthestRank = -1;
 	const broken: CaseOperationWireOrderViolation[] = [];
-	for (const operation of targetedOperations(operations)) {
-		const rank = scopeRank.get(operation.forEach?.repeat);
+	const physical = layout && caseOperationsInLayout(layout);
+	const ordered =
+		physical?.length === operations.length ? physical : operations;
+	for (const operation of targetedOperations(ordered)) {
+		const rank =
+			ordered === operations
+				? scopeRank.get(operation.forEach?.repeat)
+				: undefined;
 		if (rank !== undefined) {
 			if (rank < furthestRank) {
 				broken.push({
@@ -315,6 +422,9 @@ function keyedCreateOrderMatters(
 	creates: ReadonlyMap<Uuid, CaseOperation>,
 ): boolean {
 	if (operation.target.kind === "new") return false;
+	// A managed worker-record effect comes from HQ's action plan, not the
+	// generated Save to Case group whose placement this proof can compare.
+	if (operation.target.kind === "worker-record") return true;
 	const writes = operation.writes ?? [];
 	// An index write to an ancestor has a separate target and block.
 	if (writes.some((write) => (write.via?.length ?? 0) > 0)) return true;
@@ -527,6 +637,7 @@ export function possibleFinalSessionCaseTypes(
 		doc.forms[formUuid] ?? {},
 	),
 ): ReadonlySet<string> {
+	const physical = caseOperationsInSubmissionOrder(doc, formUuid, operations);
 	const initialCaseType = moduleCaseTypeForForm(doc, formUuid);
 	if (initialCaseType === undefined) return new Set();
 
@@ -540,7 +651,7 @@ export function possibleFinalSessionCaseTypes(
 	);
 	const aliasFacts = sessionAliasFactsByOperation(operations);
 	const conservativeTypes = new Set<string>([initialCaseType]);
-	for (const operation of targetedOperations(operations)) {
+	for (const operation of targetedOperations(physical)) {
 		if (
 			operation.action !== "create" &&
 			operation.retype !== undefined &&
@@ -558,7 +669,7 @@ export function possibleFinalSessionCaseTypes(
 		},
 	];
 
-	for (const operation of targetedOperations(operations)) {
+	for (const operation of targetedOperations(physical)) {
 		if (
 			operation.action === "create" ||
 			operation.retype === undefined ||
@@ -668,6 +779,7 @@ function analyzeCaseOperationTargetOrder(
 		CaseOperationExpressionSnapshotTypes
 	>;
 } {
+	const physical = caseOperationsInSubmissionOrder(doc, formUuid, operations);
 	const state: TargetTypeState[] = [];
 	const typeChangingTargets: TypeChangingTargetState[] = [];
 	const createsByUuid = registrationOwnCreates(doc, formUuid, operations);
@@ -769,7 +881,7 @@ function analyzeCaseOperationTargetOrder(
 		return known;
 	};
 
-	for (const operation of targetedOperations(operations)) {
+	for (const operation of targetedOperations(physical)) {
 		const requiredGuards = new Set<Uuid>();
 		let expressionTargetSnapshotType: string | undefined;
 		const expressionLinkSnapshotTypes = new Map<number, string>();

@@ -236,6 +236,16 @@ export interface CaseOperationProgram {
 		readonly repeat?: Uuid;
 		readonly iteration: number;
 	}[];
+	/** Exact submitted-block order when the form positions case changes among
+	 * its answers. The server derives the operation IDs and order from the
+	 * committed submitted layout. An absent leaf covers its expected slot
+	 * but contributes no case block or history. */
+	readonly effectOrder?: readonly {
+		readonly repeat?: Uuid;
+		readonly iteration: number;
+		readonly operationUuids: readonly Uuid[];
+		readonly absent?: true;
+	}[];
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */
 	readonly sessionCaseIds?: ReadonlyArray<string>;

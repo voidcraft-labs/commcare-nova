@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	addFixtureField,
+	buildDoc,
+	caseListConfig,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { CaseOperation } from "@/lib/domain";
@@ -307,7 +312,12 @@ it("binds nested operation order to the committed repeat and the enclosing answe
 	const inner = testUuid("inner-repeat");
 	const answer = testUuid("outer-answer");
 	const doc = buildDoc({
-		caseTypes: [{ name: "patient", properties: [] }],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "seen", label: proseText("Seen") }],
+			},
+		],
 		modules: [
 			{
 				name: "Patients",
@@ -401,6 +411,101 @@ it("binds nested operation order to the committed repeat and the enclosing answe
 			}),
 		).toThrow("could not match its nested repeat rows");
 	}
+
+	const placed = structuredClone(doc);
+	const group = testUuid("conditional-case-group");
+	const field = testUuid("placed-change");
+	const beforeInner = testUuid("placed-before-inner");
+	const insideInner = testUuid("generated-inner");
+	const afterInner = testUuid("generated-outer");
+	const update = (
+		uuid: typeof OP_ROOT,
+		id: string,
+		repeat: typeof OP_ROOT,
+	): CaseOperation => ({
+		uuid,
+		id,
+		action: "update",
+		caseType: "patient",
+		target: { kind: "expression", expr: term(literal(SESSION_CASE)) },
+		forEach: { repeat },
+		writes: [{ property: "seen", value: term(literal(id)) }],
+	});
+	const form = placed.forms[formUuid];
+	form.caseOperations = [
+		...(form.caseOperations ?? []),
+		update(insideInner, "nested", inner),
+		update(afterInner, "last", outer),
+		update(beforeInner, "placed", outer),
+	];
+	addFixtureField(placed, outer, {
+		uuid: group,
+		id: "optional",
+		kind: "group",
+		label: proseText("Optional"),
+		relevant: eq(formField(answer), literal("one")),
+	});
+	addFixtureField(placed, group, {
+		uuid: field,
+		id: "case_change",
+		kind: "case_change",
+		operationUuid: beforeInner,
+	});
+	placed.fieldOrder[outer] = [answer, group, inner];
+	const authored = engineFor(placed, formUuid);
+	authored.addRepeat("/data/visits");
+	authored.addRepeat("/data/visits");
+	authored.setValue("/data/visits[0]/outer_value", "one");
+	authored.setValue("/data/visits[1]/outer_value", "two");
+	authored.addRepeat("/data/visits[0]/checks");
+	authored.addRepeat("/data/visits[1]/checks");
+	const positioned = authored.computeSubmissionMutation({
+		caseIds: [SESSION_CASE],
+		entryKey: ENTRY_KEY,
+	});
+	const buildPositioned = (mutation: SubmissionMutation) =>
+		buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: placed,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			identity: IDENTITY,
+		}).program;
+	const root = form.caseOperations.find(
+		(operation) => operation.action === "own",
+	);
+	expect(root).toBeDefined();
+	expect(buildPositioned(positioned)?.effectOrder).toEqual([
+		{ iteration: 0, operationUuids: [root?.uuid] },
+		{ repeat: outer, iteration: 0, operationUuids: [beforeInner] },
+		{ repeat: inner, iteration: 0, operationUuids: [insideInner] },
+		{ repeat: outer, iteration: 0, operationUuids: [afterInner] },
+		{
+			repeat: outer,
+			iteration: 1,
+			operationUuids: [beforeInner],
+			absent: true,
+		},
+		{ repeat: inner, iteration: 1, operationUuids: [insideInner] },
+		{ repeat: outer, iteration: 1, operationUuids: [afterInner] },
+	]);
+	const positionedAnswers = positioned.operationAnswers;
+	if (!positionedAnswers)
+		throw new Error("Expected positioned operation answers.");
+	expect(() =>
+		buildPositioned({
+			...positioned,
+			operationAnswers: {
+				...positionedAnswers,
+				repeats: positionedAnswers.repeats.map((scope) => ({
+					...scope,
+					iterations: scope.iterations.map((entries) =>
+						entries.filter((entry) => entry.fieldUuid !== field),
+					),
+				})),
+			},
+		}),
+	).toThrow("missing the position of a case change");
 });
 
 describe("an own-case answer that takes no part in the submission", () => {

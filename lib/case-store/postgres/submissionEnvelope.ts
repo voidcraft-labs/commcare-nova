@@ -341,25 +341,12 @@ function expandPhysicalInstances(
 		throw malformed();
 
 	const operationsByScope = new Map(
-		program.scopes.map(({ repeat }) => {
-			const operations = steps.filter(
-				(entry) => entry.operation.forEach?.repeat === repeat,
-			);
-			return [
-				repeat,
-				{
-					operations,
-					formOperations: operations.filter(
-						(entry) => !caseOperationRunsPerSelectedCase(entry.operation),
-					),
-					selectedOperations: operations.filter((entry) =>
-						caseOperationRunsPerSelectedCase(entry.operation),
-					),
-				},
-			] as const;
-		}),
+		program.scopes.map(({ repeat }) => [
+			repeat,
+			steps.filter((entry) => entry.operation.forEach?.repeat === repeat),
+		]),
 	);
-	const order =
+	const defaultOrder =
 		program.scopeOrder ??
 		program.scopes.flatMap((scope) =>
 			scope.iterations.map((_, iteration) => ({
@@ -371,7 +358,32 @@ function expandPhysicalInstances(
 		(count, scope) => count + scope.iterations.length,
 		0,
 	);
-	if (order.length !== expectedRows) throw malformed();
+	if (defaultOrder.length !== expectedRows) throw malformed();
+
+	const byOperation = new Map(steps.map((step) => [step.operation.uuid, step]));
+	const seenRows = new Set<string>();
+	const seenEffects = new Set<string>();
+	const order =
+		program.effectOrder ??
+		defaultOrder.map(({ repeat, iteration }) => {
+			const key = JSON.stringify([repeat, iteration]);
+			if (seenRows.has(key)) throw malformed();
+			seenRows.add(key);
+			return {
+				repeat,
+				iteration,
+				operationUuids: (operationsByScope.get(repeat) ?? []).map(
+					({ operation }) => operation.uuid,
+				),
+			};
+		});
+	const expectedEffects = program.scopes.reduce(
+		(count, scope) =>
+			count +
+			scope.iterations.length *
+				(operationsByScope.get(scope.repeat)?.length ?? 0),
+		0,
+	);
 
 	// A batch form keeps its selected-case phase even when just one case was chosen.
 	const multiple =
@@ -380,13 +392,24 @@ function expandPhysicalInstances(
 			: (program.sessionCaseIds?.length ?? 0) > 1;
 	const selectedCases = program.sessionCaseIds ?? [];
 	const instances: PhysicalInstance[] = [];
-	const seen = new Set<string>();
-	for (const { repeat, iteration } of order) {
+	for (const slot of order) {
+		const { repeat, iteration, operationUuids } = slot;
 		const bindings = scopes.get(repeat)?.iterations[iteration];
-		const ordered = operationsByScope.get(repeat);
-		const key = JSON.stringify([repeat ?? null, iteration]);
-		if (!bindings || !ordered || seen.has(key)) throw malformed();
-		seen.add(key);
+		if (!bindings) throw malformed();
+		const operations = operationUuids.map((uuid) => {
+			const step = byOperation.get(uuid);
+			const key = JSON.stringify([repeat, iteration, uuid]);
+			if (
+				!step ||
+				step.operation.forEach?.repeat !== repeat ||
+				seenEffects.has(key)
+			)
+				throw malformed();
+			seenEffects.add(key);
+			return step;
+		});
+		if ("absent" in slot && slot.absent === true) continue;
+
 		const append = (
 			operations: readonly ProgramStep[],
 			sessionCaseId: string | undefined,
@@ -406,11 +429,19 @@ function expandPhysicalInstances(
 			}
 		};
 		if (multiple) {
-			append(ordered.formOperations, undefined, 0, false);
+			const formOperations = operations.filter(
+				({ operation }) => !caseOperationRunsPerSelectedCase(operation),
+			);
+			const selectedOperations = operations.filter(({ operation }) =>
+				caseOperationRunsPerSelectedCase(operation),
+			);
+			append(formOperations, undefined, 0, false);
 			for (const [selection, caseId] of selectedCases.entries())
-				append(ordered.selectedOperations, caseId, selection, true);
-		} else append(ordered.operations, selectedCases[0], 0, false);
+				append(selectedOperations, caseId, selection, true);
+		} else append(operations, selectedCases[0], 0, false);
 	}
+	if (seenEffects.size !== expectedEffects) throw malformed();
+
 	return instances;
 }
 

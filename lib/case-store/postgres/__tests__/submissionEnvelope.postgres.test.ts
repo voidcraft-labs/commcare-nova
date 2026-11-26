@@ -1403,6 +1403,68 @@ describe("ordered selected-case batches", () => {
 		expect(await store.applySubmission(claim)).toEqual(saved);
 	});
 
+	it("applies authored case changes within a row and omits absent positions on replay", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const write = (uuid: Uuid, id: string) =>
+			envOp(
+				operation({
+					uuid,
+					id,
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					forEach: { repeat: REPEAT_UUID },
+					writes: [{ property: "notes", value: term(literal(id)) }],
+				}),
+			);
+		const program = rootProgram([
+			write(OP_A, "generated"),
+			write(OP_B, "positioned"),
+		]);
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...program,
+				scopes: [
+					...program.scopes,
+					{
+						repeat: REPEAT_UUID,
+						iterations: [{ formFields: new Map() }, { formFields: new Map() }],
+					},
+				],
+				effectOrder: [
+					{ repeat: REPEAT_UUID, iteration: 0, operationUuids: [OP_B] },
+					{ repeat: REPEAT_UUID, iteration: 0, operationUuids: [OP_A] },
+					{
+						repeat: REPEAT_UUID,
+						iteration: 1,
+						operationUuids: [OP_B],
+						absent: true,
+					},
+					{ repeat: REPEAT_UUID, iteration: 1, operationUuids: [OP_A] },
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const effects = await store.applySubmission(claim);
+		expect(
+			effects.operations.map((effect) => [
+				effect.operationUuid,
+				effect.iteration,
+			]),
+		).toEqual([
+			[OP_B, 0],
+			[OP_A, 0],
+			[OP_A, 1],
+		]);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			properties: { notes: "generated" },
+		});
+		expect(await store.applySubmission(claim)).toEqual(effects);
+	});
+
 	it("runs repeat outer by selected case inner with one session anchor per case", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice");
