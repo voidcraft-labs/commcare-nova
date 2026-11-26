@@ -30,6 +30,7 @@ DOCUMENTS = (
     "hq-empty-search",
     "hq-project-database-search",
     "hq-project-search",
+    "hq-shared-table-journey",
     "media-rich",
     "navigation-base",
     "no-matches-basic",
