@@ -562,6 +562,12 @@ search runs as the same filters (`case_search/utils.py::_apply_filter` applies e
 filter). A row the search condition's slot does not admit but an excluded field's does is still
 that field's.
 
+A literal Search order keeps each property, comparison and direction in request order.
+HQ strips all leading signs from a term and takes direction from the first sign.
+Nova publishes only that first sign and records the exact source value under
+`search-order-direction-signs-respelled`. The proof judge only allows a change
+that leaves the rest of the order intact.
+
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
 from its old key, under its new one, so an entity CommCare HQ later adds under the old key must not
@@ -967,12 +973,15 @@ A change that holds one removes its line.
   (`caseManagement/saveToCase.ts::readBlock`). CommCare keeps a name and an external id as the case's
   own value, and the gate holds a link only in a property of its own
   (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
-- **A Save to Case update of the worker's record in a condition group or in a repeat**: one finding
-  at the block under
+- **A fresh root Save to Case create with a later guarded owner** holds both owner leaves
+  in its one case block. The reader keeps the initial owner on creation and reads the
+  later owner and its condition separately. The generated scalar guard checks the later
+  value only when the condition holds. Aliased creates, worker transfers, and shapes
+  whose guard or scope does not print back keep their dedicated refusal.
+- **A Save to Case update of the worker's record in a repeat**: one finding at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
-  (`caseManagement/saveToCase.ts::readBlock`). HQ's form builder takes both, and Nova keeps a form's
-  writes of the worker's record in one update that runs once on every submission (the gate's
-  `worker-record-facet`).
+  (`caseManagement/saveToCase.ts::readBlock`). One root worker update may have its own condition.
+  The reader keeps its condition group and the gate retains the repeat and duplicate restrictions.
 - **A Save to Case update of the worker's record beside another update of it in the same form**
   (CommCare HQ's `usercase_update`, an advanced form's load of the worker's record, or a second
   such block): one finding at the form under

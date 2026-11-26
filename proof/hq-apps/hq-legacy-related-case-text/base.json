@@ -1,0 +1,15 @@
+{
+	"id": "hq-legacy-related-case-text",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does"
+	]
+}

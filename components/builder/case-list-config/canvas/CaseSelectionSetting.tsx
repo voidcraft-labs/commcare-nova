@@ -77,7 +77,7 @@ export function CaseSelectionSetting({
 		}
 		setMaximumProblem(null);
 		if (parsed !== maximum) {
-			onChange({ kind: "multiple", maximum: parsed }, origin);
+			onChange({ ...value, kind: "multiple", maximum: parsed }, origin);
 			// The saved setting remains authoritative while its review is open.
 			// A confirmed change updates `maximum` and the effect above restores the
 			// new value; cancelling leaves no unsaved draft behind.
@@ -221,6 +221,25 @@ export function CaseSelectionSetting({
 						</div>
 					)}
 
+					{multiple && (
+						<label className="mt-4 flex items-center gap-2 text-sm font-medium text-nova-text">
+							<input
+								type="checkbox"
+								checked={value.autoSelect === true}
+								onChange={(event) =>
+									onChange(
+										{
+											kind: "multiple",
+											maximum,
+											...(event.currentTarget.checked && { autoSelect: true }),
+										},
+										event.currentTarget,
+									)
+								}
+							/>
+							Choose matching cases automatically
+						</label>
+					)}
 					{multiple && (
 						<p className="mt-4 text-[13px] leading-relaxed text-nova-text-muted">
 							A question without a starting answer begins blank. Leaving it

@@ -252,6 +252,32 @@ def test_a_saved_choice_and_its_label_show_in_default_order(
     assert image_cells[0]["alt"] == "Assigned to east bank"
 
 
+def test_reached_choice_columns_show_both_paths_in_each_web_apps_language(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-reached-choice-columns"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Related areas"),
+                *steps.choose("Members"),
+                steps.SCREEN,
+                *steps.choose_language("fr", steps.arrive(any_screen=True)),
+                steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    observations = [
+        [[cell["text"] for cell in row["cells"]] for row in screen["list"]["rows"]]
+        for screen in run.screens
+    ]
+    evidence("web-apps-reached-choice-columns", observations)
+    assert observations == [
+        [["Ada", "East bank", "West bank", "Hello!"], ["Bea", "", "", "Hello!"]],
+        [["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "", "", "Bonjour!"]],
+    ]
+
+
 def test_web_apps_shows_signed_relative_case_dates(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
@@ -613,3 +639,93 @@ def test_clear_search_requests_new_results_only_from_a_desktop_query(
                     cleared = next(entry for entry in searched[2]["queryData"].values() if entry.get("execute"))
                     assert not any((cleared.get("inputs") or {}).values()), cleared
                 assert not run.page_errors, run.page_errors
+
+def test_web_apps_opens_the_form_with_both_named_search_answers(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """The form reads two completed searches. The same prompt key has different answers."""
+    document = webapps_documents["search-named-parent"]
+    database = casedata.document_case_database(document)
+    parent = next(row for row in database.cases if row.case_type == "parent_case")
+    child = next(row for row in database.cases if row.case_type == "patient")
+    parent = dataclasses.replace(parent, name="North")
+    child = dataclasses.replace(child, name="River", properties=(("first_name", "West"),),
+                                indices=(("parent", parent.case_type, parent.case_id, "child"),))
+    database = dataclasses.replace(database, cases=(parent, child))
+    observed = {}
+    with webapps_hq.project(document) as project:
+        for name, saves in (("published", ()), ("saved", tuple(
+            (pages.CASE_LIST, project.module_id(index)) for index in (0, 1)
+        ))):
+            with project.released(formplayer_runner, database=database, saves=saves, driver=editor_driver, label=name) as release:
+                path = [*steps.open_app("Inline"), *steps.choose("Followup")]
+                for record, answer in ((parent, "North"), (child, "West")):
+                    path.extend([
+                        *steps.type_prompt(0, answer), *steps.run_search(), steps.SCREEN,
+                        *steps.click(f"#menu-region [id='row-{record.case_id}']"),
+                        *steps.click(steps.CONTINUE, visible=True, within=steps.WITHIN_MS),
+                    ])
+                # A menu with form selection after its cases may still offer the form by name.
+                path.extend(steps.click(steps.MENU_ROW, "Untitled Form", visible=True, within=steps.WITHIN_MS))
+                run = Session(release, editor_driver).run([*path, steps.SCREEN])
+                observed[name] = {
+                    "answers": [question["answer"] for question in run.screens[-1]["form"]["questions"]],
+                    "caseLists": [[row["id"] for row in screen["list"]["rows"]] for screen in run.screens[:-1]],
+                    "names": [menu["search_config"]["instance_name"] for menu in release.doc["modules"]],
+                    "pageErrors": run.page_errors,
+                }
+    evidence("named-search-answers", observed)
+    for result in observed.values():
+        assert result["pageErrors"] == []
+        assert result["caseLists"] == [[f"row-{parent.case_id}"], [f"row-{child.case_id}"]]
+        assert result["names"] == ["MemberLookup", "FamilyLookup"]
+        assert result["answers"] == ["North/West"]
+
+
+def test_web_apps_keeps_grouped_search_headings_and_answers_after_hq_save(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["search-grouped-prompts"]
+    headings = """() => [...document.querySelectorAll('.search-query-group-header-label')]
+        .map(label => label.textContent.trim())"""
+    collapse_second = """async () => {
+        const content = document.getElementById('group-group_header_2');
+        const closed = new Promise(resolve => content.addEventListener('hidden.bs.collapse', resolve, {once: true}));
+        document.querySelector('[data-bs-target="#group-group_header_2"]').click();
+        await closed;
+        return getComputedStyle(content).display === 'none';
+    }"""
+    observed = {}
+    with webapps_hq.project(document) as project:
+        for name, saves in (("published", ()), ("saved", ((pages.CASE_LIST, project.module_id(0)),))):
+            with project.released(formplayer_runner, saves=saves, driver=editor_driver, label=name) as release:
+                opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+                path = [
+                    *opening,
+                    {"eval": headings},
+                    *steps.type_prompt(0, "North"),
+                    *steps.type_prompt(1, "River"),
+                    {"eval": collapse_second},
+                    *steps.run_search(),
+                    steps.SCREEN,
+                ]
+                run = Session(release, editor_driver).run(path)
+                sent = [
+                    entry["inputs"]
+                    for request in _menu_requests(run)
+                    if request["searched"]
+                    for entry in request["queryData"].values()
+                    if isinstance(entry, dict) and entry.get("execute")
+                ]
+                observed[name] = {
+                    "headings": run.value(len(opening)),
+                    "collapsed": run.value(len(opening) + 1 + 2 * len(steps.type_prompt(0, ""))),
+                    "inputs": sent,
+                    "pageErrors": run.page_errors,
+                }
+    evidence("grouped-search-headings", observed)
+    for side in observed.values():
+        assert side["headings"] == ["Personal details", "Case details"]
+        assert side["collapsed"] is True
+        assert side["inputs"] == [{"first_name": "North", "case_name": "River"}]
+        assert side["pageErrors"] == []

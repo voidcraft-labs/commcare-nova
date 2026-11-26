@@ -51,6 +51,8 @@ import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	asUuid,
+	EMPTY_PROSE_TEMPLATE,
+	fieldProseTemplate,
 	helpShowsAsTyped,
 	isCaptureFieldKind,
 	labelShowsAsTyped,
@@ -71,10 +73,14 @@ import {
 	usePresentationField,
 	useVisibleFieldOrder,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
-import { labelPresentation } from "@/lib/preview/labelPresentation";
+import {
+	labelPresentation,
+	presentedLabelText,
+} from "@/lib/preview/labelPresentation";
 import { requiredMarkShown } from "@/lib/preview/platform";
 import { questionRows } from "@/lib/preview/questionRows";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { workerFieldProseSlot } from "@/lib/preview/workerProse";
 import { LabelContent } from "@/lib/references/LabelContent";
 import {
 	useAppId,
@@ -304,7 +310,12 @@ const InteractiveField = memo(function InteractiveField({
 	// `hidden` fields are authoring-time only: they never render in
 	// interactive mode. The edit view keeps a compact card so authors
 	// can still edit them.
-	if (field.kind === "hidden" || field.kind === "connect_activity") return null;
+	if (
+		field.kind === "hidden" ||
+		field.kind === "connect_activity" ||
+		field.kind === "case_change"
+	)
+		return null;
 	if (!state.visible) return null;
 
 	const fieldId = field.id;
@@ -318,6 +329,11 @@ const InteractiveField = memo(function InteractiveField({
 		!controller.containsControl(path, screen)
 	)
 		return null;
+
+	const containerTitle =
+		field.kind === "group" || field.kind === "section"
+			? presentedLabelText(field, labelShowsAsTyped(textForm, field), state)
+			: undefined;
 
 	// Transparent group: an empty/absent label means the group has no UI
 	// chrome at runtime: matches CommCare's behavior for unlabeled
@@ -337,7 +353,7 @@ const InteractiveField = memo(function InteractiveField({
 	// above it (`groupLabel: "screen-header"`), which the pager draws.
 	if (
 		field.kind === "group" &&
-		((!field.label && !field.border) || rules.groupLabel === "screen-header")
+		((!containerTitle && !field.border) || rules.groupLabel === "screen-header")
 	) {
 		const childContext = [accessibleContext, transparentSectionId]
 			.filter(Boolean)
@@ -421,10 +437,10 @@ const InteractiveField = memo(function InteractiveField({
 							pageBreak={position > 1}
 							titleInset
 							title={
-								field.label ? (
+								containerTitle ? (
 									<LabelContent
-										label={field.label}
-										resolvedLabel={state.resolvedLabel}
+										label={containerTitle.template}
+										resolvedLabel={containerTitle.resolved}
 										isEditMode={false}
 										rendering={rules.labelMarkdown}
 										plainLabel={labelShowsAsTyped(textForm, field)}
@@ -485,6 +501,19 @@ const InteractiveField = memo(function InteractiveField({
 		"plainHelp" in field ? field : {},
 	);
 
+	const hint = fieldProseTemplate(
+		field,
+		workerFieldProseSlot(field, "hint", textForm, platform),
+	);
+	const help =
+		fieldProseTemplate(
+			field,
+			workerFieldProseSlot(field, "help", textForm, platform),
+		) ??
+		(fieldProseTemplate(field, "extended_help") === undefined
+			? undefined
+			: EMPTY_PROSE_TEMPLATE);
+
 	// Discriminated union narrowing on `field.kind` so each branch sees
 	// the kind-specific entity shape. `label` is absent from the `hidden`
 	// field kind but we've already guarded against that above.
@@ -529,9 +558,7 @@ const InteractiveField = memo(function InteractiveField({
 				questionLabelId={labelId}
 				questionLabelledBy={questionLabelledBy}
 				questionDescriptionIds={
-					field.hint && !(readsHintPlacement && field.hintPlacement)
-						? hintId
-						: ""
+					hint && !(readsHintPlacement && field.hintPlacement) ? hintId : ""
 				}
 				questionLabel={questionLabelText}
 				onCommitCapture={async (value, gate, onAccepted, originalFilename) => {
@@ -692,7 +719,7 @@ const InteractiveField = memo(function InteractiveField({
 									</>
 								) : null}
 								<FieldHelp
-									help={"help" in field ? field.help : undefined}
+									help={help}
 									resolvedHelp={state.resolvedHelp}
 									helpMedia={
 										"help_media" in field ? field.help_media : undefined
@@ -712,12 +739,12 @@ const InteractiveField = memo(function InteractiveField({
 								: ""}
 						</span>
 					)}
-					{field.hint &&
+					{hint &&
 						!(readsHintPlacement && field.hintPlacement) &&
 						(rules.hint === "markdown" ? (
 							<div id={hintId} className="px-[5px] py-[5px]">
 								<LabelContent
-									label={field.hint}
+									label={hint}
 									resolvedLabel={state.resolvedHint}
 									isEditMode={false}
 									rendering={rules.labelMarkdown}
@@ -732,7 +759,7 @@ const InteractiveField = memo(function InteractiveField({
 								id={hintId}
 								className="px-[5px] py-[5px] text-xs italic whitespace-pre-wrap text-nova-text-muted"
 							>
-								{state.resolvedHint ?? projectProse(field.hint)}
+								{state.resolvedHint ?? projectProse(hint)}
 							</p>
 						))}
 					{/* Help plays each runtime's button and dialog: Web Apps' sits on
@@ -741,7 +768,7 @@ const InteractiveField = memo(function InteractiveField({
 				    are input-kind only, so guard the access. */}
 					{field.label ? null : (
 						<FieldHelp
-							help={"help" in field ? field.help : undefined}
+							help={help}
 							resolvedHelp={state.resolvedHelp}
 							helpMedia={"help_media" in field ? field.help_media : undefined}
 							asTyped={helpAsTyped}
@@ -764,7 +791,7 @@ const InteractiveField = memo(function InteractiveField({
 						{control}
 					</div>
 					<FieldHelp
-						help={"help" in field ? field.help : undefined}
+						help={help}
 						resolvedHelp={state.resolvedHelp}
 						helpMedia={"help_media" in field ? field.help_media : undefined}
 						asTyped={helpAsTyped}

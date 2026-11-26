@@ -512,17 +512,23 @@ describe("a question label's inline video", () => {
 		]);
 	});
 
-	it("leaves an inline video on a help text not yet held", async () => {
+	it("accounts for an inline video on help without keeping it as worker media", async () => {
 		const reading = await readForm(
 			question({
 				en: { label: "", help: inline("jr://file/commcare/v.mp4") },
 			}),
 			{ media: index },
 		);
-		expect(codes(reading)).toEqual([
-			Q("video-inline-form-on-a-text-other-than-a-question-label"),
-		]);
+		expect(codes(reading)).toEqual([]);
 		expect(field(reading, "q").help_media).toBeUndefined();
+		expect(reading.ctx.facts.unheldMedia).toEqual([
+			expect.objectContaining({
+				path: "jr://file/commcare/v.mp4",
+				form: "video-inline",
+				role: ["help"],
+				languageCode: "en",
+			}),
+		]);
 	});
 });
 

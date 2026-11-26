@@ -42,7 +42,12 @@ export function convert(snapshot, settings, { appId, projectId, purpose }) {
 		throw new Error(
 			"Automatic location needs the released document and its owning app and Project.",
 		);
-	if (Object.hasOwn(snapshot.appSettings, "captureLocation"))
+	// Earlier canonical baselines omit appSettings when no setting was stored.
+	// Absence had the released default, and remains absent without an adoption.
+	if (
+		snapshot.appSettings &&
+		Object.hasOwn(snapshot.appSettings, "captureLocation")
+	)
 		throw new Error(
 			"The automatic location converter requires the released setting representation.",
 		);

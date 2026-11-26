@@ -32,7 +32,8 @@ export function searchInputNameUniqueness(
 	_doc: BlueprintDoc,
 ): ValidationError[] {
 	const inputs = mod.caseListConfig?.searchInputs ?? [];
-	if (inputs.length < 2) return [];
+	if (inputs.length === 0) return [];
+	const hasHeadings = (mod.caseListConfig?.searchInputGroups?.length ?? 0) > 0;
 
 	const errors: ValidationError[] = [];
 	// Track first-seen index per name. The first occurrence is the
@@ -43,6 +44,16 @@ export function searchInputNameUniqueness(
 
 	for (let i = 0; i < inputs.length; i++) {
 		const input = inputs[i];
+		if (hasHeadings && /^group_header_[0-9]+$/.test(input.name))
+			errors.push(
+				validationError(
+					"CASE_SEARCH_GROUP_FIELD_NAME_COLLISION",
+					"module",
+					"Choose a Search field name that does not share a generated heading name.",
+					{ moduleUuid, moduleName: mod.name },
+					{ inputName: input.name, inputUuid: input.uuid },
+				),
+			);
 		const firstIndex = firstByName.get(input.name);
 		if (firstIndex === undefined) {
 			firstByName.set(input.name, i);

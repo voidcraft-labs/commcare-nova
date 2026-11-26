@@ -381,6 +381,46 @@ describe("check 2, the export's carrier rules", () => {
 			},
 		});
 		expect(distinct.ok || distinct.check !== "gate").toBe(true);
+
+		// An assigned source is adopted where it already lives. The editor's
+		// inventory supplies its definition, not the rows a worker can receive.
+		const assigned: LookupFixtureDataSnapshot = {
+			...lookup,
+			definitions: [
+				{
+					...definition,
+					hq: {
+						...input.target,
+						remoteId: "hq-statuses",
+						managedBy: "commcare-hq",
+						source: {
+							inventory: "complete",
+							distribution: "assigned",
+							indexEvidence: "unobserved",
+						},
+						broughtInAt: "2026-01-01T00:00:00.000Z",
+						refreshedAt: "2026-01-01T00:00:00.000Z",
+						takenOverAt: null,
+						takenOverBy: null,
+						goneColumnIds: [],
+					},
+				},
+			],
+			rowsByTable: new Map(),
+		};
+		const sourceLink = acceptReading({ ...input, lookup: assigned });
+		expect(sourceLink.ok || sourceLink.check !== "gate").toBe(true);
+
+		const otherSpace = refused(
+			acceptReading({
+				...input,
+				target: { ...input.target, domain: "other-space" },
+				lookup: assigned,
+			}),
+		);
+		expect(otherSpace.signature).toBe(
+			"gate/export/LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+		);
 	});
 });
 

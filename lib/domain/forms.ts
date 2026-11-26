@@ -47,6 +47,10 @@ export const formBehaviorRoleNames = {
 	automaticSubmissionText: "Automatic submission",
 	skipAutomaticSyncText: "Skip automatic sync",
 	validateChangedAnswersText: "Check changed answers",
+	activityKeyText: "Activity notice key",
+	activityTitleText: "Activity notice record title",
+	activityWindowText: "Activity notice window",
+	savedFormDescriptorText: "Saved form label",
 } as const;
 export type FormBehaviorRole = keyof typeof formBehaviorRoleNames;
 export type FormBehaviorTexts = Partial<Record<FormBehaviorRole, BehaviorText>>;
@@ -365,10 +369,16 @@ export function formLinkEntries(
  * one operation per form) because those require the containing
  * form/module/doc.
  */
-const newCaseTargetSchema = z.strictObject({
-	kind: z.literal("new"),
-	idFrom: uuidSchema.optional(),
-});
+const newCaseTargetSchema = z
+	.strictObject({
+		kind: z.literal("new"),
+		idFrom: uuidSchema.optional(),
+		expr: valueSchema.optional(),
+	})
+	.refine(
+		({ idFrom, expr }) => idFrom === undefined || expr === undefined,
+		"Choose a keyed field or an exact case ID expression.",
+	);
 
 const operationCaseTargetSchema = z.strictObject({
 	kind: z.literal("op"),
@@ -540,6 +550,8 @@ const caseOperationCommonShape = {
 	id: z.string(),
 	caseType: z.string(),
 	condition: conditionSchema.optional(),
+	/** The close leaf is conditional independently of the block. */
+	closeCondition: conditionSchema.optional(),
 	forEach: z.strictObject({ repeat: uuidSchema }).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 	placement: casePlacementSchema.optional(),
@@ -564,6 +576,7 @@ export const ownCaseOperationSchema = z.strictObject({
 	 *  the case's name (`caseFacetOnlyIfChanged`). */
 	nameOnlyIfChanged: z.literal(true).optional(),
 	owner: valueSchema.optional(),
+	ownerCondition: z.never().optional(),
 	/** The owner is saved only when the answer is not blank
 	 *  (`caseFacetOnlyIfChanged`). */
 	ownerOnlyIfChanged: z.literal(true).optional(),
@@ -573,17 +586,55 @@ export const ownCaseOperationSchema = z.strictObject({
 	caseType: z.never().optional(),
 	target: z.never().optional(),
 	condition: z.never().optional(),
+	closeCondition: z.never().optional(),
+	closeAfter: z.never().optional(),
 	forEach: z.never().optional(),
 	rename: z.never().optional(),
 	renameOnlyIfChanged: z.never().optional(),
 	retype: z.never().optional(),
 });
 
+// An imported create can retain a calculation without making its case type
+// dynamic. The commit gate checks that the concatenation gives `caseType`.
+const caseTypeLiteralTermSchema = z.strictObject({
+	kind: z.literal("term"),
+	term: z.strictObject({ kind: z.literal("literal"), value: z.string() }),
+});
+const caseTypeCalculationSchema = z.strictObject({
+	kind: z.literal("concat"),
+	parts: z.tuple(
+		[caseTypeLiteralTermSchema, caseTypeLiteralTermSchema],
+		caseTypeLiteralTermSchema,
+	),
+});
+export type CaseTypeCalculation = z.infer<typeof caseTypeCalculationSchema>;
+
+const ownerAfterCreateSchema = z.strictObject({
+	value: valueSchema,
+	condition: conditionSchema,
+});
+export type OwnerAfterCreate = z.infer<typeof ownerAfterCreateSchema>;
+
+const caseTypeChoiceSchema = z.strictObject({
+	condition: conditionSchema,
+	otherwise: z.string(),
+});
+export type CaseTypeChoice = z.infer<typeof caseTypeChoiceSchema>;
+
+export function fixedCaseTypeOf(calculation: CaseTypeCalculation): string {
+	return calculation.parts.map(({ term }) => term.value).join("");
+}
+
 export const caseOperationSchema = z.discriminatedUnion("action", [
 	ownCaseOperationSchema,
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("create"),
+		typeCalculation: caseTypeCalculationSchema.optional(),
+		typeChoice: caseTypeChoiceSchema.optional(),
+		ownerCondition: conditionSchema.optional(),
+		ownerAfterCreate: ownerAfterCreateSchema.optional(),
+		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
 		name: valueSchema,
 		nameOnlyIfChanged: z.never().optional(),
@@ -597,6 +648,8 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("update"),
+		ownerCondition: conditionSchema.optional(),
+		closeAfter: z.literal(true).optional(),
 		target: updateCaseTargetSchema,
 		name: z.never().optional(),
 		nameOnlyIfChanged: z.never().optional(),
@@ -610,6 +663,8 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("close"),
+		ownerCondition: z.never().optional(),
+		closeAfter: z.never().optional(),
 		target: existingCaseTargetSchema,
 		name: z.never().optional(),
 		nameOnlyIfChanged: z.never().optional(),
@@ -621,6 +676,48 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		links: z.never().optional(),
 	}),
 ]);
+
+/** A block which closes is a close operation unless it also carries
+ * a facet that only an update can represent. Plain property writes fit both. */
+/** The ordinary fresh root create is the only case change whose block may
+ * set an initial owner and then change it under a separate condition. */
+export function canSetOwnerAfterCreate(
+	operation: CaseOperation,
+	formType: FormType,
+	singleOperation: boolean,
+): boolean {
+	return (
+		formType === "survey" &&
+		singleOperation &&
+		operation.action === "create" &&
+		operation.target.kind === "new" &&
+		operation.target.idFrom === undefined &&
+		operation.target.expr === undefined &&
+		operation.forEach === undefined &&
+		operation.condition === undefined &&
+		operation.closeAfter === undefined &&
+		operation.closeCondition === undefined &&
+		operation.typeCalculation === undefined &&
+		operation.typeChoice === undefined &&
+		operation.ownerCondition === undefined &&
+		operation.ownerOnlyIfChanged === undefined &&
+		(operation.links?.length ?? 0) === 0
+	);
+}
+
+export function hasUpdateOnlyCaseFacets(operation: {
+	readonly rename?: unknown;
+	readonly retype?: unknown;
+	readonly owner?: unknown;
+	readonly links?: readonly unknown[];
+}): boolean {
+	return (
+		operation.rename !== undefined ||
+		operation.retype !== undefined ||
+		operation.owner !== undefined ||
+		(operation.links?.length ?? 0) > 0
+	);
+}
 
 /**
  * The name and owner facets an operation saves only when changed, as HQ's
@@ -687,6 +784,10 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	caseType?: undefined;
 	target?: undefined;
 	condition?: undefined;
+	ownerCondition?: undefined;
+	ownerAfterCreate?: undefined;
+	closeCondition?: undefined;
+	closeAfter?: undefined;
 	forEach?: undefined;
 	rename?: undefined;
 	renameOnlyIfChanged?: undefined;
@@ -697,8 +798,14 @@ export type OwnCaseOperation = CaseOperationFacets & {
 export type TargetedCaseOperation = CaseOperationFacets & {
 	action: Exclude<CaseOperationAction, "own">;
 	caseType: string;
+	typeCalculation?: CaseTypeCalculation;
+	typeChoice?: CaseTypeChoice;
 	target: CaseTarget;
 	condition?: Expression;
+	ownerCondition?: Expression;
+	ownerAfterCreate?: OwnerAfterCreate;
+	closeCondition?: Expression;
+	closeAfter?: true;
 	forEach?: { repeat: Uuid };
 	rename?: Expression;
 	renameOnlyIfChanged?: true;
@@ -831,6 +938,10 @@ export const formSchema = z.strictObject({
 	automaticSubmissionText: behaviorTextSchema.optional(),
 	skipAutomaticSyncText: behaviorTextSchema.optional(),
 	validateChangedAnswersText: behaviorTextSchema.optional(),
+	activityKeyText: behaviorTextSchema.optional(),
+	activityTitleText: behaviorTextSchema.optional(),
+	activityWindowText: behaviorTextSchema.optional(),
+	savedFormDescriptorText: behaviorTextSchema.optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),

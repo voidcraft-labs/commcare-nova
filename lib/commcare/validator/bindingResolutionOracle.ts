@@ -12,6 +12,7 @@ import type { SyntaxNode } from "@lezer/common";
 import { getAttributeValue } from "domutils";
 import { parser } from "@/lib/commcare/xpath";
 import {
+	CASE_LIST_LOOKUP_COUNT_DATA_NAME,
 	CASE_LIST_SEARCH_TEXT_DATA_NAME,
 	COMMCARE_SESSION_CONTEXT_FIELDS,
 } from "../sessionContext";
@@ -46,6 +47,7 @@ const SESSION_CONTEXT_FIELDS: ReadonlySet<string> = new Set(
  * which Nova reads under the count guard, so an absent node reads blank.
  */
 const SESSION_QUERY_DATA_NAMES: ReadonlySet<string> = new Set([
+	CASE_LIST_LOOKUP_COUNT_DATA_NAME,
 	CASE_LIST_SEARCH_TEXT_DATA_NAME,
 ]);
 

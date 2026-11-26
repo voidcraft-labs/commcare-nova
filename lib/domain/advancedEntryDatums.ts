@@ -523,6 +523,10 @@ export function loadClause(
 ): AdvancedIneligibility | undefined {
 	if (operation.action !== "own" && operation.forEach !== undefined)
 		return "scope";
+	// A conditioned direct worker update must keep its conditional source
+	// block even when its authored condition is a constant match-all.
+	if (isWorkerRecordUpdate(operation) && operation.condition !== undefined)
+		return "write-condition";
 	const writes = operation.writes ?? [];
 	const values: Expression[] = [
 		...(operation.action === "own"
@@ -592,12 +596,14 @@ export function openActionClause(
 	view: OpenActionView,
 ): AdvancedIneligibility | undefined {
 	if (!opensCase(f, operation)) return "scope";
+	if (operation.ownerAfterCreate !== undefined) return "write-condition";
 	const repeat =
 		operation.action === "create" ? operation.forEach?.repeat : undefined;
 	if (
 		operation.action === "create" &&
 		operation.target.kind === "new" &&
-		operation.target.idFrom !== undefined
+		(operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined)
 	)
 		return "keyed";
 	const writes = operation.writes ?? [];
@@ -702,9 +708,11 @@ function candidateNewCases(
 	for (const op of operations)
 		if (
 			op.action === "create" &&
+			op.ownerAfterCreate === undefined &&
 			op.forEach === undefined &&
 			op.target.kind === "new" &&
-			op.target.idFrom === undefined
+			op.target.idFrom === undefined &&
+			op.target.expr === undefined
 		)
 			candidates.push({
 				operationUuid: op.uuid,

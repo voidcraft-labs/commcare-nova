@@ -91,7 +91,10 @@ export function useSearchInputRunState(args: {
 	readonly session: PreviewSearchSessionValues;
 	readonly environment: PreviewSearchEnvironment;
 	/** The platform Preview plays; defaults to an app's default platform. */
-	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchField">;
+	readonly rules?: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>;
 	/** The lookup data failed to load, so the screen opens over what the
 	 *  data it holds covers rather than waiting for data that will not
 	 *  arrive. */

@@ -49,7 +49,8 @@ XPath only then). A calculated column's expression that differs, the column
 calculated on both sides, is reported at its own pointer
 (``/modules/*/case_details/<detail>/columns/*/field``), which
 ``forms-and-settings-rewritten`` names: Nova writes every expression it holds
-in its own spelling. Any other ``field`` that differs is reported at
+in its own spelling. The exact legacy Translatable Text conversion is also compared as a ``field``.
+Any other ``field`` that differs is reported at
 ``/modules/*/case_details/<detail>/columns/*/held``, which the first-publish
 judge never holds either, so a first publish that changes which property a
 column shows is never a declared change.
@@ -74,7 +75,7 @@ import json
 import xml.etree.ElementTree as ElementTree
 
 from proof.checks import observations, xform_parts
-from proof.checks.changes import HELD
+from proof.checks.changes import HELD, legacy_related_case_formula
 from proof.checks.differences import Difference, pointer_token
 
 CHECK = "source"
@@ -182,7 +183,7 @@ class _Walk:
             starred = self.own(path, {**a, **b})
             column = _is_column(path) and "field" in a and "field" in b
             if column and not _same(a["field"], b["field"]):
-                if _calculated(a) and _calculated(b):
+                if (_calculated(a) and _calculated(b)) or _legacy_case_text_projection(a, b):
                     self.add(f"{path}/field", f"{at}/field", "changed", a["field"], b["field"])
                 else:
                     self.add(f"{path}/{HELD}", f"{at}/{HELD}/field", "changed", a["field"], b["field"])
@@ -265,6 +266,20 @@ def _is_column(path) -> bool:
 def _calculated(column) -> bool:
     """Whether a stored column holds an expression in its ``field`` (``DetailColumn.useXpathExpression``)."""
     return column.get("useXpathExpression") is True
+
+
+def _legacy_case_text_projection(before, after) -> bool:
+    """A legacy relation rendered through HQ's Translatable Text editor as the
+    exact same calculation with the exact same stored translations."""
+    if (before.get("model") != "case" or after.get("model") != "case"
+            or before.get("format") != "translatable-enum" or after.get("format") != "translatable-enum"
+            or before.get("useXpathExpression") is not False or after.get("useXpathExpression") is not True
+            or not legacy_related_case_formula(before["field"], after["field"])):
+        return False
+    original, converted = before.get("enum"), after.get("enum")
+    return (isinstance(original, list) and isinstance(converted, list) and len(original) == len(converted)
+            and all(isinstance(old, dict) and isinstance(new, dict) and old.get("value") == new.get("value")
+                    for old, new in zip(original, converted)))
 
 
 def _same(a, b) -> bool:

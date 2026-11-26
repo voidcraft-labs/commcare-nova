@@ -1942,15 +1942,71 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/links/0",
-				"value": {
-					"identifier": "parent",
-					"targetType": "member",
-					"relationship": "child",
-					"target": {
-						"kind": "session"
+				"pointer": "/caseOperations/0/action",
+				"value": "own"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
 					}
+				],
+				"pointer": "/caseOperations/2/placement",
+				"value": {
+					"kind": "advanced",
+					"tag": "open_member_0"
 				}
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/links/0/identifier",
+				"value": "parent"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/links/0/targetType",
+				"value": "member"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/links/0/relationship",
+				"value": "child"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/links/0/target/kind",
+				"value": "session"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
 			}
 		]
 	},
@@ -2122,7 +2178,7 @@
 		]
 	},
 	{
-		"id": "hq-advanced/open-index-named-with-a-hyphen",
+		"id": "hq-advanced/open-index-named-with-a-dot",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"standing": "not-yet",
@@ -2150,7 +2206,7 @@
 					"case_indices": [
 						{
 							"tag": "load_household0",
-							"reference_id": "my-parent",
+							"reference_id": "my.parent",
 							"relationship": "child",
 							"relationship_question": "",
 							"doc_type": "CaseIndex"
@@ -2174,6 +2230,42 @@
 				}
 			]
 		}
+	},
+	{
+		"id": "hq-advanced/open-index-named-with-a-hyphen",
+		"base": "hq-advanced",
+		"entry": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
+		"standing": "not-yet",
+		"place": { "kind": "menu", "menu": 1, "name": "Member visits" },
+		"change": { "op": "named", "name": "open_member_with_parent_index" },
+		"second": {
+			"entry": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
+			"standing": "not-yet",
+			"place": { "kind": "menu", "menu": 2, "name": "Member reviews" },
+			"change": {
+				"op": "set-json",
+				"pointer": "/modules/1/forms/0/actions/open_cases/0/case_indices/0/reference_id",
+				"value": "my-parent"
+			}
+		}
+	},
+	{
+		"id": "hq-advanced/visitor-opened-with-a-hyphenated-index",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+		"change": { "op": "named", "name": "open_visitor_with_hyphenated_index" },
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/identifier",
+				"value": "my-parent"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/targetType",
+				"value": "household"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/open-indexed-to-a-renamed-load",
@@ -2316,7 +2408,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/relationship",
+				"pointer": "/caseOperations/2/links/0/relationship",
 				"value": "extension"
 			},
 			{
@@ -2326,7 +2418,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/identifier",
+				"pointer": "/caseOperations/2/links/0/identifier",
 				"value": "host"
 			}
 		]
@@ -2384,7 +2476,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/placement",
+				"pointer": "/caseOperations/2/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2399,6 +2491,16 @@
 				],
 				"pointer": "/caseOperations/0/action",
 				"value": "own"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
 			}
 		]
 	},
@@ -2428,8 +2530,38 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/closeCondition/kind",
+				"pointer": "/caseOperations/3/condition/kind",
 				"value": "eq"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/closeCondition",
+				"value": null
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/3/target/kind",
+				"value": "op"
 			}
 		]
 	},
@@ -2537,7 +2669,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/placement",
+				"pointer": "/caseOperations/2/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2550,8 +2682,28 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/openCondition/kind",
+				"pointer": "/caseOperations/2/condition/kind",
 				"value": "eq"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openCondition",
+				"value": null
 			}
 		]
 	},
@@ -2614,7 +2766,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/writes/0/property",
+				"pointer": "/caseOperations/2/writes/0/property",
 				"value": "first_visit"
 			}
 		]
@@ -5879,6 +6031,27 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/automatic-fixed-text-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-autolaunch",
+		"change": {
+			"op": "named",
+			"name": "automatic_fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/automatic",
+				"value": true
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/case-id-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-id-as-a-property-column-s-field",
@@ -8448,6 +8621,217 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/fixed-text-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-with-text-extras",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup",
+				"value": {
+					"action": "org.example.SCAN",
+					"label": "Scan a card",
+					"extras": [
+						{
+							"name": "mode",
+							"value": "scan"
+						},
+						{
+							"name": "source",
+							"value": "home visit"
+						}
+					],
+					"responses": ["patient_id", "fallback"]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-confidence",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-case-id-confidence",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_confidence"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/resultHeading",
+				"value": "Confidence"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-count",
+		"base": "hq-case-lists",
+		"entry": "expressions-and-data/companion-lookup-count",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_count"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 1] }, ["lookup_count"]],
+				"pointer": "/calculate/kind",
+				"value": "case-list-lookup-count"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-extras",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-fixed-text",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/extras",
+				"value": [
+					{
+						"name": "mode",
+						"value": "scan"
+					},
+					{
+						"name": "source",
+						"value": "home visit"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-icon",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-image-jr",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_icon"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/label",
+				"value": "Scan a card"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-name",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/label",
+				"value": "Scan a card"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-responses",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-responses-key",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/responses",
+				"value": ["patient_id", "fallback"]
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/callout-with-worker-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-worker-context",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_worker_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/extras/1",
+				"value": {
+					"name": "worker",
+					"expression": {
+						"kind": "term",
+						"term": {
+							"kind": "session-context",
+							"field": "username"
+						}
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-unindexed-count",
+		"base": "hq-case-lists",
+		"entry": "expressions-and-data/companion-lookup-count",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_unindexed_count"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 1] }, ["lookup_count"]],
+				"pointer": "/calculate/kind",
+				"value": "case-list-lookup-count"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/follow-ups-shown-above-offering-registration",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-list-form-on-a-top-level-put-in-root-module-whose-case-list",
@@ -10713,6 +11097,21 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/multi-select-exceeds-runtime-integer",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-max-select-value-above-2147483647",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "multi_select_exceeds_runtime_integer"
+		}
+	},
+	{
 		"id": "hq-case-lists/multi-select-unbounded",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
@@ -10877,10 +11276,41 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/lookup-result-with-an-empty-heading-map",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-case-id-result-without-a-header-map",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "case_id_callout_without_result_heading"
+		}
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-property-confidence",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-case-property-confidence",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_property_confidence"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/deviceLookup/resultProperty",
+				"value": "scan_id"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/named-callout",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/lookup-enabled-lookup-action",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/lookup-extra-relative-without-case-context",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 0,
@@ -11060,6 +11490,21 @@
 				}
 			}
 		]
+	},
+	{
+		"id": "hq-case-lists/calculated-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-enabled-lookup-action",
+		"standing": "not-yet",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "calculated_callout"
+		}
 	},
 	{
 		"id": "hq-case-lists/calculation-loading-faster",
@@ -13852,8 +14297,8 @@
 	{
 		"id": "hq-case-lists/tile-grouped-by-a-hyphenated-index",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/case-tile-group-header-covers-all-cells",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 1,
@@ -13862,6 +14307,33 @@
 		"change": {
 			"op": "named",
 			"name": "tile_grouped_by_a_hyphenated_index"
+		}
+	},
+	{
+		"id": "hq-case-lists/tile-grouped-by-a-hyphenated-index-with-a-body",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
+		"change": {
+			"op": "named",
+			"name": "tile_grouped_by_a_hyphenated_index_with_a_body"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/tile/grouping",
+				"value": { "identifier": "my-parent", "headerRows": 1 }
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/tile-grouped-by-an-invalid-index",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
+		"standing": "not-yet",
+		"place": { "kind": "case-list", "menu": 1, "name": "Follow-ups" },
+		"change": {
+			"op": "named",
+			"name": "tile_grouped_by_an_invalid_index"
 		}
 	},
 	{
@@ -16397,6 +16869,27 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/translation-overrides-a-detail-tab-title",
+		"base": "hq-case-lists",
+		"entry": "application-and-settings/translations-generated-wording",
+		"change": {
+			"op": "named",
+			"name": "translation_overrides_a_detail_tab_title"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/0/title",
+				"value": "Patient record"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/worker-words-for-one-generated-title",
 		"base": "hq-case-lists",
 		"entry": "application-and-settings/translations-generated-wording",
@@ -16766,34 +17259,35 @@
 	{
 		"id": "hq-case-management/child-menu-selecting-from-the-search-reads-it",
 		"base": "hq-case-management",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
 		"entry": "expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"formName": "Followup Form",
-			"path": "status_note"
-		},
 		"change": {
 			"op": "named",
 			"name": "child_menu_selecting_from_the_search_reads_it"
 		},
-		"second": {
-			"entry": "case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 1,
-				"name": "Members"
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [1, 0]
+					},
+					["status_note"]
+				],
+				"pointer": "/relevant/left/term/kind",
+				"value": "input"
 			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/1/search_config/instance_name",
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/searchResultsName",
 				"value": "members"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-case-management/close-on-a-text-answer",
@@ -18754,6 +19248,24 @@
 		}
 	},
 	{
+		"id": "hq-case-management/save-to-case-positioned-beside-own",
+		"base": "hq-case-management",
+		"entry": "questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 2,
+			"menuName": "Households",
+			"formName": "Followup",
+			"path": "again"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_positioned_beside_own"
+		}
+	},
+	{
 		"id": "hq-case-management/save-to-case-worker-twice",
 		"base": "hq-case-management",
 		"entry": "questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record",
@@ -18774,16 +19286,22 @@
 		"id": "hq-case-management/search-without-the-related-cases-it-reads",
 		"base": "hq-case-management",
 		"entry": "case-search/include-all-related-cases-false-where-nova-s-relation-reads",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "named",
 			"name": "search_without_the_related_cases_it_reads"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseSearchConfig/relatedRecords",
+				"value": "details"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/seen-moment-a-hidden-date-and-time",
@@ -18920,6 +19438,28 @@
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/update_case/update/status_note/question_path",
 			"value": "/data/status_gone"
+		}
+	},
+	{
+		"id": "hq-case-management/update-key-with-an-unaddressable-uncased-letter",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Members",
+			"name": "Followup Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/update_case/update/n名字",
+			"value": {
+				"question_path": "/data/status_note",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
 		}
 	},
 	{
@@ -19106,6 +19646,66 @@
 				}
 			}
 		}
+	},
+	{
+		"id": "hq-case-management/datetime-answer-saved-through-parent-as-a-day",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-datetime-question-saved-straight-through-a-parent-index",
+		"change": {
+			"op": "named",
+			"name": "datetime_answer_saved_through_parent_as_a_day"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [1, 0] }, ["status_note"]],
+				"pointer": "/kind",
+				"value": "datetime"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "visit_day"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/via",
+				"value": [{ "identifier": "parent", "throughCaseType": "household" }]
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/hidden-clock-saved-as-a-day",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-datetime-question-saved-straight-to-a-case",
+		"change": { "op": "named", "name": "hidden_clock_saved_as_a_day" },
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [1, 0] }, ["recorded_at"]],
+				"pointer": "/answerType",
+				"value": "datetime"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "visit_day"
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/write-through-a-typed-user-index",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/update-key-through-a-typed-user-index",
+		"change": {
+			"op": "named",
+			"name": "write_through_typed_user_index"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/via",
+				"value": [{ "identifier": "user", "throughCaseType": "household" }]
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/write-through-a-user-index",
@@ -22911,7 +23511,44 @@
 		}
 	},
 	{
+		"id": "hq-lookups/itemset-filter-by-row-position",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_by_row_position"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["village"]],
+				"pointer": "/optionsSource/filter/left",
+				"value": { "kind": "call", "fn": "position", "args": [] }
+			}
+		]
+	},
+	{
 		"id": "hq-lookups/itemset-filter-outside-predicate",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_outside_predicate"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["village"]],
+				"pointer": "/optionsSource/filter/left/fn",
+				"value": "position"
+			},
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["village"]],
+				"pointer": "/optionsSource/filter/left/args/0/term/kind",
+				"value": "field"
+			}
+		]
+	},
+	{
+		"id": "hq-lookups/itemset-filter-numeric-row-index",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-filter-outside-predicate",
 		"standing": "not-yet",
@@ -22925,7 +23562,25 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_filter_outside_predicate"
+			"name": "itemset_filter_numeric_row_index"
+		}
+	},
+	{
+		"id": "hq-lookups/itemset-filter-position-of-scalar",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-position-called-on-a-number",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Farm survey",
+			"formName": "Survey",
+			"path": "village"
+		},
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_position_of_scalar"
 		}
 	},
 	{
@@ -22949,6 +23604,22 @@
 	{
 		"id": "hq-lookups/itemset-over-cases",
 		"base": "hq-lookups",
+		"entry": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
+		"change": {
+			"op": "named",
+			"name": "itemset_over_cases"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["district"]],
+				"pointer": "/optionsSource",
+				"value": { "kind": "available-cases" }
+			}
+		]
+	},
+	{
+		"id": "hq-lookups/itemset-over-closed-cases",
+		"base": "hq-lookups",
 		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
 		"standing": "not-yet",
 		"place": {
@@ -22961,8 +23632,24 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_over_cases"
+			"name": "itemset_over_closed_cases"
 		}
+	},
+	{
+		"id": "hq-lookups/itemset-over-open-cases",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
+		"change": {
+			"op": "named",
+			"name": "itemset_over_open_cases"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["district"]],
+				"pointer": "/optionsSource",
+				"value": { "kind": "available-cases", "status": "open" }
+			}
+		]
 	},
 	{
 		"id": "hq-lookups/itemset-sort",
@@ -23237,7 +23924,23 @@
 		"id": "hq-media/video-inline-on-help",
 		"base": "hq-media",
 		"entry": "questions/video-inline-form-on-a-text-other-than-a-question-label",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "video_inline_on_help"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["animal_name"]],
+				"pointer": "/help/parts/0/text",
+				"value": "Say what the animal is called"
+			}
+		]
+	},
+	{
+		"id": "hq-media/video-inline-as-only-help",
+		"base": "hq-media",
+		"entry": "questions/video-inline-as-the-only-content-of-a-help-text",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -23248,8 +23951,26 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "video_inline_on_help"
+			"name": "video_inline_as_only_help"
 		}
+	},
+	{
+		"id": "hq-media/video-as-only-help",
+		"base": "hq-media",
+		"entry": "questions/help-media",
+		"change": {
+			"op": "named",
+			"name": "video_as_only_help"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["animal_name"]],
+				"pointer": "/help_media/video",
+				"value": {
+					"$projectFile": "jr://file/commcare/video/data/animal_name.mp4"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-media/media-key-outside-jr-file",
@@ -23347,11 +24068,7 @@
 	{
 		"id": "hq-media/translation-overrides-a-menu-icon",
 		"base": "hq-media",
-		"entry": "application-and-settings/translations-generated-key-anything-else",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
+		"entry": "application-and-settings/translations-generated-navigation-file",
 		"change": {
 			"op": "set-json",
 			"pointer": "/translations",
@@ -23360,6 +24077,49 @@
 					"modules.m0.icon": "jr://file/commcare/image/data/animal_name.png"
 				}
 			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/mediaByLanguage/eng/iconOverride",
+				"value": {
+					"$projectFile": "jr://file/commcare/image/data/animal_name.png"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-media/translation-overrides-a-menu-icon-without-a-map-entry",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-menu-icon-without-mapping",
+		"standing": "fix-in-hq",
+		"place": { "kind": "app" },
+		"change": {
+			"op": "set-json",
+			"pointer": "/translations",
+			"value": {
+				"en": {
+					"modules.m0.icon": "jr://file/commcare/image/data/unmapped-menu-icon.png"
+				}
+			}
+		}
+	},
+	{
+		"id": "hq-media/translation-overrides-a-menu-icon-without-a-resource",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
+		"standing": "not-yet",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "named",
+			"name": "menu_icon_override_without_a_resource"
 		}
 	},
 	{
@@ -23453,6 +24213,14 @@
 				}
 			}
 		]
+	},
+	{
+		"id": "hq-menus/translation-overrides-a-menu-badge",
+		"base": "hq-menus",
+		"entry": "application-and-settings/translations-generated-key-anything-else",
+		"standing": "not-yet",
+		"place": { "kind": "app" },
+		"change": { "op": "named", "name": "translation_overrides_a_menu_badge" }
 	},
 	{
 		"id": "hq-menus/badge-future-form-answer",
@@ -26169,8 +26937,8 @@
 	{
 		"id": "hq-menus/clickable-icon",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 1,
@@ -26213,6 +26981,20 @@
 				"endpoint_action_id": "register_household"
 			}
 		}
+	},
+	{
+		"id": "hq-menus/clickable-icon-for-a-visit",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
+		"change": { "op": "named", "name": "clickable_icon_for_a_visit" },
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/columns/1/kind",
+				"value": "image-map"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/close-without-open-in-a-caseless-menu",
@@ -28679,7 +29461,41 @@
 		"id": "hq-new-app/build-profile",
 		"base": "hq-new-app",
 		"entry": "application-and-settings/build-profiles-non-empty",
-		"standing": "not-yet",
+		"change": {
+			"op": "set-json",
+			"pointer": "/build_profiles",
+			"value": {
+				"field": {
+					"name": "Field",
+					"langs": ["en"],
+					"practice_mobile_worker_id": null,
+					"doc_type": "BuildProfile"
+				}
+			}
+		},
+		"holds": [
+			{
+				"key": ["installationProfile", "field"],
+				"pointer": "/name",
+				"value": "Field"
+			},
+			{
+				"key": ["installationProfile", "field"],
+				"pointer": "/languages",
+				"value": ["eng"]
+			},
+			{
+				"key": ["installationProfile", "field"],
+				"pointer": "/requiresPracticeWorker",
+				"value": false
+			}
+		]
+	},
+	{
+		"id": "hq-new-app/build-profile-no-languages",
+		"base": "hq-new-app",
+		"entry": "application-and-settings/build-profiles-invalid-language-subset",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "app"
 		},
@@ -28689,7 +29505,7 @@
 			"value": {
 				"field": {
 					"name": "Field",
-					"langs": ["en"],
+					"langs": [],
 					"practice_mobile_worker_id": null,
 					"doc_type": "BuildProfile"
 				}
@@ -29160,17 +29976,47 @@
 		}
 	},
 	{
-		"id": "hq-new-app/save-to-case-close-only-condition",
+		"id": "hq-new-app/save-to-case-another-case-close-condition",
 		"base": "hq-new-app",
 		"entry": "questions/a-close-only-savetocase-block-with-a-close-condition",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_another_case_close_condition"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/action",
+				"value": "close"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/target/kind",
+				"value": "expression"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/caseOperations/1/closeCondition/kind",
+				"value": "gt"
+			}
+		]
+	},
+	{
+		"id": "hq-new-app/save-to-case-close-only-condition",
+		"base": "hq-new-app",
+		"entry": "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it",
 		"standing": "not-yet",
 		"place": {
-			"kind": "question",
+			"kind": "form",
 			"menu": 0,
 			"form": 1,
 			"menuName": "Case List",
-			"formName": "Followup Form",
-			"path": "nova_operations/shut"
+			"name": "Followup Form"
 		},
 		"change": {
 			"op": "named",
@@ -29397,16 +30243,17 @@
 		"id": "hq-plain/auto-select-on-a-multi-select-list",
 		"base": "hq-plain",
 		"entry": "menus-and-case-lists/detail-auto-select-multi-select",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Households"
-		},
 		"change": {
 			"op": "named",
 			"name": "auto_select_on_a_multi_select_list"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/selection",
+				"value": { "kind": "multiple", "maximum": 100, "autoSelect": true }
+			}
+		]
 	},
 	{
 		"id": "hq-plain/bare-string-update",
@@ -31626,6 +32473,85 @@
 		}
 	},
 	{
+		"id": "hq-questions/android-app-answer",
+		"base": "hq-questions",
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
+		"entry": "questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id",
+		"change": {
+			"op": "named",
+			"name": "android_app_answer"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/androidApp/action",
+				"value": "org.example.SCAN"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/androidApp/kind",
+				"value": "use-question"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/android-app-question",
+		"base": "hq-questions",
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
+		"entry": "questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
+		"change": {
+			"op": "named",
+			"name": "android_app_question"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/androidApp/action",
+				"value": "org.example.SCAN"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/androidApp/send/0/name",
+				"value": "unit"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/androidApp/receive/0/name",
+				"value": "measurement"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/appearance-android-inside-held",
 		"base": "hq-questions",
 		"entry": "questions/a-single-string-no-row-names-that-holds-values-android-matches",
@@ -32132,8 +33058,8 @@
 	{
 		"id": "hq-questions/callout",
 		"base": "hq-questions",
-		"entry": "questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
-		"standing": "not-yet",
+		"entry": "questions/android-app-callout-that-cannot-be-recreated",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -32899,19 +33825,17 @@
 		"id": "hq-questions/face-capture",
 		"base": "hq-questions",
 		"entry": "questions/face-capture-image-face",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "face_capture"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["photo"]],
+				"pointer": "/captureSource",
+				"value": "face-camera"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/field-list-on-question",
@@ -33446,8 +34370,8 @@
 	{
 		"id": "hq-questions/intent-on-other-input",
 		"base": "hq-questions",
-		"entry": "questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id",
-		"standing": "not-yet",
+		"entry": "questions/android-app-callout-that-cannot-be-recreated",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -33461,8 +34385,8 @@
 			"name": "intent_on_other_input"
 		},
 		"second": {
-			"entry": "questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
-			"standing": "not-yet",
+			"entry": "questions/android-app-callout-that-cannot-be-recreated",
+			"standing": "fix-in-hq",
 			"place": {
 				"kind": "question",
 				"menu": 0,
@@ -33764,37 +34688,33 @@
 		"id": "hq-questions/long-form-on-group-label",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-group-or-repeat-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "members"
-		},
 		"change": {
 			"op": "named",
 			"name": "long_form_on_group_label"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["members"]],
+				"pointer": "/extended_text/parts/0/text",
+				"value": "Every member of the household"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/long-form-on-help",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "long_form_on_help"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
+				"pointer": "/extended_help/parts/0/text",
+				"value": "Ask who heads the household"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/markdown-differing",
@@ -34186,33 +35106,29 @@
 		"id": "hq-questions/pragma-form-descriptor-text",
 		"base": "hq-questions",
 		"entry": "questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "weight"
-		},
 		"change": {
 			"op": "named",
 			"name": "pragma_form_descriptor_text"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/savedFormDescriptorText/carrier/role",
+				"value": "field-label"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/pragma-question-text",
 		"base": "hq-questions",
 		"entry": "questions/a-question-text-label-hint-help-validation-message-repeat-add",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "weight"
-		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/activityKeyText/carrier/role",
+				"value": "field-label"
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "pragma_question_text"
@@ -34654,6 +35570,22 @@
 		]
 	},
 	{
+		"id": "hq-questions/long-form-on-repeat-action-caption",
+		"base": "hq-questions",
+		"entry": "questions/long-form-on-a-repeat-action-caption",
+		"change": {
+			"op": "named",
+			"name": "long_form_on_repeat_action_caption"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["members"]],
+				"pointer": "/addLabel/parts/0/text",
+				"value": "Add a member"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/repeat-appearance",
 		"base": "hq-questions",
 		"entry": "questions/any-value-on-a-vellum-repeat-written-on-its-wrapping-group-or-on",
@@ -34784,20 +35716,23 @@
 	{
 		"id": "hq-questions/save-to-case-authored-id",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
+		"entry": "questions/savetocase-case-id-expression-on-a-create",
 		"change": {
 			"op": "named",
 			"name": "save_to_case_authored_id"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/target/expr/kind",
+				"value": "concat"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-bare-name",
@@ -34898,19 +35833,32 @@
 		"id": "hq-questions/save-to-case-create-and-close",
 		"base": "hq-questions",
 		"entry": "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
 		"change": {
 			"op": "named",
 			"name": "save_to_case_create_and_close"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/closeAfter",
+				"value": true
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/closeCondition/kind",
+				"value": "gt"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-hyphenated-property",
@@ -34948,6 +35896,68 @@
 		"change": {
 			"op": "named",
 			"name": "save_to_case_keyed_beside_worker"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-keyed-from-outside-its-row",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "members/nova_operations/kid"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_keyed_from_outside_its_row"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-declared-type-choice",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_declared_type_choice"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/caseType",
+				"value": "household"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/otherwise",
+				"value": "visit"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/condition/kind",
+				"value": "gt"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-dynamic-type",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-case-type-given-as-an-xpath",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_dynamic_type"
 		}
 	},
 	{
@@ -35005,10 +36015,31 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-hyphenated-link-name",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-index-name-child-extension-and-unlink-empty",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_hyphenated_link_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/identifier",
+				"value": "par-ent"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-link-name-outside-grammar",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
-		"standing": "not-yet",
+		"entry": "questions/savetocase-link-bind-lost-on-save",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -35020,6 +36051,78 @@
 		"change": {
 			"op": "named",
 			"name": "save_to_case_link_name_outside_grammar"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-unicode-link-name",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_unicode_link_name"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-unicode-link-name-cjk",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_unicode_link_name_cjk"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-link-stops-form-designer",
+		"base": "hq-questions",
+		"entry": "questions/question-id-failing-the-grammar-or-meta-in-any-case",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_link_stops_form_designer"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-index-close-adds-action",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-changes-actions-on-save",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_index_close_adds_action"
 		}
 	},
 	{
@@ -35128,6 +36231,27 @@
 		"id": "hq-questions/save-to-case-owner-condition",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-owner-id-condition",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_owner_condition"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerCondition/kind",
+				"value": "gt"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-conditional-owner-aliased-create",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-owner-condition-on-an-aliased-create",
 		"standing": "not-yet",
 		"place": {
 			"kind": "question",
@@ -35139,8 +36263,93 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_owner_condition"
+			"name": "save_to_case_conditional_owner_aliased_create"
 		}
+	},
+	{
+		"id": "hq-questions/save-to-case-create-with-conditioned-owner-update",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-update-owner-condition",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_create_with_conditioned_owner_update"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-fresh-create-with-later-owner",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-guarded-owner-after-fresh-create",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_fresh_create_with_later_owner"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerAfterCreate/condition/kind",
+				"value": "gt"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerAfterCreate/value/term/kind",
+				"value": "field"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/0/property",
+				"value": "head"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-update-owner-condition",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-targeted-update-owner-condition",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_update_owner_condition"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/ownerCondition/kind",
+				"value": "gt"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/action",
+				"value": "update"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/writes/0/property",
+				"value": "head"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-reserved-key",
@@ -35159,6 +36368,27 @@
 			"op": "named",
 			"name": "save_to_case_reserved_key"
 		}
+	},
+	{
+		"id": "hq-questions/save-to-case-date-as-text",
+		"base": "hq-questions",
+		"entry": "questions/a-savetocase-retype-that-keeps-a-date-as-text",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_date_as_text"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/1/retype",
+				"value": "visit"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/1/writes/0/property",
+				"value": "kept"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-retype-converts",
@@ -35198,20 +36428,29 @@
 	{
 		"id": "hq-questions/save-to-case-type-expression",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-case-type-given-as-an-xpath",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"change": {
 			"op": "named",
 			"name": "save_to_case_type_expression"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/caseType",
+				"value": "household"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeCalculation",
+				"value": {
+					"kind": "concat",
+					"parts": [
+						{ "kind": "term", "term": { "kind": "literal", "value": "house" } },
+						{ "kind": "term", "term": { "kind": "literal", "value": "hold" } }
+					]
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-type-outside-grammar",
@@ -35284,6 +36523,47 @@
 			"op": "named",
 			"name": "save_to_case_without_role"
 		}
+	},
+	{
+		"id": "hq-questions/save-to-case-worker-under-condition",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-update-case-id-xpath",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_worker_under_condition"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/target/kind",
+				"value": "worker-record"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/condition/kind",
+				"value": "gt"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/0/property",
+				"value": "last_review"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-worker-in-repeat",
@@ -36768,13 +38048,7 @@
 	{
 		"id": "hq-search/address-field",
 		"base": "hq-search",
-		"entry": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"entry": "case-search/address-picker-on-a-search-screen",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -36800,13 +38074,49 @@
 				"doc_type": "CaseSearchProperty",
 				"appearance": "address"
 			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/kind",
+				"value": "address"
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-picker-with-stored-default",
+		"base": "hq-search",
+		"entry": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"doc_type": "CaseSearchProperty",
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"appearance": "address",
+				"default_value": "'Old address'"
+			}
 		}
 	},
 	{
 		"id": "hq-search/another-case-type-searched",
 		"base": "hq-search",
-		"entry": "case-search/additional-case-types",
-		"standing": "not-yet",
+		"entry": "case-search/additional-record-type-without-menu",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 0,
@@ -37003,20 +38313,6 @@
 		"change": {
 			"op": "named",
 			"name": "child_menu_reads_the_search"
-		},
-		"second": {
-			"entry": "case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 2,
-				"name": "Active clients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/2/search_config/instance_name",
-				"value": "active"
-			}
 		}
 	},
 	{
@@ -37546,12 +38842,6 @@
 		"id": "hq-search/default-filter-naming-a-case-type",
 		"base": "hq-search",
 		"entry": "case-search/default-properties-entry-keyed-case-type",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -37560,7 +38850,19 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'household'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/caseType",
+				"value": "household"
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-naming-a-registry",
@@ -37762,6 +39064,53 @@
 		}
 	},
 	{
+		"id": "hq-search/default-filter-sorting-by-a-repeated-direction",
+		"base": "hq-search",
+		"entry": "case-search/default-filter-orders-the-records-the-search-sends",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'++priority:exact'"
+			}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchFilters/0/order",
+				"value": [
+					{
+						"property": "priority",
+						"comparison": "text",
+						"direction": "ascending"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-search/default-filter-sorting-by-an-unknown-comparison",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'++priority:unknown'"
+			}
+		}
+	},
+	{
 		"id": "hq-search/default-filter-sorting-by-a-session-value",
 		"base": "hq-search",
 		"entry": "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case",
@@ -37826,6 +39175,42 @@
 		]
 	},
 	{
+		"id": "hq-search/default-filter-following-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-related-record-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_custom_related_case_property",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'location_id'"
+			}
+		}
+	},
+	{
+		"id": "hq-search/dedicated-setting-following-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-related-record-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/custom_related_case_property",
+			"value": "location_id"
+		}
+	},
+	{
 		"id": "hq-search/default-filter-sorting-by-a-saved-status",
 		"base": "hq-search",
 		"entry": "case-search/a-server-order-naming-a-property-nova-reserves",
@@ -37846,10 +39231,10 @@
 		}
 	},
 	{
-		"id": "hq-search/default-filter-naming-the-related-case-property",
+		"id": "hq-search/default-filter-sorting-by-case-location",
 		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
-		"standing": "not-yet",
+		"entry": "case-search/a-server-order-naming-a-property-only-devices-hold",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 1,
@@ -37859,11 +39244,32 @@
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
 			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'+location_id:exact'"
+			}
+		}
+	},
+	{
+		"id": "hq-search/default-filter-naming-the-related-case-property",
+		"base": "hq-search",
+		"entry": "case-search/default-related-record-id-property",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
 				"property": "x_commcare_custom_related_case_property",
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'parent_id'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchFilters/0/property",
+				"value": "parent_id"
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-with-no-value",
@@ -38152,6 +39558,85 @@
 	{
 		"id": "hq-search/field-named-by-a-parent-path",
 		"base": "hq-search",
+		"entry": "case-search/prompt-key-matching-a-direct-parent-property",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"name": "parent/village",
+				"label": {
+					"en": "Village"
+				},
+				"hint": {},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/name",
+				"value": "parent_village"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/matching",
+				"value": "project-space"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/via",
+				"value": {
+					"kind": "ancestor",
+					"via": [
+						{
+							"identifier": "parent"
+						}
+					]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/date-field-named-by-a-parent-path",
+		"base": "hq-search",
 		"entry": "case-search/prompt-key-outside-nova-s-name-grammar",
 		"standing": "not-yet",
 		"place": {
@@ -38181,8 +39666,87 @@
 					"doc_type": "Itemset"
 				},
 				"is_group": false,
-				"doc_type": "CaseSearchProperty"
+				"doc_type": "CaseSearchProperty",
+				"input_": "date"
 			}
+		}
+	},
+	{
+		"id": "hq-search/field-named-by-a-nested-parent-path",
+		"base": "hq-search",
+		"entry": "case-search/prompt-key-matching-two-parent-links",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1/name",
+			"value": "parent/parent/village"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/name",
+				"value": "parent_parent_village"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/matching",
+				"value": "project-space"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/via",
+				"value": {
+					"kind": "ancestor",
+					"via": [
+						{
+							"identifier": "parent"
+						},
+						{
+							"identifier": "parent"
+						}
+					]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/field-named-by-three-parent-links",
+		"base": "hq-search",
+		"entry": "case-search/prompt-key-outside-nova-s-name-grammar",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1/name",
+			"value": "parent/parent/parent/village"
 		}
 	},
 	{
@@ -38335,42 +39899,38 @@
 			"name": "Clients"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/search_config/properties/-",
-			"value": {
-				"name": "region",
-				"label": {
-					"en": "Region"
-				},
-				"hint": {},
-				"hidden": false,
-				"allow_blank_value": false,
-				"exclude": false,
-				"required": {
-					"test": null,
-					"text": {},
-					"doc_type": "Assertion"
-				},
-				"validations": [],
-				"itemset": {
-					"doc_type": "Itemset"
-				},
-				"is_group": false,
-				"doc_type": "CaseSearchProperty"
-			}
+			"op": "named",
+			"name": "fields_with_ungrouped_prompt"
+		}
+	},
+	{
+		"id": "hq-search/field-with-an-unknown-heading",
+		"base": "hq-search",
+		"entry": "case-search/search-group-layout-unreadable",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
 		},
-		"second": {
-			"entry": "case-search/is-group-group-key",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 0,
-				"name": "Clients"
-			},
-			"change": {
-				"op": "named",
-				"name": "fields_grouped"
-			}
+		"change": {
+			"op": "named",
+			"name": "fields_with_unknown_search_heading"
+		}
+	},
+	{
+		"id": "hq-search/fields-with-a-blank-heading",
+		"base": "hq-search",
+		"entry": "case-search/search-group-heading-unreadable",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "fields_with_blank_search_heading"
 		}
 	},
 	{
@@ -38515,12 +40075,6 @@
 		"id": "hq-search/grouped-fields",
 		"base": "hq-search",
 		"entry": "case-search/is-group-group-key",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties",
@@ -38689,7 +40243,19 @@
 					"group_key": "g"
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputGroups/0/label",
+				"value": "Group"
+			}
+		]
 	},
 	{
 		"id": "hq-search/hidden-choice-field",
@@ -39960,33 +41526,45 @@
 		"id": "hq-search/related-case-property",
 		"base": "hq-search",
 		"entry": "case-search/custom-related-case-property",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/custom_related_case_property",
 			"value": "parent_id"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/relatedRecordIdProperty",
+				"value": "parent_id"
+			}
+		]
 	},
 	{
 		"id": "hq-search/related-cases-included",
 		"base": "hq-search",
 		"entry": "case-search/include-all-related-cases-authored-without-relation-reads",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/include_all_related_cases",
 			"value": true
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/relatedRecords",
+				"value": "hierarchy"
+			}
+		]
 	},
 	{
 		"id": "hq-search/related-property-twice",
@@ -39999,27 +41577,8 @@
 			"name": "Active clients"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/1/search_config/default_properties/-",
-			"value": {
-				"property": "x_commcare_custom_related_case_property",
-				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "'parent/name'"
-			}
-		},
-		"second": {
-			"entry": "case-search/custom-related-case-property",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 1,
-				"name": "Active clients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/1/search_config/custom_related_case_property",
-				"value": "name"
-			}
+			"op": "named",
+			"name": "related_record_id_sent_twice"
 		}
 	},
 	{
@@ -40346,17 +41905,23 @@
 		"id": "hq-search/results-instance-named",
 		"base": "hq-search",
 		"entry": "case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/instance_name",
 			"value": "visits"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/searchResultsName",
+				"value": "visits"
+			}
+		]
 	},
 	{
 		"id": "hq-search/results-instance-named-as-the-root-menu-s",
@@ -40366,7 +41931,18 @@
 			"op": "named",
 			"name": "results_instance_named_as_the_root_menu_s"
 		},
-		"holds": []
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/searchResultsName",
+				"value": "inline"
+			}
+		]
 	},
 	{
 		"id": "hq-search/results-instance-named-for-the-case-database",
@@ -40382,6 +41958,22 @@
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/instance_name",
 			"value": "visitscasedb"
+		}
+	},
+	{
+		"id": "hq-search/results-name-outside-the-search-editor",
+		"base": "hq-search",
+		"entry": "case-search/results-name-outside-the-search-editor",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 2,
+			"name": "Visits"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/search_config/instance_name",
+			"value": "two names"
 		}
 	},
 	{
@@ -40469,6 +42061,29 @@
 			"value": [
 				{
 					"property_name": "owner_id",
+					"sort_type": "exact",
+					"direction": "ascending",
+					"doc_type": "CaseSearchCustomSortProperty"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-search/results-sorted-by-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/custom_sort_properties",
+			"value": [
+				{
+					"property_name": "location_id",
 					"sort_type": "exact",
 					"direction": "ascending",
 					"doc_type": "CaseSearchCustomSortProperty"
@@ -40659,6 +42274,44 @@
 		]
 	},
 	{
+		"id": "hq-search/search-button-counts-restored-clients",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-lifting-into-predicate",
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/searchButtonDisplayCondition/left/via/source",
+				"value": "casedb"
+			}
+		],
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/search_button_display_condition",
+			"value": "count(instance('casedb')/casedb/case[@case_type = 'client']) > 1"
+		}
+	},
+	{
+		"id": "hq-search/search-button-counts-cases-by-a-session-the-list-does-not-load",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/search_button_display_condition",
+			"value": "count(instance('casedb')/casedb/case[@case_type = 'client'][@owner_id = instance('commcaresession')/session/context/userid]) > 1"
+		}
+	},
+	{
 		"id": "hq-search/search-button-shown-to-a-user-the-list-does-not-load",
 		"base": "hq-search",
 		"entry": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
@@ -40678,17 +42331,52 @@
 		"id": "hq-search/search-endpoint",
 		"base": "hq-search",
 		"entry": "case-search/case-search-endpoint-id",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/search_config/case_search_endpoint_id",
-			"value": 1
-		}
+			"pointer": "/modules/0/search_config",
+			"value": {
+				"doc_type": "CaseSearch",
+				"case_search_endpoint_id": 1,
+				"properties": [],
+				"default_properties": [
+					{
+						"doc_type": "DefaultCaseSearchProperty",
+						"property": "district",
+						"defaultValue": "'north'"
+					},
+					{
+						"doc_type": "DefaultCaseSearchProperty",
+						"property": "_xpath_query",
+						"defaultValue": "concat('region', '-north')"
+					}
+				],
+				"auto_launch": true,
+				"default_search": false,
+				"inline_search": false
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/projectSearch/defaults/0/name",
+				"value": "district"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/projectSearch/defaults/1/name",
+				"value": "_xpath_query"
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-input-in-the-results-detail",
@@ -40847,7 +42535,7 @@
 		"entry": "case-search/p-where-p-is-not-date-opened-closed-on-or-last-modified",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"village = ''\""
 		},
 		"holds": [
@@ -40879,8 +42567,14 @@
 		"entry": "case-search/match-all-match-none",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
-			"value": "\"match-all()\""
+			"pointer": "/modules/2/search_config/default_properties",
+			"value": [
+				{
+					"property": "_xpath_query",
+					"doc_type": "DefaultCaseSearchProperty",
+					"defaultValue": "\"match-all()\""
+				}
+			]
 		},
 		"holds": [
 			{
@@ -40918,7 +42612,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"not(village = 'south')\""
 		},
 		"holds": [
@@ -40960,7 +42654,7 @@
 		"entry": "case-search/not-q",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"not(village != 'south')\""
 		},
 		"holds": [
@@ -41002,7 +42696,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"subcase-exists('parent', @case_type = 'visit' and match-all())\""
 		},
 		"holds": [
@@ -41031,7 +42725,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"closed_on > datetime('2023-01-01T00:00:00')\""
 		},
 		"holds": [
@@ -41074,7 +42768,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"selected(services, 'nutrition')\""
 		},
 		"holds": [
@@ -41110,7 +42804,7 @@
 		"entry": "case-search/authored-case-type-comparisons-other-than-a-hop-qualifier",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"@case_type = 'client'\""
 		},
 		"holds": [
@@ -41147,7 +42841,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"dob > date(19000)\""
 		},
 		"holds": [
@@ -41555,13 +43249,7 @@
 	{
 		"id": "hq-search/value-received",
 		"base": "hq-search",
-		"entry": "case-search/receiver-expression",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"entry": "case-search/address-picker-receiver-on-a-search-screen",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -41586,6 +43274,120 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty",
 				"receiver_expression": "home-address"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/addressReceiver",
+				"value": {
+					"kind": "unsubscribed",
+					"topic": "home",
+					"fields": "address"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-fills-a-single-choice-by-position",
+		"base": "hq-search",
+		"entry": "case-search/address-receiver-single-choice-lookup-position",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "address_picker_and_single_choice"
+		}
+	},
+	{
+		"id": "hq-search/two-fields-receive-from-the-address-picker",
+		"base": "hq-search",
+		"entry": "case-search/address-picker-receiver-on-a-search-screen",
+		"change": {
+			"op": "named",
+			"name": "address_picker_and_two_receivers"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/0/kind",
+				"value": "address"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/2/addressReceiver/parts",
+				"value": ["us_state", "city"]
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-choice-shares-its-receiver-with-text",
+		"base": "hq-search",
+		"entry": "case-search/address-receiver-shared-with-a-choice-field",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "address_picker_and_two_receivers"
+		},
+		"second": {
+			"entry": "case-search/address-receiver-shared-with-a-choice-field",
+			"standing": "fix-in-hq",
+			"place": {
+				"kind": "search",
+				"menu": 0,
+				"name": "Clients"
+			},
+			"change": {
+				"op": "set-json",
+				"pointer": "/modules/0/search_config/properties/2/receiver_expression",
+				"value": "home-region"
+			}
+		}
+	},
+	{
+		"id": "hq-search/value-received-with-invalid-topic",
+		"base": "hq-search",
+		"entry": "case-search/receiver-expression",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"doc_type": "CaseSearchProperty",
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"receiver_expression": "home||city"
 			}
 		}
 	},
@@ -41633,7 +43435,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "if(instance('commcaresession')/session/context/drift > 5, 'match-none()', \"village = 'north'\")"
 		},
 		"holds": [
@@ -41695,7 +43497,7 @@
 		"entry": "case-search/clause-chosen-at-runtime-by-a-condition-over-session-worker",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "if(instance('commcaresession')/session/context/username = 'demo', 'match-none()', \"village = 'north'\")"
 		},
 		"holds": [
@@ -41727,7 +43529,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "if(instance('commcaresession')/session/context/window_width > 600, 'match-none()', \"village = 'north'\")"
 		},
 		"holds": [
@@ -41789,7 +43591,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "concat(\"village = '\", instance('commcaresession')/session/context/applanguage, \"'\")"
 		},
 		"holds": [
@@ -42299,6 +44101,80 @@
 				],
 				"pointer": "/caseListConfig/detailTabs/1/rowSource/includeChildrenOfType",
 				"value": "member"
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/choose-another-menu-record-type",
+		"base": "hq-case-management",
+		"entry": "case-search/additional-case-types",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/additional_case_types",
+			"value": ["household"]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/additionalCaseTypes",
+				"value": ["household"]
+			}
+		]
+	},
+	{
+		"id": "hq-search/related-hierarchy-request",
+		"base": "hq-search",
+		"entry": "case-search/default-related-record-inclusion",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_include_all_related_cases",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'false'"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target/kind",
+				"value": "include-related-records"
+			}
+		]
+	},
+	{
+		"id": "hq-search/related-record-id-request",
+		"base": "hq-search",
+		"entry": "case-search/default-related-record-id-property",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_custom_related_case_property",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'standing'"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/property",
+				"value": "standing"
 			}
 		]
 	}

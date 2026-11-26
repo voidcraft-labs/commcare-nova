@@ -4,10 +4,12 @@ import {
 	type BlueprintDoc,
 	type Module,
 	makeTranslationUnitId,
+	NAMED_TILE_SLOTS,
 	translationUnitIdSchema,
 	translationUnitsById,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { isExpression } from "@/lib/domain/expression/types";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
@@ -28,33 +30,78 @@ export function initialSharedChild(
 ): Mutation[] {
 	const remap = new Map<Uuid, Uuid>();
 	const prefixes = new Map<string, string>();
-	const binding = (kind: string, old: Uuid, next: Uuid) => {
-		remap.set(old, next);
+	const binding = (kind: string, old: Uuid, next: Uuid) =>
 		prefixes.set(
 			makeTranslationUnitId(kind, old),
 			makeTranslationUnitId(kind, next),
 		);
+	const mint = (kind: string, old: Uuid) => {
+		const next = asUuid(uuidv5(`${kind}/${old}`, route.uuid));
+		remap.set(old, next);
+		return next;
 	};
+	const mapped = (uuid: Uuid) => remap.get(uuid) ?? uuid;
+
 	binding("module", source.uuid, route.uuid);
 	if (source.caseListConfig) {
 		const config = structuredClone(source.caseListConfig);
 		delete config.selection;
 		for (const column of config.columns) {
-			const next = asUuid(uuidv5(`column/${column.uuid}`, route.uuid));
-			binding("column", column.uuid, next);
-			column.uuid = next;
+			const old = column.uuid;
+			column.uuid = mint("column", old);
+			binding("column", old, column.uuid);
+			if (column.kind === "calculated") {
+				for (const item of column.texts ?? []) {
+					const before = item.uuid;
+					item.uuid = mint("calculation-text", before);
+					prefixes.set(
+						makeTranslationUnitId("column", old, "calculation-text", before),
+						makeTranslationUnitId(
+							"column",
+							column.uuid,
+							"calculation-text",
+							item.uuid,
+						),
+					);
+				}
+			}
+			if (column.kind === "image-map" || column.kind === "id-mapping") {
+				for (const row of column.mapping) {
+					if (row.uuid) row.uuid = mint("mapping-row", row.uuid);
+				}
+			}
 		}
 		for (const input of config.searchInputs) {
-			const next = asUuid(uuidv5(`search/${input.uuid}`, route.uuid));
-			binding("search-input", input.uuid, next);
-			input.uuid = next;
+			const old = input.uuid;
+			input.uuid = mint("search", old);
+			binding("search-input", old, input.uuid);
 		}
-		config.listColumnOrder = config.listColumnOrder.map(
-			(uuid) => remap.get(uuid) ?? uuid,
-		);
-		config.detailColumnOrder = config.detailColumnOrder.map(
-			(uuid) => remap.get(uuid) ?? uuid,
-		);
+		for (const rule of config.calculatedSorts ?? []) {
+			const old = rule.uuid;
+			rule.uuid = mint("case-sort", old);
+			binding("case-sort", old, rule.uuid);
+		}
+		for (const tab of config.detailTabs ?? []) {
+			const old = tab.uuid;
+			tab.uuid = mint("detail-tab", old);
+			binding("detail-tab", old, tab.uuid);
+			tab.startColumnUuid = mapped(tab.startColumnUuid);
+			if (tab.orderFields) tab.orderFields = tab.orderFields.map(mapped);
+		}
+		for (const filter of config.searchFilters ?? [])
+			filter.uuid = mint("search-filter", filter.uuid);
+		config.listColumnOrder = config.listColumnOrder.map(mapped);
+		config.detailColumnOrder = config.detailColumnOrder.map(mapped);
+		if (config.detailTile)
+			config.detailTile.cells = Object.fromEntries(
+				Object.entries(config.detailTile.cells).map(([uuid, cell]) => [
+					mapped(asUuid(uuid)),
+					cell,
+				]),
+			);
+		const slots = config.tile?.namedSlots;
+		if (slots)
+			for (const slot of NAMED_TILE_SLOTS) slots[slot] = mapped(slots[slot]);
 		route.caseListConfig = config;
 	}
 	if (source.caseSearchConfig)
@@ -82,6 +129,10 @@ export function initialSharedChild(
 		(value) => {
 			if (!isExpression(value)) return value;
 			return mapExpressionAst(value, {
+				mapExpression: (expression) =>
+					expression.kind === "case-text" && remap.has(expression.textUuid)
+						? { ...expression, textUuid: mapped(expression.textUuid) }
+						: undefined,
 				mapTerm: (term) => {
 					if (term.kind === "input") {
 						const next = remap.get(term.searchInputUuid);
@@ -101,6 +152,24 @@ export function initialSharedChild(
 	const mutations: Mutation[] = [];
 	const localizations = doc.localization?.translations;
 	if (!localizations || !Object.keys(localizations).length) return mutations;
+	// A legacy rule can derive its row identity from its predicate. Compute
+	// its translated wording address after the copied predicate is rewritten.
+	for (const [index, column] of (
+		source.caseListConfig?.columns ?? []
+	).entries()) {
+		const copied = route.caseListConfig?.columns[index];
+		if (
+			(column.kind !== "image-map" && column.kind !== "id-mapping") ||
+			copied?.kind !== column.kind
+		)
+			continue;
+		const role = column.kind === "image-map" ? "image-description" : "mapping";
+		for (const [position, row] of column.mapping.entries())
+			prefixes.set(
+				caseMappingTextUnit(column.uuid, row, role),
+				caseMappingTextUnit(copied.uuid, copied.mapping[position], role),
+			);
+	}
 	const copied = {
 		...doc,
 		modules: { ...doc.modules, [route.uuid]: route },

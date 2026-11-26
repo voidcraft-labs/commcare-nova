@@ -35,6 +35,7 @@ export interface ExportSpec {
 	filename: string;
 	assignments?: AssignmentWitness;
 	places?: PlaceWorkbookWitness;
+	manualLookupInstaller?: true;
 }
 
 export function compileExportSpec(
@@ -53,6 +54,9 @@ export function compileExportSpec(
 		targetRevision: download.targetRevision,
 		target: download.format === "ccz" ? download.runtimeTarget : null,
 		assignments: prepared.assignmentWitness,
+		...((prepared.jsonLookupTables?.length ?? 0) > 0 && {
+			manualLookupInstaller: true,
+		}),
 		format: download.format === "ccz" ? "ccz" : "zip",
 		filename,
 	};
@@ -74,7 +78,9 @@ export async function lockExportAccess(
 		tx,
 		spec.appId,
 		actor.userId,
-		spec.assignments || spec.places ? "edit" : "view",
+		spec.assignments || spec.places || spec.manualLookupInstaller
+			? "edit"
+			: "view",
 	);
 	if (scope.projectId !== spec.projectId) return artifactUnavailable();
 	const grant = await lockProjectDataGrant(

@@ -47,6 +47,7 @@ it("admits valid source replacements through replay and undo, and refuses dangli
 		kind: "cases",
 		caseType: "clinic",
 		labelProperty: "region",
+		sortProperty: "region",
 		filter: eq(prop("clinic", "region"), formField(choiceUuid("clinic"))),
 	};
 	const mutation = replace(source);
@@ -63,6 +64,7 @@ it("admits valid source replacements through replay and undo, and refuses dangli
 	for (const invalid of [
 		{ ...source, caseType: "missing" },
 		{ ...source, labelProperty: "missing" },
+		{ ...source, sortProperty: "missing" },
 		{
 			...source,
 			filter: eq(prop("clinic", "region"), formField(choiceUuid("selected"))),
@@ -81,6 +83,29 @@ it("admits valid source replacements through replay and undo, and refuses dangli
 		).toBe(false);
 });
 
+it("refuses the all-available source on a multi-select before it commits", () => {
+	const verdict = mutationCommitVerdict(
+		caseChoiceDoc(),
+		[
+			{
+				kind: "updateField",
+				targetKind: "multi_select",
+				uuid: choiceUuid("members"),
+				patch: { optionsSource: { kind: "available-cases" } },
+			},
+		],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok).toBe(false);
+	if (verdict.ok) throw new Error("Expected the choice source to be refused.");
+	expect(verdict.findings).toContainEqual(
+		expect.objectContaining({
+			code: "CASE_SELECT_SOURCE_INVALID",
+			details: { part: "single-select" },
+		}),
+	);
+});
+
 it("renames label, candidate and selected properties together and blocks deleting referenced definitions", () => {
 	const base = caseChoiceDoc();
 	const fieldUuid = choiceUuid("attendees");
@@ -94,6 +119,7 @@ it("renames label, candidate and selected properties together and blocks deletin
 					kind: "cases",
 					caseType: "clinic",
 					labelProperty: "region",
+					sortProperty: "region",
 					filter: eq(
 						prop("clinic", "region"),
 						term({ kind: "form-case", caseType: "clinic", property: "region" }),
@@ -117,6 +143,7 @@ it("renames label, candidate and selected properties together and blocks deletin
 	expect(renamed.fields[fieldUuid]).toMatchObject({
 		optionsSource: {
 			labelProperty: "district",
+			sortProperty: "district",
 			filter: eq(
 				prop("clinic", "district"),
 				term({ kind: "form-case", caseType: "clinic", property: "district" }),

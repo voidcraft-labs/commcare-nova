@@ -254,7 +254,8 @@ function attachForm(
 			stored = condition;
 			break;
 		case "relevant":
-			if (field.kind === "section") return undefined;
+			if (field.kind === "section" || field.kind === "case_change")
+				return undefined;
 			field.relevant = field.relevant
 				? and(field.relevant, condition)
 				: condition;

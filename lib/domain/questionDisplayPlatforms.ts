@@ -211,6 +211,18 @@ export const questionDisplayPlatforms = {
 		},
 		android: { reading: "runs", note: "the worker uses the camera" },
 	},
+	"face-camera": {
+		label: "Face camera",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the worker attaches an ordinary picture",
+		},
+		android: {
+			reading: "runs",
+			note: "the camera frames a face and saves the cropped picture",
+		},
+	},
 	"photo-overlay": {
 		label: "Small photo overlay",
 		channel: "structure",
