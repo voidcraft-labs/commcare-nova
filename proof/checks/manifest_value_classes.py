@@ -9729,13 +9729,14 @@ def _session_data_read(tree):
 
 
 @cache
-def _guarded_lookup_count():
+def _guarded_lookup_count(*, indexed=True):
     path = "instance('commcaresession')/session/data/fingerprintquery"
-    return expression_tree(f"if(count({path}) = 1, number({path}[1]), '')")
+    read = f"{path}[1]" if indexed else path
+    return expression_tree(f"if(count({path}) = 1, number({read}), '')")
 
 
 def _contains_unguarded_lookup_count(tree):
-    if not isinstance(tree, list) or tree == _guarded_lookup_count():
+    if not isinstance(tree, list) or tree in (_guarded_lookup_count(), _guarded_lookup_count(indexed=False)):
         return False
     if tree[:2] == ["path", "instance:commcaresession"] and any(
         step[:2] == ["child", "fingerprintquery"] for step in tree[4]

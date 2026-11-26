@@ -28,6 +28,9 @@ const slot: SlotContextRef = {
 };
 const node = "instance('commcaresession')/session/data/fingerprintquery";
 const guard = `if(count(${node}) = 1, number(${node}[1]), '')`;
+const unindexedGuard = `if(count(${node}) = 1, number(${node}), '')`;
+const guardAttribute = guard.replaceAll("'", "&apos;");
+const unindexedAttribute = unindexedGuard.replaceAll("'", "&apos;");
 
 function document() {
 	return buildDoc({
@@ -93,30 +96,51 @@ it("binds only the guarded number to the physical entry's one lookup", () => {
 	).toMatchObject({
 		kind: "refused",
 	});
-	const arbitraryFirst = guard.replace(" = 1", " > 0");
+	const alternate = registration(doc, slot, unindexedGuard);
 	expect(
-		readExpression(doc, registration(doc, slot, arbitraryFirst), readEnv()),
-	).toMatchObject({
-		kind: "refused",
-	});
+		readExpression(doc, alternate, readEnv(), {
+			rewrites: { withhold: new Set(["lookup-count-singleton-index"]) },
+		}),
+	).toMatchObject({ kind: "bound", candidate: leaf, equal: true });
+	for (const unsafe of [
+		guard.replace(" = 1", " > 0"),
+		unindexedGuard.replace(" = 1", " > 0"),
+		guard.replace("[1]", "[2]"),
+	]) {
+		expect(
+			readExpression(doc, registration(doc, slot, unsafe), readEnv()),
+		).toMatchObject({ kind: "refused" });
+	}
 });
 
-it("holds the count's surface claim through an HQ app reading", async () => {
-	const input = await inputFor(exportedBody(document()), {
-		appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE),
-	});
-	const read = readHqApp(input);
-	if (read.kind === "account") throw new Error(JSON.stringify(read.findings));
-	const doc = read.draft.doc;
-	const count = Object.values(doc.fields).find(
-		(field) => field.id === "lookup_count",
-	);
-	if (count?.kind !== "hidden") throw new Error("Missing hidden lookup count.");
-	expect(count.calculate).toEqual({
-		kind: "case-list-lookup-count",
-		module: doc.moduleOrder[0],
-	});
-});
+it.each([guardAttribute, unindexedAttribute])(
+	"holds a singleton count through an HQ app reading and reprint of %s",
+	async (source) => {
+		const body = exportedBody(document(), {
+			xml: (xml) => xml.replace(guardAttribute, source),
+		});
+		expect(
+			Object.values(body._attachments as Record<string, string>).join(""),
+		).toContain(source);
+		const input = await inputFor(body, {
+			appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE),
+		});
+		const read = readHqApp(input);
+		if (read.kind === "account") throw new Error(JSON.stringify(read.findings));
+		const doc = read.draft.doc;
+		const count = Object.values(doc.fields).find(
+			(field) => field.id === "lookup_count",
+		);
+		if (count?.kind !== "hidden")
+			throw new Error("Missing hidden lookup count.");
+		expect(count.calculate).toEqual({
+			kind: "case-list-lookup-count",
+			module: doc.moduleOrder[0],
+		});
+		const reprinted = exportedBody(doc)._attachments as Record<string, string>;
+		expect(Object.values(reprinted).join("")).toContain(guardAttribute);
+	},
+);
 
 it("refuses a mirror route and keeps the reference bound when the source is renamed", () => {
 	const doc = document();
@@ -160,11 +184,11 @@ it("refuses a mirror route and keeps the reference bound when the source is rena
 			expect.objectContaining({ reason: "case-list-lookup-count-source" }),
 		],
 	});
-	expect(
-		readExpression(doc, registration(doc, slot, guard), readEnv()),
-	).toMatchObject({
-		kind: "refused",
-	});
+	for (const source of [guard, unindexedGuard]) {
+		expect(
+			readExpression(doc, registration(doc, slot, source), readEnv()),
+		).toMatchObject({ kind: "refused" });
+	}
 });
 
 it("leaves the count empty in Android Preview without a companion response", () => {

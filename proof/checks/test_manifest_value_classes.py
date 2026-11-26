@@ -8237,6 +8237,9 @@ def _lookup_count_shapes():
     guarded = _form(data="<count/>", model=(
         f'<bind nodeset="/data/count" calculate="if(count({path}) = 1, number({path}[1]), &apos;&apos;)"/>'
     ))
+    unindexed_guard = _form(data="<count/>", model=(
+        f'<bind nodeset="/data/count" calculate="if(count({path}) = 1, number({path}), &apos;&apos;)"/>'
+    ))
     wrong_guard = _form(data="<count/>", model=(
         f'<bind nodeset="/data/count" calculate="if(count({path}) &gt; 0, number({path}[1]), &apos;&apos;)"/>'
     ))
@@ -8259,6 +8262,10 @@ def _lookup_count_shapes():
                      entry_suites=(suite(select.replace("case_id", "parent_id"), select),)),
             refused("form", guarded, key, site, readings=True, uses=2,
                     entry_suites=(suite(select),)),
+            refused("form", unindexed_guard, key, site, readings=True, uses=2,
+                    entry_suites=(suite(select),)),
+            accepted("form", unindexed_guard, key, site, readings=True, uses=2,
+                     entry_suites=(suite(select.replace("case_id", "parent_id"), select),)),
         ),
     }
 

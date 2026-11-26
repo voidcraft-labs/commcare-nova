@@ -390,8 +390,8 @@ def _supplied_point_uses(found, held, entry):
 
 
 def _companion_count_uses(found, entry):
-    """Find the retained canonical calculation on a direct basic lookup form."""
-    guard = _guarded_lookup_count()
+    """Find the numeric singleton guard on a retained direct basic lookup form."""
+    guards = (_guarded_lookup_count(), _guarded_lookup_count(indexed=False))
     for expression in found.expressions:
         if "fingerprintquery" not in expression.text or not isinstance(expression.at, manifest_usage.XmlAt):
             continue
@@ -409,7 +409,7 @@ def _companion_count_uses(found, entry):
         short = (menu.get("case_details") or {}).get("short") or {}
         if short.get("lookup_enabled") is not True or short.get("multi_select"):
             continue
-        if guard is not None and expression_tree(expression.text) == guard:
+        if (tree := expression_tree(expression.text)) is not None and tree in guards:
             use = manifest_usage.Use(
                 "session-path:session/data/fingerprintquery", expression.artifact, expression.where, expression.at
             )
