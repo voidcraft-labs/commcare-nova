@@ -64,6 +64,7 @@
 		"hq-case-lists/address-popup-column",
 		"hq-case-lists/audio-column",
 		"hq-case-lists/automatic-fixed-text-callout",
+		"hq-case-lists/calculated-callout",
 		"hq-case-lists/calculation-loading-faster",
 		"hq-case-lists/call-link-on-the-detail",
 		"hq-case-lists/callout-name-with-the-callout-off",
@@ -381,9 +382,7 @@
 		"hq-new-app/smart-lang-display",
 		"hq-new-app/vellum-case-management-off"
 	],
-	"hq-nova-then-builder": [
-		"hq-nova-then-builder/close-on-a-survey"
-	],
+	"hq-nova-then-builder": ["hq-nova-then-builder/close-on-a-survey"],
 	"hq-owner-rules": [],
 	"hq-places": [],
 	"hq-plain": [

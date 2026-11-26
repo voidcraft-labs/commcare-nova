@@ -385,6 +385,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-an-advanced`,
 		"schema:DetailTab.starting_index",
 	),
+	lookupRelativeExtra: refuse(
+		`${A}lookup-extra-relative-without-case-context`,
+		"schema:Detail.lookup_extras",
+	),
 	lookupNoExtras: refuse(
 		`${A}callout-with-no-extras-or-no-responses`,
 		"schema:Detail.lookup_extras",
@@ -479,6 +483,27 @@ const LOOKUP_WITH_WORKER_EXTRA = defineClaims("caseList.details.workerLookup", {
 		"schema:Detail.lookup_extras",
 	),
 });
+
+/** Android evaluates the extra when it creates the list's click listener.
+ * A bare field name needs a main instance, which the list session has not
+ * got. Keep other calculation shapes under the general refusal. */
+function lookupHasBareRelativeExtra(extras: unknown[]): boolean {
+	return (
+		!extras.some(
+			(extra) => isJsonObject(extra) && extra.key === "force_xpath_parsing",
+		) &&
+		extras.some((extra) => {
+			if (
+				!isJsonObject(extra) ||
+				typeof extra.key !== "string" ||
+				typeof extra.value !== "string"
+			)
+				return false;
+			const parsed = sharedFormSyntax(extra.value);
+			return parsed.ok && parsed.node?.kind === "name" && !parsed.node.wildcard;
+		})
+	);
+}
 
 const workerExtraText = CASE_LIST_LOOKUP_WORKER_FIELDS.map((field) => ({
 	field,
@@ -1534,10 +1559,17 @@ function readDetailKeys(
 				extras.length === 0 ||
 				!Array.isArray(responses) ||
 				responses.length === 0;
+			const relativeExtra =
+				!unready &&
+				typeof detail.peek("lookup_action") === "string" &&
+				typeof detail.peek("lookup_name") === "string" &&
+				lookupHasBareRelativeExtra(extras);
 			if (unready) {
 				detail.refuse("lookup_extras", D.lookupNoExtras);
 				detail.refuse("lookup_responses", D.lookupNoResponses);
 				ctx.accounting.finding(D.lookupNoExtras, detail.place);
+			} else if (relativeExtra) {
+				detail.refuse("lookup_extras", D.lookupRelativeExtra);
 			} else {
 				detail.refuse("lookup_enabled", LOOKUP_ON_KEYS.lookup_enabled);
 				detail.refuse("lookup_action", LOOKUP_ON_KEYS.lookup_action);
@@ -1546,8 +1578,11 @@ function readDetailKeys(
 				ctx,
 				detail,
 				{
-					code: (unready ? D.lookupNoExtras : LOOKUP_ON_KEYS.lookup_enabled)
-						.entry,
+					code: unready
+						? D.lookupNoExtras.entry
+						: relativeExtra
+							? D.lookupRelativeExtra.entry
+							: LOOKUP_ON_KEYS.lookup_enabled.entry,
 					place: detail.place,
 				},
 				(key) => CALLOUT_KEYS.includes(key),

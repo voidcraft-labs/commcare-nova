@@ -316,7 +316,7 @@ def multi_select_unbounded(authoring, app_id):
     )
 
 
-def named_callout(authoring, app_id):
+def named_callout(authoring, app_id, *, value="scan"):
     """Patients' list with a lookup extra that reads a relative XPath rather than fixed text."""
     _set_each(
         authoring,
@@ -324,9 +324,14 @@ def named_callout(authoring, app_id):
         ("/modules/0/case_details/short/lookup_enabled", True),
         ("/modules/0/case_details/short/lookup_action", "org.example.SCAN"),
         ("/modules/0/case_details/short/lookup_name", "Scan a card"),
-        ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": "scan"}]),
+        ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": value}]),
         ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}]),
     )
+
+
+def calculated_callout(authoring, app_id):
+    """The same lookup sends a calculated number, outside the current admitted arguments."""
+    named_callout(authoring, app_id, value="1 + 2")
 
 
 def fixed_text_callout(authoring, app_id):

@@ -2767,8 +2767,13 @@ CCZ against native Case instances, including a closed parent.
 A case-list lookup sends fixed text and the typed active worker username or ID
 before any case is chosen. Local suites and HQ JSON lower those reads through
 the same session-context path as other typed expressions. The reader accepts
-these two preselection fields from native source and retains its unsupported
-finding for other calculations. A plain case list can hold a translated
+these two preselection fields from native source. Android constructs the lookup
+Intent while opening the unselected case list. The session's evaluation
+context has no main instance, so a bare relative name like `scan` raises
+before the companion can receive a payload. The Case List editor saves
+that name unchanged; quoted `'scan'` sends fixed text. The reader asks for
+an HQ edit for the bare name and retains its unsupported finding for other
+calculations. A plain case list can hold a translated
 confidence heading. Its wire template keys the companion's scores by the
 existing case ID. Android displays those scores for matching cases in the
 device's eligible list. The browser Preview has no companion return channel.

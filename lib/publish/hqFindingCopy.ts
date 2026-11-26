@@ -473,6 +473,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"An answer here is kept under a group CommCare HQ's form designer can't keep it under: at the top level of the form for a question inside a group, which the designer reports as invalid each time it opens the form, or under another group for a whole group, whose answers its next save loses. Keeping the answer with its question in the form designer's Data Parent setting fixes it.",
 	},
+	"case-list-callout": {
+		"breaks-when-run":
+			"The Android case list opens before the worker chooses a case, so the lookup cannot read a field from that case. In CommCare HQ’s Case List settings, use quoted text if the lookup should send a fixed value, then check the app again.",
+	},
 	"build-profiles": {
 		"hq-refuses":
 			"An installation needs a default language. On the app’s Releases page, open Application Profiles and choose each language once from the app’s languages.",
