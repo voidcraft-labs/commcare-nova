@@ -102,7 +102,9 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 								<span className="truncate">
 									Deleted <RelativeTime date={deletedAt} />
 								</span>
-								{app.connect_type && <ConnectBadge type={app.connect_type} />}
+								{app.connect_roles.map((role) => (
+									<ConnectBadge key={role} type={role} />
+								))}
 							</p>
 							<p
 								className={

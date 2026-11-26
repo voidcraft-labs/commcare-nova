@@ -232,17 +232,17 @@ describe("a refusal made of a value in a form's source", () => {
 	);
 
 	it(
-		"stands at a data root named other than data",
+		"stands at a data root whose name the worker cannot read",
 		async () => {
 			const records = await readEdited((text) =>
 				replaced(text, [
-					["<data xmlns:jrm=", "<survey xmlns:jrm=", 1],
-					["</data>", "</survey>", 1],
-				]).replaceAll("/data/", "/survey/"),
+					["<data xmlns:jrm=", "<患者 xmlns:jrm=", 1],
+					["</data>", "</患者>", 1],
+				]).replaceAll("/data/", "/患者/"),
 			);
 			expect(
-				placesOf(records, `${Q}/data-root-element-named-other-than-data`),
-			).toContain(`xform:model/instance/* ${MODEL}/instance[1]/survey[1]`);
+				placesOf(records, `${Q}/data-root-name-that-workers-cannot-address`),
+			).toContain(`xform:model/instance/* ${MODEL}/instance[1]/患者[1]`);
 		},
 		READING_MS,
 	);

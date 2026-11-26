@@ -77,7 +77,7 @@ export function makeCaseListDoc(): BlueprintDoc {
 		{
 			appId: "test-app",
 			appName: "Clinic Intake",
-			connectType: null,
+			connectRoles: [],
 			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: [
 				{

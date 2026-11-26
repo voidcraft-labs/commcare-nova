@@ -33,7 +33,6 @@ import {
 	automationSetupOnlyCriterionSchema,
 	automationTimedEventSchema,
 	automationUserDataFilterSchema,
-	CONNECT_TYPES,
 	type Column,
 	calculatedSortSchema,
 	caseListMenuItemSchema,
@@ -46,6 +45,7 @@ import {
 	caseWriteKeySchema,
 	columnSchema,
 	columnSortSchema,
+	connectRolesSchema,
 	fieldHoldsHeldKey,
 	fieldKinds,
 	fieldPatchSchemaByKind,
@@ -747,6 +747,9 @@ const updateFieldPatchSchemaByKind = {
 	signature: fieldPatchWithValidId(fieldPatchSchemaByKind.signature),
 	label: fieldPatchWithValidId(fieldPatchSchemaByKind.label),
 	hidden: fieldPatchWithValidId(fieldPatchSchemaByKind.hidden),
+	connect_activity: fieldPatchWithValidId(
+		fieldPatchSchemaByKind.connect_activity,
+	),
 	secret: fieldPatchWithValidId(fieldPatchSchemaByKind.secret),
 	group: fieldPatchWithValidId(fieldPatchSchemaByKind.group),
 	section: fieldPatchWithValidId(fieldPatchSchemaByKind.section),
@@ -1353,6 +1356,7 @@ function createMutationSchema({
 		// destination's array and re-anchors references.
 		z.object({
 			kind: z.literal("moveField"),
+			where: z.enum(["screen", "submission"]).optional(),
 			uuid: uuidSchema,
 			toParentUuid: uuidSchema,
 			/** The uuid this field now follows under the target parent, or `null`
@@ -1387,17 +1391,15 @@ function createMutationSchema({
 		// App-level
 		z.object({ kind: z.literal("setAppName"), name: z.string() }),
 		z.object({
-			kind: z.literal("setConnectType"),
-			connectType: z.enum(CONNECT_TYPES).nullable(),
+			kind: z.literal("setConnectRoles"),
+			roles: connectRolesSchema,
 		}),
 		// `logo` is `mediaAssetIdSchema.optional()` on the doc — there is no
 		// stored `null`. The payload is `.nullable()` (not optional) so the
 		// mutation always carries an explicit intent: an asset id sets the
 		// logo, `null` clears it. The reducer maps `null → undefined` so the
 		// cleared key drops off the doc rather than persisting as a literal
-		// `null` the schema would reject. Distinct from `setConnectType`,
-		// whose `connectType` slot is genuinely `.nullable()` and stores the
-		// `null` verbatim.
+		// `null` the schema would reject.
 		z.object({
 			kind: z.literal("setAppLogo"),
 			logo: mediaAssetIdSchema.nullable(),
@@ -1935,10 +1937,6 @@ function createMutationSchema({
 		// `undefined`-valued keys, so a clear can only ever be `null` on the
 		// wire). Mirrors `setAppLogo`.
 		//
-		// The generic `update*` reducers DO treat `null` as delete on their
-		// clearable slots — `setConnectType` is the lone exception: its slot is
-		// genuinely `.nullable()` and stores `null` as a real value, so it is NOT
-		// a patch reducer and never gets the null-as-delete treatment.
 		z
 			.object({
 				kind: z.literal("setFieldMedia"),

@@ -41,9 +41,9 @@ export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 		case "assessment_user_score":
 			return "assessment score";
 		case "deliver_entity_id":
-			return "delivery identifier";
+			return "person or place ID";
 		case "deliver_entity_name":
-			return "delivery name";
+			return "person or place name";
 		default:
 			return Object.hasOwn(PROSE_SLOT_LABELS, slot)
 				? PROSE_SLOT_LABELS[slot as ProseSlotRef["slot"]]
@@ -58,6 +58,8 @@ const PROSE_SLOT_LABELS: Readonly<Record<ProseSlotRef["slot"], string>> = {
 	hint: "hint",
 	help: "help text",
 	validate_msg: "validation message",
+	addFirstLabel: "first entry button",
+	addLabel: "add entry button",
 	extended_text: "extended text",
 	qr_code: "QR code",
 	spoken_text: "spoken text",

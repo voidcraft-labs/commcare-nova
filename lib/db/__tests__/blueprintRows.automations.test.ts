@@ -42,7 +42,7 @@ describe("automation entity-row persistence", () => {
 		const doc: BlueprintDoc = {
 			appId: "automation-row-app",
 			appName: "Referral",
-			connectType: null,
+			connectRoles: [],
 			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {},

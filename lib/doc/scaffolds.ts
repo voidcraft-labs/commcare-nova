@@ -549,7 +549,7 @@ export function emptyBlueprintDoc(appId: string): BlueprintDoc {
 	return {
 		appId,
 		appName: APP_GENESIS_FALLBACK_NAME,
-		connectType: null,
+		connectRoles: [],
 		caseTypes: null,
 		appSettings: { ...NEW_APP_SETTINGS },
 		modules: {},

@@ -93,8 +93,10 @@ export function FieldEditorPanel({ field }: FieldEditorPanelProps) {
 			<Section
 				title="Appearance"
 				section="ui"
-				entries={schema.ui.filter((entry) =>
-					canOfferDisplaySetting(field, String(entry.key), hasRepeat),
+				entries={schema.ui.filter(
+					(entry) =>
+						entry !== undefined &&
+						canOfferDisplaySetting(field, String(entry.key), hasRepeat),
 				)}
 				field={field}
 				context={context}

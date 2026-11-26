@@ -1,7 +1,7 @@
 "use client";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { useConnectRoles } from "@/lib/doc/hooks/useConnectRoles";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { asUuid } from "@/lib/doc/types";
 import { LocationSwitch } from "../LocationSwitch";
@@ -11,7 +11,7 @@ export function FormLocationSection({
 	formUuid,
 }: Pick<FormSettingsSectionProps, "formUuid">) {
 	const settings = useAppSettings();
-	const connect = Boolean(useConnectTypeOrUndefined());
+	const connect = useConnectRoles().length > 0;
 	const form = useForm(formUuid);
 	const { inline } = useBlueprintMutations();
 	if (!form) return null;

@@ -1106,7 +1106,7 @@ describe("mutationTargetsInvalid — app-level scalars", () => {
 		const { doc } = fixture();
 		const scalars: Mutation[] = [
 			{ kind: "setAppName", name: "New" },
-			{ kind: "setConnectType", connectType: null },
+			{ kind: "setConnectRoles", roles: [] },
 			{ kind: "setAppLogo", logo: null },
 		];
 		expect(mutationTargetsInvalid(doc, scalars)).toBe(false);

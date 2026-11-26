@@ -93,6 +93,15 @@ function countDoc(
 								optionsSource: inline("many", ["1", "2"]),
 							}),
 							f({ id: "untyped", kind: "hidden" }),
+							// How the form builder writes every Hidden Value: no bind
+							// type, a starting value and no calculation.
+							f({
+								id: "started_untyped",
+								kind: "hidden",
+								answerType: "untyped",
+								default_value: "3",
+							}),
+							f({ id: "started", kind: "hidden", default_value: "3" }),
 							f({
 								id: "pick",
 								kind: "single_select",
@@ -170,6 +179,10 @@ describe("a repeat count is a whole number", () => {
 		"#form/n + 1",
 		"round(#form/amount)",
 		"number(#form/n)",
+		// Core casts the count from the held text (`IntegerData().cast`), and
+		// an untyped starting answer holds the same text the automatic one does.
+		"#form/started_untyped",
+		"#form/started",
 	])("admits %s", (source) => {
 		expect(check(source)).toEqual([]);
 	});

@@ -20,7 +20,7 @@
  * each edit; no caller touches `prev`/`next` directly.
  */
 
-import { type ChildNode, Element } from "domhandler";
+import { type ChildNode, Element, isTag } from "domhandler";
 import { findOne, getChildren } from "domutils";
 import { el } from "@/lib/commcare/elementBuilders";
 import { serializeXml } from "@/lib/commcare/serializeXml";
@@ -52,23 +52,24 @@ export function serializeXForm(doc: ReturnType<typeof parseXForm>): string {
 	return `${XML_DECLARATION}\n${serializeXml(doc)}`;
 }
 
-/**
- * Resolve the form's primary `<data>` instance node. The emitter
- * (`xform/builder.ts`) emits exactly one `<data>` element under the only
- * `<instance>` with no `id` attribute, so the match against the document tree is
- * unambiguous. A missing `<data>` is a compiler-bug invariant (the emitter would
- * have failed first), not a fixable authoring state — `caller` names the
- * post-processor so the thrown message points at the right splice site.
- */
+/** The submitted answer envelope is the first element of the unnamed instance.
+ * A secondary instance may appear first or contain an element named data. */
 export function findDataElement(
 	doc: ReturnType<typeof parseXForm>,
 	caller: string,
 ): Element {
-	const dataEl = findOne((elem) => elem.name === "data", doc.children, true);
-	if (dataEl === null) {
+	const model = findModelElement(doc, caller);
+	const primary = model.children
+		.filter(isTag)
+		.find(
+			(element) =>
+				element.name === "instance" && element.attribs.id === undefined,
+		);
+	const dataEl = primary?.children.find(isTag);
+	if (dataEl === undefined) {
 		throw new Error(
-			`${caller} could not find a <data> element in the XForm. The form ` +
-				`emitter guarantees exactly one top-level <data> per form, so a ` +
+			`${caller} could not find the submitted answer root in the XForm. The form ` +
+				`emitter guarantees one unnamed primary instance per form, so a ` +
 				`missing one means the form bytes were corrupted between buildXForm ` +
 				`and ${caller}. Re-run the compile from a clean expandDoc.`,
 		);

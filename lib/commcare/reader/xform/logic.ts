@@ -1,9 +1,10 @@
+import { isCaptureFieldKind } from "@/lib/domain/fields";
 /**
  * A field's logic slots and load-time values. No attribute is read
  * here for its meaning: each that holds an expression is pushed as the field's
  * draft expression, which stage 5b registers under the field's UUID and the
  * expression stage binds and claims. What is claimed here is what a kind does
- * not hold (a `required` on a label, a `calculate` on a shown question, any
+ * not hold (a validation on a hidden value, a `calculate` on a shown question, any
  * `readonly`), the shape of each default's `setvalue`, and the scalar check
  * Nova's emitter conjoins onto the constraint of a question a trimmed sibling
  * stands beside or a Save to Case block's name or external id row reads, which
@@ -63,7 +64,7 @@ export function standInRefusal(field: DraftField): StandingRefusal | undefined {
 		RESERVED_QUESTION_IDS.anyCase.has(lowered) &&
 		lowered !== "meta";
 	return {
-		claim: reservedAnyCase ? X.questionIdReserved : X.questionIdGrammar,
+		claim: reservedAnyCase ? X.submittedCase : X.questionIdGrammar,
 		place: field.place,
 		detail: { name: field.id },
 	};
@@ -100,8 +101,104 @@ export function pendingLogic(input: PendingLogicInput): void {
 			role.owner !== null
 		)
 			checkedOwners.add(role.owner);
-	for (const field of input.fields) readBindLogic(input, field, checkedOwners);
+	// A model iteration's field stands at its container; its rows are a
+	// `query-row` role naming it (`join.ts`).
+	const containers = new Set<DraftField>();
+	for (const role of input.roles.values())
+		if (role.kind === "query-row") containers.add(role.repeat);
+	for (const field of input.fields)
+		readBindLogic(input, field, checkedOwners, containers);
 	readDefaults(input);
+}
+
+/**
+ * A condition written on a model iteration's container, respelled to mean the same from its
+ * rows, where the repeat's condition is read and written (`slotContext`: a query repeat's
+ * condition evaluates at its row): each path the container is the context of steps up first
+ * (`x` and `../x` from the container are `../x` and `../../x` from a row), and `current()`, the
+ * container, becomes `current()/..`. A path inside a predicate is relative to the node it
+ * filters and stays. Undefined where the grammar refuses the text, which the expression stage
+ * then refuses as written.
+ */
+export function containerConditionFromRows(text: string): string | undefined {
+	const read = readFormSyntax(text);
+	if (!read.ok) return undefined;
+	if (read.node === undefined) return text;
+	const inserts: { readonly at: number; readonly text: string }[] = [];
+	const leftmost = (node: FormSyntax): FormSyntax => {
+		switch (node.kind) {
+			case "group":
+				return leftmost(node.value);
+			case "child":
+				return node.left === undefined ? node : leftmost(node.left);
+			case "filter":
+				return leftmost(node.base);
+			default:
+				return node;
+		}
+	};
+	const visit = (node: FormSyntax, inPredicate: boolean): void => {
+		let within = inPredicate;
+		if (!within && isContextPath(node)) {
+			inserts.push({ at: leftmost(node).from, text: "../" });
+			within = true;
+		}
+		switch (node.kind) {
+			case "group":
+			case "negative":
+				visit(node.value, within);
+				return;
+			// A step is no path's start: only a predicate's `current()` in it is the container.
+			case "axis":
+				visit(node.value, true);
+				return;
+			case "child":
+				if (node.left !== undefined) visit(node.left, within);
+				visit(node.step, true);
+				return;
+			case "filter":
+				visit(node.base, within);
+				visit(node.where, true);
+				return;
+			case "binary":
+				visit(node.left, within);
+				visit(node.right, within);
+				return;
+			case "call":
+				if (node.name === "current" && node.args.length === 0)
+					inserts.push({ at: node.to, text: "/.." });
+				for (const arg of node.args) visit(arg, within);
+				return;
+			default:
+				return;
+		}
+	};
+	visit(read.node, false);
+	let respelled = text;
+	for (const insert of inserts.sort((a, b) => b.at - a.at))
+		respelled =
+			respelled.slice(0, insert.at) + insert.text + respelled.slice(insert.at);
+	return respelled;
+}
+
+/** Whether a tree is a location path that starts from the context node. */
+function isContextPath(node: FormSyntax): boolean {
+	switch (node.kind) {
+		case "group":
+			return isContextPath(node.value);
+		case "child":
+			return node.left !== undefined && isContextPath(node.left);
+		case "filter":
+			return isContextPath(node.base);
+		case "name":
+		case "self":
+		case "parent":
+			return true;
+		case "axis":
+			return node.axis === "child" || node.axis === "attribute";
+		default:
+			return false;
+	}
 }
 
 /** The rows of a case block that hold a case's name or its external id. */
@@ -219,6 +316,7 @@ function readBindLogic(
 	input: PendingLogicInput,
 	field: DraftField,
 	checkedOwners: ReadonlySet<DataNode>,
+	containers: ReadonlySet<DraftField>,
 ): void {
 	const { cursor } = input;
 	const bind = input.binds.get(field.node);
@@ -246,18 +344,20 @@ function readBindLogic(
 			key: `xform:model/bind@${attribute}`,
 			mode,
 		});
+	// A model iteration's container condition is read as the repeat's, from
+	// its rows, and its next publish writes it on the rows (`afterBinding.ts::
+	// moveContainerConditions`).
 	if (logic.relevant !== undefined && fieldKindDeclaresKey(kind, "relevant"))
-		push("relevant", logic.relevant, "relevant", XFORM);
-	if (logic.required !== undefined) {
-		if (fieldKindDeclaresKey(kind, "required"))
-			push("required", logic.required, "required", XFORM);
-		else if (kind === "label")
-			cursor.refuse(
-				{ element, attribute: "required" },
-				X.requiredOnLabel,
-				place,
-			);
-	}
+		push(
+			"relevant",
+			containers.has(field)
+				? (containerConditionFromRows(logic.relevant) ?? logic.relevant)
+				: logic.relevant,
+			"relevant",
+			XFORM,
+		);
+	if (logic.required !== undefined && fieldKindDeclaresKey(kind, "required"))
+		push("required", logic.required, "required", XFORM);
 	if (logic.constraint !== undefined) {
 		if (fieldKindDeclaresKey(kind, "validate")) {
 			const folded = checkedOwners.has(field.node)
@@ -275,7 +375,7 @@ function readBindLogic(
 		} else if (!CONTAINER_KINDS.has(kind))
 			cursor.refuse(
 				{ element, attribute: "constraint" },
-				X.constraintOnCapture,
+				X.unsupportedHiddenConstraint,
 				place,
 			);
 	}
@@ -369,10 +469,15 @@ function readDefaults(input: PendingLogicInput): void {
 		}
 		defaulted.add(field);
 		if (!fieldKindDeclaresKey(field.kind, "default_value")) {
-			cursor.refuseSubtree(element, X.defaultOnCapture, place);
+			cursor.refuseSubtree(element, X.formLevelSetvalue, place);
 			continue;
 		}
-		const sites = expected === "jr-insert" ? X.defaultInside : X.defaultOutside;
+		const sites =
+			field.kind === "label" || isCaptureFieldKind(field.kind)
+				? X.defaultOnCapture
+				: expected === "jr-insert"
+					? X.defaultInside
+					: X.defaultOutside;
 		cursor.take({ element }, sites.setvalue).value;
 		cursor.take({ element, attribute: "event" }, sites.event).value;
 		cursor.take({ element, attribute: "ref" }, sites.ref).value;
