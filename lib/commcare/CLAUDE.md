@@ -1582,6 +1582,13 @@ the result. The generated guard writes the resolved create type to the same
 case. Preview resolves it inside the submission transaction before writing
 the case or its properties.
 
+A basic one-case follow-up can copy a date-and-time answer straight to a
+Date property on the case reached by one typed `parent` index. The reader
+infers the day at the reached property, considering all its writers. The
+untyped leaf keeps the local calendar day in Core, and the Preview submission
+transaction applies the same conversion using the destination type and viewer
+zone. A writer that gives the same property a moment prevents this inference.
+
 A write to an effective datetime property, by the operation's destination type
 after retyping, is an untyped leaf whose calculate is
 `xform/datetimeCaseValue.ts::datetimeCaseValue` of the value: the moment as

@@ -5591,6 +5591,61 @@ describe("a date and time saved to a case", () => {
 			expect(row?.properties.seen_on).toBe(stored);
 		},
 	);
+
+	it("saves the signed opening's parent day beside the loaded case's instant", async () => {
+		const store = makeStore();
+		const parentId = "00000000-0000-7000-8000-00000000dde2";
+		await seedPatient(store, parentId, "Parent");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: SESSION_CASE_ID,
+				case_type: "patient",
+				case_name: "Member",
+				status: "open",
+				parent_case_id: parentId,
+				properties: "{}",
+			},
+		});
+		const cases = await store.readDeviceCaseDatabase({
+			appId: APP_ID,
+			restoreScope: { ownerIds: [ACTOR] },
+		});
+		const caseWrite = ownOp({
+			writes: [
+				...seenWrite(),
+				{
+					property: "seen_on",
+					value: term(formField(SEEN_FIELD)),
+					via: [{ identifier: "parent" }],
+				},
+			],
+		});
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...ownProgram(
+					"followup",
+					[{ ...caseWrite, viaCaseTypes: new Map([[1, "patient"]]) }],
+					{ formFields: [["seen-at-field", "2026-01-03T07:30:00.000Z"]] },
+				),
+				openingReads: { currentOwnerIds: [ACTOR], lookupRows: [], cases },
+				formFieldTypes: new Map([[SEEN_FIELD, "datetime"]]),
+				viewerTimeZone: "America/Los_Angeles",
+			},
+		});
+		expect((await patientRow(store, parentId))?.properties).toMatchObject({
+			seen_on: "2026-01-02",
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.properties).toEqual({
+			seen_at: "2026-01-03T07:30:00.000000Z",
+		});
+		expect(
+			result.caseDatabasePatch?.rows.find(({ case_id }) => case_id === parentId)
+				?.properties,
+		).toMatchObject({ seen_on: "2026-01-02" });
+	});
 });
 
 // ---------------------------------------------------------------

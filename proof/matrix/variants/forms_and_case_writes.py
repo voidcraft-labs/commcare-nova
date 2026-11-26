@@ -614,6 +614,18 @@ def hidden_clock_saved_as_a_day(authoring, app_id):
     )
 
 
+def datetime_answer_saved_through_parent_as_a_day(authoring, app_id):
+    """The member follow-up writes the day of an answered timestamp to the household."""
+    _change(
+        authoring, app_id, "parent-day", *_question("seen_at", "Seen at", "input", "xsd:dateTime"),
+        menu=1, form=0,
+    )
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/update_case/update/parent~1visit_day",
+        _update("/data/seen_at"),
+    )
+
+
 def photo_link_saved_to_the_case(authoring, app_id):
     """``hq-case-management``'s member follow-up form given an image question ``photo`` and the node Nova writes beside
     it for the photo's address on CommCare HQ (the form's attachment, by its instance id and the file's name), which

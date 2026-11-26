@@ -21,6 +21,7 @@
  * external id or a worker property held as a write Nova exports as the
  * moment.
  */
+import { readFileSync } from "node:fs";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -282,4 +283,53 @@ describe("one date and time saved to a property of the same name on two cases", 
 				"host/visited": "/data/seen",
 			});
 		});
+});
+
+describe("a date-and-time answer copied through a single parent index", () => {
+	function parentWrite(property: string) {
+		const envelope = JSON.parse(
+			readFileSync("proof/hq-apps/hq-case-management/app-source.json", "utf8"),
+		) as { body: string };
+		const body = JSON.parse(envelope.body) as Record<string, unknown>;
+		const form = (body.modules as Modules)[1].forms[0];
+		const files = body._attachments as Record<string, string>;
+		const key = `${form.unique_id}.xml`;
+		files[key] = files[key].replace('type="xsd:string"', 'type="xsd:dateTime"');
+		form.actions.update_case.update[`parent/${property}`] = {
+			question_path: "/data/status_note",
+			update_mode: "always",
+			doc_type: "ConditionalCaseUpdate",
+		};
+		return body;
+	}
+
+	it("reads and emits the parent day without conflating it with the loaded case", async () => {
+		const result = await read(parentWrite("visit_day"));
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const doc = result.draft.doc;
+		const property = (type: string, name: string) =>
+			doc.caseTypes
+				?.find((entry) => entry.name === type)
+				?.properties.find((entry) => entry.name === name);
+		expect(property("household", "visit_day")?.data_type).toBe("date");
+		expect(property("member", "visit_day")).toBeUndefined();
+		expect(property("member", "status_note")?.data_type).toBe("date");
+		const output = exportedBody(doc);
+		expect(
+			(output.modules as Modules)[1].forms[0].actions.update_case.update,
+		).toMatchObject({
+			status_note: { question_path: "/data/status_note" },
+			"parent/visit_day": { question_path: "/data/status_note" },
+		});
+	});
+
+	it("holds a parent day and an own-case moment for the same destination apart", async () => {
+		const result = await read(parentWrite("seen_at"));
+		expect(
+			result.kind === "account"
+				? result.findings.map((finding) => finding.code)
+				: [],
+		).toContain(`${F}/any-other-mixed-writer-pair`);
+	});
 });

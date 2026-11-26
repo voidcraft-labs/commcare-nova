@@ -538,6 +538,7 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 	}
 	const links: ReadLink[] = [];
 	const writes: CatalogWrite[] = [];
+	const linkedWrites: CatalogWrite[] = [];
 	for (const module of app.modules) {
 		const menuType = module.module.caseType;
 		for (const form of module.forms) {
@@ -545,15 +546,17 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				const caseType = op.action === "own" ? menuType : op.caseType;
 				if (caseType === undefined) continue;
 				noteType(caseTypes, caseType);
-				for (const write of op.writes)
-					if (write.via === undefined)
-						writes.push({
-							caseType,
-							property: write.property,
-							field: write.value.field,
-							...(boundDateTime(form, write.value.field) && { dateTime: true }),
-							...(write.value.day === true && { day: true }),
-						});
+				for (const write of op.writes) {
+					const reached = write.via?.at(-1)?.throughCaseType;
+					const collection = reached === undefined ? writes : linkedWrites;
+					collection.push({
+						caseType: reached ?? caseType,
+						property: write.property,
+						field: write.value.field,
+						...(boundDateTime(form, write.value.field) && { dateTime: true }),
+						...(write.value.day === true && { day: true }),
+					});
+				}
 				if (
 					op.linksOwn === true &&
 					menuType !== undefined &&
@@ -646,6 +649,20 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				}
 		}
 	}
+	// Day inference must see every basic writer for a reached property, even
+	// another menu that writes a different value through a case index.
+	const dayDestinations = new Set(
+		linkedWrites
+			.filter((write) => write.day === true)
+			.map(({ caseType, property }) => JSON.stringify([caseType, property])),
+	);
+	for (const write of linkedWrites) {
+		if (!dayDestinations.has(JSON.stringify([write.caseType, write.property])))
+			continue;
+		noteType(caseTypes, write.caseType);
+		writes.push(write);
+	}
+
 	const selections: { child: string; parent: string }[] = [];
 	for (const module of app.modules) {
 		const parent = app.modules.find(

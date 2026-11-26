@@ -19552,6 +19552,27 @@
 		}
 	},
 	{
+		"id": "hq-case-management/datetime-answer-saved-through-parent-as-a-day",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-datetime-question-saved-straight-through-a-parent-index",
+		"change": {
+			"op": "named",
+			"name": "datetime_answer_saved_through_parent_as_a_day"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "visit_day"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/via",
+				"value": [{ "identifier": "parent", "throughCaseType": "household" }]
+			}
+		]
+	},
+	{
 		"id": "hq-case-management/hidden-clock-saved-as-a-day",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/a-datetime-question-saved-straight-to-a-case",

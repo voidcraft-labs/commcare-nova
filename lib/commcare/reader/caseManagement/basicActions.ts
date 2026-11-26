@@ -291,6 +291,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		"schema:ConditionalCaseUpdate.question_path",
 	),
 	hiddenDay: take(`${F}/a-datetime-question-saved-straight-to-a-case`, null),
+	linkedDay: take(
+		`${F}/a-datetime-question-saved-straight-through-a-parent-index`,
+		null,
+	),
 	datetimeStraight: refuse(
 		`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`,
 		null,
@@ -1440,7 +1444,7 @@ function readUpdate(
 	edit: Claim<"take">,
 	pathClaim: Claim<"take">,
 	keyClaim?: Claim<"take">,
-	allowHiddenDay = false,
+	dayWrites?: { readonly hiddenClock: boolean; readonly parent: boolean },
 ): {
 	readonly value?: ProposedValue;
 	readonly onlyIfChanged?: true;
@@ -1465,7 +1469,7 @@ function readUpdate(
 					r.form,
 					path,
 					property,
-					allowHiddenDay && onlyIfChanged === undefined,
+					dayWrites?.hiddenClock === true && onlyIfChanged === undefined,
 				)
 			: undefined;
 	if (read === undefined || read.kind === "finding") {
@@ -1488,7 +1492,10 @@ function readUpdate(
 			: undefined;
 	const pathRow = mapRow === undefined ? keyClaim : undefined;
 	if (mapRow !== undefined) cursor.holdMapEntry(mapRow);
-	const claim = pathClaimOf(read, pathClaim, pathRow);
+	const claim =
+		dayWrites?.parent === true && read.value.day === true
+			? BASIC_CLAIMS.linkedDay
+			: pathClaimOf(read, pathClaim, pathRow);
 	if (claim === "join")
 		deferJoinClaim(r.form, cursor, read.value.field, pathRow ?? pathClaim);
 	else consume(cursor.take("question_path", claim, (value) => value));
@@ -1672,24 +1679,34 @@ function readUpdateMap(
 											: property === "location_id" || property === "hq_user_id"
 												? BASIC_CLAIMS.locationOrWorkerKey
 												: BASIC_CLAIMS.asciiKey;
-		const read = readUpdate(
-			r,
-			cursor,
-			property,
-			edit,
-			pathClaim,
-			keyClaim,
-			slot === "own" &&
+		const reachedType = via?.[0]?.throughCaseType;
+		const linkedDay =
+			via?.length === 1 &&
+			via[0].identifier === "parent" &&
+			r.type === "followup" &&
+			cursor.peek("update_mode") === "always" &&
+			!RESERVED_CASE_OPERATION_TYPES.has(r.caseType) &&
+			reachedType !== undefined &&
+			!RESERVED_CASE_OPERATION_TYPES.has(reachedType) &&
+			!isMultiSelectMenu({
+				case_details: r.module.json.peek("case_details"),
+				search_config: r.module.json.peek("search_config"),
+			});
+		const read = readUpdate(r, cursor, property, edit, pathClaim, keyClaim, {
+			hiddenClock:
+				slot === "own" &&
 				r.type === "followup" &&
 				via === undefined &&
 				!RESERVED_CASE_OPERATION_TYPES.has(r.caseType),
-		);
+			parent: linkedDay,
+		});
 		if (!read.ok || read.value === undefined) continue;
-		// A date-and-time question's day is saved straight only to a `date`
-		// property of the action's own case, which the catalog types: the
-		// worker's record is no catalogued type, and Nova saves a date and time
-		// there as its moment.
-		if ((via !== undefined || slot === "usercase") && read.value.day === true) {
+		// The catalog types a supported parent write at its reached case.
+		// A worker record saves datetime answers as text with their clock.
+		if (
+			read.value.day === true &&
+			(slot === "usercase" || (via !== undefined && !linkedDay))
+		) {
 			finding(
 				r.ctx,
 				BASIC_CLAIMS.datetimeStraight,

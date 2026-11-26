@@ -5249,15 +5249,36 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/a-datetime-question-saved-straight-through-a-parent-index",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "a DateTime question saved every time by a basic one-case follow-up through one typed parent index to an ordinary property whose writers give days",
+		"surfaceKeys": [],
+		"noSurfaceKey": "A relation between a question's answer and the property of a case reached through an index, whose question, index and property write have their own rows.",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a date property on the reached case. The untyped update stores the day, as it does for the loaded case.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "untyped bind as HQ writes it",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "a Hidden Value bound `xsd:dateTime` saved straight outside the basic hidden clock class, and a DateTime question saved straight to a case's name, owner, external id, `location_id`, `hq_user_id`, `category` or `state`, to the worker's record, or through an index segment (a property another writer gives something other than a day is `any-other-mixed-writer-pair`)",
+		"item": "a Hidden Value bound `xsd:dateTime` saved straight outside the basic hidden clock class, and a DateTime question saved straight to a case's name, owner, external id, `location_id`, `hq_user_id`, `category` or `state`, to the worker's record, or through an index segment outside the single parent class (a property another writer gives something other than a day is `any-other-mixed-writer-pair`)",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the day of a date and time where Nova holds no `date` property for it: other hidden calculations and opening assignments need their own native conversion proof, and a case's name, owner and standard keys, a linked case's property and a worker property are outside the date-property reading (`reader/caseManagement/catalog.ts::declareDays`)",
+		"dispositionCell": "**HELD-NEW**: the day of a date and time where Nova holds no `date` property for it: other hidden calculations and opening assignments need their own native conversion proof, and a case's name, owner and standard keys, other linked-case writes and worker properties are outside the date-property reading (`reader/caseManagement/catalog.ts::declareDays`)",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {
