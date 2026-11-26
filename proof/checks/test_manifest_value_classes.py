@@ -3000,6 +3000,10 @@ def _search_and_menus():
     def cell(x, y, width, height=1):
         return {"grid_x": x, "grid_y": y, "width": width, "height": height}
 
+    def stacked(count):
+        """``count`` columns, one full line each from the top."""
+        return [_column(**cell(0, row, 12)) for row in range(count)]
+
     village = {"patient": {"village": "text", "visits": "int"}, "visit": {"outcome": "single_select"}}
 
     def tab(start, **fields):
@@ -4395,30 +4399,105 @@ def _search_and_menus():
             ),
         ),
         "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row": (
+            # Thirteen columns: HQ's page offers thirteen rows, so a cell ending on the thirteenth is this class.
+            refused(
+                "app",
+                columns_app(*stacked(12), _column("notes", **cell(0, 12, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/12/grid_y",
+            ),
+            # Eleven fields and two tabs are thirteen columns of the Case Detail page.
+            refused(
+                "app",
+                columns_app(
+                    *stacked(10), _column("notes", **cell(0, 11, 12, 2)), where="long",
+                    long={**tile, "tabs": [tab(0), tab(5)]},
+                ),
+                "schema:DetailColumn.height",
+                f"{long_}/columns/10/height",
+            ),
+            # The twelfth row is inside, a cell past the rows offered is the other class, and so is one past the
+            # twelfth column.
+            accepted(
+                "app",
+                columns_app(*stacked(12), _column("notes", **cell(0, 11, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/12/grid_y",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 12, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            accepted(
+                "app",
+                columns_app(*stacked(12), _column("notes", **cell(8, 12, 6)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/12/grid_y",
+            ),
+        ),
+        "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers": (
+            # Two columns: HQ's page offers six rows and its save moves a cell ending on the seventh.
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 6, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 4, 12, 3)), short=tile),
+                "schema:DetailColumn.height",
+                f"{short}/columns/1/height",
+            ),
             refused(
                 "app",
                 columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 12, 12)), short=tile),
                 "schema:DetailColumn.grid_y",
                 f"{short}/columns/1/grid_y",
             ),
+            # Eight columns offer eight rows; a filter column is none of them.
             refused(
                 "app",
                 columns_app(
-                    _column(**cell(0, 0, 12)), _column("notes", **cell(0, 11, 12, 2)), where="long", long=tile,
+                    *stacked(7), _column("notes", **cell(0, 8, 12)), _column("rank", "filter"), short=tile,
                 ),
-                "schema:DetailColumn.height",
-                f"{long_}/columns/1/height",
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/7/grid_y",
             ),
-            # The twelfth row is inside, and a cell past the twelfth column is the other class.
             accepted(
                 "app",
-                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 11, 12)), short=tile),
+                columns_app(*stacked(7), _column("notes", **cell(0, 7, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/7/grid_y",
+            ),
+            # On the case detail, a tab is a column of the page: six fields and two tabs keep the eighth row.
+            accepted(
+                "app",
+                columns_app(
+                    *stacked(5), _column("notes", **cell(0, 7, 12)), where="long",
+                    long={**tile, "tabs": [tab(0), tab(3)]},
+                ),
+                "schema:DetailColumn.grid_y",
+                f"{long_}/columns/5/grid_y",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 6, 12)), where="long", long=tile),
+                "schema:DetailColumn.grid_y",
+                f"{long_}/columns/1/grid_y",
+            ),
+            # The sixth row is inside, and a list that is no custom tile lays nothing out.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 5, 12)), short=tile),
                 "schema:DetailColumn.grid_y",
                 f"{short}/columns/1/grid_y",
             ),
             accepted(
                 "app",
-                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(8, 12, 6)), short=tile),
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 6, 12))),
                 "schema:DetailColumn.grid_y",
                 f"{short}/columns/1/grid_y",
             ),

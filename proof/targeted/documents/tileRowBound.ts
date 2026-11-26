@@ -12,13 +12,24 @@
  * bound with `options` and no `valueAllowUnset` rewrites a stored value the
  * options do not hold, and the page's next save writes what it rewrote.
  *
- * Each menu places its tile against that bound: inside it, at it, past it
- * by a start row the page does not offer, past it by a height the page
- * does not offer, a list of eight fields at its own bound (eight rows) and
- * past it (nine), a Details tile past the bound of its three fields, and a
- * Details tile with two tabs whose six fields and two tabs are eight
- * columns of the Case Detail page, with a cell at the eighth row. Proof 4's
- * saves of the Case List and Case Detail pages show what the page keeps.
+ * Observed first at `9f405aac` (proof 4, `trb-obs2`), when the document
+ * also held menus past the bound, by a start row and by a height the page
+ * does not offer, on a list of three fields and of eight and on a Details
+ * tile of three: each save moved the cell to the first row or made it one
+ * row tall, and kept every cell within the bound. Nova's gate now holds a
+ * tile to the same rows (`lib/domain/modules.ts::tileRowLimit`), so those
+ * menus are no document an editor can make; the refusal is held by the
+ * validator's, the reader's and the value-class reader's tests and by the
+ * matrix variant `hq-case-lists/tile-cell-below-the-rows-offered`.
+ *
+ * What stays is what the pages keep, each at its own bound: a list of three
+ * fields inside and at six rows, a list of eight at eight rows, a list of
+ * fourteen fields whose tile is fourteen rows tall (taller than twelve,
+ * `custom-tile-cell-below-the-twelfth-row`), a Details tile whose six
+ * fields and two tabs are eight columns of the Case Detail page with a cell
+ * on the eighth row, and a Details tile of eleven fields and two tabs with a
+ * cell ending on the thirteenth. Proof 4's saves of the Case List and Case
+ * Detail pages show each kept.
  *
  * Fixed values: Amina's visit shows her name, her village and her last
  * visit in the first menu's three cells.
@@ -48,6 +59,11 @@ const PROPERTIES = [
 	"status",
 	"rank",
 	"clinic",
+	"household",
+	"ward",
+	"mother",
+	"outcome",
+	"followup",
 ];
 
 /** A line of the full width at `row`, `height` rows tall. */
@@ -127,8 +143,6 @@ export function tileRowBound() {
 		modules: [
 			menu("inside", "Inside", [line(0), line(1), line(2)], "list"),
 			menu("at", "At the bound", [line(0), line(3, 2), line(5)], "list"),
-			menu("start", "Past by start", [line(0), line(1), line(6)], "list"),
-			menu("height", "Past by height", [line(0), line(1), line(4, 3)], "list"),
 			menu(
 				"eight",
 				"Eight at the bound",
@@ -136,18 +150,24 @@ export function tileRowBound() {
 				"list",
 			),
 			menu(
-				"eight-past",
-				"Eight past the bound",
-				[...Array.from({ length: 7 }, (_, row) => line(row)), line(8)],
+				"fourteen",
+				"Taller than twelve",
+				Array.from({ length: 14 }, (_, row) => line(row)),
 				"list",
 			),
-			menu("details", "Details past", [line(0), line(1), line(6)], "details"),
 			menu(
 				"details-tabs",
 				"Details tabs",
 				[line(0), line(1), line(2), line(3), line(4), line(7)],
 				"details",
 				[0, 3],
+			),
+			menu(
+				"details-tall",
+				"Details taller than twelve",
+				[...Array.from({ length: 10 }, (_, row) => line(row)), line(11, 2)],
+				"details",
+				[0, 5],
 			),
 		],
 	});

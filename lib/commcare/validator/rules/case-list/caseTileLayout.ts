@@ -53,26 +53,33 @@
  * derives the grid extent from whatever the fields occupy, and the Web
  * Apps renderer builds `repeat(maxWidth, 1fr)` from it
  * (`commcare-hq/corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js::buildCellGridStyle`),
- * so a 30-column tile renders. The 12 comes from HQ's own parity
- * assertion
+ * so a 30-column tile renders. The 12 is the twelve columns HQ's Case
+ * List page offers (`static/app_manager/js/details/bootstrap5/column.js`,
+ * `tileColumnMax`) and HQ's own parity assertion
  * (`commcare-hq/corehq/apps/app_manager/tests/test_suite_case_tiles.py::SuiteCaseTilesTest.test_case_tile_column_count`,
- * "Keeps the number of columns in parity with what mobile allows"),
- * which only lints HQ's two shipped named templates and never sees a
- * `custom` tile — HQ has no server-side grid validation at all. Nova
- * enforces it here so a Nova tile is a layout every CommCare client
- * renders the same way.
+ * "Keeps the number of columns in parity with what mobile allows").
+ *
+ * The rows are the rows HQ's own pages keep: `max(fields, 6)`, the fields
+ * being the columns the Case List page counts for a Results tile and the
+ * fields and tabs the Case Detail page counts for a Details tile
+ * (`lib/domain/modules.ts::tileRowLimit`, which cites the page). Past them
+ * the page's next save moves the cell to the first row or makes it one row
+ * tall, so the gate refuses the cell there, as it does past the twelfth
+ * column.
  */
 
 import {
 	type BlueprintDoc,
+	detailsTileFieldCount,
 	type Module,
 	orderedColumns,
+	resultsTileFieldCount,
 	TILE_GRID_COLUMNS,
-	TILE_GRID_ROWS,
 	type TileCell,
 	tileCellBottomEdge,
 	tileCellRightEdge,
 	tileCellsOverlap,
+	tileRowLimit,
 	type Uuid,
 } from "@/lib/domain";
 import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
@@ -162,6 +169,7 @@ export function caseTileLayout(
 				),
 			);
 		}
+		const detailRows = tileRowLimit(detailsTileFieldCount(config));
 		const groups = config.detailTabs
 			? (detailTabSpans(config.detailTabs, fields) ?? [])
 			: [{ start: 0, end: fields.length }];
@@ -172,12 +180,13 @@ export function caseTileLayout(
 				if (!cell) continue;
 				const problem = cell.androidOnly
 					? "Only a Results tile supports an Android-only value. Show this Details field on both platforms."
-					: tileCellRightEdge(cell) > TILE_GRID_COLUMNS ||
-							tileCellBottomEdge(cell) > TILE_GRID_ROWS
+					: tileCellRightEdge(cell) > TILE_GRID_COLUMNS
 						? "This field reaches past the edge of the Details tile. You can move it back inside or make it smaller."
-						: prior.some((other) => tileCellsOverlap(other, cell))
-							? "Two fields overlap on the same Details tile. You can move one field to a free space."
-							: undefined;
+						: tileCellBottomEdge(cell) > detailRows
+							? `This field reaches row ${tileCellBottomEdge(cell)}, and the Details tile has ${detailRows} rows: one for each field and tab it shows, and at least six. You can move it up or make it shorter.`
+							: prior.some((other) => tileCellsOverlap(other, cell))
+								? "Two fields overlap on the same Details tile. You can move one field to a free space."
+								: undefined;
 				if (problem)
 					errors.push(
 						validationError(
@@ -209,17 +218,18 @@ export function caseTileLayout(
 			);
 	}
 
+	const rows = tileRowLimit(resultsTileFieldCount(config));
 	for (const [index, column] of columns.entries()) {
 		const cell = column.tile;
 		if (cell === undefined) continue;
 		const right = tileCellRightEdge(cell);
 		const bottom = tileCellBottomEdge(cell);
-		if (right <= TILE_GRID_COLUMNS && bottom <= TILE_GRID_ROWS) continue;
+		if (right <= TILE_GRID_COLUMNS && bottom <= rows) continue;
 		errors.push(
 			validationError(
 				"CASE_LIST_TILE_CELL_OUT_OF_GRID",
 				"module",
-				`${describeColumnAtSentenceStart(column, index)} on the "${mod.name}" case tile runs past the edge of the grid: it starts at column ${cell.x + 1}, row ${cell.y + 1} and spans ${cell.width} × ${cell.height}, which reaches column ${right} and row ${bottom}. The tile is ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows. Move the field left or up, or make it narrower or shorter, so it ends inside the grid.`,
+				`${describeColumnAtSentenceStart(column, index)} on the "${mod.name}" case tile runs past the edge of the grid: it starts at column ${cell.x + 1}, row ${cell.y + 1} and spans ${cell.width} × ${cell.height}, which reaches column ${right} and row ${bottom}. The tile is ${TILE_GRID_COLUMNS} columns wide and ${rows} rows tall: a row for each field it shows, and at least six. Move the field left or up, or make it narrower or shorter, so it ends inside the grid.`,
 				location,
 				{
 					columnUuid: column.uuid,
@@ -228,6 +238,7 @@ export function caseTileLayout(
 					y: String(cell.y),
 					width: String(cell.width),
 					height: String(cell.height),
+					rows: String(rows),
 				},
 			),
 		);

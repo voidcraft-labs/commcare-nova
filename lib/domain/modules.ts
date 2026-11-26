@@ -334,13 +334,67 @@ const columnCommonSlots = z.strictObject({
 export const TILE_GRID_COLUMNS = 12;
 
 /**
- * Rows in one tile. CommCare bounds the row extent nowhere — the
- * renderer sizes the grid from whatever the fields occupy — so this
- * is declared Nova policy: a tile is a 12 x 12 grid, which keeps the
- * layout editor a fixed, learnable surface and keeps a tile visually
- * comparable to the row it replaces.
+ * The fewest rows a tile offers. Neither runtime bounds a tile's rows:
+ * both size the grid from the cells it holds (Core's
+ * `Detail.getMaxWidthHeight`, Android's `EntityViewTile.getMaxRows`). The
+ * bound is CommCare HQ's own Case List and Case Detail pages, which offer
+ * a cell's start row and height from `max(columns + 1, 7)`, the columns
+ * being the screen's own non-filter columns, a long detail's tabs among
+ * them (`static/app_manager/js/details/bootstrap5/screen.js`,
+ * `caseTileRowMax`; `column.js`, `tileRowOptions` and `tileHeightOptions`).
+ * Each select binds Knockout's `value` with `options` and no
+ * `valueAllowUnset`, so a stored start row the page does not offer comes
+ * back as the first row, and a height it does not offer as one row, and
+ * the page's next save writes that: observed on HQ's own pages by proof 4
+ * over `targeted-tile-row-bound`. So a cell's bottom edge may reach
+ * `max(fields, 6)` rows, and a tile holding more than twelve fields may
+ * be taller than twelve rows (`tileRowLimit`).
  */
-export const TILE_GRID_ROWS = 12;
+export const TILE_MIN_ROWS = 6;
+
+/**
+ * The rows a tile of `fields` fields offers: the bottom edge a cell may
+ * reach (`TILE_MIN_ROWS` says where the number comes from). The fields are
+ * the columns HQ's page shows for that screen: a Results tile's
+ * (`resultsTileFieldCount`) or a Details tile's
+ * (`detailsTileFieldCount`).
+ */
+export function tileRowLimit(fields: number): number {
+	return Math.max(fields, TILE_MIN_ROWS);
+}
+
+/**
+ * The fields of a custom Results tile's short detail, which are the
+ * columns HQ's Case List page counts: every column on the list that the
+ * tile shows (`lib/domain/caseListOrder.ts`, rule 1: a column hidden from
+ * Results is no field of a tile list, and a column that is not on the
+ * list is no field of any). Counted as the tile would hold them whether
+ * or not the layout is on, so a placement kept while tiles are off still
+ * fits when they come back on.
+ */
+export function resultsTileFieldCount(
+	config: Pick<CaseListConfig, "columns">,
+): number {
+	return config.columns.filter(
+		(column) => columnOnList(column) && column.visibleInList !== false,
+	).length;
+}
+
+/**
+ * The columns HQ's Case Detail page counts for a Details tile: every field
+ * shown in Details and each tab, which the page holds as a column of its
+ * own (`screen.js`, the tabs spliced into the columns before the filters
+ * are dropped). Observed: a Details tile of six fields and two tabs keeps a
+ * cell ending on the eighth row.
+ */
+export function detailsTileFieldCount(
+	config: Pick<CaseListConfig, "columns" | "detailTabs">,
+): number {
+	return (
+		config.columns.filter((column) => column.visibleInDetail !== false).length +
+		(config.detailTabs?.length ?? 0)
+	);
+}
 
 // Alignment vocabulary is constrained by what the Web Apps renderer
 // HONORS, not by what the suite parser accepts.
@@ -2734,12 +2788,13 @@ export const caseTileGroupingSchema = z.strictObject({
 	 * — so an omitted attribute silently halves or doubles the
 	 * header depending on which side reads it.
 	 *
-	 * The bound here is the grid; the real constraint is
-	 * layout-relative (strictly less than the tile's occupied row
-	 * extent, and never splitting a cell) and lives in
-	 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`.
+	 * The constraint is layout-relative (strictly less than the tile's
+	 * occupied row extent, and never splitting a cell) and lives in
+	 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`; a
+	 * tile's rows follow its fields (`tileRowLimit`), so no fixed bound
+	 * stands here.
 	 */
-	headerRows: persistableJsonPositiveIntegerSchema.max(TILE_GRID_ROWS - 1),
+	headerRows: persistableJsonPositiveIntegerSchema,
 });
 export type CaseTileGrouping = z.infer<typeof caseTileGroupingSchema>;
 

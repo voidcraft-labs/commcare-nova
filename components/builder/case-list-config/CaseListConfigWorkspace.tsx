@@ -123,10 +123,12 @@ import {
 	mapLocationColumn,
 	moduleShowsFormsInMenuAbove,
 	type OrdinaryCaseSearchConfig,
+	resultsTileFieldCount,
 	type SearchInputDef,
 	searchScreenTitleText,
 	searchWorkflow,
 	type TileCell,
+	tileRowLimit,
 	visibleSearchInputs,
 } from "@/lib/domain";
 import { formContextPatch } from "@/lib/domain/caseFormContext";
@@ -1036,10 +1038,13 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	 * opens. */
 	const TILE_FULL_REASON =
 		"The tile has no room left. Make a field smaller before adding more information.";
+	/* A field that joins the tile brings a row with it once the tile holds
+	 * six or more (`tileRowLimit`). */
 	const tileHasRoom =
 		config.tile === undefined ||
 		nextFreeTilePlacement(
 			tileMembership(config).placed.map((entry) => entry.cell),
+			tileRowLimit(resultsTileFieldCount(config) + 1),
 		) !== null;
 	const addResultsDisabledReason =
 		addDisabledReason ?? (tileHasRoom ? undefined : TILE_FULL_REASON);

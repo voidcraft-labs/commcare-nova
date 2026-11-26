@@ -213,8 +213,12 @@ they cannot tap it.
 A result is normally one row: each piece of information gets a column, and the
 columns run left to right. A **tile** is the other way to lay Results out. The
 result becomes a card, and each piece of information takes a rectangle on a
-12 × 12 grid, a name across the top, a status in the corner, a date
-underneath.
+grid, a name across the top, a status in the corner, a date underneath. The
+grid is 12 columns wide and has a row for each piece of information the tile
+shows, and at least six, the rows CommCare HQ's own case list page keeps. When
+you remove or hide a piece of information, the tile loses a row once it has
+more than six, and anything sitting below the new bottom moves up into free
+space.
 
 Reach for a tile when the row runs out of room or stops reading well: when a
 name deserves to be larger than everything beside it, when two short values

@@ -116,6 +116,39 @@ describe("caseTileLayout", () => {
 		).toEqual([OUT_OF_GRID]);
 	});
 
+	it("holds a cell to the rows CommCare HQ's Case List page keeps: a row for each field, at least six", () => {
+		// Proof 4 over targeted-tile-row-bound: the page keeps a bottom edge up
+		// to max(fields, 6) and moves a cell past it on its next save.
+		const lines = (count: number, last: TileCell) =>
+			Array.from({ length: count }, (_unused, row) =>
+				named(
+					`line-${row}`,
+					row === 0 ? "case_name" : "town",
+					row === count - 1 ? last : tileCell(0, row, 12, 1),
+				),
+			);
+		expect(codesFor(lines(2, tileCell(0, 5, 12, 1)), {})).toEqual([]);
+		expect(codesFor(lines(2, tileCell(0, 4, 12, 3)), {})).toEqual([
+			OUT_OF_GRID,
+		]);
+		expect(codesFor(lines(8, tileCell(0, 7, 12, 1)), {})).toEqual([]);
+		expect(codesFor(lines(8, tileCell(0, 8, 12, 1)), {})).toEqual([
+			OUT_OF_GRID,
+		]);
+		// A tile of more than twelve fields is taller than twelve rows.
+		expect(codesFor(lines(14, tileCell(0, 13, 12, 1)), {})).toEqual([]);
+		// A column hidden from Results is no field of the tile: no row of its own.
+		const hidden = plainColumn(testUuid("hidden"), "town", "Town", {
+			visibleInList: false,
+		});
+		expect(codesFor([...lines(7, tileCell(0, 6, 12, 1)), hidden], {})).toEqual(
+			[],
+		);
+		expect(codesFor([...lines(7, tileCell(0, 7, 12, 1)), hidden], {})).toEqual([
+			OUT_OF_GRID,
+		]);
+	});
+
 	it("checks geometry even while the tile layout is off, so switching it back on is always accepted", () => {
 		// The cells persist when tiles are turned off — an author who tries a
 		// tile and switches back keeps the drawing — so a bad geometry must be

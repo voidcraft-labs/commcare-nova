@@ -313,14 +313,16 @@ describe("tiles", () => {
 		}
 	});
 
-	it("names a cell outside the 12 by 12 grid, on Results and on Details, and proposes none of them", async () => {
+	it("names a cell outside the grid or below the rows HQ's page offers, on Results and on Details, and proposes none of them", async () => {
 		// Nova's gate refuses a cell past the grid (`CASE_LIST_TILE_CELL_OUT_OF_GRID`,
 		// `CASE_DETAIL_TILE_LAYOUT_INVALID`) and its schema a negative place or an empty span, so
 		// the reading names each such cell instead of proposing a document the gate refuses: past
 		// the twelfth column, left of the grid or with no span (Android does not draw it), or
-		// past the twelfth row (both runtimes draw it; Nova's grid holds twelve rows).
+		// below the rows HQ's Case List and Case Detail pages offer a screen of two columns, six
+		// (their next save moves it: proof 4 over targeted-tile-row-bound).
 		const outside = "menus-and-case-lists/custom-tile-cell-outside-the-grid";
-		const below = "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row";
+		const below =
+			"menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers";
 		const name = plainColumn(uuid(1), "case_name", "Name", {
 			tile: tileCell(0, 0, 6, 1),
 		});
@@ -344,7 +346,7 @@ describe("tiles", () => {
 				for (const detail of ["short", "long"] as const) {
 					const columns = app.modules[0]?.case_details[detail].columns;
 					if (columns?.[1] !== undefined)
-						Object.assign(columns[1], { grid_y: 11, height: 1 });
+						Object.assign(columns[1], { grid_y: 5, height: 1 });
 				}
 			},
 		});
@@ -355,7 +357,8 @@ describe("tiles", () => {
 				[{ grid_x: -1 }, outside],
 				[{ width: 0 }, outside],
 				[{ grid_y: -1 }, outside],
-				[{ grid_y: 11, height: 2 }, below],
+				[{ grid_y: 6 }, below],
+				[{ grid_y: 4, height: 3 }, below],
 				[{ grid_y: 12 }, below],
 			] as const) {
 				const label = `${detail} ${JSON.stringify(cell)}`;
@@ -373,6 +376,40 @@ describe("tiles", () => {
 						: list.detailTile?.cells[notes.uuid];
 				expect(notesCell, label).toBeUndefined();
 			}
+	});
+
+	it("holds a tile taller than twelve rows where the screen has a row for each field", async () => {
+		// Thirteen fields: HQ's pages offer thirteen rows and keep a cell ending on the
+		// thirteenth, and both runtimes size the tile to it.
+		const columns = Array.from({ length: 13 }, (_unused, row) =>
+			plainColumn(
+				uuid(10 + row),
+				row % 2 === 0 ? "case_name" : "notes",
+				`Line ${row + 1}`,
+				{ tile: tileCell(0, row, 12, 1) },
+			),
+		);
+		const doc = patients(columns, {
+			list: {
+				tile: {},
+				detailTile: {
+					cells: Object.fromEntries(
+						columns.map((column, row) => [
+							column.uuid,
+							tileCell(0, row, 12, 1),
+						]),
+					),
+				},
+			},
+		});
+		const reading = await readLists(doc);
+		expect(codes(reading)).toEqual([]);
+		const list = listOf(reading);
+		const rows = (cells: readonly ({ y: number } | undefined)[]) =>
+			cells.map((cell) => cell?.y).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const every = Array.from({ length: 13 }, (_unused, row) => row);
+		expect(rows(list.columns.map((column) => column.tile))).toEqual(every);
+		expect(rows(Object.values(list.detailTile?.cells ?? {}))).toEqual(every);
 	});
 
 	it("drops the cell of a column hidden from Results in a tile list", async () => {

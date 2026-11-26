@@ -1261,7 +1261,9 @@ const USER_MESSAGE_BY_CODE: Record<
 		e.details?.reason ??
 		`The case shown above the forms of ${q(modName(e))} can't be shown that way. You can choose what to show again in its case list settings.`,
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: (e) =>
-		`An item on ${q(modName(e))}'s tile runs off the edge of the layout. Move it back inside, or make it narrower or shorter.`,
+		e.details?.rows
+			? `An item on ${q(modName(e))}'s tile runs off the edge of the layout. The tile has ${e.details.rows} rows, one for each field it shows and at least six. You can move it back inside, or make it narrower or shorter.`
+			: `An item on ${q(modName(e))}'s tile runs off the edge of the layout. You can move it back inside, or make it narrower or shorter.`,
 	CASE_LIST_TILE_CELLS_OVERLAP: (e) =>
 		`Two items on ${q(modName(e))}'s tile sit on top of each other. Move or resize one of them so they don't share the same space.`,
 	CASE_LIST_NAMED_TILE_SLOT_INVALID: (e) =>

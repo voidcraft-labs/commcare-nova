@@ -22,11 +22,11 @@ import {
 	type CaseListConfig,
 	TILE_FONT_SIZES,
 	TILE_GRID_COLUMNS,
-	TILE_GRID_ROWS,
 	TILE_HORIZONTAL_ALIGNS,
 	type TileCell,
 	type TileVerticalAlign,
 	tileCellsOverlap,
+	tileRowLimit,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
 import { readNamedTileSlot } from "../../suite/case-list/namedTile";
@@ -166,9 +166,25 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}custom-tile-cell-outside-the-grid`,
 		"schema:DetailColumn.grid_x",
 	),
-	belowGrid: refuse(
+	pastOfferedRows: refuse(
+		`${A}custom-tile-cell-below-the-rows-hq-s-page-offers`,
+		"schema:DetailColumn.grid_y",
+	),
+	tallX: take(
+		`${A}custom-tile-cell-below-the-twelfth-row`,
+		"schema:DetailColumn.grid_x",
+	),
+	tallY: take(
 		`${A}custom-tile-cell-below-the-twelfth-row`,
 		"schema:DetailColumn.grid_y",
+	),
+	tallWidth: take(
+		`${A}custom-tile-cell-below-the-twelfth-row`,
+		"schema:DetailColumn.width",
+	),
+	tallHeight: take(
+		`${A}custom-tile-cell-below-the-twelfth-row`,
+		"schema:DetailColumn.height",
 	),
 });
 
@@ -224,6 +240,7 @@ function readCell(
 	ctx: ReadContext,
 	column: JsonCursor,
 	template: string,
+	rows: number,
 	overlapping = false,
 ): TileCell | "finding" {
 	const refused = (claim: Claim<"refuse">): "finding" => {
@@ -252,9 +269,9 @@ function readCell(
 	)
 		return refused(T.alignNull);
 	if (font === null || font === undefined) return refused(T.fontNull);
-	const grid = gridFit(column);
+	const grid = gridFit(column, rows);
 	if (grid === "outside") return refused(T.outsideGrid);
-	if (grid === "below") return refused(T.belowGrid);
+	if (grid === "past-offered-rows") return refused(T.pastOfferedRows);
 	if (overlapping) return refused(T.overlapping);
 	const verticalWord =
 		typeof vertical === "string" ? VERTICAL_FROM_WIRE.get(vertical) : undefined;
@@ -280,11 +297,12 @@ function readCell(
 		return "finding";
 	}
 	column.take("vertical_align", T.vertical, String).value;
+	const tall = grid === "below-the-twelfth-row";
 	const cell: TileCell = {
-		x: column.take("grid_x", T.gridX, Number).value,
-		y: column.take("grid_y", T.gridY, Number).value,
-		width: column.take("width", T.width, Number).value,
-		height: column.take("height", T.height, Number).value,
+		x: column.take("grid_x", tall ? T.tallX : T.gridX, Number).value,
+		y: column.take("grid_y", tall ? T.tallY : T.gridY, Number).value,
+		width: column.take("width", tall ? T.tallWidth : T.width, Number).value,
+		height: column.take("height", tall ? T.tallHeight : T.height, Number).value,
 		horizontalAlign: column.take("horizontal_align", T.horizontal, String)
 			.value as TileCell["horizontalAlign"],
 		verticalAlign: verticalWord,
@@ -301,19 +319,25 @@ function readCell(
 }
 
 /**
- * Where a stored cell stands against Nova's 12 by 12 grid (`TILE_GRID_COLUMNS`, `TILE_GRID_ROWS`).
- * `outside`: a cell starting left of or above the grid, spanning less than one square, or
- * running past the twelfth column. HQ's Case List page bounds its pickers to the twelve columns
- * (`details/bootstrap5/column.js`, `tileColumnMax`), so only an imported app holds one, and
+ * Where a stored cell stands against the grid of the screen that holds it, of `rows` rows
+ * (`screenTileRows`). `outside`: a cell starting left of or above the grid, spanning less than one
+ * square, or running past the twelfth column. HQ's Case List page bounds its pickers to the twelve
+ * columns (`details/bootstrap5/column.js`, `tileColumnMax`), so only an imported app holds one, and
  * Android does not draw it: a cell past the twelfth column stops the list
  * (`views/EntityViewTile.java::coordinatesInvalid`, "grid coordinates out of bounds"), one left of
  * or above the grid is skipped, and a span of none has no size (`getLayoutParamsForField`).
- * `below`: a cell inside those bounds that runs past the twelfth row, which HQ's page offers to
- * a list of more than eleven fields (`details/bootstrap5/screen.js`, `caseTileRowMax`) and both
- * runtimes size the tile to (Core's `Detail.getMaxWidthHeight`, Android's `getMaxRows`); Nova's
- * grid holds twelve rows. `fits` otherwise, and where a number is not there to judge.
+ * `past-offered-rows`: a cell inside those columns whose bottom edge passes the rows HQ's page
+ * offers that screen, `max(columns, 6)` (`lib/domain/modules.ts::TILE_MIN_ROWS`): the page's next
+ * save moves it to the first row or makes it one row tall (observed by proof 4 over
+ * `targeted-tile-row-bound`), and Nova's gate refuses it. `below-the-twelfth-row`: a cell inside
+ * the offered rows that runs past the twelfth, which a screen of more than twelve columns offers
+ * and both runtimes size the tile to (Core's `Detail.getMaxWidthHeight`, Android's `getMaxRows`).
+ * `fits` otherwise, and where a number is not there to judge.
  */
-function gridFit(column: JsonCursor): "fits" | "outside" | "below" {
+function gridFit(
+	column: JsonCursor,
+	rows: number,
+): "fits" | "outside" | "past-offered-rows" | "below-the-twelfth-row" {
 	const box = storedBox(column);
 	if (box === undefined) return "fits";
 	if (
@@ -324,7 +348,30 @@ function gridFit(column: JsonCursor): "fits" | "outside" | "below" {
 		box.x + box.width > TILE_GRID_COLUMNS
 	)
 		return "outside";
-	return box.y + box.height > TILE_GRID_ROWS ? "below" : "fits";
+	const bottom = box.y + box.height;
+	if (bottom > rows) return "past-offered-rows";
+	return bottom > TWELVE_ROWS ? "below-the-twelfth-row" : "fits";
+}
+
+/** The row past which a held cell is the class `custom-tile-cell-below-the-twelfth-row`: the
+ *  twelve rows Nova's grid held before it followed HQ's page, kept as the class's edge. */
+const TWELVE_ROWS = 12;
+
+/**
+ * The rows HQ's Case List or Case Detail page offers one detail's tile: `max(n, 6)`, n its
+ * non-filter columns and, on a long detail, its tabs, which the page holds as columns
+ * (`details/bootstrap5/screen.js`, `caseTileRowMax`, the tabs spliced into the columns before the
+ * filters are dropped). The same count as `lib/domain/modules.ts::tileRowLimit` over the
+ * document the reading gives.
+ */
+function screenTileRows(detail: JsonCursor, withTabs: boolean): number {
+	const columns = detail.peek("columns");
+	const tabs = detail.peek("tabs");
+	const counted =
+		(Array.isArray(columns) ? columns : []).filter(
+			(column) => !isJsonObject(column) || column.format !== "filter",
+		).length + (withTabs && Array.isArray(tabs) ? tabs.length : 0);
+	return tileRowLimit(counted);
 }
 
 /** A stored cell's square, where its four numbers are all there. */
@@ -406,6 +453,7 @@ export function readTile(
 				longColumns[column.long],
 			]);
 		}
+		const longRows = screenTileRows(long, true);
 		const overlapsLong = new Set(
 			[...placedLong.values()].flatMap((group) => [...overlappingCells(group)]),
 		);
@@ -416,6 +464,7 @@ export function readTile(
 				ctx,
 				cursor,
 				`${long.pointer}/case_tile_template`,
+				longRows,
 				overlapsLong.has(cursor),
 			);
 			if (cell === "finding") ok = false;
@@ -521,6 +570,7 @@ export function readTile(
 			? cursor
 			: undefined;
 	};
+	const shortRows = screenTileRows(short, false);
 	const overlapsShort = overlappingCells(
 		joined.columns.flatMap((column) => placesCell(column) ?? []),
 	);
@@ -536,6 +586,7 @@ export function readTile(
 			ctx,
 			cursor,
 			`${short.pointer}/case_tile_template`,
+			shortRows,
 			overlapsShort.has(cursor),
 		);
 		if (cell === "finding") ok = false;

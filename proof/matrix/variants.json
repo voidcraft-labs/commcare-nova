@@ -13214,10 +13214,10 @@
 		}
 	},
 	{
-		"id": "hq-case-lists/tile-cell-below-the-twelfth-row",
+		"id": "hq-case-lists/tile-cell-below-the-rows-offered",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 1,
@@ -13225,7 +13225,23 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "tile_cell_below_the_twelfth_row"
+			"name": "tile_cell_below_the_rows_offered"
+		}
+	},
+	{
+		"id": "hq-case-lists/tile-taller-than-twelve-rows",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row",
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/columns/12/tile/y",
+				"value": 12
+			}
+		],
+		"change": {
+			"op": "named",
+			"name": "tile_taller_than_twelve_rows"
 		}
 	},
 	{

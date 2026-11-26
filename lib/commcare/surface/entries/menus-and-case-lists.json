@@ -4807,7 +4807,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "a placed cell of a custom tile, inside its twelve columns, that runs past the twelfth row",
+		"item": "a placed cell of a custom tile, inside its twelve columns and the rows HQ's page offers its screen, that runs past the twelfth row",
 		"surfaceKeys": [
 			"schema:DetailColumn.grid_x",
 			"schema:DetailColumn.grid_y",
@@ -4815,10 +4815,9 @@
 			"schema:DetailColumn.width"
 		],
 		"valueClass": "custom-tile-cell-below-the-twelfth-row",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a tile taller than the twelve rows of Nova's grid (`TILE_GRID_ROWS`); HQ's Case List page offers rows to a list of more than eleven fields (`details/bootstrap5/screen.js`, `caseTileRowMax`), and both runtimes size the tile to its tallest cell (Core's `Detail.getMaxWidthHeight`, Android's `EntityViewTile.getMaxRows`)",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `column.tile` (Results) or `detailTile.cells` (Details), the tile a row for each field it shows and at least six (`tileRowLimit`): the rows HQ's Case List and Case Detail pages offer a screen of more than twelve columns, a long detail's tabs among them (`details/bootstrap5/screen.js`, `caseTileRowMax`), which their saves keep (proof 4 over `targeted-tile-row-bound`), and both runtimes size the tile to its tallest cell (Core's `Detail.getMaxWidthHeight`, Android's `EntityViewTile.getMaxRows`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4830,8 +4829,40 @@
 			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the four keys",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "a placed cell of a custom tile, inside its twelve columns, whose bottom edge passes the rows HQ's page offers its screen: `max(n, 6)`, n the detail's columns other than filters and, on the case detail, its tabs",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.width"
+		],
+		"valueClass": "custom-tile-cell-below-the-rows-hq-s-page-offers",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's Case List and Case Detail pages offer a cell's start row and height from `max(columns + 1, 7)` (`details/bootstrap5/screen.js`, `caseTileRowMax`; `column.js`, `tileRowOptions`, `tileHeightOptions`), each a Knockout `value` with `options` and no `valueAllowUnset`, so the page's next save moves a cell past them to the first row or makes it one row tall (observed by proof 4 over `targeted-tile-row-bound`)",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's Case List page moves a cell below the rows it offers"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written: the gate refuses a cell below a row for each field the tile shows and at least six (`CASE_LIST_TILE_CELL_OUT_OF_GRID`, `CASE_DETAIL_TILE_LAYOUT_INVALID`)",
+			"markers": []
 		},
 		"gates": []
 	},

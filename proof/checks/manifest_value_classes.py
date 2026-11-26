@@ -4959,15 +4959,30 @@ def tab_child_type_no_form_adds(use, manifest):
 
 
 TILE_GRID = 12
+# The fewest rows HQ's Case List and Case Detail pages offer a tile (``details/bootstrap5/screen.js``,
+# ``caseTileRowMax = max(columns + 1, 7)``, so a bottom edge up to ``max(columns, 6)``).
+TILE_MIN_ROWS = 6
 
 
-def _grid_fit(box):
-    """Where a stored cell stands against Nova's 12 by 12 grid (``caseList/tile.ts::gridFit``): ``outside`` for a
-    cell starting left of or above the grid, spanning less than one square, or running past the twelfth column;
-    ``below`` for one inside those bounds running past the twelfth row; ``fits`` otherwise."""
+def _offered_rows(detail, kind):
+    """The rows HQ's page offers one detail's tile: ``max(n, 6)``, n its columns other than ``filter`` ones and, on
+    the case detail (``long``), its tabs, which the page splices into its columns before it drops the filters
+    (``screen.js``). Written from the page's source, not from Nova's (``caseList/tile.ts::screenTileRows``)."""
+    columns = [column for column in (detail.get("columns") or []) if not isinstance(column, dict) or _format(column) != "filter"]
+    tabs = detail.get("tabs") if kind == "long" else None
+    return max(len(columns) + (len(tabs) if isinstance(tabs, list) else 0), TILE_MIN_ROWS)
+
+
+def _grid_fit(box, rows):
+    """Where a stored cell stands against the grid of its screen of ``rows`` rows (``caseList/tile.ts::gridFit``):
+    ``outside`` for a cell starting left of or above the grid, spanning less than one square, or running past the
+    twelfth column; ``past`` for one inside those columns whose bottom edge passes the rows HQ's page offers;
+    ``below`` for one inside those rows running past the twelfth; ``fits`` otherwise."""
     x, y, width, height = box
     if x < 0 or y < 0 or width < 1 or height < 1 or x + width > TILE_GRID:
         return "outside"
+    if y + height > rows:
+        return "past"
     return "below" if y + height > TILE_GRID else "fits"
 
 
@@ -4985,8 +5000,9 @@ def _tile_cell_fit(fit):
         ):
             return False
         targets = [column] if column is not None else _columns(detail)
+        rows = _offered_rows(detail, kind)
         return any(
-            _format(each) != "filter" and box is not None and _grid_fit(box) == fit
+            _format(each) != "filter" and box is not None and _grid_fit(box, rows) == fit
             for each in targets
             for box in [_tile_box(each)]
         )
@@ -5003,8 +5019,14 @@ the detail reads each of its columns."""
 
 tile_cell_below_the_twelfth_row = _tile_cell_fit("below")
 tile_cell_below_the_twelfth_row.__doc__ = """``menus-and-case-lists/custom-tile-cell-below-the-twelfth-row``: a
-placed cell of a menu's custom tile, inside its twelve columns, that runs past the twelfth row (as
-``tile_cell_outside_the_grid`` reads its tile)."""
+placed cell of a menu's custom tile, inside its twelve columns and the rows HQ's page offers its screen, that runs
+past the twelfth row (as ``tile_cell_outside_the_grid`` reads its tile)."""
+
+tile_cell_below_the_offered_rows = _tile_cell_fit("past")
+tile_cell_below_the_offered_rows.__doc__ = """``menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-
+offers``: a placed cell of a menu's custom tile, inside its twelve columns, whose bottom edge passes the rows HQ's
+Case List or Case Detail page offers its screen, ``max(n, 6)`` (``_offered_rows``): the page's next save moves it
+(as ``tile_cell_outside_the_grid`` reads its tile)."""
 
 
 def _detail_reader(test):
@@ -10372,6 +10394,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/custom-tile-cell-outside-the-grid": tile_cell_outside_the_grid,
     "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds": tab_child_type_no_form_adds,
     "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row": tile_cell_below_the_twelfth_row,
+    "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers": tile_cell_below_the_offered_rows,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,
     "menus-and-case-lists/detail-case-tile-template-person-simple": person_simple_on_list,
     "menus-and-case-lists/long-detail-non-custom-tile": not_custom_on_detail,

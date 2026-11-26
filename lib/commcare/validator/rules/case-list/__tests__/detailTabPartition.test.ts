@@ -201,4 +201,30 @@ describe("the Details tile at the gate", () => {
 			]),
 		).toContain("CASE_DETAIL_TILE_LAYOUT_INVALID");
 	});
+
+	it("holds a cell to the rows HQ's Case Detail page keeps: one for each field and tab, at least six", () => {
+		// Proof 4 over targeted-tile-row-bound: three fields keep a cell ending
+		// on the sixth row and move one ending on the seventh.
+		const doc = tileFixture("detail-layout");
+		const { menu, config } = menuOf(doc);
+		const cells = config.detailTile?.cells ?? {};
+		const keys = Object.keys(cells) as (keyof typeof cells)[];
+		const last = keys.at(-1);
+		if (last === undefined) throw new Error("The fixture lays out Details.");
+		const moved = (row: number): Mutation[] => [
+			{
+				kind: "setCaseListMeta",
+				uuid: menu.uuid,
+				patch: {
+					detailTile: {
+						cells: { ...cells, [last]: tileCell(0, row, 12, 1) },
+					},
+				},
+			},
+		];
+		expect(codes(doc, moved(5))).not.toContain(
+			"CASE_DETAIL_TILE_LAYOUT_INVALID",
+		);
+		expect(codes(doc, moved(6))).toContain("CASE_DETAIL_TILE_LAYOUT_INVALID");
+	});
 });

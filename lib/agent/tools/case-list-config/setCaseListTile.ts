@@ -3,7 +3,8 @@
  * place its fields on the grid.
  *
  * A case list has two layouts. The ordinary one is a row of columns per case.
- * The other is a TILE: a 12 x 12 grid where each field shown in Results
+ * The other is a TILE: a grid twelve columns wide, with a row for each field
+ * it shows and at least six, where each field shown in Results
  * occupies a rectangle, which is what lets a list read like a card — a name
  * across the top, a status in the corner, a date underneath. The layout drives
  * every surface the Results screen drives: the case list, the search-results
@@ -144,7 +145,7 @@ export type SetCaseListTileResult = SetCaseListTileSuccess | { error: string };
 
 export const setCaseListTileTool = {
 	description:
-		"Lay a module's case list out as a tile — a 12x12 grid where each field shown in Results occupies a rectangle — instead of a row of columns, and place its fields on that grid. Pass `tile` to turn the layout on or off (null turns it off and keeps the placements), `placements` to move fields, or both in one call. Every field shown in Results needs a place while the tile is on, and no two fields may share a square, so place the whole layout in one call. `tile.grouping` additionally shows the cases that share a connection together under one heading drawn from the first of them. Pass detailPlacements for the separate Web Apps Details tile. Use contextAboveForm to keep the selected case in view on a form.",
+		"Lay a module's case list out as a tile — a grid 12 columns wide with a row for each field it shows (at least 6), where each field shown in Results occupies a rectangle — instead of a row of columns, and place its fields on that grid. Pass `tile` to turn the layout on or off (null turns it off and keeps the placements), `placements` to move fields, or both in one call. Every field shown in Results needs a place while the tile is on, and no two fields may share a square, so place the whole layout in one call. `tile.grouping` additionally shows the cases that share a connection together under one heading drawn from the first of them. Pass detailPlacements for the separate Web Apps Details tile. Use contextAboveForm to keep the selected case in view on a form.",
 	inputSchema: setCaseListTileInputSchema,
 	async execute(
 		input: SetCaseListTileInput,

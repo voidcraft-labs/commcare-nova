@@ -65,7 +65,7 @@ import {
 	simpleScalarSearchInputSchema,
 	simpleSelectSearchInputSchema,
 	TILE_GRID_COLUMNS,
-	TILE_GRID_ROWS,
+	TILE_MIN_ROWS,
 	type TileCell,
 	tileCell,
 	tileCellSchema,
@@ -494,7 +494,7 @@ export const tileCellInputSchema = tileCellSchema.extend({
 		`Column the field starts in, counting from 0 at the left edge. The grid is ${TILE_GRID_COLUMNS} columns wide, so x + width may not pass ${TILE_GRID_COLUMNS}.`,
 	),
 	y: tileCellSchema.shape.y.describe(
-		`Row the field starts in, counting from 0 at the top. The grid is ${TILE_GRID_ROWS} rows tall, so y + height may not pass ${TILE_GRID_ROWS}.`,
+		`Row the field starts in, counting from 0 at the top. The grid has a row for each field the tile shows, and at least ${TILE_MIN_ROWS}: y + height may not pass that. A Details tile counts each of its tabs as a field too.`,
 	),
 	width: tileCellSchema.shape.width.describe(
 		"How many columns the field spans. No two fields may cover the same square.",
@@ -543,7 +543,7 @@ export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
 				"The name of the case connection to group by, almost always `parent`. Grouping is by a CONNECTION, never by a property value: the heading is drawn from the first case in each group, which is only honest when every case in the group shares it.",
 			),
 			headerRows: caseTileGroupingSchema.shape.headerRows.describe(
-				`How many of the tile's top rows form the group heading. Rows above the line are drawn ONCE per group, from the group's first case; the rows below are drawn for every case. The line must be a clean cut: at least one field above it, at least one below it, and no field crossing it (a crossing field is drawn wholly in the heading, so every other case's value in it disappears). The grid is ${TILE_GRID_ROWS} rows tall.`,
+				`How many of the tile's top rows form the group heading. Rows above the line are drawn ONCE per group, from the group's first case; the rows below are drawn for every case. The line must be a clean cut: at least one field above it, at least one below it, and no field crossing it (a crossing field is drawn wholly in the heading, so every other case's value in it disappears).`,
 			),
 		})
 		.optional()

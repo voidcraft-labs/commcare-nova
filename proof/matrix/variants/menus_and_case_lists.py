@@ -878,15 +878,32 @@ def tile_cell_outside_the_grid(authoring, app_id):
     )
 
 
-def tile_cell_below_the_twelfth_row(authoring, app_id):
-    """Follow-ups' list laid out as a tile whose ``village`` cell sits on the thirteenth row, inside the twelve
-    columns: a tile taller than Nova's grid, which both runtimes size to its tallest cell."""
+def tile_cell_below_the_rows_offered(authoring, app_id):
+    """Follow-ups' list laid out as a tile of two fields whose ``village`` cell sits on the thirteenth row, inside
+    the twelve columns: below the six rows HQ's Case List page offers two columns (``screen.js``,
+    ``caseTileRowMax``), so the page's next save moves it, as an imported app holds it."""
 
     _set_each(
         authoring,
         app_id,
         ("/modules/1/case_details/short/case_tile_template", "custom"),
         ("/modules/1/case_details/short/columns", [_tile_cell("name", 0, 12), _tile_cell("village", 0, 12, y=12)]),
+    )
+
+
+def tile_taller_than_twelve_rows(authoring, app_id):
+    """Follow-ups' list laid out as a tile of thirteen fields, one full line each, the last on the thirteenth row:
+    HQ's Case List page offers a list of thirteen columns thirteen rows and keeps that cell, and both runtimes size
+    the tile to it."""
+
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        (
+            "/modules/1/case_details/short/columns",
+            [_tile_cell("name" if row % 2 == 0 else "village", 0, 12, y=row) for row in range(13)],
+        ),
     )
 
 

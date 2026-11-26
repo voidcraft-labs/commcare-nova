@@ -16,8 +16,11 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type CaseListConfig,
 	type Column,
+	detailsTileFieldCount,
+	TILE_GRID_COLUMNS,
 	type TileCell,
 	tileCell,
+	tileRowLimit,
 	type Uuid,
 } from "@/lib/domain";
 import { detailTabSpans } from "@/lib/domain/detailTabs";
@@ -57,10 +60,17 @@ export function DetailTileEditor({
 		title: tab.title,
 		fields: columns.slice(start, end),
 	})) ?? [{ title: "", fields: columns }];
+	/* The rows CommCare HQ's Case Detail page keeps: one for each field and
+	 * tab it shows, at least six (`tileRowLimit`). Each tab's grid is drawn
+	 * against the whole screen's. */
+	const rows = tileRowLimit(detailsTileFieldCount(config));
 	function open() {
 		const cells: Layout["cells"] = {};
-		const across = Math.min(12, Math.ceil(columns.length / 12));
-		const width = Math.floor(12 / across);
+		const across = Math.min(
+			TILE_GRID_COLUMNS,
+			Math.ceil(columns.length / TILE_GRID_COLUMNS),
+		);
+		const width = Math.floor(TILE_GRID_COLUMNS / across);
 		columns.forEach((col, i) => {
 			cells[col.uuid] =
 				config.detailTile?.cells[col.uuid] ??
@@ -141,6 +151,7 @@ export function DetailTileEditor({
 										config={slice}
 										selectedUuid={draft.selected}
 										issues={new Map()}
+										rows={rows}
 										canEdit
 										onSelect={(uuid) => setDraft({ ...draft, selected: uuid })}
 										onPlace={place}
@@ -151,6 +162,7 @@ export function DetailTileEditor({
 									{selected && (
 										<TileCellInspector
 											details
+											rows={rows}
 											moduleUuid={moduleUuid}
 											column={selected}
 											config={slice}
