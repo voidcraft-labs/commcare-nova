@@ -3746,7 +3746,6 @@ describe("the form's own case", () => {
 			});
 		const opening = async () => ({
 			currentOwnerIds: [ACTOR],
-			lookupRows: [],
 			cases: await store.readDeviceCaseDatabase({
 				appId: APP_ID,
 				restoreScope: { ownerIds: [ACTOR] },
@@ -3880,7 +3879,6 @@ describe("the form's own case", () => {
 		await seedSessionPatient(store);
 		const entered = {
 			currentOwnerIds: [ACTOR],
-			lookupRows: [],
 			cases: await store.readDeviceCaseDatabase({
 				appId: APP_ID,
 				restoreScope: { ownerIds: [ACTOR] },
@@ -5084,7 +5082,6 @@ describe("location_id and hq_user_id", () => {
 		});
 		const opening = {
 			currentOwnerIds: [ACTOR],
-			lookupRows: [],
 			cases: await store.readDeviceCaseDatabase({
 				appId: APP_ID,
 				restoreScope: { ownerIds: [ACTOR] },

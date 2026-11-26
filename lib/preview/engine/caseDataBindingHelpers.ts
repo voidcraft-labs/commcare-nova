@@ -40,7 +40,10 @@ import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
 import { formContentUuid } from "@/lib/domain/formEntryCases";
 import type { FormOpeningProjection } from "./formOpeningSnapshot";
-import { restoreOpeningCases } from "./formOpeningSnapshot";
+import {
+	restoreOpeningCases,
+	restoreOpeningLookup,
+} from "./formOpeningSnapshot";
 import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
@@ -2077,7 +2080,7 @@ export async function buildSubmissionOperationProgram(args: {
 			"The group that receives new cases changed. You can reopen the form with the worker's current groups.",
 		);
 
-	/* Attach the program's rows-free lookup-definition snapshot BEFORE the
+	/* Attach the program's worker lookup projection before the
 	 * capture intent, so both augmentations ride one returned value. A
 	 * program-free submission has nothing to look up but must still reach
 	 * the receipt below — that receipt is what makes such a form's
@@ -2087,13 +2090,9 @@ export async function buildSubmissionOperationProgram(args: {
 		app.blueprint,
 		args.lookupScope,
 		args.opening
-			? new Map(
-					args.opening.lookup.definitions.map((table) => [
-						table.id,
-						new Map(
-							table.columns.map((column) => [column.id, column.dataType]),
-						),
-					]),
+			? workerLookupSchemas(
+					args.lookupScope.projectId,
+					restoreOpeningLookup(args.opening.lookup),
 				)
 			: args.lookupTableSchemas,
 	);
@@ -2176,8 +2175,8 @@ export async function buildSubmissionOperationProgram(args: {
 }
 
 /**
- * Attach the Project-authorized, rows-free lookup-definition snapshot the
- * program's own operations reference. Returning the program untouched when
+ * Attach the Project-authorized lookup projection the program's own
+ * operations reference. Returning the program untouched when
  * it carries no references is the loader's empty-id fast path, so a
  * carrier-free submission performs no lookup read at all.
  */
@@ -2715,15 +2714,6 @@ export function buildCaseOperationProgramFromDoc(args: {
 					}),
 					cases: restoreOpeningCases(args.opening.cases),
 					locations: args.opening.cases.locations ?? [],
-					lookupRows: Object.entries(args.opening.lookup.rowsByTable).flatMap(
-						([tableId, rows]) =>
-							rows.map((row, index) => ({
-								id: row.id,
-								table_id: tableId,
-								order_key: index,
-								values: row.values,
-							})),
-					),
 				},
 			}),
 			sessionUser: new Map(Object.entries(session.user)),

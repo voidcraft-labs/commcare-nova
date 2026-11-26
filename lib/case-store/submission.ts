@@ -180,12 +180,6 @@ export interface OpeningReadSet {
 		import("@/lib/organization/footprint").LocationFixtureRow,
 		"id" | "levelUuid" | "lineage"
 	>[];
-	readonly lookupRows: readonly {
-		readonly id: string;
-		readonly table_id: string;
-		readonly order_key: number;
-		readonly values: Readonly<Record<string, string | number>>;
-	}[];
 }
 
 /**

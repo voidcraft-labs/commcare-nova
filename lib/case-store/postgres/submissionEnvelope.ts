@@ -595,10 +595,6 @@ async function readOpeningValues(
 			AS opening_index(case_id text, ancestor_id text, target_case_type text, identifier text, relationship text, depth int)
 		), parked_case_values AS (
 			SELECT null::uuid AS id, null::text AS case_id, null::timestamptz AS dismissed_at WHERE false
-		), lookup_rows AS (
-			SELECT opening_lookup.*, ${projectId}::text AS project_id
-			FROM jsonb_to_recordset(${JSON.stringify(opening.lookupRows)}::jsonb)
-			AS opening_lookup(id uuid, table_id uuid, order_key bigint, values jsonb)
 		) ${query}`;
 	return (await statement.execute(trx)).rows[0];
 }
@@ -620,6 +616,12 @@ async function evaluateBatch(
 	bindingsFor: (instance: number) => TermBindings,
 	requests: readonly EvalRequest[],
 ): Promise<unknown[]> {
+	if (
+		program.openingReads &&
+		program.lookupTableSchemas &&
+		!program.lookupTableSchemas.projection
+	)
+		throw new Error("An opened form needs its captured worker lookup rows.");
 	const results: unknown[] = new Array(requests.length);
 	const CHUNK = 400;
 	for (let start = 0; start < requests.length; start += CHUNK) {
