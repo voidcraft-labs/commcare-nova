@@ -156,7 +156,13 @@ export function isCardValue(
 	value: Expression,
 ): value is ExpressionOfKind<CardValueKind> {
 	if (value.kind === "call")
-		return value.fn === "position" && value.args.length === 0;
+		return (
+			value.fn === "position" &&
+			(value.args.length === 0 ||
+				(value.args.length === 1 &&
+					value.args[0].kind === "term" &&
+					value.args[0].term.kind === "field"))
+		);
 	return Object.hasOwn(expressionCardSchemas, value.kind);
 }
 

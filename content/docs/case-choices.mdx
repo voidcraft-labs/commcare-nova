@@ -49,6 +49,11 @@ available cases of the chosen type. The choice order you select applies after
 the filter. Use a property condition when the same records must qualify
 regardless of which order the worker’s case data arrives in.
 
+In a case or Project data table choice filter, **Position source** can also
+refer to a question outside a repeat. The question has position 0 even when
+its answer is blank. This keeps imported filters that refer to that question's
+position.
+
 Choices use the cases already available to the worker. A filter narrows that
 set; it does not fetch additional cases or change access. If location-based
 sharing delivers one clinic, an all-clinics question still offers only that

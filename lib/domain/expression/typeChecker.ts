@@ -1136,16 +1136,25 @@ function admission(
 		);
 
 	if (ctx.ruleSet === "record") {
-		// A question's itemset filter runs against the current source row.
-		// Only its zero-argument position reads that context. A nested query
-		// introduces a separate row scope and keeps its own admission rules.
+		// The no-argument position reads the current choice candidate. Core's
+		// one-argument form reads the first named node and fails if it is absent.
 		if (
 			expression.kind === "call" &&
 			expression.fn === "position" &&
-			expression.args.length === 0 &&
 			choiceCandidatePositionAvailable(ctx)
-		)
-			return undefined;
+		) {
+			const argument = expression.args[0];
+			if (
+				argument === undefined ||
+				(expression.args.length === 1 &&
+					argument.kind === "term" &&
+					argument.term.kind === "field" &&
+					argument.term.role === undefined &&
+					argument.term.filters === undefined &&
+					choiceQuestionPositionAvailable(ctx, argument.term.uuid))
+			)
+				return undefined;
+		}
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
 		if (
@@ -1370,6 +1379,18 @@ export function choiceCandidatePositionAvailable(
 		ctx.slot.entity === "field" &&
 		ctx.slot.slot === "lookup_options_source" &&
 		ctx.rows.length === 1
+	);
+}
+
+/** A referenced question always has one primary-instance node when the
+ * choice filter runs. A question within a repeat can have no instances. */
+export function choiceQuestionPositionAvailable(
+	ctx: ExpressionContext,
+	uuid: Uuid,
+): boolean {
+	return (
+		choiceCandidatePositionAvailable(ctx) &&
+		ctx.form?.fields.get(uuid)?.repeats.length === 0
 	);
 }
 

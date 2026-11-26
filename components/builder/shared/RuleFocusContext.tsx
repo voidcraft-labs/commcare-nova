@@ -133,9 +133,11 @@ export function expressionFocusTitle(value: Expression): string {
 		case "table-lookup":
 			return "Table value";
 		case "call":
-			return value.fn === "position" && value.args.length === 0
-				? "Source row position"
-				: "Saved expression";
+			if (value.fn === "position")
+				return value.args.length === 0
+					? "Source row position"
+					: "Question position";
+			return "Saved expression";
 		case "negate":
 			return "Negative value";
 		case "here":

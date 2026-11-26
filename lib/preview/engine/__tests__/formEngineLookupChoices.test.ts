@@ -143,6 +143,45 @@ describe("lookup-backed choices in the engine", () => {
 		]);
 	});
 
+	it("uses a referenced question's zero position for every choice candidate", () => {
+		const base = clinicSelect("single_select", false);
+		if (base.optionsSource === undefined)
+			throw new Error("Expected lookup choices.");
+		const engine = new FormEngine(
+			dTree([
+				{
+					id: "region",
+					uuid: REGION_FIELD_UUID,
+					kind: "text",
+					label: proseText("Region"),
+				},
+				{
+					...base,
+					optionsSource: {
+						...base.optionsSource,
+						filter: lt(
+							{
+								kind: "call",
+								fn: "position",
+								args: [term(formField(REGION_FIELD_UUID))],
+							},
+							literal(1),
+						),
+					},
+				},
+			]),
+			undefined,
+			undefined,
+			null,
+			lookupData(),
+		);
+		const choiceValues = () =>
+			engine.getState("/data/clinic").choices?.map((choice) => choice.value);
+		expect(choiceValues()).toEqual(["a1", "b2", "c3"]);
+		engine.setValue("/data/region", "south");
+		expect(choiceValues()).toEqual(["a1", "b2", "c3"]);
+	});
+
 	it("tests the source row position before sorting or gating by an earlier answer", () => {
 		const base = clinicSelect("single_select", true);
 		const source = base.optionsSource;
