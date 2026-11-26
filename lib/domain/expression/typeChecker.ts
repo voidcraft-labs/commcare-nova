@@ -1527,7 +1527,7 @@ function termAdmission(
 		);
 		if (input?.matchingOnly)
 			return refusal(
-				"search-answer-unavailable",
+				"arm-unavailable",
 				"This Search field's answer is only available to match a property on the parent record.",
 				"search-input",
 			);
