@@ -471,7 +471,10 @@ test("A chosen address fills Search through its linked field and never sends the
 				"e2e/lib/preview-geopoint-google-peer.ts",
 			),
 		},
-		{ "process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY": '"synthetic-key"' },
+		{
+			"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY": '"synthetic-key"',
+			"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": '"synthetic-map"',
+		},
 	);
 	try {
 		await page.route(`${peer.origin}/geopoint-peer/**`, async (route) => {
@@ -492,6 +495,7 @@ test("A chosen address fills Search through its linked field and never sends the
 		await page.goto(`${peer.origin}/?platform=web-apps&address`);
 		const address = page.getByRole("combobox", { name: "Find an address" });
 		const name = page.getByRole("textbox", { name: "Patient name" });
+		await expect(address).toBeEditable();
 		await address.fill("Visit Road");
 		await page.getByRole("option", { name: "18 Visit Road" }).click();
 		await expect(name).toHaveValue("Example Town");
