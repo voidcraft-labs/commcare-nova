@@ -5440,15 +5440,13 @@ def differs_from_the_default(use, manifest):
     return not _at_schema_defaults(manifest, "DetailColumn", column, aside)
 
 
-def _clickable_icon_list_empty(at, column, detail, kind, module):
-    if _format(column) != "clickable-icon" or kind != "short" or column.get("endpoint_action_id"):
-        return False
-    # In a basic or shadow module HQ's build refuses it (``invalid clickable icon configuration``), which the
-    # bar reports; an advanced module skips that check and builds no action.
-    return module.get("doc_type") == "AdvancedModule"
-
-
-clickable_icon_list_empty = _column_reader(_clickable_icon_list_empty)
+# Basic and shadow modules refuse the build. Advanced modules bypass the
+# check and emit no action. Both source shapes need an endpoint.
+clickable_icon_list_empty = _column_reader(
+    lambda at, column, detail, kind, module: (
+        _format(column) == "clickable-icon" and kind == "short" and not column.get("endpoint_action_id")
+    )
+)
 clickable_icon_list_empty.__doc__ = """``menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-…``:
 the column, read on each use of its keys, its icon mapping (``enum``) among them, which HQ's build reads of a
 clickable icon (``detail_screen.py::ClickableIcon``) and which the column editor's extras on another format are not."""

@@ -4236,9 +4236,13 @@ def _search_and_menus():
                 "format:clickable-icon",
                 f"{short}/columns/0/format",
             ),
-            accepted(
-                "app", columns_app(_column(fmt="clickable-icon")), "format:clickable-icon", f"{short}/columns/0/format"
+            refused(
+                "app",
+                columns_app(_column(fmt="clickable-icon", enum=icons)),
+                "schema:DetailColumn.enum",
+                f"{short}/columns/0/enum",
             ),
+            accepted("app", icon_action(), "format:clickable-icon", f"{short}/columns/0/format"),
             # its icon mapping is the column's, never the column editor's extras on another format
             refused(
                 "app",
