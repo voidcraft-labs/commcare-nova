@@ -535,6 +535,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
+	dottedOpenIndexReference: take(
+		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
+		"schema:CaseIndex.reference_id",
+	),
 	openIndexOwnOrLater: refuse(
 		`${F}/advancedopencaseaction-case-indices-naming-its-own-or-a-later`,
 		"schema:AdvancedOpenCaseAction.case_indices",
@@ -2536,9 +2540,20 @@ function readOrdinaryAdvancedActions(
 						parentType: read.targetType,
 						relationship,
 					});
-				for (const key of ["reference_id", "relationship"])
-					if (I.used(key))
-						consume(I.take(key, ADVANCED_CLAIMS.openIndices, (value) => value));
+				if (I.used("reference_id")) {
+					const claim = identifier.includes(".")
+						? ADVANCED_CLAIMS.dottedOpenIndexReference
+						: ADVANCED_CLAIMS.openIndices;
+					consume(I.take("reference_id", claim, (value) => value));
+				}
+				if (I.used("relationship"))
+					consume(
+						I.take(
+							"relationship",
+							ADVANCED_CLAIMS.openIndices,
+							(value) => value,
+						),
+					);
 			});
 		}
 		// HQ's build refuses an open action with no name (`case_name required`,

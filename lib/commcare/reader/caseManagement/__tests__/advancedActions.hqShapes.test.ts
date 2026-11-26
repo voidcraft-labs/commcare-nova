@@ -355,6 +355,23 @@ describe("an advanced form's loads and open actions", () => {
 			});
 			if (reading.whole?.kind !== "read")
 				throw new Error(JSON.stringify(findingCodes(reading)));
+			const exactReferenceClaims = [
+				...reading.ctx.close().claims.records(),
+			].filter(
+				(record) =>
+					record.key === "schema:CaseIndex.reference_id" &&
+					record.where.endsWith("/open_cases/1/case_indices/0/reference_id"),
+			);
+			expect(exactReferenceClaims).toMatchObject(
+				identifier.includes(".")
+					? [
+							{
+								entry: `${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
+								standing: "held",
+							},
+						]
+					: [],
+			);
 			const held = reading.whole.draft.doc;
 			const form = formNamed(held, "Under test");
 			const opened = form.caseOperations?.find((operation) =>
