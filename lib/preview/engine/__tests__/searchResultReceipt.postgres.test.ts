@@ -1,7 +1,7 @@
 import { sql } from "kysely";
 import { expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { setPreviewSearchSettings } from "@/lib/deployment/previewSearchSettings";
@@ -67,7 +67,13 @@ it("opens a form on the same search response that supplied Results", async () =>
 						),
 					],
 				},
-				forms: [{ name: "Visit", type: "followup" }],
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ id: "note", kind: "text" })],
+					},
+				],
 			},
 		],
 	});
