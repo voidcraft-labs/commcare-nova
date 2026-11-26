@@ -1054,11 +1054,17 @@ def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
         with project.released(formplayer_runner) as release:
             run = Session(release, editor_driver).run([
                 *opening,
-                {"eval": """() => [...document.querySelectorAll('.search-query-group-header-label')]
-                    .map(label => label.textContent.trim())"""},
+                {"eval": """() => {
+                    const text = (selector) => [...document.querySelectorAll(selector)]
+                        .map(label => label.textContent.trim());
+                    return {
+                        headings: text('#query-list-contents .search-query-group-header-label'),
+                        prompts: text('#query-list-contents [id="query-group-content"] .query-caption label'),
+                    };
+                }"""},
             ])
-    labels = run.value(len(opening))
-    prompts = [prompt["label"] for prompt in run.screens[0]["query"]["prompts"]]
+    read = run.value(len(opening))
+    labels, prompts = read["headings"], read["prompts"]
     evidence("shared-search-group-locale", {"headings": labels, "prompts": prompts, "locale": key})
     assert not run.page_errors and not run.dialogs
     assert labels == [prop_label, "Case details"]
