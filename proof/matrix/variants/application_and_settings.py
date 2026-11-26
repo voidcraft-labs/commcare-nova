@@ -137,14 +137,23 @@ def translation_overrides_a_lookup_heading(authoring, app_id):
 
 def translation_overrides_a_search_group_heading(authoring, app_id):
     """A grouped Search heading has native generated wording of its own."""
+    _translation_overrides_a_search_group_heading(authoring, app_id, "group_header_0")
+
+
+def translation_overrides_a_saved_legacy_search_group_heading(authoring, app_id):
+    """The live legacy group key in hq-search/grouped-fields still owns its native heading."""
+    _translation_overrides_a_search_group_heading(authoring, app_id, "g")
+
+
+def _translation_overrides_a_search_group_heading(authoring, app_id, group):
     from lxml import etree
 
     from proof.checks.compare.app_strings import parse_app_strings
     from proof.hq import operations
     from proof.matrix.variants.case_search import _grouped_search_rows
 
-    key = "search_property.m0.group_header_0"
-    ops.set_json(authoring, app_id, "/modules/0/search_config/properties", _grouped_search_rows(authoring, app_id, "Local details"))
+    key = f"search_property.m0.{group}"
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties", _grouped_search_rows(authoring, app_id, "Local details", key=group))
     with authoring.step("variant:plain-search-group-heading"):
         app = operations.held_app(authoring.state, app_id)
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Local details"
