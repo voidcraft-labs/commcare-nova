@@ -319,5 +319,8 @@ def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_
                 assert len(on_the_way) == len(picked), (path, len(steps))
                 opened = next(step for step in steps if step["screen"] == "FormEntryActivity")
                 assert opened["session"]["command"] == command, (path, opened)
-                assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (path, opened)
-                assert opened["form"]["formTitle"] == "Visit", (path, opened)
+                form = opened["form"]
+                assert form["loaded"] is True and form["formTitle"] == "Visit", (path, form)
+                # A navigation path walks the loaded form through save, where the reader records any alert.
+                saved = form["saved"]
+                assert saved["finishing"] is True and saved["alert"] is None, (path, saved)
