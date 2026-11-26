@@ -79,6 +79,7 @@ DOCUMENTS = (
     "targeted-connect-recipient-repeat",
     "targeted-connect-section-order",
     "targeted-validated-barcode-secret",
+    "targeted-saved-form-descriptor",
 )
 
 

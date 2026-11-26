@@ -221,6 +221,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"answer-name-requires-android",
 	"web-apps-form-behavior",
 	"case-list-icon-actions",
+	"saved-form-descriptor",
 	"case-list-here",
 	"worker-distance",
 	"sort-by-distance",
@@ -385,6 +386,15 @@ export const PLATFORM_FEATURES: Readonly<
 			pickerLine:
 				"Available only in Web Apps. You can change where this app runs in App settings.",
 		},
+	},
+	"saved-form-descriptor": {
+		label: "Saved form label",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "Web Apps does not use the saved form label.",
+		},
+		android: { reading: "runs" },
 	},
 	"case-list-here": {
 		label: "here() in a case list",

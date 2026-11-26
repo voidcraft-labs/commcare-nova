@@ -167,6 +167,12 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"Name a text that evaluates to the number of seconds the Web Apps activity notice lasts. Requires activityKeyText. A missing or unreadable value uses 300 seconds, and times are capped at one hour. Null restores the default.",
 			),
+		savedFormDescriptorText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Use a text from this form for its label in Android's saved and incomplete forms lists. The label reads the answers as the worker saves the form. Name a text as automaticSubmissionText does. Null removes the label.",
+			),
 		plain_text: z
 			.boolean()
 			.nullable()

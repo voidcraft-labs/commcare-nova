@@ -11033,10 +11033,9 @@
 		"item": "a question text whose itext id is `Pragma-Form-Descriptor`, where HQ's build keeps the entry (as above)",
 		"surfaceKeys": ["xform:model/itext/translation/text@id"],
 		"valueClass": "pragma-form-descriptor",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the form's saved-form descriptor",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the identity of the text Android evaluates when saving a form, with any other slots that share it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (`SaveToDiskTask` → Core `FormMetaIndicatorUtil`)",

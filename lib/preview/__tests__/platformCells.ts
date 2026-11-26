@@ -239,6 +239,8 @@ export const PLATFORM_CELLS: Readonly<
 	// open nor rechecks only changed answers there.
 	"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma@android":
 		model("presence-pragmas-on-web-apps-only"),
+	"questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where@web-apps":
+		stated("saved-form-descriptor"),
 	"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression@web-apps":
 		model("row-starting-value"),
 	"expressions-and-data/random@web-apps": model("recalculation-every-request"),

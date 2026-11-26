@@ -38,6 +38,8 @@ const descriptions: Record<FormBehaviorRole, string> = {
 
 	activityWindowText:
 		"This text supplies the number of seconds a notice lasts. Web Apps uses five minutes if the value is missing or cannot be read as an integer.",
+	savedFormDescriptorText:
+		"Android shows this text in its saved and incomplete forms lists. The text can include answers from the form.",
 };
 
 /** The form's behaviors, each held by one of its own question or choice

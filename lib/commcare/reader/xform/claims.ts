@@ -1308,7 +1308,7 @@ export const X = {
 		"xform:model/itext/translation/text@id",
 	),
 	pragmaFormDescriptor: one(
-		"refuse",
+		"take",
 		Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 		"xform:model/itext/translation/text@id",
 	),

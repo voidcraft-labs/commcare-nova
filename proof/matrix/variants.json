@@ -34174,19 +34174,17 @@
 		"id": "hq-questions/pragma-form-descriptor-text",
 		"base": "hq-questions",
 		"entry": "questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "weight"
-		},
 		"change": {
 			"op": "named",
 			"name": "pragma_form_descriptor_text"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/savedFormDescriptorText/carrier/role",
+				"value": "field-label"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/pragma-question-text",

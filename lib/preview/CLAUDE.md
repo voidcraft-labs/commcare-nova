@@ -2768,3 +2768,9 @@ records. The worker’s first successful restore establishes the comparison
 time, measured at the start of the read. A submission writes its event inside
 the transaction that completes its receipt. Replays return the receipt
 without writing a fresh event. Android ignores these settings.
+
+### Android incomplete and saved forms
+
+An incomplete save keeps the engine checkpoint, entry key, signed opening and authorized case/session inputs in the current Builder tab. Android home resets navigation while retaining its records. Reopening requires the same saved blueprint and effective worker. The restored engine reuses its answers and repeat identities, while submit still checks current Project access and the signed opening. Drafts keep their attachment entry key and drop its local capture queues on discard, successful submission or scope loss. A successful submission replaces the incomplete record with its completed metadata when the saved list is on.
+
+`FormEngine.savedFormDescriptor` evaluates the carrier in the current language at the form root, as Android's `SaveToDiskTask` calls Core's `FormMetaIndicatorUtil`. The displayed label is saved with the record. An empty label uses the entry's selected case title where available.

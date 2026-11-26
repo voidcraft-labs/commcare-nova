@@ -1,5 +1,9 @@
 import type { DeviceLocation } from "@/lib/domain/locationCapture";
 import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchTypes";
+import type {
+	PreviewDraft,
+	PreviewSavedForm,
+} from "@/lib/preview/previewFormRecords";
 /**
  * BuilderSession store — ephemeral UI state for the builder.
  *
@@ -355,6 +359,11 @@ export interface BuilderSessionState {
 	 *  fact, not a route: the URL's `home` is shared with edit mode and gains
 	 *  no Preview-only kind. */
 	previewAtDeviceHome: boolean;
+	previewFormRecords: readonly PreviewSavedForm[];
+	previewResumedDraft: PreviewDraft | undefined;
+	savePreviewFormRecord: (record: PreviewSavedForm, run: string) => boolean;
+	resumePreviewDraft: (entryKey: string) => PreviewDraft | undefined;
+	removePreviewFormRecord: (entryKey: string) => void;
 	/** Epoch milliseconds of this Preview run's last sync on Android: set when
 	 *  Preview starts on Android and by Sync with server. */
 	previewDeviceSyncedAt: number | undefined;
@@ -903,8 +912,16 @@ export function newPreviewSessionId(): string {
 	return uuidv7();
 }
 
+function emptyPreviewFormRecords() {
+	return {
+		previewFormRecords: [],
+		previewResumedDraft: undefined,
+	};
+}
+
 function freshPreviewNavigation() {
 	return {
+		previewResumedDraft: undefined,
 		previewSubmissionLocation: undefined,
 		previewCaseTarget: undefined,
 		previewCaseListRegistrationEntry: undefined,
@@ -1006,6 +1023,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewInstalledAndroidApps: [] as RequiredAndroidApp[],
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
+				...emptyPreviewFormRecords(),
 				previewUnsyncedEntries: undefined as
 					| { readonly run: string; readonly keys: readonly string[] }
 					| undefined,
@@ -1129,11 +1147,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				setAppId(id: string) {
 					if (id === get().appId) return;
-					set({ appId: id });
+					set({ appId: id, ...emptyPreviewFormRecords() });
 				},
 
 				activateCreatedApp(id: string, snapshot: BuilderAccessSnapshot) {
 					set({
+						...emptyPreviewFormRecords(),
 						appId: id,
 						projectId: snapshot.projectId,
 						role: snapshot.role,
@@ -1221,6 +1240,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewPersonaUuid: undefined,
 										previewPlatform: undefined,
 										previewAtDeviceHome: false,
+										...emptyPreviewFormRecords(),
 										previewDeviceSyncedAt: undefined,
 									}
 								: {}),
@@ -1235,6 +1255,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						projectCanEdit: false,
 						canEdit: false,
 						accessPhase: "revoked",
+						...emptyPreviewFormRecords(),
 					});
 				},
 
@@ -1245,6 +1266,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						projectCanEdit: false,
 						canEdit: false,
 						accessPhase: "upgradeRequired",
+						...emptyPreviewFormRecords(),
 					});
 				},
 
@@ -1258,6 +1280,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewing: true,
 						previewPersonaUuid: launch.personaUuid,
+						...(launch.personaUuid === s.previewPersonaUuid
+							? { previewResumedDraft: undefined }
+							: emptyPreviewFormRecords()),
 						previewAtDeviceHome: false,
 						previewDeviceSyncedAt: previewRunsOnAndroid(s.previewPlatform)
 							? Date.now()
@@ -1341,6 +1366,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewing: false,
 						previewSubmissionLocation: undefined,
+						...emptyPreviewFormRecords(),
 						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						/* `previewPlatform` stays: a flip back in keeps the runtime
@@ -1380,6 +1406,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewPersonaUuid: personaUuid,
 						...freshPreviewNavigation(),
+						...emptyPreviewFormRecords(),
 						/* The identity menu also navigates home; a new worker on a
 						 * phone starts from its home screen, freshly synced. */
 						previewAtDeviceHome: android,
@@ -1424,6 +1451,62 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				savePreviewFormRecord(record, run) {
+					const state = get();
+					if (
+						!state.previewing ||
+						state.previewSessionId !== run ||
+						state.appId !== record.appId ||
+						!state.canEdit ||
+						state.accessPhase !== "authorized" ||
+						!previewRunsOnAndroid(state.previewPlatform)
+					)
+						return false;
+					set({
+						previewFormRecords: [
+							record,
+							...state.previewFormRecords.filter(
+								(item) => item.entryKey !== record.entryKey,
+							),
+						],
+					});
+					return true;
+				},
+
+				resumePreviewDraft(entryKey) {
+					const state = get();
+					const draft = state.previewFormRecords.find(
+						(item) => item.entryKey === entryKey,
+					);
+					if (
+						draft?.kind !== "incomplete" ||
+						state.appId !== draft.appId ||
+						!state.previewing ||
+						!state.previewAtDeviceHome ||
+						!state.canEdit ||
+						state.accessPhase !== "authorized" ||
+						!previewRunsOnAndroid(state.previewPlatform)
+					)
+						return undefined;
+					set({
+						previewResumedDraft: draft,
+						previewAtDeviceHome: false,
+						previewCaseTarget: draft.target,
+						previewMenuCaseSelections: draft.menuSelections,
+						previewSearchStates: draft.searchStates,
+						previewCaseListRegistrationEntry: draft.registration,
+					});
+					return draft;
+				},
+
+				removePreviewFormRecord(entryKey) {
+					set((state) => ({
+						previewFormRecords: state.previewFormRecords.filter(
+							(record) => record.entryKey !== entryKey,
+						),
+					}));
+				},
+
 				setPreviewAtDeviceHome(atHome: boolean) {
 					if (get().previewAtDeviceHome === atHome) return;
 					/* The phone's home screen starts the session over: Android
@@ -1441,6 +1524,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						atHome
 							? {
 									previewAtDeviceHome: true,
+									previewResumedDraft: undefined,
 									previewCaseTarget: undefined,
 									previewCaseListRegistrationEntry: undefined,
 									previewTaskContinuation: undefined,
@@ -1603,6 +1687,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * ended (`lib/routing/previewSelectionsHistory.ts`). */
 					set({
 						previewTaskId: newPreviewSessionId(),
+						previewResumedDraft: undefined,
 						previewCaseTarget: undefined,
 						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
@@ -2016,6 +2101,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* Interaction */
 						previewing: false,
+						...emptyPreviewFormRecords(),
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
 						previewCaseListRegistrationEntry: undefined,

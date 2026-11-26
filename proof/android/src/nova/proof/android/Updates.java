@@ -92,7 +92,7 @@ final class Updates {
             incomplete.put(command, saved);
             Integer record;
             try {
-                record = saveIncomplete(command, saved);
+                record = saveIncomplete(command, saved, "");
             } catch (Throwable raised) {
                 saved.put("raised", Reader.raised(raised));
                 record = null;
@@ -154,8 +154,8 @@ final class Updates {
         return found;
     }
 
-    static Integer saveIncomplete(String command, JSONObject saved) throws Exception {
-        return save(command, saved, false);
+    static Integer saveIncomplete(String command, JSONObject saved, String language) throws Exception {
+        return save(command, saved, false, language);
     }
 
     /**
@@ -164,12 +164,17 @@ final class Updates {
      * The incomplete record's id, where the save leaves one.
      */
     static Integer save(String command, JSONObject saved, boolean complete) throws Exception {
+        return save(command, saved, complete, "");
+    }
+
+    private static Integer save(String command, JSONObject saved, boolean complete, String language) throws Exception {
         final Integer[] record = new Integer[1];
         java.util.Set<Integer> before = new java.util.HashSet<>();
         for (FormRecord held : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
             before.add(held.getID());
         }
-        JSONObject walk = Screens.walk(command, (started, step, shadow) -> {
+        java.util.List<String> choices = language.isEmpty() ? java.util.List.of() : java.util.List.of(Screens.LANGUAGE + language);
+        JSONObject walk = Screens.walk(command, choices, null, (started, step, shadow) -> {
             FormEntryActivity activity = Forms.open(started);
             step.put("loaded", FormEntryActivity.mFormController != null);
             QuestionsView view = activity.getODKView();
