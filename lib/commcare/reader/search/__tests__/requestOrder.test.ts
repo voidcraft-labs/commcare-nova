@@ -232,8 +232,9 @@ it("reads repeated direction signs by their first sign and records the exact sou
 	});
 	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
 	const filter = listOf(reading).searchFilters?.[0];
-	expect(filter?.kind).toBe("order");
-	if (filter?.kind !== "order") throw new Error("Missing Search order");
+	expect(filter).toMatchObject({ kind: "order" });
+	if (filter === undefined || !("order" in filter))
+		throw new Error("Missing Search order");
 	expect(requestOrderText(filter.order)).toBe(
 		"+notes:numeric,-phone:exact,name",
 	);
