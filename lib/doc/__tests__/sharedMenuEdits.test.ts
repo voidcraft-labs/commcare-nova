@@ -25,6 +25,7 @@ import {
 	withListedMenuHierarchy,
 } from "@/lib/doc/sharedMenuHierarchy";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
 	calculatedColumn,
 	casePropertyTargetKey,
@@ -117,11 +118,16 @@ it("indexes and rewrites a shared form route’s own Android lookup against its 
 		[remove],
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
-	expect(refused.ok ? [] : refused.findings).toMatchObject([
+	if (refused.ok) throw new Error("Expected removal to be refused");
+	expect(refused.findings).toMatchObject([
 		{
 			code: "CASE_LIST_DEVICE_LOOKUP_INVALID",
 			location: { moduleUuid: ROUTE },
+			details: { reason: "confidence-property" },
 		},
+	]);
+	expect(userFacingErrors(refused.findings)).toEqual([
+		"The Android lookup can match by a text property when the list shows one record type. You can choose an available text property or match by Record ID.",
 	]);
 
 	const removed = apply(renamed, [

@@ -3693,10 +3693,21 @@ export const caseListDeviceLookupSchema = z
 	});
 export type CaseListDeviceLookup = z.infer<typeof caseListDeviceLookupSchema>;
 
+export const SEARCH_ADDRESS_RECEIVER_MESSAGES = {
+	"receiver-type":
+		"An address can fill a visible text or multiple-choice field.",
+	"single-choice":
+		"Web Apps can select a different lookup value when an address fills a single-choice Search field. Link a text or multiple-choice field instead.",
+	"source-link":
+		"Choose an address field from this Search screen or clear the link.",
+	"duplicate-receiver":
+		"Choose different address parts or a different address field for each linked choice field.",
+};
+
 export function searchAddressReceiverProblem(
 	input: VisibleSearchInputDef,
 	inputs: readonly SearchInputDef[],
-): string | undefined {
+): keyof typeof SEARCH_ADDRESS_RECEIVER_MESSAGES | undefined {
 	const receiver = input.addressReceiver;
 	if (receiver === undefined) return undefined;
 	if (
@@ -3705,9 +3716,9 @@ export function searchAddressReceiverProblem(
 			input.type !== "select" &&
 			input.type !== "multi-select")
 	)
-		return "An address can fill a visible text or multiple-choice field.";
+		return "receiver-type";
 	if (input.type === "select" && receiver.kind === "address")
-		return "Web Apps can select a different lookup value when an address fills a single-choice Search field. Link a text or multiple-choice field instead.";
+		return "single-choice";
 	const active = inputs.some(
 		(source) =>
 			source.kind === "address" &&
@@ -3715,8 +3726,7 @@ export function searchAddressReceiverProblem(
 				? source.uuid === receiver.source
 				: source.name === receiver.topic),
 	);
-	if (active !== (receiver.kind === "address"))
-		return "Choose an address field from this Search screen or clear the link.";
+	if (active !== (receiver.kind === "address")) return "source-link";
 	if (receiver.kind === "address") {
 		const parts = receiver.parts.join("||");
 		if (
@@ -3734,7 +3744,7 @@ export function searchAddressReceiverProblem(
 					(input.type !== "text" || other.type !== "text"),
 			)
 		)
-			return "Choose different address parts or a different address field for each linked choice field.";
+			return "duplicate-receiver";
 	}
 	return undefined;
 }
@@ -3811,7 +3821,7 @@ export const caseListConfigSchema = z
 				ctx.addIssue({
 					code: "custom",
 					path: ["searchInputs", index, "addressReceiver"],
-					message: problem,
+					message: SEARCH_ADDRESS_RECEIVER_MESSAGES[problem],
 				});
 		}
 		if (config.searchInputGroups && !config.searchInputs.length)

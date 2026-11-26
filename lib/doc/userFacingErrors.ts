@@ -1338,7 +1338,20 @@ const USER_MESSAGE_BY_CODE: Record<
 		det(e, "reason", "") === "order-fields"
 			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab orders its rows by a field it can't use. You can open Edit tabs and choose its ordering fields again.`
 			: `The Details tabs of ${q(modName(e))} no longer match the fields shown in Details. You can open Edit tabs and save the tabs again.`,
-	CASE_LIST_DEVICE_LOOKUP_INVALID: (e) => e.message,
+	CASE_LIST_DEVICE_LOOKUP_INVALID: (e) => {
+		switch (e.details?.reason) {
+			case "layout":
+				return "Case lookup with an Android app needs a case list with rows or a custom tile. You can set up the lookup on one of those lists or turn it off here.";
+			case "confidence-rows":
+				return "Match confidence can only show in a case list with rows. You can change the layout or turn off Show match confidence.";
+			case "configuration":
+				return "The Android lookup needs an action, a lookup name, and a name for each value sent and each response. You can check these in Edit lookup.";
+			case "confidence-property":
+				return "The Android lookup can match by a text property when the list shows one record type. You can choose an available text property or match by Record ID.";
+			default:
+				return "The Android lookup settings need attention. You can open Edit lookup to review them.";
+		}
+	},
 	CASE_LIST_LOAD_BEHAVIOR_INVALID: (e) => {
 		const subject =
 			e.details?.columnLabel !== undefined
@@ -1456,7 +1469,22 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The search field ${q(det(e, "inputName", "in this module"))} needs a different message. ${det(e, "reason", "Give its check a message.")}`,
 	CASE_LIST_SEARCH_TITLE_BLANK_BESIDE_FIRST: (e) =>
 		`The search screen has no title in ${det(e, "languages", "some languages")}, which would show the first language's title there instead. ${det(e, "reason", "Give the title text there, or leave it blank in the first language too.")}`,
-	CASE_LIST_SEARCH_ADDRESS_FIELD: (error) => error.message,
+	CASE_LIST_SEARCH_ADDRESS_FIELD: (e) => {
+		switch (e.details?.reason) {
+			case "project-search":
+				return "A Search supplied by the project space uses its own fields. You can add the address to a case Search screen.";
+			case "receiver-type":
+				return "An address can only fill a visible text or multiple-choice field. You can link one of those fields or clear the link.";
+			case "single-choice":
+				return "Web Apps may choose a different answer when an address fills a single-choice field. You can link a text or multiple-choice field.";
+			case "source-link":
+				return "This link needs an address field from the same Search screen. You can choose one there or clear the link.";
+			case "duplicate-receiver":
+				return "Linked choice fields need different address parts or different address fields. You can change one of the links.";
+			default:
+				return "The address settings need attention. You can open the Search screen to review them.";
+		}
+	},
 	CASE_LIST_SEARCH_FOR_BLANK_NEEDS_OWN_PROPERTY: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} can't search for blank. ${det(e, "reason", "Searching for blank needs a field that searches its own property directly.")} Turn off searching for blank, or change how the field searches.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>

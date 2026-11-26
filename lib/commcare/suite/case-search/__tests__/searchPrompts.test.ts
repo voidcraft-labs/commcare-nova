@@ -144,7 +144,10 @@ it("prints receivers from the current address field name and retains their fallb
 	config.searchInputs.shift();
 	expect(runValidation(doc, promptLookupContext)).toEqual(
 		expect.arrayContaining([
-			expect.objectContaining({ code: "CASE_LIST_SEARCH_ADDRESS_FIELD" }),
+			expect.objectContaining({
+				code: "CASE_LIST_SEARCH_ADDRESS_FIELD",
+				details: expect.objectContaining({ reason: "source-link" }),
+			}),
 		]),
 	);
 });
