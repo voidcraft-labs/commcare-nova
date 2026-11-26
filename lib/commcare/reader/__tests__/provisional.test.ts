@@ -535,6 +535,59 @@ describe("applying the expression stage's answer", () => {
 		}
 	});
 
+	it("raises a finding for a tree a reader claims that the stage held nothing of, and none where it held one", async () => {
+		for (const held of [false, true]) {
+			const ctx = await readUpToBinding(survey());
+			const own = ctx.pending.list();
+			const at = own.findIndex((one) => one.ref.slot === "relevant");
+			const registration = own[at];
+			if (registration === undefined) throw new Error("No display condition");
+			// The registrar's own read claims the node; nothing else claims or refuses it.
+			const claimed = ctx.pending.register(
+				{ ...registration, readerClaimed: true },
+				ctx.pending.site(at).at,
+			);
+			const tree = pendingPlaceholder("condition");
+			applyExpressionReading(ctx, {
+				doc: provisionalDocument(ctx),
+				bound: ctx.pending
+					.list()
+					.map((_, index) => (held && index === claimed ? tree : undefined)),
+				claims: [],
+				circumstances: [],
+				rewrites: [],
+				levels: new Map(),
+				declaredProperties: [],
+				worldReads: {
+					userFields: [],
+					sessionUserFields: [],
+					locationDataSlugs: [],
+				},
+				unreadTables: [],
+				declaredTables: [],
+				ownerless: [],
+				rounds: 1,
+			});
+			const { findings, defects } = ctx.close();
+			const unrecognized = findings.filter(
+				(finding) =>
+					finding.code === "unrecognized" &&
+					finding.detail.name === registration.key,
+			);
+			expect(unrecognized).toHaveLength(held ? 0 : 1);
+			expect(defects.map((defect) => defect.why)).toEqual(
+				held
+					? []
+					: [
+							readerDefect.expressionNotWrittenBack(
+								registration.place,
+								"unknown-reason",
+							),
+						],
+			);
+		}
+	});
+
 	it("applies the second run, over the worker information the first run found the app reads", async () => {
 		const workerProperty = asUuid("22222222-2222-4222-8222-222222222222");
 		const built = buildDoc({

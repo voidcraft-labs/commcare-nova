@@ -1174,8 +1174,15 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 	const registrations = ctx.pending.list();
 	for (const reading of caseListReadings(ctx).values())
 		for (const twin of reading.twins) {
-			if (registrations[twin.registration]?.readerClaimed === true) continue;
-			const claim = ctx.pending.outcome(twin.registration).claim;
+			const outcome = ctx.pending.outcome(twin.registration);
+			// A reader-claimed tree's claims are its registrar's; one the stage held no tree for
+			// stands under the stage's claim at both details.
+			if (
+				registrations[twin.registration]?.readerClaimed === true &&
+				outcome.expression !== undefined
+			)
+				continue;
+			const claim = outcome.claim;
 			if (claim !== undefined)
 				applyExpressionClaim(ctx, { ...claim, place: twin.place }, twin.site);
 		}
