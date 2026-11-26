@@ -28,20 +28,30 @@ test("Search headings move their fields, survive reload, and collapse in Web App
 		.click();
 	await page.getByRole("option", { name: "Village", exact: true }).click();
 
-	const saved = page.waitForResponse(
-		(response) =>
-			response.request().method() === "PUT" &&
+	const saved = page.waitForResponse((response) => {
+		const request = response.request();
+		const body = request.postData() ?? "";
+		const headings = body.slice(body.indexOf('"searchInputGroups"'));
+		const first = headings.indexOf('"label":"Visit details"');
+		return (
+			request.method() === "PUT" &&
 			new URL(response.url()).pathname === `/api/apps/${caseWorkspace.appId}` &&
-			(response.request().postData() ?? "").includes('"moveSearchInput"'),
-	);
+			body.includes('"moveSearchInput"') &&
+			first >= 0 &&
+			headings.indexOf('"label":"Identification"') > first
+		);
+	});
 	await page
 		.getByRole("button", { name: "Move Visit details heading up" })
 		.click();
-	expect((await saved).ok()).toBe(true);
+	const committed = await saved;
+	expect(committed.ok()).toBe(true);
+	await committed.finished();
 	await reloadBuilder(page);
 	await expect(labels.first()).toHaveValue("Visit details");
 	await expect(labels.last()).toHaveValue("Identification");
 
+	await openBuilder(page, `/build/${caseWorkspace.appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");
 	await main.getByRole("button", { name: /^Patients\b/ }).click();
