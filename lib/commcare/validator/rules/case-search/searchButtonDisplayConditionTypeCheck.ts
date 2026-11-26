@@ -102,7 +102,16 @@ export function searchButtonDisplayConditionTypeCheck(
 		// frames read, never the Search action's `relevant`
 		// (`buttonCondition.ts`), so a condition reading what the list does
 		// not load stops the list on the device once HQ builds the app.
-		const undeclared = searchButtonUndeclaredInstances(doc, moduleUuid);
+		let undeclared: readonly string[];
+		try {
+			undeclared = searchButtonUndeclaredInstances(doc, moduleUuid);
+		} catch {
+			// A condition the device printer refuses (a calendar date-add, a
+			// value no device evaluates) is named by the on-device
+			// compatibility rules (`dateAddOnDeviceCompatibility`,
+			// `onDeviceExpressionCompatibility`); what it reads is moot.
+			return [];
+		}
 		if (undeclared.length === 0) return [];
 		return [
 			validationError(
