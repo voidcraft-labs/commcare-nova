@@ -24,6 +24,7 @@ offered nothing cannot pass.
 from __future__ import annotations
 
 import dataclasses
+from urllib.parse import urlsplit
 
 from proof.editors import pages
 from proof.hq import operations
@@ -136,8 +137,9 @@ def test_hqs_case_list_page_draws_no_workflow_selector_for_an_app_that_declares_
 
 
 def test_forms_above_keep_the_remote_search_and_only_the_enabled_form_entry_claim(
-    hq, core_runner, view_documents, published, evidence
+    hq, core_runner, view_documents, published, record_property
 ):
+    from django.urls import reverse
     from lxml import etree
 
     document = view_documents["targeted-search-forms-above"]
@@ -149,13 +151,22 @@ def test_forms_above_keep_the_remote_search_and_only_the_enabled_form_entry_clai
             app = operations.held_app(unit, app_id)
             assert app.get_module(0).put_in_root
             suite = etree.fromstring(app.create_suite())
-            remote = suite.xpath("./remote-request")
-            assert len(remote) == 1 and remote[0].find("session/query") is not None
-            detail = suite.xpath("./detail[@id='m0_case_short']")
-            entry = suite.xpath("./entry[command/@id='m0-f0']")
-            assert len(detail) == len(entry) == 1
-            actions = detail[0].findall("action")
-            posts = entry[0].findall("post")
-            observed[str(sync)] = {"detailActions": len(actions), "formPosts": len(posts)}
-            assert not actions and len(posts) == int(sync), observed
-    evidence("forms-above-search-claim", observed)
+            (remote,) = suite.findall("remote-request")
+            (query,) = remote.findall("session/query")
+            assert urlsplit(query.get("url")).path == reverse("app_aware_remote_search", args=[unit.domain, app_id])
+            (detail,) = suite.xpath("./detail[@id='m0_case_short']")
+            (entry,) = suite.xpath("./entry[command/@id='m0-f0']")
+            assert detail.findall("action") == []
+            posts = entry.findall("post")
+            assert len(posts) == int(sync)
+            claim = None
+            if sync:
+                (datum,) = entry.xpath("./session/datum[@nodeset]/@id")
+                (post,) = posts
+                claim = urlsplit(post.get("url")).path
+                assert claim == reverse("claim_case", args=[unit.domain])
+                assert post.xpath("./data[@key='case_id']/@ref") == [
+                    f"instance('commcaresession')/session/data/{datum}"
+                ]
+            observed[str(sync)] = {"detailActions": 0, "formEntryClaim": claim}
+    record_property("forms-above-search-claim", observed)

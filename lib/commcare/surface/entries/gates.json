@@ -413,6 +413,10 @@
 			},
 			{
 				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/@search_on_clear"
+			},
+			{
+				"artifact": "suite.xml",
 				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@default"
 			}
 		],
