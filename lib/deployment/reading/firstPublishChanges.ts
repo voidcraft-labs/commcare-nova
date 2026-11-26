@@ -1477,6 +1477,19 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/modules/*/case_list_form/label/*"],
 	},
+	/** A list button opening a selected parent's follow-up, stored returning to a new case,
+	 *  which Nova writes as the list, recorded by `menus/registration.ts::bindCaseListActionTargets`. */
+	"follow-up-list-return-rewritten": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("follow-up-list-return-rewritten"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "follow-up-list-return-rewritten"),
+		},
+		paths: ["/modules/*/case_list_form/post_form_workflow"],
+	},
 	/**
 	 * A date and time a case saves in the spelling Nova wrote before
 	 * (`xform/datetimeCaseValue.ts::datetimeCaseValue`), recorded by the form

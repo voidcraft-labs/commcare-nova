@@ -39,6 +39,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { caseListActionRolesFixture } from "@/lib/commcare/__tests__/caseListActionRolesFixture";
 import { constraintMessageFixture } from "@/lib/commcare/__tests__/constraintMessageFixture";
 import { buildShape } from "@/lib/commcare/__tests__/formLinkDocArbitrary";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
@@ -2834,6 +2835,21 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 			return modules;
 		},
 	}),
+	// A list button opening the chosen household's follow-up, stored returning to a new case.
+	"follow-up-list-return-rewritten": editedPair(
+		() => caseListActionRolesFixture(),
+		{
+			modules: (modules) => {
+				const host = modules.find(
+					(one) => (one.name as Json | undefined)?.en === "Existing members",
+				) as StoredMenu | undefined;
+				if (host !== undefined)
+					host.case_list_form.post_form_workflow = "default";
+				return modules;
+			},
+		},
+		{ caseListActionsApplied: true },
+	),
 	// A translation left blank in a language other than the first.
 	"blank-translations-filled": editedPair(
 		() => localizationWireFixture("bilingual"),

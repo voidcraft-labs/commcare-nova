@@ -1182,6 +1182,17 @@
 		]
 	},
 	{
+		"change": "follow-up-list-return-rewritten",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/post_form_workflow"
+			}
+		]
+	},
+	{
 		"change": "date-and-time-saved-as-hq-stores-it",
 		"placeKinds": ["form-node", "form-part", "case"],
 		"rows": [

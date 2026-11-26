@@ -919,7 +919,17 @@ export function bindCaseListActionTargets(ctx: ReadContext): void {
 		if (source.kind === "parent") {
 			ctx.writeDraft(() => {
 				slot.target = { kind: "chosen-parent", moduleUuid: source.moduleUuid };
+				// HQ's page offers a follow-up no other return, and its build writes
+				// none (`parentFollowUpsReturnToTheList`).
+				slot.afterSubmit = "case-list";
 			});
+			const stored = rawModules(ctx)[read.host.index]?.case_list_form;
+			if (isJsonObject(stored) && stored.post_form_workflow === "default")
+				ctx.facts.sameStateRewrites.push({
+					entry: REGISTRATION.workflow.entry,
+					path: `${read.host.json.pointer}/case_list_form/post_form_workflow`,
+					register: "follow-up-list-return-rewritten",
+				});
 			continue;
 		}
 		const operation = read.form.form.caseOperations?.find(({ placement }) =>
@@ -1089,7 +1099,16 @@ export function settleRegistrations(
 			unrecognized("schema:CaseListForm.label");
 			continue;
 		}
-		if (source.post_form_workflow !== emitted.post_form_workflow) {
+		// A selected parent's follow-up returns to the list whatever HQ holds
+		// (`parentFollowUpsReturnToTheList`); its rewrite is recorded on binding.
+		const followUpReturn =
+			block.source?.kind === "parent" &&
+			source.post_form_workflow === "default" &&
+			emitted.post_form_workflow === "case_list";
+		if (
+			source.post_form_workflow !== emitted.post_form_workflow &&
+			!followUpReturn
+		) {
 			unrecognized("schema:CaseListForm.post_form_workflow");
 			continue;
 		}

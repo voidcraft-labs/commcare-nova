@@ -77,7 +77,9 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 	"link-held-case-guards-added":
 		"A form that opens another form with a case it carries will open it only when that case is on the device. Nova adds that check to each such link.",
 	"registration-label-fixed":
-		"A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads “Create a new Case” there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova.",
+		"A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads the words CommCare HQ showed for it there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova.",
+	"follow-up-list-return-rewritten":
+		"A list button that opens a form for the record chosen before the list is now saved as going back to the list, the one choice CommCare HQ's settings offer for such a form. Workers see no difference.",
 	"date-and-time-saved-as-hq-stores-it":
 		"A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place.",
 	"connect-app-captures-location":
