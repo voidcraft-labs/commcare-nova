@@ -4,7 +4,6 @@ import {
 	assignedLocationUuids,
 	caseSelectionCardinality,
 	effectiveCaseSearchConfig,
-	moduleFormsReadSearch,
 	orderedColumns,
 	orderedOrganizationLevels,
 	type Uuid,
@@ -45,6 +44,7 @@ import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import { appReadsPlaces } from "../engine/expressionCaseReads";
+import { searchInputInstanceValues } from "../engine/runtimeBindings";
 import { drawnSearchInputs } from "../engine/searchRunState";
 import { availablePages } from "../engine/sectionPaging";
 import {
@@ -54,9 +54,9 @@ import {
 } from "../engine/serverSearchRead";
 import {
 	type CaseDatabaseSnapshot,
-	formReadsSearchResults,
+	type CompletedFormSearch,
 	formReadsSearchScore,
-	type SearchResultsSnapshot,
+	formSearchReads,
 } from "../engine/xpathInstances";
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
 import {
@@ -163,48 +163,53 @@ function appTestEntryCases(
  * (`searchResultsSnapshot.ts`). A form reached without that search has none
  * to read, which the device never allows.
  */
-async function appTestSearchResults(
+async function appTestCompletedSearch(
 	context: AppTestContext,
 	scope: AppTestScope,
 	state: AppTestSessionState,
-	screen: FormScreen,
-): Promise<SearchResultsSnapshot | undefined> {
-	const mod = context.doc.modules[screen.moduleUuid];
-	if (
-		mod?.caseType === undefined ||
-		!moduleFormsReadSearch(mod) ||
-		!formReadsSearchResults(context.doc, screen.formUuid)
-	)
-		return undefined;
+	supplier: Uuid,
+	needsResults: boolean,
+	needsScore: boolean,
+): Promise<CompletedFormSearch> {
 	const refused = () =>
 		new AppTestActionError(
 			`${runtimeMessage(context.language, "searchResultsRefusalTitle")}. ${runtimeMessage(context.language, "searchResultsRefusalBody")}`,
 		);
-	const visited: readonly AppTestScreen[] = state.history;
-	const searchedScreen = [...visited]
-		.reverse()
-		.find(
-			(prior): prior is Extract<AppTestScreen, { kind: "records" }> =>
-				prior.kind === "records" &&
-				prior.moduleUuid === screen.moduleUuid &&
-				(prior.searchAnswers !== undefined ||
-					prior.registeredCaseId !== undefined),
+	for (let index = state.history.length - 1; index >= 0; index--) {
+		const prior = state.history[index];
+		if (prior.kind === "form" || prior.kind === "home") break;
+		if (prior.kind !== "records" || prior.moduleUuid !== supplier) continue;
+		if (
+			prior.searchAnswers === undefined &&
+			prior.registeredCaseId === undefined
+		)
+			throw refused();
+		const { read, refusal } = await prepareAppTestRecords(context, scope, {
+			...state,
+			selections: prior.shownWith,
+			screen: prior,
+		});
+		if (refusal !== undefined) throw new AppTestActionError(refusal);
+		const results = needsResults
+			? await readingSurface("search", () =>
+					serverSearchResults(context.store, read, needsScore),
+				)
+			: undefined;
+		if (needsResults && !results) throw refused();
+		const answers = searchInputInstanceValues(
+			context.doc.modules[supplier].caseListConfig?.searchInputs ?? [],
+			new Map(
+				(prior.searchAnswers ?? []).map(({ name, value }) => [name, value]),
+			),
 		);
-	if (searchedScreen === undefined) throw refused();
-	const { read, refusal } = await prepareAppTestRecords(context, scope, {
-		...state,
-		screen: searchedScreen,
-	});
-	if (refusal !== undefined) throw new AppTestActionError(refusal);
-	const found = await readingSurface("search", () =>
-		serverSearchResults(
-			context.store,
-			read,
-			formReadsSearchScore(context.doc, screen.formUuid),
-		),
-	);
-	if (found === undefined) throw refused();
-	return found;
+		return {
+			menu: supplier,
+			submission: `${supplier}/${index}`,
+			answers: [...answers],
+			...(results && { results }),
+		};
+	}
+	throw refused();
 }
 
 /**
@@ -222,11 +227,48 @@ async function appTestFormContext(
 	state: AppTestSessionState,
 	screen: FormScreen,
 ) {
-	const searchResults =
-		screen.searchResults ??
-		(await appTestSearchResults(context, scope, state, screen));
+	let searches = screen.searches;
+	let searchResults = screen.searchResults;
+	if (searches === undefined) {
+		const frames: CompletedFormSearch[] = [];
+		for (const [supplier, read] of formSearchReads(
+			context.doc,
+			screen.formUuid,
+			screen.moduleUuid,
+		)) {
+			if (supplier === screen.moduleUuid) {
+				if (read.readsResults && !searchResults)
+					searchResults = (
+						await appTestCompletedSearch(
+							context,
+							scope,
+							state,
+							supplier,
+							true,
+							formReadsSearchScore(context.doc, screen.formUuid),
+						)
+					).results;
+			} else {
+				frames.push(
+					await appTestCompletedSearch(
+						context,
+						scope,
+						state,
+						supplier,
+						read.readsResults,
+						formReadsSearchScore(context.doc, screen.formUuid),
+					),
+				);
+			}
+		}
+		searches = frames;
+	}
+
 	return {
-		screen: searchResults === undefined ? screen : { ...screen, searchResults },
+		screen:
+			searches.length || searchResults !== undefined
+				? { ...screen, searches, searchResults }
+				: screen,
 		formContext: {
 			identity: context.identity,
 			device: context.device,
@@ -241,6 +283,7 @@ async function appTestFormContext(
 				entryChoices: screen.entryChoices,
 				heldEntryValues: screen.heldEntryValues,
 			},
+			searches,
 			...(searchResults === undefined ? {} : { searchResults }),
 		},
 	};

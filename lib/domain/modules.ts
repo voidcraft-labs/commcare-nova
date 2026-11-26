@@ -4166,6 +4166,22 @@ const menuFormSourceSchema = z.strictObject({
 		.optional(),
 });
 export type MenuFormSource = z.infer<typeof menuFormSourceSchema>;
+/** HQ's Case List editor accepts an ASCII initial letter followed by Python word
+ * characters (letters, numbers and underscore). Its suite loader recognizes
+ * certain built-in instances by substring and cannot host them as search names. */
+export const searchResultsNameSchema = z
+	.string()
+	.refine(
+		(name) => /^[A-Za-z][\p{L}\p{N}_]*$/u.test(name),
+		"Choose a name that starts with A to Z or a to z. The rest can use letters, numbers and underscores.",
+	)
+	.refine(
+		(name) =>
+			!["casedb", "ledgerdb", "fixture", "session"].some((word) =>
+				name.includes(word),
+			),
+		"This name overlaps a reserved name. You can use another name, such as FamilySearch.",
+	);
 
 export const moduleSchema = z.strictObject({
 	/** A second route to the source menu's actual forms. The menu owns its appearance,
@@ -4225,6 +4241,8 @@ export const moduleSchema = z.strictObject({
 	/** The menu contributes a grid when form menus use individual layouts. */
 	menuLayout: z.literal("grid").optional(),
 	caseListConfig: caseListConfigSchema.optional(),
+	/** Which set of answers this menu keeps when a worker runs more than one search. */
+	searchResultsName: searchResultsNameSchema.optional(),
 	caseSearchConfig: caseSearchConfigSchema.optional(),
 	/** Image shown on the module's home-screen tile. */
 	icon: moduleIconRefSchema.optional(),

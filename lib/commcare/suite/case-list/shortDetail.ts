@@ -299,7 +299,7 @@ export function buildShortDetail(args: {
 	 *  (`DetailContributor.build_detail`), so on both targets. */
 	readonly registerAction?: RegisterActionContext;
 	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: "casedb" | `results:${string}`;
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
 	/**

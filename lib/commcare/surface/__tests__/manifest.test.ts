@@ -408,7 +408,7 @@ const HELD_INSTANCE_READS = [
 ] as const;
 const WAITING_INSTANCE_READS = {
 	"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it":
-		"HELD-NEW",
+		"HELD",
 	"expressions-and-data/commtrack-locations-hierarchical": "REFUSED",
 	"expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": "REFUSED",
 	"expressions-and-data/session-data-fingerprintquery": "HELD-NEW",

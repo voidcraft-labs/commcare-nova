@@ -2193,7 +2193,7 @@ and a form opened from that menu reads those results. Preview plays it with
 the search held completed there (`previewSearchState.ts::searchRunPastItsList`):
 it takes the latest answers and drops the device values worked out for the
 old ones, which the session works out again (`searchesAwaitingDeviceValues`),
-so the form reads the new run's `results:inline`; it is marked
+so the form reads the new run's named results (`results:inline` by default); it is marked
 `rerunPastList`, since no list counted what these answers find, so it offers
 no registration (`noMatchesActionAvailable`, and a Register launch from the
 earlier empty result is stale), and its list runs it again as it comes on

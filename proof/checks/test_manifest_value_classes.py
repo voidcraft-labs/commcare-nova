@@ -1031,8 +1031,12 @@ def test_a_form_the_register_action_opens_is_reached_through_the_searching_entry
         [entry] = [entry for entry in root if entry.tag == "entry" and entry.find("command").get("id") == "m1-f0"]
         return entry
 
-    assert classes._reached_without_a_query(register_entry(INLINE_QUERY)) is False
-    assert classes._reached_without_a_query(register_entry("")) is True
+    assert classes._reached_without_a_query(register_entry(INLINE_QUERY), "results:inline") is False
+    assert classes._reached_without_a_query(register_entry(""), "results:inline") is True
+    assert classes._reached_without_a_query(register_entry(INLINE_QUERY), "results:Family") is True
+    named = INLINE_QUERY.replace("results:inline", "results:Family")
+    assert classes._reached_without_a_query(register_entry(named), "results:Family") is False
+
 
 
 def test_csql_comparisons_by_what_stands_on_their_value_side(hq, manifest, core_runner):
@@ -3478,6 +3482,14 @@ def _search_and_menus():
                 "schema:CaseSearchCustomSortProperty.property_name",
                 f"{config}/custom_sort_properties/0/property_name",
             ),
+        "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": (
+            refused("app", search(_search_module(instance_name="Mycasedb2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
+            accepted("app", search(_search_module(instance_name="MyCaseDB2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
+        ),
+        "case-search/results-name-outside-the-search-editor": (
+            refused("app", search(_search_module(instance_name="2Search")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
+            refused("app", search(_search_module(instance_name="Search-name")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
+            accepted("app", search(_search_module(instance_name="Recherche_été2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
         ),
         "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": (
             refused(
@@ -8067,7 +8079,6 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/44p-hq-translation-strategy-select-known",
         "application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts",
         "application-and-settings/non-empty-custom-assertions-app",
-        "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
         "expressions-and-data/commtrack-products-commtrack-programs",
         "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",

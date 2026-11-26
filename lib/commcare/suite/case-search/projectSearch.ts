@@ -82,7 +82,7 @@ export function projectSearchValues(
 /** Every returned element is eligible here. An inline route can narrow these
  * rows after this step when it joins them to the worker's parent selection. */
 export function projectSearchResults(
-	storageInstance: "results" | "results:inline",
+	storageInstance: "results" | `results:${string}`,
 ) {
 	return w.instance(resultsInstance(storageInstance), [
 		w.step("results"),

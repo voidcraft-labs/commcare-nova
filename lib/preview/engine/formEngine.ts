@@ -1,5 +1,6 @@
+import { moduleUuidOfForm } from "@/lib/domain";
 import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
-
+import type { CompletedFormSearch } from "./xpathInstances";
 /**
  * FormEngine — reactive form engine backed by a Zustand store.
  *
@@ -554,6 +555,7 @@ export interface FormEngineRuntimeOptions {
 	 *  the `results:inline` instance. Absent, the form has no search
 	 *  results to read. */
 	readonly searchResults?: SearchResultsSnapshot;
+	readonly searches?: readonly CompletedFormSearch[];
 	/** The device the form runs on (`previewDevice.ts`): the platform whose
 	 *  screens, recalculation and day numbers the engine plays, and the
 	 *  session context values it supplies. Absent means a Web Apps device with
@@ -893,9 +895,16 @@ export class FormEngine {
 			...(runtimeOptions.selectedCases === undefined
 				? {}
 				: { selectedCases: runtimeOptions.selectedCases }),
+			...(runtimeOptions.searches === undefined
+				? {}
+				: { searches: runtimeOptions.searches }),
 			...(runtimeOptions.searchResults === undefined
 				? {}
 				: { searchResults: runtimeOptions.searchResults }),
+			menus: input.doc.modules,
+			searchResultsName:
+				input.doc.modules[moduleUuidOfForm(input.doc, input.formUuid) ?? ""]
+					?.searchResultsName,
 			organization: input.doc,
 		});
 		for (const node of this.secondaryInstances

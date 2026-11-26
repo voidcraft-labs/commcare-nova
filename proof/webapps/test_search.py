@@ -599,3 +599,44 @@ def test_clear_search_requests_new_results_only_from_a_desktop_query(
                     cleared = next(entry for entry in searched[2]["queryData"].values() if entry.get("execute"))
                     assert not any((cleared.get("inputs") or {}).values()), cleared
                 assert not run.page_errors, run.page_errors
+
+def test_web_apps_opens_the_form_with_both_named_search_answers(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """The form reads two completed searches. The same prompt key has different answers."""
+    document = webapps_documents["search-named-parent"]
+    database = casedata.document_case_database(document)
+    parent = next(row for row in database.cases if row.case_type == "parent_case")
+    child = next(row for row in database.cases if row.case_type == "patient")
+    parent = dataclasses.replace(parent, name="North")
+    child = dataclasses.replace(child, name="River", properties=(("first_name", "West"),),
+                                indices=(("parent", parent.case_type, parent.case_id, "child"),))
+    database = dataclasses.replace(database, cases=(parent, child))
+    observed = {}
+    with webapps_hq.project(document) as project:
+        for name, saves in (("published", ()), ("saved", tuple(
+            (pages.CASE_LIST, project.module_id(index)) for index in (0, 1)
+        ))):
+            with project.released(formplayer_runner, database=database, saves=saves, driver=editor_driver, label=name) as release:
+                path = [*steps.open_app("Inline"), *steps.choose("Followup")]
+                for record, answer in ((parent, "North"), (child, "West")):
+                    path.extend([
+                        *steps.type_prompt(0, answer), *steps.run_search(), steps.SCREEN,
+                        *steps.click(f"#menu-region [id='row-{record.case_id}']"),
+                        *steps.click(steps.CONTINUE, visible=True, within=steps.WITHIN_MS),
+                    ])
+                # A menu with form selection after its cases may still offer the form by name.
+                path.extend(steps.click(steps.MENU_ROW, "Untitled Form", visible=True, within=steps.WITHIN_MS))
+                run = Session(release, editor_driver).run([*path, steps.SCREEN])
+                observed[name] = {
+                    "answers": [question["answer"] for question in run.screens[-1]["form"]["questions"]],
+                    "caseLists": [[row["id"] for row in screen["list"]["rows"]] for screen in run.screens[:-1]],
+                    "names": [menu["search_config"]["instance_name"] for menu in release.doc["modules"]],
+                    "pageErrors": run.page_errors,
+                }
+    evidence("named-search-answers", observed)
+    for result in observed.values():
+        assert result["pageErrors"] == []
+        assert result["caseLists"] == [[f"row-{parent.case_id}"], [f"row-{child.case_id}"]]
+        assert result["names"] == ["MemberLookup", "FamilyLookup"]
+        assert result["answers"] == ["North/West"]

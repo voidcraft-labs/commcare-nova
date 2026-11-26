@@ -12,6 +12,7 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	NO_SEARCH_SCREEN_TITLE,
 	type OrdinaryCaseSearchConfig,
+	searchResultsNameSchema,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
@@ -155,8 +156,12 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}include-all-related-cases-authored-without-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	instanceUnreserved: refuse(
+	instanceUnreserved: take(
 		`${S}instance-name-without-casedb-ledgerdb-fixture-or-session-in-it`,
+		"schema:CaseSearch.instance_name",
+	),
+	instanceUneditable: refuse(
+		`${S}results-name-outside-the-search-editor`,
 		"schema:CaseSearch.instance_name",
 	),
 	instanceReserved: refuse(
@@ -167,7 +172,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}a-module-whose-effective-results-instance-results-instance-name`,
 		"schema:CaseSearch.instance_name",
 	),
-	instanceClashInert: drop(
+	instanceClashOutsideInline: take(
 		`${S}an-effective-results-instance-equal-to-a-module-s-that-does-not`,
 		"schema:CaseSearch.instance_name",
 	),
@@ -427,29 +432,6 @@ function instanceClash(
 		clash = "other";
 	}
 	return clash;
-}
-
-/** Whether the menu's root menu, or the menu its parent selection names, searches inline: the
- *  menus HQ's build compares its results instance with (`instanceClash`). */
-function underInlineSearch(ctx: ReadContext, module: DraftModule): boolean {
-	const root = module.json.peek("root_module_id");
-	const parent = module.json.peek("parent_select");
-	const ids = [
-		...(typeof root === "string" && root !== "" ? [root] : []),
-		...(isJsonObject(parent) &&
-		parent.active === true &&
-		typeof parent.module_id === "string"
-			? [parent.module_id]
-			: []),
-	];
-	return ids.some((id) => {
-		const other = ctx.draft.modules.find((one) => one.uniqueId === id);
-		return (
-			other !== undefined &&
-			other !== module &&
-			usesInlineSearch(other.json.peek("search_config"))
-		);
-	});
 }
 
 /**
@@ -737,6 +719,45 @@ const REFUSED_INSTANCE_NAMES = new WeakMap<
 	Map<string, { readonly claim: Claim<"refuse">; readonly place: HqPlace }>
 >();
 
+/** HQ compares names even on a submenu with Search turned off. Its stored name is independent of activation. */
+export function readSearchResultsName(
+	ctx: ReadContext,
+	module: DraftModule,
+	cursor: JsonCursor,
+	place: HqPlace,
+): { ok: boolean; claimed: boolean } {
+	const raw = cursor.peek("instance_name");
+	const named = typeof raw === "string" && raw !== "";
+	if (named && RESERVED_INSTANCE_WORDS.some((word) => raw.includes(word))) {
+		refuseInstanceName(ctx, cursor, T.instanceReserved, place);
+		return { ok: false, claimed: true };
+	}
+	const clash = instanceClash(ctx, module);
+	if (clash === "inline") {
+		const existing = parentSelectionClash(ctx, module);
+		if (existing !== undefined) {
+			if (named)
+				ctx.accounting.cover({ json: cursor, key: "instance_name" }, existing);
+		} else if (named) refuseInstanceName(ctx, cursor, T.instanceClash, place);
+		else ctx.accounting.finding(T.instanceClash, place);
+		return { ok: false, claimed: named };
+	}
+	if (!named) return { ok: true, claimed: false };
+	if (!searchResultsNameSchema.safeParse(raw).success) {
+		refuseInstanceName(ctx, cursor, T.instanceUneditable, place);
+		return { ok: false, claimed: true };
+	}
+	const name = cursor.take(
+		"instance_name",
+		clash === "other" ? T.instanceClashOutsideInline : T.instanceUnreserved,
+		String,
+	);
+	ctx.writeDraft(() => {
+		module.module.searchResultsName = name.value;
+	});
+	return { ok: true, claimed: true };
+}
+
 function refuseInstanceName(
 	ctx: ReadContext,
 	cursor: JsonCursor,
@@ -847,9 +868,9 @@ export function readSearchSettings(
 			{ json: cursor, key },
 		);
 	};
-	const clash = instanceClash(ctx, module);
-	const selectionClash =
-		clash === "inline" ? parentSelectionClash(ctx, module) : undefined;
+	const name = readSearchResultsName(ctx, module, cursor, place);
+	if (name.claimed) claimed.add("instance_name");
+	if (!name.ok) ok = false;
 	let owners: number | undefined;
 	const filter = filterWithOwnerClause(module);
 	let ownersWithoutClause = false;
@@ -877,32 +898,6 @@ export function readSearchSettings(
 			config.excludedOwnerIds = pendingPlaceholder("value");
 	}
 	if (!offers) {
-		// A menu that offers no search still loads its results instance by name.
-		if (clash === "inline") {
-			if (selectionClash === undefined)
-				ctx.accounting.finding(T.instanceClash, place);
-			ok = false;
-		} else if (
-			holdsText(cursor, "instance_name") &&
-			underInlineSearch(ctx, module)
-		) {
-			// Under a menu that searches inline, a menu that searches nothing keeps HQ's build
-			// only by a results instance name of its own (`validate_search_config` and
-			// `validate_parent_select` compare it with that menu's whether or not this one
-			// searches), and Nova holds no such name: its export would give both menus
-			// `results:inline`, which CommCare HQ refuses.
-			const instance = String(cursor.peek("instance_name"));
-			claimed.add("instance_name");
-			refuseInstanceName(
-				ctx,
-				cursor,
-				RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
-					? T.instanceReserved
-					: T.instanceUnreserved,
-				place,
-			);
-			ok = false;
-		}
 		return { ok, claimed, ...(owners !== undefined && { owners }) };
 	}
 
@@ -1128,32 +1123,6 @@ export function readSearchSettings(
 	if (buttonIndex !== undefined)
 		config.searchButtonDisplayCondition = pendingPlaceholder("condition");
 
-	const instance = claimed.has("instance_name")
-		? undefined
-		: cursor.peek("instance_name");
-	const named = typeof instance === "string" && instance !== "";
-	if (
-		named &&
-		RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
-	) {
-		refuseInstanceName(ctx, cursor, T.instanceReserved, place);
-		ok = false;
-	} else if (clash === "inline") {
-		if (selectionClash !== undefined) {
-			if (named)
-				ctx.accounting.cover(
-					{ json: cursor, key: "instance_name" },
-					selectionClash,
-				);
-		} else if (named) refuseInstanceName(ctx, cursor, T.instanceClash, place);
-		else ctx.accounting.finding(T.instanceClash, place);
-		ok = false;
-	} else if (named && clash === "other") {
-		cursor.drop("instance_name", T.instanceClashInert);
-	} else if (named) {
-		refuseInstanceName(ctx, cursor, T.instanceUnreserved, place);
-		ok = false;
-	}
 	if (cursor.used("custom_sort_properties")) {
 		const stored = cursor.peek("custom_sort_properties");
 		const order = readDedicatedOrder(stored);

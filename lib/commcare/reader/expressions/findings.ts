@@ -679,7 +679,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"instance-scheme:search-input",
 	),
 	"search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu":
-		refuse(
+		take(
 			"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
 			"instance-scheme:search-input",
 		),
@@ -1576,10 +1576,6 @@ const M6 = C["required-or-validation-test-outside-what-nova-types"].entry;
 /** M7: a search filter Nova's checker refuses for a reason no other row names. A comparison HQ's
  *  search converts is held (`csqlRead.ts::holdsHqConvertedComparison`). */
 const M7 = C["xpath-query-condition-nova-s-checker-refuses"].entry;
-/** M8: a child menu's form reading its inline-search parent's Search fields. */
-const M8 =
-	C["search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu"]
-		.entry;
 
 // ── By slot ──────────────────────────────────────────────────────────
 
@@ -2576,6 +2572,13 @@ export function parseIssueEntry(
 							.entry,
 					)
 				: answer("slot-default");
+		case "search-answer-unloaded":
+			return ref.entity === "form" || ref.entity === "field"
+				? answer(
+						C["search-input-read-in-form-expressions-reached-through-a-search"]
+							.entry,
+					)
+				: answer("slot-default");
 		case "search-results-remote":
 			// A form opened after a search that is not inline finds no results;
 			// any other slot that reads them is a setting Nova's record rule
@@ -2671,20 +2674,8 @@ export function parseIssueEntry(
 		case "relative-no-context":
 		case "instance-argument":
 		case "search-results-unexcluded":
+		case "unknown-search-input":
 			return answer("slot-default");
-		case "unknown-search-input": {
-			// A child menu's form reads no Search field of its own menu; where
-			// its parent's forms read the search, the read is its parent's.
-			const owner =
-				ref.entity === "form"
-					? ref.uuid
-					: ref.entity === "field"
-						? formOfField(doc, ref.uuid)
-						: undefined;
-			return owner !== undefined && childOfInlineSearchMenu(doc, owner)
-				? answer(M8)
-				: answer("slot-default");
-		}
 		default: {
 			const exhaustive: never = issue;
 			throw new Error(
@@ -2907,18 +2898,6 @@ export function checkErrorEntry(
 			return answer(C["jr-choice-name-on-a-lookup-itemset-select"].entry);
 	}
 	if (error.code === "search-answer-unavailable") {
-		const form =
-			ref.entity === "form"
-				? ref.uuid
-				: ref.entity === "field"
-					? formOfField(doc, ref.uuid)
-					: undefined;
-		if (
-			error.reason === "not-forms-read-search" &&
-			form !== undefined &&
-			childOfInlineSearchMenu(doc, form)
-		)
-			return answer(M8);
 		return answer(
 			C["search-input-read-in-form-expressions-reached-through-a-search"].entry,
 		);

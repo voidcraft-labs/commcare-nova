@@ -505,9 +505,8 @@ async function lockCompletionSources(tx: Transaction<AppDatabase>) {
 	await sql`LOCK TABLE public.apps, public.design_sessions, public.authoring_sessions,
         public.authoring_workspaces, public.authoring_requests, public.authoring_steps,
         public.authoring_step_stages, public.app_deployments, public.app_deployment_resources,
-        public.app_deployment_baselines, public.hq_remote_writes IN SHARE ROW EXCLUSIVE MODE`.execute(
-		tx,
-	);
+        public.app_deployment_baselines, public.app_deployment_identities,
+        public.hq_remote_writes IN SHARE ROW EXCLUSIVE MODE`.execute(tx);
 }
 
 async function convertFleet(

@@ -1715,7 +1715,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	FORMS_READ_SEARCH_NO_BUTTON_DISPLAY_CONDITION: (e) =>
 		`${q(modName(e))} has its forms read the search, so there's no Search button for its condition to control. You can clear the condition, or turn off Forms read the search.`,
 	FORMS_READ_SEARCH_UNIQUE_INSTANCE: (e) =>
-		`${q(modName(e))} shares its search results with a menu whose forms read the search, and CommCare can't tell the two apart. You can keep that menu without submenus and choose parent cases from another menu, or turn off Forms read the search there.`,
+		`${q(modName(e))} shares its search results with a menu whose forms read the search, and CommCare can't tell the two apart. You can give either search its own results name in the menu settings.`,
 	FORMS_READ_SEARCH_WITH_LIST_FIRST: (e) =>
 		`${q(modName(e))} opens on its case list first, so its forms can't read the search. You can open it on Search first or on its results, or turn off Forms read the search.`,
 	CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH: (e) =>

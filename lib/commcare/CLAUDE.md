@@ -2197,9 +2197,14 @@ because every Nova-uploaded module carries a `search_config` shell, which is
 what its `non-unique instance name` checks key on: `FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE`
 (inline needs a case datum on every entry), `FORMS_READ_SEARCH_NO_BUTTON_DISPLAY_CONDITION`
 (there is no action for `relevant` to gate), and
-`FORMS_READ_SEARCH_UNIQUE_INSTANCE` (no submenu under, and no parent-select from, a
-menu whose forms read the search; such a CHILD of an ordinary parent-select source
-is fine). `FORMS_READ_SEARCH_WITH_LIST_FIRST` refuses the pair HQ reads as no
+`FORMS_READ_SEARCH_UNIQUE_INSTANCE` (navigation and selection parents using inline search need distinct effective
+results names from their child, even when the child has no Search action).
+An ordinary Search action keeps its own remote-request instance. An inline
+query stores into `results:<menu searchResultsName or inline>`. Its input
+instance is `search-input:<result id>`. Forms bind prompts by UUID, with an
+explicit supplier menu UUID for a parent's query. HQ first aligns entry datums
+and then inserts the queries before their physical selections. The reader
+and emitter derive the same supplier identities from that entry. `FORMS_READ_SEARCH_WITH_LIST_FIRST` refuses the pair HQ reads as no
 inline search. The setter tool refuses a workflow on an owner-only config
 because there is no search to open on.
 

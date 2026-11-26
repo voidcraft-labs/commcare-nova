@@ -976,7 +976,7 @@ export class EngineController {
 		session: EntrySessionData | undefined,
 	): Pick<
 		FormEngineRuntimeOptions,
-		"sessionData" | "selectedCases" | "searchResults" | "device"
+		"sessionData" | "selectedCases" | "searches" | "searchResults" | "device"
 	> {
 		const doc = this.docStore?.getState();
 		const device =
@@ -986,6 +986,7 @@ export class EngineController {
 			...device,
 			sessionData: session.data,
 			selectedCases: session.selectedCases,
+			...(session.searches === undefined ? {} : { searches: session.searches }),
 			...(session.searchResults === undefined
 				? {}
 				: { searchResults: session.searchResults }),

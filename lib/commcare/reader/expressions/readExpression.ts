@@ -756,11 +756,13 @@ function formEmission(
 	const mod = doc.modules[moduleUuid];
 	const links = linkContextOf(doc, naming);
 	const own = selectedCaseSessionDatum(doc, links, moduleUuid, formUuid);
-	const searchAnswers =
-		moduleFormsReadSearch(mod) ||
+	const searchAnswers = searchAnswersOf(
+		doc,
+		moduleUuid,
 		afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid
-			? searchAnswersOf(doc, moduleUuid)
-			: undefined;
+			? undefined
+			: formUuid,
+	);
 	let datumId: WireTermBindings["datumId"];
 	const bindings: WireTermBindings = {
 		formCaseProperty: formCasePropertyRead({
@@ -778,6 +780,9 @@ function formEmission(
 			? {}
 			: {
 					searchInputInstanceId: searchAnswers.instanceId,
+					searchAnswerInstances: searchAnswers.answers,
+					searchResultInstances: searchAnswers.instances,
+					searchResultInstance: searchAnswers.resultsInstanceId,
 					searchInputNames: searchAnswers.names,
 				}),
 		datumId: (ref) => {
@@ -1669,7 +1674,7 @@ function searchInstanceOf(
 ): `search-input:${string}` | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
-	const wire = searchWireShape(config);
+	const wire = searchWireShape(config, mod?.searchResultsName);
 	return wire === undefined ? undefined : searchInputInstanceId(wire);
 }
 

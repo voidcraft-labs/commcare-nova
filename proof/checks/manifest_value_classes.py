@@ -6893,11 +6893,17 @@ def _instance_in(use):
     return at.element, (node if node is not None and _local(node) == "entry" else None)
 
 
-def _entry_searches_inline(entry):
+def _entry_loads_query(entry, storage, before_detail=None):
+    """The named storage loaded by the session before it shows a detail or opens the form."""
     session = next((child for child in _children(entry) if _local(child) == "session"), None)
-    return session is not None and any(
-        _local(child) == "query" for child in session.iter() if isinstance(child.tag, str)
-    )
+    if session is None:
+        return False
+    for step in _children(session):
+        if before_detail and step.get("detail-select") == before_detail:
+            break
+        if _local(step) == "query" and step.get("storage-instance") == storage:
+            return True
+    return False
 
 
 def _instance_reads(use):
@@ -6957,8 +6963,8 @@ def _entries_showing(root, detail_id):
     ]
 
 
-def _reached_without_a_query(entry):
-    """Whether a suite opens an entry's form with no query on the session's frame (True), only after one (False),
+def _reached_without_a_query(entry, storage):
+    """Whether a suite opens an entry's form with no query for the requested storage on the session's frame (True), only after one (False),
     or does not say (None).
 
     Core opens the form from the frame the session is in when the entry's last step is met. A menu's command
@@ -6974,8 +6980,8 @@ def _reached_without_a_query(entry):
     root = entry.getparent()
     command = _command_id(entry)
     if root is None or command is None:
-        return not _entry_searches_inline(entry)
-    own = _entry_searches_inline(entry)
+        return not _entry_loads_query(entry, storage)
+    own = _entry_loads_query(entry, storage)
     verdicts = set()
     for menu in _children(root):
         if _local(menu) != "menu" or not any(
@@ -7000,7 +7006,7 @@ def _reached_without_a_query(entry):
             for step in _children(frame):
                 if _local(step) == "command" and _command_literal(step) == command:
                     break
-                queried = queried or _local(step) == "query"
+                queried = queried or (_local(step) == "query" and step.get("id") == storage)
             verdicts.add(not (own or queried))
             continue
         detail = next((at for at in frame.iterancestors() if _local(at) == "detail"), None)
@@ -7008,7 +7014,7 @@ def _reached_without_a_query(entry):
             verdicts.add(None)
             continue
         showing = _entries_showing(root, detail.get("id"))
-        verdicts.update(not (own or _entry_searches_inline(shown)) for shown in showing)
+        verdicts.update(not (own or _entry_loads_query(shown, storage, detail.get("id"))) for shown in showing)
     if True in verdicts:
         return True
     if None in verdicts:
@@ -7017,27 +7023,40 @@ def _reached_without_a_query(entry):
 
 
 def non_inline_search_form(prefix):
+    source_prefix = "jr://instance/search-input/" if prefix == "search-input" else "jr://instance/remote/"
+
+    def storage_id(instance_id, source):
+        if source and source.startswith(source_prefix):
+            return source[len(source_prefix):]
+        if instance_scheme(instance_id) == prefix:
+            if prefix == "results":
+                return instance_id
+            return instance_id.partition(":")[2] or None
+        return None
+
     def reader(use, manifest):
         document, read = _instance_reads(use)
         if document is not None:
-            # An app JSON's slot is evaluated in a menu or a case list, outside a form.
             if document.kind != "xform":
                 return False
             if read is None:
                 return None
-            if not any(instance_id.startswith(prefix) for instance_id in read):
+            sources = dict(document.declared_instances)
+            storage = {value for instance_id in read if (value := storage_id(instance_id, sources.get(instance_id)))}
+            if not storage:
                 return False
             entries = _form_entries(document)
             if not entries:
                 return None
-            verdicts = {_reached_without_a_query(entry) for entry in entries}
+            verdicts = {_reached_without_a_query(entry, value) for entry in entries for value in storage}
             return True if True in verdicts else None if None in verdicts else False
         instance, entry = _instance_in(use)
         if instance is None:
             return None
-        if entry is None or not (instance.get("id") or "").startswith(prefix):
+        storage = storage_id(instance.get("id") or "", instance.get("src"))
+        if entry is None or storage is None:
             return False
-        return _reached_without_a_query(entry)
+        return _reached_without_a_query(entry, storage)
 
     reader.__doc__ = (
         f"An ``{prefix}`` instance a form's entry declares, or a form's expression reads, where the suite opens the"
@@ -12586,6 +12605,12 @@ VALUE_CLASSES = {
     ),
     "expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail": legacy_after_query,
     "expressions-and-data/commtrack-locations-hierarchical": hierarchical_locations,
+    "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": _scope_reader(
+        ("CaseSearch",), lambda at, config: any(part in (config.get("instance_name") or "") for part in ("casedb", "ledgerdb", "fixture", "session"))
+    ),
+    "case-search/results-name-outside-the-search-editor": _scope_reader(
+        ("CaseSearch",), lambda at, config: bool(config.get("instance_name")) and not re.fullmatch(r"[A-Za-z]\w*", config["instance_name"])
+    ),
     "case-search/p-whose-right-side-is-not-a-number-date-or-datetime-a-time-of": untyped_right_side,
     "case-search/date-opened-closed-on-or-last-modified-compared-with-any": non_date_value,
     "expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install": (

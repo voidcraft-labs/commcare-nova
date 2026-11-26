@@ -24,6 +24,7 @@ import {
 import { projectMenuBadge } from "./menuBadge";
 import { requireAssetRef } from "./multimedia/assetWirePath";
 import { basicActionsWriteWorker } from "./session";
+import { inlineSearchInstance } from "./suite/case-search/types";
 import type { TargetFacts } from "./targetFacts";
 import type { TargetFill } from "./targetOverlay";
 import { COMMCARE_VERSION_FLOOR } from "./versionFloor";
@@ -144,7 +145,7 @@ import { buildInlineClaimPost } from "@/lib/commcare/suite/case-search/claim";
 import { moduleUsesInlineSearch } from "@/lib/commcare/suite/case-search/inlineSearch";
 import {
 	NEVER_RELEVANT,
-	NO_MATCHES_RELEVANCY,
+	noMatchesRelevancy,
 } from "@/lib/commcare/suite/case-search/noMatches";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import {
@@ -296,7 +297,9 @@ function registerActionFor(
 		slot && localization.navigationMedia(localization.defaultLanguage, slot);
 	const relevant =
 		slot === undefined
-			? NO_MATCHES_RELEVANCY
+			? noMatchesRelevancy(
+					inlineSearchInstance(doc.modules[hostModuleUuid].searchResultsName),
+				)
 			: caseListActionCondition(
 					linkContext.expressionDoc,
 					hostModuleUuid,
@@ -703,7 +706,7 @@ export function compileCczParts(
 			? undefined
 			: caseSearchConfig?.searchButtonDisplayCondition;
 		const caseSource = formsReadSearch
-			? ("results:inline" as const)
+			? inlineSearchInstance(mod.searchResultsName)
 			: undefined;
 		// A no-matches form's synthetic module is never relevant; the Register
 		// action's push reaches its entry regardless

@@ -1996,3 +1996,4 @@ override. Viewers can read these words and switch their language lens.
 ### Display in the question inspector
 
 `editor/fields/ChoiceLayoutEditor.tsx` edits the widget and its applicable parameters. `QuestionDisplayEditor.tsx` renders the remaining choices declared for the selected kind by the domain display registry. Counts are edited as decimal digits. Channel and returned field are independent inputs. Each save and clear goes through the same document gate as a chat or remote edit. A rejected edit leaves the preceding display in place.
+A menu’s **Search results name** is in Search’s More settings and stays editable in Module settings when Search is off. When a form reads two menus’ searches, its expression picker labels the answers by their supplier menus.

@@ -2,6 +2,7 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import { exposedEntryCaseCreations } from "./entryPointProjection";
 import type { HqApplicationTree } from "./hqJson/xpath";
+import { inlineSearchInstance } from "./suite/case-search/types";
 /**
  * BlueprintDoc → HqApplication expansion.
  *
@@ -61,7 +62,7 @@ import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCo
 import { EMPTY_CASE_LIST_TEXT } from "@/lib/commcare/suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
-	NO_MATCHES_RELEVANCY,
+	noMatchesRelevancy,
 } from "@/lib/commcare/suite/case-search/noMatches";
 import {
 	emitFormDisplayConditionForHq,
@@ -76,7 +77,6 @@ import {
 	declaresWebApps,
 	effectivePostSubmit,
 	makeTranslationUnitId,
-	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
 	moduleParent,
 	moduleShowsFormsInMenuAbove,
@@ -278,19 +278,12 @@ function formSourceProjection(
 					// reachable-case-type depth map matches the deep validator's accept
 					// map, which builds from `mod.caseType` directly.
 					...(mod.caseType && { moduleCaseType: mod.caseType }),
-					// The case list registration form and every form of a menu
-					// whose forms read the search read the menu's Search answers from the inline
-					// query's input instance.
-					...(synthetic !== undefined
-						? {
-								searchAnswers: searchAnswersOf(
-									authoredDoc,
-									synthetic.hostModuleUuid,
-								),
-							}
-						: moduleFormsReadSearch(mod)
-							? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
-							: {}),
+					// A form can read any query that its entry actually loaded. The
+					// generated empty-results command takes its answers from its host.
+					searchAnswers:
+						synthetic === undefined
+							? searchAnswersOf(authoredDoc, moduleUuid, formUuid)
+							: searchAnswersOf(authoredDoc, synthetic.hostModuleUuid),
 					...(ownCaseDatumId !== undefined &&
 						multipleCaseDatum === undefined && {
 							selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
@@ -808,7 +801,13 @@ export function* expandDocSteps(
 					mod.caseListRegistrationForm?.afterSubmit === "new-case"
 						? "default"
 						: "case_list",
-				relevancy_expression: hqXPath(NO_MATCHES_RELEVANCY),
+				relevancy_expression: hqXPath(
+					noMatchesRelevancy(
+						inlineSearchInstance(
+							authoredDoc.modules[noMatches.hostModuleUuid].searchResultsName,
+						),
+					),
+				),
 			};
 		}
 		// A registration the case list always offers names the form where it
@@ -887,6 +886,8 @@ export function* expandDocSteps(
 		if (hasCases) {
 			shell.search_config = projection.searchConfig;
 		}
+		if (mod.searchResultsName !== undefined)
+			shell.search_config.instance_name = mod.searchResultsName;
 
 		// The case list menu entry (`Module.caseListMenuItem`) is HQ's
 		// `case_list.show`: its own command after the menu's form commands

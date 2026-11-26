@@ -21,6 +21,7 @@
 
 import type { z } from "zod";
 import { planSearchTakeawayDependents } from "@/lib/doc/searchReadDependents";
+import { offerSearchNameMutations } from "@/lib/doc/searchResultsNaming";
 import {
 	type CaseSearchConfig,
 	isOrdinaryCaseSearchConfig,
@@ -194,9 +195,12 @@ export const setCaseSearchAdvancedTool = {
 				}
 			}
 
-			const mutations = updateModuleMutations(mod, {
-				caseSearchConfig: nextConfig ?? null,
-			});
+			const mutations = [
+				...(formsReadSearch && !formsRead(existing)
+					? offerSearchNameMutations(doc, moduleUuid, { turnsInline: true })
+					: []),
+				...updateModuleMutations(mod, { caseSearchConfig: nextConfig ?? null }),
+			];
 			const commit = await guardedMutate(
 				ctx,
 				mutations,

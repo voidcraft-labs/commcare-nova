@@ -34,7 +34,7 @@ import type {
 } from "../../session";
 import { buildSearchQuery, searchQueryHasPrompts } from "./searchSession";
 import { searchWireShape } from "./searchWireShape";
-import type { WireShape } from "./types";
+import { inlineSearchInstance, type WireShape } from "./types";
 
 export interface InlineSearchEmission {
 	readonly query: SessionQuery;
@@ -61,9 +61,9 @@ function inlineSearchPlan(mod: Module, moduleIndex: number) {
 	}
 	const caseListConfig: CaseListConfig =
 		mod.caseListConfig ?? emptyCaseListConfig();
-	const wire = searchWireShape(caseSearchConfig);
+	const wire = searchWireShape(caseSearchConfig, mod.searchResultsName);
 	const metadata: SessionQueryMetadata = {
-		storageInstance: "results:inline",
+		storageInstance: inlineSearchInstance(mod.searchResultsName),
 		caseType: mod.caseType,
 		hasPrompts: searchQueryHasPrompts(caseListConfig),
 		defaultSearch: wire.defaultSearch,

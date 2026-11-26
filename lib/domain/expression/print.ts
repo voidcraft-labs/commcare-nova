@@ -30,13 +30,17 @@ export interface FormPrintContext {
 	readonly step?: (node: FormNodeRef) => FormNodeStep | undefined;
 	readonly fieldPathSegments?: (uuid: Uuid) => readonly string[] | undefined;
 	readonly userPropertySlug?: (uuid: Uuid) => string | undefined;
-	readonly searchInputName?: (uuid: Uuid) => string | undefined;
+	readonly searchInputName?: (
+		uuid: Uuid,
+		supplier?: Uuid,
+	) => string | undefined;
 	readonly choiceValues?: (
 		field: Uuid,
 		options: readonly Uuid[],
 	) => readonly string[] | undefined;
 	readonly namedEntrySupply?: (datum: DatumRef) => string | undefined;
 	readonly datumId?: (datum: DatumRef) => string | undefined;
+	readonly searchResultsId?: (supplier?: Uuid) => string | undefined;
 	readonly selectedCasesId?: (module: Uuid) => string | undefined;
 	readonly tableTag?: (table: LookupTableId) => string | undefined;
 	readonly tableColumnName?: (
@@ -419,7 +423,10 @@ function printWith(
 				emit(caseReferenceText(term.caseType, term.property));
 				break;
 			case "input": {
-				const name = named(ctx.searchInputName?.(term.searchInputUuid), path);
+				const name = named(
+					ctx.searchInputName?.(term.searchInputUuid, term.supplier),
+					path,
+				);
 				if (name !== undefined) emit(`#search/${name}`);
 				break;
 			}
@@ -736,16 +743,26 @@ function printWith(
 					});
 				break;
 			}
-			case "cases":
+			case "cases": {
+				const id =
+					node.source === "casedb"
+						? "casedb"
+						: named(
+								ctx.searchResultsId?.(node.supplier) ??
+									(node.supplier === undefined ? "results:inline" : undefined),
+								path,
+							);
+				if (id === undefined) break;
 				emit(
 					node.source === "casedb"
 						? "instance('casedb')/casedb/case"
 						: ctx.projectSearchResults
-							? "instance('results:inline')/results/case"
-							: "instance('results:inline')/results/case[not(commcare_is_related_case = true())]",
+							? `instance('${id}')/results/case`
+							: `instance('${id}')/results/case[not(commcare_is_related_case = true())]`,
 				);
 				predicates(node, path, ctx);
 				break;
+			}
 			case "table-rows":
 				if (tableRoot(node.tableId, path, ctx)) predicates(node, path, ctx);
 				break;

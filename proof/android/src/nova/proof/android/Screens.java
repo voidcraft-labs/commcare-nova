@@ -130,6 +130,11 @@ final class Screens {
         Lists.searches = request.optJSONArray("searches");
         Queries.answer = request.has("queryAnswer") ? request.getString("queryAnswer") : null;
         Queries.findsNothing = request.optBoolean("queryFindsNothing");
+        Queries.namedAnswers = request.optJSONObject("searchAnswers");
+        if (Queries.namedAnswers != null) {
+            Queries.completed = new JSONArray();
+            found.put("completedSearches", Queries.completed);
+        }
         Answers.table = request.optJSONObject("answers");
         Forms.views = request.optBoolean("views");
         Forms.typeRefused = request.optBoolean("typeRefused");

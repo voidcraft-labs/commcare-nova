@@ -10,6 +10,7 @@ import { expect, it, vi } from "vitest";
 import { rehydrateChangeSet } from "@/lib/agent/change-set/runtime";
 import { loadChangeSet } from "@/lib/agent/change-set/store";
 import { readReleasedFoldSnapshot } from "@/lib/case-store/migrations/20261208000000_connect_activity_roles";
+import { retainedSourceBody } from "@/lib/commcare/reader/__tests__/readerInput";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
 import { OWNERSHIP } from "@/lib/deployment/__tests__/adoptedBirth";
@@ -33,6 +34,7 @@ const h = setupAppStateTestDb("completion_transaction_", {
 });
 const projectId = "completion-project";
 const owner = "completion-owner";
+const hqMenu = "a".repeat(32);
 async function artifacts(folder: string) {
 	const directory = join(folder, "artifacts");
 	const args = [
@@ -93,6 +95,13 @@ async function releasedApp(id: string, role?: "deliver") {
 }
 
 async function releasedTarget(appId: string) {
+	const { uuid: moduleUuid } = await h
+		.db()
+		.selectFrom("blueprint_entities")
+		.select("uuid")
+		.where("app_id", "=", appId)
+		.where("kind", "=", "module")
+		.executeTakeFirstOrThrow();
 	const target = await h
 		.db()
 		.insertInto("app_deployments")
@@ -115,21 +124,36 @@ async function releasedTarget(appId: string) {
 			kind: "app",
 			nova_resource_id: appId,
 			remote_id: "released-clinic-app",
-			ownership: "nova-created",
+			ownership: "adopted",
+			adopted_by: owner,
+			adopted_at: new Date(),
 			pushed_revision: 1,
 		})
 		.execute();
+	await h
+		.db()
+		.insertInto("app_deployment_identities")
+		.values({
+			deployment_id: target.id,
+			entity_kind: "module",
+			nova_entity_uuid: moduleUuid,
+			unique_id: hqMenu,
+			xmlns: null,
+		})
+		.execute();
 	const source = JSON.stringify({
-		doc_type: "Application",
+		...retainedSourceBody("shell/app-source"),
 		name: "Clinic",
-		modules: [],
-		_attachments: {},
-		profile: {},
-		langs: ["en"],
-		build_spec: { version: "2.57.0" },
-		build_profiles: {},
-		translations: {},
-		add_ons: {},
+		modules: [
+			{
+				doc_type: "Module",
+				unique_id: hqMenu,
+				case_type: "patient",
+				name: { en: "Clinic" },
+				forms: [],
+				search_config: { instance_name: "ClinicSearch" },
+			},
+		],
 		use_grid_menus: true,
 		auto_gps_capture: true,
 	});
@@ -149,6 +173,7 @@ async function releasedTarget(appId: string) {
 			source_bytes: Buffer.byteLength(source),
 		})
 		.execute();
+	return moduleUuid;
 }
 
 async function releasedWorkspace(appId: string, reader: CompletionMigration) {
@@ -198,10 +223,13 @@ it("rolls back pending DDL and the first app when the second app refuses, then v
 		const released = await completionArtifacts(manifest);
 		await releasedApp("completion-a");
 		await releasedApp("completion-b", "deliver");
-		await releasedTarget("completion-a");
+		const moduleUuid = await releasedTarget("completion-a");
 		const workspace = await releasedWorkspace("completion-a", released);
 		const config = await freezeCompletionSettings(h.db(), released);
 		expect(config.menuLayouts.decisions).toHaveLength(1);
+		expect(config.searchResults.targets[0]?.menus).toEqual([
+			{ menu: moduleUuid, uniqueId: hqMenu, name: "ClinicSearch" },
+		]);
 		const migration = await completionArtifacts(manifest, config);
 		const scanned = await scanCompletion(h.db(), migration, storage);
 		const plan = completionPlanSchema.parse(
@@ -283,6 +311,9 @@ it("rolls back pending DDL and the first app when the second app refuses, then v
 			expect(loaded?.mutation_seq).toBe(entry.headSeq + 1);
 			if (entry.appId === "completion-a") {
 				expect(loaded?.blueprint.connectRoles).toEqual([]);
+				expect(loaded?.blueprint.modules[moduleUuid]?.searchResultsName).toBe(
+					"ClinicSearch",
+				);
 				expect(loaded?.blueprint.appSettings).toMatchObject({
 					captureLocation: true,
 					firstMenuLayout: "grid",
@@ -299,6 +330,9 @@ it("rolls back pending DDL and the first app when the second app refuses, then v
 		const overlay = await rehydrateChangeSet(reopened);
 		expect(overlay.overlay.doc.appName).toBe("Held private visit");
 		expect(overlay.overlay.doc.appSettings.firstMenuLayout).toBe("grid");
+		expect(overlay.overlay.doc.modules[moduleUuid]?.searchResultsName).toBe(
+			"ClinicSearch",
+		);
 		const retired = await sql<{ old_column: boolean }>`SELECT EXISTS (
 		SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'apps' AND column_name = 'connect_type'
 	) AS old_column`.execute(h.db());

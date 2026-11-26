@@ -339,6 +339,7 @@ export async function submitAppTest(
 					appId: scope.appId,
 					menuSelections: launch?.selections ?? state.selections,
 				},
+				searches: formContext.searches,
 				...(formContext.searchResults === undefined
 					? {}
 					: { searchResults: formContext.searchResults }),
@@ -371,7 +372,11 @@ export async function submitAppTest(
 		};
 		/* The back stack records destinations; Back opens a fresh entry,
 		 * which takes its own search results. */
-		const { searchResults: _taken, ...retiredScreen } = screen;
+		const {
+			searchResults: _taken,
+			searches: _searches,
+			...retiredScreen
+		} = screen;
 		const home =
 			next.route.kind === "module" || next.route.kind === "form"
 				? firstMenuSelections(
@@ -537,6 +542,7 @@ export async function submitAppTest(
 					entry: undefined,
 					entryCases: cases,
 					searchResults: undefined,
+					searches: undefined,
 				},
 			};
 		return {

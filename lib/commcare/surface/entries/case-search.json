@@ -1401,10 +1401,8 @@
 		"item": "`instance_name` without `casedb`, `ledgerdb`, `fixture` or `session` in it",
 		"surfaceKeys": ["schema:CaseSearch.instance_name"],
 		"valueClass": "unreserved-name-not-clashing-with-an-inline-search-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.resultsInstanceName`: the inline search's results instance (`results:<name>`, `CaseSearch.get_instance_name`), read by the module's result list and by form XPath, which also names the search inputs `search-input:results:<name>`",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The menu keeps its results name even when it has no Search action. Each query in a worker's entry keeps its own answers.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS for results (UNAVAILABLE for results not on the device, and for search-input reads, which throw)",
@@ -1420,7 +1418,35 @@
 			"cell": "`instance_name` `^[a-zA-Z]\\w*$`; CASE_SEARCH_ADVANCED",
 			"markers": []
 		},
-		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"],
+		"slotChanges": []
+	},
+	{
+		"id": "case-search/results-name-outside-the-search-editor",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "Results name the Case List editor cannot save",
+		"surfaceKeys": ["schema:CaseSearch.instance_name"],
+		"valueClass": "results-name-outside-the-search-editor",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The Case List editor requires an ASCII letter followed by letters, numbers or underscores.",
+		"subject": "search-setup",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The Case List editor rejects the results name."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
@@ -1490,8 +1516,9 @@
 		"item": "an effective results instance equal to a module's that does not use inline search",
 		"surfaceKeys": ["schema:CaseSearch.instance_name"],
 		"valueClass": "clashes-without-inline-search",
-		"disposition": "INERT",
-		"dispositionCell": "**INERT**: HQ checks the clash only against inline search, and no runtime reads the name there",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The menu keeps its chosen search results name. Sharing the name with a menu that does not search inline is safe.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -1500,7 +1527,7 @@
 			"cell": "the name, which Nova holds for its inline search",
 			"markers": []
 		},
-		"gates": []
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
 		"id": "case-search/additional-case-types",

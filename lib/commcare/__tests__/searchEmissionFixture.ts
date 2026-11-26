@@ -19,6 +19,7 @@ import {
 } from "@/lib/domain";
 import {
 	ancestorPath,
+	concat,
 	eq,
 	type FormLinkDatumName,
 	input,
@@ -243,11 +244,41 @@ export function parentSelectDoc(): BlueprintDoc {
 	return doc;
 }
 
+/** Each selection loads a differently named search. The two prompts share a name
+ * on purpose, so using the last query for both changes the form's answer. */
+export function namedParentSearchDoc() {
+	const doc = parentSelectDoc();
+	const [child, parent] = doc.moduleOrder;
+	const parentInput = simpleSearchInputDef(
+		testUuid("00000000-0000-4000-8000-0000000a0011"),
+		"first_name",
+		"Name",
+		"text",
+		"case_name",
+	);
+	doc.modules[child].searchResultsName = "MemberLookup";
+	doc.modules[parent].searchResultsName = "FamilyLookup";
+	doc.modules[parent].caseSearchConfig = { formsReadSearch: true };
+	const parentList = doc.modules[parent].caseListConfig;
+	if (!parentList) throw new Error("The family search needs a case list.");
+	parentList.searchInputs = [parentInput];
+	const field = doc.fields[doc.fieldOrder[doc.formOrder[child][0]][0]];
+	if (field.kind !== "text")
+		throw new Error("The child form needs a text question");
+	field.default_value = concat(
+		term({ ...input(parentInput.uuid), supplier: parent }),
+		term(literal("/")),
+		term(input(NAME_INPUT)),
+	);
+	return doc;
+}
+
 export const searchEmissionScenarios = [
 	"inline",
 	"browse",
 	"multiple",
 	"parent",
+	"named-parent",
 	"registration-link",
 	"hidden-link",
 	"automatic",
@@ -262,6 +293,7 @@ export function searchEmissionFixture(
 	scenario: SearchEmissionScenario,
 ): BlueprintDoc {
 	if (scenario === "parent") return parentSelectDoc();
+	if (scenario === "named-parent") return namedParentSearchDoc();
 	if (scenario === "registration-link") return registrationLinkDoc();
 	if (scenario === "hidden-link")
 		return registrationLinkDoc({

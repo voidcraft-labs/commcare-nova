@@ -3,12 +3,14 @@ import {
 	sourceRevision as connectSource,
 	convert as convertConnect,
 } from "../../lib/db/releasedConnectShape.mjs";
+import { searchResultsNameSchema } from "../../lib/domain/modules";
 import { uuidSchema } from "../../lib/domain/uuid";
 import {
 	convert as convertLocation,
 	sourceRevision,
 } from "./step7-location-capture.mjs";
 import { convertMenuLayouts } from "./step7-menu-layouts";
+import { convertSearchResults } from "./step7-search-results.mjs";
 
 export { sourceRevision };
 
@@ -32,9 +34,40 @@ const frozenMenuLayoutsSchema = z.strictObject({
 	),
 });
 
+const frozenSearchResultsSchema = z.strictObject({
+	targets: z.array(
+		z.strictObject({
+			id: uuidSchema,
+			mapping_id: uuidSchema,
+			app_id: z.string().min(1),
+			project_id: z.string().min(1),
+			server: z.string().min(1),
+			domain: z.string().min(1),
+			remote_id: z.string().min(1),
+			push_token: uuidSchema,
+			adopted_by: z.string().min(1),
+			pushed_revision: z.union([z.string(), z.number(), z.null()]),
+			remote_app_id: z.string().min(1),
+			origin: z.enum(["read", "changes", "push"]),
+			source_bytes: z.number().int().positive(),
+			source_digest: z.string().regex(/^[a-f0-9]{64}$/),
+			nova_revision: z.union([z.string(), z.number()]),
+			observed_by: z.string().min(1),
+			menus: z.array(
+				z.strictObject({
+					menu: uuidSchema,
+					uniqueId: z.string().min(1),
+					name: searchResultsNameSchema.nullable(),
+				}),
+			),
+		}),
+	),
+});
+
 export const completionSettingsSchema = z.strictObject({
 	locationCapture: z.json(),
 	menuLayouts: frozenMenuLayoutsSchema,
+	searchResults: frozenSearchResultsSchema,
 });
 
 /** Each current, published, historical and private snapshot takes the same
@@ -51,9 +84,14 @@ export function convert(
 		);
 	const location = convertLocation(snapshot, settings, coordinate);
 	const candidate = convertConnect(location, settings, coordinate);
-	return convertMenuLayouts(
+	const layouts = convertMenuLayouts(
 		candidate,
 		settings.menuLayouts.decisions,
 		coordinate,
 	);
+	return convertSearchResults(layouts, settings, {
+		appId: coordinate.appId,
+		projectId: coordinate.projectId,
+		purpose: coordinate.purpose,
+	});
 }

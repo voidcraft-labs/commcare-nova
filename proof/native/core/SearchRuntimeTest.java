@@ -3,12 +3,16 @@ package nova.compatibility;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.*;
 import org.commcare.suite.model.*;
+import org.commcare.core.process.CommCareInstanceInitializer;
+import org.commcare.data.xml.VirtualInstances;
+import org.commcare.modern.session.SessionWrapper;
 import org.commcare.session.SessionFrame;
 import org.commcare.session.SessionInstanceBuilder;
 import org.commcare.session.CommCareSession;
@@ -110,6 +114,84 @@ public class SearchRuntimeTest {
             return new EvaluationContext(null, instances);
         }
     }
+    /** Complete the query that the real session currently needs, installing both sources
+     * exactly as Formplayer's QueryScreen does when it accepts the server response. */
+    private static void finishNamedQuery(SessionWrapper session, CommCareInstanceInitializer initializer,
+                                         String storage, String answer, String caseId) throws Exception {
+        EvaluationContext context = session.getEvaluationContext(initializer, "m0-f0", Collections.singleton("commcaresession"));
+        RemoteQuerySessionManager manager = RemoteQuerySessionManager.buildQuerySessionManager(
+                session, context, Collections.singletonList("text"));
+        assertNotNull(manager);
+        assertEquals(storage, manager.getQueryDatum().getDataId());
+        manager.answerUserPrompt("first_name", answer);
+        String response = "<results><case case_id='" + caseId + "'/></results>";
+        ExternalDataInstance result = manager.buildExternalDataInstance(
+                new ByteArrayInputStream(response.getBytes(StandardCharsets.UTF_8)),
+                "https://example.org/search", manager.getRawQueryParams(false)).first;
+        assertNotNull(result);
+        session.setQueryDatum(result, VirtualInstances.buildSearchInputInstance(
+                storage, manager.getUserQueryValues(false)));
+    }
+
+    private void assertChildFormAnswer(boolean hq, CommCareInstanceInitializer initializer, String expected)
+            throws Exception {
+        String path = "/search/named-parent." + (hq ? "hq-form.xml" : "form.xml");
+        try (InputStream input = getClass().getResourceAsStream(path)) {
+            assertNotNull(path, input);
+            FormDef form = XFormUtils.getFormFromInputStream(input);
+            form.initialize(true, initializer);
+            assertEquals(expected, ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/question1)"));
+        }
+    }
+
+    @Test public void namedParentAndChildKeepTheirOwnPromptThroughRetryAndBack() throws Exception {
+        for (boolean hq : new boolean[]{false, true}) {
+            Suite suite = suite("named-parent", hq);
+            CommCarePlatform platform = new CommCarePlatform(2, 53, 0);
+            platform.registerSuite(suite);
+            MockUserDataSandbox worker = MockDataUtils.getStaticStorage();
+            worker.setLoggedInUser(new org.javarosa.core.model.User("first-worker", "", "first-worker-id"));
+            SessionWrapper session = new SessionWrapper(platform, worker);
+            CommCareInstanceInitializer initializer = new CommCareInstanceInitializer(session, worker, platform);
+            String parent = "results:FamilyLookup";
+            String child = "results:MemberLookup";
+            String read = "/input/field[@name='first_name']";
+            session.setCommand("m0-f0");
+            finishNamedQuery(session, initializer, parent, "North", "family");
+            session.setEntityDatum(session.getNeededDatum(), "family");
+            finishNamedQuery(session, initializer, child, "West", "member");
+            EvaluationContext loaded = session.getEvaluationContext(initializer, "m0-f0", Collections.emptySet());
+            assertEquals("North", ExprEvalUtils.xpathEval(loaded, "string(instance('search-input:" + parent + "')" + read + ")"));
+            assertEquals("West", ExprEvalUtils.xpathEval(loaded, "string(instance('search-input:" + child + "')" + read + ")"));
+            session.stepBack(loaded);
+            EvaluationContext beforeChild = session.getEvaluationContext(initializer, "m0-f0", Collections.emptySet());
+            assertNull(beforeChild.getInstance("search-input:" + child));
+            assertEquals("North", ExprEvalUtils.xpathEval(beforeChild, "string(instance('search-input:" + parent + "')" + read + ")"));
+            finishNamedQuery(session, initializer, child, "East", "other");
+            EvaluationContext retried = session.getEvaluationContext(initializer, "m0-f0", Collections.emptySet());
+            assertEquals("East", ExprEvalUtils.xpathEval(retried, "string(instance('search-input:" + child + "')" + read + ")"));
+            session.setEntityDatum(session.getNeededDatum(), "other");
+            assertChildFormAnswer(hq, initializer, "North/East");
+            session.clearAllState();
+            session.setCommand("m0-f0");
+            EvaluationContext fresh = session.getEvaluationContext(initializer, "m0-f0", Collections.emptySet());
+            assertNull(fresh.getInstance("search-input:" + parent));
+            assertNull(fresh.getInstance("search-input:" + child));
+
+            // The next worker enters the same app and the same form with a fresh session.
+            MockUserDataSandbox otherWorker = MockDataUtils.getStaticStorage();
+            otherWorker.setLoggedInUser(new org.javarosa.core.model.User("other-worker", "", "other-worker-id"));
+            SessionWrapper next = new SessionWrapper(platform, otherWorker);
+            CommCareInstanceInitializer nextInitializer = new CommCareInstanceInitializer(next, otherWorker, platform);
+            next.setCommand("m0-f0");
+            finishNamedQuery(next, nextInitializer, parent, "South", "another-family");
+            next.setEntityDatum(next.getNeededDatum(), "another-family");
+            finishNamedQuery(next, nextInitializer, child, "West", "another-member");
+            next.setEntityDatum(next.getNeededDatum(), "another-member");
+            assertChildFormAnswer(hq, nextInitializer, "South/West");
+        }
+    }
+
     @Test public void nativeSelectionFiltersTypeRelatedRowsStatusAndParent() throws Exception {
         for (boolean hq : new boolean[]{false, true}) for (String scenario : new String[]{"inline", "parent", "multiple", "remote", "remote-multiple"}) {
             Entry entry = suite(scenario, hq).getEntry(scenario.startsWith("remote") ? "search_command.m0" : "m0-f0");

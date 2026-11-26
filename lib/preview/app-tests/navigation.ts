@@ -97,6 +97,7 @@ export function appTestBackScreen(
 		caseListRegistrationLaunch: _ended,
 		entry: _retired,
 		searchResults: _reread,
+		searches: _searches,
 		...screen
 	} = prior;
 	return { ...screen, entryCases: deviceCases };

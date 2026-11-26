@@ -654,9 +654,17 @@ not an after-submit destination for the menu's forms, because the previous
 screen was the search itself. After submitting, those forms return to the menu
 by default, which reopens Search.
 
-A menu whose forms read the search does not share its search results with a
-submenu or with a menu that selects a parent case from it. Give such a menu its
-own ordinary case list instead.
+A form can read the search that helped a worker choose its parent record. For
+example, a worker might search for a household by village, choose a household,
+then search for a member by village. The form can use either village answer.
+The expression picker shows which menu supplied each one. In chat you can ask
+for “the village entered when choosing the household.”
+
+Nova gives the searches separate names when you connect the menus. You can
+change the **Search results name** in Search’s **More settings**, or in
+**Module settings** while Search is off. Formulas follow the menu if its search is renamed. A form opened without
+the parent search has no answer from that search. A submenu that only groups
+forms does not run a parent search.
 
 A form in a menu whose forms read the search can read what the search found,
 for example how many cases it returned, with
