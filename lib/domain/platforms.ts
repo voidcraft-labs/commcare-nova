@@ -377,7 +377,7 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: {
 			reading: "ignored",
-			note: "Web Apps does not use the saved form label.",
+			note: "the form saves as usual without using the label",
 		},
 		android: { reading: "runs" },
 	},
