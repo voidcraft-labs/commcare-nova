@@ -68,9 +68,9 @@ export function generatedWordingKeys(
 	register("cchq.case", "app", "caseTitle");
 	for (const [key, unit] of appNameWordingKeys(authored)) keys.set(key, unit);
 	// The archive and reader are already walking every detail. For an HQ
-	// import file, only derive those fields (and search checks) whose
+	// import file, only derive details (and search checks) whose
 	// overrides actually need a wire key.
-	const columnModules = new Set<string>(),
+	const detailModules = new Set<string>(),
 		searchModules = new Set<string>();
 	if (projection && authored.localization) {
 		const loc = authored.localization;
@@ -81,8 +81,13 @@ export function generatedWordingKeys(
 			for (const id of Object.keys(entries ?? {})) {
 				const unit = units.get(id);
 				if (!unit?.generated) continue;
-				if (unit.owner.kind === "case-list-column")
-					columnModules.add(unit.owner.moduleUuid);
+				if (
+					unit.owner.kind === "case-list-column" ||
+					(unit.owner.kind === "module" &&
+						(unit.generated.role === "caseDetailTabTitle" ||
+							unit.generated.role === "searchDetailTabTitle"))
+				)
+					detailModules.add(unit.owner.moduleUuid);
 				if (
 					unit.generated.role === "promptValidation" &&
 					unit.owner.kind === "search-input"
@@ -100,7 +105,7 @@ export function generatedWordingKeys(
 			register(`modules.${menu}`, hidden.formUuid, "registrationMenuTitle");
 		if (
 			projection &&
-			columnModules.has(moduleUuid) &&
+			detailModules.has(moduleUuid) &&
 			!hidden &&
 			mod.caseType &&
 			mod.caseListConfig

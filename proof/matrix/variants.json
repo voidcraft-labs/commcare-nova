@@ -16628,8 +16628,7 @@
 	{
 		"id": "hq-case-lists/translation-overrides-a-detail-tab-title",
 		"base": "hq-case-lists",
-		"entry": "application-and-settings/translations-generated-key-anything-else",
-		"standing": "not-yet",
+		"entry": "application-and-settings/translations-generated-wording",
 		"place": {
 			"kind": "app"
 		},
@@ -23736,6 +23735,14 @@
 				}
 			}
 		]
+	},
+	{
+		"id": "hq-menus/translation-overrides-a-menu-badge",
+		"base": "hq-menus",
+		"entry": "application-and-settings/translations-generated-key-anything-else",
+		"standing": "not-yet",
+		"place": { "kind": "app" },
+		"change": { "op": "named", "name": "translation_overrides_a_menu_badge" }
 	},
 	{
 		"id": "hq-menus/badge-future-form-answer",

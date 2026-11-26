@@ -27,27 +27,62 @@ def menu_icon_override_without_a_resource(authoring, app_id):
 
 
 def translation_overrides_a_detail_tab_title(authoring, app_id):
-    """A generated override changes one native detail tab's title independently of its own header."""
+    """The Case Detail editor changes the tab's ordinary header independently of the generated override."""
+    import json
+
     from proof.hq import operations
     from proof.checks.compare.app_strings import parse_app_strings
 
     key = "m0.case_long.tab.1.title"
-    ops.set_json(
-        authoring,
-        app_id,
-        "/modules/0/case_details/long/tabs",
-        [
-            {"doc_type": "DetailTab", "header": {"en": "Patient"}, "starting_index": 0, "has_nodeset": False},
-            {"doc_type": "DetailTab", "header": {"en": "More"}, "starting_index": 3, "has_nodeset": False},
-        ],
-    )
+    tabs = [
+        {"doc_type": "DetailTab", "header": {"en": "Patient"}, "starting_index": 0, "has_nodeset": False},
+        {"doc_type": "DetailTab", "header": {"en": "More"}, "starting_index": 3, "has_nodeset": False},
+    ]
+
+    def save_tabs():
+        module = operations.held_app(authoring.state, app_id).get_module(0)
+        body, content_type = ops.form_body([
+            ("type", json.dumps("case")),
+            ("long", json.dumps([column.to_json() for column in module.case_details.long.columns])),
+            ("tabs", json.dumps(tabs)),
+        ])
+        ops.post(authoring, "edit_module_detail_screens", [app_id, module.unique_id], body, content_type, "Case Detail tabs")
+
     with authoring.step("variant:plain-detail-tab-title"):
+        save_tabs()
         app = operations.held_app(authoring.state, app_id)
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Patient"
     ops.set_json(authoring, app_id, f"/translations/en/{key}", "Patient details")
-    with authoring.step("variant:overridden-detail-tab-title"):
+    tabs[0]["header"]["en"] = "Patient record"
+    with authoring.step("variant:edited-detail-tab-header-with-override"):
+        save_tabs()
         app = operations.held_app(authoring.state, app_id)
+        assert app.get_module(0).case_details.long.tabs[0].header["en"] == "Patient record"
+        assert app.translations["en"][key] == "Patient details"
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Patient details"
+
+
+def translation_overrides_a_menu_badge(authoring, app_id):
+    """The native menu uses its badge locale independently of the text stored on the icon."""
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+
+    key = "modules.m2.badge"
+    ops.set_json(authoring, app_id, "/modules/2/custom_icons", [
+        {"doc_type": "CustomIcon", "form": "badge", "text": {"en": "New"}, "xpath": ""},
+    ])
+    with authoring.step("variant:plain-menu-badge"):
+        app = operations.held_app(authoring.state, app_id)
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "New"
+        suite = etree.fromstring(app.create_suite())
+        assert suite.xpath(f"//menu/display/text[@form='badge']/locale[@id='{key}']")
+    ops.set_json(authoring, app_id, f"/translations/en/{key}", "Urgent")
+    with authoring.step("variant:overridden-menu-badge"):
+        app = operations.held_app(authoring.state, app_id)
+        assert app.get_module(2).custom_icons[0].text["en"] == "New"
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Urgent"
 
 
 def every_form_deleted(authoring, app_id):

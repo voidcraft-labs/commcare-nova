@@ -120,6 +120,9 @@ export function outputLocaleRole(unit: TranslationUnit): TranslationUnitRole {
 			return "case-list-registration-label";
 		case "promptLabel":
 			return "search-input-label";
+		case "caseDetailTabTitle":
+		case "searchDetailTabTitle":
+			return "case-detail-tab-title";
 		case "appDisplayName":
 		case "homescreenTitle":
 			return "app-name";
