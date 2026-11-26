@@ -1,6 +1,7 @@
 """Compare the worker lexer profiles with HQ's actual XForm XML boundary."""
 
 import base64
+from dataclasses import replace
 import json
 from pathlib import Path
 import re
@@ -184,9 +185,26 @@ def _sweep_rows():
 
 def _post_case_rows(state, app_id, form, worker, database, label):
     """Post standard case XML through the signed stock receiver."""
+    from corehq.apps.app_manager.xform import make_case_elem
+
     data = etree.Element(f"{{{form.xmlns}}}data", nsmap={None: form.xmlns})
     for row in database.cases:
-        data.append(etree.fromstring(formplayer_hq.case_block(row, database).encode("utf-8")))
+        # The CaseBlock fixture serializer treats every underscore-prefixed key
+        # as its own metadata. The real Advanced builder does not.
+        case = etree.fromstring(
+            formplayer_hq.case_block(replace(row, indices=()), database).encode("utf-8")
+        )
+        if row.indices:
+            indices = make_case_elem("index")
+            for name, case_type, target, relationship in row.indices:
+                attributes = {"case_type": case_type}
+                if relationship != "child":
+                    attributes["relationship"] = relationship
+                link = make_case_elem(name, attributes)
+                link.text = target
+                indices.append(link)
+            case.append(indices)
+        data.append(case)
     meta = etree.SubElement(data, f"{{{JR}}}meta", nsmap={None: JR})
     for key, value in {
         "instanceID": f"uuid:{label}",
@@ -196,9 +214,18 @@ def _post_case_rows(state, app_id, form, worker, database, label):
         "timeEnd": "2025-12-01T08:00:01Z",
     }.items():
         etree.SubElement(meta, f"{{{JR}}}{key}").text = value
+    body = etree.tostring(data, encoding="utf-8")
+    submitted = etree.fromstring(body)
+    for row in database.cases:
+        block = submitted.find(f"{{{CASE}}}case[@case_id='{row.case_id}']")
+        assert block is not None
+        actual = block.findall(f"{{{CASE}}}index/*")
+        assert [(etree.QName(link).localname, link.text) for link in actual] == [
+            (name, target) for name, _, target, _ in row.indices
+        ]
     request = connect_hq.device_request(
         connect_hq.receiver_url(state.domain, app_id),
-        worker.username, formplayer_hq.PASSWORD, etree.tostring(data, encoding="utf-8"),
+        worker.username, formplayer_hq.PASSWORD, body,
     )
     status, response = _ask(state, request, label)
     assert status == 201, (status, response[:300])
