@@ -63,13 +63,15 @@ function workerFor(engine: FormEngine) {
 
 describe("case choices in the captured device world", () => {
 	it.each([
-		{ stagedAsync: false, openOnly: false },
-		{ stagedAsync: true, openOnly: false },
-		{ stagedAsync: false, openOnly: true },
-		{ stagedAsync: true, openOnly: true },
-	])(
-		"filters the restored choices where asked and keeps opaque IDs (worker=$stagedAsync open=$openOnly)",
-		async ({ stagedAsync, openOnly }) => {
+		{ stagedAsync: false, status: undefined },
+		{ stagedAsync: true, status: undefined },
+		{ stagedAsync: false, status: "open" },
+		{ stagedAsync: true, status: "open" },
+		{ stagedAsync: false, status: "closed" },
+		{ stagedAsync: true, status: "closed" },
+	] as const)(
+		"filters the restored choices where asked and keeps opaque IDs (worker=$stagedAsync status=$status)",
+		async ({ stagedAsync, status }) => {
 			const form = choiceUuid("all-visible");
 			const question = choiceUuid("all-cases-question");
 			const copy = choiceUuid("copy-unrefined-id");
@@ -91,7 +93,7 @@ describe("case choices in the captured device world", () => {
 											label: "Case",
 											optionsSource: {
 												kind: "available-cases",
-												...(openOnly && { status: "open" }),
+												...(status !== undefined && { status }),
 											},
 										}),
 										f({
@@ -110,11 +112,16 @@ describe("case choices in the captured device world", () => {
 			const rows = [
 				choiceRow("old service key", "former", "Former service"),
 				{
-					...choiceRow("closed-host-key", "former", "Closed host"),
+					...choiceRow("closed host key", "former", "Closed host"),
 					status: "closed" as const,
 				},
 				choiceRow("worker-profile-key", "commcare-user", "Worker profile"),
 			];
+			const available = rows.filter(
+				(row) => status === undefined || row.status === status,
+			);
+			const selectedId =
+				status === "closed" ? "closed host key" : "old service key";
 			const context = slotContext(
 				doc,
 				{ entity: "field", uuid: copy, slot: "calculate" },
@@ -139,24 +146,21 @@ describe("case choices in the captured device world", () => {
 			try {
 				if (stagedAsync) await engine.initializeAsync(evaluateAsync);
 				expect(engine.getState("/data/case_choice").choices).toEqual(
-					rows
-						.filter((row) => !openOnly || row.status !== "closed")
-						.map((row) => ({
-							key: row.case_id,
-							value: row.case_id,
-							label: row.case_name,
-						})),
+					available.map((row) => ({
+						key: row.case_id,
+						value: row.case_id,
+						label: row.case_name,
+					})),
 				);
 				if (stagedAsync)
 					await engine.setValueAsync(
 						"/data/case_choice",
-						rows[0].case_id,
+						selectedId,
 						evaluateAsync,
 					);
-				else engine.setValue("/data/case_choice", rows[0].case_id);
-				expect(engine.getState("/data/case_choice").value).toBe(
-					"old service key",
-				);
+				else engine.setValue("/data/case_choice", selectedId);
+				expect(engine.getState("/data/case_choice").value).toBe(selectedId);
+				expect(engine.getState("/data/id_copy").value).toBe(selectedId);
 			} finally {
 				runtime.dispose();
 			}

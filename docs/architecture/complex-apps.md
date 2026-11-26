@@ -3730,8 +3730,8 @@ and existing case relationships; no filter expands restore scope. Preview uses
 its existing captured device snapshot.
 
 A single-select question over all available cases emits the bare casedb case
-nodeset with `case_name` and `@case_id`. The optional `status: open` adds
-`[@status = 'open']` over that same snapshot before choices are displayed. It
+nodeset with `case_name` and `@case_id`. The optional `status: open` or
+`status: closed` adds the matching `@status` predicate over that same snapshot. It
 can offer retained cases outside the
 current Blueprint catalog because Preview's existing snapshot already covers
 the authorized worker restore closure for the app and Project. The form

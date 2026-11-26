@@ -3197,7 +3197,7 @@
 		],
 		"valueClass": "case-choices",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases` with optional `status: open`",
+		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases` with optional `status: open` or `status: closed`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

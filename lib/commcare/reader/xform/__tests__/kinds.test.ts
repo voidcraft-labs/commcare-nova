@@ -988,7 +988,7 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 		filter: string | undefined,
 		options: {
 			readonly allCases?: true;
-			readonly openOnly?: true;
+			readonly status?: "open" | "closed";
 			readonly labelProperty?: string;
 			readonly sortProperty?: string;
 			readonly xml?: (xml: string) => string;
@@ -1022,7 +1022,9 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 									optionsSource: options.allCases
 										? {
 												kind: "available-cases",
-												...(options.openOnly && { status: "open" }),
+												...(options.status !== undefined && {
+													status: options.status,
+												}),
 											}
 										: {
 												kind: "cases",
@@ -1087,37 +1089,40 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 		expect(field).toMatchObject({ optionsSource: { kind: "available-cases" } });
 	});
 
-	it("keeps the exact open filter over all restored case types", async () => {
-		const { atQuestion, outcome } = await questionFindings(undefined, {
-			allCases: true,
-			openOnly: true,
-			xml: (xml) => {
-				expect(xml).toContain(
-					`nodeset="instance(&apos;casedb&apos;)/casedb/case[@status = &apos;open&apos;]"`,
-				);
-				return xml;
-			},
-		});
-		expect(atQuestion).toEqual([]);
-		expect(outcome.kind).toBe("read");
-		if (outcome.kind !== "read") throw new Error("Expected a read form.");
-		expect(
-			Object.values(outcome.draft.doc.fields).find(
-				(field) => field.id === "clinic",
-			),
-		).toMatchObject({
-			optionsSource: { kind: "available-cases", status: "open" },
-		});
-	});
+	it.each(["open", "closed"] as const)(
+		"keeps the exact %s filter over all restored case types",
+		async (status) => {
+			const { atQuestion, outcome } = await questionFindings(undefined, {
+				allCases: true,
+				status,
+				xml: (xml) => {
+					expect(xml).toContain(
+						`nodeset="instance(&apos;casedb&apos;)/casedb/case[@status = &apos;${status}&apos;]"`,
+					);
+					return xml;
+				},
+			});
+			expect(atQuestion).toEqual([]);
+			expect(outcome.kind).toBe("read");
+			if (outcome.kind !== "read") throw new Error("Expected a read form.");
+			expect(
+				Object.values(outcome.draft.doc.fields).find(
+					(field) => field.id === "clinic",
+				),
+			).toMatchObject({
+				optionsSource: { kind: "available-cases", status },
+			});
+		},
+	);
 
-	it("retains the placed finding for a closed-only filter", async () => {
+	it("retains the placed finding for an unknown status filter", async () => {
 		const { atQuestion } = await questionFindings(undefined, {
 			allCases: true,
-			openOnly: true,
+			status: "open",
 			xml: (xml) =>
 				xml.replace(
 					"@status = &apos;open&apos;",
-					"@status = &apos;closed&apos;",
+					"@status = &apos;pending&apos;",
 				),
 		});
 		expect(atQuestion).toEqual([

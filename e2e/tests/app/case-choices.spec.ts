@@ -73,7 +73,7 @@ test("case choice sources stage atomically and Preview filters choices when an e
 	).not.toBeChecked();
 });
 
-test("sets open-only choices when changing to all restored case types", {
+test("saves the case status choice across all restored case types", {
 	tag: "@seed:case-choices",
 }, async ({ page, scenario }) => {
 	const { caseChoices } = seedFor(scenario, "case-choices");
@@ -118,6 +118,26 @@ test("sets open-only choices when changing to all restored case types", {
 	await reloadBuilder(page);
 	await expect(source).toHaveText("All available cases");
 	await expect(scope).toHaveText("Open cases only");
+
+	const closedSaved = page.waitForResponse((response) => {
+		const request = response.request();
+		return (
+			request.method() === "PUT" &&
+			new URL(response.url()).pathname.startsWith("/api/apps/") &&
+			(request.postData() ?? "").includes(
+				'"kind":"available-cases","status":"closed"',
+			)
+		);
+	});
+	await scope.click();
+	await page
+		.getByRole("option", { name: "Closed cases only", exact: true })
+		.click();
+	const closedCommitted = await closedSaved;
+	expect(closedCommitted.ok()).toBe(true);
+	await closedCommitted.finished();
+	await reloadBuilder(page);
+	await expect(scope).toHaveText("Closed cases only");
 });
 
 test(
