@@ -178,7 +178,7 @@ function shadowEligibility(
 			expr.steps.some(
 				(step) =>
 					(step.axis === "child" || step.axis === "attribute") &&
-					!FORM_BUILDER_QNAME.test(step.name),
+					!FORM_BUILDER_QNAME.test(step.name ?? ""),
 			)
 		)
 			return "withheld";
