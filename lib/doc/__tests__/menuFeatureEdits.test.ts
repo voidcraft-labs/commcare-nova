@@ -38,7 +38,8 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { removeUserPropertyPlan } from "@/lib/doc/userMutations";
-import type { BlueprintDoc, Module, Mutation } from "@/lib/domain";
+import type { Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, Module } from "@/lib/domain";
 import { sessionUserProperty, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 
