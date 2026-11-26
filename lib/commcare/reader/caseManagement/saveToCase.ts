@@ -179,15 +179,11 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/create-case-id-live-calculate-outside-a-repeat`,
 		"xform:model/bind@calculate",
 	),
-	ownerCondition: refuse(`${Q}/savetocase-owner-id-condition`, MUG),
-	closeOnlyCondition: refuse(
-		`${Q}/a-close-only-savetocase-block-with-a-close-condition`,
+	aliasedOwnerCondition: refuse(
+		`${Q}/savetocase-owner-condition-on-an-aliased-create`,
 		MUG,
 	),
-	writeAndClose: refuse(
-		`${Q}/a-savetocase-block-that-creates-or-updates-and-also-closes-under`,
-		MUG,
-	),
+	updateOwnerCondition: refuse(`${Q}/savetocase-update-owner-condition`, MUG),
 	blockRelevance: refuse(
 		`${Q}/relevance-bound-on-the-savetocase-node-itself`,
 		"xform:model/bind@relevant",
@@ -767,6 +763,7 @@ export interface ProposedBlock {
 	readonly condition?: { readonly text: string; readonly site: ClaimSite };
 	/** A close in the block: an operation's own close, or the own close's condition. */
 	readonly closes: boolean;
+	readonly ownerCondition?: { readonly text: string; readonly site: ClaimSite };
 	readonly closeCondition?: { readonly text: string; readonly site: ClaimSite };
 	readonly place: HqPlace;
 	/**
@@ -878,7 +875,21 @@ function localName(element: Element): string {
 /** The scope a block stands in: the form root, or its repeat's node or row. */
 function scopeOk(xform: ReadXForm, block: ReadSaveToCaseBlock): boolean {
 	const first = block.wrappers[0];
-	if (first === undefined) return false;
+	if (first === undefined) {
+		const parent = xform.nodes.get(block.path.join("/"))?.parent;
+		const role =
+			parent === null || parent === undefined
+				? undefined
+				: xform.roles.get(parent);
+		return (
+			parent === null ||
+			role?.kind === "query-row" ||
+			(role?.kind === "field" &&
+				(role.field.kind === "group" ||
+					role.field.kind === "section" ||
+					role.field.kind === "repeat"))
+		);
+	}
 	const parent = first.parent;
 	if (parent === null) return block.repeat === null;
 	const role = xform.roles.get(parent);
@@ -1501,6 +1512,11 @@ function readBlock(
 	const casePath = [...block.path, "case"];
 	const idPath = [...casePath, "@case_id"];
 	const creates = parts.has("create");
+	if (
+		block.authoredScopeLength !== undefined &&
+		(creates || caseType === "commcare-user")
+	)
+		return { ok: false };
 	const segments: SaveToCaseBlockSegment[] = [];
 	for (const wrapper of block.wrappers) {
 		const role = xform.roles.get(wrapper);
@@ -1616,6 +1632,7 @@ function readBlock(
 	}
 
 	// The name and the owner of a create.
+	let ownerCondition: ProposedBlock["ownerCondition"];
 	let name: ProposedBlock["name"];
 	let owner: ProposedOwner | undefined;
 	if (creates) {
@@ -1652,8 +1669,14 @@ function readBlock(
 			...(nameField !== undefined && { readsField: nameField }),
 		};
 		const ownerBind = bindAt("case/create/owner_id");
-		if (ownerBind?.attribs.relevant !== undefined)
-			return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+		if (ownerBind?.attribs.relevant !== undefined) {
+			if (target.kind !== "new" || target.idFrom !== undefined)
+				return fail(SAVE_TO_CASE_CLAIMS.aliasedOwnerCondition);
+			ownerCondition = {
+				text: ownerBind.attribs.relevant,
+				site: site("case/create/owner_id", "relevant"),
+			};
+		}
 		const ownerText = ownerBind?.attribs.calculate;
 		if (ownerText === undefined) return { ok: false };
 		owner = readOwner(
@@ -1743,7 +1766,8 @@ function readBlock(
 			}
 			if (property === "owner_id") {
 				if (bind.attribs.relevant !== undefined) {
-					if (!sharedShape) return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+					if (!sharedShape)
+						return fail(SAVE_TO_CASE_CLAIMS.updateOwnerCondition);
 					ownerLed = true;
 				}
 				owner = readOwner(untrimmed(text).text, root, {
@@ -1957,7 +1981,6 @@ function readBlock(
 			text: closeRelevant,
 			site: site("case/close", "relevant"),
 		};
-	if (closes && creates) return fail(SAVE_TO_CASE_CLAIMS.writeAndClose);
 
 	// The shared update's group is present while some row is, or always
 	// where the block links.
@@ -1978,12 +2001,22 @@ function readBlock(
 						),
 					);
 	} else sharedHolds = false;
-	if (ownerLed && !sharedHolds) return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+	if (ownerLed && !sharedHolds)
+		return fail(SAVE_TO_CASE_CLAIMS.updateOwnerCondition);
 
 	return {
 		ok: true,
 		proposal: {
-			kind: creates ? "create" : closes ? "close" : "update",
+			kind: creates
+				? "create"
+				: closes &&
+						writes.length === 0 &&
+						rename === undefined &&
+						retype === undefined &&
+						owner === undefined &&
+						links.length === 0
+					? "close"
+					: "update",
 			caseType,
 			block,
 			segments,
@@ -1996,6 +2029,7 @@ function readBlock(
 			links,
 			...(condition !== undefined && { condition }),
 			closes,
+			...(ownerCondition !== undefined && { ownerCondition }),
 			...(closeCondition !== undefined && { closeCondition }),
 			place,
 			...(sharedHolds && { shared: sharedRows }),
@@ -2597,6 +2631,7 @@ export function readSaveToCaseBlocks(
 		firstBlock.caseType === menuType &&
 		firstBlock.target.kind === "new" &&
 		firstBlock.target.idFrom === undefined &&
+		firstBlock.ownerCondition === undefined &&
 		firstBlock.block.repeat === null &&
 		firstBlock.segments.join("/") === "operations/block" &&
 		firstBlock.name?.answer === undefined &&
@@ -2620,7 +2655,7 @@ export function readSaveToCaseBlocks(
 			reading.failed.push({
 				block: read.block,
 				place: read.place,
-				claim: SAVE_TO_CASE_CLAIMS.ownerCondition,
+				claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
 			});
 			proposed.splice(proposed.indexOf(one), 1);
 		}
@@ -2664,7 +2699,9 @@ export function readSaveToCaseBlocks(
 		takenIds.add(id);
 		const repeatPath =
 			read.block.repeat === null ? [] : fieldIdsOf(read.block.repeat);
-		const scopeLength = read.block.path.length - read.segments.length;
+		const scopeLength =
+			read.block.authoredScopeLength ??
+			read.block.path.length - read.segments.length;
 		const path = read.block.path.slice(scopeLength);
 		const key = JSON.stringify([repeatPath, path, action]);
 		const n = counts.get(key) ?? 0;
@@ -2683,24 +2720,6 @@ export function readSaveToCaseBlocks(
 			MUG,
 		);
 		if (uuid === undefined) continue;
-		// Only the own arm's block carries a condition on its `case/close`;
-		// every other close condition Nova writes is a group's relevance, the
-		// own close's in a block of its own included.
-		if (!own && read.closeCondition !== undefined) {
-			const closeOnly =
-				read.writes.length === 0 &&
-				read.rename === undefined &&
-				read.owner === undefined &&
-				read.links.length === 0;
-			reading.failed.push({
-				block: read.block,
-				place: read.place,
-				claim: closeOnly
-					? SAVE_TO_CASE_CLAIMS.closeOnlyCondition
-					: SAVE_TO_CASE_CLAIMS.writeAndClose,
-			});
-			continue;
-		}
 		// The own arm's rows of an answer as it is lead with its presence.
 		const writes = own
 			? read.writes.map(({ answerAsIs, condition, ...row }) =>
@@ -2724,6 +2743,10 @@ export function readSaveToCaseBlocks(
 			continue;
 		}
 		reading.proposals.push({ ...read, writes, uuid, id, action });
+		if (read.block.authoredScopeLength !== undefined) {
+			const node = xform.nodes.get(read.block.path.join("/"));
+			if (node !== undefined) xform.attachCaseChange(node, uuid);
+		}
 	}
 	// The own close in a block of its own: a close-only block of the own case
 	// in a condition group, its condition the group's, under the root
@@ -2933,6 +2956,7 @@ function claimAccepted(
 		if (one.rename?.answer === undefined) note(one.rename?.site);
 		note(one.condition?.site);
 		note(one.closeCondition?.site);
+		note(one.ownerCondition?.site);
 		if (one.target.kind === "expression") note(one.target.site);
 		for (const write of one.writes) {
 			if (write.value.kind === "text") note(write.value.site);
@@ -3330,8 +3354,10 @@ function caseSlot(
 	slot:
 		| "case_operation_name"
 		| "case_operation_owner"
+		| "case_operation_owner_condition"
 		| "case_operation_rename"
 		| "case_operation_condition"
+		| "case_operation_close_condition"
 		| "case_operation_target_expression",
 	operationUuid: Uuid,
 ): SlotContextRef {
@@ -3401,6 +3427,15 @@ function registerTexts(
 				one.place,
 				CALC,
 			);
+		if (one.ownerCondition !== undefined)
+			register(
+				`${op} owner condition`,
+				caseSlot(form.uuid, "case_operation_owner_condition", op),
+				one.ownerCondition.text,
+				one.ownerCondition.site,
+				one.place,
+				RELEVANT,
+			);
 		// A registration's own case opens under the form's open condition.
 		if (one.condition !== undefined)
 			register(
@@ -3426,14 +3461,16 @@ function registerTexts(
 				one.place,
 				CALC,
 			);
-		if (one.action === "own" && one.closeCondition !== undefined)
+		if (one.closeCondition !== undefined)
 			register(
 				`${op} close`,
-				{
-					entity: "form",
-					uuid: form.uuid,
-					slot: "form_close_condition",
-				} as SlotContextRef,
+				one.action === "own"
+					? ({
+							entity: "form",
+							uuid: form.uuid,
+							slot: "form_close_condition",
+						} as SlotContextRef)
+					: caseSlot(form.uuid, "case_operation_close_condition", op),
 				one.closeCondition.text,
 				one.closeCondition.site,
 				one.place,
@@ -3568,7 +3605,9 @@ function operationOf(
 	ownerChoice: "absent" | "acting-user",
 ): CaseOperation | undefined {
 	const repeat = one.block.repeat?.uuid;
-	const scopeLength = one.block.path.length - one.segments.length;
+	const scopeLength =
+		one.block.authoredScopeLength ??
+		one.block.path.length - one.segments.length;
 	const path = one.block.path.slice(scopeLength) as unknown as [
 		string,
 		...string[],
@@ -3639,6 +3678,12 @@ function operationOf(
 		id: one.id,
 		...(writes.length > 0 && { writes }),
 		...(one.name?.answer === undefined && { placement }),
+		...(one.action !== "own" &&
+			one.closeCondition !== undefined && {
+				closeCondition: placeholder("condition"),
+			}),
+		...((one.action === "create" || one.action === "update") &&
+			one.closes && { closeAfter: true as const }),
 	};
 	if (one.action === "own") {
 		// A registration's own arm names the case it creates; any other renames it.
@@ -3667,6 +3712,9 @@ function operationOf(
 		return {
 			...common,
 			action: "create",
+			...(one.ownerCondition !== undefined && {
+				ownerCondition: placeholder("condition"),
+			}),
 			caseType: one.caseType,
 			target: { kind: "new", ...(idFrom !== undefined && { idFrom }) },
 			name,
@@ -4034,10 +4082,13 @@ function blocksHold(
 	for (const one of reading.proposals) {
 		let shape: readonly SaveToCaseBlockSegment[] | undefined;
 		try {
-			shape = saveToCaseBlockShape(doc, form.uuid, {
-				kind: "operation",
-				operationUuid: one.uuid,
-			});
+			shape =
+				one.block.authoredScopeLength !== undefined
+					? ["block"]
+					: saveToCaseBlockShape(doc, form.uuid, {
+							kind: "operation",
+							operationUuid: one.uuid,
+						});
 		} catch (error) {
 			rethrowWorkStop(error);
 			shape = undefined;

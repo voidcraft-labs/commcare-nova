@@ -3423,6 +3423,33 @@
 		"gates": []
 	},
 	{
+		"id": "questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a positioned Save to Case block whose effect depends on its order beside a case action that HQ builds",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "positioned-case-change-coupled-to-hq-action",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: HQ adds its root case actions after the authored form and inserts a sole repeat child action at the start of its row (`app_manager/xform.py::_create_casexml`). Independent writes stay supported. If the actions could change the same property or link in a different order, change the type or lifecycle of the same case, or depend on the other action creating it, Nova holds the positioned change.",
+		"subject": "form-case-management",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type",
 		"area": "questions",
 		"section": "Question types",
@@ -3937,15 +3964,15 @@
 		"item": "a close-only SaveToCase block with a Close Condition",
 		"surfaceKeys": [
 			"mug:SaveToCase",
+			"xform:model/bind@relevant",
 			"vellum-plugin:saveToCase",
 			"jr-type:dateTime",
 			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "savetocase-close-only",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: two operations sharing the block: an update with no writes, which touches the case (a transaction and a new `modified_on`) on every submission that reaches the block, and a close under the Close Condition, since Vellum puts it on `…/case/close` alone (`saveToCase.js`; HQ processes a case block with no action, `form_processor/backends/sql/update_strategy.py`); Nova's close condition gates the whole block today",
-		"subject": "save-to-case",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a close condition on the close leaf. A false condition leaves a childless transaction, which contributes HQ history without changing the case before sync.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3967,12 +3994,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a SaveToCase block that creates or updates and also closes (under its own Close Condition) or closes and links",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@relevant"],
 		"valueClass": "write-and-close",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: two operations sharing the block, the create or update and a close of the same case under the block's Close Condition (Vellum makes only create and update exclusive, `saveToCase.js`, and puts the Close Condition on `…/case/close` alone; Nova's close arm today gates the whole operation and takes no links)",
-		"subject": "save-to-case",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: one change with a create or update and a close of the same case. Its close condition applies to the close leaf.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4019,11 +4045,37 @@
 		"id": "questions/savetocase-owner-id-condition",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase Owner ID Condition",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"item": "SaveToCase Owner ID Condition on a create with a fresh case ID",
+		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@relevant"],
 		"valueClass": "owner-id-condition",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `ownerCondition` on the create's owner leaf. When the condition is false, the submitting worker owns the new case.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`relevant` on the `owner_id` bind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-owner-condition-on-an-aliased-create",
+		"area": "questions",
+		"section": "Question types",
+		"item": "SaveToCase Owner ID Condition on a create that can reuse an existing case ID",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "aliased-create-owner-id-condition",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a condition on the owner write (Vellum writes it as `relevant` on the `create/owner_id` leaf, and a non-relevant owner is left out of the block)",
+		"dispositionCell": "**HELD-NEW**: If the owner leaf is absent, HQ preserves an existing owner and CommCare Core assigns the submitting worker.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {
@@ -4037,7 +4089,34 @@
 			}
 		},
 		"emission": {
-			"cell": "`relevant` on the `owner_id` bind",
+			"cell": "`relevant` on the `create/owner_id` bind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-update-owner-condition",
+		"area": "questions",
+		"section": "Question types",
+		"item": "SaveToCase custom Owner ID Condition on a case update",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "update-owner-id-condition",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: A separate condition on the owner write of a targeted update.",
+		"subject": "save-to-case",
+		"owner": "xform",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`relevant` on the `update/owner_id` bind",
 			"markers": []
 		},
 		"gates": []

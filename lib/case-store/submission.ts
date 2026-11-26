@@ -106,13 +106,11 @@ export interface OperationIterationBindings {
 }
 
 /**
- * One physical multiplicity scope in wire document order: the root
+ * Answer rows by repeat definition: the root
  * scope first (`repeat` absent, exactly one iteration), then each
  * repeat scope in post-order field traversal. A repeat scope carries
- * one entry per live iteration in instance order; the executor runs a
- * scope's operations iteration-major (all of iteration 1's operations,
- * then iteration 2's), matching how JavaRosa walks the submitted
- * instance's repeated operation groups.
+ * one entry per live iteration. The program's scope order walks nested
+ * rows where they occur inside the enclosing iteration.
  */
 export interface OperationScopeIterations {
 	/** Absent = the root scope. */
@@ -232,6 +230,22 @@ export interface CaseOperationProgram {
 	/** IDs supplied for exposed creations by this form’s authorized deep-link launch. */
 	readonly suppliedCaseIds?: ReadonlyMap<Uuid, string>;
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;
+	/** Server-derived physical row order for nested repeats. Root effects
+	 * come first; each nested repeat runs inside the enclosing iteration. */
+	readonly scopeOrder?: readonly {
+		readonly repeat?: Uuid;
+		readonly iteration: number;
+	}[];
+	/** Exact submitted-block order when the form positions case changes among
+	 * its answers. The server derives the operation IDs and order from the
+	 * committed submitted layout. An absent leaf covers its expected slot
+	 * but contributes no case block or history. */
+	readonly effectOrder?: readonly {
+		readonly repeat?: Uuid;
+		readonly iteration: number;
+		readonly operationUuids: readonly Uuid[];
+		readonly absent?: true;
+	}[];
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */
 	readonly sessionCaseIds?: ReadonlyArray<string>;
@@ -340,9 +354,11 @@ export interface OperationEffectRecord {
 	readonly selection: number;
 	readonly action: CaseOperation["action"];
 	readonly caseId: string;
-	/** False when the instance's conditions evaluated false — no effect
-	 * applied, recorded so tests can pin skip semantics. */
+	/** Whether the device applied an action from this case block. */
 	readonly executed: boolean;
+	/** A submitted block without a recognized action. HQ records the form
+	 * against the case, while the device leaves its case state alone. */
+	readonly childlessBlock?: true;
 }
 
 /** One concrete child a receipt written before child cases were operations

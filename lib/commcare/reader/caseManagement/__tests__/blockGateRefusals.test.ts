@@ -712,3 +712,120 @@ describe("Save to Case changes of the case a repeat's create makes, from outside
 				expect(outcome.findings[0]?.place).toMatchObject({ kind: "question" });
 			});
 });
+
+it("holds a case update between the same submitted questions after HQ read-back", async () => {
+	const change = update({
+		target: { kind: "expression", expr: term(literal("patient-01")) },
+		writes: [{ property: "outcome", value: answer }],
+	});
+	const position = testUuid("authored-case-update");
+	const doc = produce(app("survey", [change]), (draft) => {
+		delete draft.modules[draft.moduleOrder[0]].caseType;
+		draft.fields[position] = {
+			kind: "case_change",
+			id: "save_outcome",
+			uuid: position,
+			operationUuid: change.uuid,
+		};
+		draft.fieldParent[position] = FORM;
+		draft.fieldOrder[FORM].splice(1, 0, position);
+	});
+	expect(gateCodes(doc)).toEqual([]);
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	expect(outcome.draft.doc.fieldOrder[FORM].slice(0, 3)).toEqual([
+		NOTE,
+		position,
+		MANY,
+	]);
+	expect(outcome.draft.doc.fields[position]).toMatchObject({
+		kind: "case_change",
+		operationUuid: change.uuid,
+	});
+	expect(
+		outcome.draft.doc.forms[FORM].caseOperations?.map((entry) => entry.uuid),
+	).toEqual([change.uuid]);
+});
+
+it("accounts for a positioned block whose write may race the managed action on the same case", async () => {
+	const change = update({
+		target: { kind: "expression", expr: term(literal("patient-01")) },
+		writes: [{ property: "outcome", value: term(literal("authored outcome")) }],
+	});
+	const position = testUuid("authored-case-order-violation");
+	const doc = produce(app("followup", [own, change]), (draft) => {
+		draft.fields[position] = {
+			kind: "case_change",
+			id: "save_outcome",
+			uuid: position,
+			operationUuid: change.uuid,
+		};
+		draft.fieldParent[position] = FORM;
+		draft.fieldOrder[FORM].splice(1, 0, position);
+	});
+	expect(gateCodes(doc)).toContain("CASE_CHANGE_POSITION_INVALID");
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "account")
+		throw new Error("Expected a positioned case order refusal.");
+	expect(outcome.findings.map((finding) => finding.code)).toEqual([
+		"questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+	]);
+});
+
+it.each(["close", "update", "create"] as const)(
+	"keeps the %s block's close condition separate from its own relevance",
+	async (action) => {
+		const change =
+			action === "create"
+				? visitCreate({ closeAfter: true, closeCondition: onYes })
+				: update({
+						action,
+						target: { kind: "expression", expr: term(literal("patient-01")) },
+						closeCondition: onYes,
+						...(action === "update" && {
+							closeAfter: true,
+							writes: [{ property: "outcome", value: answer }],
+						}),
+					});
+		const doc = produce(app("survey", [change]), (draft) => {
+			delete draft.modules[draft.moduleOrder[0]].caseType;
+		});
+		expect(gateCodes(doc)).toEqual([]);
+		const outcome = await readBack(doc);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		const [read] = outcome.draft.doc.forms[FORM].caseOperations ?? [];
+		expect(read).toMatchObject({
+			uuid: change.uuid,
+			action,
+			closeCondition: onYes,
+		});
+		expect(read.condition).toBeUndefined();
+		expect(read.closeAfter).toBe(action === "close" ? undefined : true);
+	},
+);
+
+it("keeps the owner condition on the create leaf of a fresh case", async () => {
+	const change = visitCreate({
+		owner: term(literal("team-01")),
+		ownerCondition: onYes,
+	});
+	const doc = produce(app("survey", [change]), (draft) => {
+		delete draft.modules[draft.moduleOrder[0]].caseType;
+	});
+	expect(gateCodes(doc)).toEqual([]);
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	expect(outcome.draft.doc.forms[FORM].caseOperations).toEqual([
+		{
+			...change,
+			placement: { kind: "save-to-case", path: ["nova_operations", "mk"] },
+		},
+	]);
+});

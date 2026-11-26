@@ -1183,6 +1183,397 @@ describe("ordered selected-case batches", () => {
 		}
 	});
 
+	it("separates a childless close's server history from an active close and an absent block", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const older = new Date("2025-01-01T00:00:00Z");
+		await (dbHandle.db as Kysely<Database>)
+			.updateTable("cases")
+			.set({ modified_on: older })
+			.where("case_id", "=", SESSION_CASE_ID)
+			.execute();
+		const existingTarget = {
+			kind: "expression",
+			expr: term(literal(SESSION_CASE_ID)),
+		} as const;
+		const predicate = (matches: boolean) =>
+			eq(literal(matches ? "yes" : "no"), literal("yes"));
+		const close: TargetedCaseOperation = {
+			uuid: OP_A,
+			id: "close_patient",
+			action: "close",
+			caseType: "patient",
+			target: existingTarget,
+			closeCondition: predicate(false),
+		};
+		const request = (
+			targeted: TargetedCaseOperation,
+			opening?: OpeningReadSet,
+		): TestSubmissionArgs => ({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...rootProgram([envOp(targeted)], { sessionCaseId: null }),
+				...(opening && { openingReads: opening }),
+			},
+		});
+		const absent = await submit(
+			store,
+			request({ ...close, condition: predicate(false) }),
+		);
+		expect(absent.operations).toEqual([
+			expect.objectContaining({ caseId: "", executed: false }),
+		]);
+		expect(absent.operations[0]).not.toHaveProperty("childlessBlock");
+		expect((await patientRow(store, SESSION_CASE_ID))?.modified_on).toEqual(
+			older,
+		);
+
+		const opening: OpeningReadSet = {
+			cases: { rows: [], indices: [], propertyTypes: {} },
+			currentOwnerIds: [ACTOR],
+			lookupRows: [],
+		};
+		await expect(
+			submit(
+				store,
+				request(
+					{
+						...close,
+						target: { kind: "expression", expr: term(literal("unknown-case")) },
+					},
+					opening,
+				),
+			),
+		).rejects.toMatchObject({
+			rejection: { kind: "target", reason: "not-found-or-out-of-scope" },
+		});
+		expect(await patientRow(store, "unknown-case")).toBeUndefined();
+
+		const childlessRequest = request(close, opening);
+		const childlessClaim = {
+			...childlessRequest,
+			submissionReceipt: receiptFor(childlessRequest),
+		};
+		const childless = await store.applySubmission(childlessClaim);
+		expect(childless.operations).toEqual([
+			expect.objectContaining({
+				caseId: SESSION_CASE_ID,
+				executed: false,
+				childlessBlock: true,
+			}),
+		]);
+		expect(childless.caseDatabasePatch?.rows).toEqual([]);
+		const afterChildless = await patientRow(store, SESSION_CASE_ID);
+		expect(afterChildless?.status).toBe("open");
+		expect(afterChildless?.modified_on?.getTime()).toBeGreaterThan(
+			older.getTime(),
+		);
+		expect(await store.applySubmission(childlessClaim)).toEqual(childless);
+
+		const activeRequest = request(
+			{ ...close, closeCondition: predicate(true) },
+			opening,
+		);
+		const activeClaim = {
+			...activeRequest,
+			submissionReceipt: receiptFor(activeRequest),
+		};
+		await expect(store.applySubmission(activeClaim)).rejects.toMatchObject({
+			rejection: { kind: "target", reason: "not-found-or-out-of-scope" },
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.modified_on).toEqual(
+			afterChildless?.modified_on,
+		);
+		if (!activeClaim.operations || !afterChildless?.modified_on)
+			throw new Error("Expected case and program");
+		// Retry the same claim with the signed device row restored.
+		const recovered = await store.applySubmission({
+			...activeClaim,
+			operations: {
+				...activeClaim.operations,
+				openingReads: {
+					...opening,
+					cases: { ...opening.cases, rows: [afterChildless] },
+				},
+			},
+		});
+		expect(recovered.operations).toEqual([
+			expect.objectContaining({ caseId: SESSION_CASE_ID, executed: true }),
+		]);
+		expect(recovered.operations[0]).not.toHaveProperty("childlessBlock");
+		expect(recovered.caseDatabasePatch?.rows[0]?.status).toBe("closed");
+		expect(
+			recovered.caseDatabasePatch?.rows[0]?.modified_on?.getTime(),
+		).toBeGreaterThan(afterChildless.modified_on.getTime());
+
+		const irrelevantUpdate = await submit(
+			store,
+			request({
+				...close,
+				action: "update",
+				closeAfter: true,
+				closeCondition: predicate(false),
+				writes: literalWrites({ notes: "never saved" }).map((write) => ({
+					...write,
+					condition: predicate(false),
+				})),
+			}),
+		);
+		expect(irrelevantUpdate.caseDatabasePatch?.rows[0]).toMatchObject({
+			status: "closed",
+			properties: { notes: "original" },
+		});
+		expect(
+			irrelevantUpdate.caseDatabasePatch?.rows[0]?.modified_on?.getTime(),
+		).toBeGreaterThan(
+			recovered.caseDatabasePatch?.rows[0]?.modified_on?.getTime() ?? 0,
+		);
+
+		const writtenAndClosed = await submit(
+			store,
+			request({
+				...close,
+				action: "update",
+				closeAfter: true,
+				closeCondition: predicate(true),
+				writes: literalWrites({ notes: "saved before closing" }),
+			}),
+		);
+		expect(writtenAndClosed.caseDatabasePatch?.rows[0]).toMatchObject({
+			status: "closed",
+			properties: { notes: "saved before closing" },
+		});
+	});
+
+	it("applies nested repeat case effects within each enclosing row and replays that state", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const inner = testUuid("nested-iteration");
+		const record = (
+			uuid: Uuid,
+			repeat: Uuid,
+			id: string,
+			condition?: TargetedCaseOperation["condition"],
+		) =>
+			operation({
+				uuid,
+				id,
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				forEach: { repeat },
+				...(condition !== undefined && { condition }),
+				writes: [{ property: "notes", value: term(formField(KEY_FIELD)) }],
+			});
+		const program = rootProgram([
+			envOp(record(OP_A, inner, "inner_notes")),
+			envOp(
+				record(
+					OP_B,
+					REPEAT_UUID,
+					"outer_notes",
+					eq(formField(KEY_FIELD), literal("outer row one")),
+				),
+			),
+		]);
+		const request = {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...program,
+				scopes: [
+					...program.scopes,
+					{
+						repeat: inner,
+						iterations: ["inner row one", "inner row two"].map((value) => ({
+							formFields: new Map([[KEY_FIELD, value]]),
+						})),
+					},
+					{
+						repeat: REPEAT_UUID,
+						iterations: ["outer row one", "skip outer row two"].map(
+							(value) => ({ formFields: new Map([[KEY_FIELD, value]]) }),
+						),
+					},
+				],
+				scopeOrder: [
+					{ iteration: 0 },
+					{ repeat: inner, iteration: 0 },
+					{ repeat: REPEAT_UUID, iteration: 0 },
+					{ repeat: inner, iteration: 1 },
+					{ repeat: REPEAT_UUID, iteration: 1 },
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		await expect(
+			store.applySubmission({
+				...claim,
+				operations: {
+					...claim.operations,
+					scopeOrder: claim.operations.scopeOrder.slice(0, -1),
+				},
+			}),
+		).rejects.toThrow("schedule each live row once");
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({
+			notes: "original",
+		});
+		const saved = await store.applySubmission(claim);
+		expect(
+			saved.operations.map((effect) => [
+				effect.operationUuid,
+				effect.iteration,
+				effect.executed,
+			]),
+		).toEqual([
+			[OP_A, 0, true],
+			[OP_B, 0, true],
+			[OP_A, 1, true],
+			[OP_B, 1, false],
+		]);
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({
+			notes: "inner row two",
+		});
+		expect(await store.applySubmission(claim)).toEqual(saved);
+	});
+
+	it("omits a conditional create owner before evaluation and keeps each row's resolved owner on replay", async () => {
+		const store = makeStore();
+		const root = operation({
+			uuid: OP_A,
+			id: "group_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: term(literal("Group patient")),
+		});
+		const repeating = operation({
+			uuid: OP_B,
+			id: "repeat_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: term(literal("Repeated patient")),
+			forEach: { repeat: REPEAT_UUID },
+			owner: term(formField(KEY_FIELD)),
+			ownerCondition: eq(formField(FLAG_FIELD), literal("assign")),
+		});
+		const program = rootProgram([envOp(root), envOp(repeating)], {
+			sessionCaseId: null,
+		});
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...program,
+				groupDefaults: { owner: "team-1", operations: [OP_A, OP_B] },
+				scopes: [
+					...program.scopes,
+					{
+						repeat: REPEAT_UUID,
+						iterations: [
+							{ formFields: new Map([[FLAG_FIELD, "skip"]]) },
+							{
+								formFields: new Map([
+									[FLAG_FIELD, "assign"],
+									[KEY_FIELD, "supervisor-9"],
+								]),
+							},
+						],
+					},
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const saved = await store.applySubmission(claim);
+		expect(
+			saved.operations.map(({ operationUuid, iteration }) => [
+				operationUuid,
+				iteration,
+			]),
+		).toEqual([
+			[OP_A, 0],
+			[OP_B, 0],
+			[OP_B, 1],
+		]);
+		const rows = await Promise.all(
+			saved.operations.map(({ caseId }) => patientRow(store, caseId)),
+		);
+		expect(rows.map((row) => row?.owner_id)).toEqual([
+			"team-1",
+			ACTOR,
+			"supervisor-9",
+		]);
+		expect(await store.applySubmission(claim)).toEqual(saved);
+	});
+
+	it("applies authored case changes within a row and omits absent positions on replay", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const write = (uuid: Uuid, id: string) =>
+			envOp(
+				operation({
+					uuid,
+					id,
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					forEach: { repeat: REPEAT_UUID },
+					writes: [{ property: "notes", value: term(literal(id)) }],
+				}),
+			);
+		const program = rootProgram([
+			write(OP_A, "generated"),
+			write(OP_B, "positioned"),
+		]);
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...program,
+				scopes: [
+					...program.scopes,
+					{
+						repeat: REPEAT_UUID,
+						iterations: [{ formFields: new Map() }, { formFields: new Map() }],
+					},
+				],
+				effectOrder: [
+					{ repeat: REPEAT_UUID, iteration: 0, operationUuids: [OP_B] },
+					{ repeat: REPEAT_UUID, iteration: 0, operationUuids: [OP_A] },
+					{
+						repeat: REPEAT_UUID,
+						iteration: 1,
+						operationUuids: [OP_B],
+						absent: true,
+					},
+					{ repeat: REPEAT_UUID, iteration: 1, operationUuids: [OP_A] },
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const effects = await store.applySubmission(claim);
+		expect(
+			effects.operations.map((effect) => [
+				effect.operationUuid,
+				effect.iteration,
+			]),
+		).toEqual([
+			[OP_B, 0],
+			[OP_A, 0],
+			[OP_A, 1],
+		]);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			properties: { notes: "generated" },
+		});
+		expect(await store.applySubmission(claim)).toEqual(effects);
+	});
+
 	it("runs repeat outer by selected case inner with one session anchor per case", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice");
@@ -3427,11 +3818,24 @@ describe("the form's own case", () => {
 					: entry,
 			),
 		});
-		await submit(store, {
+		const request = {
 			appId: APP_ID,
 			ordinary: followupOrdinary(),
 			operations: withVia(ownProgram("followup", [viaParent("from child")])),
-		});
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const saved = await store.applySubmission(claim);
+		expect(saved.caseDatabasePatch?.rows).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					case_id: HOUSEHOLD_ID,
+					properties: expect.objectContaining({ notes: "from child" }),
+				}),
+			]),
+		);
+		expect((await store.applySubmission(claim)).caseDatabasePatch).toEqual(
+			saved.caseDatabasePatch,
+		);
 		expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject({
 			notes: "from child",
 		});

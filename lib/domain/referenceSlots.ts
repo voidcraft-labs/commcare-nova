@@ -306,6 +306,13 @@ export const FIELD_REFERENCE_SLOTS = [
 			"geopoint",
 		],
 	},
+	{
+		entity: "field",
+		slot: "case_change_operation",
+		path: "operationUuid",
+		kind: "entity-uuid",
+		appliesTo: ["case_change"],
+	},
 	// Entry order is observable: consumers that walk a field's slots in
 	// registry order (the rename rewriters, the deep validator's scan —
 	// whose error order user-facing surfaces preserve) see slots in this
@@ -650,6 +657,13 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "case_operation_close_condition",
+		path: "caseOperations[].closeCondition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "case_operation_name",
 		path: "caseOperations[].name",
 		kind: "expression",
@@ -659,6 +673,13 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "case_operation_owner",
 		path: "caseOperations[].owner",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_owner_condition",
+		path: "caseOperations[].ownerCondition",
 		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
@@ -1450,8 +1471,10 @@ function expressionRefForEntry(
 		}
 		case "case_operation_target_expression":
 		case "case_operation_condition":
+		case "case_operation_close_condition":
 		case "case_operation_name":
 		case "case_operation_owner":
+		case "case_operation_owner_condition":
 		case "case_operation_rename": {
 			const operation = form.caseOperations?.[indices[0] ?? -1];
 			return operation === undefined
@@ -2253,6 +2276,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",
 	"caseOperations[].action": "discriminator",
+	"caseOperations[].closeAfter": "config",
 	"caseOperations[].target.kind": "discriminator",
 	"caseOperations[].links[].identifier": "wire-token",
 	"caseOperations[].links[].target.kind": "discriminator",

@@ -1,6 +1,8 @@
 package nova.compatibility;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -585,6 +587,74 @@ public class CaseOperationRuntimeTest {
         assertEquals(4, run.sandbox.getCaseStorage().getNumRecords());
         assertEquals("Visit 2", run.record(expected).getName());
     }
+    /** The same submitted rows as the HQ case-processing control. Core
+     * applies the later create to an existing id after the earlier update. */
+    @Test public void submittedOrderChangesAnExistingAliasAndKeepsIndependentEffects() throws Exception {
+        String prefix = "nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:";
+        String conflict = prefix + "conflict";
+        String commuting = prefix + "commuting";
+        String distinct = "distinct-existing";
+        MockUserDataSandbox sandbox = MockDataUtils.getStaticStorage();
+        for (String id : new String[]{conflict, commuting, distinct}) {
+            Case person = new Case("Original", "person");
+            person.setCaseId(id);
+            person.setUserId("u-1");
+            person.setProperty("visits", "1");
+            sandbox.getCaseStorage().write(person);
+        }
+        try (InputStream submitted = getClass().getResourceAsStream("/case-order/update-before-create.xml")) {
+            assertNotNull(submitted);
+            XmlFormRecordProcessor.process(sandbox, submitted);
+        }
+        var cases = sandbox.getCaseStorage();
+        assertEquals("Created last", cases.getRecordForValue(Case.INDEX_CASE_ID, conflict).getName());
+        Case independentWrites = cases.getRecordForValue(Case.INDEX_CASE_ID, commuting);
+        assertEquals("Kept commuting", independentWrites.getName());
+        assertEquals("2", independentWrites.getPropertyString("visits"));
+        assertEquals("Different target", cases.getRecordForValue(Case.INDEX_CASE_ID, distinct).getName());
+        assertEquals("Fresh independent", cases.getRecordForValue(Case.INDEX_CASE_ID, prefix + "fresh").getName());
+    }
+
+    @Test public void childlessBlocksDoNotLoadOrStampCasesOnTheDevice() throws Exception {
+        String source;
+        try (InputStream input = getClass().getResourceAsStream("/case-order/optional-case-action.xml")) {
+            assertNotNull(input);
+            source = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        String block = "<case xmlns='http://commcarehq.org/case/transaction/v2' "
+            + "case_id='c-known' date_modified='2026-09-30T10:00:00Z' user_id='u-1'>%s</case>";
+        Date before = Date.from(Instant.parse("2025-09-30T10:00:00Z"));
+        Date submitted = Date.from(Instant.parse("2026-09-30T10:00:00Z"));
+        for (String leaf : new String[]{"<close/>", "", "<update/>", null}) {
+            String xml = source.replace("<!--case-block-->", leaf == null ? "" : String.format(block, leaf));
+            byte[] data = xml.getBytes(StandardCharsets.UTF_8);
+            MockUserDataSandbox sandbox = MockDataUtils.getStaticStorage();
+            Case known = new Case("Case", "person");
+            known.setCaseId("c-known");
+            known.setUserId("u-1");
+            known.setLastModified(before);
+            sandbox.getCaseStorage().write(known);
+            XmlFormRecordProcessor.process(sandbox, new ByteArrayInputStream(data));
+            Case after = sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, "c-known");
+            boolean action = leaf != null && !leaf.isEmpty();
+            assertEquals(action ? submitted : before, after.getLastModified());
+            assertEquals("<close/>".equals(leaf), after.isClosed());
+
+            MockUserDataSandbox withoutCase = MockDataUtils.getStaticStorage();
+            if (action) {
+                assertThrows(InvalidStructureException.class,
+                    () -> XmlFormRecordProcessor.process(withoutCase, new ByteArrayInputStream(data)));
+            } else {
+                XmlFormRecordProcessor.process(withoutCase, new ByteArrayInputStream(data));
+                assertEquals(0, withoutCase.getCaseStorage().getNumRecords());
+            }
+        }
+        String emptyId = source.replace("<!--case-block-->", String.format(block, "").replace("c-known", ""));
+        assertThrows(InvalidStructureException.class,
+            () -> XmlFormRecordProcessor.process(MockDataUtils.getStaticStorage(),
+                new ByteArrayInputStream(emptyId.getBytes(StandardCharsets.UTF_8))));
+    }
+
     @Test public void dynamicLinkTargetRefusals() throws Exception {
         Run good = run("link");
         good.answer("/data/destination", "patient-2");

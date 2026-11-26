@@ -174,6 +174,8 @@ export const FieldRow = memo(function FieldRow({
 					? "Connect assessment"
 					: q.activity.name}
 			</span>
+		) : q.kind === "case_change" ? (
+			<span className="text-xs text-nova-text-muted">Case change</span>
 		) : q.kind === "hidden" ? (
 			<HiddenField field={q} />
 		) : isContainer(q) ? null : (

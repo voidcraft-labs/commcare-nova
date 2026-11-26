@@ -1348,6 +1348,7 @@ const EMITTED: { readonly [K in FieldKind]: readonly KindFixture[] } = {
 			],
 		},
 	],
+	case_change: [], // Read with the case-change block, outside scalar kind selection.
 	connect_activity: [
 		{
 			fields: [

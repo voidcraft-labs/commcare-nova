@@ -805,6 +805,7 @@ const coreSchemas: {
 	signature: signatureFieldEditorSchema,
 	label: labelFieldEditorSchema,
 	hidden: hiddenFieldEditorSchema,
+	case_change: { data: [], logic: [], ui: [] },
 	connect_activity: {
 		data: [
 			{ key: "activity", label: "Activity", component: ConnectActivityEditor },

@@ -44,6 +44,7 @@ import {
 import { audioFieldSchema } from "../fields/audio";
 import { barcodeFieldSchema } from "../fields/barcode";
 import { selectOptionSchema } from "../fields/base";
+import { caseChangeFieldSchema } from "../fields/caseChange";
 import { connectActivityFieldSchema } from "../fields/connectActivity";
 import { dateFieldSchema } from "../fields/date";
 import { datetimeFieldSchema } from "../fields/datetime";
@@ -136,6 +137,7 @@ const NON_REPEAT_KIND_SCHEMAS: Record<
 	secret: secretFieldSchema,
 	group: groupFieldSchema,
 	section: sectionFieldSchema,
+	case_change: caseChangeFieldSchema,
 	connect_activity: connectActivityFieldSchema,
 };
 

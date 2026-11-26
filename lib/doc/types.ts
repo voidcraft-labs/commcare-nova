@@ -751,6 +751,7 @@ const updateFieldPatchSchemaByKind = {
 	signature: fieldPatchWithValidId(fieldPatchSchemaByKind.signature),
 	label: fieldPatchWithValidId(fieldPatchSchemaByKind.label),
 	hidden: fieldPatchWithValidId(fieldPatchSchemaByKind.hidden),
+	case_change: fieldPatchWithValidId(fieldPatchSchemaByKind.case_change),
 	connect_activity: fieldPatchWithValidId(
 		fieldPatchSchemaByKind.connect_activity,
 	),

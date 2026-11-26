@@ -12,6 +12,8 @@ import {
 } from "@/lib/domain";
 import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import { firstModuleListingForm } from "@/lib/domain/formMembership";
+import { CASE_SCALAR_PROPERTY_NAMES } from "@/lib/domain/standardCaseProperties";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { deepEqual } from "./deepEqual";
 import { orderedFieldUuids } from "./fieldWalk";
 
@@ -109,6 +111,8 @@ export function caseOperationDependencyUuids(
 		operation.name,
 		operation.owner,
 		operation.rename,
+		operation.closeCondition,
+		operation.ownerCondition,
 	]) {
 		if (expression !== undefined)
 			collectExpressionDependencies(expression, refs);
@@ -134,6 +138,104 @@ function collectExpressionDependencies(
 	});
 }
 
+type CaseEffectLayoutNode =
+	| {
+			readonly kind: "generated";
+			readonly operations: readonly CaseOperation[];
+	  }
+	| {
+			readonly kind: "positioned";
+			readonly fieldUuid: Uuid;
+			readonly operation: CaseOperation;
+	  }
+	| {
+			readonly kind: "repeat";
+			readonly repeat: Uuid;
+			readonly children: readonly CaseEffectLayoutNode[];
+	  };
+
+/** The case blocks' order in the authored submission template. The root's
+ * generated ordinary group leads; a repeat's group comes after its children.
+ * A live submission expands a repeat node in concrete row order. Documents
+ * without positioned blocks keep their established operation-group order. */
+export function caseEffectLayout(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operations: readonly CaseOperation[],
+): readonly CaseEffectLayoutNode[] | undefined {
+	const { children, parents } = submissionLayout(
+		formUuid,
+		doc.fields,
+		doc.fieldOrder,
+	);
+	const positions = new Map<Uuid, Uuid>();
+	for (const uuid of parents.keys()) {
+		const field = doc.fields[uuid];
+		if (field?.kind === "case_change") positions.set(field.operationUuid, uuid);
+	}
+	if (positions.size === 0) return undefined;
+
+	const positioned = new Map<Uuid, CaseOperation>();
+	const generated = new Map<Uuid | undefined, CaseOperation[]>();
+	for (const operation of operations) {
+		const fieldUuid = positions.get(operation.uuid);
+		if (fieldUuid !== undefined) positioned.set(fieldUuid, operation);
+		else {
+			const repeat = operation.forEach?.repeat;
+			const group = generated.get(repeat) ?? [];
+			group.push(operation);
+			generated.set(repeat, group);
+		}
+	}
+	const generatedAt = (repeat?: Uuid): CaseEffectLayoutNode[] => {
+		const group = generated.get(repeat);
+		return group ? [{ kind: "generated", operations: group }] : [];
+	};
+	const walk = (parent: Uuid): CaseEffectLayoutNode[] => {
+		const nodes: CaseEffectLayoutNode[] = [];
+		for (const uuid of children.get(parent) ?? []) {
+			const field = doc.fields[uuid];
+			if (field === undefined) continue;
+			if (field.kind === "case_change") {
+				const operation = positioned.get(uuid);
+				if (operation)
+					nodes.push({ kind: "positioned", fieldUuid: uuid, operation });
+			} else if (field.kind === "repeat") {
+				const nested = [...walk(uuid), ...generatedAt(uuid)];
+				if (nested.length > 0)
+					nodes.push({ kind: "repeat", repeat: uuid, children: nested });
+			} else nodes.push(...walk(uuid));
+		}
+		return nodes;
+	};
+	return [...generatedAt(), ...walk(formUuid)];
+}
+
+function caseOperationsInLayout(
+	layout: readonly CaseEffectLayoutNode[],
+): CaseOperation[] {
+	return layout.flatMap((node) => {
+		if (node.kind === "generated") return [...node.operations];
+		if (node.kind === "positioned") return [node.operation];
+		return caseOperationsInLayout(node.children);
+	});
+}
+
+/** Legacy and authored forms expose one conservative operation sequence to
+ * the compiler and validator. A malformed position is reported separately. */
+export function caseOperationsInSubmissionOrder(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operations: readonly CaseOperation[] = orderedCaseOperations(
+		doc.forms[formUuid] ?? {},
+	),
+): readonly CaseOperation[] {
+	const layout = caseEffectLayout(doc, formUuid, operations);
+	if (!layout) return operations;
+	const positioned = caseOperationsInLayout(layout);
+	return positioned.length === operations.length ? positioned : operations;
+}
+
 /**
  * Multiplicity scopes in the order JavaRosa encounters their case-operation
  * groups in the submitted primary instance.
@@ -150,13 +252,29 @@ export function caseOperationMultiplicityScopes(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): Array<Uuid | undefined> {
-	const scopes: Array<Uuid | undefined> = [undefined];
-	const walk = (parentUuid: Uuid): void => {
-		for (const uuid of orderedFieldUuids(doc, parentUuid)) {
+	return [
+		undefined,
+		...caseOperationRepeatScopes(doc, formUuid).map((scope) => scope.repeat),
+	];
+}
+
+/** Repeat definitions in post-order, with the repeat that encloses each row. */
+export function caseOperationRepeatScopes(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Array<{ readonly repeat: Uuid; readonly parentRepeat?: Uuid }> {
+	const scopes: Array<{ repeat: Uuid; parentRepeat?: Uuid }> = [];
+	const walk = (parent: Uuid, enclosing?: Uuid): void => {
+		for (const uuid of orderedFieldUuids(doc, parent)) {
 			const field = doc.fields[uuid];
 			if (field === undefined) continue;
-			walk(uuid);
-			if (field.kind === "repeat") scopes.push(uuid);
+			if (field.kind === "repeat") {
+				walk(uuid, uuid);
+				scopes.push({
+					repeat: uuid,
+					...(enclosing && { parentRepeat: enclosing }),
+				});
+			} else walk(uuid, enclosing);
 		}
 	};
 	walk(formUuid);
@@ -205,6 +323,7 @@ export function caseOperationWireOrderViolationDetails(
 		doc.forms[formUuid] ?? {},
 	),
 ): CaseOperationWireOrderViolation[] {
+	const layout = caseEffectLayout(doc, formUuid, operations);
 	const scopeRank = new Map(
 		caseOperationMultiplicityScopes(doc, formUuid).map((scope, index) => [
 			scope,
@@ -213,12 +332,18 @@ export function caseOperationWireOrderViolationDetails(
 	);
 	const repeatedAncestors = repeatedOperationScopeAncestors(doc, formUuid);
 	const createsByUuid = registrationOwnCreates(doc, formUuid, operations);
-	const repeatedAuthoredCreates: CaseOperation[] = [];
+	const repeatedAuthoredCreates: TargetedCaseOperation[] = [];
+	const earlierNonCreates: TargetedCaseOperation[] = [];
 	let furthestRank = -1;
-	let sawNonCreate = false;
 	const broken: CaseOperationWireOrderViolation[] = [];
-	for (const operation of targetedOperations(operations)) {
-		const rank = scopeRank.get(operation.forEach?.repeat);
+	const physical = layout && caseOperationsInLayout(layout);
+	const ordered =
+		physical?.length === operations.length ? physical : operations;
+	for (const operation of targetedOperations(ordered)) {
+		const rank =
+			ordered === operations
+				? scopeRank.get(operation.forEach?.repeat)
+				: undefined;
 		if (rank !== undefined) {
 			if (rank < furthestRank) {
 				broken.push({
@@ -230,59 +355,52 @@ export function caseOperationWireOrderViolationDetails(
 		// HQ sorts blocks for one case create-first while Core follows document
 		// order. A generated uuid is fresh, but a namespaced authored key is a
 		// deterministic upsert identity and may already exist from an earlier
-		// submission; therefore its create cannot appear after a non-create block
-		// whose runtime id might resolve to that same case.
-		if (
-			operation.action === "create" &&
-			operation.target.kind === "new" &&
-			operation.target.idFrom !== undefined &&
-			sawNonCreate
-		) {
-			broken.push({
-				operationUuid: operation.uuid,
-				kind: "authored-create-after-noncreate",
-			});
-		}
-		if (operation.action !== "create") {
-			sawNonCreate = true;
-			if (operation.target.kind !== "new") {
-				for (const producer of repeatedAuthoredCreates) {
-					if (
-						!operationScopesShareRepeatedExecutionAncestor(
-							repeatedAncestors,
-							producer.forEach?.repeat,
-							operation.forEach?.repeat,
-						) ||
-						caseOperationTargetsProvablyDistinct(
-							{ kind: "op", opUuid: producer.uuid },
-							operation.target,
-							createsByUuid,
-						)
-					) {
-						continue;
-					}
-					// Core walks submitted repeat instances in iteration-major order,
-					// while HQ groups blocks by concrete case id and stable-sorts every
-					// create before non-create effects. Duplicate authored keys make
-					// C1,U1,C2,U2 one case and HQ turns that into C1,C2,U1,U2. If
-					// producer and consumer share any repeated execution ancestor,
-					// Nova cannot promise the two processors the same result.
-					broken.push({
-						operationUuid: operation.uuid,
-						kind: "repeated-authored-key-alias",
-						producerUuid: producer.uuid,
-					});
-				}
-			}
-		} else {
+		// submission. A non-create block before it matters only when the two
+		// processors can disagree about their shared case.
+		if (operation.action === "create") {
 			createsByUuid.set(operation.uuid, operation);
 			if (
-				operation.target.kind === "new" &&
-				operation.target.idFrom !== undefined &&
-				operation.forEach !== undefined
+				operation.target.kind !== "new" ||
+				operation.target.idFrom === undefined
+			)
+				continue;
+			if (
+				earlierNonCreates.some((earlier) =>
+					keyedCreateOrderMatters(operation, earlier, createsByUuid),
+				)
 			) {
-				repeatedAuthoredCreates.push(operation);
+				broken.push({
+					operationUuid: operation.uuid,
+					kind: "authored-create-after-noncreate",
+				});
 			}
+			if (operation.forEach !== undefined)
+				repeatedAuthoredCreates.push(operation);
+			continue;
+		}
+		earlierNonCreates.push(operation);
+		for (const producer of repeatedAuthoredCreates) {
+			if (
+				!operationScopesShareRepeatedExecutionAncestor(
+					repeatedAncestors,
+					producer.forEach?.repeat,
+					operation.forEach?.repeat,
+				) ||
+				!keyedCreateOrderMatters(producer, operation, createsByUuid)
+			) {
+				continue;
+			}
+			// Core walks submitted repeat instances in iteration-major order,
+			// while HQ groups blocks by concrete case id and stable-sorts every
+			// create before non-create effects. Duplicate authored keys make
+			// C1,U1,C2,U2 one case and HQ turns that into C1,C2,U1,U2. If
+			// effects of the producer and consumer are order-sensitive
+			// and they share a repeated execution ancestor, the results may differ.
+			broken.push({
+				operationUuid: operation.uuid,
+				kind: "repeated-authored-key-alias",
+				producerUuid: producer.uuid,
+			});
 		}
 	}
 	return [
@@ -293,6 +411,55 @@ export function caseOperationWireOrderViolationDetails(
 			]),
 		).values(),
 	];
+}
+
+/** An earlier update of a distinct row or of disjoint ordinary properties
+ * commutes with the keyed create. Update targets come from the entry casedb
+ * or an earlier create's correlated row, so this never relies on the later
+ * create to supply a case that the device could not update. */
+function keyedCreateOrderMatters(
+	create: TargetedCaseOperation,
+	operation: TargetedCaseOperation,
+	creates: ReadonlyMap<Uuid, CaseOperation>,
+): boolean {
+	if (operation.target.kind === "new") return false;
+	// A managed worker-record effect comes from HQ's action plan, not the
+	// generated Save to Case group whose placement this proof can compare.
+	if (operation.target.kind === "worker-record") return true;
+	const writes = operation.writes ?? [];
+	// An index write to an ancestor has a separate target and block.
+	if (writes.some((write) => (write.via?.length ?? 0) > 0)) return true;
+	if (
+		caseOperationTargetsProvablyDistinct(
+			{ kind: "op", opUuid: create.uuid },
+			operation.target,
+			creates,
+		)
+	)
+		return false;
+
+	if (
+		operation.action !== "update" ||
+		operation.caseType !== create.caseType ||
+		operation.rename !== undefined ||
+		operation.owner !== undefined ||
+		operation.retype !== undefined ||
+		operation.closeAfter ||
+		(operation.links?.length ?? 0) > 0 ||
+		writes.length === 0 ||
+		create.writes?.some((write) => (write.via?.length ?? 0) > 0)
+	)
+		return true;
+	const createdProperties = new Set(
+		create.writes?.map((write) => write.property),
+	);
+	return writes.some(
+		({ property }) =>
+			createdProperties.has(property) ||
+			CASE_SCALAR_PROPERTY_NAMES.has(property) ||
+			property === "name" ||
+			property === "hq_user_id",
+	);
 }
 
 /** Repeat scopes whose runtime iterations enclose each operation scope,
@@ -471,6 +638,7 @@ export function possibleFinalSessionCaseTypes(
 		doc.forms[formUuid] ?? {},
 	),
 ): ReadonlySet<string> {
+	const physical = caseOperationsInSubmissionOrder(doc, formUuid, operations);
 	const initialCaseType = moduleCaseTypeForForm(doc, formUuid);
 	if (initialCaseType === undefined) return new Set();
 
@@ -484,7 +652,7 @@ export function possibleFinalSessionCaseTypes(
 	);
 	const aliasFacts = sessionAliasFactsByOperation(operations);
 	const conservativeTypes = new Set<string>([initialCaseType]);
-	for (const operation of targetedOperations(operations)) {
+	for (const operation of targetedOperations(physical)) {
 		if (
 			operation.action !== "create" &&
 			operation.retype !== undefined &&
@@ -502,7 +670,7 @@ export function possibleFinalSessionCaseTypes(
 		},
 	];
 
-	for (const operation of targetedOperations(operations)) {
+	for (const operation of targetedOperations(physical)) {
 		if (
 			operation.action === "create" ||
 			operation.retype === undefined ||
@@ -612,6 +780,7 @@ function analyzeCaseOperationTargetOrder(
 		CaseOperationExpressionSnapshotTypes
 	>;
 } {
+	const physical = caseOperationsInSubmissionOrder(doc, formUuid, operations);
 	const state: TargetTypeState[] = [];
 	const typeChangingTargets: TypeChangingTargetState[] = [];
 	const createsByUuid = registrationOwnCreates(doc, formUuid, operations);
@@ -713,7 +882,7 @@ function analyzeCaseOperationTargetOrder(
 		return known;
 	};
 
-	for (const operation of targetedOperations(operations)) {
+	for (const operation of targetedOperations(physical)) {
 		const requiredGuards = new Set<Uuid>();
 		let expressionTargetSnapshotType: string | undefined;
 		const expressionLinkSnapshotTypes = new Map<number, string>();
@@ -1013,10 +1182,11 @@ function authoredCreateCannotEqualExpression(
 	if (
 		target.expr.kind === "term" &&
 		target.expr.term.kind === "field" &&
-		target.expr.term.uuid === operation.target.idFrom
+		target.expr.term.uuid === operation.target.idFrom &&
+		operation.forEach === undefined
 	) {
-		// The field is the raw key; a nonempty fixed prefix makes equality with
-		// the derived id impossible.
+		// A root key reads the same answer everywhere. A repeated key does
+		// not: a different row can contain the full prefixed id.
 		return true;
 	}
 	const literal = staticExpressionCaseId(target);

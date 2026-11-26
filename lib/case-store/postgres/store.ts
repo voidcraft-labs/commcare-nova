@@ -2558,14 +2558,16 @@ export class PostgresCaseStore implements CaseStore {
 				throw new CaptureSubmissionRejectedError(activities.issue);
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
-			const { deviceExternalIds, ...effects } = await executeSubmissionEnvelope(
-				trx,
-				this.submissionEnvelopeHost(),
-				args,
-			);
+			const { deviceExternalIds, reachedWriteCaseIds, ...effects } =
+				await executeSubmissionEnvelope(
+					trx,
+					this.submissionEnvelopeHost(),
+					args,
+				);
 			const affectedCaseIds = [
 				...effects.primaryCaseIds,
 				...effects.createdChildren.map((child) => child.caseId),
+				...reachedWriteCaseIds,
 				...effects.operations.flatMap((operation) =>
 					operation.executed ? [operation.caseId] : [],
 				),

@@ -1470,6 +1470,18 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id",
 		"mug:SaveToCase",
 	),
+	"a-close-only-savetocase-block-with-a-close-condition": take(
+		"questions/a-close-only-savetocase-block-with-a-close-condition",
+		"xform:model/bind@relevant",
+	),
+	"a-savetocase-block-that-creates-or-updates-and-also-closes-under": take(
+		"questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under",
+		"xform:model/bind@relevant",
+	),
+	"savetocase-owner-id-condition": take(
+		"questions/savetocase-owner-id-condition",
+		"xform:model/bind@relevant",
+	),
 	"savetocase-open-case-condition": take(
 		"questions/savetocase-open-case-condition",
 		"mug:SaveToCase",
@@ -1841,6 +1853,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["savetocase-owner"].entry,
 		SAVE_TO_CASE_REFUSED,
 	),
+	case_operation_owner_condition: fixed(
+		C["savetocase-owner-id-condition"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
 	case_operation_rename: fixed(SAVE_TO_CASE_ROWS, SAVE_TO_CASE_REFUSED),
 	case_operation_write_value: fixed(SAVE_TO_CASE_ROWS, SAVE_TO_CASE_REFUSED),
 	case_operation_write_condition: fixed(
@@ -1858,6 +1874,21 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 			return operation?.action === "create"
 				? C["savetocase-open-case-condition"].entry
 				: C["savetocase-inside-a-group-whose-display-condition-gates-it"].entry;
+		},
+		refused: () => SAVE_TO_CASE_REFUSED,
+	},
+	case_operation_close_condition: {
+		held(doc, ref) {
+			const operation =
+				ref.entity === "form" && ref.slot === "case_operation_close_condition"
+					? doc.forms[ref.uuid]?.caseOperations?.find(
+							({ uuid }) => uuid === ref.member.operationUuid,
+						)
+					: undefined;
+			return operation?.action === "close"
+				? C["a-close-only-savetocase-block-with-a-close-condition"].entry
+				: C["a-savetocase-block-that-creates-or-updates-and-also-closes-under"]
+						.entry;
 		},
 		refused: () => SAVE_TO_CASE_REFUSED,
 	},

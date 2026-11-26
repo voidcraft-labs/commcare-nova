@@ -1201,8 +1201,10 @@ export type FormExpressionSlotRef =
 			readonly slot:
 				| "case_operation_target_expression"
 				| "case_operation_condition"
+				| "case_operation_close_condition"
 				| "case_operation_name"
 				| "case_operation_owner"
+				| "case_operation_owner_condition"
 				| "case_operation_rename";
 			readonly member: { readonly operationUuid: Uuid };
 	  }

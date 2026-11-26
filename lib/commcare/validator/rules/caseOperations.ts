@@ -17,11 +17,13 @@ import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/validator/onDeviceCompatibility";
+import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
+	caseOperationsInSubmissionOrder,
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolationDetails,
 	sameCaseOperationTargetIdentity,
@@ -39,6 +41,8 @@ import {
 	type CaseTarget,
 	type CaseWriteVia,
 	caseDataTypeForFieldKind,
+	caseOperationRunsPerSelectedCase,
+	caseSelectionCardinality,
 	caseWriteKeyOf,
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
@@ -55,6 +59,7 @@ import {
 	type Module,
 	operationCanReadFormField,
 	operationCaseType,
+	operationSavesOnlyChanged,
 	operationTarget,
 	orderedCaseOperations,
 	placementIneligibilitySentence,
@@ -68,6 +73,7 @@ import {
 	userPropertiesOf,
 } from "@/lib/domain";
 import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
+import { isWorkerRecordUpdate } from "@/lib/domain/basicCaseSlots";
 import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
 	activeRowScope,
@@ -271,6 +277,94 @@ export function sharedEntryWriteFindings(
 	}));
 }
 
+function positionedChangeHasConditionalContainer(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): boolean {
+	for (let parent = doc.fieldParent[fieldUuid]; parent !== undefined; ) {
+		const field = doc.fields[parent];
+		if (field === undefined) return false;
+		if ("relevant" in field && field.relevant !== undefined) return true;
+		parent = doc.fieldParent[parent];
+	}
+	return false;
+}
+
+/** HQ's build adds its managed case blocks after authored root data, but
+ * inserts some single repeat actions first. Until the two plans share the
+ * physical order of those mixed blocks, only independent effects are safe. */
+function mixedPositionOrderDependency(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	module: Module,
+	operations: readonly CaseOperation[],
+	positioned: ReadonlySet<Uuid>,
+	operation: TargetedCaseOperation,
+): CaseOperation | undefined {
+	const { placements } = planPlacements(doc, formUuid);
+	const formType = doc.forms[formUuid]?.type;
+	const directTargetOf = (target: CaseTarget | null | undefined, uuid: Uuid) =>
+		(target?.kind === "op" && target.opUuid === uuid) ||
+		(target?.kind === "expression" &&
+			target.expr.kind === "id-of" &&
+			target.expr.opUuid === uuid);
+	const writesOf = (op: CaseOperation): Set<string> =>
+		new Set([
+			...(op.writes ?? []).map((write) => write.property),
+			...(op.rename !== undefined ||
+			(op.action === "own" && op.name !== undefined)
+				? ["case_name"]
+				: []),
+			...(op.owner === undefined ? [] : ["owner_id"]),
+		]);
+	const properties = writesOf(operation);
+	return operations.find((other) => {
+		if (positioned.has(other.uuid)) return false;
+		const placement = placements.get(other.uuid)?.placement.kind;
+		if (placement !== "basic" && placement !== "advanced") return false;
+		if (
+			other.action === "create" ||
+			(other.action === "own" && formType === "registration")
+		)
+			return (
+				directTargetOf(operation.target, other.uuid) ||
+				(operation.links ?? []).some((link) =>
+					directTargetOf(link.target, other.uuid),
+				)
+			);
+
+		if (
+			(other.writes ?? []).some(
+				(write) => write.via && properties.has(write.property),
+			)
+		)
+			return true;
+		const type = other.action === "own" ? module.caseType : other.caseType;
+		if (type !== operation.caseType) return false;
+		const otherProperties = writesOf(other);
+		const otherCloses =
+			other.action === "close" ||
+			other.closeAfter ||
+			(other.action === "own" && formType === "close");
+		const indices = new Set((other.links ?? []).map((link) => link.identifier));
+		const otherChangesRow =
+			otherProperties.size > 0 ||
+			indices.size > 0 ||
+			otherCloses ||
+			other.retype !== undefined;
+		if (!otherChangesRow) return false;
+		return (
+			operation.retype !== undefined ||
+			other.retype !== undefined ||
+			operation.action === "close" ||
+			operation.closeAfter === true ||
+			otherCloses === true ||
+			[...properties].some((property) => otherProperties.has(property)) ||
+			(operation.links ?? []).some((link) => indices.has(link.identifier))
+		);
+	});
+}
+
 export function validateCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -287,6 +381,81 @@ export function validateCaseOperations(
 		moduleName: module.name,
 		caseType: module.caseType,
 	});
+	const positions = new Set<Uuid>();
+	const locations = collectFieldLocations(doc, formUuid);
+	const positioned = new Set(
+		[...locations.keys()].flatMap((uuid) => {
+			const field = doc.fields[uuid];
+			return field?.kind === "case_change" ? [field.operationUuid] : [];
+		}),
+	);
+	const byUuid = new Map(
+		operations.map((operation) => [operation.uuid, operation]),
+	);
+	for (const [uuid, location] of locations) {
+		const field = doc.fields[uuid];
+		if (field.kind !== "case_change") continue;
+		const operation = byUuid.get(field.operationUuid);
+		const invalid =
+			operation === undefined
+				? "Choose a case change from this form."
+				: positions.has(field.operationUuid)
+					? "Keep just one position for this case change."
+					: operation.forEach?.repeat !== location.repeat
+						? "Place this case change in the section it repeats over."
+						: operation.action === "own" ||
+								operation.action === "create" ||
+								operation.condition !== undefined ||
+								isWorkerRecordUpdate(operation) ||
+								operationSavesOnlyChanged(operation) ||
+								operation.writes?.some((write) => write.via !== undefined)
+							? "Choose a direct update or close for this position."
+							: caseOperationRunsPerSelectedCase(operation) &&
+									caseSelectionCardinality(module) === "multiple"
+								? "Keep the case change that runs for each selected case in the form's case settings."
+								: operation.retype !== undefined &&
+										positionedChangeHasConditionalContainer(doc, uuid)
+									? "Place a change of case type outside sections that can be skipped."
+									: undefined;
+		const orderDependency =
+			invalid === undefined &&
+			operation !== undefined &&
+			operation.action !== "own"
+				? mixedPositionOrderDependency(
+						doc,
+						formUuid,
+						module,
+						operations,
+						positioned,
+						operation,
+					)
+				: undefined;
+		positions.add(field.operationUuid);
+		if (invalid !== undefined || orderDependency !== undefined)
+			ownFindings.push(
+				validationError(
+					"CASE_CHANGE_POSITION_INVALID",
+					"field",
+					invalid ??
+						"Keep these case changes together in the form's case settings so they run in order.",
+					{
+						moduleUuid,
+						moduleName: module.name,
+						formUuid,
+						formName: form.name,
+						fieldUuid: uuid,
+						fieldId: field.id,
+					},
+					{
+						operationUuid: field.operationUuid,
+						...(orderDependency && {
+							reason: "managed-order",
+							otherOperationUuid: orderDependency.uuid,
+						}),
+					},
+				),
+			);
+	}
 	if (operations.length === 0) return ownFindings;
 
 	const ctx = operationRuleContext(
@@ -342,7 +511,11 @@ export function validateCaseOperations(
 			(violation) => [violation.operationUuid, violation],
 		),
 	);
-	for (const operation of operations) {
+	for (const operation of caseOperationsInSubmissionOrder(
+		doc,
+		formUuid,
+		operations,
+	)) {
 		const wireOrderViolation = wireOrderViolations.get(operation.uuid);
 		if (wireOrderViolation !== undefined) {
 			let message: string;
@@ -351,7 +524,7 @@ export function validateCaseOperations(
 					message = `Case operation "${operation.id}" crosses back to an earlier multiplicity scope, so CommCare's document-order executor cannot preserve the declared operation order.`;
 					break;
 				case "authored-create-after-noncreate":
-					message = `Authored-key create operation "${operation.id}" follows a non-create effect. A retry can address an existing case, and HQ's per-case create sort would no longer match CommCare Core's document order.`;
+					message = `Authored-key create operation "${operation.id}" follows an effect that may change the same case. HQ applies the create first, while the device follows the submitted form order.`;
 					break;
 				case "repeated-authored-key-alias": {
 					const producer = operations.find(
@@ -549,6 +722,46 @@ function validateOperation(
 		operationSlot(ctx, operation, "case_operation_condition"),
 		errors,
 	);
+	if (operation.closeCondition !== undefined) {
+		if (operation.action !== "close" && operation.closeAfter !== true)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_CLOSE_CONDITION_INVALID",
+					"Choose to close the case before setting when it closes.",
+				),
+			);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.closeCondition,
+			operationSlot(ctx, operation, "case_operation_close_condition"),
+			errors,
+		);
+	}
+	if (operation.ownerCondition !== undefined) {
+		if (
+			operation.action !== "create" ||
+			operation.target.kind !== "new" ||
+			operation.target.idFrom !== undefined
+		)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_OWNER_CONDITION_INVALID",
+					"A case with a conditional owner needs a fresh ID on each submission.",
+				),
+			);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.ownerCondition,
+			operationSlot(ctx, operation, "case_operation_owner_condition"),
+			errors,
+		);
+	}
 	validateNameExpression(ctx, operation, operation.name, "create name", errors);
 	validateTextExpression(
 		ctx,
@@ -1579,8 +1792,10 @@ function validateTarget(
 type OperationScalarSlot =
 	| "case_operation_target_expression"
 	| "case_operation_condition"
+	| "case_operation_close_condition"
 	| "case_operation_name"
 	| "case_operation_owner"
+	| "case_operation_owner_condition"
 	| "case_operation_rename";
 function operationSlot(
 	ctx: OperationRuleContext,

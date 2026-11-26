@@ -63,6 +63,7 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
+	OperationScopeIterations,
 	OrdinarySubmissionAction,
 	RelatedRead,
 	RestoreScope,
@@ -90,10 +91,13 @@ import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import type { AppDoc } from "@/lib/db/types";
 import {
+	caseEffectLayout,
 	caseOperationConditionalGuardUuids,
+	caseOperationDependencyUuids,
 	caseOperationExpressionSnapshotTypes,
-	caseOperationMultiplicityScopes,
+	caseOperationRepeatScopes,
 } from "@/lib/doc/caseOperationOrder";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	asUuid,
@@ -138,10 +142,7 @@ import {
 } from "@/lib/domain/captureFormats";
 import { entryNewCaseKeyNumbering } from "@/lib/domain/entryCaseIdentity";
 import type { Expression, Term } from "@/lib/domain/expression";
-import {
-	walkExpressionNodes,
-	walkExpressionTerms,
-} from "@/lib/domain/expression";
+import { walkExpressionTerms } from "@/lib/domain/expression";
 import {
 	ancestorPath,
 	concat,
@@ -190,6 +191,7 @@ import type {
 	PopulateSampleCasesResult,
 	SubmissionAnswerEntry,
 	SubmissionMutation,
+	SubmissionOperationAnswers,
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
 import type { CaseListOrderLocale } from "./caseListOrder";
@@ -1966,6 +1968,198 @@ export function buildSubmissionReceiptIdentity(args: {
 	return { entryKey, formUuid, requestDigest };
 }
 
+/** Build the schedule from committed repeat nesting and paired concrete rows.
+ * Parent positions come with the submitted instance, and cannot supply a
+ * different enclosing answer or change the repeat-definition order. */
+function caseOperationAnswerScopes(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	answers: SubmissionOperationAnswers,
+	operations: readonly CaseOperation[],
+): Pick<CaseOperationProgram, "scopes" | "scopeOrder" | "effectOrder"> {
+	const answerMap = (entries: readonly SubmissionAnswerEntry[]) =>
+		new Map(entries.map((entry) => [asUuid(entry.fieldUuid), entry.value]));
+	const repeats = caseOperationRepeatScopes(doc, formUuid);
+	const supplied = new Map(
+		answers.repeats.map((scope) => [scope.repeat, scope]),
+	);
+	if (
+		repeats.length !== supplied.size ||
+		answers.repeats.length !== supplied.size ||
+		repeats.some((scope) => !supplied.has(scope.repeat))
+	)
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing answers for a repeat its committed case operations run over. Reload the form and submit again.",
+		);
+
+	for (const { repeat, parentRepeat } of repeats) {
+		if (
+			parentRepeat === undefined &&
+			supplied.get(repeat)?.parentIterations !== undefined
+		)
+			throw new CaptureSubmissionRejectedError(
+				"The submitted form could not match its nested repeat rows. Reload the form and submit again.",
+			);
+	}
+	const scopes: OperationScopeIterations[] = [
+		{ iterations: [{ formFields: answerMap(answers.root) }] },
+		...repeats.map(({ repeat }) => ({
+			repeat,
+			iterations: (supplied.get(repeat)?.iterations ?? []).map((entries) => ({
+				formFields: answerMap(entries),
+			})),
+		})),
+	];
+	const layout = caseEffectLayout(doc, formUuid, operations);
+	if (!layout && !repeats.some((scope) => scope.parentRepeat !== undefined))
+		return { scopes };
+
+	const children = new Map<Uuid | undefined, Uuid[]>();
+	const rows = new Map<Uuid, Map<number, number[]>>();
+	const invalid = () =>
+		new CaptureSubmissionRejectedError(
+			"The submitted form could not match its nested repeat rows. Reload the form and submit again.",
+		);
+	for (const { repeat, parentRepeat } of repeats) {
+		const scope = supplied.get(repeat);
+		if (!scope) throw invalid();
+		const positions = scope.parentIterations;
+		const siblings = children.get(parentRepeat) ?? [];
+		siblings.push(repeat);
+		children.set(parentRepeat, siblings);
+		const count = scope.iterations.length;
+		const parents =
+			parentRepeat === undefined ? undefined : supplied.get(parentRepeat);
+		if (
+			parents &&
+			((positions !== undefined &&
+				(!Array.isArray(positions) || positions.length !== count)) ||
+				(count > 0 && positions === undefined))
+		)
+			throw invalid();
+		const byParent = new Map<number, number[]>();
+		const parentAnswers = parents?.iterations.map(
+			(entries) => new Map(entries.map((entry) => [entry.fieldUuid, entry])),
+		);
+		let previousParent = 0;
+		for (const [iteration, entries] of scope.iterations.entries()) {
+			const parent = positions?.[iteration] ?? 0;
+			if (!Number.isSafeInteger(parent) || parent < previousParent)
+				throw invalid();
+			previousParent = parent;
+			if (parentAnswers !== undefined) {
+				const inherited = parentAnswers[parent];
+				if (
+					inherited === undefined ||
+					!sameEnclosingOperationAnswers(inherited, entries)
+				)
+					throw invalid();
+			}
+			const siblings = byParent.get(parent) ?? [];
+			siblings.push(iteration);
+			byParent.set(parent, siblings);
+		}
+		rows.set(repeat, byParent);
+	}
+
+	if (layout)
+		return {
+			scopes,
+			effectOrder: authoredCaseEffectOrder(
+				layout,
+				rows,
+				answers.root,
+				supplied,
+			),
+		};
+
+	const scopeOrder: NonNullable<CaseOperationProgram["scopeOrder"]>[number][] =
+		[{ iteration: 0 }];
+	const appendChildren = (
+		enclosing: Uuid | undefined,
+		parent: number,
+	): void => {
+		for (const repeat of children.get(enclosing) ?? []) {
+			for (const iteration of rows.get(repeat)?.get(parent) ?? []) {
+				appendChildren(repeat, iteration);
+				scopeOrder.push({ repeat, iteration });
+			}
+		}
+	};
+	appendChildren(undefined, 0);
+	return { scopes, scopeOrder };
+}
+
+/** Expand the committed case placements over the submission's concrete rows. */
+function authoredCaseEffectOrder(
+	layout: NonNullable<ReturnType<typeof caseEffectLayout>>,
+	rows: ReadonlyMap<Uuid, ReadonlyMap<number, readonly number[]>>,
+	rootAnswers: readonly SubmissionAnswerEntry[],
+	supplied: ReadonlyMap<string, SubmissionOperationAnswers["repeats"][number]>,
+): NonNullable<CaseOperationProgram["effectOrder"]> {
+	const effects: NonNullable<CaseOperationProgram["effectOrder"]>[number][] =
+		[];
+	const walk = (
+		nodes: typeof layout,
+		repeat: Uuid | undefined,
+		iteration: number,
+		answers: ReadonlyMap<string, SubmissionAnswerEntry>,
+	) => {
+		for (const node of nodes) {
+			switch (node.kind) {
+				case "generated":
+					effects.push({
+						repeat,
+						iteration,
+						operationUuids: node.operations.map((operation) => operation.uuid),
+					});
+					break;
+				case "positioned": {
+					const entry = answers.get(node.fieldUuid);
+					if (entry === undefined || entry.value !== "")
+						throw new CaptureSubmissionRejectedError(
+							"The submitted form is missing the position of a case change. Reload the form and submit again.",
+						);
+					effects.push({
+						repeat,
+						iteration,
+						operationUuids: [node.operation.uuid],
+						...(entry.absent && { absent: true }),
+					});
+					break;
+				}
+				case "repeat":
+					for (const row of rows.get(node.repeat)?.get(iteration) ?? []) {
+						const entries = supplied.get(node.repeat)?.iterations[row] ?? [];
+						walk(
+							node.children,
+							node.repeat,
+							row,
+							new Map(entries.map((entry) => [entry.fieldUuid, entry])),
+						);
+					}
+			}
+		}
+	};
+	walk(
+		layout,
+		undefined,
+		0,
+		new Map(rootAnswers.map((entry) => [entry.fieldUuid, entry])),
+	);
+	return effects;
+}
+
+function sameEnclosingOperationAnswers(
+	inherited: ReadonlyMap<string, SubmissionAnswerEntry>,
+	entries: readonly SubmissionAnswerEntry[],
+): boolean {
+	const answers = new Map(entries.map((entry) => [entry.fieldUuid, entry]));
+	return [...inherited].every(([field, value]) =>
+		deepEqual(value, answers.get(field)),
+	);
+}
+
 /**
  * Build the storage executor's `CaseOperationProgram` from the
  * COMMITTED doc — the server is the structural authority, consuming
@@ -2253,6 +2447,8 @@ function operationFormFieldRefs(
 		}
 		for (const predicate of [
 			operation.condition,
+			operation.closeCondition,
+			operation.ownerCondition,
 			...(operation.writes ?? []).flatMap((write) =>
 				write.condition === undefined ? [] : [write.condition],
 			),
@@ -2565,7 +2761,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 			ownOpenCondition !== undefined &&
 			own !== undefined &&
 			operation.uuid !== own.uuid &&
-			operationNamesCase(operation, own.uuid)
+			caseOperationDependencyUuids(operation).has(own.uuid)
 		) {
 			guardConditions.push(ownOpenCondition);
 		}
@@ -2587,51 +2783,12 @@ export function buildCaseOperationProgramFromDoc(args: {
 	});
 
 	const answers = mutation.operationAnswers ?? { root: [], repeats: [] };
-	const answerMap = (
-		entries: ReadonlyArray<SubmissionAnswerEntry> | undefined,
-	): ReadonlyMap<Uuid, string | readonly string[]> =>
-		new Map(
-			(entries ?? []).map((entry) => [asUuid(entry.fieldUuid), entry.value]),
-		);
-	/* A repeat the COMMITTED doc scopes an operation over, with no scope in
-	 * the payload, is provable staleness rather than an empty repeat.
-	 * `FormEngine.computeOperationAnswers` registers a scope for every repeat
-	 * in the client's OWN doc before counting its instances, so a worker who
-	 * simply added no rows still sends that repeat with an empty iteration
-	 * list. Absent means the client never knew the repeat existed — a
-	 * co-editor added it, and this snapshot predates the commit.
-	 *
-	 * Distinguishing the two is the whole point: `?? []` reads an absent
-	 * scope as zero iterations, so the operation runs zero times and the
-	 * submission reports success while committed case effects never
-	 * happened. That is the same silent skip the guard above refuses, one
-	 * level deeper. */
-	const requiredScopes = caseOperationMultiplicityScopes(doc, formUuid);
-	const suppliedRepeats = new Set(answers.repeats.map((scope) => scope.repeat));
-	const missingRepeats = requiredScopes.filter(
-		(repeatUuid): repeatUuid is Uuid =>
-			repeatUuid !== undefined && !suppliedRepeats.has(repeatUuid as string),
+	const { scopes, scopeOrder, effectOrder } = caseOperationAnswerScopes(
+		doc,
+		formUuid,
+		answers,
+		envelopeOperations.map(({ operation }) => operation),
 	);
-	if (missingRepeats.length > 0) {
-		throw new CaptureSubmissionRejectedError(
-			"The submitted form is missing answers for a repeat its committed case operations run over. Reload the form and submit again.",
-		);
-	}
-
-	const scopes = requiredScopes.map((repeatUuid) => {
-		if (repeatUuid === undefined) {
-			return { iterations: [{ formFields: answerMap(answers.root) }] };
-		}
-		const clientScope = answers.repeats.find(
-			(scope) => scope.repeat === (repeatUuid as string),
-		);
-		return {
-			repeat: repeatUuid,
-			iterations: (clientScope?.iterations ?? []).map((bag) => ({
-				formFields: answerMap(bag),
-			})),
-		};
-	});
 
 	/* The same staleness one level finer. A peer can add a FIELD an operation
 	 * reads without adding a repeat, so the scope arrives and its iterations
@@ -2692,6 +2849,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 				}),
 			...(suppliedCaseIds.size > 0 && { suppliedCaseIds }),
 			scopes,
+			...(scopeOrder && { scopeOrder }),
+			...(effectOrder && { effectOrder }),
 			...(mutation.kind === "followup" || mutation.kind === "close"
 				? { sessionCaseIds: mutation.caseIds }
 				: {}),
@@ -2784,38 +2943,6 @@ function committedSelection(
 					}
 				: { kind: "single", maximum: 1 },
 	};
-}
-
-/** Whether `operation` names the case operation `opUuid` creates: as its
- * target, a link's target, or an `id-of` read. */
-function operationNamesCase(operation: CaseOperation, opUuid: Uuid): boolean {
-	if (operation.target?.kind === "op" && operation.target.opUuid === opUuid)
-		return true;
-	let named = false;
-	const note = (expression: Expression) => {
-		if (expression.kind === "id-of" && expression.opUuid === opUuid)
-			named = true;
-	};
-	for (const link of operation.links ?? []) {
-		if (link.target?.kind === "op" && link.target.opUuid === opUuid)
-			return true;
-		if (link.target?.kind === "expression")
-			walkExpressionNodes(link.target.expr, note);
-	}
-	for (const expression of [
-		operation.name,
-		operation.owner,
-		operation.rename,
-		operation.condition,
-		...(operation.target?.kind === "expression" ? [operation.target.expr] : []),
-		...(operation.writes ?? []).flatMap((write) => [
-			write.value,
-			...(write.condition === undefined ? [] : [write.condition]),
-		]),
-	]) {
-		if (expression !== undefined) walkExpressionNodes(expression, note);
-	}
-	return named;
 }
 
 /** For each write with a `via`, by its index, the case type the catalog

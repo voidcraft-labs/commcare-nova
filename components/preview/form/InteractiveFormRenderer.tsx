@@ -304,7 +304,12 @@ const InteractiveField = memo(function InteractiveField({
 	// `hidden` fields are authoring-time only: they never render in
 	// interactive mode. The edit view keeps a compact card so authors
 	// can still edit them.
-	if (field.kind === "hidden" || field.kind === "connect_activity") return null;
+	if (
+		field.kind === "hidden" ||
+		field.kind === "connect_activity" ||
+		field.kind === "case_change"
+	)
+		return null;
 	if (!state.visible) return null;
 
 	const fieldId = field.id;

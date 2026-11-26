@@ -491,6 +491,8 @@ export interface SubmissionOperationAnswers {
 	readonly repeats: ReadonlyArray<{
 		readonly repeat: string;
 		readonly iterations: ReadonlyArray<ReadonlyArray<SubmissionAnswerEntry>>;
+		/** For each nested row, the zero-based live row of its enclosing repeat. */
+		readonly parentIterations?: readonly number[];
 	}>;
 }
 
