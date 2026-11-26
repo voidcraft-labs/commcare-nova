@@ -200,7 +200,7 @@ def _built_search(state, pairs):
 
     config = operations.search_request_config(state, "search-app", [("case_type", "patient"), *pairs])
     helper = _get_helper(None, state.domain, config.case_types, None)
-    return CaseSearchQueryBuilder(helper, config.case_types).build_query(config.criteria)
+    return CaseSearchQueryBuilder(helper, config.case_types).build_query(config.criteria, commcare_sort=config.commcare_sort)
 
 
 def test_the_zero_input_filter_makes_hq_build_a_search_that_matches_every_case(hq, core_runner):
@@ -278,3 +278,257 @@ def test_a_request_key_hq_reads_never_searches_the_case_property_it_names(hq, co
                 queried(state, name)
         else:
             assert not queried(state, name)
+
+
+@pytest.mark.parametrize("increased,limit", [(False, 500), (True, 1500)])
+def test_project_space_search_limit_and_literal_matchers(hq, increased, limit):
+    """The cap and optional native matching come from the selected project space,
+    with overrides scoped to the requested types and property. A literal period
+    is removed as text; a rule on another type does not remove the letter B."""
+    from corehq.apps.case_search.models import CaseSearchConfig
+    from corehq.apps.es.case_search import case_property_query
+
+    def includes(node, expected):
+        if node == expected:
+            return True
+        children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else []
+        return any(includes(child, expected) for child in children)
+
+    flags = frozenset(["INCREASED_MAX_SEARCH_RESULTS"]) if increased else frozenset()
+    with hq_check(Configuration(case_search_enabled=True, flags=flags)) as (state, _):
+        config = CaseSearchConfig.objects.get(domain=state.domain)
+        config.fuzzy_properties.create(domain=state.domain, case_type="patient", properties=["badge_code"])
+        config.ignore_patterns.create(domain=state.domain, case_type="patient", case_property="badge_code", regex=".")
+        config.ignore_patterns.create(domain=state.domain, case_type="doctor", case_property="badge_code", regex="B")
+        config.ignore_patterns.create(domain=state.domain, case_type="patient", case_property="other", regex="A")
+        query = _built_search(state, [("badge_code", "A.B")]).raw_query
+        assert query["size"] == limit
+        assert includes(query["query"], case_property_query("badge_code", "AB", fuzzy=True))
+        exact = _built_search(state, [("patient_number", "A.B")]).raw_query
+        assert includes(exact["query"], case_property_query("patient_number", "A.B", fuzzy=False))
+
+
+def test_literal_removal_preserves_all_requested_types_in_configuration_order(hq):
+    from corehq.apps.case_search.models import CaseSearchConfig
+    from corehq.apps.case_search.utils import CaseSearchQueryBuilder, _get_helper
+    from corehq.apps.es.case_search import case_property_query
+
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        config = CaseSearchConfig.objects.get(domain=state.domain)
+        config.fuzzy_properties.create(domain=state.domain, case_type="doctor", properties=["badge"])
+        for kind, text in [("patient", "ab"), ("doctor", "bc"), ("patient", "c")]:
+            config.ignore_patterns.create(domain=state.domain, case_type=kind, case_property="badge", regex=text)
+
+        def query(types, value):
+            post = [*(("case_type", name) for name in types), ("badge", value)]
+            request = operations.search_request_config(state, "search-app", post)
+            helper = _get_helper(None, state.domain, request.case_types, None)
+            builder = CaseSearchQueryBuilder(helper, request.case_types)
+            assert request.case_types == types
+            criterion, = request.criteria
+            assert criterion.key == "badge"
+            return builder._get_query(criterion)
+
+        # These two results together distinguish A/B/A from both possible
+        # per-type bucket orders. In the single-type control B is untouched.
+        for value in ("abc", "bc"):
+            assert query(["patient", "doctor"], value) == case_property_query("badge", "", fuzzy=True)
+        assert query(["patient"], "bc") == case_property_query("badge", "b", fuzzy=False)
+
+
+def test_search_expansion_below_the_result_cap_depends_on_hqs_index(hq):
+    """All 150 near terms meet the edit distance. The native index admits only a
+    subset, while its separate exact-token branch returns the exact record."""
+    import hashlib
+    import string
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.case_search.exceptions import CaseFilterError
+    from corehq.apps.case_search.models import CaseSearchConfig, FuzzyProperties, IgnorePatterns
+    from corehq.apps.es.case_search import RELEVANCE_SCORE, wrap_case_search_hit
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+
+    needle = "xxaaaaaa"
+    near_terms = sorted({
+        needle[:position] + letter + needle[position + 1:]
+        for position in range(2, len(needle))
+        for letter in string.ascii_lowercase[1:]
+    })
+    assert len(near_terms) == 150
+    near = {f"near-{index}": term for index, term in enumerate(near_terms)}
+    # The terms on the field are shared by every key in nested case_properties.
+    # Put the vocabulary on each shard, independently of the routing of case ids.
+    vocabulary = " ".join([needle, *near_terms])
+    values = {**near, "exact": "XXAAAAAA", "different-prefix": "zyaaaaaa"}
+
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        with hq_redis.shared(None), state.committing():
+            with state.operation("indexed near terms", hashlib.sha256(b"indexed near terms").digest()):
+                blocks = [
+                    CaseBlock(case_id=key, create=True, case_name=key, case_type="patient",
+                              owner_id="worker", update={"alias": value, "lexicon": vocabulary,
+                                                         RELEVANCE_SCORE: "stored"}).as_text()
+                    for key, value in values.items()
+                ]
+                submit_case_blocks(blocks, state.domain, user_id="worker", device_id="proof")
+
+        # The baseline matches the precise stored property including case.
+        assert [hit["_id"] for hit in _built_search(state, [("alias", "XXAAAAAA")]).run().raw_hits] == ["exact"]
+        assert not _built_search(state, [("alias", needle)]).run().raw_hits
+        config = CaseSearchConfig.objects.get(domain=state.domain)
+        config.fuzzy_properties.add(FuzzyProperties.objects.create(
+            domain=state.domain, case_type="patient", properties=["alias"],
+        ))
+        config.ignore_patterns.add(IgnorePatterns.objects.create(
+            domain=state.domain, case_type="patient", case_property="alias", regex=".*",
+        ))
+        # A literal is removed on the incoming query, not from each stored term.
+        hits = _built_search(state, [("alias", "xx.*aaaaaa")]).run().raw_hits
+        by_id = {hit["_id"]: hit for hit in hits}
+        assert "exact" in by_id
+        assert "different-prefix" not in by_id
+        assert set() < near.keys() & by_id.keys() < near.keys()
+        exact = by_id["exact"]
+        assert wrap_case_search_hit(exact).case_json[RELEVANCE_SCORE] == "stored"
+        assert wrap_case_search_hit(exact, include_score=True).case_json[RELEVANCE_SCORE] == exact["_score"]
+        assert exact["_score"] > 0
+        assert any(hit["_score"] != exact["_score"] for key, hit in by_id.items() if key in near)
+        with pytest.raises(CaseFilterError, match="Fuzzy search is not supported with multiple values"):
+            _built_search(state, [("alias", needle), ("alias", "another")])
+
+
+def test_native_filters_distinguish_missing_cleared_and_current_values(hq):
+    """An update clears a previously indexed parent on the real case receiver.
+    The blank reverse-index criterion and the blank ordinary property in a
+    multivalue request read different facts about exactly the same cases."""
+    import hashlib
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+
+    configuration = Configuration(case_search_enabled=True, flags=frozenset({"CASE_SEARCH_RELATED_LOOKUPS"}))
+    with hq_check(configuration) as (state, _):
+        def write(operation, blocks):
+            with hq_redis.shared(None), state.committing():
+                with state.operation(operation, hashlib.sha256(operation.encode()).digest()):
+                    submit_case_blocks([block.as_text() for block in blocks], state.domain,
+                                       user_id="worker", device_id="proof")
+
+        write("create parent and three children", [
+            CaseBlock(case_id="house", create=True, case_type="household", case_name="Upper", owner_id="worker",
+                      update={"district": "Upper"}),
+            CaseBlock(case_id="linked", create=True, case_type="patient", case_name="Linked", owner_id="worker",
+                      index={"parent": ("household", "house")}, update={"status": "waiting"}),
+            CaseBlock(case_id="cleared", create=True, case_type="patient", case_name="Cleared", owner_id="worker",
+                      index={"parent": ("household", "house")}, update={"status": "booked"}),
+            CaseBlock(case_id="never", create=True, case_type="patient", case_name="Never", owner_id="other"),
+        ])
+        write("clear one real index", [CaseBlock(case_id="cleared", index={"parent": ("household", "")})])
+
+        def matches(*pairs):
+            return {hit["_id"] for hit in _built_search(state, pairs).run().raw_hits}
+
+        everyone = {"linked", "cleared", "never"}
+        assert matches(("indices.parent", "house")) == {"linked"}
+        assert matches(("indices.parent", "")) == {"cleared"}
+        assert matches(("indices.parent", "house"), ("indices.parent", "")) == everyone
+        assert matches(("parent/district", "Upper")) == {"linked"}
+        assert matches(("owner_id", "")) == everyone
+        assert matches(("owner_id", "other")) == {"never"}
+        assert matches(("commcare_project", state.domain)) == everyone
+        assert not matches(("commcare_project", "another-space"))
+        assert matches(("case_id", "never"), ("case_id", "linked")) == {"never", "linked"}
+        assert matches(("status", "")) == {"never"}
+        assert matches(("status", "booked"), ("status", "")) == {"cleared", "never"}
+        assert matches(("name", "Linked")) == {"linked"}
+
+
+def test_destination_day_and_native_range_read_the_index_at_a_dst_boundary(hq):
+    """On the short New York day, HQ's equality includes a piece of the
+    following local day. Strict greater-than starts after the following
+    midnight. The raw date range reads the indexed property's UTC calendar."""
+    import hashlib
+    from datetime import datetime
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.hqcase.utils import submit_case_blocks
+    from time_machine import travel
+
+    from proof.hq import redis as hq_redis
+    from proof.hq.state import domain_document
+
+    configuration = Configuration(case_search_enabled=True)
+    with hq_check(configuration) as (state, _):
+        bounds = {
+            "before": "2024-03-10T04:59:59",
+            "start": "2024-03-10T05:00:00",
+            "next-midnight": "2024-03-11T04:00:00",
+            "overlap": "2024-03-11T04:30:00",
+            "end": "2024-03-11T05:00:00",
+        }
+        with hq_redis.shared(None), state.committing():
+            with state.operation("New York date searches", hashlib.sha256(b"New York date searches").digest()):
+                state.couch.seed({**domain_document(configuration), "default_timezone": "America/New_York"})
+                blocks = [
+                    CaseBlock(case_id=key, create=True, case_type="patient", case_name=key, owner_id="worker",
+                              date_opened=datetime.fromisoformat(value), update={"visit": value + "Z"}).as_text()
+                    for key, value in bounds.items()
+                ]
+                submit_case_blocks(blocks, state.domain, user_id="worker", device_id="proof")
+
+        def matches(key, value):
+            return {hit["_id"] for hit in _built_search(state, [(key, value)]).run().raw_hits}
+
+        equal = {"start", "next-midnight", "overlap"}
+        assert matches("_xpath_query", "date_opened = '2024-03-10'") == equal
+        assert matches("_xpath_query", "date_opened > '2024-03-10'") == {"overlap", "end"}
+        assert matches("_xpath_query", "date_opened <= '2024-03-10'") == {"before", "start", "next-midnight"}
+        with travel("2024-03-11T03:30:00Z", tick=False):
+            assert matches("_xpath_query", "date_opened = today()") == equal
+        assert matches("visit", "__range__2024-03-10__2024-03-10") == {"before", "start"}
+
+
+def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
+    """Run HQ's actual index and request parser. A string property can be
+    sorted as text, a number or a date. The second datum breaks ties left by
+    the first, and a single exclusion value can name two owners."""
+    import hashlib
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+
+    cases = [
+        ("none", "blue", "absent", "2024-06-12"),
+        ("two-early", "blue", "2", "2024-01-03"),
+        ("two-late", "blue", "2", "2024-09-03"),
+        ("ten", "blue", "10", "2023-01-03"),
+        ("excluded-a", "red", "1", "2024-01-01"),
+        ("excluded-b", "gold", "3", "2024-01-02"),
+    ]
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        with hq_redis.shared(None), state.committing():
+            with state.operation("sort and exclusion", hashlib.sha256(b"sort and exclusion").digest()):
+                blocks = [CaseBlock(case_id=key, create=True, case_name=key, case_type="patient",
+                                    owner_id=owner, update={"priority": value, "visit": date}).as_text()
+                          for key, owner, value, date in cases]
+                submit_case_blocks(blocks, state.domain, user_id="worker", device_id="proof")
+
+        def ordered(*controls):
+            query = _built_search(state, controls)
+            return [hit["_id"] for hit in query.run().raw_hits]
+
+        exclude = ("commcare_blacklisted_owner_ids", "red gold")
+        first = ("commcare_sort", "+priority:numeric")
+        second = ("commcare_sort", "-visit:date")
+        assert ordered(first, second, exclude) == ["none", "two-late", "two-early", "ten"]
+        assert ordered(second, first, exclude) == ["two-late", "none", "two-early", "ten"]
+        assert ordered(("commcare_sort", "+priority:exact,-visit:date"), exclude) == [
+            "ten", "two-late", "two-early", "none",
+        ]
+        assert set(ordered(first, second)) == {case[0] for case in cases}

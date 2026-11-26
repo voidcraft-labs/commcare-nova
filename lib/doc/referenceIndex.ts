@@ -89,6 +89,7 @@ import {
 	readSlotStrings,
 	readSlotValues,
 	recordFromEntries,
+	type SearchFilter,
 	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
 	userPropertyTargetKey,
@@ -944,6 +945,11 @@ function extractModuleEdges(
 				}
 				break;
 			case "case-type-ref":
+				if (slot.slot === "search_filter_ancestor_type") {
+					for (const filter of mod.caseListConfig?.searchFilters ?? [])
+						relationHintEdges(sink, slot.slot, searchFilterWalk(filter));
+					break;
+				}
 				for (const value of readSlotStrings(mod, slot.path))
 					if (value.text) sink.edge(caseTypeTargetKey(value.text), slot.slot);
 				break;
@@ -952,7 +958,28 @@ function extractModuleEdges(
 					sink.edge(userPropertyTargetKey(value.text), slot.slot);
 				break;
 			case "case-property-ref":
-				if (slot.slot === "case_list_column_field") {
+				if (slot.slot === "search_filter_property") {
+					for (const filter of mod.caseListConfig?.searchFilters ?? []) {
+						if (!("target" in filter) || filter.target.kind !== "property")
+							continue;
+						const walk = searchFilterWalk(filter);
+						const destination = resolveRelationDestination(
+							walk,
+							mod.caseType,
+							doc.caseTypes ?? [],
+						);
+						if (!destination.ok) continue;
+						sink.edge(
+							casePropertyTargetKey(
+								destination.caseType,
+								filter.target.property,
+							),
+							slot.slot,
+						);
+						if (walk !== undefined)
+							sink.edge(caseTypeTargetKey(destination.caseType), slot.slot);
+					}
+				} else if (slot.slot === "case_list_column_field") {
 					if (effectiveType === undefined) break;
 					for (const column of mod.caseListConfig?.columns ?? []) {
 						if (column.kind === "calculated") continue;
@@ -978,6 +1005,17 @@ function extractModuleEdges(
 								sink.edge(caseTypeTargetKey(caseType), slot.slot);
 						}
 					}
+				} else if (
+					slot.slot === "search_order_property" ||
+					slot.slot === "search_filter_order_property"
+				) {
+					// An order names a property of the menu's own record type.
+					if (mod.caseType !== undefined)
+						for (const entry of readSlotStrings(mod, slot.path))
+							sink.edge(
+								casePropertyTargetKey(mod.caseType, entry.text),
+								slot.slot,
+							);
 				} else {
 					for (const input of mod.caseListConfig?.searchInputs ?? []) {
 						if (input.kind !== "simple") continue;
@@ -1187,6 +1225,15 @@ function termEdges(
 			break;
 		}
 	}
+}
+
+/** The walk a search filter's target takes to the record it matches, if any. */
+function searchFilterWalk(filter: SearchFilter): RelationPath | undefined {
+	if (!("target" in filter)) return undefined;
+	const target = filter.target;
+	return "ancestors" in target && target.ancestors !== undefined
+		? { kind: "ancestor", via: target.ancestors }
+		: undefined;
 }
 
 function relationHintEdges(

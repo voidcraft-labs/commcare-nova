@@ -180,6 +180,7 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 	select: { input: "select1" },
 	// Several choices, stored as one `#,#`-joined answer.
 	"multi-select": { input: "select" },
+	checkboxes: { input: "checkbox" },
 };
 
 // ── Shared prompt projection ─────────────────────────────────────
@@ -197,7 +198,10 @@ export interface SearchPromptText {
 
 export interface SearchPromptAssertion {
 	readonly test: WireExpr;
-	readonly message: SearchPromptText;
+	/** Absent on a check with no message of its own, which carries no text and shows
+	 *  CommCare's sentence (`buildValidation`). A requirement with no message carries a
+	 *  blank text, through no translation unit (`buildRequired`). */
+	readonly message?: SearchPromptText;
 }
 
 export interface SearchPromptItemset {
@@ -226,6 +230,8 @@ export interface SearchPromptWire {
 	/** On-device XPath for `@default`: a visible seed or a hidden value. */
 	readonly defaultValue?: WireExpr;
 	readonly exclude: boolean;
+	/** `allow_blank_value`: Web Apps offers to search for blank too. */
+	readonly allowBlank: boolean;
 	readonly itemset?: SearchPromptItemset;
 	readonly required?: SearchPromptAssertion;
 	/** Core keeps only the last `<validation>`, so there is at most one. */
@@ -293,10 +299,11 @@ export function searchPromptWire(
 		...(mapping.appearance === undefined
 			? {}
 			: { appearance: mapping.appearance }),
-		hidden: input.kind === "hidden",
+		hidden: input.kind === "hidden" || input.hidden === true,
 		...(mapping.input === undefined ? {} : { input: mapping.input }),
 		...(defaultValue === undefined ? {} : { defaultValue }),
 		exclude: searchInputSuppressesAutoMatch(input),
+		allowBlank: input.kind !== "hidden" && input.allowBlank === true,
 		...(itemset === undefined ? {} : { itemset }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
@@ -379,23 +386,34 @@ export function buildSearchPrompts(
 			);
 		}
 		if (wire.required !== undefined) {
+			const message = wire.required.message;
 			children.push(
-				xel("required", { xpath: { test: wire.required.test } }, context, [
-					register(
-						composeRequiredLocaleId(moduleId, wire.key),
-						wire.required.message,
-					),
-				]),
+				xel(
+					"required",
+					{ xpath: { test: wire.required.test } },
+					context,
+					message === undefined
+						? []
+						: [register(composeRequiredLocaleId(moduleId, wire.key), message)],
+				),
 			);
 		}
 		if (wire.validation !== undefined) {
+			const message = wire.validation.message;
 			children.push(
-				xel("validation", { xpath: { test: wire.validation.test } }, context, [
-					register(
-						composeValidationLocaleId(moduleId, wire.key),
-						wire.validation.message,
-					),
-				]),
+				xel(
+					"validation",
+					{ xpath: { test: wire.validation.test } },
+					context,
+					message === undefined
+						? []
+						: [
+								register(
+									composeValidationLocaleId(moduleId, wire.key),
+									message,
+								),
+							],
+				),
 			);
 		}
 		elements.push(
@@ -610,7 +628,11 @@ function buildItemset(
  * always-required input carries the literal `true()`; a conditional
  * one carries its authored predicate lowered to on-device XPath. The
  * message is the author's sentence or Nova's default, so every runtime
- * shows the same words.
+ * shows the same words. A requirement with no message (`noMessage`) carries
+ * a blank text in every language, as CommCare HQ builds one whose text is
+ * blank (`remote_requests.py::build_query_prompts` writes the text whenever
+ * the test exists; `app_strings.py` gives it `clean_trans({})`, blank), so
+ * the worker reads nothing whichever wire built the app.
  */
 function buildRequired(
 	input: SearchInputDef,
@@ -627,13 +649,15 @@ function buildRequired(
 		message: {
 			text: message,
 			source:
-				input.required?.message === undefined
-					? makeTranslationUnitId("system", "search-required", "default")
-					: makeTranslationUnitId(
-							"search-input",
-							input.uuid,
-							"required-message",
-						),
+				input.required?.noMessage === true
+					? NO_UNITS
+					: input.required?.message === undefined
+						? makeTranslationUnitId("system", "search-required", "default")
+						: makeTranslationUnitId(
+								"search-input",
+								input.uuid,
+								"required-message",
+							),
 		},
 	};
 }
@@ -644,7 +668,11 @@ function buildRequired(
  * CSQL guard share the slot: the test ANDs both (each parenthesized),
  * and the message joins the authored sentence with the guard's. Each
  * half keeps its own translation unit; the locale table joins them per
- * language.
+ * language. A check with no message of its own carries no text, as CommCare
+ * HQ builds one (`remote_requests.py`: `if validation.has_text`), and the
+ * worker reads CommCare's sentence. The gate keeps such a check off a field
+ * the search guards (`searchCheckMessage.ts`), whose guard's sentence would
+ * have nothing to follow.
  */
 /** The single validation message read by the worker, even where an authored
  * test and a generated check share the native prompt's one assertion. */
@@ -653,8 +681,12 @@ export function promptCheckText(
 	runtimeValidation?: RuntimeCsqlPromptValidation,
 ): SearchPromptText | undefined {
 	const authored = input.kind === "hidden" ? undefined : input.validation;
+	// Core runs the authored check and guard as one validation. Explicitly
+	// choosing its own message leaves both branches on the native sentence.
+	if (authored !== undefined && authored.message === undefined)
+		return undefined;
 	const parts: { text: string; unit: TranslationUnitId }[] = [];
-	if (authored)
+	if (authored?.message !== undefined)
 		parts.push({
 			text: authored.message,
 			unit: makeTranslationUnitId(
@@ -685,7 +717,8 @@ function buildValidation(
 	emission: PromptEmissionContext,
 ): SearchPromptAssertion | undefined {
 	const message = promptCheckText(input, runtimeValidation);
-	if (!message) return undefined;
+	if (!runtimeValidation && (input.kind === "hidden" || !input.validation))
+		return undefined;
 	const tests: WireExpr[] = [];
 	if (input.kind !== "hidden" && input.validation)
 		tests.push(
@@ -696,8 +729,11 @@ function buildValidation(
 			),
 		);
 	if (runtimeValidation) tests.push(runtimeValidation.test);
-	return { test: w.and(...tests), message };
+	return { test: w.and(...tests), ...(message !== undefined && { message }) };
 }
+
+/** The source of a blank text: no unit, so every language reads `""`. */
+const NO_UNITS: readonly TranslationUnitId[] = [];
 
 /**
  * Lower a search-screen predicate (`required.when` / `validation.rule`)
@@ -759,6 +795,7 @@ function composePromptAttributes(
 	if (wire.appearance !== undefined) attribs.appearance = wire.appearance;
 	if (wire.hidden) attribs.hidden = "true";
 	if (wire.input !== undefined) attribs.input = wire.input;
+	if (wire.allowBlank) attribs.allow_blank_value = "true";
 	return attribs;
 }
 

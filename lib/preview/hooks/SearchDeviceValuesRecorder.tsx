@@ -12,20 +12,26 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { BlueprintDoc } from "@/lib/domain";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import {
 	usePreviewSearchesAwaitingDeviceValues,
 	useRecordPreviewSearchDeviceValues,
+	useSetPreviewSearchRevision,
 } from "@/lib/session/hooks";
 import type { SearchAwaitingDeviceValues } from "@/lib/session/previewSearchState";
+import { usePreviewSearchConfiguration } from "../searchConfigurationContext";
 import {
 	useCaseListStepSession,
 	useSubmittedSearchDeviceValues,
 } from "./useSearchCsqlRuntime";
 
 export function SearchDeviceValuesRecorder() {
+	const { facts, catalog } = usePreviewSearchConfiguration();
+	const setRevision = useSetPreviewSearchRevision();
+	const revision = catalog === null ? undefined : facts.revision;
+	useLayoutEffect(() => setRevision(revision), [setRevision, revision]);
 	const awaiting = usePreviewSearchesAwaitingDeviceValues();
 	const { doc } = usePreviewMenuSource();
 	return (

@@ -2363,3 +2363,122 @@ describe("composeRuntimeFilter — choice and hidden prompts", () => {
 		).toEqual(eq(prop(PATIENT, "registered_by"), literal("asha")));
 	});
 });
+
+// Web Apps sends a ticked "search for blank" as a blank value before the
+// answer (`query.js::encodeValue`): CommCare HQ reads it as "blank, or
+// matches", and a condition reading the field reads the joined value.
+describe("search for blank", () => {
+	const village = simpleSearchInputDef(
+		testUuid("v"),
+		"village",
+		"Village",
+		"text",
+		"village",
+		{ allowBlank: true },
+	);
+	const property = prop(PATIENT, "village");
+
+	it("matches the property blank, or the answer, where the box is ticked", () => {
+		expect(
+			composeRuntimeFilter(
+				[village],
+				new Map([
+					["village", "Kibera"],
+					["village:blank", "true"],
+				]),
+				PATIENT,
+			),
+		).toEqual(or(isBlank(property), eq(property, literal("Kibera"))));
+	});
+
+	it("matches the property blank where the box is ticked with no answer", () => {
+		expect(
+			composeRuntimeFilter(
+				[village],
+				new Map([["village:blank", "true"]]),
+				PATIENT,
+			),
+		).toEqual(isBlank(property));
+	});
+
+	it("matches the answer alone where the box is not ticked", () => {
+		expect(
+			composeRuntimeFilter(
+				[village],
+				new Map([["village", "Kibera"]]),
+				PATIENT,
+			),
+		).toEqual(eq(property, literal("Kibera")));
+	});
+
+	it("reads no blank for a field that does not allow it", () => {
+		const plain = simpleSearchInputDef(
+			testUuid("v"),
+			"village",
+			"Village",
+			"text",
+			"village",
+		);
+		expect(
+			composeRuntimeFilter(
+				[plain],
+				new Map([
+					["village", "Kibera"],
+					["village:blank", "true"],
+				]),
+				PATIENT,
+			),
+		).toEqual(eq(property, literal("Kibera")));
+	});
+
+	it("gives a condition and a form the blank joined before the answer", () => {
+		const both = new Map([
+			["village", "Kibera"],
+			["village:blank", "true"],
+		]);
+		expect(
+			withSearchInputExpressionValues([village], both).get("village"),
+		).toBe("#,#Kibera");
+		expect(
+			searchInputInstanceValues(
+				[village],
+				new Map([["village:blank", "true"]]),
+			),
+		).toEqual(new Map([["village", ""]]));
+		expect(searchInputInstanceValues([village], both)).toEqual(
+			new Map([["village", "#,#Kibera"]]),
+		);
+	});
+
+	it("searches a date range or the blank together", () => {
+		const visit = simpleSearchInputDef(
+			testUuid("d"),
+			"dob",
+			"Born",
+			"date-range",
+			"dob",
+			{ allowBlank: true },
+		);
+		const range = composeRuntimeFilter(
+			[visit],
+			new Map([
+				["dob:from", "2000-01-01"],
+				["dob:to", "2000-12-31"],
+			]),
+			PATIENT,
+			CASE_TYPE_SCHEMAS,
+		);
+		expect(
+			composeRuntimeFilter(
+				[visit],
+				new Map([
+					["dob:from", "2000-01-01"],
+					["dob:to", "2000-12-31"],
+					["dob:blank", "true"],
+				]),
+				PATIENT,
+				CASE_TYPE_SCHEMAS,
+			),
+		).toEqual(or(isBlank(prop(PATIENT, "dob")), range));
+	});
+});

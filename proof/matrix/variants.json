@@ -10761,6 +10761,28 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/owner-exclusion-on-a-list-with-no-search",
+		"base": "hq-case-lists",
+		"entry": "case-search/owner-exclusion-in-a-dormant-search-setting",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/blacklisted_owner_ids_expression",
+			"value": "'retired-worker'"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/header",
+				"value": "Name"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/owner-name-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/owner-name",
@@ -27290,19 +27312,43 @@
 		}
 	},
 	{
+		"id": "hq-menus/inline-search-on-display-only-menu",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of",
+		"standing": "fix-in-hq",
+		"place": { "kind": "menu", "menu": 0, "name": "Household registration" },
+		"change": { "op": "named", "name": "inline_search_on_display_only_menu" }
+	},
+	{
 		"id": "hq-menus/search-on-display-only-menu",
 		"base": "hq-menus",
 		"entry": "case-search/search-on-a-put-in-root-module",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Household registration"
-		},
 		"change": {
 			"op": "named",
 			"name": "search_on_display_only_menu"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/formsInMenuAbove",
+				"value": true
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/0/name",
+				"value": "village"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/submenus-turned-on",
@@ -27715,6 +27761,28 @@
 				],
 				"pointer": "/caseSearchConfig/workflow",
 				"value": "listFirst"
+			}
+		]
+	},
+	{
+		"id": "hq-names/list-first-with-default-results",
+		"base": "hq-names",
+		"entry": "case-search/list-first-with-a-search-that-skips-to-results",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/default_search",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/workflow",
+				"value": "listFirstWithDefaultResults"
 			}
 		]
 	},
@@ -35544,12 +35612,13 @@
 		"id": "hq-search/blank-answer-searched-for",
 		"base": "hq-search",
 		"entry": "case-search/allow-blank-value",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/1/allowBlank",
+				"value": true
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -35562,6 +35631,79 @@
 				"hidden": false,
 				"allow_blank_value": true,
 				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		}
+	},
+	{
+		"id": "hq-search/blank-searched-for-beside-the-owner",
+		"base": "hq-search",
+		"entry": "case-search/allow-blank-value-on-a-prompt-named-owner-id",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/-",
+			"value": {
+				"name": "owner_id",
+				"label": {
+					"en": "Owner"
+				},
+				"hint": {},
+				"hidden": false,
+				"exclude": false,
+				"allow_blank_value": true,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		}
+	},
+	{
+		"id": "hq-search/blank-searched-for-on-a-hidden-prompt",
+		"base": "hq-search",
+		"entry": "case-search/allow-blank-value-on-a-hidden-prompt",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/-",
+			"value": {
+				"name": "region",
+				"label": {
+					"en": "Region"
+				},
+				"hint": {},
+				"hidden": true,
+				"exclude": true,
+				"default_value": "'north'",
+				"allow_blank_value": true,
 				"required": {
 					"test": null,
 					"text": {},
@@ -35596,12 +35738,13 @@
 		"id": "hq-search/checkbox-field",
 		"base": "hq-search",
 		"entry": "case-search/input-checkbox-itemset",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/5/type",
+				"value": "checkboxes"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/5",
@@ -35782,9 +35925,94 @@
 		}
 	},
 	{
-		"id": "hq-search/choices-naming-no-instance",
+		"id": "hq-search/choices-naming-another-table",
 		"base": "hq-search",
 		"entry": "case-search/itemset-without-the-item-list-its-instance-id-names",
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/5/type",
+				"value": "select"
+			}
+		],
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/5",
+			"value": {
+				"name": "district",
+				"label": {
+					"en": "District"
+				},
+				"hint": {},
+				"input_": "select1",
+				"itemset": {
+					"instance_id": "item-list:regions",
+					"nodeset": "instance('item-list:districts')/districts_list/districts",
+					"value": "id",
+					"sort": "name",
+					"label": "name",
+					"doc_type": "Itemset"
+				},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		}
+	},
+	{
+		"id": "hq-search/choices-naming-no-instance",
+		"base": "hq-search",
+		"entry": "case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/5/type",
+				"value": "select"
+			}
+		],
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/5",
+			"value": {
+				"name": "district",
+				"label": {
+					"en": "District"
+				},
+				"hint": {},
+				"input_": "select1",
+				"itemset": {
+					"nodeset": "instance('item-list:districts')/districts_list/districts",
+					"value": "id",
+					"sort": "name",
+					"label": "name",
+					"doc_type": "Itemset"
+				},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		}
+	},
+	{
+		"id": "hq-search/choices-read-from-open-cases",
+		"base": "hq-search",
+		"entry": "case-search/itemset-nodeset-other-than-a-table-s-item-list",
 		"standing": "not-yet",
 		"place": {
 			"kind": "search",
@@ -35802,10 +36030,10 @@
 				"hint": {},
 				"input_": "select1",
 				"itemset": {
-					"nodeset": "instance('item-list:districts')/districts_list/districts",
-					"value": "id",
-					"sort": "name",
-					"label": "name",
+					"nodeset": "instance('casedb')/casedb/case[@case_type = 'client'][@status = 'open']",
+					"value": "case_name",
+					"sort": "case_name",
+					"label": "case_name",
 					"doc_type": "Itemset"
 				},
 				"hidden": false,
@@ -35854,15 +36082,67 @@
 		}
 	},
 	{
-		"id": "hq-search/date-field-matched-by-hq",
+		"id": "hq-search/date-equal-to-a-number",
 		"base": "hq-search",
-		"entry": "case-search/date-prompt-matched-by-hq-s-own-rule",
+		"entry": "case-search/xpath-query-condition-nova-s-checker-refuses",
 		"standing": "not-yet",
 		"place": {
 			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
+			"menu": 1,
+			"name": "Active clients"
 		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "_xpath_query",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "\"dob = 3\""
+			}
+		}
+	},
+	{
+		"id": "hq-search/date-equal-to-text",
+		"base": "hq-search",
+		"entry": "case-search/xpath-query-condition-outside-what-nova-types",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "_xpath_query",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "\"dob = 'abc'\""
+			}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchCondition/clauses/2",
+				"value": {
+					"kind": "eq",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "dob"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "abc"
+						}
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/date-field-matched-by-hq",
+		"base": "hq-search",
+		"entry": "case-search/date-prompt-matched-by-hq-s-own-rule",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/3",
@@ -35888,18 +36168,41 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/3/name",
+				"value": "dob"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/3/matching",
+				"value": "project-space"
+			}
+		]
 	},
 	{
 		"id": "hq-search/date-range-over-a-text-property",
 		"base": "hq-search",
 		"entry": "case-search/search-field-over-a-property-of-another-type",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/4/matching",
+				"value": "project-space"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/4",
@@ -35931,12 +36234,16 @@
 		"id": "hq-search/date-range-starting-value",
 		"base": "hq-search",
 		"entry": "case-search/default-value-on-a-date-range-input",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/4/default",
+				"value": {
+					"kind": "term",
+					"term": { "kind": "literal", "value": "2024-01-01 to 2024-12-31" }
+				}
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/4",
@@ -35972,63 +36279,19 @@
 		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
+			"menu": 3,
+			"name": "Referrals"
 		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/search_config/properties/1",
-			"value": {
-				"name": "standing",
-				"label": {
-					"en": "Village"
-				},
-				"hint": {},
-				"hidden": false,
-				"allow_blank_value": false,
-				"exclude": false,
-				"required": {
-					"test": null,
-					"text": {},
-					"doc_type": "Assertion"
-				},
-				"validations": [],
-				"itemset": {
-					"doc_type": "Itemset"
-				},
-				"is_group": false,
-				"doc_type": "CaseSearchProperty"
-			}
-		},
-		"second": {
-			"entry": "case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 0,
-				"name": "Clients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/search_config/default_properties/-",
-				"value": {
-					"property": "standing",
-					"doc_type": "DefaultCaseSearchProperty",
-					"defaultValue": "'active'"
-				}
-			}
+			"pointer": "/modules/3/search_config/properties/0/name",
+			"value": "standing"
 		}
 	},
 	{
 		"id": "hq-search/default-filter-excluding-owners",
 		"base": "hq-search",
 		"entry": "case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -36037,7 +36300,37 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'abc'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target",
+				"value": {
+					"kind": "excluded-owners"
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/value",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "literal",
+						"value": "abc"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-naming-a-case-type",
@@ -36103,12 +36396,6 @@
 		"id": "hq-search/default-filter-on-a-parent-property",
 		"base": "hq-search",
 		"entry": "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -36117,13 +36404,138 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'d1'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target",
+				"value": {
+					"kind": "property",
+					"property": "district",
+					"ancestors": [
+						{
+							"identifier": "parent"
+						}
+					]
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/value",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "literal",
+						"value": "d1"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-on-a-property",
 		"base": "hq-search",
 		"entry": "case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
-		"standing": "not-yet",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "standing",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'active'"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target",
+				"value": {
+					"kind": "property",
+					"property": "standing"
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/value",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "literal",
+						"value": "active"
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/default-filter-on-the-owner",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "owner_id",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "instance('commcaresession')/session/context/userid"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target",
+				"value": {
+					"kind": "owner"
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/value",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "session-context",
+						"field": "userid"
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/default-filter-reading-a-form-answer",
+		"base": "hq-search",
+		"entry": "case-search/native-filter-value-outside-screen-scope",
+		"standing": "never",
 		"place": {
 			"kind": "search",
 			"menu": 1,
@@ -36135,27 +36547,7 @@
 			"value": {
 				"property": "standing",
 				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "'active'"
-			}
-		}
-	},
-	{
-		"id": "hq-search/default-filter-on-the-owner",
-		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
-		"change": {
-			"op": "set-json",
-			"pointer": "/modules/1/search_config/default_properties/-",
-			"value": {
-				"property": "owner_id",
-				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "instance('commcaresession')/session/context/userid"
+				"defaultValue": "/data/name"
 			}
 		}
 	},
@@ -36182,8 +36574,52 @@
 	{
 		"id": "hq-search/default-filter-sorting-results",
 		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
-		"standing": "not-yet",
+		"entry": "case-search/default-filter-orders-the-records-the-search-sends",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'+name'"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/kind",
+				"value": "order"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/order",
+				"value": [
+					{
+						"property": "case_name",
+						"recordName": true,
+						"comparison": "text",
+						"direction": "ascending",
+						"implicitComparison": true
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-search/default-filter-sorting-by-a-saved-status",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-nova-reserves",
+		"standing": "never",
 		"place": {
 			"kind": "search",
 			"menu": 1,
@@ -36195,7 +36631,27 @@
 			"value": {
 				"property": "commcare_sort",
 				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "'+name'"
+				"defaultValue": "'-status:exact'"
+			}
+		}
+	},
+	{
+		"id": "hq-search/default-filter-naming-the-related-case-property",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_custom_related_case_property",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'parent_id'"
 			}
 		}
 	},
@@ -36559,12 +37015,6 @@
 		"id": "hq-search/field-named-status",
 		"base": "hq-search",
 		"entry": "case-search/prompt-named-for-a-case-attribute-hq-matches-itself",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -36589,7 +37039,39 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/name",
+				"value": "status"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/property",
+				"value": "status"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/matching",
+				"value": "project-space"
+			}
+		]
 	},
 	{
 		"id": "hq-search/field-naming-a-distance-unit",
@@ -36783,7 +37265,7 @@
 							"kind": "term",
 							"term": {
 								"kind": "input",
-								"searchInputUuid": "d97f4887-c095-50cd-9d53-df069c7337c0"
+								"searchInputUuid": "9121219a-87d1-5057-be7a-e63d267685e2"
 							}
 						},
 						"right": {
@@ -37003,12 +37485,6 @@
 		"id": "hq-search/hidden-choice-field",
 		"base": "hq-search",
 		"entry": "case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/5",
@@ -37040,18 +37516,44 @@
 				"doc_type": "CaseSearchProperty",
 				"default_value": "'d1'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/name",
+				"value": "district"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/type",
+				"value": "select"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/hidden",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-search/hidden-field-matched-by-its-name",
 		"base": "hq-search",
 		"entry": "case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/-",
@@ -37077,18 +37579,54 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/kind",
+				"value": "simple"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/name",
+				"value": "region"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/property",
+				"value": "region"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/hidden",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-search/hidden-field-with-no-value",
 		"base": "hq-search",
 		"entry": "case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/-",
@@ -37113,7 +37651,29 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/kind",
+				"value": "hidden"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/name",
+				"value": "region"
+			}
+		]
 	},
 	{
 		"id": "hq-search/hidden-value-sent-with-the-search",
@@ -37421,17 +37981,90 @@
 		"id": "hq-search/list-clause-the-search-does-not-restate",
 		"base": "hq-search",
 		"entry": "case-search/case-list-filter-clause-the-search-does-not-restate",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/case_details/short/filter",
 			"value": "standing = 'active' and district = 'd1' and village = 'north'"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/filter/clauses/2",
+				"value": {
+					"kind": "eq",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"property": "village",
+							"caseType": "client"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "north"
+						}
+					}
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "and",
+					"clauses": [
+						{
+							"kind": "eq",
+							"left": {
+								"kind": "term",
+								"term": {
+									"kind": "prop",
+									"caseType": "client",
+									"property": "standing"
+								}
+							},
+							"right": {
+								"kind": "term",
+								"term": {
+									"kind": "literal",
+									"value": "active"
+								}
+							}
+						},
+						{
+							"kind": "eq",
+							"left": {
+								"kind": "term",
+								"term": {
+									"kind": "prop",
+									"caseType": "client",
+									"property": "district"
+								}
+							},
+							"right": {
+								"kind": "term",
+								"term": {
+									"kind": "literal",
+									"value": "d1"
+								}
+							}
+						}
+					]
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/list-first-in-web-apps",
@@ -37446,22 +38079,6 @@
 		"change": {
 			"op": "named",
 			"name": "list_first_in_web_apps"
-		}
-	},
-	{
-		"id": "hq-search/list-first-skipping-to-results",
-		"base": "hq-search",
-		"entry": "case-search/list-first-with-a-search-that-skips-to-results",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
-		"change": {
-			"op": "set-json",
-			"pointer": "/modules/1/search_config/auto_launch",
-			"value": false
 		}
 	},
 	{
@@ -37535,7 +38152,7 @@
 					"kind": "when-input-present",
 					"input": {
 						"kind": "input",
-						"searchInputUuid": "8b158870-0aad-5b09-b672-b44d2c5f686e"
+						"searchInputUuid": "e9a7a415-6ba1-55ce-a176-ed49c941612b"
 					},
 					"clause": {
 						"kind": "eq",
@@ -37887,12 +38504,6 @@
 		"id": "hq-search/opened-on-a-day",
 		"base": "hq-search",
 		"entry": "case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -37901,7 +38512,37 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "\"date_opened > '2023-01-01'\""
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/2",
+				"value": {
+					"kind": "gt",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "date_opened"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "2023-01-01",
+							"data_type": "date"
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/owner-exclusion-on-an-ordered-text",
@@ -37964,17 +38605,42 @@
 		"id": "hq-search/owner-exclusion-with-no-list-clause",
 		"base": "hq-search",
 		"entry": "case-search/blacklisted-owner-ids-expression-without-that-clause",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/blacklisted_owner_ids_expression",
 			"value": "'abc'"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target",
+				"value": {
+					"kind": "excluded-owners",
+					"placement": "search-setting"
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/value",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "literal",
+						"value": "abc"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/property-named-at-run-time",
@@ -38375,15 +39041,38 @@
 		}
 	},
 	{
-		"id": "hq-search/required-with-no-message",
+		"id": "hq-search/check-with-no-message-on-a-guarded-field",
 		"base": "hq-search",
-		"entry": "case-search/a-required-or-validation-test-with-no-message-in-any-language",
+		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
 		"standing": "not-yet",
 		"place": {
 			"kind": "search",
 			"menu": 0,
 			"name": "Clients"
 		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/0/validations",
+			"value": [
+				{
+					"test": "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'client_name'], ''), '^[a-z]+$')",
+					"text": {},
+					"doc_type": "Assertion"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-search/required-with-no-message",
+		"base": "hq-search",
+		"entry": "case-search/a-required-or-validation-test-with-no-message-in-any-language",
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/1/required/noMessage",
+				"value": true
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -38522,12 +39211,6 @@
 		"id": "hq-search/results-sorted",
 		"base": "hq-search",
 		"entry": "case-search/custom-sort-properties-property-name-sort-type-exact-date",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/custom_sort_properties",
@@ -38539,18 +39222,54 @@
 					"doc_type": "CaseSearchCustomSortProperty"
 				}
 			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/requestOrder",
+				"value": [
+					{
+						"property": "case_name",
+						"recordName": true,
+						"comparison": "text",
+						"direction": "ascending"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-search/results-sorted-by-a-saved-owner",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-nova-reserves",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/custom_sort_properties",
+			"value": [
+				{
+					"property_name": "owner_id",
+					"sort_type": "exact",
+					"direction": "ascending",
+					"doc_type": "CaseSearchCustomSortProperty"
+				}
+			]
 		}
 	},
 	{
 		"id": "hq-search/row-reading-a-matched-field-unguarded",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-reading-a-field-hq-also-matches",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/default_properties/-",
@@ -38559,18 +39278,41 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "concat(\"village != '\", instance('search-input:results')/input/field[@name = 'village'], \"'\")"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/1/kind",
+				"value": "neq"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/1/left",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "prop",
+						"caseType": "client",
+						"property": "village"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/row-reading-an-excluded-field-unguarded",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/default_properties/-",
@@ -38579,18 +39321,41 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "concat(\"name != '\", instance('search-input:results')/input/field[@name = 'client_name'], \"'\")"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/1/kind",
+				"value": "neq"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/1/left",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "prop",
+						"caseType": "client",
+						"property": "case_name"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/row-the-list-does-not-apply",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -38599,7 +39364,36 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "\"village = 'north'\""
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/2",
+				"value": {
+					"kind": "eq",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "village"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "north"
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-button-label",
@@ -38626,7 +39420,7 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/search_button_display_condition",
-			"value": "instance('commcaresession')/session/context/username != 'demo'"
+			"value": "today() >= '2026-01-01'"
 		},
 		"holds": [
 			{
@@ -38638,24 +39432,37 @@
 				],
 				"pointer": "/caseSearchConfig/searchButtonDisplayCondition",
 				"value": {
-					"kind": "neq",
+					"kind": "gte",
 					"left": {
-						"kind": "term",
-						"term": {
-							"kind": "session-context",
-							"field": "username"
-						}
+						"kind": "today"
 					},
 					"right": {
 						"kind": "term",
 						"term": {
 							"kind": "literal",
-							"value": "demo"
+							"value": "2026-01-01",
+							"data_type": "date"
 						}
 					}
 				}
 			}
 		]
+	},
+	{
+		"id": "hq-search/search-button-shown-to-a-user-the-list-does-not-load",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/search_button_display_condition",
+			"value": "instance('commcaresession')/session/context/username != 'demo'"
+		}
 	},
 	{
 		"id": "hq-search/search-endpoint",
@@ -38776,17 +39583,23 @@
 		"id": "hq-search/search-on-clear",
 		"base": "hq-search",
 		"entry": "case-search/search-on-clear",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/search_on_clear",
 			"value": true
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/searchOnClear",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-on-clear-with-auto-select",
@@ -38835,7 +39648,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1",
+				"pointer": "/caseListConfig/searchCondition",
 				"value": {
 					"kind": "is-blank",
 					"left": {
@@ -38893,17 +39706,43 @@
 		"id": "hq-search/search-row-negated",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "\"not(village = 'south')\""
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "not",
+					"clause": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "prop",
+								"caseType": "client",
+								"property": "village"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "south"
+							}
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-row-negating-an-inequality",
@@ -38922,7 +39761,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1",
+				"pointer": "/caseListConfig/searchCondition",
 				"value": {
 					"kind": "not",
 					"clause": {
@@ -38951,49 +39790,109 @@
 		"id": "hq-search/search-row-on-a-child-case",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "\"subcase-exists('parent', @case_type = 'visit' and match-all())\""
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "exists",
+					"via": {
+						"kind": "subcase",
+						"identifier": "parent",
+						"ofCaseType": "visit"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-row-on-the-closed-date",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "\"closed_on > datetime('2023-01-01T00:00:00')\""
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "gt",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "closed_on"
+						}
+					},
+					"right": {
+						"kind": "datetime-coerce",
+						"value": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "2023-01-01T00:00:00",
+								"data_type": "datetime"
+							}
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-row-selecting-a-literal-choice",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "\"selected(services, 'nutrition')\""
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "multi-select-contains",
+					"property": {
+						"kind": "prop",
+						"caseType": "client",
+						"property": "services"
+					},
+					"values": [
+						{
+							"kind": "literal",
+							"value": "nutrition"
+						}
+					],
+					"quantifier": "any"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-row-testing-the-case-type",
@@ -39012,7 +39911,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1",
+				"pointer": "/caseListConfig/searchCondition",
 				"value": {
 					"kind": "eq",
 					"left": {
@@ -39036,17 +39935,43 @@
 		"id": "hq-search/search-row-with-an-epoch-day",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "\"dob > date(19000)\""
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "gt",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "dob"
+						}
+					},
+					"right": {
+						"kind": "date-coerce",
+						"value": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": 19000
+							}
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-row-with-fixed-double-quotes",
@@ -39282,12 +40207,6 @@
 		"id": "hq-search/text-ordered-against-a-date",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-condition-outside-what-nova-types",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -39296,7 +40215,36 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "\"village > '2020-01-01'\""
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/2",
+				"value": {
+					"kind": "gt",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "village"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "2020-01-01"
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/text-ordered-against-text",
@@ -39322,12 +40270,13 @@
 		"id": "hq-search/title-blank-in-english",
 		"base": "hq-search",
 		"entry": "case-search/title-label-blank-in-some-languages",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseSearchConfig/searchScreenTitle/kind",
+				"value": "none"
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "title_blank_in_english"
@@ -39472,17 +40421,63 @@
 		"id": "hq-search/visits-filter-chosen-by-clock-drift",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "if(instance('commcaresession')/session/context/drift > 5, 'match-none()', \"village = 'north'\")"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "if",
+					"cond": {
+						"kind": "gt",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "session-context",
+								"field": "drift"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": 5
+							}
+						}
+					},
+					"then": {
+						"kind": "match-none"
+					},
+					"else": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "prop",
+								"caseType": "client",
+								"property": "village"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "north"
+							}
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/visits-filter-chosen-by-the-worker",
@@ -39501,7 +40496,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1/kind",
+				"pointer": "/caseListConfig/searchCondition/kind",
 				"value": "if"
 			},
 			{
@@ -39511,7 +40506,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1/cond/left/term/field",
+				"pointer": "/caseListConfig/searchCondition/cond/left/term/field",
 				"value": "username"
 			}
 		]
@@ -39520,33 +40515,102 @@
 		"id": "hq-search/visits-filter-chosen-by-window-width",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "if(instance('commcaresession')/session/context/window_width > 600, 'match-none()', \"village = 'north'\")"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "if",
+					"cond": {
+						"kind": "gt",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "session-context",
+								"field": "window_width"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": 600
+							}
+						}
+					},
+					"then": {
+						"kind": "match-none"
+					},
+					"else": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "prop",
+								"caseType": "client",
+								"property": "village"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "north"
+							}
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/visits-filter-on-the-app-language",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "concat(\"village = '\", instance('commcaresession')/session/context/applanguage, \"'\")"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition",
+				"value": {
+					"kind": "eq",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "village"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "session-context",
+							"field": "applanguage"
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/visits-form-reads-a-search-field",

@@ -80,7 +80,12 @@ test("a menu that shows its forms above lists them on Preview's home screen", {
 	);
 });
 
-test("a menu that searches keeps its screen, and the switch says why", {
+/* A menu with an ordinary search can show its forms in the menu above: HQ's
+ * build writes no Search action on its case list (`details.py::build_detail`)
+ * and refuses only inline search there (`validate_display_only_forms`), so the
+ * switch is offered. `formsInMenuAbove.test.ts` holds the gate to the menu
+ * whose forms read the search, which keeps its screen. */
+test("a menu with an ordinary search offers to show its forms above", {
 	tag: "@seed:workspace",
 }, async ({ scenario, page }) => {
 	const seed = seedFor(scenario, "workspace");
@@ -93,10 +98,5 @@ test("a menu that searches keeps its screen, and the switch says why", {
 		.click();
 	const toggle = menuAboveSwitch(page);
 	await expect(toggle).not.toBeChecked({ timeout: 20_000 });
-	await expect(toggle).toBeDisabled();
-	await expect(
-		page
-			.locator("[data-menu-screen]")
-			.getByText(/shows its forms in the menu above/),
-	).toBeVisible();
+	await expect(toggle).toBeEnabled();
 });

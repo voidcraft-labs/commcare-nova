@@ -18,7 +18,9 @@ import {
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { DEVICE_FIXTURE_MAX_TABLES } from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
+import { LookupError } from "./errors";
 import {
 	chargeDeviceFixture,
 	DEVICE_FIXTURE_BYTES,
@@ -59,6 +61,14 @@ export async function readLookupFixtureDataInTransaction(
 	remaining = { bytes: DEVICE_FIXTURE_BYTES },
 ): Promise<LookupFixtureDataSnapshot> {
 	const archive = purpose === "archive" || purpose === "download-archive";
+	if (
+		(purpose === "device" || typeof purpose === "object") &&
+		tableIdsInput.length > DEVICE_FIXTURE_MAX_TABLES
+	)
+		throw new LookupError(
+			"storage_limit",
+			"This app uses more lookup tables than Preview can load at once. You can remove a table reference and try again.",
+		);
 	const definitions = await readLookupDefinitionsInTransaction(
 		tx,
 		projectId,
