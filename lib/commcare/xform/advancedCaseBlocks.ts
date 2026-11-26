@@ -82,9 +82,9 @@ import { caseOpeningSetvalues } from "./caseOpeningSetvalues";
 /** CommCare's case-transaction namespace, which every `<case>` is in. */
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
 
-/** The owner HQ writes on an open action whose owner it does not set
- *  (`const.py::UNOWNED_EXTENSION_OWNER_ID`). */
-const UNOWNED_OWNER_ID = "-";
+/** The owner HQ writes into a create block whose owner it does not set
+ *  (`const.py::UNOWNED_EXTENSION_OWNER_ID`, `xform.py::add_create_block`). */
+export const UNOWNED_OWNER_ID = "-";
 
 /** What the injection reads of the form's case wire plan. */
 export interface AdvancedCaseBlocksPlan {

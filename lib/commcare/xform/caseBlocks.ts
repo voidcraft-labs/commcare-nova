@@ -45,6 +45,7 @@ import { findOne, getChildren } from "domutils";
 import type { FormActionCondition, FormActions } from "@/lib/commcare";
 import {
 	el,
+	text,
 	type WireElementContext,
 	xel,
 } from "@/lib/commcare/elementBuilders";
@@ -74,6 +75,7 @@ import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { caseById } from "../xpath/wire/rowScope";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
+import { UNOWNED_OWNER_ID } from "./advancedCaseBlocks";
 import { caseOpeningSetvalues } from "./caseOpeningSetvalues";
 
 /**
@@ -266,6 +268,13 @@ function buildCaseBlocks(
 	};
 
 	if (isCreate) {
+		// HQ sets a new case's owner to the worker unless the update writes
+		// `owner_id`, and otherwise leaves `-` in the create block for the
+		// update leaf to overwrite where it is relevant
+		// (`xform.py::autoset_owner_id_for_open_case`, `add_create_block`).
+		const autosetsOwner = !(
+			isUpdate && Object.hasOwn(updateCase.update, "owner_id")
+		);
 		// `<create>` children mirror CCHQ's fixture order (case_name, owner_id,
 		// case_type) — semantically the case-transaction processor reads by
 		// element name, but matching the canonical shape keeps diffs against the
@@ -273,7 +282,7 @@ function buildCaseBlocks(
 		caseChildren.push(
 			el("create", {}, [
 				el("case_name", {}),
-				el("owner_id", {}),
+				el("owner_id", {}, autosetsOwner ? [] : [text(UNOWNED_OWNER_ID)]),
 				el("case_type", {}),
 			]),
 		);
@@ -318,18 +327,19 @@ function buildCaseBlocks(
 		// `instance('commcaresession')/session/context/userid` resolves
 		// equivalently but the fixture-shape calculate is what CCHQ Vellum emits
 		// and what the Vellum round-trip preserves.
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: primaryCreatePath.child("owner_id").toWire(),
-						calculate: metaUserID,
+		if (autosetsOwner)
+			binds.push(
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: primaryCreatePath.child("owner_id").toWire(),
+							calculate: metaUserID,
+						},
 					},
-				},
-				context,
-			),
-		);
+					context,
+				),
+			);
 		// Wire the form's `/data/case/@case_id` to the session datum
 		// `deriveSessionDatums` emits for this same `open_case` action.
 		// `xforms-ready` fires once at form load — the form-side and the
@@ -599,12 +609,21 @@ function buildCaseBlocks(
 		const subcaseDatumId = subcaseSessionDatumId(sc, sIdx, isCreate);
 
 		const scChildren: Element[] = [];
+		// HQ sets the subcase's owner to the worker unless it writes
+		// `owner_id`, relationship-independent, and otherwise leaves `-` for
+		// the update leaf to overwrite where it is relevant
+		// (`xform.py::autoset_owner_id_for_subcase`, `add_create_block`).
+		const subcaseAutosetsOwner = !Object.hasOwn(sc.case_properties, "owner_id");
 		// Subcase `<create>` mirrors the primary case's child order (case_name,
 		// owner_id, case_type) for fixture parity.
 		scChildren.push(
 			el("create", {}, [
 				el("case_name", {}),
-				el("owner_id", {}),
+				el(
+					"owner_id",
+					{},
+					subcaseAutosetsOwner ? [] : [text(UNOWNED_OWNER_ID)],
+				),
 				el("case_type", {}),
 			]),
 		);
@@ -639,25 +658,22 @@ function buildCaseBlocks(
 		// `add_create_block` runs the same `required="true()"` stamp on the
 		// subcase's name action path. Surface the path for the merge.
 		requiredNamePaths.push(namePath);
-		// Owner-id binds to the submitting user. The basic module Nova uploads
-		// always autosets the owner via `autoset_owner_id_for_subcase`
-		// (`'owner_id' not in case_properties`, relationship-independent), so
-		// CCHQ's regenerated form carries this userID bind on EVERY subcase —
-		// child and extension alike. (The unowned-extension sentinel is an
-		// advanced-module-only shape Nova never emits.) The `extension`
-		// relationship is carried solely on the `<index>` below.
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: subcaseCreatePath.child("owner_id").toWire(),
-						calculate: metaUserID,
+		// Owner-id binds to the submitting user wherever HQ autosets it
+		// (above), child and extension alike; the `extension` relationship is
+		// carried solely on the `<index>` below.
+		if (subcaseAutosetsOwner)
+			binds.push(
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: subcaseCreatePath.child("owner_id").toWire(),
+							calculate: metaUserID,
+						},
 					},
-				},
-				context,
-			),
-		);
+					context,
+				),
+			);
 
 		// Wire the subcase's `@case_id`. When the subcase lives in a repeat,
 		// setvalues won't fire per-iteration AND the session datum isn't emitted

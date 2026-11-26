@@ -977,3 +977,47 @@ it("puts a repeat's single subcase block first in its item, before the item's Sa
 	// then meta.
 	expect(names(local.data).slice(-2)).toEqual(["case", "orx:meta"]);
 });
+
+// HQ autosets a new case's owner to the worker only where the update does not
+// write `owner_id` (`xform.py::autoset_owner_id_for_open_case`,
+// `autoset_owner_id_for_subcase`); otherwise `add_create_block` writes `-`
+// with no bind, and the update leaf sets the owner only where it is relevant,
+// so a blank owner saved only when given leaves the case unowned as it does
+// in the case store.
+it.each(["always", "edit"] as const)(
+	"leaves a new case unowned in its create block where its update writes the owner (%s)",
+	(mode) => {
+		const owner = { question_path: "/data/assigned_owner", update_mode: mode };
+		const actions = emptyFormActions();
+		actions.open_case.condition = alwaysCondition();
+		actions.open_case.name_update.question_path = "/data/patient_name";
+		actions.update_case.condition = alwaysCondition();
+		actions.update_case.update = { owner_id: owner };
+		actions.subcases = [
+			{
+				...subcase(),
+				case_properties: { ...subcase().case_properties, owner_id: owner },
+			},
+		];
+		const output = read(addCaseBlocks(host(), actions, "patient"));
+		for (const [block, path] of [
+			[child(output.data, "case"), "/data/case"],
+			[child(child(output.data, "subcase_0"), "case"), "/data/subcase_0/case"],
+		] as const) {
+			const created = child(child(block, "create"), "owner_id");
+			expect(
+				created.children.map((node) => ("data" in node ? node.data : "")),
+			).toEqual(["-"]);
+			expect(
+				output.modelNodes.filter(
+					(e) =>
+						e.name === "bind" &&
+						e.attribs.nodeset === `${path}/create/owner_id`,
+				),
+			).toEqual([]);
+			expect(output.bind(`${path}/update/owner_id`).calculate).toBe(
+				"/data/assigned_owner",
+			);
+		}
+	},
+);
