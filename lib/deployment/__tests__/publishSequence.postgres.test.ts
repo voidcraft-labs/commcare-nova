@@ -29,7 +29,7 @@ import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransactio
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import AdmZip from "adm-zip";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
@@ -3615,14 +3615,23 @@ describe("the save counter a publish's reads are bound to", () => {
  * field as a string where every field holds one, else `field_list`), and
  * each row's detail. `answer` lets a case lose an answer: a write it names
  * still lands, and is answered 500, which says nothing of whether it did; a
- * read it names is answered 500 and read nothing. `after` runs once a
- * request has done its work and before its answer goes back, as something
- * happening in Nova between two requests.
+ * read it names is answered 500 and read nothing. `drop` loses a request
+ * before CommCare HQ reads it: nothing is done, and it is answered 500 as a
+ * lost answer is. `after` runs once a request has done its work and before
+ * its answer goes back, as something happening in Nova, or a person's edit
+ * in CommCare HQ (`edit`), between two requests.
+ *
+ * Every request is kept in `exchanges` with the answer the model gave, and
+ * every person's edit in CommCare HQ the case makes (`edit`) in its place
+ * among them, so `proof/hq/test_lookup_json_publish.py` can send the same
+ * requests to CommCare HQ's own resources and hold each answer Nova's
+ * publish read to the one HQ gives.
  */
 function jsonLookupPeer(
 	peer: MockAgent,
 	answer: {
 		lose?: (method: string, path: string) => boolean;
+		drop?: (method: string, path: string) => boolean;
 		after?: (method: string, path: string) => Promise<void>;
 	} = {},
 ) {
@@ -3639,6 +3648,7 @@ function jsonLookupPeer(
 	const tables = new Map<string, Record<string, unknown>>();
 	const rows = new Map<string, Row>();
 	const writes: string[] = [];
+	const exchanges: JsonLookupExchange[] = [];
 	let minted = 0;
 	const mint = () => (++minted).toString(16).padStart(32, "0");
 	const api = "/a/clinic/api/";
@@ -3659,14 +3669,41 @@ function jsonLookupPeer(
 			const path = url.pathname;
 			const sent = await readHttpRequestBody(opts);
 			const body = sent.length === 0 ? undefined : JSON.parse(sent.toString());
+			const exchange = {
+				kind: "request" as const,
+				method: opts.method,
+				path: `${path}${url.search}`,
+				body: body ?? null,
+			};
+			if (answer.drop?.(opts.method, path)) {
+				exchanges.push({
+					...exchange,
+					status: 500,
+					answer: null,
+					lost: "request",
+				});
+				return { statusCode: 500, data: "" };
+			}
 			if (opts.method !== "GET") writes.push(`${opts.method} ${path}`);
 			const answered = handle(opts.method, url, path, body);
+			const lost = answer.lose?.(opts.method, path) ?? false;
+			exchanges.push({
+				...exchange,
+				status: answered.statusCode,
+				answer: answered.data === "" ? null : structuredClone(answered.data),
+				...(lost && { lost: "answer" as const }),
+			});
 			await answer.after?.(opts.method, path);
-			return answer.lose?.(opts.method, path)
-				? { statusCode: 500, data: "" }
-				: answered;
+			return lost ? { statusCode: 500, data: "" } : answered;
 		})
 		.persist();
+	/** A person's edit of a row in CommCare HQ, kept among the exchanges. */
+	function edit(change: JsonLookupHqEdit) {
+		const row = rows.get(change.rowId) ?? fail();
+		if (change.kind === "delete-row") rows.delete(change.rowId);
+		else row.fields = structuredClone(change.fields);
+		exchanges.push(structuredClone(change));
+	}
 	function handle(
 		method: string,
 		url: URL,
@@ -3778,7 +3815,18 @@ function jsonLookupPeer(
 				).map(([name, value]) => [name, value.field_list]),
 			);
 			row.attributes = body.item_attributes;
-			return { statusCode: 204, data: "" };
+			/* The v0.6 row resource returns data (`always_return_data`): the
+			 * saved row, answered 200 (`proof/hq/test_lookup_json_publish.py`). */
+			return {
+				statusCode: 200,
+				data: {
+					id: row.id,
+					data_type_id: row.table,
+					sort_key: row.sortKey,
+					fields: body.fields,
+					item_attributes: row.attributes,
+				},
+			};
 		}
 		if (putRow && method === "DELETE") {
 			if (!rows.delete(putRow[1] ?? "")) return { statusCode: 404, data: "" };
@@ -3786,8 +3834,34 @@ function jsonLookupPeer(
 		}
 		return { statusCode: 404, data: "" };
 	}
-	return { tables, rows, writes };
+	return { tables, rows, writes, exchanges, edit };
 }
+
+/** A person's edit of one row in CommCare HQ's table page, between Nova's requests. */
+type JsonLookupHqEdit =
+	| { readonly kind: "delete-row"; readonly rowId: string }
+	| {
+			readonly kind: "edit-row";
+			readonly rowId: string;
+			readonly fields: Record<
+				string,
+				{ field_value: string; properties: Record<string, string> }[]
+			>;
+	  };
+
+/** One request the JSON peer answered, or one edit a person made in CommCare HQ. */
+type JsonLookupExchange =
+	| {
+			readonly kind: "request";
+			readonly method: string;
+			readonly path: string;
+			readonly body: unknown;
+			readonly status: number;
+			readonly answer: unknown;
+			/** The answer never reached Nova, or the request never reached CommCare HQ. */
+			readonly lost?: "answer" | "request";
+	  }
+	| JsonLookupHqEdit;
 
 const editorScope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
 
@@ -4247,6 +4321,256 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 					row.fields.name?.[0]?.field_value,
 				]),
 			).toEqual([[clinic?.id, " Clinic 2 "]]);
+		});
+	});
+
+	it("keeps every request of a JSON table's lifecycle, for CommCare HQ's own resources to answer again", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
+			let fault:
+				| "lose-row-create"
+				| "drop-put"
+				| "lose-put"
+				| "edit-between"
+				| null = null;
+			const hq = jsonLookupPeer(peer, {
+				lose: (method, path) =>
+					(fault === "lose-row-create" &&
+						method === "POST" &&
+						path === rowsPath) ||
+					(fault === "lose-put" && method === "PUT"),
+				drop: (method) => fault === "drop-put" && method === "PUT",
+				after: async (method, path) => {
+					if (fault !== "edit-between" || method !== "PUT") return;
+					fault = null;
+					/* A person edits the other row Nova is about to change. */
+					const other =
+						[...hq.rows.values()].find(
+							(row) =>
+								!path.includes(row.id) &&
+								["001", "004"].includes(
+									row.fields.code?.[0]?.field_value ?? "",
+								),
+						) ?? fail();
+					hq.edit({
+						kind: "edit-row",
+						rowId: other.id,
+						fields: {
+							...other.fields,
+							name: [{ field_value: "Theirs", properties: {} }],
+						},
+					});
+				},
+			});
+			/* The app's source as CommCare HQ serves it after Nova's content. */
+			const current = () => {
+				const answer = retainedPublishRead("source-after-create-then-update");
+				const source = retainedBodyJson(answer);
+				replyRetained(request(peer, SOURCE), {
+					...answer,
+					body: JSON.stringify(source),
+				});
+			};
+			/* A republish reads the app's source in preflight and again before
+			 * its import, then once after it. */
+			const landed = async () => {
+				current();
+				current();
+				accepted(peer, 200);
+				current();
+				const outcome = await publish(doc);
+				expect(outcome.landed ? null : outcome.refusal).toBeNull();
+				expect(outcome.landed ? outcome.warnings : []).toEqual([]);
+			};
+			const stopped = async () => {
+				current();
+				expect(refusal(await publish(doc)).failure.code).toBe(
+					"hq_resource_state_unknown",
+				);
+			};
+			/* The time a request could still land passes: its journal entry's
+			 * and its remote write's. */
+			const holdPassed = async () => {
+				await h
+					.db()
+					.updateTable("lookup_json_operations")
+					.set({ admitted_at: sql`now() - interval '1 hour'` })
+					.where("settled_at", "is", null)
+					.execute();
+				await h
+					.db()
+					.updateTable("hq_remote_writes")
+					.set({
+						opened_at: sql`now() - interval '2 hours'`,
+						held_until: sql`now() - interval '1 hour'`,
+					})
+					.where("write_kind", "=", "lookup-json")
+					.where("settled_at", "is", null)
+					.execute();
+			};
+			const writesOf = async (step: () => Promise<void>) => {
+				hq.writes.length = 0;
+				await step();
+				return [...hq.writes];
+			};
+			const name = (value: string) => ({ value });
+
+			/* The first publish creates the table, then each row. */
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			expect((await publish(doc)).landed).toBe(true);
+			/* The same table again writes nothing. */
+			expect(await writesOf(landed)).toEqual([]);
+			const [r1, r2] = (await typesTable()).rowIds;
+
+			/* Append, change, reorder and remove, each its own publish. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "add",
+					key: "k3",
+					cells: [
+						{ columnId: c.code, ...name("003") },
+						{ columnId: c.name, ...name("Health post") },
+					],
+				},
+			]);
+			expect(await writesOf(landed)).toEqual([`POST ${rowsPath}`]);
+			const r3 = (await typesTable()).rowIds[2] ?? fail();
+			await editTypesRows((_, c) => [
+				{
+					kind: "update",
+					rowId: r1 ?? fail(),
+					cells: [
+						{ columnId: c.code, ...name("001") },
+						{ columnId: c.name, ...name(" Clinic 2 ") },
+					],
+				},
+			]);
+			expect(await writesOf(landed)).toHaveLength(1);
+			await editTypesRows(() => [
+				{ kind: "move", rowId: r3, afterRowId: null },
+			]);
+			expect(
+				(await writesOf(landed)).every((line) => line.startsWith("PUT")),
+			).toBe(true);
+			await editTypesRows(() => [{ kind: "remove", rowId: r2 ?? fail() }]);
+			expect(await writesOf(landed)).toHaveLength(1);
+			expect(await writesOf(landed)).toEqual([]);
+
+			/* A row create whose answer is lost is never adopted: the table
+			 * waits for a person, who removes the row in CommCare HQ, and the
+			 * create is sent once more after its hold. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "add",
+					key: "k4",
+					cells: [
+						{ columnId: c.code, ...name("004") },
+						{ columnId: c.name, ...name("Field office") },
+					],
+				},
+			]);
+			fault = "lose-row-create";
+			expect(await writesOf(stopped)).toEqual([`POST ${rowsPath}`]);
+			fault = null;
+			expect(await writesOf(stopped)).toEqual([]);
+			const stranger = [...hq.rows.values()].at(-1) ?? fail();
+			hq.edit({ kind: "delete-row", rowId: stranger.id });
+			await holdPassed();
+			expect(await writesOf(landed)).toEqual([`POST ${rowsPath}`]);
+			const r4 = (await typesTable()).rowIds.at(-1) ?? fail();
+
+			/* A change whose request never reached CommCare HQ waits for its
+			 * hold, then goes once. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "update",
+					rowId: r3,
+					cells: [
+						{ columnId: c.code, ...name("003") },
+						{ columnId: c.name, ...name("Health post 2") },
+					],
+				},
+			]);
+			fault = "drop-put";
+			expect(await writesOf(stopped)).toEqual([]);
+			fault = null;
+			await holdPassed();
+			expect(await writesOf(landed)).toHaveLength(1);
+
+			/* A change whose answer is lost is read, found landed, and never sent again. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "update",
+					rowId: r4,
+					cells: [
+						{ columnId: c.code, ...name("004") },
+						{ columnId: c.name, ...name("Field office 2") },
+					],
+				},
+			]);
+			fault = "lose-put";
+			expect(await writesOf(landed)).toHaveLength(1);
+			fault = null;
+			/* The write whose answer was lost keeps the table's edits waiting
+			 * until its hold passes, though the read found it landed. */
+			await holdPassed();
+
+			/* A person edits a row in CommCare HQ between Nova's two requests:
+			 * the second, which would write over it, is never sent. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "update",
+					rowId: r1 ?? fail(),
+					cells: [
+						{ columnId: c.code, ...name("001") },
+						{ columnId: c.name, ...name("Clinic 3") },
+					],
+				},
+				{
+					kind: "update",
+					rowId: r4,
+					cells: [
+						{ columnId: c.code, ...name("004") },
+						{ columnId: c.name, ...name("Field office 3") },
+					],
+				},
+			]);
+			fault = "edit-between";
+			hq.writes.length = 0;
+			current();
+			const between = await publish(doc);
+			expect(refusal(between).failure.code).toBe("hq_resource_state_unknown");
+			expect(hq.writes.filter((line) => line.startsWith("PUT"))).toHaveLength(
+				1,
+			);
+
+			const [table] = hq.tables.values();
+			const recorded = {
+				domain: "clinic",
+				exchanges: hq.exchanges,
+				table: table?.id,
+				final: [...hq.rows.values()]
+					.filter((row) => row.table === table?.id)
+					.sort((a, b) => a.sortKey - b.sortKey || (a.id < b.id ? -1 : 1))
+					.map((row) => ({
+						id: row.id,
+						sortKey: row.sortKey,
+						fields: row.fields,
+						itemAttributes: row.attributes,
+					})),
+			};
+			const fixture = new URL(
+				"../../../proof/hq/fixtures/lookup-json-publish.json",
+				import.meta.url,
+			);
+			if (process.env.WRITE_LOOKUP_JSON_PUBLISH_FIXTURE === "1")
+				writeFileSync(fixture, `${JSON.stringify(recorded, null, "\t")}\n`);
+			expect(recorded).toEqual(JSON.parse(readFileSync(fixture, "utf-8")));
 		});
 	});
 
