@@ -122,3 +122,90 @@ it("keeps the assigned owner rule when a menu has a dormant online exclusion", a
 		]),
 	);
 });
+
+it("refuses an order naming a property Nova reserves, and reads the record's own state by its @ key", async () => {
+	const saved = await readLists(patients([], { search: {} }), {
+		edit: (app) => {
+			app.modules[0].search_config.default_properties.push({
+				property: "commcare_sort",
+				defaultValue: "'-status:exact'",
+			});
+		},
+	});
+	expect(closedCodes(saved)).toEqual([
+		"case-search/a-server-order-naming-a-property-nova-reserves",
+	]);
+	const dedicated = await readLists(patients([], { search: {} }), {
+		edit: (app) => {
+			app.modules[0].search_config.custom_sort_properties = [
+				{
+					doc_type: "CaseSearchCustomSortProperty",
+					property_name: "owner_id",
+					sort_type: "exact",
+					direction: "ascending",
+				},
+			];
+		},
+	});
+	expect(closedCodes(dedicated)).toEqual([
+		"case-search/a-server-order-naming-a-property-nova-reserves",
+	]);
+	const state = await readLists(
+		patients([], {
+			search: {
+				requestOrder: [
+					{ property: "status", comparison: "text", direction: "descending" },
+					{
+						property: "date_opened",
+						comparison: "date",
+						direction: "ascending",
+					},
+				],
+			},
+		}),
+	);
+	expect(closedCodes(state), JSON.stringify(state.findings)).toEqual([]);
+	expect(
+		(
+			state.app.modules[0].search_config.custom_sort_properties as {
+				property_name: string;
+			}[]
+		).map((row) => row.property_name),
+	).toEqual(["@status", "date_opened"]);
+	expect(searchOf(state)?.requestOrder).toEqual([
+		{ property: "status", comparison: "text", direction: "descending" },
+		{ property: "date_opened", comparison: "date", direction: "ascending" },
+	]);
+});
+
+it("keeps a default filter's order text as it arrived, defaults left implicit", async () => {
+	const reading = await readLists(patients([], { search: {} }), {
+		edit: (app) => {
+			// HQ's editor saves the order as the menu's one default filter.
+			app.modules[0].search_config.default_properties = [
+				{ property: "commcare_sort", defaultValue: "'name,-date_opened:date'" },
+			];
+		},
+	});
+	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+	expect(listOf(reading).searchFilters).toMatchObject([
+		{
+			kind: "order",
+			order: [
+				{
+					property: "case_name",
+					recordName: true,
+					comparison: "text",
+					direction: "ascending",
+					implicitComparison: true,
+					implicitDirection: true,
+				},
+				{
+					property: "date_opened",
+					comparison: "date",
+					direction: "descending",
+				},
+			],
+		},
+	]);
+});

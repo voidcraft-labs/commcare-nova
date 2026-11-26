@@ -4239,6 +4239,46 @@ def native_filter_unbound_value(use, manifest):
     return False if parsed["instancePaths"] and screen else None
 
 
+# The keys of HQ's search index Nova reads as a record's own information
+# (``lib/commcare/suite/case-search/requestOrder.ts::RECORD_KEYS``), and the names Nova reserves for a case's own facts
+# or as CommCare HQ's reserved words (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``:
+# the SaveToCase set with the block's own rows and the two location keys).
+SERVER_ORDER_RECORD_KEYS = frozenset(
+    {"@case_id", "@owner_id", "@case_type", "@status", "name", "case_name", "external_id", "date_opened", "last_modified"}
+)
+CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id", "location_id", "hq_user_id"})
+
+
+def _order_key_reserved(key):
+    return key not in SERVER_ORDER_RECORD_KEYS and (key in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or key in CASE_OPERATION_OWN_ROWS)
+
+
+def server_order_reserved_property(use, manifest):
+    """``case-search/a-server-order-naming-a-property-nova-reserves``: a literal ``commcare_sort`` default filter, or a
+    search's ``custom_sort_properties`` on a search its menu offers (the only one Nova reads them on), one of whose
+    keys names a property Nova reserves (``status`` is a saved property; the record's state is ``@status``,
+    ``es/case_search.py::sort_by_case_property``). A ``commcare_sort`` that is no one literal is
+    ``a-commcare-sort-x-commcare-custom-related-case-property-or-case``'s."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    if not use.key.startswith(("schema:CaseSearch.custom_sort_properties", "schema:CaseSearchCustomSortProperty")):
+        for entry in _default_entries(at, config):
+            if entry.get("property") != "commcare_sort":
+                continue
+            text = _literal_text(entry.get("defaultValue"))
+            if text is not None and any(
+                _order_key_reserved(part.lstrip("+-").split(":")[0]) for part in text.split(",")
+            ):
+                return True
+        return False
+    if not (config.get("properties") or config.get("default_properties")):
+        return False
+    row = at.nearest("CaseSearchCustomSortProperty")
+    rows = [row] if row is not None else [each for each in config.get("custom_sort_properties") or [] if isinstance(each, dict)]
+    return any(isinstance(each.get("property_name"), str) and _order_key_reserved(each["property_name"]) for each in rows)
+
+
 def request_config_key_runtime_value(use, manifest):
     """``case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case``: a ``commcare_sort``,
     ``x_commcare_custom_related_case_property`` or ``case_type`` default filter whose value Core does not
@@ -9927,6 +9967,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/session-endpoint-id-not-a-slug-fixed-point-or-duplicated": not_a_slug_or_duplicated,
     "forms-and-case-writes/any-other-undeclared-key": undeclared_key_no_row_names,
     # Case search
+    "case-search/a-server-order-naming-a-property-nova-reserves": server_order_reserved_property,
     "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": request_config_key_runtime_value,
     "case-search/an-x-commcare-custom-related-case-property-entry-together-with": related_case_property_twice,
     "case-search/default-properties-entry-keyed-x-commcare-data-registry": data_registry_key,

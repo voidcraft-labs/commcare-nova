@@ -11121,6 +11121,28 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/owner-exclusion-on-a-list-with-no-search",
+		"base": "hq-case-lists",
+		"entry": "case-search/owner-exclusion-in-a-dormant-search-setting",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/blacklisted_owner_ids_expression",
+			"value": "'retired-worker'"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/header",
+				"value": "Name"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/owner-name-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/owner-name",
@@ -34457,12 +34479,6 @@
 		"id": "hq-search/default-filter-excluding-owners",
 		"base": "hq-search",
 		"entry": "case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -34471,7 +34487,37 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'abc'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target",
+				"value": {
+					"kind": "excluded-owners"
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/value",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "literal",
+						"value": "abc"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-naming-a-case-type",
@@ -34715,8 +34761,52 @@
 	{
 		"id": "hq-search/default-filter-sorting-results",
 		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
-		"standing": "not-yet",
+		"entry": "case-search/default-filter-orders-the-records-the-search-sends",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'+name'"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/kind",
+				"value": "order"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/order",
+				"value": [
+					{
+						"property": "case_name",
+						"recordName": true,
+						"comparison": "text",
+						"direction": "ascending",
+						"implicitComparison": true
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-search/default-filter-sorting-by-a-saved-status",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-nova-reserves",
+		"standing": "never",
 		"place": {
 			"kind": "search",
 			"menu": 1,
@@ -34728,7 +34818,27 @@
 			"value": {
 				"property": "commcare_sort",
 				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "'+name'"
+				"defaultValue": "'-status:exact'"
+			}
+		}
+	},
+	{
+		"id": "hq-search/default-filter-naming-the-related-case-property",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_custom_related_case_property",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'parent_id'"
 			}
 		}
 	},
@@ -36682,17 +36792,42 @@
 		"id": "hq-search/owner-exclusion-with-no-list-clause",
 		"base": "hq-search",
 		"entry": "case-search/blacklisted-owner-ids-expression-without-that-clause",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/blacklisted_owner_ids_expression",
 			"value": "'abc'"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target",
+				"value": {
+					"kind": "excluded-owners",
+					"placement": "search-setting"
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/value",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "literal",
+						"value": "abc"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/property-named-at-run-time",
@@ -37241,7 +37376,43 @@
 		"id": "hq-search/results-sorted",
 		"base": "hq-search",
 		"entry": "case-search/custom-sort-properties-property-name-sort-type-exact-date",
-		"standing": "not-yet",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/custom_sort_properties",
+			"value": [
+				{
+					"property_name": "name",
+					"sort_type": "exact",
+					"direction": "ascending",
+					"doc_type": "CaseSearchCustomSortProperty"
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/requestOrder",
+				"value": [
+					{
+						"property": "case_name",
+						"recordName": true,
+						"comparison": "text",
+						"direction": "ascending"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-search/results-sorted-by-a-saved-owner",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-nova-reserves",
+		"standing": "never",
 		"place": {
 			"kind": "search",
 			"menu": 0,
@@ -37252,7 +37423,7 @@
 			"pointer": "/modules/0/search_config/custom_sort_properties",
 			"value": [
 				{
-					"property_name": "name",
+					"property_name": "owner_id",
 					"sort_type": "exact",
 					"direction": "ascending",
 					"doc_type": "CaseSearchCustomSortProperty"

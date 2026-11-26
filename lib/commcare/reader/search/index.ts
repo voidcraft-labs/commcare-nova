@@ -28,6 +28,7 @@ import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import {
 	readDedicatedOrder,
 	readRequestOrderText,
+	requestOrderTextNamesReserved,
 } from "../../suite/case-search/requestOrder";
 import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
 import { rethrowWorkStop } from "../../workMeter";
@@ -144,6 +145,10 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	defaultOrderValue: take(
 		`${S}default-filter-orders-the-records-the-search-sends`,
 		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	sortReserved: refuse(
+		`${S}a-server-order-naming-a-property-nova-reserves`,
+		"schema:DefaultCaseSearchProperty.property",
 	),
 	sortKey: refuse(
 		`${S}default-properties-entry-keyed-commcare-sort-x-commcare-custom`,
@@ -377,12 +382,19 @@ function readDefaultFilters(
 			return;
 		}
 		if (property !== "_xpath_query") {
+			// A literal order is held among the filters, where it arrived; one
+			// naming a property Nova reserves is refused under its own entry.
+			let sortReserved = false;
 			if (property === "commcare_sort") {
 				const syntax = readFormSyntax(value);
-				const order =
+				const text =
 					syntax.ok && syntax.node?.kind === "string"
-						? readRequestOrderText(syntax.node.value)
+						? syntax.node.value
 						: undefined;
+				const order =
+					text === undefined ? undefined : readRequestOrderText(text);
+				sortReserved =
+					text !== undefined && requestOrderTextNamesReserved(text);
 				if (order !== undefined) {
 					const occurrence = names.get(property)?.length ?? 0;
 					addName(property, row);
@@ -405,12 +417,9 @@ function readDefaultFilters(
 				}
 			}
 			// The row's value is the filter the refusal names, and stands under its finding.
-			const claim = keyFinding(
-				property,
-				value,
-				ownersExpression,
-				relatedPropertySet,
-			);
+			const claim = sortReserved
+				? C.sortReserved
+				: keyFinding(property, value, ownersExpression, relatedPropertySet);
 			if (claim === undefined) {
 				const target = readSearchFilterTarget(property);
 				const occurrence = names.get(property)?.length ?? 0;

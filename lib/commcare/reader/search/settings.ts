@@ -25,7 +25,10 @@ import {
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { emitExcludedOwnerFilterExpression } from "../../suite/case-list/nodesetFilter";
 import { searchGuardedFieldNames } from "../../suite/case-search/moduleXPathQuery";
-import { readDedicatedOrder } from "../../suite/case-search/requestOrder";
+import {
+	dedicatedOrderNamesReserved,
+	readDedicatedOrder,
+} from "../../suite/case-search/requestOrder";
 import { normalizeSpace } from "../../suite/wire";
 import { rethrowWorkStop } from "../../workMeter";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
@@ -194,6 +197,10 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 	),
 	customSort: take(
 		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearch.custom_sort_properties",
+	),
+	customSortReserved: refuse(
+		`${S}a-server-order-naming-a-property-nova-reserves`,
 		"schema:CaseSearch.custom_sort_properties",
 	),
 	searchOnClear: take(
@@ -1144,8 +1151,12 @@ export function readSearchSettings(
 		ok = false;
 	}
 	if (cursor.used("custom_sort_properties")) {
-		const order = readDedicatedOrder(cursor.peek("custom_sort_properties"));
-		if (order === undefined) {
+		const stored = cursor.peek("custom_sort_properties");
+		const order = readDedicatedOrder(stored);
+		if (order === undefined && dedicatedOrderNamesReserved(stored)) {
+			cursor.refuse("custom_sort_properties", T.customSortReserved);
+			ok = false;
+		} else if (order === undefined) {
 			const detail = { name: "schema:CaseSearch.custom_sort_properties" };
 			ctx.accounting.circumstance("unrecognized", place, detail);
 			ctx.accounting.cover(

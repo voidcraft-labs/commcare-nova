@@ -3084,6 +3084,46 @@ def _search_and_menus():
     legacy_input = "instance('search-input')/input/field"
     return {
         # Case search
+        "case-search/a-server-order-naming-a-property-nova-reserves": (
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'-status:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'-@status:exact,+priority'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            refused(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("dob", "'x'")],
+                        custom_sort_properties=[
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "owner_id", "sort_type": "exact"}
+                        ],
+                    )
+                ),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("dob", "'x'")],
+                        custom_sort_properties=[
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "@owner_id", "sort_type": "exact"}
+                        ],
+                    )
+                ),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+        ),
         "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": (
             refused(
                 "app",

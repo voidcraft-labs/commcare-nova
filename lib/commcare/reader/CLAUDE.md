@@ -835,12 +835,14 @@ A change that holds one removes its line.
   rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
   `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with
   the expansion's print, which applies every rewrite, and no held level reaches that print.
-- **Nova's own owner clause in a case list filter respelled by hand in CommCare HQ**, beside a
-  search that stores the owner list: refused under
-  `case-search/blacklisted-owner-ids-expression-without-that-clause` at the search
-  (`search/settings.ts::readSearchSettings`, `holdsOwnersWithoutClause`). Only Nova's spelling
-  tells the clause from an authored condition (`isOwnerClause`), and Nova's print would write the
-  clause again beside the respelled one.
+- **Nova's own owner clause in a case list filter respelled by hand in CommCare HQ, or removed**,
+  beside a search that stores Nova's spelling of the owner list: refused under
+  `case-search/blacklisted-owner-ids-expression-outside-valueexpression` at the search
+  (`search/index.ts::readOwnersWithoutClause`). Only Nova's spelling tells the clause from an
+  authored condition (`isOwnerClause`), so the stored list is read as the search's own owner
+  exclusion, whose value takes no `normalize-space` wrapper. An owner list HQ's editor saved
+  without the wrapper and with no clause is that search-only exclusion
+  (`blacklisted-owner-ids-expression-without-that-clause`).
 - **Two rewrites that print at one node, one inside the other's spelling, each spelled otherwise
   than the source**: refused under the slot's own entry (`expressions/index.ts::siteLevel`). No
   single site's flip moves the first difference on, so the search finds no level.

@@ -197,7 +197,7 @@
 		],
 		"valueClass": "request-config-key-literal-value-alone",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW** where its value is a literal or a typed value: the typed search control the key sets (result sort, the related-case property, related-case inclusion), kept in the default-filter spelling it arrived in, because that spelling's editor gate differs from the dedicated one's (`custom_sort_properties` needs CASE_SEARCH_ADVANCED, a default filter does not) (the related-cases key includes related cases for any non-empty value, `case_search/utils.py::get_related_cases_result`), which is where HQ's editor shows it (`details/case_claim.js::defaultPropertyModel` accepts any name)",
+		"dispositionCell": "**HELD-NEW** where its value is a literal or a typed value: the typed search control the key sets (the related-case property, related-case inclusion), kept in the default-filter spelling it arrived in, because that spelling's editor gate differs from the dedicated one's (the related-cases key includes related cases for any non-empty value, `case_search/utils.py::get_related_cases_result`), which is where HQ's editor shows it (`details/case_claim.js::defaultPropertyModel` accepts any name). A literal `commcare_sort` Nova reads is `default-filter-orders-the-records-the-search-sends`; one whose text Nova does not read (a comparison other than `exact`, `numeric` or `date`, two signs, more than one `:`) stays here",
 		"subject": "search-default-filters",
 		"owner": "case-search",
 		"platforms": {
@@ -221,14 +221,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "A default filter that sets the order of records the search sends",
+		"item": "a `default_properties[]` entry keyed `commcare_sort` whose literal value names each property, comparison and direction Nova reads",
 		"surfaceKeys": [
 			"schema:DefaultCaseSearchProperty.property",
 			"schema:DefaultCaseSearchProperty.defaultValue"
 		],
 		"valueClass": "literal-server-sort",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: ordered property, comparison and direction choices in a default filter",
+		"dispositionCell": "**HELD**: an order among the search filters (`caseListConfig.searchFilters[]` of kind `order`), sent in the filters' order and before the dedicated order (`suite_xml/post_process/remote_requests.py::_remote_request_query_datums`; `case_search/models.py::_parse_commcare_sort_properties` reads every `commcare_sort` value in turn), with a comparison or direction the text leaves to HQ's defaults kept implicit; it needs no CASE_SEARCH_ADVANCED, unlike `custom_sort_properties`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -242,6 +242,39 @@
 		},
 		"emission": {
 			"cell": "the same default-filter entry",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-server-order-naming-a-property-nova-reserves",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "a `commcare_sort` default filter or a `custom_sort_properties` row naming, without `@`, a property Nova reserves for a case's own facts or as a word in `case-reserved-words.json` (`status`, `owner_id`, `case_id`, `closed`, …)",
+		"surfaceKeys": [
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"schema:CaseSearch.custom_sort_properties",
+			"schema:CaseSearchCustomSortProperty",
+			"schema:CaseSearchCustomSortProperty.property_name"
+		],
+		"valueClass": "server-order-reserved-property",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: unrepresentable identity: HQ's search sorts by the property a form saved under that name (`es/case_search.py::sort_by_case_property` filters the case's properties by the key; the record's own facts are the `@` keys of `case_search/const.py::INDEXED_METADATA_BY_KEY`), and Nova reserves the name for a case's own facts or as one of CommCare HQ's reserved words (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`), so no property of Nova's catalog is it",
+		"subject": "search-default-filters",
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "HQ's search sorts by the property a form saved under that name (`es/case_search.py::sort_by_case_property` filters the case's properties by the key; the record's own facts are the `@` keys of `case_search/const.py::INDEXED_METADATA_BY_KEY`), and Nova reserves the name for a case's own facts or as one of CommCare HQ's reserved words (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`), so no property of Nova's catalog is it"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -449,7 +482,7 @@
 		],
 		"valueClass": "blacklisted-owner-ids-key-alone",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a search-only owner exclusion among the ordered default filters",
+		"dispositionCell": "**HELD**: a search-only owner exclusion among the default filters (`caseListConfig.searchFilters[]` targeting `excluded-owners`), sent as the same `commcare_blacklisted_owner_ids` key and applied to the server search alone (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter` tests the key before `UNSEARCHABLE_KEYS`); it replaces the shared `excludedOwnerIds` for the search, which then stays off the request so HQ never reads the key twice",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -577,7 +610,7 @@
 		],
 		"valueClass": "on-a-search-the-menu-offers",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the ordered properties, comparisons and directions the server uses to choose its matches",
+		"dispositionCell": "**HELD**: `caseSearchConfig.requestOrder[]`, the property, comparison (text, number, date) and direction the server chooses its matches by before its cap (`case_search/utils.py::CaseSearchQueryBuilder._apply_sort`, `es/case_search.py::sort_by_case_property`); a row with no `sort_type` is HQ's `exact`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1116,7 +1149,7 @@
 		"surfaceKeys": ["schema:CaseSearch.blacklisted_owner_ids_expression"],
 		"valueClass": "without-list-clause-alone",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a search-only owner exclusion: HQ never applies it to the device list",
+		"dispositionCell": "**HELD**: a search-only owner exclusion held as the dedicated setting (`caseListConfig.searchFilters[]` targeting `excluded-owners` with `placement: \"search-setting\"`): HQ sends it to the server search alone (`remote_requests.py::_remote_request_query_datums`) and never applies it to the device list, so the list keeps its own clause, read into `caseSearchConfig.excludedOwnerIds` where it has one",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1140,11 +1173,11 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "A stored owner exclusion in a menu that offers no Search",
+		"item": "`blacklisted_owner_ids_expression` stored on a menu that offers no search",
 		"surfaceKeys": ["schema:CaseSearch.blacklisted_owner_ids_expression"],
 		"valueClass": "no-search-action",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: HQ builds no search request for this menu. Its assigned list reads its own filter alone (RemoteRequestsHelper.update_suite).",
+		"dispositionCell": "**INERT**: HQ builds no search request for the menu (`suite_xml/post_process/remote_requests.py::RemoteRequestsHelper` runs only for a menu that offers search) and its editor shows the setting only on one that does (`views/modules.py`, `module_offers_search`); the menu's list reads its own filter alone, which Nova reads as the assigned-case rule, and Nova's export writes no setting there",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"

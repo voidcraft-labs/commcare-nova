@@ -166,7 +166,7 @@ describe("a search's settings", () => {
 		);
 	});
 
-	it("holds a stored owner exclusion as a search setting when the list filter has no matching clause", async () => {
+	it("refuses Nova's own spelling of an owner exclusion whose list clause was removed, as a value outside the search's", async () => {
 		const reading = await readLists(
 			doc({ excludedOwnerIds: term(literal("abc")) }),
 			{
@@ -178,10 +178,10 @@ describe("a search's settings", () => {
 				},
 			},
 		);
-		expect(codes(reading), JSON.stringify(reading.findings)).toEqual([]);
-		expect(searchOf(reading)?.excludedOwnerIds).toBeUndefined();
-		expect(listOf(reading).searchFilters).toMatchObject([
-			{ target: { kind: "excluded-owners", placement: "search-setting" } },
+		// The setting still holds the shared rule's `normalize-space` wrapper,
+		// which the search-only setting's value does not take.
+		expect(closedCodes(reading)).toEqual([
+			"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
 		]);
 	});
 
@@ -827,8 +827,11 @@ describe("a search's default filters", () => {
 			expect(codes(reading)).not.toContain(typeKey);
 		});
 
-	it("raises a literal sort key and a literal case type by their own rows", async () => {
-		const sort = await keyed("commcare_sort", "'+name'");
+	it("holds a literal sort Nova reads, and raises one it does not and a literal case type by their own rows", async () => {
+		const held = await keyed("commcare_sort", "'+name'");
+		expect(codes(held)).not.toContain(sortKey);
+		expect(codes(held)).not.toContain(runtime);
+		const sort = await keyed("commcare_sort", "'+name:fuzzy'");
 		expect(codes(sort)).toContain(sortKey);
 		expect(codes(sort)).not.toContain(runtime);
 		const type = await keyed("case_type", "'patient'");

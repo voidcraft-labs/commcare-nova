@@ -12,6 +12,7 @@
 
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import type { SearchRequestOrder } from "@/lib/domain/modules";
+import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 
 type Term = SearchRequestOrder[number];
 
@@ -22,16 +23,64 @@ const WIRE_COMPARISON = {
 } as const;
 
 /** The record's own attributes, under the keys HQ's index holds them at
- *  (`case_search/const.py::INDEXED_METADATA_BY_KEY`). The same name without
- *  `@` is a property a form saved under that name, which Nova's catalog
- *  cannot hold (its names are the attributes'), so an order on one is no
- *  order Nova reads. */
+ *  (`case_search/const.py::INDEXED_METADATA_BY_KEY`). */
 const ATTRIBUTE_KEYS = {
 	"@case_id": "case_id",
 	"@owner_id": "owner_id",
 	"@case_type": "case_type",
 	"@status": "status",
 } as const;
+
+/** The keys of HQ's index Nova reads as a record's own information. */
+export const SERVER_ORDER_RECORD_KEYS: ReadonlySet<string> = new Set([
+	...Object.keys(ATTRIBUTE_KEYS),
+	"name",
+	"case_name",
+	"external_id",
+	"date_opened",
+	"last_modified",
+]);
+
+/**
+ * Whether an order key names a property Nova reserves: a saved property
+ * under a name Nova keeps for a record's own information or CommCare's
+ * reserved words (`status` without `@` is what a form saved as `status`, not
+ * the record's open or closed state). Nova's catalog holds no such property,
+ * so no order of Nova's names it.
+ */
+export function serverOrderKeyNovaReserves(key: string): boolean {
+	return (
+		!SERVER_ORDER_RECORD_KEYS.has(key) &&
+		FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(key)
+	);
+}
+
+/** Whether a literal `commcare_sort` text names a key Nova reserves. */
+export function requestOrderTextNamesReserved(text: string): boolean {
+	return text
+		.split(",")
+		.some((part) =>
+			serverOrderKeyNovaReserves(
+				part.replace(/^[-+]+/, "").split(":")[0] ?? "",
+			),
+		);
+}
+
+/** Whether dedicated sort rows name a key Nova reserves. */
+export function dedicatedOrderNamesReserved(value: unknown): boolean {
+	return (
+		Array.isArray(value) &&
+		value.some(
+			(row) =>
+				row !== null &&
+				typeof row === "object" &&
+				typeof (row as Record<string, unknown>).property_name === "string" &&
+				serverOrderKeyNovaReserves(
+					(row as Record<string, unknown>).property_name as string,
+				),
+		)
+	);
+}
 
 /** The key HQ's index holds a term's value under. */
 export function requestOrderKey(term: Term): string {
@@ -49,11 +98,7 @@ function readTerm(
 	const attribute = Object.entries(ATTRIBUTE_KEYS).find(
 		([wire]) => wire === key,
 	)?.[1];
-	if (
-		attribute === undefined &&
-		(Object.values(ATTRIBUTE_KEYS) as readonly string[]).includes(key)
-	)
-		return;
+	if (serverOrderKeyNovaReserves(key)) return;
 	const property = attribute ?? (key === "name" ? "case_name" : key);
 	if (!authoredCasePropertyNameSchema.safeParse(property).success) return;
 	if (
