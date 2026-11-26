@@ -200,24 +200,18 @@ def write_through_typed_user_index(authoring, app_id):
 
 def write_through_typed_parent_user_index(authoring, app_id):
     """A member's declared household owns a user index to an ordinary district."""
-    from corehq.apps.app_manager.xform_builder import XFormBuilder
-
     from proof.matrix.bases.hq_advanced import new_advanced_module
-
-    def named_question(title, name, label):
-        builder = XFormBuilder(title)
-        builder.new_question(name, label, "string")
-        return builder.tostring(xml_declaration=True).decode("utf-8")
+    from proof.matrix.bases.hq_case_management import _source
 
     _pages.new_case_module(authoring, app_id, name="Districts", case_type="district")
     ops.upload_form_source(
-        authoring, app_id, 2, 0, named_question("District", "district_name", "District"),
+        authoring, app_id, 2, 0, _source(("district_name", "District", "string")),
         "typed-parent-user-index-district",
     )
     _pages.save_case_actions(authoring, app_id, 2, 0, name_path="/data/district_name")
     new_advanced_module(authoring, app_id, "Register households linked to districts")
     ops.upload_form_source(
-        authoring, app_id, 3, 0, named_question("Household", "household_name", "Household"),
+        authoring, app_id, 3, 0, _source(("household_name", "Household", "string")),
         "typed-parent-user-index-household",
     )
     ops.set_json(authoring, app_id, "/modules/3/case_type", "district")
