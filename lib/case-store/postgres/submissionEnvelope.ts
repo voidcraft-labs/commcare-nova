@@ -67,6 +67,7 @@ import {
 	USERCASE_BUILT_IN_KEYS,
 	USERCASE_CASE_TYPE,
 	type Uuid,
+	workerUpdateUsesOpeningCase,
 } from "@/lib/domain";
 import { MAX_AUTHORED_CASE_ID_LENGTH } from "@/lib/domain/caseOperationIdentity";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
@@ -1601,19 +1602,21 @@ async function resolveOperationProgram(
 
 	// An irrelevant block supplies no target. Resolve an executing worker
 	// update before any effect and keep its physical identity from the
-	// signed restore where the conditional Save to Case selector ran.
+	// signed restore where the conditional or repeated Save to Case selector ran.
 	let workerRecordCaseId: string | undefined;
 	const workerUpdate = instances.find(
 		({ envelope }, index) =>
 			executing[index] && envelope.operation.target.kind === "worker-record",
 	);
 	if (workerUpdate !== undefined) {
-		const conditioned = workerUpdate.envelope.operation.condition !== undefined;
+		const openingScoped = workerUpdateUsesOpeningCase(
+			workerUpdate.envelope.operation,
+		);
 		const reopenWorker = () =>
 			new CaptureSubmissionRejectedError(
 				"The worker's record is missing or has changed. Reopen the form to load the current record.",
 			);
-		const restored = conditioned
+		const restored = openingScoped
 			? program.openingReads?.cases.rows.filter(
 					(row) =>
 						row.app_id === appId &&
@@ -1623,7 +1626,7 @@ async function resolveOperationProgram(
 			: undefined;
 		const held = restored?.[0];
 		if (
-			conditioned &&
+			openingScoped &&
 			(restored?.length !== 1 ||
 				!held ||
 				held.status !== "open" ||
@@ -1661,7 +1664,7 @@ async function resolveOperationProgram(
 			rows[0].status !== "open" ||
 			rows[0].owner_id !== host.actingUserId
 		)
-			throw conditioned
+			throw openingScoped
 				? reopenWorker()
 				: new CaseNotFoundError(host.actingUserId);
 		workerRecordCaseId = rows[0].case_id;

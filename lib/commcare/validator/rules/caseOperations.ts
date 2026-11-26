@@ -1800,6 +1800,21 @@ function workerRecordFindings(
 			// Only the direct worker-record target can carry a root condition.
 			if (facet === "condition" && operation.target.kind === "worker-record")
 				continue;
+			if (
+				facet === "forEach" &&
+				operation.target.kind === "worker-record" &&
+				operation.condition === undefined &&
+				operation.forEach !== undefined
+			) {
+				const repeat = operation.forEach.repeat;
+				const field = ctx.doc.fields[repeat];
+				if (
+					field?.kind === "repeat" &&
+					field.repeat_mode !== "query_bound" &&
+					ctx.fields.get(repeat)?.repeatPath.length === 1
+				)
+					continue;
+			}
 			const value = operation[facet];
 			if (value === undefined || (Array.isArray(value) && value.length === 0))
 				continue;

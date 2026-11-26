@@ -2784,6 +2784,33 @@ def save_to_case_worker_in_repeat(authoring, app_id):
     )
 
 
+def save_to_case_worker_under_repeat_condition(authoring, app_id):
+    """An extra condition around a repeated worker update is still a separate scope."""
+    group = "/data/members/nova_operations"
+    condition = f"{group}/nova_condition_worker"
+    read = "current()/../../../../../../member_name"
+    data, binds = _block(
+        "worker", "commcare-user", "<update><last_member/></update>", WORKER_CASE,
+        [("update/last_member", f'relevant="count({read}) &gt; 0" calculate="{read}"')],
+        group=condition,
+    )
+
+    def transform(text):
+        wrapped = _with_blocks(
+            text,
+            [(f"<nova_condition_worker>{data}</nova_condition_worker>",
+              f'<bind nodeset="{condition}" relevant="/data/weight &gt; 0"/>' + binds)],
+            data_before="</members>",
+            binds_before=FIRST_SETVALUE,
+            group_after=MEMBER_NAME_CLOSE,
+            group=group,
+        )
+        return _replaced(wrapped, [(f'<group ref="{group}"/>',
+                                    f'<group ref="{group}"><group ref="{condition}"/></group>', 1)])
+
+    _edit(authoring, app_id, "save-to-case-worker-under-repeat-condition", transform)
+
+
 # hq-new-app's follow-up form, which a menu of case type ``case`` opens with its case chosen.
 FOLLOWUP_DATA = "<default_label />"
 FOLLOWUP_BIND = '<bind vellum:nodeset="#form/default_label" nodeset="/data/default_label" />'

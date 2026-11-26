@@ -32,6 +32,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import { entryDatumSupplies } from "@/lib/domain/entryDatumSupplies";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
 import {
@@ -432,9 +433,40 @@ describe("operation-level execution of a Save to Case worker update", () => {
 		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 	});
 
-	it("still refuses an update in a repeat at its exact block", async () => {
+	it("keeps a single update in the ordinary repeat and supplies no worker entry datum", async () => {
 		const doc = workerApp({
 			forEach: { repeat: KIDS },
+			writes: [{ property: WRITTEN, value: term(formField(NOTE)) }],
+		});
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		const body = exportedBody(doc);
+		const wireForm = body.modules[0].forms[0];
+		expect(wireForm.actions?.usercase_update?.update).toEqual({});
+		expect(JSON.stringify(body)).toContain("/data/kids/nova_operations/worker");
+		expect(
+			entryDatumSupplies(doc, {
+				kind: "form",
+				module: doc.moduleOrder[0],
+				form: FORM,
+			}).refs.map(({ ref }) => ref.kind),
+		).not.toContain("worker-record");
+		const outcome = await readWith(doc, WRITTEN);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		expect(outcome.draft.doc.forms[FORM]?.caseOperations).toContainEqual(
+			expect.objectContaining({
+				target: { kind: "worker-record" },
+				forEach: { repeat: KIDS },
+				writes: [{ property: WRITTEN, value: term(formField(NOTE)) }],
+			}),
+		);
+	});
+
+	it("still refuses a guarded update in a repeat at its exact block", async () => {
+		const doc = workerApp({
+			forEach: { repeat: KIDS },
+			condition: eq(term(formField(NOTE)), literal("yes")),
 			writes: [{ property: WRITTEN, value: term(formField(KID)) }],
 		});
 		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);

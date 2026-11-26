@@ -635,6 +635,7 @@ export function usercaseSlotReasons(
 	operation: CaseOperation,
 ): PlacementIneligibility[] {
 	if (!isWorkerRecordUpdate(operation)) return [SUBJECT_CANNOT_HOLD];
+	if (operation.forEach !== undefined) return [SUBJECT_CANNOT_HOLD];
 	const reasons: PlacementIneligibility[] = tagged(
 		valueReasons(f, slotValues(operation), { kind: "none" }),
 	);

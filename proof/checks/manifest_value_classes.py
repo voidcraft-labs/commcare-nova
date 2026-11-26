@@ -11128,7 +11128,17 @@ def worker_record_save_to_case_shape(use):
     if selected is None or case_id is None or expression_tree(case_id.get("calculate") or "") != selected:
         return None
     if form.in_repeat(path):
-        return "repeat"
+        scopes = [repeat for repeat in form.repeat_paths if path.startswith(f"{repeat}/")]
+        parent = block.getparent()
+        if (
+            len(scopes) != 1
+            or any(form.paths[node] in scopes for node in form.model_repeats)
+            or _local(parent).startswith("nova_condition_")
+        ):
+            return "repeat-held"
+        if _local(parent).startswith("nova_operations") and len(form.save_to_case) == 1:
+            return "repeat"
+        return None
     parent = block.getparent()
     group = parent.getparent()
     if (group.getparent() is not form.data_root or not _local(group).startswith("nova_operations")

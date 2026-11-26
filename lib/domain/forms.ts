@@ -1022,6 +1022,15 @@ export const formSchema = z.strictObject({
 	audioLabel: mediaAssetIdSchema.optional(),
 });
 export type Form = z.infer<typeof formSchema>;
+/** A guarded or repeated change binds its worker target to the opened case database. */
+export function workerUpdateUsesOpeningCase(operation: CaseOperation): boolean {
+	return (
+		operation.action === "update" &&
+		operation.target.kind === "worker-record" &&
+		(operation.condition !== undefined || operation.forEach !== undefined)
+	);
+}
+
 /** A worker starting value runs on an editable worker load. HQ's basic
  * User Properties editor can create updates, but has no starting-value control. */
 export function opensWithWorkerValue(form: Form): boolean {
