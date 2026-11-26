@@ -2356,7 +2356,6 @@ def itemset_filters_available_cases_by_survey_readiness(authoring, app_id):
     run = ops.builder_save(authoring, app_id, 0, 0, edit={
         "way": "itemset-query",
         "path": "/data/district",
-        "property": "query",
         "value": "instance('casedb')/casedb/case[survey_ready = 'yes']",
     })
     assert not run.question_errors(), run.question_errors()

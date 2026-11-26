@@ -418,8 +418,10 @@ def _check_edit(edit, outcome, form_unique_id):
         raise ValueError(f"A Vellum run's edit names the way {edit.get('way')!r}; the driver makes it {EDIT_WAYS}.")
     if edit["way"] == "add-questions":
         expected = edit["questions"]
+    elif edit["way"] == "itemset-query" or "property" in edit:
+        expected = edit["value"]
     else:
-        expected = edit["value"] if "property" in edit else edit["label"]
+        expected = edit["label"]
     if not isinstance(outcome, dict) or not outcome.get("edited") or outcome.get("value") != expected:
         raise VellumEditRefused(
             f"The {edit['way']} edit of form {form_unique_id} in Vellum did not take ({outcome!r}),"

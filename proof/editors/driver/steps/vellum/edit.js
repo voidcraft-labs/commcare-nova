@@ -74,7 +74,7 @@
 				reason: "the advanced data source is unavailable",
 			};
 		$button.trigger("click");
-		const $editor = $designer.find(".fd-data-source-editor");
+		const $editor = $designer.find(".fd-data-source-editor-container");
 		const $query = $editor.find("[name=query]");
 		if ($query.length !== 1)
 			return { edited: false, reason: "the advanced query field did not open" };
