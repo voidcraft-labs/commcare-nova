@@ -10,6 +10,7 @@ import {
 import { caseTypesWithRelations } from "@/lib/domain/appCaseRelations";
 import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 
 interface MenuProperty {
 	readonly slot:
@@ -35,25 +36,31 @@ export function* moduleCaseProperties(
 	mod: Module,
 	readRelations: () => readonly CaseType[] = () => caseTypesWithRelations(doc),
 ): Generator<MenuProperty> {
+	const list = mod.caseListConfig;
+	const lookup = list?.deviceLookup;
+	if (lookup?.resultProperty !== undefined) {
+		const caseType = menuWithInheritedCaseSettings(
+			doc,
+			mod.uuid,
+			mod,
+		)?.caseType;
+		if (caseType !== undefined)
+			yield {
+				slot: "case_list_lookup_result_property",
+				name: lookup.resultProperty,
+				types: [caseType],
+				throughRelation: false,
+				rename(name) {
+					lookup.resultProperty = name;
+				},
+			};
+	}
 	if (!mod.caseType) return;
 	let relations: readonly CaseType[] | undefined;
 	const catalog = () => {
 		relations ??= readRelations();
 		return relations;
 	};
-	const list = mod.caseListConfig;
-	const lookup = list?.deviceLookup;
-	if (lookup?.resultProperty !== undefined) {
-		yield {
-			slot: "case_list_lookup_result_property",
-			name: lookup.resultProperty,
-			types: [mod.caseType],
-			throughRelation: false,
-			rename(name) {
-				lookup.resultProperty = name;
-			},
-		};
-	}
 	const requested = requestedRecordTypes(mod.caseType, list);
 	const relatedTypes = (via?: RelationPath) => [
 		...new Set(

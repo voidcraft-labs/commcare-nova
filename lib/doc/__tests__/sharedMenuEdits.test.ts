@@ -12,6 +12,10 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	buildReferenceIndex,
+	referencingSlotsOf,
+} from "@/lib/doc/referenceIndex";
+import {
 	caseListModuleMutations,
 	listedFormMenuMutations,
 } from "@/lib/doc/scaffolds";
@@ -23,6 +27,7 @@ import {
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	calculatedColumn,
+	casePropertyTargetKey,
 	idMappingColumn,
 	makeTranslationUnitId,
 	projectLocalizedModule,
@@ -35,6 +40,7 @@ import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { input, literal, term } from "@/lib/domain/expression";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
+import { proseText } from "@/lib/domain/prose";
 import { previewCaseListOrderLocale } from "@/lib/preview/engine/caseListOrder";
 
 function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
@@ -46,6 +52,90 @@ function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
 	return verdict.nextDoc;
 }
+
+it("indexes and rewrites a shared form route’s own Android lookup against its inherited case type", () => {
+	const source = twoMenus();
+
+	const doc = apply(source, [
+		{
+			kind: "addCaseProperty",
+			caseType: "patient",
+			property: {
+				name: "scan_id",
+				label: proseText("Scan ID"),
+				data_type: "text",
+			},
+		},
+		{
+			kind: "setCaseListMeta",
+			uuid: ROUTE,
+			patch: {
+				deviceLookup: {
+					action: "org.example.LOOKUP",
+					label: "Find patient",
+					resultHeading: "Confidence",
+					resultProperty: "scan_id",
+					extras: [{ name: "mode", value: "scan" }],
+					responses: ["match"],
+				},
+			},
+		},
+	]);
+	const readByRoute = (state: BlueprintDoc, property: string) =>
+		referencingSlotsOf(state, casePropertyTargetKey("patient", property)).get(
+			ROUTE,
+		);
+	const lookupOf = (state: BlueprintDoc, module: typeof ROUTE) =>
+		state.modules[module]?.caseListConfig?.deviceLookup;
+	expect(doc.modules[ROUTE]?.caseType).toBeUndefined();
+	expect(readByRoute(doc, "scan_id")).toEqual([
+		"case_list_lookup_result_property",
+	]);
+	expect(doc.refIndex).toEqual(buildReferenceIndex(doc));
+
+	const renamed = apply(doc, [
+		{
+			kind: "renameCaseProperties",
+			renames: [{ caseType: "patient", from: "scan_id", to: "card_id" }],
+		},
+	]);
+	expect(readByRoute(renamed, "scan_id")).toBeUndefined();
+	expect(readByRoute(renamed, "card_id")).toEqual([
+		"case_list_lookup_result_property",
+	]);
+	expect(lookupOf(renamed, ROUTE)?.resultProperty).toBe("card_id");
+	expect(lookupOf(renamed, SOURCE)).toBeUndefined();
+	expect(renamed.refIndex).toEqual(buildReferenceIndex(renamed));
+
+	const remove: Mutation = {
+		kind: "removeCaseProperty",
+		caseType: "patient",
+		property: "card_id",
+	};
+	const refused = mutationCommitVerdict(
+		renamed,
+		[remove],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(refused.ok ? [] : refused.findings).toMatchObject([
+		{
+			code: "CASE_LIST_DEVICE_LOOKUP_INVALID",
+			location: { moduleUuid: ROUTE },
+		},
+	]);
+
+	const removed = apply(renamed, [
+		{
+			kind: "setCaseListMeta",
+			uuid: ROUTE,
+			patch: { deviceLookup: null },
+		},
+		remove,
+	]);
+	expect(readByRoute(removed, "card_id")).toBeUndefined();
+	expect(lookupOf(removed, ROUTE)).toBeUndefined();
+	expect(removed.refIndex).toEqual(buildReferenceIndex(removed));
+});
 
 it("replays per-form changes to a listed menu while preserving an unrelated form link and a concurrent exclusion", () => {
 	const doc = twoMenus();
