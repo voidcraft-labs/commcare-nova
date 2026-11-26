@@ -122,6 +122,7 @@
 		"hq-case-lists/tile-cell-without-a-size",
 		"hq-case-lists/tile-cells-overlapping",
 		"hq-case-lists/tile-grouped-by-a-hyphenated-index",
+		"hq-case-lists/tile-taller-than-twelve-rows",
 		"hq-case-lists/time-since-in-fortnights",
 		"hq-case-lists/translatable-text-key-with-a-space",
 		"hq-case-lists/translatable-text-over-a-parent-property-beside-search",
