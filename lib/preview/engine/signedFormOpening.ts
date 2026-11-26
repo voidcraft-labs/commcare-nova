@@ -26,6 +26,38 @@ const decompress = promisify(gunzip);
 // Keep room within the one-MiB Server Action body for answers, choices and attachments.
 const INLINE_BYTES = 256 * 1024;
 
+/** Authority to carry a committed receipt's patch across entries on the
+ * same logical device run. The source entry is looked up by its receipt
+ * key independently of the destination entry and form. */
+export function openingCarryScope(
+	audience: Pick<
+		FormOpeningAudience,
+		| "app"
+		| "project"
+		| "actor"
+		| "session"
+		| "worker"
+		| "persona"
+		| "device"
+		| "run"
+	>,
+): string {
+	const { app, project, actor, session, worker, persona, device, run } =
+		audience;
+	return canonicalJsonDigest({
+		app,
+		project,
+		actor,
+		session,
+		worker,
+		persona,
+		run,
+		platform: device.platform,
+		androidDeviceId:
+			device.platform === "android" ? device.androidDeviceId : null,
+	});
+}
+
 type OpeningData = Pick<FormOpeningProjection, "cases" | "lookup">;
 type DataLocation<T> =
 	| { kind: "inline"; data: T }

@@ -177,7 +177,7 @@ import {
 } from "./searchInputValidation";
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
 import { serverPreviewDataRefusalOf } from "./serverDataRefusal";
-import { verifyFormOpening } from "./signedFormOpening";
+import { openingCarryScope, verifyFormOpening } from "./signedFormOpening";
 import type { ViewerLocation } from "./viewerLocation";
 import { workerLocationFixture } from "./workerLocationFixture";
 import type {
@@ -2042,6 +2042,7 @@ export async function submitFormAction(
 	 *  operation writing a session context value writes the platform's. */
 	device?: PreviewDevice,
 	entryGroupOwner?: string,
+	previewRun?: string,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
@@ -2264,9 +2265,26 @@ export async function submitFormAction(
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
-		const result = await store.applySubmission(
-			submissionEnvelopeArgs(normalizedMutation, appId, built),
-		);
+		const envelope = submissionEnvelopeArgs(normalizedMutation, appId, built);
+		const run = binding?.run ?? z.uuid().optional().parse(previewRun);
+		const result = await store.applySubmission({
+			...envelope,
+			submissionReceipt: {
+				...envelope.submissionReceipt,
+				openingCarryScope: run
+					? openingCarryScope({
+							app: appId,
+							project: authorized.projectId,
+							actor: identity.actorUserId,
+							session: session.session.id,
+							worker: identity.ownerId,
+							persona: identity.personaUuid ?? null,
+							device: admitted.device,
+							run,
+						})
+					: undefined,
+			},
+		});
 
 		return submissionResultFromEnvelope(
 			normalizedMutation,

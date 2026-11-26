@@ -81,6 +81,7 @@ export interface SubmissionReceiptIdentity {
  */
 export interface SubmissionReceiptClaim extends SubmissionReceiptIdentity {
 	readonly expectedAppMutationSeq: number;
+	readonly openingCarryScope?: string;
 	/** Digest of the exact committed Blueprint whose after-submit topology the
 	 * client may evaluate when this receipt is returned or replayed. */
 	readonly blueprintDigest: string;
@@ -491,6 +492,8 @@ export function parseSubmissionEnvelopeResult(
 		readonly primaryCaseId?: string;
 		readonly createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
 		readonly childCaseIds?: ReadonlyArray<string>;
+		/** The stored receipt's provenance is outside the replay result. */
+		readonly openingCarryScope?: string;
 	};
 	/* Historical receipts predate the ordered selected-case result. Keep that
 	 * immutable accepted work replayable while exposing only the canonical
@@ -498,6 +501,7 @@ export function parseSubmissionEnvelopeResult(
 	const {
 		primaryCaseId: historicalPrimaryCaseId,
 		childCaseIds: legacyChildCaseIds,
+		openingCarryScope: _openingCarryScope,
 		...withoutHistoricalSlots
 	} = result;
 	const canonical: SubmissionEnvelopeResult = {

@@ -503,8 +503,18 @@ it("writes each chosen record and replays the committed receipt after the saved 
 });
 
 it("opens the next form on the device its submission left, a case the restore no longer holds among it", async () => {
+	const otherWorker = testUuid("carry-other-worker");
 	const { pool, device, request, first, app, next, doc, module } =
-		await openPracticeForm(3, undefined, true);
+		await openPracticeForm(
+			3,
+			(blueprint) => {
+				blueprint.personas = {
+					[otherWorker]: { uuid: otherWorker, name: "Another worker" },
+				};
+				blueprint.personaOrder = [otherWorker];
+			},
+			true,
+		);
 	const second = await readFormOpeningAction(
 		{
 			...request,
@@ -581,6 +591,100 @@ it("opens the next form on the device its submission left, a case the restore no
 		);
 	expect(afterSubmission.projection.primaryCaseIds).toEqual(["training-2"]);
 	expect(afterSubmission.projection.submittedCaseIds).toContain("training-2");
+	for (const wrongScope of [
+		{ run: testUuid("new-run") },
+		{ persona: otherWorker },
+	]) {
+		expect(
+			(
+				await readFormOpeningAction(
+					{
+						...following,
+						...wrongScope,
+						afterSubmission: [request.entry],
+					},
+					device,
+				)
+			).kind,
+		).toBe("reopen");
+	}
+	const originalSession = member.session;
+	try {
+		member.session = "separate-signed-entry-auth-session";
+		await pool.query(
+			`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
+			VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
+			[member.session, member.id],
+		);
+		expect(
+			(
+				await readFormOpeningAction(
+					{ ...following, afterSubmission: [request.entry] },
+					device,
+				)
+			).kind,
+		).toBe("reopen");
+	} finally {
+		member.session = originalSession;
+	}
+	const anotherVisit = await readFormOpeningAction(
+		{
+			...following,
+			entry: testUuid("following-entry-in-same-form"),
+			afterSubmission: [request.entry],
+		},
+		device,
+	);
+	expect(anotherVisit).toMatchObject({
+		kind: "opening",
+		projection: { primaryCaseIds: ["training-2"], complete: true },
+	});
+	const linkedChoices = await readFormOpeningAction(
+		{
+			...request,
+			entry: testUuid("linked-entry-to-the-same-form"),
+			carried: [...opened.projection.choices],
+			afterSubmission: [request.entry],
+		},
+		device,
+	);
+	expect(linkedChoices).toMatchObject({
+		kind: "opening",
+		projection: {
+			choices: opened.projection.choices,
+			primaryCaseIds: ["training-2"],
+			complete: true,
+		},
+	});
+	await pool.query(
+		"UPDATE cases SET case_name='Standalone list only' WHERE app_id=$1 AND case_id='training-1'",
+		[app],
+	);
+	const newChoice = {
+		...request,
+		entry: testUuid("new-choice-after-submission"),
+	};
+	const newChoiceOpening = await readFormOpeningAction(
+		{ ...newChoice, afterSubmission: [request.entry] },
+		device,
+	);
+	if (newChoiceOpening.kind !== "opening" || !newChoiceOpening.next)
+		throw new Error("Could not open a new choice after the submission");
+	expect(
+		(
+			await readFormOpeningAction(
+				{
+					...newChoice,
+					previous: newChoiceOpening.evidence,
+					choice: {
+						selection: newChoiceOpening.next.selectionUuid,
+						caseId: "training-1",
+					},
+				},
+				device,
+			)
+		).kind,
+	).toBe("reopen");
 	// Restoring that entry keeps the case its submission left.
 	expect(
 		(

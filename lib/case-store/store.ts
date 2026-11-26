@@ -1181,12 +1181,13 @@ export interface CaseStore extends SchemaCaseStore {
 
 	/** The patch a committed submission of this actor's form entry left on the
 	 * device (`SubmissionEnvelopeResult.caseDatabasePatch`), read from its
-	 * durable receipt, or `undefined` where this actor committed no such
+	 * durable receipt, or `undefined` unless this device run committed the
 	 * entry. The next form a submission opens reads the device it left, which
 	 * keeps a case the entry just closed until sync. */
 	readSubmittedCaseDatabasePatch(args: {
 		readonly appId: string;
 		readonly entryKey: string;
+		readonly openingCarryScope: string;
 	}): Promise<DeviceCaseDatabase | undefined>;
 
 	/**

@@ -492,6 +492,7 @@ interface SubmissionContextSnapshot {
 }
 
 interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
+	readonly run: string;
 	/** One immutable authoring revision. Links, printing, datum projection, and
 	 * target routing must never mix it with a collaborator's later edit. */
 	readonly doc: BlueprintDoc;
@@ -1719,13 +1720,13 @@ export function FormScreen({
 		/* The device now holds what the entry wrote until it syncs, a case it
 		 * closed among it; each later signed opening of this run reads it
 		 * (`formOpeningAction.ts`). */
-		if (submitted.entryKey !== undefined)
+		if (
+			submitted.entryKey !== undefined &&
+			submitted.run === session.getState().previewSessionId
+		)
 			session
 				.getState()
-				.notePreviewSubmission(
-					session.getState().previewSessionId,
-					submitted.entryKey,
-				);
+				.notePreviewSubmission(submitted.run, submitted.entryKey);
 		/* The searches as the submission found them, which a landing that
 		 * keys a menu's search to the registered case carries on. */
 		const searchesAtSubmit = session.getState().previewSearchStates;
@@ -2733,6 +2734,7 @@ export function FormScreen({
 			settleAttempt({ kind: "idle" });
 			return;
 		}
+		const submittedRun = session.getState().previewSessionId;
 		const submittedSnapshot = (doc: BlueprintDoc): SubmittedContextSnapshot => {
 			const submittedForm =
 				submittedBase.formUuid === undefined
@@ -2740,6 +2742,7 @@ export function FormScreen({
 					: doc.forms[submittedBase.formUuid];
 			return {
 				...submittedBase,
+				run: submittedRun,
 				formType: submittedForm?.type,
 				destination:
 					submittedBase.formUuid === undefined
@@ -2933,6 +2936,7 @@ export function FormScreen({
 					submitted.caseDatabase.workerGroups?.length === 1
 						? submitted.caseDatabase.workerGroups[0].id
 						: undefined,
+					submitted.run,
 				);
 			};
 			const result = await runFormAttachmentBarrier(

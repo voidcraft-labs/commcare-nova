@@ -52,7 +52,11 @@ import {
 } from "./lookupTableReferences";
 import { resolveAuthorizedPreviewContext } from "./previewAuthorization";
 import type { PreviewDevice } from "./previewDevice";
-import { signFormOpening, verifyFormOpening } from "./signedFormOpening";
+import {
+	openingCarryScope,
+	signFormOpening,
+	verifyFormOpening,
+} from "./signedFormOpening";
 import { workerLocationFixture, workerPlaceIds } from "./workerLocationFixture";
 
 const manualChoiceSchema = z.strictObject({
@@ -213,10 +217,12 @@ export async function readFormOpeningAction(
 			 * each of those submissions' committed patches, read from this
 			 * actor's own receipts, laid over it in order. */
 			let restored = restore;
+			const carryScope = openingCarryScope(audience);
 			for (const entryKey of args.afterSubmission ?? []) {
 				const submitted = await context.store.readSubmittedCaseDatabasePatch({
 					appId: args.app,
 					entryKey,
+					openingCarryScope: carryScope,
 				});
 				if (submitted === undefined) return reopen;
 				restored = overlayCaseDatabasePatch(restored, submitted);
@@ -254,25 +260,51 @@ export async function readFormOpeningAction(
 			parentCase?: ParentCaseSelection,
 			explicit = false,
 			chosenCaseIds?: Readonly<Record<string, string>>,
+			boundAfterSubmit = false,
 		) {
 			if (ids.length === 0) return true;
 			if (new Set(ids).size !== ids.length || ids.some((id) => !rows.has(id)))
 				return false;
-			if (ids.every((id) => submittedCaseIds.has(id))) return true;
 			const listed = explicit
 				? workerListDocument(doc, module, "form-selection")
 				: doc;
 			const list = listed.modules[module];
 			if (
 				!list?.caseType ||
+				ids.some((id) => rows.get(id)?.case_type !== list.caseType) ||
 				ids.length > (explicit ? 1 : caseSelectionMaximum(list))
 			)
 				return false;
+			const carried = boundAfterSubmit
+				? ids.filter((id) => submittedCaseIds.has(id))
+				: [];
+			if (
+				carried.length &&
+				parentCase &&
+				(parentCase.caseIds.some(
+					(id) => rows.get(id)?.case_type !== parentCase.caseType,
+				) ||
+					carried.some(
+						(id) =>
+							!snapshot.indices.some(
+								(edge) =>
+									edge.case_id === id &&
+									edge.depth === 1 &&
+									parentCase.caseIds.includes(edge.ancestor_id) &&
+									(parentCase.index === undefined
+										? edge.relationship !== "extension"
+										: edge.identifier === parentCase.index),
+							),
+					))
+			)
+				return false;
+			const toChoose = ids.filter((id) => !carried.includes(id));
+			if (toChoose.length === 0) return true;
 			const result = await loadCasesAction({
 				appId: args.app,
 				caseType: list.caseType,
 				moduleUuid: module,
-				caseIds: ids,
+				caseIds: toChoose,
 				blueprint: listed,
 				caseListConfig: list.caseListConfig,
 				excludedOwnerIdsExpression: list.caseSearchConfig?.excludedOwnerIds,
@@ -287,7 +319,7 @@ export async function readFormOpeningAction(
 				personaUuid: args.persona,
 				parentCase,
 			});
-			return result.kind === "rows" && result.rows.length === ids.length;
+			return result.kind === "rows" && result.rows.length === toChoose.length;
 		}
 		const owner = doc.forms[args.form];
 		const bound = args.bound ?? prior.primaryCaseIds;
@@ -339,7 +371,8 @@ export async function readFormOpeningAction(
 				(isCaseForm && parent && !under)
 			)
 				return reopen;
-			if (!(await available(args.module, bound, under))) return unavailable;
+			if (!(await available(args.module, bound, under, false, undefined, true)))
+				return unavailable;
 		} else if (args.bound) return reopen;
 		const resolve = (choices: FormOpeningProjection["choices"]) =>
 			entrySessionData(doc, args.form, {
@@ -402,6 +435,7 @@ export async function readFormOpeningAction(
 					under,
 					true,
 					next.chosenCaseIds,
+					manual === undefined,
 				))
 			)
 				return reopen;
