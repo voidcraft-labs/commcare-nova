@@ -743,6 +743,7 @@ describe("a Search field Nova cannot hold", () => {
 						{
 							...second,
 							type: "multi-select",
+							mode: undefined,
 							options: {
 								kind: "lookup",
 								tableId,
