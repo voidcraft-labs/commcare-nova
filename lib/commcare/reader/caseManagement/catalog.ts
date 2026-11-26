@@ -274,8 +274,8 @@ function declareToldTypes(
 					return false;
 				// A date-and-time question saves its moment through its sibling,
 				// which only a `datetime` property holds, or its day straight.
-				if (one.field.kind === "datetime")
-					return declared !== (one.day === true ? "date" : "datetime");
+				if (one.day === true) return declared !== "date";
+				if (one.field.kind === "datetime") return declared !== "datetime";
 				const given = caseDataTypeForFieldKind(one.field.kind);
 				return given !== undefined && !declaredTypeHolds(given, declared);
 			});
@@ -379,7 +379,7 @@ function declareHiddenDateTimes(
 ): { caseType: string; property: string }[] {
 	const declared: { caseType: string; property: string }[] = [];
 	for (const one of writes) {
-		if (one.dateTime !== true) continue;
+		if (one.dateTime !== true || one.day === true) continue;
 		const writers = writes.filter(
 			(other) =>
 				other.read !== true &&

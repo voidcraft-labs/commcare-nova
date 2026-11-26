@@ -67,6 +67,7 @@ import {
 	sameJson,
 } from "../jsonCursor";
 import { whereText } from "../place";
+import { sharedFormSyntax } from "../syntaxRead";
 import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
 import type { DataNode } from "../xform/model";
@@ -907,6 +908,7 @@ export function questionValue(
 	form: DraftForm,
 	path: string,
 	property: string,
+	allowHiddenDay = false,
 ): QuestionValue {
 	const xform = form.xform;
 	const relative = conditionQuestionPath(form, path);
@@ -954,11 +956,28 @@ export function questionValue(
 	// that copies it with no type, so Core keeps the day alone there
 	// (`Recalculate.wrapData` wraps a date of any other type as a date). A
 	// question's is a write of its day to a `date` property, which Nova saves
-	// straight too (`ruleSets.ts::isAnswerWriteAssignable`); a Hidden Value's
-	// bind follows the property it writes (`fieldValueType.ts`), so Nova keeps
-	// it in no shape, nor a day as a case's name, owner or other standard key.
-	if (boundDateTime(form, field))
-		return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+	// straight too (`ruleSets.ts::isAnswerWriteAssignable`). An explicit
+	// hidden clock on a basic follow-up has its own typed source node and
+	// writes only its day. A standard case value is not a date property.
+	if (boundDateTime(form, field)) {
+		if (
+			!allowHiddenDay ||
+			!DAY_PROPERTY_CLASS.test(property) ||
+			STANDARD_KEYS.has(property) ||
+			!hiddenClockCalculation(form, field)
+		)
+			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+		// The source bind holds the instant, though the untyped case leaf
+		// saves its day. Keep the explicit field type beside the date catalog.
+		ctx.writeDraft(() => {
+			field.field.answerType = "datetime";
+		});
+		return {
+			kind: "value",
+			value: { field, link: false, day: true },
+			datetimeSibling: false,
+		};
+	}
 	if (field.kind === "datetime") {
 		if (!DAY_PROPERTY_CLASS.test(property) || STANDARD_KEYS.has(property))
 			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
@@ -973,6 +992,20 @@ export function questionValue(
 		value: { field, link: false },
 		datetimeSibling: false,
 	};
+}
+
+/** A clock reading with no starting value or relevance. */
+function hiddenClockCalculation(form: DraftForm, field: DraftField): boolean {
+	const bind = form.xform?.binds.get(field.node);
+	if (
+		bind?.logic.calculate === undefined ||
+		bind.logic.relevant !== undefined ||
+		field.expressions.some((slot) => slot.slot === "default_value")
+	)
+		return false;
+	const parsed = sharedFormSyntax(bind.logic.calculate);
+	const call = parsed.ok ? parsed.node : undefined;
+	return call?.kind === "call" && call.name === "now" && call.args.length === 0;
 }
 
 /** The keys a day saved straight never names: the case's name and owner,
@@ -1404,6 +1437,7 @@ function readUpdate(
 	edit: Claim<"take">,
 	pathClaim: Claim<"take">,
 	keyClaim?: Claim<"take">,
+	allowHiddenDay = false,
 ): {
 	readonly value?: ProposedValue;
 	readonly onlyIfChanged?: true;
@@ -1423,7 +1457,13 @@ function readUpdate(
 	}
 	const read =
 		typeof path === "string" && path !== ""
-			? questionValue(r.ctx, r.form, path, property)
+			? questionValue(
+					r.ctx,
+					r.form,
+					path,
+					property,
+					allowHiddenDay && onlyIfChanged === undefined,
+				)
 			: undefined;
 	if (read === undefined || read.kind === "finding") {
 		consume(cursor.take("question_path", pathClaim, (value) => value));
@@ -1629,7 +1669,18 @@ function readUpdateMap(
 											: property === "location_id" || property === "hq_user_id"
 												? BASIC_CLAIMS.locationOrWorkerKey
 												: BASIC_CLAIMS.asciiKey;
-		const read = readUpdate(r, cursor, property, edit, pathClaim, keyClaim);
+		const read = readUpdate(
+			r,
+			cursor,
+			property,
+			edit,
+			pathClaim,
+			keyClaim,
+			slot === "own" &&
+				r.type === "followup" &&
+				via === undefined &&
+				!RESERVED_CASE_OPERATION_TYPES.has(r.caseType),
+		);
 		if (!read.ok || read.value === undefined) continue;
 		// A date-and-time question's day is saved straight only to a `date`
 		// property of the action's own case, which the catalog types: the

@@ -20,7 +20,7 @@ def test_formplayer_preserves_the_hidden_stamp_and_writes_its_day(hq, formplayer
                 sent["instance"].encode()
                 for run in trace["runs"]
                 for step in run["steps"]
-                for sent in step.get("submissions", ())
+                for sent in (step.get("submissions") or ())
                 if xmlns in sent["instance"]
             ]
             assert len(submissions) == 1, trace
