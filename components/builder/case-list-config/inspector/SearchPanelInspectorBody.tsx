@@ -71,6 +71,7 @@ import {
 } from "@/lib/domain";
 import { type Expression, matchAll } from "@/lib/domain/expression";
 import type { PlatformFeatureId } from "@/lib/domain/platforms";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import { ProjectSearchSettings } from "./ProjectSearchSettings";
 import { SearchWorkflowSetting } from "./SearchWorkflowSetting";
@@ -187,7 +188,8 @@ export function SearchPanelInspectorBody({
 		...new Set([
 			...caseTypes
 				.filter((type) => requestedTypes.includes(type.name))
-				.flatMap((type) => type.properties.map((p) => p.name)),
+				.flatMap((type) => type.properties.map((p) => p.name))
+				.filter((name) => !isDeviceOnlyCaseProperty(name)),
 			...(property ? [property] : []),
 		]),
 	];

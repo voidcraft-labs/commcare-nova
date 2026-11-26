@@ -3527,6 +3527,36 @@ def _search_and_menus():
                 f"{config}/custom_sort_properties/0/property_name",
             ),
         ),
+        "case-search/a-related-record-property-only-devices-hold": (
+            refused(
+                "app",
+                search(_search_module(custom_related_case_property="location_id")),
+                "schema:CaseSearch.custom_related_case_property",
+                f"{config}/custom_related_case_property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(custom_related_case_property="hq_user_id")),
+                "schema:CaseSearch.custom_related_case_property",
+                f"{config}/custom_related_case_property",
+            ),
+            refused(
+                "app",
+                search(_search_module(default_properties=[
+                    _default("x_commcare_custom_related_case_property", "'location_id'")
+                ])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[
+                    _default("x_commcare_custom_related_case_property", "'hq_user_id'")
+                ])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+        ),
         "case-search/a-server-order-naming-a-property-only-devices-hold": (
             refused(
                 "app",

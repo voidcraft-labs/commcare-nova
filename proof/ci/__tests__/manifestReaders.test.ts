@@ -168,10 +168,10 @@ it("reads a SaveToCase block's reserved update keys as the commit gate reserves 
 	);
 });
 
-it("reads the same Search order keys kept outside the server index", async () => {
+it("reads the same Search properties kept outside the server index", async () => {
 	const deviceOnly = await pythonNames(
 		"manifest_value_classes.py",
-		"SERVER_ORDER_DEVICE_ONLY_KEYS",
+		"SERVER_SEARCH_DEVICE_ONLY_KEYS",
 	);
 	expect([...deviceOnly].sort()).toEqual(
 		[...DEVICE_ONLY_CASE_PROPERTIES].sort(),

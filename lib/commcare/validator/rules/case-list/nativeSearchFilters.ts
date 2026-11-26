@@ -111,6 +111,18 @@ export function nativeSearchFilters(
 			);
 	}
 	const checkRelatedId = (property: string) => {
+		if (isDeviceOnlyCaseProperty(property)) {
+			errors.push(
+				validationError(
+					"CASE_SEARCH_FILTER_INVALID",
+					"module",
+					LOCATION_NOT_IN_SEARCH_MESSAGE,
+					{ moduleUuid, moduleName: mod.name },
+					{ reason: "related-record-id-device-only", property },
+				),
+			);
+			return;
+		}
 		if (
 			!types.some(
 				(type) =>

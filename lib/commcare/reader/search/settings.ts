@@ -23,6 +23,7 @@ import {
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
 	type SearchRuntimeValidationMessage,
 } from "@/lib/domain/searchRuntimeValidationMessages";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
@@ -192,6 +193,10 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 	additionalOwnType: drop(
 		`${S}additional-case-types-naming-only-the-menu-s-own-type`,
 		"schema:CaseSearch.additional_case_types",
+	),
+	relatedPropertyDeviceOnly: refuse(
+		`${S}a-related-record-property-only-devices-hold`,
+		"schema:CaseSearch.custom_related_case_property",
 	),
 	relatedProperty: take(
 		`${S}custom-related-case-property`,
@@ -1215,6 +1220,15 @@ export function readSearchSettings(
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:CaseSearch.custom_related_case_property",
 			});
+			ok = false;
+		} else if (isDeviceOnlyCaseProperty(property.data)) {
+			cursor.refuse(
+				"custom_related_case_property",
+				T.relatedPropertyDeviceOnly,
+				{
+					name: property.data,
+				},
+			);
 			ok = false;
 		} else {
 			cursor.take(

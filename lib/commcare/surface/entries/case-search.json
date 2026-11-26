@@ -5001,6 +5001,37 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/a-related-record-property-only-devices-hold",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`custom_related_case_property` or its default-filter equivalent naming `location_id`",
+		"surfaceKeys": [
+			"schema:CaseSearch.custom_related_case_property",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue"
+		],
+		"valueClass": "related-record-device-only-property",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ follows an ID from the matched record’s dynamic properties. The case’s location is stored in a separate column and yields no additional record.",
+		"subject": "search-default-filters",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ follows an ID from the matched record’s dynamic properties. The case’s location is stored in a separate column and yields no additional record."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/default-related-record-id-property",
 		"area": "case-search",
 		"section": "Case search",

@@ -38504,6 +38504,42 @@
 		]
 	},
 	{
+		"id": "hq-search/default-filter-following-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-related-record-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_custom_related_case_property",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'location_id'"
+			}
+		}
+	},
+	{
+		"id": "hq-search/dedicated-setting-following-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-related-record-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/custom_related_case_property",
+			"value": "location_id"
+		}
+	},
+	{
 		"id": "hq-search/default-filter-sorting-by-a-saved-status",
 		"base": "hq-search",
 		"entry": "case-search/a-server-order-naming-a-property-nova-reserves",

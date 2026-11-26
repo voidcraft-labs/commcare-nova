@@ -23,7 +23,10 @@ import type {
 	SearchFilter,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
-import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import {
@@ -191,6 +194,10 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	),
 	relatedTwice: refuse(
 		`${S}an-x-commcare-custom-related-case-property-entry-together-with`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	requestRelatedPropertyDeviceOnly: refuse(
+		`${S}a-related-record-property-only-devices-hold`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
 	requestRelatedProperty: take(
@@ -492,6 +499,21 @@ function readDefaultFilters(
 						parsed.ok && parsed.node?.kind === "string"
 							? parsed.node.value
 							: undefined;
+					if (
+						property === "x_commcare_custom_related_case_property" &&
+						name !== undefined &&
+						isDeviceOnlyCaseProperty(name)
+					) {
+						const claim = C.requestRelatedPropertyDeviceOnly;
+						const detail = { name };
+						row.refuse("property", claim, detail);
+						accounting.cover(
+							{ json: row, key: "defaultValue" },
+							manifestFindingOf(claim, row.place, detail),
+						);
+						ok = false;
+						return;
+					}
 					const match =
 						property === "case_type" ? C.caseTypeKey : C.requestRelatedProperty;
 					const valid =
@@ -984,7 +1006,8 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 					]);
 					if (
 						typeof propertySource === "string" &&
-						authoredCasePropertyNameSchema.safeParse(propertySource).success
+						authoredCasePropertyNameSchema.safeParse(propertySource).success &&
+						!isDeviceOnlyCaseProperty(propertySource)
 					) {
 						if (
 							!draft.some(

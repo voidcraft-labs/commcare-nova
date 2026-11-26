@@ -75,7 +75,9 @@ export function SearchFilters({
 					label: projectProse(property.label) || property.name,
 				});
 	}
-	const relatedProperties = [...propertyOptions.keys()];
+	const relatedProperties = [...propertyOptions.keys()].filter(
+		(property) => !isDeviceOnlyCaseProperty(property),
+	);
 	const properties = [...propertyOptions.values()];
 	// The record's own indexed information also works for every type.
 	for (const [value, label] of Object.entries(

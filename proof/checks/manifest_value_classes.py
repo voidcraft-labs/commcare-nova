@@ -4963,7 +4963,7 @@ SERVER_ORDER_RECORD_KEYS = frozenset(
 )
 CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id"})
 # SQL keeps this value apart from case_json, so the Search index lacks it.
-SERVER_ORDER_DEVICE_ONLY_KEYS = frozenset({"location_id"})
+SERVER_SEARCH_DEVICE_ONLY_KEYS = frozenset({"location_id"})
 
 
 def _order_key_reserved(key):
@@ -5002,7 +5002,7 @@ def server_order_device_only_property(use, manifest):
     keys = _server_order_keys(use)
     if keys is None:
         return None
-    return not any(_order_key_reserved(key) for key in keys) and bool(SERVER_ORDER_DEVICE_ONLY_KEYS.intersection(keys))
+    return not any(_order_key_reserved(key) for key in keys) and bool(SERVER_SEARCH_DEVICE_ONLY_KEYS.intersection(keys))
 
 
 def request_config_key_runtime_value(use, manifest):
@@ -5035,6 +5035,23 @@ def related_case_property_twice(use, manifest):
         each.get("property") == "x_commcare_custom_related_case_property" for each in _default_entries(at, config)
     )
     return keyed and bool(config.get("custom_related_case_property"))
+
+
+def related_case_device_only_property(use, manifest):
+    """HQ follows a case ID from case_json, which omits the case's location column."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    if related_case_property_twice(use, manifest):
+        return False
+    if use.key == "schema:CaseSearch.custom_related_case_property":
+        value = config.get("custom_related_case_property")
+        return isinstance(value, str) and value in SERVER_SEARCH_DEVICE_ONLY_KEYS
+    return any(
+        row.get("property") == "x_commcare_custom_related_case_property"
+        and _literal_text(row.get("defaultValue")) in SERVER_SEARCH_DEVICE_ONLY_KEYS
+        for row in _default_entries(at, config)
+    )
 
 
 def data_registry_key(use, manifest):
@@ -12739,6 +12756,7 @@ VALUE_CLASSES = {
     # Case search
     "case-search/a-server-order-naming-a-property-nova-reserves": server_order_reserved_property,
     "case-search/a-server-order-naming-a-property-only-devices-hold": server_order_device_only_property,
+    "case-search/a-related-record-property-only-devices-hold": related_case_device_only_property,
     "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": request_config_key_runtime_value,
     "case-search/an-x-commcare-custom-related-case-property-entry-together-with": related_case_property_twice,
     "case-search/default-properties-entry-keyed-x-commcare-data-registry": data_registry_key,
