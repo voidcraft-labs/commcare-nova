@@ -24,28 +24,19 @@ import {
 	retainedGroupRead,
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
-import { compilerNavigationFixture } from "@/lib/commcare/__tests__/compilerNavigationFixture";
+import { retainedNavigationFixture } from "@/lib/commcare/__tests__/compilerNavigationFixture";
 import { readHqAppForReading } from "@/lib/commcare/hq/appReading";
 import { readHqApp } from "@/lib/commcare/reader";
 import { canonDocument } from "@/lib/commcare/reader/canon";
 import { readBackDifferences } from "../readBack";
-import { mediaIndex, readBackInput, servedExport } from "./novaReading";
-
-// The first publication's stable Nova IDs. HQ's application resource holds
-// their dashless spelling and its source serves the original form namespaces.
-const PUBLISHED_IDENTITIES = {
-	menu: "52e120ae-791f-514a-aa28-73a0bb90ea1e",
-	visit: "924cd674-b813-5a78-a7ad-2fbad7ca6984",
-	register: "904cd34e-be13-53ea-a1ad-2648d5ca665e",
-} as const;
+import { readBackInput, servedExport } from "./novaReading";
 
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
 const HOST = "https://india.commcarehq.org";
 const DOMAIN = "clinic";
 
 it("reads CommCare HQ's served source of navigation-base back to the document's canonical form", async () => {
-	const doc = compilerNavigationFixture("base", PUBLISHED_IDENTITIES);
+	const doc = retainedNavigationFixture();
 	const application = retainedReadingRead("application");
 	const appId = retainedBodyJson(application).id as string;
 	const answers: readonly [string, RetainedHqAnswer][] = [
@@ -68,17 +59,20 @@ it("reads CommCare HQ's served source of navigation-base back to the document's 
 	if (reading.kind !== "read")
 		throw new Error(`The retained answers are no reading: ${reading.kind}`);
 
-	// The media index names each file at the path Nova's publish sent it at.
-	const assetOfPath = new Map<string, string>();
-	for (const [assetId, asset] of manifestFor(doc))
-		assetOfPath.set(`jr://file/${asset.wirePath}`, assetId);
-	const input = {
-		...(await readBackInput(doc, servedExport(doc))),
+	const emitted = await readBackInput(doc, servedExport(doc));
+	// HQ assigns its own physical form IDs on creation. The current exporter
+	// writes the same ordered form namespaces and menu IDs that HQ retained.
+	const wireOrder = (source: typeof emitted.source) =>
+		source.modules.map(({ uniqueId, forms }) => [
+			uniqueId,
+			forms.map(({ xmlns }) => xmlns),
+		]);
+	expect(wireOrder(emitted.source)).toEqual(wireOrder(reading.source));
+	const outcome = readHqApp({
+		...emitted,
 		source: reading.source,
 		modules: reading.modules,
-		media: mediaIndex(assetOfPath),
-	};
-	const outcome = readHqApp(input);
+	});
 	if (outcome.kind !== "read")
 		throw new Error(
 			`The served source read to an account: ${outcome.findings.map((one) => one.code).join(", ")}`,

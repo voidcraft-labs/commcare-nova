@@ -48,8 +48,8 @@ import {
 	retainedGroupRead,
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { publishedCorpus } from "@/lib/commcare/reader/__tests__/publishedDocuments";
-import type { CorpusDocument } from "@/proof/corpus/documents";
+import { retainedNavigationFixture } from "@/lib/commcare/__tests__/compilerNavigationFixture";
+import { storedDocument } from "@/proof/corpus/documents";
 import type { RetainedHqAnswer } from "@/proof/corpus/hqAuthored";
 import type { LaneReadInput } from "@/proof/reader/laneReading";
 
@@ -155,45 +155,6 @@ function asRetained(answer: HelperAnswer): RetainedHqAnswer {
 		status: answer.status,
 		headers: answer.headers,
 		body: retainedBodyText(answer),
-	};
-}
-
-/** The corpus document `navigation-base` as its `document.json` holds what a read back reads. */
-function navigationBase(): CorpusDocument {
-	const document = publishedCorpus().find(
-		(one) => one.id === "navigation-base",
-	);
-	if (document === undefined)
-		throw new Error("The corpus holds the document navigation-base.");
-	return document;
-}
-
-function documentJson(document: CorpusDocument): Record<string, unknown> {
-	return {
-		id: document.id,
-		source: document.source,
-		doc: document.doc,
-		...(document.lookup !== undefined && {
-			lookup: {
-				projectId: document.lookup.projectId,
-				projectRevision: document.lookup.projectRevision,
-				definitions: document.lookup.definitions,
-				rowsByTable: Object.fromEntries(document.lookup.rowsByTable),
-			},
-		}),
-		...(document.media !== undefined && {
-			media: Object.fromEntries(
-				[...document.media].map(([assetId, asset]) => [
-					assetId,
-					{
-						kind: asset.kind,
-						mimeType: asset.mimeType,
-						extension: asset.extension,
-						base64: asset.bytes.toString("base64"),
-					},
-				]),
-			),
-		}),
 	};
 }
 
@@ -324,10 +285,14 @@ it(
 it(
 	"reads navigation-base back to its canonical form, answers its claim log and reads it first, resolving nothing outside itself",
 	async () => {
-		const document = navigationBase();
+		const doc = storedDocument(retainedNavigationFixture());
 		const input: LaneReadInput = {
-			appId: (document.doc as { appId: string }).appId,
-			document: documentJson(document),
+			appId: doc.appId,
+			document: {
+				id: "navigation-base",
+				source: { kind: "producer", family: "navigation", scenario: "base" },
+				doc,
+			},
 			...BRACKET,
 			identity: "match",
 			claims: "counts",
@@ -337,7 +302,7 @@ it(
 				id: "read-back",
 				mode: "read-back",
 				input,
-				expected: document.doc,
+				expected: doc,
 				canon: true,
 			},
 			{ id: "claims", mode: "claims", input },
