@@ -15,6 +15,7 @@ import {
 	type BlueprintDoc,
 	type Column,
 	entryPointByUuid,
+	entryPointInventory,
 	imageMapColumn,
 	imageMapEntry,
 	NEW_APP_SETTINGS,
@@ -32,6 +33,11 @@ import {
 	listIconDestinations,
 } from "../listIconAction";
 import { projectSpaceCompatibilityProbePlan } from "../projectSpaceCompatibility";
+import {
+	closedCodes,
+	listOf,
+	readLists,
+} from "../reader/caseList/__tests__/listReading";
 import { runValidation } from "../validator/runner";
 import { mediaIds, mediaManifest, mediaRecords } from "./mediaWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
@@ -267,6 +273,9 @@ describe("the forms an icon may submit", () => {
 	it("refuses an icon hidden from Results", () => {
 		const doc = visits();
 		iconOf(doc).visibleInList = false;
+		expect(listIconDestinations(doc, doc.modules[VISITS], iconOf(doc))).toEqual(
+			[],
+		);
 		expect(iconFindings(doc)).toEqual([
 			'"Record" needs to show on Results for a worker to tap its icon. You can show it on Results or remove the icon\'s action.',
 		]);
@@ -345,6 +354,25 @@ describe("an icon at both export boundaries", () => {
 			shown?.children.find((node) => node.name === "template")?.attributes.form,
 		).toBe("image");
 	});
+});
+
+it("reads HQ’s action and its plain detail image as one column tied to the form identity", async () => {
+	const reading = await readLists(visits(), { media: true });
+	expect(closedCodes(reading)).toEqual([]);
+	const read = reading.ctx.doc;
+	if (!read) throw new Error("Expected a readable app.");
+	const target = entryPointInventory(read).find(
+		(one) => one.entryPoint.id === "record-visit",
+	);
+	if (target?.target.kind !== "form")
+		throw new Error("Expected the form’s entry point.");
+	const list = listOf(reading);
+	expect(list.columns.filter((column) => column.kind === "image-map")).toEqual([
+		expect.objectContaining({ entryPointUuid: target.entryPoint.uuid }),
+	]);
+	const icon = list.columns.find((column) => column.kind === "image-map");
+	expect(list.listColumnOrder).toContain(icon?.uuid);
+	expect(list.detailColumnOrder).toContain(icon?.uuid);
 });
 
 describe("what the icon asks of a project space and the tools", () => {

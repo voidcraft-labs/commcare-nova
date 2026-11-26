@@ -141,7 +141,12 @@ export function listIconDestinations(
 	module: Module,
 	column: Column,
 ): readonly ListIconDestination[] {
-	if (declaredPlatforms(doc).includes("android")) return [];
+	if (
+		column.kind !== "image-map" ||
+		column.visibleInList === false ||
+		declaredPlatforms(doc).includes("android")
+	)
+		return [];
 	const caseType = listIconCaseType(doc, module, column);
 	if (caseType === undefined) return [];
 	const resolve = createListIconDestination(doc);
