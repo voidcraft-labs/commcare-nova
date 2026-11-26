@@ -1,6 +1,7 @@
 """An accented property name survives the Basic Case Management save and submit."""
 
 import json
+from dataclasses import replace
 
 import pytest
 from lxml import etree
@@ -26,9 +27,12 @@ CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 SELECTED, UNTOUCHED = "proof-member", "unselected-member"
 ACCENTED, ASCII_NEIGHBOR = "estado_é", "estado_e"
 ANSWER = "Visit completed"
+APP_NAME = "Accented case property"
+MENU_NAME = "Members"
+FORM_NAME = "Visit"
 
 
-def _author_basic_mapping(state):
+def _author_basic_mapping(state, *, web_apps=False):
     from corehq.apps.app_manager.form_action_diff import make_multi
     from corehq.apps.app_manager.models import ConditionalCaseUpdate, DetailColumn
 
@@ -39,6 +43,9 @@ def _author_basic_mapping(state):
     module.forms = [form]
     module.media_image = {}
     app.multimedia_map = {}
+    app.name = APP_NAME
+    module.name = {"en": MENU_NAME}
+    form.name = {"en": FORM_NAME}
     module.case_type = "person"
     for detail in (module.case_details.short, module.case_details.long):
         detail.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
@@ -57,6 +64,10 @@ def _author_basic_mapping(state):
     ])
     kept = operations.held_app(state, app_id).get_form(form.unique_id).actions.update_case.update
     assert {key: write.question_path for key, write in kept.items()} == {ACCENTED: "/data/note"}
+    if web_apps:
+        from proof.observe.hqside import app_attributes
+
+        app_attributes(state, app_id, {"cloudcare_enabled": True})
     return app_id, form.xmlns
 
 
@@ -132,3 +143,31 @@ def test_installed_android_submits_the_accented_case_property_to_hq(hq):
             assert set(receipt["cases"]) == {SELECTED}, receipt
             case = CommCareCase.objects.get_case(SELECTED, state.domain)
             assert case.case_json == {ACCENTED: ANSWER}
+
+
+@pytest.mark.reader("webapps")
+def test_signed_web_apps_submits_the_accented_case_property_to_hq(hq, formplayer_runner, editor_driver):
+    from corehq.form_processor.models import CommCareCase
+
+    from proof.formplayer import hq as forms_hq
+    from proof.observe import casedata
+    from proof.webapps import steps
+    from proof.webapps.hq import WEB_APPS_PRIVILEGE
+    from proof.webapps.session import Session
+
+    config = replace(CONFIGURATION, privileges=CONFIGURATION.privileges | {WEB_APPS_PRIVILEGE})
+    with hq_check(config) as (state, _):
+        app_id, _ = _author_basic_mapping(state, web_apps=True)
+        database = casedata.database_of_restore(person_cases(TEMPLATE_RESTORE.read_bytes(), [SELECTED]))
+        with forms_hq.serve(state, None, app_id, runner=formplayer_runner, database=database) as release:
+            session = Session(release, editor_driver)
+            run = session.run([
+                *steps.open_app(APP_NAME), *steps.choose(MENU_NAME), *steps.choose(FORM_NAME),
+                *steps.select_case(SELECTED), steps.SCREEN, *steps.answer("1", ANSWER),
+                *steps.submit_and_land(),
+            ])
+            assert run.page_errors == [] and run.dialogs == []
+            assert run.screens[0]["form"]["title"] == FORM_NAME
+            submission, = session.hq.submissions
+            _assert_wire(submission.instance)
+            assert CommCareCase.objects.get_case(SELECTED, state.domain).case_json == {ACCENTED: ANSWER}
