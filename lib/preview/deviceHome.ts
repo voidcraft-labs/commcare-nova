@@ -5,9 +5,8 @@
 // Sync with server work. Saved and Incomplete show as the app's settings
 // show them on a phone (Nova always writes `<checkoff active="true"/>`, so
 // `StandardHomeActivityUIController.java::getHiddenButtons` reduces to the
-// setting) and Log out of CommCare always shows; the three are disabled with
-// a reason, since Preview keeps no form archive or resume and chooses its
-// worker from Running as. Training, View Job Status and Report an Issue never
+// setting). Preview's in-tab records supply the two forms lists. Log out of
+// CommCare always shows but is disabled; Running as chooses the worker. Training, View Job Status and Report an Issue never
 // show for a Nova app: Nova writes no training module, no Connect job and no
 // `cc-home-report`.
 //
@@ -35,10 +34,6 @@ export interface DeviceHomeButton {
 }
 
 export const DEVICE_HOME_REASONS = {
-	deviceHomeSaved:
-		"Preview doesn't keep sent forms. On a phone, this lists them.",
-	deviceHomeIncomplete:
-		"Preview doesn't keep unfinished forms. On a phone, this lists them.",
 	deviceHomeLogOut:
 		"In Preview, you can choose the worker from Running as at the top",
 } as const;
@@ -59,16 +54,9 @@ export function deviceHomeButtons(
 	});
 	return [
 		button("deviceHomeStart"),
-		...(appSettings.showSavedForms
-			? [button("deviceHomeSaved", DEVICE_HOME_REASONS.deviceHomeSaved)]
-			: []),
+		...(appSettings.showSavedForms ? [button("deviceHomeSaved")] : []),
 		...(appSettings.showIncompleteForms
-			? [
-					button(
-						"deviceHomeIncomplete",
-						DEVICE_HOME_REASONS.deviceHomeIncomplete,
-					),
-				]
+			? [button("deviceHomeIncomplete")]
 			: []),
 		button("deviceHomeSync"),
 		button("deviceHomeLogOut", DEVICE_HOME_REASONS.deviceHomeLogOut),

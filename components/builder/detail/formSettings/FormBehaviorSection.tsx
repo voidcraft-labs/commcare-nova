@@ -30,6 +30,8 @@ const descriptions: Record<FormBehaviorRole, string> = {
 		"Web Apps would skip a sync after this form is sent. Nova apps don't sync after each form, so workers see no change.",
 	validateChangedAnswersText:
 		"Web Apps checks new answers and blanks. A previously accepted answer can stay accepted after another answer changes.",
+	savedFormDescriptorText:
+		"Android shows this text in its saved and incomplete forms lists. The text can include answers from the form.",
 };
 
 /** The form's behaviors, each held by one of its own question or choice

@@ -451,6 +451,15 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"automaticSubmissionText",
 		),
 	},
+	"saved-form-descriptor": {
+		with: () => formBehaviorFixture("savedFormDescriptorText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse(
+			"saved-form-descriptor",
+			FORM_OWNER,
+			"savedFormDescriptorText",
+		),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"worker-distance": {
 		with: () =>

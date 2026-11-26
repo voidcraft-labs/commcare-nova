@@ -39,7 +39,11 @@ import {
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
-import { itextIdFor } from "@/lib/commcare/xform/itextIds";
+import {
+	itextIdFor,
+	itextProseSlot,
+	itextTranslationUnitId,
+} from "@/lib/commcare/xform/itextIds";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
@@ -63,8 +67,10 @@ import type {
 import {
 	type ContainerField,
 	caseScalarTextGuardIsChecked,
+	effectiveAppLocalization,
 	fieldPreload,
 	fieldProseTemplate,
+	filledProse,
 	formCaseWriteViews,
 	instantDatetimeValue,
 	isCaptureFieldKind,
@@ -74,6 +80,7 @@ import {
 	orderedCaseOperations,
 	prepareCaseScalarTextValue,
 	proseSource,
+	snapshotTranslationUnits,
 } from "@/lib/domain";
 import type { SubmittedActivity } from "@/lib/domain/connectSubmissionFacts";
 import { isMatchAll, isMatchNone } from "@/lib/domain/expression/builders";
@@ -942,6 +949,42 @@ export class FormEngine {
 	}
 
 	// ── Public API ───────────────────────────────────────────────────
+
+	/** Android evaluates the localized descriptor from the whole saved form.
+	 * Presence of an empty text is distinct from a missing key on disk. */
+	async savedFormDescriptor(
+		evaluateAsync?: FormEngineAsyncEvaluator,
+	): Promise<string | undefined> {
+		const carrier =
+			this.printDoc.forms[this.inputFormUuid]?.savedFormDescriptorText?.carrier;
+		if (!carrier) return undefined;
+		const unit = snapshotTranslationUnits(this.printDoc).get(
+			itextTranslationUnitId(carrier),
+		);
+		if (!unit) return undefined;
+		const localization = effectiveAppLocalization(this.printDoc.localization);
+		const language =
+			this.presentationLanguage &&
+			localization.languageOrder.includes(this.presentationLanguage)
+				? this.presentationLanguage
+				: localization.defaultLanguage;
+		const template = filledProse(this.printDoc, unit, language);
+		const slot = itextProseSlot(carrier);
+		let descriptor = "";
+		for (const part of template?.parts ?? []) {
+			if (part.kind === "text") {
+				descriptor += part.text;
+			} else {
+				const source = this.expressions.prose(part, slot);
+				descriptor += xpathToString(
+					evaluateAsync
+						? await evaluateAsync(source, "/")
+						: evaluate(source, this.createEvalContext("/")),
+				);
+			}
+		}
+		return descriptor;
+	}
 
 	/** Structured-clone projection for one evaluation: the world's instances
 	 * on its first request, then only the values and relevance that changed. */

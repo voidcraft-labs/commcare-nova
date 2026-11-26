@@ -515,8 +515,16 @@ export function platformFeatureUses(
 				);
 			if (wanted("web-apps-form-behavior"))
 				for (const role of formBehaviorRoles)
-					if (form[role])
+					if (role !== "savedFormDescriptorText" && form[role])
 						formUses.push(slotUse("web-apps-form-behavior", formOwner, role));
+			if (form.savedFormDescriptorText && wanted("saved-form-descriptor"))
+				formUses.push(
+					slotUse(
+						"saved-form-descriptor",
+						formOwner,
+						"savedFormDescriptorText",
+					),
+				);
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(

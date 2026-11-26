@@ -149,6 +149,12 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"In Web Apps, recheck changed answers and blanks at submission. A previously accepted nonblank answer can stay accepted after a related answer changes. Name a text of this form as automaticSubmissionText does. Null removes the setting.",
 			),
+		savedFormDescriptorText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Use a text from this form for its label in Android's saved and incomplete forms lists. The label reads the answers as the worker saves the form. Name a text as automaticSubmissionText does. Null removes the label.",
+			),
 		plain_text: z
 			.boolean()
 			.nullable()

@@ -153,6 +153,7 @@ import {
 	repeatCountWhole,
 } from "./documents/repeats";
 import { sameTypeChild } from "./documents/sameTypeChild";
+import { savedFormDescriptor } from "./documents/savedFormDescriptor";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import { saveToCaseShapes } from "./documents/saveToCaseShapes";
 import {
@@ -331,6 +332,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectLearnHyphenIds,
 	numberKeypad,
 	questionCalendar,
+	savedFormDescriptor,
 	detailOnlyColumn,
 	relatedColumns,
 	workerRecordColumns,

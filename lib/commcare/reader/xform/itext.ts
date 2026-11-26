@@ -481,12 +481,7 @@ function claimReferencedId(
 	for (const text of elements) {
 		if (claim.use === "account")
 			cursor.account({ element: text, attribute: "id" }, claim, place);
-		else
-			cursor.refuse(
-				{ element: text, attribute: "id" },
-				claim as typeof X.pragmaKey | typeof X.pragmaFormDescriptor,
-				place,
-			);
+		else cursor.refuse({ element: text, attribute: "id" }, claim, place);
 	}
 }
 

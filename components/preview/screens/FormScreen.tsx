@@ -36,6 +36,7 @@ import {
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
@@ -201,6 +202,7 @@ import {
 	previewMenuCaseContext,
 	previewSelectionsBefore,
 } from "@/lib/preview/menuProjection";
+import type { PreviewDraft } from "@/lib/preview/previewFormRecords";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
 	automaticSubmissionEntry,
@@ -512,6 +514,7 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 }
 
 interface FormScreenProps {
+	draft?: PreviewDraft;
 	opening?: FormOpeningState;
 	projection?: FormOpeningProjection;
 	onReopen?: () => void;
@@ -560,16 +563,21 @@ const INVALID_CONTROL_SELECTOR =
 
 export function FormScreen({
 	screen,
+	draft,
 	onSubmittedActivities,
 	opening,
 	projection,
 	onReopen,
 }: FormScreenProps) {
 	const { formUuid, moduleUuid } = screen;
+	const resumedOpening = draft?.opened;
+	const { showIncompleteForms, showSavedForms } = useAppSettings();
 	const heldEntryValues = projection?.resolvedEntries;
 	const openedCases = useMemo(
-		() => projection && restoreOpeningCases(projection.cases),
-		[projection],
+		() =>
+			resumedOpening?.caseDatabase ??
+			(projection && restoreOpeningCases(projection.cases)),
+		[projection, resumedOpening],
 	);
 	const openedLookup = useMemo(
 		() => projection && restoreOpeningLookup(projection.lookup),
@@ -1129,26 +1137,39 @@ export function FormScreen({
 		() =>
 			appId === undefined || mode !== "preview"
 				? undefined
-				: {
-						appId,
-						boundCases: effectiveCases ?? [],
-						heldEntryValues,
-						openedEntryKey: opening?.entry,
-						openingLookup: openedLookup,
-						entryChoices,
-						menuSelections: menuCaseSelections,
-						...(entrySupplies && { entrySupplies }),
-						...(searchResultsSnapshot === undefined
-							? {}
-							: { searchResults: searchResultsSnapshot }),
-						...(caseListSearchText === undefined ? {} : { caseListSearchText }),
-					},
+				: draft
+					? {
+							appId,
+							boundCases: effectiveCases ?? [],
+							menuSelections: menuCaseSelections,
+							...resumedOpening?.entrySession,
+							openedEntryKey: draft.entryKey,
+							resumedCheckpoint: resumedOpening?.checkpoint,
+						}
+					: {
+							appId,
+							boundCases: effectiveCases ?? [],
+							heldEntryValues,
+							openedEntryKey: opening?.entry,
+							openingLookup: openedLookup,
+							entryChoices,
+							menuSelections: menuCaseSelections,
+							...(entrySupplies && { entrySupplies }),
+							...(searchResultsSnapshot === undefined
+								? {}
+								: { searchResults: searchResultsSnapshot }),
+							...(caseListSearchText === undefined
+								? {}
+								: { caseListSearchText }),
+						},
 		[
 			appId,
 			mode,
 			effectiveCases,
 			heldEntryValues,
 			opening?.entry,
+			draft,
+			resumedOpening,
 			openedLookup,
 			entryChoices,
 			menuCaseSelections,
@@ -1159,14 +1180,15 @@ export function FormScreen({
 	);
 	const controller = useFormEngine(
 		formUuid,
-		caseData,
-		carriedCaseDatabase,
-		searchAnswers,
-		caseBindingReady &&
-			searchResultsReady &&
-			!searchResultsRefused &&
-			searchDefaultsReady &&
-			searchDefaultsRefusal === undefined,
+		resumedOpening?.caseData ?? caseData,
+		resumedOpening?.caseDatabase ?? carriedCaseDatabase,
+		resumedOpening?.searchAnswers ?? searchAnswers,
+		resumedOpening !== undefined ||
+			(caseBindingReady &&
+				searchResultsReady &&
+				!searchResultsRefused &&
+				searchDefaultsReady &&
+				searchDefaultsRefusal === undefined),
 		entrySession,
 	);
 	const engineEntry = useEngineEntry();
@@ -1314,12 +1336,17 @@ export function FormScreen({
 	useEffect(() => {
 		if (appId === undefined || entryKey === undefined) return;
 		return () => {
-			retireAttachmentEntry({
-				appId,
-				entryKey,
-			});
+			if (
+				!session
+					.getState()
+					.previewFormRecords.some(
+						(record) =>
+							record.kind === "incomplete" && record.entryKey === entryKey,
+					)
+			)
+				retireAttachmentEntry({ appId, entryKey });
 		};
-	}, [appId, entryKey]);
+	}, [appId, entryKey, session]);
 
 	useEffect(
 		() =>
@@ -1459,6 +1486,8 @@ export function FormScreen({
 		| { readonly kind: "awaiting-entry"; readonly entryKey: string }
 	>({ kind: "idle" });
 	const clearInFlightRef = useRef(false);
+	const saveDraftInFlight = useRef(false);
+	const [savingDraft, setSavingDraft] = useState(false);
 	const clearRunning = clearState.kind !== "idle";
 	const repeatTopologySettling =
 		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
@@ -1470,7 +1499,7 @@ export function FormScreen({
 			form.formLinks !== undefined ||
 			postSubmitDestination !== undefined,
 		submitting: submitStatus.kind === "running",
-		clearing: clearRunning,
+		clearing: clearRunning || savingDraft,
 		entry: engineInitializing
 			? "initializing"
 			: engineRebuilding
@@ -1526,6 +1555,90 @@ export function FormScreen({
 	/* Capture imperatively at the final write boundary. Post-write routing keeps
 	 * that revision even if a collaborator edits while the action is in flight. */
 	const docApi = useBlueprintDocApi();
+
+	const saveDraft = async () => {
+		const state = session.getState();
+		if (
+			!appId ||
+			!entryKey ||
+			!form ||
+			saveDraftInFlight.current ||
+			!routeMatchesScreen ||
+			submitOffer.kind !== "offered" ||
+			platformRules.appHome !== "device-home"
+		)
+			return;
+		saveDraftInFlight.current = true;
+		setSavingDraft(true);
+		const run = state.previewSessionId;
+		const isCurrent = () =>
+			mountedRef.current &&
+			controller.entryKey === entryKey &&
+			session.getState().scopeEpoch === state.scopeEpoch &&
+			session.getState().previewSessionId === run;
+		try {
+			const active = document.activeElement;
+			if (
+				active instanceof HTMLElement &&
+				formBodyElRef.current?.contains(active)
+			)
+				active.blur();
+			const opened = await runFormAttachmentBarrier(
+				entryKey,
+				() => controller.snapshotAndroidSave(entryKey),
+				{
+					classifySlot: ({ instancePath }) =>
+						controller.attachmentPathDisposition(instancePath),
+				},
+			);
+			if (!opened || !isCurrent()) return;
+			const target =
+				state.previewCaseTarget?.formUuid === formUuid
+					? state.previewCaseTarget
+					: undefined;
+			const descriptor =
+				opened.descriptor ||
+				effectiveCases
+					?.map((one) => one.caseName)
+					.filter(Boolean)
+					.join(", ") ||
+				undefined;
+			if (
+				session.getState().savePreviewFormRecord(
+					{
+						kind: "incomplete",
+						appId,
+						entryKey,
+						formUuid,
+						moduleUuid,
+						name: localizedFormName ?? form?.name ?? "",
+						descriptor,
+						savedAt: Date.now(),
+						opened,
+						device: previewDevice,
+						target: { ...target, formUuid, cases: effectiveCases, opening },
+						menuSelections: state.previewMenuCaseSelections,
+						searchStates: state.previewSearchStates,
+						registration: state.previewCaseListRegistrationEntry,
+					},
+					run,
+				)
+			) {
+				navigate.goHome();
+				setPreviewAtDeviceHome(true);
+			}
+		} catch {
+			if (isCurrent())
+				setSubmitStatus({
+					kind: "error",
+					message:
+						"Couldn't save this form. You can check the answers and try again.",
+				});
+		} finally {
+			saveDraftInFlight.current = false;
+			if (mountedRef.current) setSavingDraft(false);
+		}
+	};
 	const submissionIdentityKey = JSON.stringify([
 		scopeEpoch,
 		appId,
@@ -2781,6 +2894,8 @@ export function FormScreen({
 			return;
 		}
 		const submittedEntryKey = submitted.entryKey;
+		const submittedRun = session.getState().previewSessionId;
+		let savedDescriptor: string | undefined;
 		const isCurrent = () => {
 			const current = session.getState();
 			const latest = submissionContextRef.current;
@@ -2920,6 +3035,14 @@ export function FormScreen({
 							formContentUuid(finalDoc, mutation.formUuid as Uuid)
 						],
 					);
+				if (
+					platformRules.appHome === "device-home" &&
+					(showSavedForms || draft)
+				) {
+					const saved = await controller.snapshotAndroidSave(submittedEntryKey);
+					if (!saved || !isCurrent()) return "stale";
+					savedDescriptor = saved.descriptor;
+				}
 				return await submitFormAction(
 					{
 						...mutation,
@@ -3034,6 +3157,30 @@ export function FormScreen({
 					.setPreviewSubmissionLocation(result.submissionLocation);
 				if (result.activities?.length)
 					onSubmittedActivities?.(result.activities);
+				if (platformRules.appHome === "device-home" && showSavedForms) {
+					const current = session.getState();
+					current.savePreviewFormRecord(
+						{
+							kind: "submitted",
+							appId: submittedAppId,
+							entryKey: submittedEntryKey,
+							formUuid,
+							moduleUuid,
+							name: localizedFormName ?? form?.name ?? "",
+							descriptor:
+								savedDescriptor ||
+								submitted.cases
+									?.map((one) => one.caseName)
+									.filter(Boolean)
+									.join(", ") ||
+								undefined,
+							savedAt: Date.now(),
+						},
+						submittedRun,
+					);
+				} else if (draft) {
+					session.getState().removePreviewFormRecord(submittedEntryKey);
+				}
 				await dispatchAfterSubmit({
 					submitted: {
 						...submitted,
@@ -4017,6 +4164,17 @@ export function FormScreen({
 									</button>
 								)}
 							</div>
+							{platformRules.appHome === "device-home" &&
+								showIncompleteForms && (
+									<button
+										type="button"
+										onClick={() => void saveDraft()}
+										disabled={savingDraft || submitOffer.kind !== "offered"}
+										className={FORM_QUIET_ACTION_CLS}
+									>
+										{savingDraft ? "Saving form" : "Save for later"}
+									</button>
+								)}
 							<button
 								type="button"
 								onClick={handleClear}

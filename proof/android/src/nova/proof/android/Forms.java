@@ -293,6 +293,10 @@ final class Forms {
             return false;
         }
         saved.put("resultCode", shadow.getResultCode());
+        FormRecord savedRecord = CommCareApplication.instance().getCurrentSessionWrapper().getFormRecord();
+        if (savedRecord != null && savedRecord.getDescriptor() != null) {
+            saved.put("descriptor", savedRecord.getDescriptor());
+        }
         // The save applied the form's case blocks to the device (FormRecord.updateAndProcessRecord): the form's
         // record and the cases the device now holds, read before home is handed the result.
         Device.dirty = true;
@@ -419,6 +423,9 @@ final class Forms {
         JSONObject entry = new JSONObject();
         entry.put("status", record.getStatus());
         entry.put("FormRecord.getDisplayName", Screens.orNull(record.getDisplayName()));
+        if (record.getDescriptor() != null) {
+            entry.put("descriptor", record.getDescriptor());
+        }
         entry.put("AndroidCommCarePlatform.getFormDefId", CommCareApplication.instance().getCommCarePlatform()
                 .getFormDefId(record.getFormNamespace()) == -1 ? "none" : "held");
         String location = metaLocation(record);

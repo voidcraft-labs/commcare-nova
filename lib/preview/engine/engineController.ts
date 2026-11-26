@@ -933,6 +933,13 @@ export class EngineController {
 			: undefined;
 	}
 
+	private resumeOptions(formUuid: Uuid) {
+		const checkpoint = this.sessionFor(formUuid)?.resumedCheckpoint;
+		return checkpoint === undefined
+			? undefined
+			: { checkpoint, preserveAllValues: true };
+	}
+
 	/** Build the mounted entry's session map. Without a session input (an
 	 * entry no running app opened) no datum is valued. */
 	private mountEntrySession(
@@ -1613,6 +1620,42 @@ export class EngineController {
 		);
 	}
 
+	/** Freeze the entry the Android save used. Context belongs to its original
+	 * restore, while a later mutation still uses current write authorization. */
+	async snapshotAndroidSave(entryKey: string) {
+		if (!(await this.awaitSettled(entryKey)) || !this.entryReady) return;
+		const engine = this.engine;
+		const formUuid = this.activeFormUuid;
+		if (!engine || !formUuid) return;
+		const freeze = async (evaluate?: FormEngineAsyncEvaluator) => {
+			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
+			const descriptor = await engine.savedFormDescriptor(evaluate);
+			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
+			const documentState = this.reconciledDocumentState;
+			if (!documentState || this.docStore?.getState() !== documentState) return;
+			return {
+				descriptor,
+				documentState,
+				checkpoint: engine.entryCheckpoint(),
+				caseDatabase: this.previewCaseDatabaseSnapshot,
+				caseData: this.activeCaseData,
+				searchAnswers: this.searchAnswersFor(formUuid),
+				entrySession: this.sessionFor(formUuid),
+			};
+		};
+		if (!this.xpathRuntime) return freeze();
+		return this.runAsyncRevision(
+			"validation",
+			formUuid,
+			(revision, generation, signal) =>
+				freeze(
+					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				),
+			undefined,
+			{ atomic: true },
+		);
+	}
+
 	/** Form-level repeat ownership subscriber. The engine stays UI-agnostic;
 	 * FormScreen binds this event to the attachment coordinator. */
 	subscribeRepeatCompaction(
@@ -2104,6 +2147,7 @@ export class EngineController {
 				caseData,
 				this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
 				caseDatabase,
+				this.resumeOptions(formUuid),
 			);
 		});
 	}
@@ -2158,7 +2202,7 @@ export class EngineController {
 			formUuid,
 			caseData,
 			this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
-			undefined,
+			this.resumeOptions(formUuid),
 			caseDatabase,
 		);
 	}

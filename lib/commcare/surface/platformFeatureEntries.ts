@@ -14,6 +14,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
 	"worker-distance": ["menus-and-case-lists/9-distance"],
 	"sort-by-distance": ["menus-and-case-lists/type-distance"],
+	"saved-form-descriptor": [
+		"questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where",
+	],
 	"web-apps-form-behavior": [
 		"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
 	],

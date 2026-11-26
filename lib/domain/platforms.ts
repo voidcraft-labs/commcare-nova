@@ -220,6 +220,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
 	"web-apps-form-behavior",
+	"saved-form-descriptor",
 	"case-list-here",
 	"worker-distance",
 	"sort-by-distance",
@@ -370,6 +371,12 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "ignored",
 			note: "the form opens and submits as any other form",
 		},
+	},
+	"saved-form-descriptor": {
+		label: "Saved form label",
+		channel: "structure",
+		webApps: { reading: "ignored" },
+		android: { reading: "runs" },
 	},
 	"case-list-here": {
 		label: "here() in a case list",

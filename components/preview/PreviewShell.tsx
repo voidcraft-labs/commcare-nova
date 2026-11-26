@@ -94,6 +94,8 @@ import {
 	useSetPreviewPersonaUuid,
 	useSetPreviewTaskContinuation,
 } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
+import { retireAttachmentEntry } from "./form/fields/attachment/attachmentClient";
 import { SubmittedActivitiesDialog } from "./SubmittedActivitiesDialog";
 import { HomeScreen } from "./screens/HomeScreen";
 import { PreviewDataRefusalScope } from "./shared/PreviewDataRefusal";
@@ -264,6 +266,35 @@ function BuilderScreens() {
 	const appId = useAppId();
 	const access = useAccessPhase();
 	const projectToast = useProjectToast();
+	const session = useBuilderSessionApi();
+	useEffect(
+		() =>
+			session.subscribe((current, previous) => {
+				if (current.previewFormRecords === previous.previewFormRecords) return;
+				for (const record of previous.previewFormRecords) {
+					if (
+						record.kind === "incomplete" &&
+						!current.previewFormRecords.some(
+							(other) =>
+								other.kind === "incomplete" &&
+								other.entryKey === record.entryKey,
+						)
+					)
+						retireAttachmentEntry(record);
+				}
+			}),
+		[session],
+	);
+	useLayoutEffect(() => {
+		const resumed = session.getState().previewResumedDraft;
+		if (
+			resumed &&
+			(loc.kind !== "form" ||
+				loc.formUuid !== resumed.formUuid ||
+				loc.moduleUuid !== resumed.moduleUuid)
+		)
+			session.setState({ previewResumedDraft: undefined });
+	}, [loc, session]);
 	const [activityReceipt, setActivityReceipt] = useState<{
 		facts: readonly ActivityFact[];
 		appId: string | undefined;
