@@ -260,7 +260,7 @@ export function registerBringInHqApp(
 						requireInstallationManagement: credentialWriteGrant(
 							ctx,
 							"bring_in_hq_app",
-							[SCOPES.hqImport],
+							[SCOPES.hqImport, SCOPES.hqWrite],
 						),
 					},
 				);

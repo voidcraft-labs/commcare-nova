@@ -378,6 +378,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 							review_digest: listed.review_digest,
 							discard_nova_changes: false,
 							table_choices: {},
+							owner_rule_choices: {},
 						}),
 					MEMBER,
 					scopes,

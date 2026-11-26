@@ -1186,27 +1186,6 @@ export async function writeTargetIdentityInTransaction(
 	if (!sameTargetIdentity(stored, write.read))
 		throw new TargetIdentityMovedError(deploymentId);
 	const next = canonicalTargetIdentity(write.next);
-	if (!sameTargetIdentity(stored, next)) {
-		const sending = await tx
-			.selectFrom("hq_remote_writes")
-			.select("id")
-			.where("deployment_id", "=", deploymentId)
-			.where("write_kind", "in", ["import", "media"])
-			.where(openRemoteWrite)
-			.executeTakeFirst();
-		if (sending) throw new HqReviewWriteInFlightError();
-		// A link checked against the previous addressing of a form is no longer evidence.
-		await tx
-			.updateTable("app_deployments")
-			.set({
-				content_generation: crypto.randomUUID(),
-				entry_point_manifest: null,
-				entry_point_observation: null,
-			})
-			.where("id", "=", deploymentId)
-			.where("content_generation", "is not", null)
-			.execute();
-	}
 	const entityKey = (row: DeploymentIdentityOverride) =>
 		JSON.stringify([
 			row.entityKind,
@@ -1235,16 +1214,31 @@ export async function writeTargetIdentityInTransaction(
 	const nextSearches = next.projectSearches ?? [];
 	const goneSearches = without(oldSearches, nextSearches, searchKey);
 	const newSearches = without(nextSearches, oldSearches, searchKey);
-	if (goneSearches.length || newSearches.length) {
-		const pending = await tx
+	const changesSearch = goneSearches.length > 0 || newSearches.length > 0;
+	if (!sameTargetIdentity(stored, next)) {
+		let sending = tx
 			.selectFrom("hq_remote_writes")
 			.select("id")
 			.where("deployment_id", "=", deploymentId)
-			.where(openRemoteWrite)
-			.executeTakeFirst();
-		// A refresh can return "superseded" from this transaction. Check
-		// before changing even an unrelated part of the identity record.
-		if (pending) throw new SearchConnectionInUseError(deploymentId);
+			.where(openRemoteWrite);
+		if (!changesSearch)
+			sending = sending.where("write_kind", "in", ["import", "media"]);
+		if (await sending.executeTakeFirst()) {
+			// Search bindings also gate creation and dependencies. A passive
+			// refresh returns superseded before mutating any identity rows.
+			if (changesSearch) throw new SearchConnectionInUseError(deploymentId);
+			throw new HqReviewWriteInFlightError();
+		}
+		await tx
+			.updateTable("app_deployments")
+			.set({
+				content_generation: crypto.randomUUID(),
+				entry_point_manifest: null,
+				entry_point_observation: null,
+			})
+			.where("id", "=", deploymentId)
+			.where("content_generation", "is not", null)
+			.execute();
 	}
 
 	/* Every stored row, read whole: a media row the read rule refused is no
@@ -3042,13 +3036,13 @@ export async function recordRemoteResource(
 			// A second publish on this same claim may already have recorded.
 			// Its HQ counter below orders the two. A release and reclaim retires
 			// the admission even if the remote id, source and counter all match.
-			const authority = await admittedAppState(
-				tx,
-				row,
-				input.remoteId,
-				live,
-				admitted,
-			);
+			const practice = input.practicePublication;
+			// A prepared installation is promoted locally under its exact
+			// checkpoint, with no outstanding remote write to acknowledge.
+			const authority =
+				practice?.promotedEntry && !admitted?.writeIds.length
+					? "current"
+					: await admittedAppState(tx, row, input.remoteId, live, admitted);
 			if (authority === "claim-changed")
 				return { ...(await answer(null)), obsoleteClaim: true };
 			if (authority === "review-changed")
@@ -3063,13 +3057,14 @@ export async function recordRemoteResource(
 					"invalid",
 					"The installation’s app mapping changed during the upload. Publish again to review this project space.",
 				);
-			const practice = input.practicePublication;
 			if (practice) {
 				await practice.requireHqImport?.(
 					tx,
 					Boolean(admitted?.writeIds.length),
 				);
 				await lockAppForDeploymentWrite(tx, scope, "edit");
+				if (practice.promotedEntry)
+					await holdSearchConnections(tx, row.id, input.searchConnections);
 				const saved = await tx
 					.selectFrom("app_deployment_baselines")
 					.select("source_digest")
