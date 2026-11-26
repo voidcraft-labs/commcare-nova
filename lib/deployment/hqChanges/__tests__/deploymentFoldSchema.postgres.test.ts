@@ -22,6 +22,7 @@ import { blueprintDocSchema } from "@/lib/domain";
 import {
 	type DeploymentFoldInventory,
 	scanDeploymentFold,
+	verifyDeploymentFold,
 	writeDeploymentAwareFold,
 } from "@/scripts/lib/deploymentFold";
 import {
@@ -414,18 +415,23 @@ it.each([false, true])(
 		await oldEdit(appId, "Unpublished name", ++seq);
 		await softDeleteApp(appId, owner);
 		const source = { ...input, headSeq: seq };
-		const scan = (selected = source) =>
+		const scan = (selected = source, readOnlyHeadText?: string) =>
 			h
 				.db()
 				.transaction()
 				.setAccessMode("read only")
 				.setIsolationLevel("repeatable read")
-				.execute((tx) => scanDeploymentFold(tx, selected));
+				.execute((tx) => scanDeploymentFold(tx, selected, readOnlyHeadText));
 		await expect(
 			scan({ ...source, projectId: "a different Project" }),
 		).rejects.toThrow();
 		const receipt = await scan();
 		expect(receipt.usable).toBe(2);
+		const exact = await head();
+		expect(await scan(source, exact)).toEqual(receipt);
+		await expect(
+			scan(source, JSON.stringify({ ...JSON.parse(exact), appId: "other" })),
+		).rejects.toThrow("did not reproduce the saved app in this Project");
 		if (!hasCertificate) await installCandidate();
 		expect(await scan()).toEqual(receipt);
 		const write = (selected: typeof source) =>
@@ -448,6 +454,18 @@ it.each([false, true])(
 			visitTitle: "Unpublished name",
 		});
 		await write(source);
+		const coordinate = { appId, projectId, foldSeq: seq + 1 };
+		await h.withTransaction((tx) =>
+			verifyDeploymentFold(tx, coordinate, receipt),
+		);
+		await expect(
+			h.withTransaction((tx) =>
+				verifyDeploymentFold(tx, coordinate, {
+					...receipt,
+					statesDigest: "0".repeat(64),
+				}),
+			),
+		).rejects.toThrow("deployment comparisons differ after the fold");
 		expect(blueprintDocSchema.parse(JSON.parse(await head())).appName).toBe(
 			"Converted Unpublished name",
 		);
