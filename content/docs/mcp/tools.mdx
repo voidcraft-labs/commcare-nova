@@ -1314,7 +1314,13 @@ a value and label; `optionUuid` is optional for new choices. Keep the identities
 of retained choices when editing. Switching source kinds is a complete
 replacement; the previous source is not retained.
 
-An optional row filter may compare columns from that same table with fixed
+A case source uses `kind: "cases"` and a `caseType`. It saves the selected
+record ID. Use `labelProperty` to choose the label, which defaults to
+`case_name`, and `sortProperty` to order choices by the text of a record
+property. Equal values keep their device order. Its optional filter can use
+candidate records and eligible earlier form answers.
+
+An optional lookup row filter may compare columns from that same table with fixed
 values, worker/session values, and eligible earlier answers from the form. It
 cannot read case data, Search answers, later form answers, or answers inside a
 child or sibling repeating section.
@@ -1335,7 +1341,7 @@ child or sibling repeating section.
 | `refresh_managed_data` | Read a lookup table (`table_id`) or an app's places (`app_id`) of the Project (`project_id`) again from the project space that manages them, and answer what changed. Give exactly one of `table_id` and `app_id`. Requires `nova.hq.import`. |
 | `set_lookup_table_management` | Hand a lookup table (`table_id`) of the Project (`project_id`) to Nova (`managed_by: "nova"`) or back to CommCare HQ (`"commcare-hq"`). Without `review_digest` it answers what the change does, which apps read the table and a `review_digest`, and writes nothing; show that to the user and ask, then send the same call again with that `review_digest`. If the table or the apps that read it changed in between, nothing changes and the answer (`reason: "review-moved"`) is the preview as it stands now, with a new `review_digest`. For a table made in Nova that a publish put in a project space, `managed_by: "commcare-hq"` with `source_domain` (and `source_server` where two servers hold that name) takes that project space's table, which CommCare HQ manages from then on; without `source_domain` the answer lists those project spaces in `sources`. Requires `nova.hq.write` and `nova.hq.import`. |
 | `separate_lookup_table` | Make a new Project table from the columns and rows a table (`table_id`) has now, and point the apps the user chooses (`app_ids`) at it under a new `name` and export `tag`. The old table and the other apps stay as they are. Without `review_digest` it answers what it does, the apps that read the table, a vacant `suggested` name and tag and a `review_digest`, and writes nothing. Only for a table every worker receives. |
-| `set_field_options_source` | Replace a choice field's complete inline or lookup source, including an optional lookup row filter, addressed by `moduleUuid`, `formUuid`, and `fieldUuid`. |
+| `set_field_options_source` | Replace a choice field's complete inline, lookup or case source, addressed by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 
 ## Changing cases on submission
 

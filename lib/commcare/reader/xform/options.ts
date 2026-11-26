@@ -42,6 +42,7 @@ export interface CaseChoicesProposal {
 	 *  left unclaimed and reported. */
 	readonly label: Element;
 	readonly value: Element;
+	readonly sort?: Element;
 	readonly select: "select1" | "select";
 	readonly caseType: string;
 	readonly labelProperty: string;
@@ -456,7 +457,6 @@ function readItemset(
 		runtime.ok &&
 		bound?.kind === "native" &&
 		bound.id === "casedb" &&
-		sort === undefined &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === "casedb" &&
 		chain.steps[1] === "case" &&
@@ -467,6 +467,16 @@ function readItemset(
 		const caseType = caseTypeTest(chain.predicates[0] as FormSyntax);
 		const labelProperty = singleName(labelRef) ?? singleAttribute(labelRef);
 		if (caseType === undefined || labelProperty === undefined) return other();
+		const sortProperty =
+			sortRef === undefined
+				? undefined
+				: (singleName(sortRef) ?? singleAttribute(sortRef));
+		if (
+			sortRef !== undefined &&
+			(sortProperty === undefined ||
+				!sameTree(sortRef, w.context([casePropertyStep(sortProperty)])))
+		)
+			return other();
 		const filter = chain.predicates[1];
 		if (filter !== undefined)
 			field.expressions.push({
@@ -479,7 +489,12 @@ function readItemset(
 						: "xform:select/itemset@nodeset",
 				mode: { target: "xform", constraint: false },
 			});
-		field.field.optionsSource = { kind: "cases", caseType, labelProperty };
+		field.field.optionsSource = {
+			kind: "cases",
+			caseType,
+			labelProperty,
+			...(sortProperty !== undefined && { sortProperty }),
+		};
 		return {
 			itemset,
 			label,
@@ -487,6 +502,7 @@ function readItemset(
 			select,
 			caseType,
 			labelProperty,
+			...(sort === undefined ? {} : { sort }),
 			filtered: filter !== undefined,
 		};
 	}
@@ -522,7 +538,7 @@ export function settleCaseChoices(
 	same: boolean,
 	filtered: boolean,
 ): void {
-	const { itemset, select, label, value } = proposal;
+	const { itemset, select, label, value, sort } = proposal;
 	// The label ref Nova writes for the property: an attribute for a case's own attributes, a
 	// child step for every other property (`builder.ts::buildFieldParts`). A source label that
 	// reads the other node of the same name is no case choices of Nova's.
@@ -545,5 +561,9 @@ export function settleCaseChoices(
 	for (const part of [label, value]) {
 		cursor.take({ element: part }, element).value;
 		cursor.take({ element: part, attribute: "ref" }, element).value;
+	}
+	if (sort !== undefined) {
+		cursor.take({ element: sort }, X.itemsetSort).value;
+		cursor.take({ element: sort, attribute: "ref" }, X.itemsetSort).value;
 	}
 }

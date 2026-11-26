@@ -58,14 +58,21 @@ export function validateCaseOptionsSources(
 					),
 				);
 			const type = caseTypes.find((type) => type.name === source.caseType);
-			if (
-				!type?.properties.some(
-					(property) => property.name === source.labelProperty,
-				)
-			)
+			const hasProperty = (name: string) =>
+				type?.properties.some((property) => property.name === name) ?? false;
+			if (!hasProperty(source.labelProperty))
 				finding(
 					"CASE_SELECT_SOURCE_INVALID",
 					`Choices for "${field.id}" need a declared record type and label property.`,
+				);
+			if (
+				source.sortProperty !== undefined &&
+				!hasProperty(source.sortProperty)
+			)
+				finding(
+					"CASE_SELECT_SOURCE_INVALID",
+					`Choices for "${field.id}" need a sort property on their record type.`,
+					{ part: "sort" },
 				);
 			if (!source.filter) continue;
 			const context = slotContext(

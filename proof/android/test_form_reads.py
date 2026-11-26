@@ -121,7 +121,7 @@ INVALID = "Sorry, this response is invalid!"
 
 
 @contextmanager
-def _served(document, publication=None):
+def _served(document, publication=None, *, database=None):
     """HQ's release of ``document`` as Nova first publishes it, served by HQ's own views, and the archive a
     worker installs of it."""
     from proof.android import observe
@@ -135,7 +135,7 @@ def _served(document, publication=None):
             yield served, observe.release_archive(served)
         return
 
-    with published(document, None) as app, formplayer_hq.serve(app.unit, document, app.app_id) as served:
+    with published(document, None) as app, formplayer_hq.serve(app.unit, document, app.app_id, database=database) as served:
         yield served, observe.release_archive(served)
 
 
@@ -787,3 +787,47 @@ def test_quick_app_refusal_control_uses_result_flag_for_navigation(android_docum
         assert _result_rows(first, "after")[0]["reading"] == "5"
         assert second["indexBefore"] != second["indexAfter"]
         assert _result_rows(second, "after")[0]["reading"] == "6"
+
+
+def test_android_sorts_filtered_case_choices_by_text_and_keeps_ties(android_documents, hq):
+    from proof.observe import casedata
+
+    rows = (
+        ("north-late", "Alpha label", "north", "2"),
+        ("north-tie-first", "Zulu label", "north", "10"),
+        ("north-tie-second", "Beta label", "north", "10"),
+        ("south", "South only", "south", "0"),
+    )
+    ranks = {case_id: rank for case_id, _, _, rank in rows}
+    names = {case_id: name for case_id, name, _, _ in rows}
+    database = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), tuple(
+        casedata.CaseRecord(
+            case_id, "clinic", name, casedata.USER_ID,
+            "2025-12-01T08:00:00.000Z", "2025-12-01T08:00:00.000Z", None,
+            (("region", region), ("rank", rank)),
+        )
+        for case_id, name, region, rank in rows
+    ))
+    with _served(android_documents["targeted-sorted-case-choices"], database=database) as (served, archive):
+        for region, expected in (("north", {"north-late", "north-tie-first", "north-tie-second"}), ("south", {"south"})):
+            answer, sent = _app(
+                served, archive, f"case-choices-{region}", commands=[FORM], controls=True,
+                questions={"/data/region": [region], "/data/sorted": ["1"]},
+            )
+            form = _completed_walk(answer, FORM)
+            by_question = {
+                question["reference"]: question["control"]["choices"]
+                for screen in form["screens"] for question in screen["questions"]
+                if "choices" in question.get("control", {})
+            }
+            natural = [choice["value"] for choice in by_question["/data/source_order[1]"]]
+            ordered = by_question["/data/sorted[1]"]
+            assert set(natural) == expected
+            ordered_ids = sorted(natural, key=ranks.__getitem__)
+            assert ordered == [
+                {"value": case_id, "label": names[case_id], "index": i}
+                for i, case_id in enumerate(ordered_ids)
+            ]
+            (instance,) = sent
+            root = etree.fromstring(instance)
+            assert _child(root, "sorted").text == ordered_ids[0]

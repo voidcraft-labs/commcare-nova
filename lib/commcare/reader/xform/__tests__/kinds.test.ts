@@ -970,6 +970,7 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 		filter: string | undefined,
 		options: {
 			readonly labelProperty?: string;
+			readonly sortProperty?: string;
 			readonly xml?: (xml: string) => string;
 		} = {},
 	) {
@@ -1002,6 +1003,9 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 										kind: "cases",
 										caseType: "clinic",
 										labelProperty: options.labelProperty ?? "case_name",
+										...(options.sortProperty !== undefined && {
+											sortProperty: options.sortProperty,
+										}),
 										...(filter === undefined ? {} : { filter }),
 									},
 								} as FieldSpec),
@@ -1067,6 +1071,28 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 	// (`XFormParser.parseItemset`, `ItemSetParsingUtils.setLabel` and `setValue`), so a held
 	// itemset claims the two its reading read and no other: the case's `dob` shown and its
 	// `external_id` stored would otherwise read as its name shown and its id stored.
+	it("holds a typed case sort and refuses a different kind of node with the same name", async () => {
+		const sort = '<sort ref="region"/>';
+		const held = await questionFindings("region = 'north'", {
+			sortProperty: "region",
+			xml: (xml) => {
+				expect(xml).toContain(sort);
+				return xml;
+			},
+		});
+		expect(held.outcome.kind).toBe("read");
+		expect(held.outcome.claims.counts[Q("itemset-sort-ref")]).toBeGreaterThan(
+			0,
+		);
+		const refused = await questionFindings(undefined, {
+			sortProperty: "region",
+			xml: (xml) => xml.replace(sort, '<sort ref="@region"/>'),
+		});
+		expect(refused.atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
+	});
+
 	it("leaves a second label and value of a case choices itemset unclaimed", async () => {
 		const value = '<value ref="@case_id"/>';
 		const { atQuestion, outcome } = await questionFindings(undefined, {

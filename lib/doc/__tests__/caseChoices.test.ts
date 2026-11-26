@@ -47,6 +47,7 @@ it("admits valid source replacements through replay and undo, and refuses dangli
 		kind: "cases",
 		caseType: "clinic",
 		labelProperty: "region",
+		sortProperty: "region",
 		filter: eq(prop("clinic", "region"), formField(choiceUuid("clinic"))),
 	};
 	const mutation = replace(source);
@@ -63,6 +64,7 @@ it("admits valid source replacements through replay and undo, and refuses dangli
 	for (const invalid of [
 		{ ...source, caseType: "missing" },
 		{ ...source, labelProperty: "missing" },
+		{ ...source, sortProperty: "missing" },
 		{
 			...source,
 			filter: eq(prop("clinic", "region"), formField(choiceUuid("selected"))),
@@ -94,6 +96,7 @@ it("renames label, candidate and selected properties together and blocks deletin
 					kind: "cases",
 					caseType: "clinic",
 					labelProperty: "region",
+					sortProperty: "region",
 					filter: eq(
 						prop("clinic", "region"),
 						term({ kind: "form-case", caseType: "clinic", property: "region" }),
@@ -117,6 +120,7 @@ it("renames label, candidate and selected properties together and blocks deletin
 	expect(renamed.fields[fieldUuid]).toMatchObject({
 		optionsSource: {
 			labelProperty: "district",
+			sortProperty: "district",
 			filter: eq(
 				prop("clinic", "district"),
 				term({ kind: "form-case", caseType: "clinic", property: "district" }),

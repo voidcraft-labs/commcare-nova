@@ -3665,6 +3665,13 @@ decides nothing.
 
 ### Case choices inside forms
 
+A case choice set can order the available rows by one property of the chosen
+case type. The writer emits a typed child or attribute reference as the
+itemset’s sort expression. Core compares the property’s text in Java string
+order and reindexes the choices. Preview applies the same stable comparison
+after the device-context filter and keeps record IDs as the answer values.
+
+
 Single- and multiple-choice questions can use the worker's available cases as a
 source, with a declared type, a label property and an optional typed filter.
 The source saves exact case IDs and emits standard casedb itemsets in both local

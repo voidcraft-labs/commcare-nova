@@ -399,3 +399,24 @@ def test_vellum_changes_an_android_app_argument_and_keeps_shared_result_destinat
         assert intent.getparent().getparent().xpath("//*[local-name()='input' and @appearance='intent:meter']/@ref") == [
             "/data/visits/meter", "/data/visits/verify"]
         assert not run.question_errors(), run.question_errors()
+
+
+def test_vellum_keeps_typed_case_choice_sort_and_refs(hq, editor_driver):
+    document = corpus_document("targeted-sorted-case-choices")
+    with _published(document, "LOOKUP_TABLES", True) as opened:
+        (form,) = operations.held_app(opened.state, opened.app_id).get_forms()
+        run = vellum.fresh_open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id)
+        assert run.loaded and run.saved, (run.load_error, run.save_refusal)
+        assert not run.question_errors(), run.question_errors()
+
+        def choices(source):
+            root = etree.fromstring(source.encode())
+            (itemset,) = root.xpath("//*[local-name()='select1' and @ref='/data/sorted']/*[local-name()='itemset']")
+            return {
+                "value": itemset.xpath("./*[local-name()='value']/@ref"),
+                "label": itemset.xpath("./*[local-name()='label']/@ref"),
+                "sort": itemset.xpath("./*[local-name()='sort']/@ref"),
+            }
+
+        expected = {"value": ["@case_id"], "label": ["case_name"], "sort": ["rank"]}
+        assert choices(form.source) == choices(run.stored_source) == expected

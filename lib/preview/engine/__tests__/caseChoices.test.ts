@@ -119,16 +119,32 @@ describe("case choices in the captured device world", () => {
 		},
 	);
 	it.each([false, true])(
-		"recomputes membership, retains exact IDs, and cascades removed selections (worker=%s)",
+		"sorts offered rows by their saved text, keeps ties, and recomputes membership (worker=%s)",
 		async (stagedAsync) => {
-			const doc = assertAdmittedPreviewDoc(caseChoiceDoc());
+			const doc = caseChoiceDoc();
+			const members = doc.fields[choiceUuid("members")];
+			if (
+				members.kind !== "multi_select" ||
+				members.optionsSource.kind !== "cases"
+			)
+				throw new Error("Expected member case choices.");
+			members.optionsSource.sortProperty = "attendance";
+			assertAdmittedPreviewDoc(doc);
+			const snapshot = caseChoiceSnapshot();
+			const firstInOrder = new Set<string>([memberId(0), memberId(1)]);
+			const rankedRows = snapshot.rows.map((row) => ({
+				...row,
+				properties: {
+					attendance: firstInOrder.has(row.case_id) ? "10" : "2",
+				},
+			}));
 			const engine = new FormEngine(
 				caseChoiceInput(doc),
 				undefined,
 				undefined,
 				undefined,
 				undefined,
-				caseChoiceSnapshot(),
+				{ ...snapshot, rows: rankedRows },
 				{ stagedAsync },
 			);
 			const { runtime, evaluateAsync } = workerFor(engine);
