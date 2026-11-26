@@ -14,7 +14,6 @@
  */
 
 import type { z } from "zod";
-import { formBehaviorTextChoices } from "@/lib/commcare/xform/behaviorTexts";
 import { formRecordName } from "@/lib/doc/formRecordName";
 import { caseListsOffering, type Uuid } from "@/lib/domain";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
@@ -45,7 +44,6 @@ export type GetFormResult =
 			moduleUuid: Uuid;
 			formUuid: Uuid;
 			form: FormSnapshot;
-			behaviorTextChoices: ReturnType<typeof formBehaviorTextChoices>;
 			navigation: ReturnType<typeof formNavigation>;
 			answerWrites: ReturnType<typeof formAnswerWrites>;
 			operationSemantics: OperationSemantics;
@@ -81,7 +79,6 @@ export const getFormTool = {
 				moduleUuid,
 				formUuid,
 				form: snapshot,
-				behaviorTextChoices: formBehaviorTextChoices(doc, formUuid),
 				navigation: formNavigation(doc, formUuid),
 				answerWrites: formAnswerWrites(doc, moduleUuid, formUuid),
 				operationSemantics: operationSemantics(doc, formUuid),

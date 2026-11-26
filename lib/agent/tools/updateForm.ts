@@ -51,6 +51,10 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
+/** How a form behavior names the text that holds it, from the question tree getForm returns. */
+const BEHAVIOR_TEXT_NAMING =
+	"Name a question's text as { field: the question's id, role: field-label, field-hint, field-help, field-validation-message, field-first-add-label or field-add-label }, and a choice's as { field, role: select-option-label, option: the choice's value }; alsoUsedBy lists other texts written the same that share it.";
+
 export const updateFormInputSchema = formAddressSchema
 	.extend({
 		name: z
@@ -117,19 +121,19 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Submit this form automatically in Web Apps when it opens and its answers are valid. True lets Nova choose a question label in this form to hold the setting; or name an existing question or choice text by identity (getForm lists behaviorTextChoices). Null restores manual submission.",
+				`Submit this form automatically in Web Apps when it opens and its answers are valid. True lets Nova choose a question label in this form to hold the setting; or name a text of this form. ${BEHAVIOR_TEXT_NAMING} Null restores manual submission.`,
 			),
 		skipAutomaticSyncText: behaviorTextSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Skip automatic sync after this form submits in Web Apps. Choose an existing question or choice text by identity. Null removes the setting.",
+				"Skip automatic sync after this form submits in Web Apps. Name a text of this form as automaticSubmissionText does. Null removes the setting.",
 			),
 		validateChangedAnswersText: behaviorTextSchema
 			.nullable()
 			.optional()
 			.describe(
-				"In Web Apps, recheck changed answers and blanks at submission. A previously accepted nonblank answer can stay accepted after a related answer changes. Choose an existing question or choice text by identity. Null removes the setting.",
+				"In Web Apps, recheck changed answers and blanks at submission. A previously accepted nonblank answer can stay accepted after a related answer changes. Name a text of this form as automaticSubmissionText does. Null removes the setting.",
 			),
 		plain_text: z
 			.boolean()

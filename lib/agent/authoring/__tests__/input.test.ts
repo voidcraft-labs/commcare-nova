@@ -892,3 +892,38 @@ it("lets Nova choose a question label for automatic submission that no other beh
 		carrier: { field: second?.uuid, role: "field-label" },
 	});
 });
+
+it("reads a form without listing each of its texts again, and names a behavior's text from the question tree", async () => {
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Garden", forms: [{ name: "Weekly check", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fields: [{ kind: "text", id: "note", label: "Note", hint: "Any note" }],
+	});
+	const read = await h.call("getForm", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+	});
+	expect(read).not.toHaveProperty("behaviorTextChoices");
+	await h.call("updateForm", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		validateChangedAnswersText: {
+			carrier: { field: "note", role: "field-hint" },
+		},
+	});
+	const note = Object.values(h.currentDoc().fields).find(
+		(item) => item.id === "note",
+	);
+	const form = Object.values(h.currentDoc().forms).find(
+		(item) => item.name === "Weekly check",
+	);
+	expect(form?.validateChangedAnswersText).toEqual({
+		carrier: { field: note?.uuid, role: "field-hint" },
+	});
+});
