@@ -75,7 +75,7 @@ def _released(has_sibling, runner=None):
     configuration = Configuration(
         domain="nova-navigation-source",
         privileges={"CLOUDCARE", "LOOKUP_TABLES"},
-        flags={"CASE_SEARCH_ADVANCED"},
+        flags={"CASE_SEARCH_ADVANCED", "SYNC_SEARCH_CASE_CLAIM"},
         case_search_enabled=True,
     )
     with hq_check(configuration) as (state, _):
@@ -133,7 +133,8 @@ def test_formplayer_search_default_reads_only_its_request(hq, formplayer_runner,
         _record(request, {"screen": screen, "results": results, "search": list(received.params)})
         assert received.values("zone") == (MATCH,)
         assert screen_kind(results) == "entities", results
-        assert [row["id"] for row in results["entities"]] == ["lookup-zone-case"], results
+        (row,) = results["entities"]
+        assert row["id"] == "lookup-zone-case" and MATCH in row["data"], results
 
 
 @pytest.mark.reader("android")
