@@ -1,6 +1,7 @@
 import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import { formContentUuid, type Uuid } from "@/lib/domain";
+import { isParentUserWritePath } from "@/lib/domain/caseWriteViews";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import { workerUpdateUsesOpeningCase } from "@/lib/domain/forms";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
@@ -109,7 +110,8 @@ export async function submitAppTest(
 			(operation.action === "create" &&
 				operation.target.kind === "new" &&
 				operation.target.expr !== undefined) ||
-			workerUpdateUsesOpeningCase(operation),
+			workerUpdateUsesOpeningCase(operation) ||
+			operation.writes?.some((write) => isParentUserWritePath(write.via)),
 	);
 
 	const built = await buildSubmissionOperationProgram({

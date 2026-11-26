@@ -206,6 +206,38 @@ def write_through_typed_user_index(authoring, app_id):
     )
 
 
+def write_through_typed_parent_user_index(authoring, app_id):
+    """A member's declared household owns a user index to an ordinary district."""
+    from proof.matrix.bases.hq_advanced import new_advanced_module
+    from proof.matrix.bases.hq_case_management import _source
+
+    _pages.new_case_module(authoring, app_id, name="Districts", case_type="district")
+    ops.upload_form_source(
+        authoring, app_id, 2, 0, _source(("district_name", "District", "string")),
+        "typed-parent-user-index-district",
+    )
+    _pages.save_case_actions(authoring, app_id, 2, 0, name_path="/data/district_name")
+    new_advanced_module(authoring, app_id, "Register households linked to districts")
+    ops.upload_form_source(
+        authoring, app_id, 3, 0, _source(("household_name", "Household", "string")),
+        "typed-parent-user-index-household",
+    )
+    ops.set_json(authoring, app_id, "/modules/3/case_type", "district")
+    ops.set_json(authoring, app_id, "/modules/3/forms/0/actions/load_update_cases", [
+        {
+            "case_type": "district",
+            "case_tag": "load_district0",
+            "details_module": {"$menu": 2},
+            "doc_type": "LoadUpdateAction",
+        },
+    ])
+    ops.set_json(authoring, app_id, "/modules/3/forms/0/actions/open_cases", [
+        _open("open_household_0", "household", "/data/household_name",
+              [{**_index("load_district0"), "reference_id": "user"}]),
+    ])
+    _pages.save_case_actions(authoring, app_id, 1, 0, updates={"parent/user/status_note": "/data/status_note"})
+
+
 # hq-advanced's Member visits form: its loads and open actions.
 _VISIT_LOADS = "/modules/1/forms/0/actions/load_update_cases"
 _VISIT_OPENS = "/modules/1/forms/0/actions/open_cases"

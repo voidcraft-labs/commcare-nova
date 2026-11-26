@@ -62,6 +62,7 @@ import {
 	caseWriteValueField,
 	deriveAuthoredCaseId,
 	isFacetWriteThroughIndex,
+	isParentUserWritePath,
 	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
 	type TargetedCaseOperation,
@@ -1162,6 +1163,8 @@ interface ResolvedInstance {
 		property: string;
 		value: JsonValue | undefined;
 	}>;
+	/** A fully authorized routed update whose case block has no relevant property. */
+	readonly emptyParentUserCaseId?: string;
 	/** The case closes after its writes: a close operation, or the own arm
 	 * whose close condition held. */
 	readonly closes: boolean;
@@ -1366,6 +1369,8 @@ export async function executeSubmissionEnvelope(
 		for (const entry of program.resolved) {
 			for (const write of entry.viaWrites)
 				reachedWriteCaseIds.add(write.caseId);
+			if (entry.emptyParentUserCaseId !== undefined)
+				reachedWriteCaseIds.add(entry.emptyParentUserCaseId);
 			operationRecords.push({
 				operationUuid: entry.instance.envelope.operation.uuid,
 				iteration: entry.instance.iteration,
@@ -2479,6 +2484,26 @@ async function resolveOperationProgram(
 			property: string;
 			value: JsonValue | undefined;
 		}> = [];
+		const requiredTypes = instance.envelope.parentUserCaseTypes;
+		if (
+			!requiredTypes &&
+			operation.writes?.some((write) => isParentUserWritePath(write.via))
+		)
+			throw new CaptureSubmissionRejectedError(
+				"Reopen the form to load the records this case change follows.",
+			);
+		const parentUserCaseId =
+			requiredTypes &&
+			(await lockParentUserWrite(
+				trx,
+				host,
+				appId,
+				operation.uuid,
+				target.caseId,
+				requiredTypes,
+				opening,
+				currentAccess,
+			));
 		const snapshots = new Map<string, StoredCaseValues | undefined>();
 		const storedValuesOf = async (
 			caseId: string,
@@ -2520,7 +2545,14 @@ async function resolveOperationProgram(
 			// legacy unsigned fallback for old parent and host submissions.
 			let destinationCaseId = target.caseId;
 			let actualType = target.snapshotCaseType;
-			if (write.via !== undefined) {
+			if (
+				isParentUserWritePath(write.via) &&
+				parentUserCaseId !== undefined &&
+				requiredTypes
+			) {
+				actualType = requiredTypes[1];
+				destinationCaseId = parentUserCaseId;
+			} else if (write.via !== undefined) {
 				const reached = opening
 					? openedAncestorId(opening.cases.indices, target.caseId, write.via)
 					: await ancestorCaseId(trx, host, appId, target.caseId, write.via);
@@ -2674,6 +2706,10 @@ async function resolveOperationProgram(
 			writes,
 			links,
 			viaWrites,
+			...(parentUserCaseId !== undefined &&
+				viaWrites.length === 0 && {
+					emptyParentUserCaseId: parentUserCaseId,
+				}),
 			closes,
 		});
 	}
@@ -2979,6 +3015,8 @@ async function applyOperationEffects(
 		// one block (`xform.py::_add_case_updates`), whose known keys it
 		// applies before its other keys, so each reached case takes its writes
 		// as one partition, whatever their authored order.
+		if (entry.emptyParentUserCaseId !== undefined)
+			await stampModified(trx, host, appId, entry.emptyParentUserCaseId);
 		const byCase = new Map<string, (typeof entry.viaWrites)[number][]>();
 		for (const write of entry.viaWrites) {
 			const writes = byCase.get(write.caseId);
@@ -3559,6 +3597,67 @@ function openedAncestorId(
 		current = edge.ancestor_id;
 	}
 	return current;
+}
+
+/** Authorize both signed endpoints before any case effect. A terminal ID
+ * remains mandatory when HQ emits its empty update block. */
+async function lockParentUserWrite(
+	trx: Transaction<Database>,
+	host: SubmissionEnvelopeHost,
+	appId: string,
+	operationUuid: Uuid,
+	origin: string,
+	types: readonly [string, string],
+	opening: CaseOperationProgram["openingReads"],
+	currentAccess: RestoreScopeQuery | undefined,
+): Promise<string> {
+	if (!opening)
+		throw new CaptureSubmissionRejectedError(
+			"Reopen the form to load the records this case change follows.",
+		);
+	const reject = (
+		reason:
+			| "missing-connection"
+			| "case-type-mismatch"
+			| "not-found-or-out-of-scope",
+	): never => {
+		throw new SubmissionRejectedError({
+			kind: "target",
+			operationUuid,
+			slot: "target",
+			reason,
+		});
+	};
+	const parent = openedAncestorId(opening.cases.indices, origin, [
+		{ identifier: "parent" },
+	]);
+	if (parent === undefined) return reject("missing-connection");
+	const terminal = openedAncestorId(opening.cases.indices, parent, [
+		{ identifier: "user" },
+	]);
+	if (terminal === undefined) return reject("missing-connection");
+	const ids = [parent, terminal];
+	ids.forEach((id, index) => {
+		const row = opening.cases.rows.find(
+			(row) => row.case_id === id && row.app_id === appId,
+		);
+		if (!row) reject("not-found-or-out-of-scope");
+		else if (row.case_type !== types[index]) reject("case-type-mismatch");
+	});
+	const rows = await loadTargetRows(
+		trx,
+		host,
+		appId,
+		{ unheldIds: ids, anyIds: [] },
+		currentAccess,
+		opening.submittedCaseIds,
+	);
+	ids.forEach((id, index) => {
+		const row = rows.get(id);
+		if (!row) reject("not-found-or-out-of-scope");
+		else if (row.caseType !== types[index]) reject("case-type-mismatch");
+	});
+	return terminal;
 }
 
 async function ancestorCaseId(

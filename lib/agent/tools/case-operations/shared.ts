@@ -274,7 +274,7 @@ const ownWriteInputSchema = z
 		via: caseWriteViaInputSchema
 			.optional()
 			.describe(
-				'Save to a linked case on a follow-up or close form. Use parent or host for each step, such as [{"identifier":"parent"}]. A single user step can save through a declared link between ordinary case types on a basic follow-up or close form.',
+				'Save to a linked case on a follow-up or close form. Use parent or host for each step, such as [{"identifier":"parent"}]. A single user step can save through a declared link between ordinary case types on a basic follow-up or close form. A basic single-case follow-up can also use parent then user when both links are unambiguous, the three ordinary case types are distinct, and the form saves through no other link.',
 			),
 	})
 	.superRefine(facetNeedsVia);

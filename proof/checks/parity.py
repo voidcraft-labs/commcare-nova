@@ -85,6 +85,7 @@ ALLOWING = frozenset({"HELD", "TARGET-OWNED", "INERT"})
 HQ_BUILD_REASON = "not-hq-buildable"
 DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
 LATER_OWNER_ON_FRESH_CREATE = "questions/savetocase-guarded-owner-after-fresh-create"
+PARENT_USER_WRITE = "forms-and-case-writes/update-key-through-a-typed-user-index"
 CONDITIONAL_WORKER_UPDATE = "questions/savetocase-update-case-id-xpath"
 REPEATED_WORKER_UPDATE = "questions/savetocase-inside-a-repeat"
 HELD_REPEATED_WORKER_UPDATE = "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat"
@@ -390,6 +391,60 @@ def _location_write_uses(use, entry):
             yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{name}")
 
 
+def _parent_user_write_uses(use, entry):
+    """A basic one-case follow-up with a unique ordinary type at both literal hops."""
+    at = use.at
+    form = at.nearest("Form")
+    if form is None or form.get("requires") != "case" or not isinstance(at.value, dict):
+        return
+    module = at.app.module_of(form)
+    actions = form.get("actions") or {}
+    if (
+        module is None
+        or module.get("doc_type") != "Module"
+        or ((module.get("case_details") or {}).get("short") or {}).get("multi_select")
+        or (actions.get("close_case") or {}).get("condition", {}).get("type") not in (None, "never")
+        or actions.get("subcases")
+        or (actions.get("usercase_update") or {}).get("update")
+        or any("/" in key and key.split("/")[:-1] != ["parent", "user"] for key in at.value)
+    ):
+        return
+    edges = {}
+    for menu in at.app.modules:
+        for item in menu.get("forms") or ():
+            authored = item.get("actions") or {}
+            for subcase in authored.get("subcases") or ():
+                if (subcase.get("condition") or {}).get("type") != "never":
+                    edge = (subcase.get("case_type"), subcase.get("reference_id") or "parent")
+                    edges.setdefault(edge, set()).add(menu.get("case_type"))
+            loads = {
+                load.get("case_tag"): load.get("case_type")
+                for load in (*tuple(authored.get("load_update_cases") or ()), *tuple(authored.get("open_cases") or ()))
+            }
+            for op in authored.get("open_cases") or ():
+                for index in op.get("case_indices") or ():
+                    edge = (op.get("case_type"), index.get("reference_id") or "parent")
+                    edges.setdefault(edge, set()).add(loads.get(index.get("tag")))
+    origin = module.get("case_type")
+    parents = edges.get((origin, "parent")) or ()
+    if len(parents) != 1:
+        return
+    parent, = parents
+    targets = edges.get((parent, "user")) or ()
+    if len(targets) != 1:
+        return
+    terminal, = targets
+    types = {origin, parent, terminal}
+    if (
+        len(types) != 3 or None in types
+        or types.intersection({"commcare-user", "commcare-case-claim", "user-owner-mapping-case"})
+    ):
+        return
+    for name, write in at.value.items():
+        if name.split("/")[:-1] == ["parent", "user"] and isinstance(write, dict) and write.get("question_path"):
+            yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(name)}")
+
+
 def _shadow_default_extra_actions(use, held, entry, places):
     """An omitted or default-shaped extra-actions slot can still drop a datum needed by the visible source."""
     where = f"{use.where}/extra_actions"
@@ -518,7 +573,7 @@ def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, DOTTED_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
-        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
+        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, PARENT_USER_WRITE, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
     }.intersection(entries)
     if not wanted:
@@ -558,6 +613,8 @@ def _forms_variant_uses(found, held, entries):
         # broad outside-predicate class is not exhausted by a row ordinal.
         if ITEMSET_FILTER in wanted and use.key in ITEMSET_NODESETS and itemset_literal_row_index(use):
             yield Decided(use, manifest_usage.HELD_NEW, (by_id[ITEMSET_FILTER],))
+        if PARENT_USER_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
+            yield from _parent_user_write_uses(use, by_id[PARENT_USER_WRITE])
         if LOCATION_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
             yield from _location_write_uses(use, by_id[LOCATION_WRITE])
         if HYPHEN_TAG in wanted and use.key in ADVANCED_TAG_KEYS:

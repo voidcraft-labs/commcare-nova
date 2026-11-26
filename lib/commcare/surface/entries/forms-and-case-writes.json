@@ -3190,7 +3190,7 @@
 		"id": "forms-and-case-writes/update-key-through-a-typed-user-index",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key `user/<property>` on the case loaded by basic Case Management, where that index has one ordinary declared destination",
+		"item": "update key `user/<property>` on the case loaded by basic Case Management, or `parent/user/<property>` on a single-case basic follow-up, with one ordinary declared destination at each step",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3198,7 +3198,7 @@
 		],
 		"valueClass": "typed-user-index-key",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a write through the actual `index/user` connection. The form and case store save to the connected case and refuse a missing connection at submission.",
+		"dispositionCell": "**HELD**: a write through the actual `index/user` connection. A single-case basic follow-up can reach the connection through a declared parent when all three ordinary types are distinct. The form and case store require both links and keep the reached case block even when its answer is irrelevant.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3220,7 +3220,7 @@
 		"id": "forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key whose index segments include `user`, each `parent`, `host` or `user` (`user/p`, `parent/user/p`), outside a direct index with one declared ordinary case at each end",
+		"item": "update key whose index segments include `user`, each `parent`, `host` or `user` (`user/p`, `parent/user/p`), outside the proved direct user and single basic parent/user shapes",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3228,7 +3228,7 @@
 		],
 		"valueClass": "user-index-key-on-loaded-case",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a path containing a user index whose destination is undeclared, platform-owned, or takes additional index steps.",
+		"dispositionCell": "**HELD-NEW**: a path containing a user index outside the typed direct and basic parent/user shapes, including undeclared, platform-owned, ambiguous or competing destinations.",
 		"subject": "worker-record",
 		"owner": "forms-and-case-management",
 		"platforms": {

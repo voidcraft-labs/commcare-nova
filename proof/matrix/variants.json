@@ -19741,6 +19741,25 @@
 		]
 	},
 	{
+		"id": "hq-case-management/write-through-a-typed-parent-user-index",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/update-key-through-a-typed-user-index",
+		"change": {
+			"op": "named",
+			"name": "write_through_typed_parent_user_index"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/via",
+				"value": [
+					{ "identifier": "parent", "throughCaseType": "household" },
+					{ "identifier": "user", "throughCaseType": "district" }
+				]
+			}
+		]
+	},
+	{
 		"id": "hq-case-management/write-through-a-user-index",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",

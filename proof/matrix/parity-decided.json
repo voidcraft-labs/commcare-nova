@@ -245,6 +245,7 @@
 		"hq-case-management/update-multi-beside-the-update",
 		"hq-case-management/worker-record-first-name",
 		"hq-case-management/worker-record-preload-alone",
+		"hq-case-management/write-through-a-typed-parent-user-index",
 		"hq-case-management/write-through-an-unknown-index"
 	],
 	"hq-connect-deliver": [

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { parentUserWriteFixture } from "@/lib/__tests__/parentUserWriteFixture";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { projectAuthoringRead } from "@/lib/agent/authoring/output";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
@@ -1360,6 +1361,44 @@ describe("saves to a case above, changed answers and the worker's record", () =>
 			expect.objectContaining({ property: "nickname", onlyIfChanged: true }),
 		);
 		expectAdmittedDoc(h.currentDoc());
+	});
+
+	it("commits exactly the typed parent then user write through the shared tool", async () => {
+		const { doc, form, own, linkedWrite, localWrite } = parentUserWriteFixture(
+			undefined,
+			false,
+		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(updateCaseOperationTool, {
+			moduleUuid: doc.moduleOrder[0],
+			formUuid: form,
+			operationUuid: own,
+			operation: { action: "own", writes: [localWrite, linkedWrite] },
+		});
+		expect(result.result).not.toHaveProperty("error");
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		expect(ownWritesOf(h.currentDoc(), form)).toContainEqual(linkedWrite);
+		expectAdmittedDoc(h.currentDoc());
+
+		const colliding = await h.runTool(updateCaseOperationTool, {
+			moduleUuid: doc.moduleOrder[0],
+			formUuid: form,
+			operationUuid: own,
+			operation: {
+				action: "own",
+				writes: [
+					localWrite,
+					linkedWrite,
+					{
+						...linkedWrite,
+						value: localWrite.value,
+						via: linkedWrite.via.map(({ identifier }) => ({ identifier })),
+					},
+				],
+			},
+		});
+		expect(colliding.result).toHaveProperty("error");
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 	});
 
 	it("leaves a registration's save to the case above to the gate, which refuses it", async () => {
