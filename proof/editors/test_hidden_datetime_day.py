@@ -112,3 +112,21 @@ def test_a_hidden_timestamp_submits_its_instant_and_saves_only_its_day(hq, core_
         )
         assert stored.refusal is None
         assert stored.touched[PERSON].case.case_json == {"visit_day": DAY}
+
+
+def test_vellum_keeps_the_hidden_clock_and_direct_day_mapping(hq, editor_driver):
+    from proof.editors import vellum
+    from proof.editors.hq import HQAnswers
+
+    with hq_check(Configuration()) as (state, _):
+        app_id, _ = prepare_hidden_day(state)
+        form = operations.held_app(state, app_id).modules[0].forms[0]
+        result = vellum.fresh_open_and_save(editor_driver, HQAnswers(state, state), app_id, form.unique_id)
+        assert result.loaded and result.saved and result.stored_source, (
+            result.load_error, result.save_refusal, result.form_errors,
+        )
+        tree = etree.fromstring(result.stored_source.encode())
+        bind, = tree.xpath("//*[local-name()='bind'][@nodeset='/data/recorded_at']")
+        assert (bind.get("type"), bind.get("calculate")) == ("xsd:dateTime", "now()")
+        kept = operations.held_app(state, app_id).modules[0].forms[0]
+        assert kept.actions.update_case.update["visit_day"].question_path == "/data/recorded_at"

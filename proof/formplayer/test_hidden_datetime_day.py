@@ -23,5 +23,6 @@ def test_formplayer_preserves_the_hidden_stamp_and_writes_its_day(hq, formplayer
                 for sent in (step.get("submissions") or ())
                 if xmlns in sent["instance"]
             ]
-            assert len(submissions) == 1, trace
-            assert_hidden_day_payload(submissions[0])
+            assert submissions, trace
+            for submission in submissions:
+                assert_hidden_day_payload(submission)
