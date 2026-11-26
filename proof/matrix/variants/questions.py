@@ -2125,16 +2125,26 @@ def itemset_copy(authoring, app_id):
     )
 
 
-def itemset_filter_outside_predicate(authoring, app_id):
-    """The village select's filter made ``position() &lt; 3``, which no typed filter of Nova's holds."""
+def itemset_filter_by_row_position(authoring, app_id):
+    """The village select reads the first two fixture rows in source order."""
     _change(
         authoring,
         app_id,
-        "itemset-filter-outside-predicate",
+        "itemset-filter-by-row-position",
         ('villages[district = #form/district]"', 'villages[position() &lt; 3]"', 1),
         (VILLAGE_FILTER, 'villages[position() &lt; 3]"', 1),
     )
 
+
+def itemset_filter_outside_predicate(authoring, app_id):
+    """A position of an explicitly supplied reference is not the choice candidate's position."""
+    _change(
+        authoring,
+        app_id,
+        "itemset-filter-outside-predicate",
+        ('villages[district = #form/district]"', 'villages[position(/data/district) &lt; 3]"', 1),
+        (VILLAGE_FILTER, 'villages[position(/data/district) &lt; 3]"', 1),
+    )
 
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in

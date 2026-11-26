@@ -49,6 +49,7 @@ DOCUMENTS = (
     "targeted-forms-in-menu-above-one-case",
     "targeted-case-choice-values",
     "targeted-sorted-case-choices",
+    "targeted-case-choice-reopen",
     "targeted-case-map",
     "targeted-case-list-icon-action",
     "targeted-reached-choice-columns",

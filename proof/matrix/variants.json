@@ -22894,6 +22894,22 @@
 		}
 	},
 	{
+		"id": "hq-lookups/itemset-filter-by-row-position",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_by_row_position"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["village"]],
+				"pointer": "/optionsSource/filter/left",
+				"value": { "kind": "call", "fn": "position", "args": [] }
+			}
+		]
+	},
+	{
 		"id": "hq-lookups/itemset-filter-outside-predicate",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-filter-outside-predicate",

@@ -210,7 +210,9 @@ def app(
     repeat_additions=None,
     save_incomplete: str | None = None,
     save_language: str | None = None,
+    first_screen_choice: str | None = None,
     reopen: bool = False,
+    reopen_restore: bytes | None = None,
     searches=None,
     search_answers=None,
 ) -> dict:
@@ -233,7 +235,9 @@ def app(
     offered actions; ``questions``, the values for each question the answer table carries, by its reference
     (``Answers.java::valuesFor``); ``repeat_additions``, how many times the worker selects the button to add a repeat;
     ``save_incomplete``, a form whose first screen is answered and saved
-    incomplete; ``reopen``, that record reopened from home's incomplete forms and completed; and ``searches``,
+    incomplete; ``first_screen_choice``, an exact value to pick on the unfinished form's first single select;
+    ``reopen_restore``, the data pull applied after the save and before reopen; ``reopen``, that record reopened
+    from home's incomplete forms and completed; and ``searches``,
     terms each list the walk opens is searched for beside the words its rows show (``Lists.java::searched``),
     what each finds held under the list's ``searches`` with fuzzy search as installed, on and off.
     ``search_answers`` supplies text by query datum and prompt name. The device records the result and answer
@@ -275,6 +279,11 @@ def app(
         options["saveIncomplete"] = save_incomplete
     if save_language is not None:
         options["saveLanguage"] = save_language
+    if first_screen_choice is not None:
+        options["firstScreenChoice"] = first_screen_choice
+    inputs = {"archive": archive}
+    if reopen_restore is not None:
+        inputs["reopenRestore"] = reopen_restore
     if reopen:
         options["reopen"] = True
     if search_answers is not None:
@@ -286,7 +295,7 @@ def app(
         blobs,
         label,
         "app",
-        {"archive": archive},
+        inputs,
         options,
         delivered=delivered,
         sent=sent,
