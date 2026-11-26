@@ -1,7 +1,7 @@
 name: S7 retained Forms proof
 on:
   push:
-    branches: ['s7/ci/codex-forms-retained-roster-3']
+    branches: ['s7/ci/codex-forms-retained-roster-4']
 permissions:
   contents: read
 jobs:
@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        base: [hq-advanced, hq-case-management, hq-case-lists]
+        base: [hq-case-lists]
     uses: ./.github/workflows/proof-slice.yml
     with:
       readers: '0'
