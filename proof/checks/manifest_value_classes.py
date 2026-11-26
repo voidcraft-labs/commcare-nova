@@ -10755,6 +10755,57 @@ def _one_save_to_case_write(form, block, case):
     return name, _data_type(source_bind.get("type", "string") if source_bind is not None else "string")
 
 
+def save_to_case_before_optional_own_update(use):
+    """A direct update of the one case selected by a basic follow-up,
+    authored before a Case Management update of the same row from an
+    optional root answer. HQ still submits the later empty row."""
+    form, block = _form_element(use)
+    if form is None or form.app_form is None or block not in form.paths:
+        return False
+    app, source = form.app_form
+    menu = app.module_of(source)
+    if (menu is None or menu.get("doc_type") != "Module" or source.get("doc_type") != "Form"
+            or source.get("requires") != "case"
+            or ((menu.get("case_details") or {}).get("short") or {}).get("multi_select")
+            or not menu.get("case_type") or block.get(f"{{{VELLUM}}}case_type") != menu["case_type"]
+            or block.getparent().getparent() is not form.data_root):
+        return False
+    blocks = [node for node in form.data_root.iter() if node.get(f"{{{VELLUM}}}role") == "SaveToCase"]
+    if blocks != [block]:
+        return False
+    actions = source.get("actions") or {}
+    if any((actions.get(action, {}).get("condition") or {}).get("type") != "never"
+           for action in ("open_case", "close_case")):
+        return False
+    own = actions.get("update_case") or {}
+    if (own.get("condition") or {}).get("type") not in ("always", "if"):
+        return False
+    case = block.find(f"{{{CASE}}}case")
+    if case is None or [_local(node) for node in _children(case)] != ["update"]:
+        return False
+    authored = _one_save_to_case_write(form, block, case)
+    if authored is None:
+        return False
+    property_name, _ = authored
+    write = (own.get("update") or {}).get(property_name) or {}
+    if (property_name in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or write.get("update_mode") != "always"
+            or not form.controls.get(write.get("question_path"))):
+        return False
+    answer_path = expression_tree(write["question_path"])
+    if (not answer_path or answer_path[:2] != ["path", "absolute"] or len(answer_path[4]) != 2
+            or any(step[0] != "child" or step[2] != 0 for step in answer_path[4])):
+        return False
+    answer = form.bind(write["question_path"])
+    if answer is not None and (answer.get("required") or "").strip() not in ("", "false()", "false"):
+        return False
+    target = form.bind(f"{form.paths[block]}/case/@case_id")
+    if target is None:
+        return False
+    path = expression_tree(target.get("calculate") or "")
+    return (path is not None and path[:2] == ["path", "instance:commcaresession"]
+            and path[4] == [["child", part, 0] for part in ("session", "data", "case_id")])
+
+
 def save_to_case_retype_property_types(use):
     """The original and destination bind types for one same-property pair of
     direct question writes across a literal retype of its earlier sibling's
