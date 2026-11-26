@@ -3034,13 +3034,13 @@ export async function recordRemoteResource(
 			// A second publish on this same claim may already have recorded.
 			// Its HQ counter below orders the two. A release and reclaim retires
 			// the admission even if the remote id, source and counter all match.
-			const authority = await admittedAppState(
-				tx,
-				row,
-				input.remoteId,
-				live,
-				admitted,
-			);
+			const practice = input.practicePublication;
+			// A prepared installation is promoted locally under its exact
+			// checkpoint, with no outstanding remote write to acknowledge.
+			const authority =
+				practice?.promotedEntry && !admitted?.writeIds.length
+					? "current"
+					: await admittedAppState(tx, row, input.remoteId, live, admitted);
 			if (authority === "claim-changed")
 				return { ...(await answer(null)), obsoleteClaim: true };
 			if (authority === "review-changed")
@@ -3055,13 +3055,14 @@ export async function recordRemoteResource(
 					"invalid",
 					"The installation’s app mapping changed during the upload. Publish again to review this project space.",
 				);
-			const practice = input.practicePublication;
 			if (practice) {
 				await practice.requireHqImport?.(
 					tx,
 					Boolean(admitted?.writeIds.length),
 				);
 				await lockAppForDeploymentWrite(tx, scope, "edit");
+				if (practice.promotedEntry)
+					await holdSearchConnections(tx, row.id, input.searchConnections);
 				const saved = await tx
 					.selectFrom("app_deployment_baselines")
 					.select("source_digest")

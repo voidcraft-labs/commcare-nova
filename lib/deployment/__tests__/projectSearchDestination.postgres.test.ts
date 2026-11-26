@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import { sql } from "kysely";
 import { expect, it, vi } from "vitest";
 import { deploymentSession } from "@/__tests__/helpers/deploymentSession";
@@ -19,14 +20,22 @@ import { withMcpClient } from "@/lib/mcp/__tests__/client";
 import { resultContentText, resultText } from "@/lib/mcp/__tests__/resultText";
 import { registerProjectSearchDestinations } from "@/lib/mcp/tools/projectSearchDestinations";
 import { projectSearchDestinationAction } from "../actions";
+import { normalizeHqAppSource } from "../hqSourceBaseline";
+import type { InstallationProfileCheckpoint } from "../installationProfileReview";
 import {
 	admitAppCreate,
 	inspectProjectSearchDestination,
+	readEntryPointEvidence,
+	readInstallationReview,
+	readTargetIdentity,
+	recordRemoteResource,
 	saveProjectSearchDestination,
 	settleRemoteWrites,
+	writeInstallationReview,
 	writeTargetIdentityInTransaction,
 } from "../store";
 import { EMPTY_TARGET_IDENTITY } from "../targetIdentity";
+import type { AppBaselineWrite } from "../types";
 
 import { connect } from "./managedFixtures";
 
@@ -541,6 +550,117 @@ it("retains a full destination inventory across a service ID rotation and a publ
 		.executeTakeFirstOrThrow();
 	expect(Number(count.count)).toBe(0);
 }, 90_000);
+
+it("refuses to promote prepared practice after its target search connection changes", async () => {
+	const { doc, search } = await readDirectory();
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const bind = async (endpointId: number) => {
+		const { review } = await inspectProjectSearchDestination(scope, target);
+		await saveProjectSearchDestination(scope, target, {
+			version: review.version,
+			bindings: [{ searchUuid: search.searchUuid, endpointId }],
+		});
+	};
+	await bind(17);
+	const identity = await readTargetIdentity(scope, target);
+	const sequence = Number((await h.readAppRow(scope.appId))?.mutation_seq);
+	const source = normalizeHqAppSource({
+		doc_type: "Application",
+		name: "Practice directory",
+		modules: [],
+		_attachments: {},
+	});
+	if ("malformed" in source)
+		throw new Error("Expected a normalized working app.");
+	const before = "2026-01-01T00:00:00.000Z";
+	const after = "2026-01-02T00:00:00.000Z";
+	const baseline: AppBaselineWrite = {
+		origin: "push",
+		remoteAppId: "working-app",
+		sourceGzip: gzipSync(source.text),
+		sourceBytes: source.bytes,
+		sourceDigest: source.digest,
+		ownership: {
+			addOns: [],
+			profileProperties: [],
+			profileCustomProperties: [],
+		},
+		observedAt: before,
+		discard: null,
+		novaRevision: sequence,
+		mediaFiles: { kind: "set", files: null },
+		firstPublish: { kind: "set", list: null },
+	};
+	const remote = {
+		kind: "app",
+		novaResourceId: scope.appId,
+		remoteId: baseline.remoteAppId,
+		remoteRevision: 3,
+		expectedEndings: 0,
+		pushedRevision: null,
+		uploadedAt: before,
+		baseline,
+	} as const;
+	const recorded = await recordRemoteResource(scope, target, remote);
+	if (!recorded.pushToken) throw new Error("Expected a prepared app mapping.");
+	const checkpoint: InstallationProfileCheckpoint = {
+		claim: { mapping: recorded.pushToken, endings: 0 },
+		appId: baseline.remoteAppId,
+		phase: "prepare-practice",
+		workingVersion: remote.remoteRevision,
+		sequence,
+		sourceDigest: source.digest,
+		unrelatedDigest: source.digest,
+		review: { requested: [], previousKeys: [] },
+		preparedContent: {
+			version: remote.remoteRevision,
+			inputs: source.digest,
+			baselineDigest: source.digest,
+			resourcesReady: true,
+		},
+	};
+	expect(
+		await writeInstallationReview(scope, target, {
+			claim: checkpoint.claim,
+			previous: undefined,
+			next: checkpoint,
+			identity,
+			remoteAppId: baseline.remoteAppId,
+			sequence,
+			requireHqImport: null,
+		}),
+	).toBe(true);
+	const promote = () =>
+		recordRemoteResource(scope, target, {
+			...remote,
+			expectedInstallationMapping: checkpoint.claim.mapping,
+			searchConnections: identity.projectSearches,
+			pushedRevision: sequence,
+			uploadedAt: after,
+			baseline: { ...baseline, observedAt: after },
+			practicePublication: {
+				expected: checkpoint,
+				promotedEntry: { generation: crypto.randomUUID(), entries: [] },
+				requireHqImport: null,
+			},
+		});
+
+	await bind(18);
+	await expect(promote()).rejects.toMatchObject({ code: "stale" });
+	expect(await readInstallationReview(scope, target)).toEqual(checkpoint);
+	expect((await readEntryPointEvidence(scope, target)).manifest).toBeNull();
+
+	await bind(17);
+	expect((await promote()).pushToken).not.toBeNull();
+	expect((await readEntryPointEvidence(scope, target)).manifest).toMatchObject({
+		remoteAppId: baseline.remoteAppId,
+		sourceSequence: sequence,
+	});
+});
 
 it.each(["active", "retired"] as const)(
 	"holds the signed-in editor's session when connecting a %s search through the Builder",

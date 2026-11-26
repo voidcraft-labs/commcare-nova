@@ -1279,6 +1279,7 @@ export async function publishAppToHq(
 		const inputsDigest = () =>
 			canonicalJsonDigest({
 				sequence: seq,
+				searchConnections: fence.searchConnections ?? [],
 				organization: ready.organization,
 				tables: ready.prepared.lookupSnapshot.definitions.map((table) => [
 					table.id,
