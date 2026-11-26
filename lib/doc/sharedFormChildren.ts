@@ -12,7 +12,9 @@ import {
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { isExpression } from "@/lib/domain/expression/types";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
+import { wordingSourceUnit } from "./localizationWorkspace";
 import type { Mutation } from "./types";
 
 export function sharedChildUuid(parent: Uuid, source: Uuid): Uuid {
@@ -168,12 +170,13 @@ export function initialSharedChild(
 				caseMappingTextUnit(copied.uuid, copied.mapping[position], role),
 			);
 	}
-	const units = translationUnitsById({
+	const copied = {
 		...doc,
 		modules: { ...doc.modules, [route.uuid]: route },
 		moduleOrder: [...doc.moduleOrder, route.uuid],
 		formOrder: { ...doc.formOrder, [route.uuid]: [] },
-	});
+	};
+	const units = translationUnitsById(copied);
 	for (const language of doc.localization?.languageOrder ?? []) {
 		for (const [unit, entry] of Object.entries(
 			doc.localization?.translations?.[language] ?? {},
@@ -194,13 +197,28 @@ export function initialSharedChild(
 				const unitId = translationUnitIdSchema.parse(
 					after + unit.slice(before.length),
 				);
-				if (units.has(unitId))
-					mutations.push({
-						kind: "setTranslation",
-						language,
-						unitId,
-						entry: structuredClone(entry),
-					});
+				const raw = units.get(unitId);
+				if (!raw) continue;
+				const { sourceFingerprint } = wordingSourceUnit(copied, raw);
+				// Keep a former draft and its worker fallback as stored. The
+				// copy can restore that history only on its inspected source
+				// and before any translation of the new unit has been saved.
+				const restoring =
+					entry.workerFallback !== undefined ||
+					!translationSourceFingerprintsEqual(
+						entry.sourceFingerprint,
+						sourceFingerprint,
+					);
+				mutations.push({
+					kind: "setTranslation",
+					language,
+					unitId,
+					entry: structuredClone(entry),
+					...(restoring && {
+						restoreAgainst: { sourceFingerprint, previous: null },
+					}),
+				});
+				break;
 			}
 		}
 	}
