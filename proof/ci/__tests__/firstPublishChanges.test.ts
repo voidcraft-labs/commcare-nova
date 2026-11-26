@@ -48,17 +48,16 @@ const CHECKS = new Set(["source", "proof1", "proof2", "proof3"]);
 const FORM_SOURCE = "/_attachments/*";
 const FORM_PART = `${FORM_SOURCE}/`;
 
-// The step of a trace path above a value a search sent CommCare HQ, as the lane's expectations read it
-// (`proof/matrix/test_expectations.py::SEARCH_QUERY`): HQ ANDs each value as one more filter
-// (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`), so how the values are cut is no
-// difference a worker meets; the cases HQ answers with are, at the list's rows and the request's
-// `answered`, which no such row names.
-const SEARCH_QUERY = "_xpath_query";
+// Values carried in an HQ Search request. Proof 3 separately compares HQ's
+// answers and what the worker sees.
+const SEARCH_REQUEST_PARAMETER =
+	/^\/runs\/\*\/trace\/\*\/(?:requests\/\*\/)?params\/(?:_xpath_query|commcare_sort)\/\*$/;
 
 function searchSent(row: Row): boolean {
 	return (
 		row.check === "proof3" &&
-		row.path.split("/").slice(-2).includes(SEARCH_QUERY)
+		row.artifact.startsWith("trace@") &&
+		SEARCH_REQUEST_PARAMETER.test(row.path)
 	);
 }
 
@@ -164,7 +163,7 @@ describe("proof/first-publish-changes.json", () => {
 				]).toEqual([one.change, true]);
 	});
 
-	it("reads as a value a search sends only a step of `_xpath_query`, never what HQ answered or a screen", () => {
+	it("reads Search query and order values only from request parameter paths", () => {
 		const row = (path: string): Row => ({
 			check: "proof3",
 			artifact: "trace@B",
@@ -174,7 +173,16 @@ describe("proof/first-publish-changes.json", () => {
 		expect(
 			searchSent(row("/runs/*/trace/*/requests/*/params/_xpath_query/*")),
 		).toBe(true);
+		expect(searchSent(row("/runs/*/trace/*/params/commcare_sort/*"))).toBe(
+			true,
+		);
+		expect(
+			searchSent(row("/runs/*/trace/*/requests/*/params/commcare_sort/*")),
+		).toBe(true);
 		expect(searchSent(row("/runs/*/trace/*/requests/*/answered"))).toBe(false);
+		expect(searchSent(row("/runs/*/trace/*/rows/*/commcare_sort/*"))).toBe(
+			false,
+		);
 		expect(searchSent(row("/runs/*/trace/*/rows/*"))).toBe(false);
 		expect(
 			searchSent({

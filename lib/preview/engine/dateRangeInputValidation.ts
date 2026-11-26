@@ -78,7 +78,8 @@ export function dateRangeInputErrors(
 		const starting = values.get(`${input.name}:starting`);
 		if (
 			starting !== undefined &&
-			(input.default === undefined ||
+			(!("default" in input) ||
+				input.default === undefined ||
 				(input.kind === "simple" &&
 					lower === "" &&
 					upper === "" &&

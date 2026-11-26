@@ -145,6 +145,7 @@ from proof.matrix.bases import (  # noqa: E402
     kept_settings,
     languages,
     large_media,
+    legacy_related_case_text,
     lookup_aliases,
     lookup_data,
     lookup_name_lists,
@@ -160,7 +161,10 @@ from proof.matrix.bases import (  # noqa: E402
     plain,
     project_languages,
     runtime_name_tables,
+    project_search,
+    project_search_sql,
     saved_pages,
+    shared_table_journey,
     search,
     starter_agriculture,
     starter_health,
@@ -182,9 +186,13 @@ BASES: tuple[Base, ...] = (
     menus.BASE,
     names.BASE,
     case_lists.BASE,
+    legacy_related_case_text.BASE,
     search.BASE,
     empty_search.BASE,
+    project_search.BASE,
+    project_search_sql.BASE,
     lookups.BASE,
+    shared_table_journey.BASE,
     lookup_aliases.BASE,
     lookup_names.BASE,
     lookup_data.BASE,
@@ -349,7 +357,7 @@ def project_files_in(value):
 def _check_references(row_id, row):
     """Each reference a row holds well formed, and only where the lane resolves one: a set-json value and a list key
     of a ``holds`` fragment."""
-    from proof.matrix.ops import ValueNotSet, references_in
+    from proof.matrix.ops import PROJECT_FILE, ValueNotSet, project_file_of, references_in
 
     allowed = []
     for change in (

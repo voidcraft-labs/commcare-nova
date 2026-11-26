@@ -80,10 +80,12 @@ export function addressesWorkerRecord(
 /** Whether one of the form's case operations saves to the worker's record. */
 export function savesToWorkerRecord(
 	form: Pick<Form, "caseOperations" | "caseSelections">,
+	execution: "any" | "unconditional" = "any",
 ): boolean {
 	return (form.caseOperations ?? []).some(
 		(operation) =>
 			operation.action === "update" &&
+			(execution === "any" || operation.condition === undefined) &&
 			addressesWorkerRecord(form, operation) &&
 			(operation.writes?.length ?? 0) > 0,
 	);

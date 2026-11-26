@@ -32,6 +32,7 @@ import {
 	createManagedLookupTablesInTransaction,
 	readManagedTableReview,
 } from "../managed";
+import { getLookupImportDefinition } from "../service";
 import { authorizeLookupWriteInTransaction } from "../writerTransaction";
 
 vi.mock("@/lib/commcare/encryption", () => ({
@@ -394,6 +395,7 @@ it("reconciles a changed definition at promotion, holds its stable identities an
 		const column = review.definition.columns[1];
 		expect(column).toMatchObject({
 			wireName: "name",
+			index: "unobserved",
 			repeated: true,
 			properties: [{ wireName: "lang" }],
 		});
@@ -442,6 +444,11 @@ it("reconciles a changed definition at promotion, holds its stable identities an
 		).toMatchObject({ ok: true, table: { hq: { managedBy: "nova" } } });
 		return column;
 	});
+	const adopted = await getLookupImportDefinition(admin, access.tableId);
+	expect(adopted.columns.map(({ id, index }) => ({ id, index }))).toEqual([
+		{ id: codeId, index: undefined },
+		{ id: source.id, index: "indexed" },
+	]);
 	const rowStored = await h
 		.db()
 		.selectFrom("lookup_rows")

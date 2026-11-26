@@ -199,6 +199,7 @@ PACKAGE_DATA = {
     "proof/native": {
         "documents": ("proof/native/steps/session_reads.py", "DOCUMENTS"),
         "native": EVERY,
+        "reader": EVERY,
     },
     "proof/rules": {"documents": ("proof/rules/conftest.py", "DOCUMENTS")},
     "proof/store": {"documents": EVERY},

@@ -336,6 +336,13 @@ never stored raw-XPath validation codes. There is no printed-source checker.
   lists (`CheckError.caseLists`). Form text spells it
   `instance('commcaresession')/session/data/stringquery`; the record dialect
   has no spelling, and no Postgres-target slot admits it.
+- `case-list-lookup-count {module}` names the list whose Android companion
+  lookup contributed a result to the form’s session. Only a directly reached
+  basic follow-up with one list selection and no alternate entry or child return admits the read
+  (`caseListLookupCountSource`). It is numeric when the one result count is
+  present, including zero, and blank otherwise. It counts distinct returned
+  keys even when no worker-visible match has that key. The form text spells
+  it `case-list-lookup-count()`, and browser Preview leaves it absent.
 - The session context fields type by what Core writes: `drift` and
   `window_width` as whole numbers (`int`, held as strings), the other five as
   text. `window_width` is admitted only where `SlotProfile.windowWidth` holds,

@@ -715,7 +715,10 @@ function detail(
  *   form's order (Core's `CaseXmlParser`), and HQ's server groups a case's
  *   blocks and sorts them stably by their first action
  *   (`casexml/apps/case/xform.py::get_case_updates`, `order_updates`), so both
- *   run and the later block's row stands where it is present. Nova keeps one
+ *   run and the later block's row stands where it is present. The ordinary
+ *   case-update action's condition does not guard its property row. An
+ *   optional question can send an empty row, which overwrites the earlier
+ *   value. Nova keeps one
  *   write of each property of the own case and lets no other change close it,
  *   and no one change prints both blocks;
  * - `CASE_OPERATION_TARGET_INVALID` reason `worker-record-twice`
@@ -839,6 +842,19 @@ function settleCaseChanges(
 			operation?.placement?.kind === "save-to-case" ? operation : undefined;
 		const reason = detail(finding, "reason");
 		switch (finding.code) {
+			case "CASE_CHANGE_POSITION_INVALID":
+				if (operation !== undefined)
+					refuseBlock(
+						operation.uuid,
+						reason === "managed-order"
+							? ORDER_CLAIMS.mixedPosition
+							: OUTSIDE_VOCABULARY,
+					);
+				break;
+			case "CASE_OPERATION_TYPE_CHOICE_INVALID":
+				if (block !== undefined)
+					refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.caseTypeXPath);
+				break;
 			case "CASE_OPERATION_EXECUTION_ORDER":
 				atForm.add(ORDER_CLAIMS.noOrder);
 				break;
@@ -853,8 +869,21 @@ function settleCaseChanges(
 				if (
 					reason === ("own-case" satisfies CaseWriteDuplicateReason) &&
 					block !== undefined
-				)
+				) {
 					atForm.add(SAVE_TO_CASE_CLAIMS.ownCaseBeside);
+					const authored = saveToCaseReading(form)?.proposals.find(
+						(one) => one.uuid === block.uuid,
+					);
+					if (
+						authored !== undefined &&
+						!ctx.accounting.hasFindingAt(authored.place)
+					)
+						form.xform?.cursor.within(
+							{ element: authored.block.element },
+							SAVE_TO_CASE_CLAIMS.ownCaseBeside,
+							["mug:SaveToCase"],
+						);
+				}
 				break;
 			case "CASE_OPERATION_CLOSES_OWN_CASE":
 				if (block !== undefined) atForm.add(SAVE_TO_CASE_CLAIMS.ownCaseBeside);
@@ -928,8 +957,18 @@ function settleCaseChanges(
 		if (!of.every(refusedAtBlock)) ctx.accounting.finding(claim, form.place);
 	for (const [uuid, claim] of atBlock) {
 		const place = placeOf(uuid);
-		if (!ctx.accounting.hasFindingAt(place))
+		if (!ctx.accounting.hasFindingAt(place)) {
 			ctx.accounting.finding(claim, place);
+			if (claim === SAVE_TO_CASE_CLAIMS.retypeConverts) {
+				const block = saveToCaseReading(form)?.proposals.find(
+					(one) => one.uuid === uuid,
+				)?.block;
+				if (block !== undefined)
+					form.xform?.cursor.within({ element: block.element }, claim, [
+						"mug:SaveToCase",
+					]);
+			}
+		}
 	}
 }
 

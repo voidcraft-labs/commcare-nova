@@ -125,6 +125,7 @@ import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
 	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
 	type CurrentFirstPublishChangeId,
+	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
@@ -556,9 +557,11 @@ function withDeclaredReports(xml: string): string {
 
 describe("the register", () => {
 	it("holds every id in registry order, and its touchesWorkers column is the client-safe one", () => {
-		expect(Object.keys(FIRST_PUBLISH_CHANGES)).toEqual([
-			...CURRENT_FIRST_PUBLISH_CHANGE_IDS,
-		]);
+		expect(Object.keys(FIRST_PUBLISH_CHANGES)).toEqual(
+			FIRST_PUBLISH_CHANGE_IDS.filter(
+				(id) => id !== "hidden-value-defaults-dropped",
+			),
+		);
 		for (const id of CURRENT_FIRST_PUBLISH_CHANGE_IDS)
 			expect([id, FIRST_PUBLISH_CHANGES[id].touchesWorkers]).toEqual([
 				id,
@@ -696,6 +699,7 @@ describe("the register", () => {
 			choice: ["/_attachments/*"],
 			"unheld-itext": ["/_attachments/*"],
 			"list-image": ["/modules/*/case_details/*/columns/*/enum/*/value/*"],
+			"lookup-action": ["/modules/*/case_details/short/lookup_image"],
 			tile: [
 				"/modules/*/media_image/*",
 				"/modules/*/media_audio/*",
@@ -993,6 +997,36 @@ describe("where each change stands", () => {
 				path,
 			]);
 			expect(applies(id, shared)).toBe(true);
+			expect(firstPublishChangePlaces(shared, [id])).toEqual([
+				{ id, places: [itext] },
+			]);
+		}
+	});
+
+	it("reports unshown inline video by wire form and keeps a shared path on its question label", async () => {
+		const id = "unshown-form-media-removed";
+		const itext = "/form/0.0/xform/data/note/:itext/hint/en/video-inline";
+		const path = HINT_VIDEO;
+		const onlyHint = factsOf(
+			await readUnshownHint("hint", null, "video-inline"),
+		);
+		expect(firstPublishChangePlaces(onlyHint, [id])).toEqual([
+			{
+				id,
+				places: [
+					placeOf("app", "multimedia_map", path),
+					placeOf("form", "0.0", "media", path),
+					itext,
+				],
+			},
+		]);
+		for (const sharing of ["label-and-hint", "shared-text"] as const) {
+			const shared = factsOf(
+				await readUnshownHint(sharing, null, "video-inline"),
+			);
+			expect(shared.facts.mediaReferences.map((ref) => ref.path)).toEqual([
+				path,
+			]);
 			expect(firstPublishChangePlaces(shared, [id])).toEqual([
 				{ id, places: [itext] },
 			]);
@@ -2023,7 +2057,11 @@ function placeStandsAt(place: string, location: string): boolean {
 function coveredByItsEntry(record: SameStateRewrite): boolean {
 	const entry =
 		FIRST_PUBLISH_CHANGES[record.register as CurrentFirstPublishChangeId];
-	return entry?.paths.some((path) => pointerCovers(path, record.path)) === true;
+	return (
+		(entry?.sourceRecordPaths ?? entry?.paths)?.some((path) =>
+			pointerCovers(path, record.path),
+		) === true
+	);
 }
 
 // ── Each entry applies and does not ──────────────────────────────────────
@@ -2039,7 +2077,7 @@ type Json = Record<string, unknown>;
 type StoredMenu = Json & {
 	forms: Json[];
 	case_list_form: Json;
-	case_details: { short: Json & { sort_elements: Json[] } };
+	case_details: { short: Json & { columns: Json[]; sort_elements: Json[] } };
 	search_config: Json & { default_properties: Json[] };
 };
 
@@ -2599,12 +2637,15 @@ async function missingMediaFacts(
 }
 
 const HINT_IMAGE = "jr://file/commcare/image/hint.png";
+const HINT_VIDEO = "jr://file/commcare/video/hint.mp4";
 
 async function readUnshownHint(
 	usage: "hint" | "label-and-hint" | "shared-text" = "hint",
 	plan: ReadingMediaPlan | null = null,
+	form: "image" | "video-inline" = "image",
 ): Promise<RegisterReading> {
-	const path = HINT_IMAGE;
+	const path = form === "image" ? HINT_IMAGE : HINT_VIDEO;
+	const mediaType = form === "image" ? "CommCareImage" : "CommCareVideo";
 	const doc = buildDoc({
 		modules: [
 			{
@@ -2629,10 +2670,14 @@ async function readUnshownHint(
 	return readAs(
 		doc,
 		{
-			root: { multimedia_map: { [path]: mediaMapItem("hint") } },
+			root: {
+				multimedia_map: {
+					[path]: { ...mediaMapItem("hint"), media_type: mediaType },
+				},
+			},
 			xml: (xml) => {
 				const hint = "<value>Keep this hint</value>";
-				const mediaValue = `<value form="image">${path}</value>`;
+				const mediaValue = `<value form="${form}">${path}</value>`;
 				const withHint = xml.replace(hint, `${hint}${mediaValue}`);
 
 				if (usage === "shared-text")
@@ -2658,7 +2703,7 @@ async function readUnshownHint(
 						{
 							path,
 							multimediaId: "hint",
-							mediaType: "CommCareImage",
+							mediaType,
 							unreadable: false,
 						},
 					],
@@ -2788,6 +2833,31 @@ const PAIRS: Readonly<
 			menu.search_config.default_properties.reverse();
 		}),
 	),
+	"search-order-direction-signs-respelled": editedPair(
+		() =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				search: {},
+				list: {
+					searchFilters: [
+						{
+							uuid: uuid(19),
+							kind: "order",
+							order: [
+								{
+									property: "case_name",
+									comparison: "text",
+									direction: "ascending",
+									recordName: true,
+								},
+							],
+						},
+					],
+				},
+			}),
+		onMenu((menu) => {
+			menu.search_config.default_properties[0].defaultValue = "'++name:exact'";
+		}),
+	),
 	// A sort over a property the list does not show.
 	"sort-rule-kept-as-hidden-column": editedPair(
 		() => patients([plainColumn(uuid(1), "case_name", "Name")]),
@@ -2803,6 +2873,24 @@ const PAIRS: Readonly<
 					sort_calculation: "",
 				},
 			];
+		}),
+	),
+	"legacy-related-case-text-rekeyed": editedPair(
+		() => patients([plainColumn(uuid(1), "case_name", "Name")]),
+		onMenu((menu) => {
+			Object.assign(menu.case_details.short.columns[0], {
+				field: "parent/case_name",
+				format: "translatable-enum",
+				useXpathExpression: false,
+				enum: [
+					{
+						doc_type: "MappingItem",
+						key: "guide",
+						value: { en: "Guide" },
+						alt_text: {},
+					},
+				],
+			});
 		}),
 	),
 	// A several-case list's limit of -1, which CommCare HQ reads as its own default.

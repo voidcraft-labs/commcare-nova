@@ -5,6 +5,7 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { installationDownloadIssue } from "@/lib/commcare/installationProfiles";
 import { isCommCareServer } from "@/lib/commcare/servers";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { withAppTx } from "@/lib/db/pg";
@@ -16,7 +17,13 @@ import {
 import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import type { PersistableDoc } from "@/lib/domain";
+import {
+	installationArchiveIssue,
+	type PersistableDoc,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
+import { resolvedLanguageEnglishName } from "@/lib/domain/languageRegistry/names";
 import type { ExportActor } from "@/lib/export/artifacts/access";
 import {
 	type ExportMode,
@@ -51,6 +58,7 @@ export type PreparedCompileRequest<M extends "ccz" | "hq-json"> =
 			{ format: M extends "ccz" ? "ccz" : "json" }
 		>;
 		readonly attachmentTargetState: AttachmentTargetState;
+		readonly installationProfileUuid?: Uuid;
 	};
 
 /**
@@ -94,10 +102,14 @@ export async function prepareCompileRequest<
 	// `AppAccessError` (absent / non-member) maps to 404: the IDOR-safe
 	// not-found posture.
 	const privateData = (body as { privateData?: unknown })?.privateData === true;
+	const manualLookupInstaller =
+		mode === "hq-json" &&
+		(body as { manualLookupInstaller?: unknown })?.manualLookupInstaller ===
+			true;
 	const access = await resolveAppAccess(
 		appId,
 		session.user.id,
-		privateData ? "edit" : "view",
+		privateData || manualLookupInstaller ? "edit" : "view",
 	);
 	const { app } = access;
 
@@ -166,6 +178,7 @@ export async function prepareCompileRequest<
 			actorUserId: access.actorUserId,
 		},
 		{
+			compiledAtSeq: app.mutation_seq,
 			format: mode === "ccz" ? "ccz" : "json",
 			...(server !== undefined && { server }),
 			...(assignmentAccess && {
@@ -179,6 +192,35 @@ export async function prepareCompileRequest<
 		throw new ApiError(download.message, 422, downloadRefusalLines(download));
 	}
 
+	const rawProfile = (body as { installationProfileUuid?: unknown })
+		.installationProfileUuid;
+	let installationProfileUuid: Uuid | undefined;
+	if (rawProfile !== undefined) {
+		if (mode !== "ccz")
+			throw new ApiError(
+				"An import file includes the entire app. A profile can be selected for the mobile app file.",
+				400,
+			);
+		const parsed = uuidSchema.safeParse(rawProfile);
+		if (!parsed.success)
+			throw new ApiError("Choose an installation profile from the app.", 400);
+		installationProfileUuid = parsed.data;
+		const issue =
+			(download.format === "ccz"
+				? installationDownloadIssue(
+						docWithParent,
+						installationProfileUuid,
+						download.identity,
+					)
+				: undefined) ??
+			installationArchiveIssue(
+				docWithParent,
+				installationProfileUuid,
+				resolvedLanguageEnglishName,
+			);
+		if (issue) throw new ApiError(issue, 422);
+	}
+
 	// The transaction-boundary gate: zero tolerance, before any expensive
 	// work. Every finding (soundness, completeness, media-state) rejects the
 	// export with the rule's own actionable message: an invalid app must
@@ -189,6 +231,7 @@ export async function prepareCompileRequest<
 		streamMedia: true,
 		archiveActor: () => ({ appId, grant: grant() }),
 		assignmentAccess,
+		manualLookupInstaller,
 		mode,
 		access: {
 			projectId: access.projectId,
@@ -223,6 +266,7 @@ export async function prepareCompileRequest<
 			userId: session.user.id,
 			grant: { kind: "session", sessionId: session.session.id },
 		}),
+		installationProfileUuid,
 		download: download as PreparedCompileRequest<M>["download"],
 		attachmentTargetState: downloadAttachmentState(download),
 	};

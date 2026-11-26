@@ -9,6 +9,7 @@ import {
 	activeRowScope,
 	type ExpressionContext,
 	pushRowScope,
+	readsProjectSearchResults,
 } from "@/lib/domain/expression/context";
 import {
 	DISTANCE_UNITS,
@@ -46,6 +47,7 @@ import {
 	isRelationPath,
 	type PropertyRef,
 	type RelationPath,
+	type SessionContextField,
 	type Term,
 } from "@/lib/domain/expression/types";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
@@ -57,6 +59,7 @@ import type { LookupWireNaming } from "../../lookup/naming";
 import { lookupReadSteps } from "../../lookup/read";
 import {
 	ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS,
+	CASE_LIST_LOOKUP_COUNT_DATA_NAME,
 	CASE_LIST_SEARCH_TEXT_DATA_NAME,
 } from "../../sessionContext";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
@@ -129,6 +132,9 @@ export interface WireTermBindings {
 	readonly workerProperty?: (property: string) => WireExpr | undefined;
 	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
 	readonly searchInputInstanceId?: SearchInputInstanceId;
+	readonly searchAnswerInstances?: ReadonlyMap<Uuid, SearchInputInstanceId>;
+	readonly searchResultInstances?: ReadonlyMap<Uuid, `results:${string}`>;
+	readonly searchResultInstance?: `results:${string}`;
 	readonly datumId?: (datum: DatumRef) => string | undefined;
 	/** The value a read of the session datum `id` takes in place of
 	 *  `instance('commcaresession')/session/data/<id>`: a stack `<create>`
@@ -177,6 +183,14 @@ const comparison: Record<
 	"eq" | "neq" | "lt" | "lte" | "gt" | "gte",
 	WireComparison
 > = { eq: "=", neq: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=" };
+export function sessionContextPath(field: SessionContextField): WirePath {
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("context"),
+		w.step(field),
+	]);
+}
+
 /** Lower admitted domain expressions once. Serializers own every lexical choice. */
 export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const { normalized, context } = prepareWire(expr, ctx);
@@ -369,7 +383,10 @@ function related(
 			...ctx,
 			types: pushRowScope(ctx.types, {
 				kind: "case",
-				root: ctx.root,
+				root:
+					ctx.root === "casedb" || ctx.root === "results"
+						? ctx.root
+						: "results:inline",
 				...(relation.destinationCaseType === undefined
 					? {}
 					: { caseType: relation.destinationCaseType }),
@@ -441,6 +458,8 @@ function rowLeafSteps(input: Term, ctx: Context): readonly WireStep[] {
 					"A projected property cannot traverse another relation.",
 				);
 			return [casePropertyStep(input.property)];
+		case "search-result-field":
+			return [w.step(input.name)];
 		case "case-row-type":
 			return [w.attr("case_type")];
 		case "case-index":
@@ -525,6 +544,8 @@ function term(input: Term, ctx: Context): WireExpr {
 
 		case "case-type":
 			return w.str(input.caseType);
+		case "search-result-field":
+			return w.context([w.step(input.name)]);
 		case "case-row-type":
 			return w.context([w.attr("case_type")]);
 		case "case-index":
@@ -627,12 +648,23 @@ function term(input: Term, ctx: Context): WireExpr {
 			}
 		}
 		case "input": {
+			if (
+				ctx.types.profile.searchInputs.some(
+					(field) => field.uuid === input.searchInputUuid && field.matchingOnly,
+				)
+			)
+				throw new Error(
+					"A parent Search field cannot supply a formula answer.",
+				);
 			const name = bindings.searchInputNames?.get(input.searchInputUuid);
 			if (name === undefined)
 				throw new Error(
 					`Search input identity '${input.searchInputUuid}' has no current runtime-name binding.`,
 				);
-			const id = bindings.searchInputInstanceId ?? "search-input:results";
+			const id =
+				bindings.searchAnswerInstances?.get(input.searchInputUuid) ??
+				bindings.searchInputInstanceId ??
+				"search-input:results";
 			return w.expansion(
 				"search",
 				w.instance(searchInputInstance(id), [
@@ -668,11 +700,7 @@ function term(input: Term, ctx: Context): WireExpr {
 			]);
 		}
 		case "session-context": {
-			const read = w.instance(sessionInstance(), [
-				w.step("session"),
-				w.step("context"),
-				w.step(input.field),
-			]);
+			const read = sessionContextPath(input.field);
 			return (
 				ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS as readonly string[]
 			).includes(input.field) &&
@@ -764,10 +792,25 @@ function queryContext(expression: Expression, ctx: Context): Context {
 		throw new Error(
 			`The '${expression.kind}' expression has no typed row scope.`,
 		);
+	// Typing distinguishes the device database from query results. The wire also
+	// needs the particular completed query on every join within those rows.
+	const source = expression.kind === "project" ? expression.of : expression;
+	let root: InstanceRoot | undefined =
+		row.kind === "case" ? row.root : undefined;
+	if (source.kind === "cases" && source.source === "search-results") {
+		root =
+			source.supplier === undefined
+				? (ctx.bindings.searchResultInstance ?? "results:inline")
+				: ctx.bindings.searchResultInstances?.get(source.supplier);
+		if (root === undefined)
+			throw new Error(
+				"The form entry is missing the search that supplies these cases.",
+			);
+	}
 	return {
 		...ctx,
 		types: pushRowScope(ctx.types, row),
-		...(row.kind === "case" ? { root: row.root } : {}),
+		...(root === undefined ? {} : { root }),
 		anchor: { kind: "unaddressable" },
 		bindings: {
 			...clearLookupRowScope(ctx.bindings),
@@ -1031,6 +1074,20 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				: emitCall(expr.fn, expr.args, ctx, use);
 		case "here":
 			return w.call("here");
+		case "case-list-lookup-count": {
+			const nodes = (predicates: readonly WireExpr[] = []) =>
+				w.instance(sessionInstance(), [
+					w.step("session"),
+					w.step("data"),
+					w.step(CASE_LIST_LOOKUP_COUNT_DATA_NAME, predicates),
+				]);
+			// Neither an absent count nor an unexpected second supplier is a number.
+			return w.call("if", [
+				w.eq(w.call("count", [nodes()]), w.num(1)),
+				w.call("number", [nodes([w.num(1)])]),
+				w.str(""),
+			]);
+		}
 		case "case-list-search-text": {
 			// `if(count(P) > 0, P[1], '')`: Android can leave the same text on
 			// two frame steps, where a bare read of `P` throws.
@@ -1067,9 +1124,9 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 		}
 		case "cases": {
 			const child = queryContext(expr, ctx);
-			const root = expr.source === "casedb" ? "casedb" : "results:inline";
-			return caseNodes(root, [
-				...(expr.source === "search-results"
+			return caseNodes(child.root, [
+				...(expr.source === "search-results" &&
+				!readsProjectSearchResults(ctx.types, expr.supplier)
 					? [
 							w.not(
 								w.eq(

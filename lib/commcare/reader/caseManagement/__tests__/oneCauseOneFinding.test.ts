@@ -654,18 +654,24 @@ describe("a Save to Case change the gate refuses, as its one finding", () => {
 			`${AUTHORED_ID} @question:nova_operations/nova_keyed_mk/mk`,
 		],
 		[
-			"a change of a case's type to a type holding one of its properties as another type",
+			"a change of a case's type that would turn existing text into a date",
 			() =>
 				app([
 					own,
 					visitCreate({
 						caseType: "patient",
-						writes: [{ property: "kept", value: term(formField(DAY)) }],
+						writes: [{ property: "kept", value: answer }],
 					}),
 					update("one-cause-u1", "again", {
 						target: { kind: "op", opUuid: VISIT },
 						retype: "visit",
-						writes: [{ property: "kept", value: answer, condition: onYes }],
+						writes: [
+							{
+								property: "kept",
+								value: term(formField(DAY)),
+								condition: onYes,
+							},
+						],
 					}),
 				]),
 			undefined,
@@ -777,7 +783,7 @@ describe("a change of a case's type to one that holds none of a property", () =>
 			expect(outcome.kind).toBe("read");
 		});
 
-	it("refuses a later type whose own writer types the property otherwise", async () => {
+	it("keeps an existing date as text where the destination writes the same property", async () => {
 		const doc = app(
 			[
 				own,
@@ -791,12 +797,21 @@ describe("a change of a case's type to one that holds none of a property", () =>
 					writes: [{ property: "kept", value: answer, condition: onYes }],
 				}),
 			],
-			{ visitMenu: true },
+			{
+				visitMenu: true,
+				visit: [{ name: "kept", data_type: "text" }, { name: "photo" }],
+			},
 		);
-		expect(gateCodes(doc)).toContain("CASE_OPERATION_RETYPE_UNSAFE");
-		expect(account(await readBack(doc))).toEqual([
-			`${RETYPE_CONVERTS} @question:nova_operations/again`,
-		]);
+		expect(gateCodes(doc)).not.toContain("CASE_OPERATION_RETYPE_UNSAFE");
+		const outcome = await readBack(doc);
+		expect(account(outcome)).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error("The date widening was refused.");
+		expect(
+			outcome.draft.doc.caseTypes
+				?.find(({ name }) => name === "visit")
+				?.properties.find(({ name }) => name === "kept"),
+		).toMatchObject({ data_type: "text" });
 	});
 
 	it("reads back a document whose later type declares the property", async () => {

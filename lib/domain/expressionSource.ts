@@ -53,7 +53,7 @@ const PROSE_SLOTS = FIELD_REFERENCE_SLOTS.filter(
 /** The canonical stored template behind a scalar prose slot. */
 export function fieldProseTemplate(
 	field: Field,
-	slot: Exclude<FieldProseSlotId, "option_label">,
+	slot: Exclude<FieldProseSlotId, "option_label" | "option_extended_text">,
 ): ProseTemplate | undefined {
 	const entry = PROSE_SLOTS.find((candidate) => candidate.slot === slot);
 	if (entry === undefined) return undefined;
@@ -64,7 +64,7 @@ export function fieldProseTemplate(
 /** Inspection projection; unresolved names remain visible as repair text. */
 export function proseSource(
 	field: Field,
-	slot: Exclude<FieldProseSlotId, "option_label">,
+	slot: Exclude<FieldProseSlotId, "option_label" | "option_extended_text">,
 	doc: ReferenceNamesDoc,
 ): string | undefined {
 	const template = fieldProseTemplate(field, slot);
@@ -135,7 +135,7 @@ export function proseReadSlotRef(
 	field: Field,
 	read: Pick<ProseRead, "slot" | "indices">,
 ): ProseSlotRef | undefined {
-	if (read.slot !== "option_label")
+	if (read.slot !== "option_label" && read.slot !== "option_extended_text")
 		return { entity: "field", uuid: field.uuid, slot: read.slot };
 	const option =
 		"optionsSource" in field && field.optionsSource.kind === "inline"
@@ -146,7 +146,7 @@ export function proseReadSlotRef(
 		: {
 				entity: "field",
 				uuid: field.uuid,
-				slot: "option_label",
+				slot: read.slot,
 				member: { optionUuid: option.uuid },
 			};
 }

@@ -28,6 +28,7 @@ import {
 	reboundLanguageCodes,
 	translationSourceFingerprintsEqual,
 } from "@/lib/domain/localization";
+import { projectSearchOf } from "@/lib/domain/modules";
 import { hasGeneratedWording } from "@/lib/domain/translationUnits";
 import { assertNever } from "@/lib/utils/assertNever";
 import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
@@ -207,6 +208,8 @@ export function mutationTargetsInvalid(
 	if (mutationIdentityAdmissionIssue(doc, mutations) !== undefined) return true;
 	if (mutationSequenceAdmissionIssue(doc, mutations) !== undefined) return true;
 	const modules = new Set(Object.keys(doc.modules));
+	const searchStates = new Map<string, ReturnType<typeof projectSearchOf>>();
+
 	const moduleParents = new Map<string, string | null>();
 	const routeSources = new Map<string, string>();
 	const hasRouteFormLinks = new Set<string>();
@@ -513,9 +516,15 @@ export function mutationTargetsInvalid(
 		}
 		return undefined;
 	};
+	const projectSearches = new Set(
+		Object.keys(doc.appSettings.projectSearches ?? {}),
+	);
 	const initialLocalization = effectiveAppLocalization(doc.localization);
 	let sourceLanguage = initialLocalization.sourceLanguage;
 	let languages = [...initialLocalization.languageOrder];
+	const profiles = new Set(
+		Object.keys(doc.appSettings.installationProfiles ?? {}),
+	);
 	const wireCodes = new Map<string, string>(
 		Object.entries(initialLocalization.wireCodes),
 	);
@@ -575,6 +584,7 @@ export function mutationTargetsInvalid(
 			case "removeEntryPoint":
 				break;
 			case "addModule":
+				searchStates.set(m.module.uuid, projectSearchOf(m.module));
 				{
 					const parent = m.module.parentModuleUuid ?? null;
 					if (
@@ -644,6 +654,17 @@ export function mutationTargetsInvalid(
 						else routeSources.delete(m.uuid);
 					}
 				}
+				if (m.caseSearchConfigPatch?.projectSearch) {
+					const { before, after } = m.caseSearchConfigPatch.projectSearch;
+					const current = searchStates.has(m.uuid)
+						? searchStates.get(m.uuid)
+						: projectSearchOf(doc.modules[m.uuid]);
+					if (!deepEqual(current ?? null, before)) return true;
+					searchStates.set(m.uuid, after ?? undefined);
+				} else if (Object.hasOwn(m.patch, "caseSearchConfig")) {
+					searchStates.set(m.uuid, undefined);
+				}
+
 				// Canonical update payloads own only structural teardown here:
 				// `caseListConfig:null` clears the config and all of its members.
 				// Config birth is the distinct `ensureCaseListConfig` command below.
@@ -1104,6 +1125,12 @@ export function mutationTargetsInvalid(
 				if (!modules.has(m.uuid) || !modulesWithConfig.has(m.uuid)) {
 					return true;
 				}
+				if (
+					m.patch.searchGroupAssignments?.some(
+						({ input }) => searchInputOwners.get(input) !== m.uuid,
+					)
+				)
+					return true;
 				if (m.patch.searchFilterEdit) {
 					const edit = m.patch.searchFilterEdit;
 					const id = edit.operation === "add" ? edit.filter.uuid : edit.uuid;
@@ -1382,8 +1409,27 @@ export function mutationTargetsInvalid(
 			case "setAppName":
 			case "setConnectRoles":
 			case "setAppLogo":
-			case "setAppSettings":
 				break;
+			case "setAppSettings": {
+				const edit = m.settings.projectSearch;
+				if (edit) {
+					if (edit.operation === "add") {
+						if (projectSearches.has(edit.uuid)) return true;
+						projectSearches.add(edit.uuid);
+					} else if (!projectSearches.has(edit.uuid)) return true;
+					else if (edit.operation === "remove")
+						projectSearches.delete(edit.uuid);
+				}
+				const change = m.settings.installationProfile;
+				if (!change) break;
+				if (change.operation === "remove") {
+					if (!profiles.delete(change.uuid)) return true;
+				} else if (change.operation === "add") {
+					if (profiles.has(change.profile.uuid)) return true;
+					profiles.add(change.profile.uuid);
+				} else if (!profiles.has(change.uuid)) return true;
+				break;
+			}
 			case "relabelSourceLanguage": {
 				if (languages.length !== 1) return true;
 				const tag = languageTag(m.language);

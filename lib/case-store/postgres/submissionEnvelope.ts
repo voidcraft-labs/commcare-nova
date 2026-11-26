@@ -53,6 +53,7 @@
 import type { Expression as SqlExpression, Transaction } from "kysely";
 import { expressionBuilder, sql } from "kysely";
 import { v7 as uuidv7 } from "uuid";
+import { caseOperationDependencyUuids } from "@/lib/doc/caseOperationOrder";
 import {
 	type CasePropertyDataType,
 	type CaseWriteVia,
@@ -61,11 +62,13 @@ import {
 	deriveAuthoredCaseId,
 	isFacetWriteThroughIndex,
 	prepareCaseScalarTextValue,
+	RESERVED_CASE_OPERATION_TYPES,
 	type TargetedCaseOperation,
 	USERCASE_BUILT_IN_KEYS,
 	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
+import { MAX_AUTHORED_CASE_ID_LENGTH } from "@/lib/domain/caseOperationIdentity";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	compilerBugMessage,
@@ -73,7 +76,10 @@ import {
 } from "@/lib/domain/expression/errors";
 import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
-import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import {
+	walkExpressionNodes,
+	walkExpressionTerms,
+} from "@/lib/domain/expression/walk";
 import {
 	caseDatetimeValue,
 	caseInstantText,
@@ -189,11 +195,10 @@ interface ProgramStep extends Omit<EnvelopeCaseOperation, "operation"> {
 	/** The step is the form's own case. */
 	readonly own: boolean;
 	/**
-	 * The own arm closes its case after its writes: on a registration when
-	 * the form has a close condition, on a close form always. `condition`
-	 * absent closes on every submission.
+	 * A close leaf runs after the block's writes. If its independent
+	 * condition is absent it closes every time the block runs.
 	 */
-	readonly ownClose?: { readonly condition?: DomainExpression };
+	readonly closeLeaf?: { readonly condition?: DomainExpression };
 	/**
 	 * A several-case form's own arm saves one shared answer to every
 	 * selected case, so a blank answer saves nothing rather than clearing
@@ -210,11 +215,13 @@ function programSteps(
 	return program.operations.map((entry): ProgramStep => {
 		const stored = entry.operation;
 		if (stored.action !== "own") {
+			const closes = stored.action === "close" || stored.closeAfter === true;
 			return {
 				...entry,
 				operation: stored,
 				recordAction: stored.action,
 				own: false,
+				...(closes && { closeLeaf: { condition: stored.closeCondition } }),
 				blankSavesNothing: false,
 			};
 		}
@@ -256,7 +263,7 @@ function programSteps(
 				own: true,
 				...(own.closeCondition === undefined
 					? {}
-					: { ownClose: { condition: own.closeCondition } }),
+					: { closeLeaf: { condition: own.closeCondition } }),
 				blankSavesNothing: false,
 			};
 		}
@@ -275,7 +282,7 @@ function programSteps(
 			own: true,
 			...(own.formType === "close"
 				? {
-						ownClose:
+						closeLeaf:
 							own.closeCondition === undefined
 								? {}
 								: { condition: own.closeCondition },
@@ -312,114 +319,134 @@ interface PhysicalInstance {
  * (`caseOperationRunsPerSelectedCase`: the own arm, a session-targeted update
  * or close, a create linked to the loaded case) for a batch form.
  * Batch admission puts form-level operations before the selected-case phase.
- * The caller supplies scopes in wire order (root first, repeats in
- * post-order traversal); the executor trusts the ORDER but verifies the
- * structure so a malformed program fails loudly instead of silently dropping
- * operations.
+ * The caller supplies nested rows in wire order, with their definition-local
+ * iteration numbers intact. The executor verifies the schedule covers the
+ * live rows exactly once and keeps each operation's repeat binding.
  */
 function expandPhysicalInstances(
 	program: CaseOperationProgram,
 	steps: readonly ProgramStep[],
 	ordinary: ApplySubmissionArgs["ordinary"],
 ): PhysicalInstance[] {
-	const seenScopes = new Set<string>();
-	for (const scope of program.scopes) {
-		const key = scope.repeat ?? "";
-		if (seenScopes.has(key)) {
-			throw new Error(
-				compilerBugMessage({
-					where: "case-store.submissionEnvelope.expandPhysicalInstances",
-					invariant: `the operation program carries two scope entries for ${scope.repeat === undefined ? "the root scope" : `repeat \`${scope.repeat}\``}`,
-					detail:
-						"Each multiplicity scope appears exactly once, carrying every live iteration. Hint: the caller assembles scopes from the form's repeat structure. Deduplicate before building the program.",
-				}),
-			);
-		}
-		seenScopes.add(key);
-	}
+	const scopes = new Map(program.scopes.map((scope) => [scope.repeat, scope]));
+	const malformed = () =>
+		new Error(
+			compilerBugMessage({
+				where: "case-store.submissionEnvelope.expandPhysicalInstances",
+				invariant:
+					"the operation program must schedule each live row once in a declared scope",
+				detail:
+					"The committed form orders each repeat row and the operations inside it. Its program must keep every scope, even a repeat with no live rows.",
+			}),
+		);
+	if (
+		scopes.size !== program.scopes.length ||
+		steps.some(({ operation }) => !scopes.has(operation.forEach?.repeat))
+	)
+		throw malformed();
 
-	const instances: PhysicalInstance[] = [];
-	// The authored selection mode matters even when a batch selects one row.
-	// An operation-only envelope has no module selection contract; its explicit
-	// session list supplies the multiplicity instead.
+	const operationsByScope = new Map(
+		program.scopes.map(({ repeat }) => [
+			repeat,
+			steps.filter((entry) => entry.operation.forEach?.repeat === repeat),
+		]),
+	);
+	const defaultOrder =
+		program.scopeOrder ??
+		program.scopes.flatMap((scope) =>
+			scope.iterations.map((_, iteration) => ({
+				repeat: scope.repeat,
+				iteration,
+			})),
+		);
+	const expectedRows = program.scopes.reduce(
+		(count, scope) => count + scope.iterations.length,
+		0,
+	);
+	if (defaultOrder.length !== expectedRows) throw malformed();
+
+	const byOperation = new Map(steps.map((step) => [step.operation.uuid, step]));
+	const seenRows = new Set<string>();
+	const seenEffects = new Set<string>();
+	const order =
+		program.effectOrder ??
+		defaultOrder.map(({ repeat, iteration }) => {
+			const key = JSON.stringify([repeat, iteration]);
+			if (seenRows.has(key)) throw malformed();
+			seenRows.add(key);
+			return {
+				repeat,
+				iteration,
+				operationUuids: (operationsByScope.get(repeat) ?? []).map(
+					({ operation }) => operation.uuid,
+				),
+			};
+		});
+	const expectedEffects = program.scopes.reduce(
+		(count, scope) =>
+			count +
+			scope.iterations.length *
+				(operationsByScope.get(scope.repeat)?.length ?? 0),
+		0,
+	);
+
+	// A batch form keeps its selected-case phase even when just one case was chosen.
 	const multiple =
 		ordinary.kind === "followup" || ordinary.kind === "close"
 			? ordinary.selection.kind === "multiple"
 			: (program.sessionCaseIds?.length ?? 0) > 1;
-	const selectedCases =
-		program.sessionCaseIds === undefined
-			? [{ selection: 0, caseId: undefined }]
-			: program.sessionCaseIds.map((caseId, selection) => ({
-					selection,
-					caseId,
-				}));
-	for (const scope of program.scopes) {
-		const scopeOperations = steps.filter(
-			(entry) => entry.operation.forEach?.repeat === scope.repeat,
-		);
-		if (scopeOperations.length === 0) continue;
-		const formLevelOperations = scopeOperations.filter(
-			(entry) => !caseOperationRunsPerSelectedCase(entry.operation),
-		);
-		const selectedCaseOperations = scopeOperations.filter((entry) =>
-			caseOperationRunsPerSelectedCase(entry.operation),
-		);
-		for (const [iteration, bindings] of scope.iterations.entries()) {
-			if (!multiple) {
-				for (const entry of scopeOperations) {
-					instances.push({
-						envelope: entry,
-						scopeRepeat: scope.repeat,
-						iteration,
-						selection: 0,
-						perSelectedCase: false,
-						sessionCaseId: program.sessionCaseIds?.[0],
-						formFields: bindings.formFields,
-					});
-				}
-				continue;
-			}
-			for (const entry of formLevelOperations) {
+	const selectedCases = program.sessionCaseIds ?? [];
+	const instances: PhysicalInstance[] = [];
+	for (const slot of order) {
+		const { repeat, iteration, operationUuids } = slot;
+		const bindings = scopes.get(repeat)?.iterations[iteration];
+		if (!bindings) throw malformed();
+		const operations = operationUuids.map((uuid) => {
+			const step = byOperation.get(uuid);
+			const key = JSON.stringify([repeat, iteration, uuid]);
+			if (
+				!step ||
+				step.operation.forEach?.repeat !== repeat ||
+				seenEffects.has(key)
+			)
+				throw malformed();
+			seenEffects.add(key);
+			return step;
+		});
+		if ("absent" in slot && slot.absent === true) continue;
+
+		const append = (
+			operations: readonly ProgramStep[],
+			sessionCaseId: string | undefined,
+			selection: number,
+			perSelectedCase: boolean,
+		): void => {
+			for (const envelope of operations) {
 				instances.push({
-					envelope: entry,
-					scopeRepeat: scope.repeat,
+					envelope,
+					scopeRepeat: repeat,
 					iteration,
-					selection: 0,
-					perSelectedCase: false,
-					sessionCaseId: undefined,
+					selection,
+					perSelectedCase,
+					sessionCaseId,
 					formFields: bindings.formFields,
 				});
 			}
-			for (const selected of selectedCases) {
-				for (const entry of selectedCaseOperations) {
-					instances.push({
-						envelope: entry,
-						scopeRepeat: scope.repeat,
-						iteration,
-						selection: selected.selection,
-						perSelectedCase: true,
-						sessionCaseId: selected.caseId,
-						formFields: bindings.formFields,
-					});
-				}
-			}
-		}
-	}
-
-	const covered = new Set(program.scopes.map((scope) => scope.repeat ?? ""));
-	for (const entry of steps) {
-		const key = entry.operation.forEach?.repeat ?? "";
-		if (!covered.has(key)) {
-			throw new Error(
-				compilerBugMessage({
-					where: "case-store.submissionEnvelope.expandPhysicalInstances",
-					invariant: `operation \`${entry.operation.uuid}\` names ${key === "" ? "the root scope" : `repeat \`${key}\``}, but the program carries no matching scope entry`,
-					detail:
-						"Every operation's multiplicity scope must arrive with its iteration bindings, even when zero iterations are live (an empty `iterations` array). Hint: the caller derives scopes from `caseOperationMultiplicityScopes` plus the engine's live repeat counts.",
-				}),
+		};
+		if (multiple) {
+			const formOperations = operations.filter(
+				({ operation }) => !caseOperationRunsPerSelectedCase(operation),
 			);
-		}
+			const selectedOperations = operations.filter(({ operation }) =>
+				caseOperationRunsPerSelectedCase(operation),
+			);
+			append(formOperations, undefined, 0, false);
+			for (const [selection, caseId] of selectedCases.entries())
+				append(selectedOperations, caseId, selection, true);
+		} else append(operations, selectedCases[0], 0, false);
 	}
+	if (seenEffects.size !== expectedEffects) throw malformed();
+
 	return instances;
 }
 
@@ -429,7 +456,7 @@ function expandPhysicalInstances(
 
 interface CreateAllocation {
 	readonly caseId: string;
-	readonly authored: boolean;
+	readonly identity: "fresh" | "derived" | "exact";
 	/** The id the entry's session minted for this case (`entryCaseKeys`):
 	 * a row already holding it refuses the submission, never merges. */
 	readonly entryNamed?: boolean;
@@ -459,6 +486,14 @@ function allocateCreateIdentities(
 		if (operation.action !== "create" || operation.target.kind !== "new") {
 			continue;
 		}
+		if (operation.target.expr !== undefined) {
+			if (instance.scopeRepeat === undefined) {
+				const caseId = program.openingCreateIds?.get(operation.uuid);
+				if (caseId !== undefined)
+					allocations.set(index, { caseId, identity: "exact" });
+			}
+			continue;
+		}
 		// A case the entry's session names takes the id the form read as
 		// `session/data/<datum>` while it ran, whatever its placement: every
 		// create the form's wire plan gives a datum. Each has its own key, and
@@ -470,13 +505,18 @@ function allocateCreateIdentities(
 				caseId:
 					program.suppliedCaseIds?.get(operation.uuid) ??
 					entryDatumCaseId(appId, entryKey, entryCaseKey),
-				authored: false,
+				identity: "fresh",
 				entryNamed: true,
 			});
 			continue;
 		}
 		if (operation.target.idFrom === undefined) {
-			allocations.set(index, { caseId: uuidv7(), authored: false });
+			const initialized = program.openingCreateIds?.get(operation.uuid);
+			allocations.set(index, {
+				caseId: initialized ?? uuidv7(),
+				identity: "fresh",
+				...(initialized !== undefined && { entryNamed: true }),
+			});
 			continue;
 		}
 		const rawKey = instance.formFields.get(operation.target.idFrom);
@@ -493,10 +533,10 @@ function allocateCreateIdentities(
 		allocations.set(
 			index,
 			derived.ok
-				? { caseId: derived.caseId, authored: true }
+				? { caseId: derived.caseId, identity: "derived" }
 				: {
 						caseId: "",
-						authored: true,
+						identity: "derived",
 						keyFailure: {
 							reason: derived.reason,
 							maxKeyLength: derived.maxKeyLength,
@@ -505,6 +545,121 @@ function allocateCreateIdentities(
 		);
 	}
 	return allocations;
+}
+
+/** Batch repeated calculate expressions whose earlier case IDs are already
+ * available. Keep the guard verdict beside each identity so the main pass
+ * cannot evaluate it again. A skipped block never reads its ID expression. */
+async function allocateRepeatedExactIdentities(
+	trx: Transaction<Database>,
+	host: SubmissionEnvelopeHost,
+	appId: string,
+	program: CaseOperationProgram,
+	instances: readonly PhysicalInstance[],
+	allocations: Map<number, CreateAllocation>,
+	sessionFor: (index: number) => SessionAnchor | undefined,
+	bindingsFor: (index: number) => TermBindings,
+): Promise<ReadonlyMap<number, boolean>> {
+	const executing = new Map<number, boolean>();
+	let pending = instances.flatMap(({ envelope, scopeRepeat }, index) => {
+		const { operation } = envelope;
+		if (
+			scopeRepeat === undefined ||
+			operation.action !== "create" ||
+			operation.target.kind !== "new" ||
+			operation.target.expr === undefined
+		)
+			return [];
+		const conditions = [
+			...envelope.guardConditions,
+			...(operation.condition === undefined ? [] : [operation.condition]),
+		];
+		const [first, ...rest] = conditions;
+		const predicate: DomainExpression | undefined =
+			first === undefined || rest.length === 0
+				? first
+				: { kind: "and", clauses: [first, ...rest] };
+		const dependencies = new Set(caseOperationDependencyUuids(operation));
+		for (const condition of envelope.guardConditions)
+			walkExpressionNodes(condition, (node) => {
+				if (node.kind === "id-of") dependencies.add(node.opUuid);
+			});
+		return [
+			{
+				request: {
+					instance: index,
+					operationUuid: operation.uuid,
+					operationId: operation.id,
+					expression: operation.target.expr,
+					slot: "case ID",
+				},
+				dependencies,
+				predicate,
+			},
+		];
+	});
+	while (pending.length > 0) {
+		const unready = new Set(
+			pending.map(({ request }) => request.operationUuid),
+		);
+		const ready = pending.filter(({ dependencies }) =>
+			[...dependencies].every((uuid) => !unready.has(uuid)),
+		);
+		if (ready.length === 0)
+			throw new Error(
+				"Repeated exact case IDs must depend on earlier creates.",
+			);
+		const guards = ready.flatMap(({ request, predicate }) =>
+			predicate === undefined
+				? []
+				: [
+						{
+							instance: request.instance,
+							operationUuid: request.operationUuid,
+							operationId: request.operationId,
+							predicate,
+							slot: "condition",
+						},
+					],
+		);
+		const results = await evaluateBatch(
+			trx,
+			host,
+			appId,
+			program,
+			sessionFor,
+			bindingsFor,
+			guards,
+		);
+		for (const [index, guard] of guards.entries())
+			executing.set(guard.instance, results[index] === true);
+		const requests = ready.flatMap(({ request, predicate }) => {
+			if (predicate === undefined) executing.set(request.instance, true);
+			if (executing.get(request.instance)) return [request];
+			allocations.set(request.instance, { caseId: "", identity: "exact" });
+			return [];
+		});
+		const values = await evaluateBatch(
+			trx,
+			host,
+			appId,
+			program,
+			sessionFor,
+			bindingsFor,
+			requests,
+		);
+		for (const [offset, request] of requests.entries()) {
+			allocations.set(request.instance, {
+				caseId: evaluatedText(values[offset]),
+				identity: "exact",
+			});
+		}
+		const resolved = new Set(ready.map(({ request }) => request.operationUuid));
+		pending = pending.filter(
+			({ request }) => !resolved.has(request.operationUuid),
+		);
+	}
+	return executing;
 }
 
 /**
@@ -972,10 +1127,13 @@ interface ResolvedInstance {
 	/** Pre-submission type of an existing target row, absent for a
 	 * fresh create. */
 	readonly snapshotCaseType?: string;
+	/** Holds the submitted id for HQ history without changing device state. */
+	readonly childlessBlock?: true;
 	/** True when an authored-key create resolved to an existing row —
 	 * the create-of-existing merge arm. */
 	readonly mergesExisting: boolean;
 	/** A create with the id the entry's session minted for it. */
+	readonly exactCreateId?: boolean;
 	readonly entryNamed?: boolean;
 	readonly preparedName?: string;
 	readonly preparedRename?: string;
@@ -1126,7 +1284,8 @@ function validatedSelectedCaseIds(
 			if (
 				entry.operation.action === "create" &&
 				entry.operation.target.kind === "new" &&
-				entry.operation.target.idFrom !== undefined
+				(entry.operation.target.idFrom !== undefined ||
+					entry.operation.target.expr !== undefined)
 			) {
 				rejectSelection({
 					kind: "selection",
@@ -1157,39 +1316,16 @@ export async function executeSubmissionEnvelope(
 	host: SubmissionEnvelopeHost,
 	args: ApplySubmissionArgs,
 ): Promise<
-	SubmissionEnvelopeResult & { readonly deviceExternalIds: DeviceExternalIds }
+	SubmissionEnvelopeResult & {
+		readonly deviceExternalIds: DeviceExternalIds;
+		readonly reachedWriteCaseIds: readonly string[];
+	}
 > {
 	const deviceExternalIds: DeviceExternalIds = new Map();
 	const steps =
 		args.operations === undefined
 			? []
 			: programSteps(args.operations, args.ordinary);
-	// Resolve the worker record before any effects, exactly as the device's
-	// hq_user_id join does. A historical case id is never reconstructed from
-	// the acting worker, and every read remains inside the bound app/Project.
-	let workerRecordCaseId: string | undefined;
-	if (steps.some((step) => step.operation.target.kind === "worker-record")) {
-		const rows = await trx
-			.selectFrom("cases")
-			.select(["case_id", "status", "owner_id"])
-			.where("app_id", "=", args.appId)
-			.where("project_id", "=", host.projectId)
-			.where("case_type", "=", USERCASE_CASE_TYPE)
-			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId)
-			.orderBy("case_id")
-			.forUpdate()
-			.limit(2)
-			.execute();
-		if (rows.length > 1)
-			throw new Error("More than one worker record exists for this app.");
-		if (
-			rows[0] === undefined ||
-			rows[0].status !== "open" ||
-			rows[0].owner_id !== host.actingUserId
-		)
-			throw new CaseNotFoundError(host.actingUserId);
-		workerRecordCaseId = rows[0].case_id;
-	}
 	const selectedCaseIds = validatedSelectedCaseIds(args);
 	const opening = args.operations?.openingReads;
 	const currentAccess =
@@ -1209,6 +1345,7 @@ export async function executeSubmissionEnvelope(
 		opening?.submittedCaseIds,
 	);
 	const operationRecords: OperationEffectRecord[] = [];
+	const reachedWriteCaseIds = new Set<string>();
 	let registeredCaseId: string | undefined;
 
 	if (args.operations !== undefined && steps.length > 0) {
@@ -1219,10 +1356,11 @@ export async function executeSubmissionEnvelope(
 			args.operations,
 			steps,
 			sessionAnchors,
-			workerRecordCaseId,
 		);
 		registeredCaseId = program.registeredCaseId;
 		for (const entry of program.resolved) {
+			for (const write of entry.viaWrites)
+				reachedWriteCaseIds.add(write.caseId);
 			operationRecords.push({
 				operationUuid: entry.instance.envelope.operation.uuid,
 				iteration: entry.instance.iteration,
@@ -1230,6 +1368,7 @@ export async function executeSubmissionEnvelope(
 				action: entry.instance.envelope.recordAction,
 				caseId: entry.caseId,
 				executed: entry.executed,
+				...(entry.childlessBlock && { childlessBlock: true }),
 			});
 		}
 		await applyOperationEffects(
@@ -1252,6 +1391,7 @@ export async function executeSubmissionEnvelope(
 					: [registeredCaseId],
 		createdChildren: [],
 		operations: operationRecords,
+		reachedWriteCaseIds: [...reachedWriteCaseIds],
 		deviceExternalIds,
 	};
 }
@@ -1265,7 +1405,6 @@ async function resolveOperationProgram(
 	program: CaseOperationProgram,
 	steps: readonly ProgramStep[],
 	sessions: ReadonlyMap<string, SessionAnchor>,
-	workerRecordCaseId: string | undefined,
 ): Promise<{
 	readonly resolved: ResolvedInstance[];
 	/** The id a registration's own arm creates its case with, whether or not
@@ -1323,7 +1462,28 @@ async function resolveOperationProgram(
 			);
 		}
 	}
-	const instances = expandPhysicalInstances(program, steps, ordinary);
+	const instances = expandPhysicalInstances(program, steps, ordinary).map(
+		(instance) => {
+			// HQ's own follow-up block writes the ID chosen by the datum. It
+			// does not assert or retype the selected record to the menu's primary type.
+			const row =
+				instance.sessionCaseId && sessions.get(instance.sessionCaseId);
+			if (
+				!row ||
+				!instance.envelope.own ||
+				instance.envelope.operation.action !== "update" ||
+				instance.envelope.operation.caseType === row.caseType
+			)
+				return instance;
+			return {
+				...instance,
+				envelope: {
+					...instance.envelope,
+					operation: { ...instance.envelope.operation, caseType: row.caseType },
+				},
+			};
+		},
+	);
 	const allocations = allocateCreateIdentities(
 		appId,
 		args.submissionReceipt.entryKey,
@@ -1378,6 +1538,17 @@ async function resolveOperationProgram(
 		};
 	};
 
+	const repeatedExactExecution = await allocateRepeatedExactIdentities(
+		trx,
+		host,
+		appId,
+		program,
+		instances,
+		allocations,
+		sessionFor,
+		bindingsFor,
+	);
+
 	// Phase: conditions. Inherited guards AND the operation's own
 	// condition, each evaluated with the INSTANCE's bindings — a
 	// consumer inside a repeat evaluates its producer's guard against
@@ -1385,6 +1556,7 @@ async function resolveOperationProgram(
 	const conditionRequests: EvalRequest[] = [];
 	const conditionSlots: Array<{ instance: number; count: number }> = [];
 	for (const [index, instance] of instances.entries()) {
+		if (repeatedExactExecution.has(index)) continue;
 		const predicates = [
 			...instance.envelope.guardConditions,
 			...(instance.envelope.operation.condition === undefined
@@ -1411,7 +1583,9 @@ async function resolveOperationProgram(
 		bindingsFor,
 		conditionRequests,
 	);
-	const executing: boolean[] = [];
+	const executing = instances.map(
+		(_, index) => repeatedExactExecution.get(index) === true,
+	);
 	{
 		let cursor = 0;
 		for (const slot of conditionSlots) {
@@ -1422,6 +1596,74 @@ async function resolveOperationProgram(
 			}
 			executing[slot.instance] = passes;
 		}
+	}
+
+	// An irrelevant block supplies no target. Resolve an executing worker
+	// update before any effect and keep its physical identity from the
+	// signed restore where the conditional Save to Case selector ran.
+	let workerRecordCaseId: string | undefined;
+	const workerUpdate = instances.find(
+		({ envelope }, index) =>
+			executing[index] && envelope.operation.target.kind === "worker-record",
+	);
+	if (workerUpdate !== undefined) {
+		const conditioned = workerUpdate.envelope.operation.condition !== undefined;
+		const reopenWorker = () =>
+			new CaptureSubmissionRejectedError(
+				"The worker's record is missing or has changed. Reopen the form to load the current record.",
+			);
+		const restored = conditioned
+			? program.openingReads?.cases.rows.filter(
+					(row) =>
+						row.app_id === appId &&
+						row.case_type === USERCASE_CASE_TYPE &&
+						row.properties.hq_user_id === host.actingUserId,
+				)
+			: undefined;
+		const held = restored?.[0];
+		if (
+			conditioned &&
+			(restored?.length !== 1 ||
+				!held ||
+				held.status !== "open" ||
+				held.owner_id !== host.actingUserId)
+		)
+			throw reopenWorker();
+		const scoped = trx
+			.selectFrom("cases")
+			.where("app_id", "=", appId)
+			.where("project_id", "=", host.projectId)
+			.where("case_type", "=", USERCASE_CASE_TYPE)
+			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId);
+		const target =
+			held === undefined
+				? scoped
+				: scoped
+						.where("case_id", "=", held.case_id)
+						.where(({ not, exists }) =>
+							not(
+								exists(
+									scoped.select("case_id").where("case_id", "!=", held.case_id),
+								),
+							),
+						);
+		const rows = await target
+			.select(["case_id", "status", "owner_id"])
+			.orderBy("case_id")
+			.forUpdate()
+			.limit(2)
+			.execute();
+		if (rows.length > 1)
+			throw new Error("More than one worker record exists for this app.");
+		if (
+			rows[0] === undefined ||
+			rows[0].status !== "open" ||
+			rows[0].owner_id !== host.actingUserId
+		)
+			throw conditioned
+				? reopenWorker()
+				: new CaseNotFoundError(host.actingUserId);
+		workerRecordCaseId = rows[0].case_id;
 	}
 
 	// An executing authored-key create with a held key failure aborts
@@ -1438,39 +1680,78 @@ async function resolveOperationProgram(
 		});
 	}
 
-	// Resolve write guards before requesting values. An omitted write must
+	for (const [index, instance] of instances.entries()) {
+		const { operation } = instance.envelope;
+		if (
+			!executing[index] ||
+			operation.target.kind !== "new" ||
+			operation.target.expr === undefined
+		)
+			continue;
+		const allocation = allocations.get(index);
+		if (!allocation)
+			throw new CaptureSubmissionRejectedError(
+				"This form is missing the case ID it opened with. You can reopen the form and submit it again.",
+			);
+		if (
+			allocation.caseId === "" ||
+			allocation.caseId.length > MAX_AUTHORED_CASE_ID_LENGTH
+		)
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "not-found-or-out-of-scope",
+			});
+	}
+
+	// Resolve leaf guards before requesting values. An omitted leaf must
 	// not evaluate blank numeric answers or other unused expressions. These
 	// reads share the operation guards' pre-effect view under the app lock.
-	const writeGuardRequests: EvalRequest[] = [];
-	const writeGuardSlots: Array<{ instance: number; write: number }> = [];
+	const leafGuardRequests: EvalRequest[] = [];
+	const leafGuardSlots: Array<{ instance: number; write?: number }> = [];
 	for (const [index, instance] of instances.entries()) {
 		if (!executing[index]) continue;
-		for (const [writeIndex, write] of (
-			instance.envelope.operation.writes ?? []
-		).entries()) {
+		const operation = instance.envelope.operation;
+		if (operation.ownerCondition !== undefined) {
+			leafGuardSlots.push({ instance: index });
+			leafGuardRequests.push({
+				instance: index,
+				predicate: operation.ownerCondition,
+				operationUuid: operation.uuid,
+				operationId: operation.id,
+				slot: "owner condition",
+			});
+		}
+		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (write.condition === undefined) continue;
-			writeGuardSlots.push({ instance: index, write: writeIndex });
-			writeGuardRequests.push({
+			leafGuardSlots.push({ instance: index, write: writeIndex });
+			leafGuardRequests.push({
 				instance: index,
 				predicate: write.condition,
-				operationUuid: instance.envelope.operation.uuid,
-				operationId: instance.envelope.operation.id,
+				operationUuid: operation.uuid,
+				operationId: operation.id,
 				slot: `write condition: ${write.property}`,
 			});
 		}
 	}
-	const writeGuardResults = await evaluateBatch(
+	const leafGuardResults = await evaluateBatch(
 		trx,
 		host,
 		appId,
 		program,
 		sessionFor,
 		bindingsFor,
-		writeGuardRequests,
+		leafGuardRequests,
 	);
+	const skippedOwners = new Set<number>();
 	const skippedWrites = new Map<number, Set<number>>();
-	for (const [slotIndex, slot] of writeGuardSlots.entries()) {
-		if (writeGuardResults[slotIndex] === true) continue;
+	for (const [slotIndex, slot] of leafGuardSlots.entries()) {
+		if (leafGuardResults[slotIndex] === true) continue;
+		if (slot.write === undefined) {
+			skippedOwners.add(slot.instance);
+			continue;
+		}
 		let writes = skippedWrites.get(slot.instance);
 		if (writes === undefined) {
 			writes = new Set();
@@ -1488,6 +1769,7 @@ async function resolveOperationProgram(
 			| "owner"
 			| "target"
 			| "close"
+			| "case type"
 			| { write: number }
 			| { link: number };
 	}
@@ -1523,10 +1805,15 @@ async function resolveOperationProgram(
 		if (operation.name !== undefined) {
 			request(index, "name", { expression: operation.name });
 		}
+		if (operation.action === "create" && operation.typeChoice !== undefined) {
+			request(index, "case type", {
+				predicate: operation.typeChoice.condition,
+			});
+		}
 		if (operation.rename !== undefined) {
 			request(index, "rename", { expression: operation.rename });
 		}
-		if (operation.owner !== undefined) {
+		if (operation.owner !== undefined && !skippedOwners.has(index)) {
 			request(index, "owner", { expression: operation.owner });
 		}
 		if (
@@ -1553,9 +1840,7 @@ async function resolveOperationProgram(
 				request(index, { link: linkIndex }, { expression: link.target.expr });
 			}
 		}
-		// The own close's condition reads the same pre-submission snapshot
-		// and answers as every other value, before any effect.
-		const closeCondition = instance.envelope.ownClose?.condition;
+		const closeCondition = instance.envelope.closeLeaf?.condition;
 		if (closeCondition !== undefined) {
 			request(index, "close", { predicate: closeCondition });
 		}
@@ -1577,6 +1862,7 @@ async function resolveOperationProgram(
 			owner?: unknown;
 			target?: unknown;
 			close?: unknown;
+			caseTypeChoice?: unknown;
 			writes: Map<number, unknown>;
 			links: Map<number, unknown>;
 		}
@@ -1596,6 +1882,7 @@ async function resolveOperationProgram(
 		else if (slot.kind === "owner") bag.owner = value;
 		else if (slot.kind === "target") bag.target = value;
 		else if (slot.kind === "close") bag.close = value;
+		else if (slot.kind === "case type") bag.caseTypeChoice = value;
 		else if ("write" in slot.kind) bag.writes.set(slot.kind.write, value);
 		else bag.links.set(slot.kind.link, value);
 	}
@@ -1606,9 +1893,17 @@ async function resolveOperationProgram(
 	// unreachable, exactly as it is invisible to every other runtime
 	// read; the already-selected session case does not re-check it.
 	const authoredIds = [...allocations.entries()]
-		.filter(([index, allocation]) => executing[index] && allocation.authored)
+		.filter(
+			([index, allocation]) =>
+				executing[index] && allocation.identity === "derived",
+		)
 		.map(([, allocation]) => allocation.caseId);
-	const expressionIds: string[] = [];
+	const expressionIds = [...allocations.entries()]
+		.filter(
+			([index, allocation]) =>
+				executing[index] && allocation.identity === "exact",
+		)
+		.map(([, allocation]) => allocation.caseId);
 	for (const [index] of instances.entries()) {
 		if (!executing[index]) continue;
 		const bag = valuesByInstance.get(index);
@@ -1657,9 +1952,13 @@ async function resolveOperationProgram(
 	}
 
 	// Resolve every executing instance's target + links.
+	const openingCaseTypes =
+		opening &&
+		new Map(opening.cases.rows.map((row) => [row.case_id, row.case_type]));
 	const resolvedInstances: ResolvedInstance[] = [];
-	for (const [index, instance] of instances.entries()) {
-		const operation = instance.envelope.operation;
+	for (const [index, openedInstance] of instances.entries()) {
+		let instance = openedInstance;
+		let operation = instance.envelope.operation;
 		if (!executing[index]) {
 			resolvedInstances.push({
 				instance,
@@ -1675,6 +1974,41 @@ async function resolveOperationProgram(
 			continue;
 		}
 		const bag = valuesByInstance.get(index);
+		if (operation.action === "create" && operation.typeChoice !== undefined) {
+			const branch = bag?.caseTypeChoice;
+			if (
+				typeof branch !== "boolean" ||
+				allocations.get(index)?.identity !== "fresh" ||
+				program.entryCaseKeys?.has(operation.uuid) === true ||
+				operation.caseType === operation.typeChoice.otherwise ||
+				[operation.caseType, operation.typeChoice.otherwise].some(
+					(type) =>
+						RESERVED_CASE_OPERATION_TYPES.has(type) ||
+						!program.caseTypeSchemas.has(type),
+				)
+			)
+				throw new SubmissionRejectedError({
+					kind: "expression",
+					reason: "invalid-value",
+					operationUuid: operation.uuid,
+					operationId: operation.id,
+					slot: "case type",
+					fieldUuids: [],
+				});
+			operation = {
+				...operation,
+				caseType: branch ? operation.caseType : operation.typeChoice.otherwise,
+			};
+			instance = { ...instance, envelope: { ...instance.envelope, operation } };
+		}
+		const closeLeaf = instance.envelope.closeLeaf;
+		const closes =
+			closeLeaf !== undefined &&
+			(closeLeaf.condition === undefined || bag?.close === true);
+		const childlessClose =
+			operation.action === "close" &&
+			!closes &&
+			(operation.writes?.length ?? 0) === 0;
 		const resolveTargetId = (): {
 			caseId: string;
 			snapshotCaseType?: string;
@@ -1695,6 +2029,17 @@ async function resolveOperationProgram(
 						);
 					}
 					const existing = knownRows.get(allocation.caseId);
+					if (
+						allocation.identity === "exact" &&
+						existing &&
+						openingCaseTypes?.get(allocation.caseId) !== operation.caseType
+					)
+						throw new SubmissionRejectedError({
+							kind: "target",
+							operationUuid: operation.uuid,
+							slot: "target",
+							reason: "not-found-or-out-of-scope",
+						});
 					return {
 						caseId: allocation.caseId,
 						...(existing === undefined
@@ -1751,7 +2096,7 @@ async function resolveOperationProgram(
 								where: "case-store.submissionEnvelope.resolveOperationProgram",
 								invariant: `operation \`${operation.uuid}\` targets the worker's record, which was not resolved`,
 								detail:
-									"The envelope resolves the worker's record whenever an operation targets it, before evaluation.",
+									"The envelope resolves the worker's record for an executing worker update before applying any effects.",
 							}),
 						);
 					}
@@ -1767,6 +2112,23 @@ async function resolveOperationProgram(
 						instance.envelope.expressionSnapshotTypes.target ??
 						operation.caseType;
 					const row = evaluated === "" ? undefined : knownRows.get(evaluated);
+					if (childlessClose) {
+						if (!row || evaluated.length > MAX_AUTHORED_CASE_ID_LENGTH)
+							throw new SubmissionRejectedError({
+								kind: "target",
+								operationUuid: operation.uuid,
+								slot: "target",
+								reason: "not-found-or-out-of-scope",
+							});
+						// Core does not load a childless block's ID. HQ still
+						// records a transaction and can create an untyped row
+						// for an unknown ID. Accept only an authorized row.
+						return {
+							caseId: evaluated,
+							snapshotCaseType: row.caseType,
+							mergesExisting: false,
+						};
+					}
 					const verdict = validateCaseOperationTargetDescriptor(
 						{ caseId: evaluated },
 						row === undefined
@@ -1815,11 +2177,6 @@ async function resolveOperationProgram(
 			}
 		};
 		const target = resolveTargetId();
-		const ownClose = instance.envelope.ownClose;
-		const closes =
-			operation.action === "close" ||
-			(ownClose !== undefined &&
-				(ownClose.condition === undefined || bag?.close === true));
 		if (
 			target.snapshotCaseType === USERCASE_CASE_TYPE &&
 			(operation.action !== "update" ||
@@ -1834,6 +2191,35 @@ async function resolveOperationProgram(
 				operationUuid: operation.uuid,
 				slot: "target",
 				reason: "managed-worker-record",
+			});
+		}
+
+		if (childlessClose) {
+			resolvedInstances.push({
+				...target,
+				instance,
+				index,
+				executed: false,
+				childlessBlock: true,
+				writes: [],
+				links: [],
+				viaWrites: [],
+				closes: false,
+			});
+			continue;
+		}
+		if (
+			openingCaseTypes &&
+			operation.action !== "create" &&
+			operation.target.kind === "expression" &&
+			(operation.closeCondition || operation.closeAfter) &&
+			!openingCaseTypes.has(target.caseId)
+		) {
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "not-found-or-out-of-scope",
 			});
 		}
 
@@ -1977,19 +2363,26 @@ async function resolveOperationProgram(
 			blankText(evaluatedText(bag?.owner));
 		let preparedOwner: string | undefined;
 		if (operation.action === "create") {
-			preparedOwner = ownerKept
-				? UNOWNED_OWNER_ID
-				: prepareText(
-						"owner",
-						program.groupDefaults?.operations.includes(operation.uuid)
-							? program.groupDefaults.owner
-							: operation.owner === undefined
-								? host.actingUserId
-								: evaluatedText(bag?.owner),
-					);
+			const groupOwner =
+				operation.ownerCondition === undefined &&
+				program.groupDefaults?.operations.includes(operation.uuid)
+					? program.groupDefaults.owner
+					: undefined;
+			// HQ and Core default an omitted create/owner_id to this
+			// submitting user for a fresh case. The group's default is an
+			// HQ case-action feature; it does not own this Save to Case leaf.
+			const ownerValue =
+				skippedOwners.has(index) || operation.owner === undefined
+					? (groupOwner ?? host.actingUserId)
+					: (groupOwner ?? evaluatedText(bag?.owner));
+			preparedOwner =
+				ownerKept && operation.ownerCondition === undefined
+					? UNOWNED_OWNER_ID
+					: prepareText("owner", ownerValue);
 		} else if (
 			operation.action === "update" &&
 			operation.owner !== undefined &&
+			!skippedOwners.has(index) &&
 			!ownerKept &&
 			!(
 				instance.envelope.blankSavesNothing &&
@@ -2054,10 +2447,9 @@ async function resolveOperationProgram(
 			preparedRename = undefined;
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (skippedWrites.get(index)?.has(writeIndex)) continue;
-			// A write through an index saves to the case the chain reaches in
-			// the pre-submission snapshot. CommCare HQ names that case through
-			// the index's id, which is empty where no case is indexed, and case
-			// processing drops a block with an empty id, so nothing is saved.
+			// HQ calculates the linked case ID from the entry snapshot. A
+			// missing link produces an empty ID, which Core rejects. Preserve the
+			// legacy unsigned fallback for old parent and host submissions.
 			let destinationCaseId = target.caseId;
 			let actualType = target.snapshotCaseType;
 			if (write.via !== undefined) {
@@ -2066,7 +2458,8 @@ async function resolveOperationProgram(
 					: await ancestorCaseId(trx, host, appId, target.caseId, write.via);
 				const slot = `write:${writeIndex}` as const;
 				if (!reached) {
-					if (!opening) continue;
+					if (!opening && !write.via.some((step) => step.identifier === "user"))
+						continue;
 					throw new SubmissionRejectedError({
 						kind: "target",
 						operationUuid: operation.uuid,
@@ -2200,6 +2593,9 @@ async function resolveOperationProgram(
 				? {}
 				: { snapshotCaseType: target.snapshotCaseType }),
 			mergesExisting: target.mergesExisting,
+			...(allocations.get(index)?.identity === "exact" && {
+				exactCreateId: true,
+			}),
 			...(allocations.get(index)?.entryNamed === true
 				? { entryNamed: true }
 				: {}),
@@ -2353,7 +2749,8 @@ async function loadSelectedCaseAnchors(
 		}
 		if (
 			(ordinary.kind === "followup" || ordinary.kind === "close") &&
-			row.caseType !== ordinary.caseType
+			row.caseType !== ordinary.caseType &&
+			!ordinary.additionalCaseTypes?.includes(row.caseType)
 		) {
 			rejectSelection({
 				kind: "selection",
@@ -2449,7 +2846,11 @@ async function applyOperationEffects(
 		(ordinary.kind === "followup" || ordinary.kind === "close") &&
 		ordinary.selection.kind === "single";
 	for (const entry of resolved) {
-		if (!entry.executed) continue;
+		if (!entry.executed) {
+			if (entry.childlessBlock && entry.snapshotCaseType !== undefined)
+				await stampModified(trx, host, appId, entry.caseId);
+			continue;
+		}
 		const operation = entry.instance.envelope.operation;
 
 		if (operation.action === "create") {
@@ -2474,25 +2875,24 @@ async function applyOperationEffects(
 			await applyLinkEffect(trx, host, appId, entry.caseId, link);
 		}
 
-		// Every emitted case block advances `@date_modified`, including a
-		// pure index write. A link-only update touches no other stamping
-		// path, so stamp it here; every other arm (create, writes,
-		// rename, owner, retype, a genuine close transition) already
-		// stamps. A re-close deliberately keeps its repair semantics. A
-		// one-case form's own case is named by its block whatever it
-		// writes, and HQ's case processing moves its `modified_on` for it;
-		// a several-case form's own arm stamps only what it writes.
+		// A recognized targeted action advances its timestamp even when
+		// every update leaf is irrelevant. The submitted update element
+		// remains present in Core, and a separate close can be idempotent.
+		// Preserve the existing own-case behavior: one selected case gets
+		// HQ's history timestamp; a several-case form stamps what it saves.
 		const writesNothing =
 			entry.writes.length === 0 &&
 			entry.preparedRename === undefined &&
 			entry.preparedOwner === undefined &&
 			(operation.retype === undefined ||
 				operation.retype === operation.caseType);
+		const own = entry.instance.envelope.own;
 		if (
-			operation.action === "update" &&
 			writesNothing &&
-			!entry.closes &&
-			(entry.links.length > 0 || (entry.instance.envelope.own && oneCaseForm))
+			(!own ||
+				(operation.action === "update" &&
+					!entry.closes &&
+					(entry.links.length > 0 || oneCaseForm)))
 		) {
 			await stampModified(trx, host, appId, entry.caseId);
 		}
@@ -2601,14 +3001,6 @@ function partitionWrites(writes: ResolvedInstance["writes"]): {
 	};
 }
 
-function rejectTakenCaseId(caseId: string): never {
-	throw new SubmissionRejectedError({
-		kind: "new-case",
-		reason: "case-id-taken",
-		caseId,
-	});
-}
-
 /**
  * The external id a device holds for each case whose external id this
  * submission set only through CommCare HQ's `hq_user_id` copy: the id it held
@@ -2655,6 +3047,14 @@ function isScalarColumnWrite(
 	property: string,
 ): property is "external_id" | "location_id" {
 	return property === "external_id" || property === "location_id";
+}
+
+function rejectTakenCaseId(caseId: string): never {
+	throw new SubmissionRejectedError({
+		kind: "new-case",
+		reason: "case-id-taken",
+		caseId,
+	});
 }
 
 async function applyCreateEffect(
@@ -2738,8 +3138,19 @@ async function applyCreateEffect(
 		// read. A row already holding it, in any tenant, refuses the whole
 		// submission inside this transaction rather than merging; an exact
 		// retry of a saved entry replays its receipt before reaching here.
-		...(entry.entryNamed
-			? { caseIdTaken: () => rejectTakenCaseId(entry.caseId) }
+		...(entry.entryNamed || entry.exactCreateId
+			? {
+					caseIdTaken: () => {
+						if (entry.exactCreateId)
+							throw new SubmissionRejectedError({
+								kind: "target",
+								operationUuid: operation.uuid,
+								slot: "target",
+								reason: "not-found-or-out-of-scope",
+							});
+						rejectTakenCaseId(entry.caseId);
+					},
+				}
 			: {}),
 	});
 	createdInEnvelope.add(entry.caseId);

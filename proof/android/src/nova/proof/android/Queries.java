@@ -71,6 +71,8 @@ final class Queries {
     static String answer;
     /** Set by the reader: true where the request asks the probe's search to be answered with no case. */
     static boolean findsNothing;
+    static JSONObject namedAnswers;
+    static JSONArray completed;
     private static final java.util.Set<String> probed = new java.util.HashSet<>();
     private static final java.util.Set<String> typedIn = new java.util.HashSet<>();
 
@@ -118,6 +120,15 @@ final class Queries {
                 pickerText.put(box.getKey(), ((EditText)widget).getText().toString());
             }
         }
+        String storage = manager.getQueryDatum().getDataId();
+        if (namedAnswers != null && namedAnswers.has(storage)) {
+            JSONObject supplied = namedAnswers.getJSONObject(storage);
+            for (java.util.Iterator<String> keys = supplied.keys(); keys.hasNext();) {
+                String key = keys.next();
+                ((EditText)boxes(activity).get(key)).setText(supplied.getString(key));
+            }
+            ShadowLooper.idleMainLooper();
+        }
         query.put("prompts", shown);
         if (pickerText.length() != 0) query.put("pickerText", pickerText);
         query.put("items", items(activity));
@@ -153,6 +164,24 @@ final class Queries {
         }
         if (!activity.isFinishing() || shadow.getResultCode() != Activity.RESULT_OK) {
             return false;
+        }
+        if (namedAnswers != null && namedAnswers.has(storage)) {
+            // processSuccess has already installed the query's sources in the real session.
+            // Ask only for frame instances, so a suite declaration cannot satisfy this check.
+            org.commcare.models.AndroidSessionWrapper wrapper = CommCareApplication.instance().getCurrentSessionWrapper();
+            org.javarosa.core.model.condition.EvaluationContext frame = wrapper.getRestrictedEvaluationContext(
+                    wrapper.getSession().getCommand(), java.util.Collections.emptySet());
+            JSONObject observed = new JSONObject();
+            observed.put("query", storage);
+            observed.put("submitted", new JSONObject(manager.getUserQueryValues(false)));
+            JSONObject sources = new JSONObject();
+            for (java.util.Iterator<String> keys = namedAnswers.keys(); keys.hasNext();) {
+                String id = keys.next();
+                sources.put(id, frame.getInstance(id) != null);
+                sources.put("search-input:" + id, frame.getInstance("search-input:" + id) != null);
+            }
+            observed.put("sources", sources);
+            completed.put(observed);
         }
         home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
         ShadowLooper.idleMainLooper();

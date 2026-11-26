@@ -12,6 +12,7 @@ import {
 	FIELD_PROSE_SLOTS,
 	type Field,
 	fieldProseTemplate,
+	optionsSourceFilter,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -902,7 +903,7 @@ export class TriggerDag {
 			throw new Error("The form dependency graph has no expression runtime.");
 		const expressions: DagNode["expressions"] = [];
 		const add = (
-			slot: FieldExpressionSlotRef["slot"],
+			slot: Exclude<FieldExpressionSlotRef["slot"], "android_app_input">,
 			type: ExpressionType,
 			edge: "trigger" | "settle-free" | "metadata",
 		): void => {
@@ -1003,9 +1004,10 @@ export class TriggerDag {
 			field.optionsSource.kind !== "inline"
 		) {
 			expressions.push({ type: "choices", expr: "" });
-			if (field.optionsSource.filter !== undefined)
+			const filter = optionsSourceFilter(field.optionsSource);
+			if (filter !== undefined)
 				for (const dependency of formReadPaths(
-					field.optionsSource.filter,
+					filter,
 					runtime.projection,
 					runtime.readPath,
 				))

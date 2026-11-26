@@ -16,6 +16,7 @@ import {
 	listHqLookupTables,
 	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
+import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import type { ReadOutcome } from "@/lib/commcare/reader/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -1402,6 +1403,23 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 
 	it("finds nothing where the rows can be the choices", () => {
 		expect(judged(plainRows)).toEqual([]);
+	});
+
+	it("brings in an assigned HQ choice source without attesting to any worker's rows", () => {
+		const data = gather([plain({ table: { isGlobal: false } })]);
+		const binding = bindingOf(data, "plain");
+		const doc = selectDoc(binding);
+		const snapshot = readingLookupSnapshot(data, PLAIN_READS);
+
+		expect(snapshot.definitions[0].hq).toMatchObject({
+			managedBy: "commcare-hq",
+			source: { distribution: "assigned" },
+		});
+		expect(snapshot.rowsByTable.has(binding.tableId)).toBe(false);
+		expect(findingsFor(data, PLAIN_READS, doc)).toEqual([]);
+		expect(lookupSelectSourceRowFindings(doc, snapshot)).toMatchObject([
+			{ code: "LOOKUP_WORKER_SOURCE_UNAVAILABLE" },
+		]);
 	});
 
 	it("names the value column of a table with no rows", () => {
