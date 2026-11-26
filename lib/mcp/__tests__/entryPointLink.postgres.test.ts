@@ -4,7 +4,11 @@ import AdmZip from "adm-zip";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
-import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import {
+	readHttpRequestBody,
+	withHttpPeer,
+} from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { applicationAnswer } from "@/__tests__/helpers/retainedHqReads";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -12,17 +16,31 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
 import { expandDoc } from "@/lib/commcare/expander";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { commitGuardedBatch } from "@/lib/db/apps";
-import { publishedEntryPoints } from "@/lib/deployment/entryPointManifest";
+import { commitGuardedBatch, restoreApp, softDeleteApp } from "@/lib/db/apps";
 import {
-	beginDeploymentContentWrite,
+	appMappingToken,
+	birthAdoptedApp,
+} from "@/lib/deployment/__tests__/adoptedBirth";
+import { admitEntryPointImport } from "@/lib/deployment/__tests__/entryPointWrite";
+import { publishedEntryPoints } from "@/lib/deployment/entryPointManifest";
+import { publishAppToHq } from "@/lib/deployment/service";
+import * as deploymentStore from "@/lib/deployment/store";
+import {
+	admitAppCreate,
+	admitAppWrite,
 	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
+	readDeployment,
 	readEntryPointEvidence,
+	readTargetIdentity,
 	recordRemoteResource,
+	settleRemoteWrites,
 } from "@/lib/deployment/store";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
+import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
+import { CORPUS_COMMCARE_VERSION } from "@/proof/corpus/configurations";
+import { TargetPeer } from "@/proof/corpus/targetPeer";
 import { loadAppBlueprint } from "../loadApp";
 import { registerGetEntryPointLink } from "../tools/getEntryPointLink";
 import { withMcpClient } from "./client";
@@ -66,16 +84,15 @@ const INPUT = {
 	entry_point_uuid: ENTRY,
 	selections: [{ module_uuid: MODULE, case_ids: ["hq-b /?", "hq-a"] }],
 };
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.hq.write"],
 ) {
-	return withMcpClient(
-		(server) =>
-			registerGetEntryPointLink(server, { userId, scopes, authKind: "oauth" }),
-		run,
-	);
+	const ctx = await installationCredential(h.db(), userId, [
+		...new Set([...scopes, "nova.read", "nova.write"]),
+	]);
+	return withMcpClient((server) => registerGetEntryPointLink(server, ctx), run);
 }
 async function call(client: Client, args: Record<string, unknown> = INPUT) {
 	return client.callTool({ name: "get_entry_point_link", arguments: args });
@@ -121,19 +138,39 @@ function released(
 	suite: string,
 	options: {
 		profile?: string;
+		workingVersion?: number;
 		suiteStatus?: number;
 	} = {},
 ) {
 	available(peer);
-	reply(peer, PATH.versions, VERSIONS);
+	const versions =
+		options.workingVersion === undefined
+			? VERSIONS
+			: {
+					currentVersion: options.workingVersion,
+					latestBuild: options.workingVersion,
+					latestReleasedBuild: options.workingVersion,
+				};
+	reply(peer, PATH.versions, versions);
 	reply(
 		peer,
 		PATH.builds,
-		applicationAnswer("working-app", [
-			{ id: "newer-unreleased", version: 5, is_released: false },
-			{ id: "released-build", version: 3, is_released: true },
-			{ id: "older-released", version: 2, is_released: true },
-		]).body,
+		applicationAnswer(
+			"working-app",
+			options.workingVersion === undefined
+				? [
+						{ id: "newer-unreleased", version: 5, is_released: false },
+						{ id: "released-build", version: 3, is_released: true },
+						{ id: "older-released", version: 2, is_released: true },
+					]
+				: [
+						{
+							id: "released-build",
+							version: options.workingVersion,
+							is_released: true,
+						},
+					],
+		).body,
 	);
 	reply(peer, PATH.profile, options.profile ?? PROFILE);
 	reply(peer, PATH.suite, suite, options.suiteStatus ?? 200);
@@ -203,7 +240,11 @@ async function seed(publish = true) {
 		})
 		.execute();
 	const loaded = await loadAppBlueprint(APP, ACTOR, "edit");
-	if (!publish) return { suite: "", generation: "" };
+	const app = expandDoc(loaded.doc, { runtimeTarget: RUNTIME });
+	const suite = new AdmZip(
+		compileCcz(app, doc.appName, loaded.doc, { runtimeTarget: RUNTIME }),
+	).readAsText("suite.xml");
+	if (!publish) return { suite, generation: "" };
 	const exported = await prepareExportBoundary({
 		mode: "hq-upload",
 		access: loaded.access,
@@ -212,7 +253,6 @@ async function seed(publish = true) {
 		attachmentTarget: null,
 	});
 	if (!exported.ok) throw new Error(JSON.stringify(exported.violations));
-	const app = expandDoc(loaded.doc, { runtimeTarget: RUNTIME });
 	const entries = publishedEntryPoints(
 		exported.prepared,
 		app,
@@ -229,9 +269,6 @@ async function seed(publish = true) {
 			argumentId: "selected_cases",
 		},
 	]);
-	const suite = new AdmZip(
-		compileCcz(app, doc.appName, loaded.doc, { runtimeTarget: RUNTIME }),
-	).readAsText("suite.xml");
 	await foldDeploymentAttempt(
 		SCOPE,
 		TARGET,
@@ -239,8 +276,14 @@ async function seed(publish = true) {
 		{ status: "succeeded", at: "2026-09-01T00:00:00.000Z" },
 		{ ensure: true, expectedEndings: 0 },
 	);
-	const generation = await beginDeploymentContentWrite(SCOPE, TARGET, {
+	const generation = crypto.randomUUID();
+	const created = await admitAppCreate(SCOPE, TARGET, {
 		expectedEndings: 0,
+		firstContentGeneration: generation,
+	});
+	await settleRemoteWrites([created], {
+		kind: "settled",
+		resourceId: "working-app",
 	});
 	await recordRemoteResource(SCOPE, TARGET, {
 		expectedEndings: 0,
@@ -328,6 +371,308 @@ it("returns the working-app URL only after exact released resources match and th
 	expect(vi.mocked(decrypt).mock.calls).toEqual([["ciphertext"]]);
 });
 
+it("keeps a member’s released link when an overlapping publisher sent nothing", async () => {
+	const { suite } = await seed(false);
+	const model = new TargetPeer({
+		credentials: {
+			server: TARGET.server,
+			username: "account@dimagi.com",
+			apiKey: "fixture-key",
+		},
+		domain: TARGET.domain,
+		flags: new Set(["SESSION_ENDPOINTS", "CASE_SEARCH_ADVANCED"]),
+		commcareVersion: CORPUS_COMMCARE_VERSION,
+		appId: RUNTIME.appId,
+		caseSearchEnabled: true,
+		cloudcareGranted: true,
+	});
+	const publish = async () => {
+		const loaded = await loadAppBlueprint(APP, ACTOR, "edit");
+		return publishAppToHq({
+			requireHqImport: null,
+			scope: SCOPE,
+			...TARGET,
+			doc: loaded.doc,
+			compiledAtSeq: loaded.app.mutation_seq,
+			appName: loaded.app.app_name,
+			confirm: PLAN_FEATURE_IDS.map((subject) => ({
+				kind: "plan-feature",
+				subject,
+			})),
+			reloadHead: async () => {
+				const fresh = await loadAppBlueprint(APP, ACTOR, "edit");
+				return { doc: fresh.doc, seq: fresh.app.mutation_seq };
+			},
+		});
+	};
+	const verify = () =>
+		withHttpPeer(async (peer) => {
+			const version = model.saveCounter();
+			if (version === null) throw new Error("Expected a working app on HQ");
+			released(peer, suite, { workingVersion: version });
+			reply(peer, PATH.versions, {
+				currentVersion: version,
+				latestBuild: version,
+				latestReleasedBuild: version,
+			});
+			return asUser(
+				async (client) => JSON.parse(resultText(await call(client))).url,
+			);
+		});
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: () => true, method: () => true })
+			.reply(async (opts) => {
+				const headers = new Headers(opts.headers as Record<string, string>);
+				expect(headers.get("authorization")).toBe(
+					"ApiKey account@dimagi.com:fixture-key",
+				);
+				const request = {
+					method: opts.method,
+					path: opts.path,
+					contentType: headers.get("content-type") ?? undefined,
+					body: await readHttpRequestBody(opts),
+				};
+				model.requests.push(request);
+				const answer = await model.answer(request);
+				return {
+					statusCode: answer.status,
+					data: answer.body,
+					responseOptions: { headers: { "content-type": answer.contentType } },
+				};
+			})
+			.persist();
+		const prime = await publish();
+		expect(prime.refusal).toBeNull();
+		const posts = () =>
+			model.requests.filter((r) => r.method === "POST").length;
+		const afterPrime = posts();
+		const original = deploymentStore.admitAppWrite;
+		let winner: Awaited<ReturnType<typeof readEntryPointEvidence>> | undefined;
+		const hook = vi
+			.spyOn(deploymentStore, "admitAppWrite")
+			.mockImplementationOnce(async (...args) => {
+				expect(posts()).toBe(afterPrime);
+				// The first publisher has reached its send boundary but holds no
+				// admission. The predecessor's released link is still available.
+				expect(await verify()).toContain("/working-app/visit/");
+				const newer = await publish();
+				expect(newer.refusal).toBeNull();
+				expect(await verify()).toContain("/working-app/visit/");
+				winner = await readEntryPointEvidence(SCOPE, TARGET);
+				expect(winner.manifest?.generation).toBe(
+					winner.observation?.generation,
+				);
+				return original(...args);
+			});
+		try {
+			const older = await publish();
+			expect(older.landed).toBe(false);
+			expect(posts()).toBe(afterPrime + 1);
+			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(winner);
+			expect(await verify()).toContain("/working-app/visit/");
+			if (!winner?.generation)
+				throw new Error("Missing the winner’s generation");
+			const checked = await readEntryPointEvidence(SCOPE, TARGET);
+			expect(
+				await finishDeploymentContentWrite(
+					SCOPE,
+					TARGET,
+					winner.generation,
+					null,
+					{ expectedEndings: 0 },
+					{ writeIds: [], settle: [] },
+				),
+			).toBe(false);
+			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(checked);
+		} finally {
+			hook.mockRestore();
+		}
+	});
+}, 30_000);
+
+it.each(["original claim", "overlapping media"] as const)(
+	"restores a member’s link after a guarded import never reached the view (%s)",
+	async (scenario) => {
+		const { suite } = await seed();
+		const verify = () =>
+			withHttpPeer(async (peer) => {
+				released(peer, suite);
+				confirm(peer);
+				return asUser(
+					async (client) => JSON.parse(resultText(await call(client))).url,
+				);
+			});
+		const url = await verify();
+		expect(url).toContain("/working-app/visit/");
+		const before = await readEntryPointEvidence(SCOPE, TARGET);
+		if (!before.manifest) throw new Error("Expected the released manifest.");
+		const options = {
+			expectedEndings: 0,
+			remoteAppId: "working-app",
+			observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+			compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+		};
+		const attempt = await admitAppWrite(SCOPE, TARGET, {
+			...options,
+			firstContentGeneration: crypto.randomUUID(),
+			writeKind: "import",
+			compiledAtSeq: before.manifest.sourceSequence,
+		});
+		if (attempt.kind !== "admitted")
+			throw new Error("Expected an admitted import.");
+		const concurrent =
+			scenario === "overlapping media"
+				? await admitAppWrite(SCOPE, TARGET, { ...options, writeKind: "media" })
+				: null;
+		if (concurrent && concurrent.kind !== "admitted")
+			throw new Error("Expected admitted media.");
+		try {
+			await deploymentStore.cancelUnsentImport(attempt);
+			const after = await readEntryPointEvidence(SCOPE, TARGET);
+			if (concurrent) {
+				expect(after.manifest).toBeNull();
+				expect(
+					await asUser(async (client) => errorBody(await call(client))),
+				).not.toHaveProperty("url");
+			} else {
+				expect(after).toEqual(before);
+				expect(await verify()).toBe(url);
+			}
+		} finally {
+			if (concurrent)
+				await settleRemoteWrites([concurrent.writeId], { kind: "settled" });
+		}
+	},
+);
+it("keeps the released link observed after a settled publisher's claim was retired", async () => {
+	const { suite } = await seed();
+	const fence = { expectedEndings: 0 };
+	const original = (await readEntryPointEvidence(SCOPE, TARGET)).manifest;
+	if (!original) throw new Error("Expected the published entry point.");
+	const publish = async (counter: number) => {
+		const generation = crypto.randomUUID();
+		const write = await admitAppWrite(SCOPE, TARGET, {
+			...fence,
+			firstContentGeneration: generation,
+			remoteAppId: original.remoteAppId,
+			observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+			compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+			writeKind: "import",
+			compiledAtSeq: original.sourceSequence,
+		});
+		if (write.kind !== "admitted")
+			throw new Error("Expected the import to be admitted.");
+		const writeIds = [write.writeId];
+		const result = await recordRemoteResource(
+			SCOPE,
+			TARGET,
+			{
+				...fence,
+				kind: "app",
+				novaResourceId: APP,
+				remoteId: original.remoteAppId,
+				ownership: "nova-created",
+				pushedRevision: original.sourceSequence,
+				remoteRevision: counter,
+				uploadedAt: new Date().toISOString(),
+				baseline: {
+					origin: "unread",
+					remoteAppId: original.remoteAppId,
+					sourceGzip: null,
+					sourceBytes: null,
+					sourceDigest: null,
+					ownership: null,
+					observedAt: new Date().toISOString(),
+					discard: null,
+					novaRevision: null,
+					mediaFiles: { kind: "keep" },
+					firstPublish: { kind: "set", list: null },
+				},
+			},
+			{ writeIds, settle: [{ writeIds, how: { kind: "settled" } }] },
+		);
+		expect(result.pushToken).toEqual(expect.any(String));
+		return () =>
+			finishDeploymentContentWrite(
+				SCOPE,
+				TARGET,
+				generation,
+				{ ...original, generation },
+				fence,
+				{ writeIds, settle: [] },
+			);
+	};
+	const finishRetired = await publish(4);
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	await softDeleteApp(APP, ACTOR);
+	const taker = testUuid("temporary-claim");
+	await birthAdoptedApp(h, {
+		appId: taker,
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		target: TARGET,
+		remoteAppId: original.remoteAppId,
+	});
+	await softDeleteApp(taker, ACTOR);
+	await restoreApp(APP, ACTOR);
+	// A new claim is its own ordering domain, even on the same remote ID.
+	const finishCurrent = await publish(3);
+	expect(await finishCurrent()).toBe(true);
+	await withHttpPeer(async (peer) => {
+		released(peer, suite);
+		confirm(peer);
+		await asUser(async (client) => {
+			const link = JSON.parse(resultText(await call(client)));
+			expect(link.released_build_id).toBe("released-build");
+			const before = await readEntryPointEvidence(SCOPE, TARGET);
+			expect(before.observation?.remoteAppId).toBe(original.remoteAppId);
+			const unsent = await admitAppWrite(SCOPE, TARGET, {
+				...fence,
+				firstContentGeneration: crypto.randomUUID(),
+				compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+				observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+				remoteAppId: original.remoteAppId,
+				writeKind: "import",
+				compiledAtSeq: original.sourceSequence,
+			});
+			if (unsent.kind !== "admitted")
+				throw new Error("Expected the reclaimed import to be admitted.");
+			await deploymentStore.cancelUnsentImport(unsent);
+			expect(await finishRetired()).toBe(false);
+			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(before);
+			released(peer, suite);
+			confirm(peer);
+			expect(JSON.parse(resultText(await call(client))).url).toBe(link.url);
+		});
+	});
+	// A real media job on the current claim remained open into the
+	// next generation. A settled response alone cannot order that job
+	// before the later publisher, so this completion invalidates the link.
+	const earlier = crypto.randomUUID();
+	const media = await admitAppWrite(SCOPE, TARGET, {
+		...fence,
+		firstContentGeneration: earlier,
+		observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+		remoteAppId: original.remoteAppId,
+		compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+		writeKind: "media",
+	});
+	if (media.kind !== "admitted")
+		throw new Error("Expected the media job to be admitted.");
+	const finishLater = await publish(6);
+	expect(await finishLater()).toBe(true);
+	await settleRemoteWrites([media.writeId], { kind: "settled" });
+	expect(
+		await finishDeploymentContentWrite(SCOPE, TARGET, earlier, null, fence, {
+			writeIds: [media.writeId],
+			settle: [],
+		}),
+	).toBe(false);
+	expect((await readEntryPointEvidence(SCOPE, TARGET)).manifest).toBeNull();
+}, 30_000);
+
 it.each([
 	{
 		label: "drifted command",
@@ -390,9 +735,10 @@ it("rejects a completed remote check after another publish invalidates its gener
 	await withHttpPeer(async (peer) => {
 		released(peer, suite);
 		confirm(peer, 3, async () => {
-			await beginDeploymentContentWrite(SCOPE, TARGET, {
+			const { writeId } = await admitEntryPointImport(SCOPE, TARGET, {
 				expectedEndings: 0,
 			});
+			await settleRemoteWrites([writeId], { kind: "settled" });
 		});
 		await asUser(async (client) => {
 			const result = await call(client);

@@ -1,19 +1,19 @@
-// lib/domain/fields/label.ts
-//
-// Display-only label field. Renders a read-only message in the form — no
-// input, no data binding, no case wiring. Maps to CommCare's <trigger>
-// control with an empty data type. The only logic field supported is
-// `relevant` (to conditionally show/hide the message). Marked isStructural
-// because it contributes to layout/presentation without producing a value.
+// A worker message and its answer at this point in the form.
+// Android confirms passive messages on leaving their screen and lets the
+// worker check an interactive one. Web Apps submits OK for either.
 
 import tablerTag from "@iconify-icons/tabler/tag";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, formLogicSchema } from "./base";
+import { displaySchemas } from "../questionDisplaySchemas";
+import { checkedInputFieldBaseSchema } from "./base";
 
-export const labelFieldSchema = fieldBaseSchema.extend({
+export const labelFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("label"),
-	relevant: formLogicSchema.optional(),
+	banner: displaySchemas.banner.optional(),
+	selectableText: displaySchemas.selectableText.optional(),
+	/** The worker may check this prompt on Android. Web Apps confirms it on submit. */
+	askForConfirmation: z.literal(true).optional(),
 });
 
 export type LabelField = z.infer<typeof labelFieldSchema>;
@@ -24,9 +24,10 @@ export const labelFieldMetadata: FieldKindMetadata<"label"> = {
 	dataType: "",
 	icon: tablerTag,
 	label: "Label",
-	isStructural: true,
+	isStructural: false,
 	isContainer: false,
-	carriesValidation: false,
-	saDocs: "Display-only text. Renders a read-only message. Collects no input.",
+	carriesValidation: true,
+	saDocs:
+		"A message for the worker. Set askForConfirmation for an Android checkbox. Web Apps confirms the message when the worker submits.",
 	convertTargets: [],
 };

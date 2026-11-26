@@ -11,11 +11,20 @@ import type {
 /** Platform copy is separate from an app's authored translations. Keep this
  * small catalog client/worker safe; unsupported languages fall back honestly. */
 const english = {
+	androidAppRegistrationSaved: "All data stored successfully",
+	androidAppRegistrationFailed: "No data was stored",
+	androidAppRegistrationPartial: "Failed to store some data",
+	androidAppFingersScanned: "Fingerprints scanned: {count}",
 	home: "Home",
 	breadcrumbPath: "Show breadcrumb path",
 	pageNavigation: "Page navigation",
 	formGettingReady: "This form is getting ready.",
+	formActivityOpened: "{worker} recently opened this form for {record}.",
+	formActivitySubmitted: "{worker} recently submitted this form for {record}.",
+	formActivitySameRecord: "the same record",
+	formActivityStale: "Your data may have changed since your last sync.",
 	searchGettingReady: "This search is getting ready.",
+	retrySearchStartingDates: "Try loading starting dates again",
 	answersLocked: "Answers are locked while this submission finishes.",
 	freshFormStarting: "A fresh form entry is opening.",
 	caseDataRefreshing: "Case data is refreshing. Your answers are still here.",
@@ -45,8 +54,17 @@ const english = {
 	resultRange: "{start}–{end} of {total}",
 	showingResults: "Showing {count}",
 	resultsFound: "{count} found",
+	showCaseMap: "Show map",
+	hideCaseMap: "Hide map",
+	caseMap: "Case locations",
+	caseMapUnavailable:
+		"The map could not open. You can still choose a case from the list.",
+	invalidMapInformation: "Some saved map information could not be drawn.",
+	showCaseAddress: "Show address",
 	pageFilterScope:
 		"This filter checks the {count} on this page. Go to another page to check more cases.",
+	expandCaseDetails: "Show case details",
+	collapseCaseDetails: "Hide case details",
 	viewCaseDetails: "View details for {name}",
 	continueWithCase: "Continue with {name}",
 	chooseCase: "Choose {name}",
@@ -56,6 +74,11 @@ const english = {
 	chooseCaseTask: "Choose what to do with this case",
 	chooseCasesForm: "Choose the form to run for these cases",
 	chooseCases: "Choose the cases this form should work with",
+	automaticSelectionTooMany:
+		"{count} cases match. This list can continue with up to {maximum}.",
+	automaticSelectionFailed: "These cases could not continue automatically.",
+	automaticSelectionUnavailable:
+		"Go back, or narrow your search and try again.",
 	chooseAllShown: "Choose all cases shown",
 	reviewSelectedCases: "Review selected cases",
 	selectedCases: "Selected cases",
@@ -113,6 +136,7 @@ const english = {
 	noCasesYet: "No cases yet",
 	createCase: "Create a case or add sample cases in Case data",
 	askCreateCase: "Ask an app editor to create a case or add sample cases",
+	noChoicesMatch: "No choices match your search",
 	noSearchMatches: "No cases match your search",
 	retrySearch: "Check your spelling, clear a field, or try a broader search",
 	retrySearchOrRegister:
@@ -167,6 +191,15 @@ const english = {
 	answerTypeTime: "a time",
 	answerTypeDatetime: "a date and time",
 	answerTypeInt: "a whole number",
+	answerTypeLong:
+		"a whole number from −9,223,372,036,854,775,808 to 9,223,372,036,854,775,807",
+	answerTypeBoolean: "a yes or no answer",
+	refusalDateAsBoolean:
+		"The calculation for “{question}” gives a date. You can compare the date with another value to get a yes or no answer, or choose a date answer type.",
+	refusalEmptyCalculatedChoice:
+		"The calculation for “{question}” gives a list with an empty choice. You can change the calculation to start with the first choice.",
+	refusalBooleanStartingAnswer:
+		"“{question}” holds a yes or no answer. CommCare can set that answer through a calculation. You can move the starting value to Calculation or choose another answer type.",
 	answerTypeDecimal: "a number",
 	answerTypeGeopoint: "a location",
 	answerTypeChoiceList: "a list of choices without an empty selection",
@@ -177,6 +210,9 @@ const english = {
 	submit: "Submit",
 	submitting: "Submitting",
 	clear: "Clear",
+	cancel: "Cancel",
+	previousMonth: "Previous month",
+	nextMonth: "Next month",
 	clearAnswers: "Clear answers",
 	clearForm: "Clear form",
 	startingFresh: "Starting fresh",
@@ -190,6 +226,10 @@ const english = {
 	questionPosition: "Question {position}.",
 	sectionPosition: "Section {position}.",
 	requiredLabel: "Required.",
+	// Web Apps' box under a Search field that allows a search for blank
+	// (`cloudcare/partials/query/item.html`, HQ's `es` catalog for Spanish).
+	searchForBlank: "Include results where '{label}' is blank",
+	confirmMessage: "OK. Please continue.",
 	expand: "Expand",
 	collapse: "Collapse",
 	untitledGroup: "Untitled group",
@@ -215,6 +255,8 @@ const english = {
 	addressSearchMinimum:
 		"You can type at least {count} characters to see places",
 	addressNoResults: "No matching places",
+	addressChooseFromList: "Choose an address from the list",
+	clearAddress: "Clear the address",
 	locationGuidance:
 		"You can search for an address or click the map to drop a pin",
 	hereColumnsWaiting:
@@ -248,12 +290,17 @@ const english = {
 	dataRefusalSubjectMenu: "This menu reads",
 	dataRefusalSubjectSearch: "This search reads",
 	dataRefusalSubjectList: "This case list reads",
+	projectSearchTitle: "This search runs in CommCare HQ",
+	projectSearchBody:
+		"Open the published app in its connected project space to see the results.",
 	dataRefusalPlacesPersona:
 		"{subject} a place, and {worker} is assigned nowhere, so a phone stops here. You can give {worker} a place under Users and personas in App setup.",
 	dataRefusalPlacesMe:
 		"{subject} a place, and you're assigned nowhere, so a phone stops here. You can preview as a persona who has a place.",
 	dataRefusalOwnerPlacePersona:
 		"This form moves the case to {worker}'s place, and {worker} is assigned nowhere, so the case has no owner to move to and a phone stops here. You can give {worker} a place under Users and personas in App setup.",
+	dataRefusalGroupCount:
+		"This form needs one group to own its new cases. You can check the worker’s case-sharing groups in Project data and their places in App setup.",
 	dataRefusalOwnerPlaceMe:
 		"This form moves the case to your place, and you're assigned nowhere, so the case has no owner to move to and a phone stops here. You can preview as a persona who has a place.",
 	dataRefusalTable:
@@ -264,12 +311,18 @@ const english = {
 		"Search field “{input}” gets its choices from “{table}”, which has no rows, so a phone won't open this search. You can add rows to “{table}” in Project data.",
 	dataRefusalSearchAnswers:
 		"{subject} a search answer that was left blank, so a phone stops here. You can search again with that answer filled in.",
+	dataRefusalStartingRange:
+		"Web Apps couldn’t open the starting dates for “{input}”. You can choose two dates or change its calculation in Search fields.",
 	dataRefusalStartingChoice:
 		"Search field “{input}” starts on a choice its list doesn't offer. CommCare sets such a choice aside only on a search with more than one field, so a phone won't open this search. You can give “{input}” a starting value its list offers.",
 	dataRefusalWorkerPersona:
 		"{subject} worker information {worker} doesn't have, so a phone stops here. If it reads {worker}'s place, you can give {worker} a place under Users and personas in App setup.",
 	dataRefusalWorkerMe:
 		"{subject} worker information you don't have, so a phone stops here. If it reads your place, you can preview as a persona who has a place.",
+	dataRefusalCaseLocation:
+		"A saved case location has coordinates a phone can’t read. A project editor can correct the location in the case data or choose another way to order the list.",
+	dataRefusalEntryRecord:
+		"We couldn’t find the record for “{selection}” on this worker’s device. You can check where the form gets that record or choose a worker who has it.",
 	dataRefusalOther:
 		"{subject} a value a phone doesn't have at this point, so a phone stops here.",
 	thisQuestion: "this question",
@@ -280,6 +333,15 @@ const english = {
 	deviceHomeStart: "Start",
 	deviceHomeSaved: "Saved",
 	deviceHomeIncomplete: "Incomplete",
+	deviceHomeNoSaved: "No saved forms",
+	deviceHomeNoIncomplete: "No incomplete forms",
+	deviceHomeArchiveAccess: "Checking app access",
+	deviceHomeRemoveDraft: "Remove",
+	deviceHomeRemoveNamedDraft: "Remove {name}",
+	deviceHomeDraftChanged:
+		"This app changed since the form was saved. You can start another form from the app's home screen.",
+	deviceHomeDraftLanguage:
+		"This form was opened in another language. You can switch back to that language or start another form.",
 	deviceHomeSync: "Sync with server",
 	deviceHomeLastSync: "You last synced with the server: {time}",
 	deviceHomeLogOut: "Log out of CommCare",
@@ -288,6 +350,10 @@ const english = {
 	detailDone: "Done",
 	// Android's form screens (`form.entry.finish.button`, `repeat.dialog.*`).
 	finish: "Finish",
+	saveForLater: "Save for later",
+	savingForm: "Saving form",
+	saveIncompleteFailed:
+		"Couldn't save this form. You can check the answers and try again.",
 	repeatGoBack: "Go back",
 	repeatAddNew: "Add a new {label}?",
 	repeatAddAnother: "Add another {label}?",
@@ -311,9 +377,19 @@ const english = {
 	// Android's barcode question.
 	scanBarcode: "Scan",
 	// Android's capture widgets (`R.string.capture_image` and its siblings).
+	switchCamera: "Switch camera",
+	facePhotoGuide:
+		"Center the face in the guide and keep still, or take the picture when you are ready.",
+	photoFrameGuide:
+		"Line up the subject inside the rectangle. The photo includes the whole frame.",
+	cameraUnavailable:
+		"The camera could not open. Check camera access and try again.",
 	takePicture: "Take picture",
 	chooseImage: "Choose image",
 	removeImage: "Remove image",
+	chooseAudio: "Choose audio",
+	pauseRecording: "Pause recording",
+	resumeRecording: "Resume recording",
 	recordSound: "Record sound",
 	startRecording: "Start recording",
 	stopRecording: "Stop recording",
@@ -330,11 +406,24 @@ const english = {
 
 export type RuntimeMessage = keyof typeof english;
 const spanish: Record<RuntimeMessage, string> = {
+	// These strings become submitted answers. HQ's pinned translation catalog has
+	// no Spanish overrides for the Android device's four built-in messages.
+	androidAppRegistrationSaved: english.androidAppRegistrationSaved,
+	androidAppRegistrationFailed: english.androidAppRegistrationFailed,
+	androidAppRegistrationPartial: english.androidAppRegistrationPartial,
+	androidAppFingersScanned: english.androidAppFingersScanned,
 	home: "Inicio",
 	breadcrumbPath: "Mostrar la ruta de navegación",
 	pageNavigation: "Navegación de páginas",
 	formGettingReady: "El formulario se está preparando.",
+	formActivityOpened: "{worker} abrió hace poco este formulario para {record}.",
+	formActivitySubmitted:
+		"{worker} envió hace poco este formulario para {record}.",
+	formActivitySameRecord: "el mismo registro",
+	formActivityStale:
+		"Es posible que tus datos hayan cambiado desde la última sincronización.",
 	searchGettingReady: "La búsqueda se está preparando.",
+	retrySearchStartingDates: "Volver a cargar las fechas iniciales",
 	answersLocked: "Las respuestas están bloqueadas mientras termina el envío.",
 	freshFormStarting: "Se está abriendo una nueva entrada del formulario.",
 	caseDataRefreshing:
@@ -367,8 +456,17 @@ const spanish: Record<RuntimeMessage, string> = {
 	resultRange: "{start}–{end} de {total}",
 	showingResults: "Mostrando {count}",
 	resultsFound: "Resultados: {count}",
+	showCaseMap: "Mostrar mapa",
+	hideCaseMap: "Ocultar mapa",
+	caseMap: "Ubicaciones de los registros",
+	caseMapUnavailable:
+		"No se pudo abrir el mapa. Puede elegir un registro de la lista.",
+	invalidMapInformation: "No se pudieron mostrar algunos datos del mapa.",
+	showCaseAddress: "Mostrar dirección",
 	pageFilterScope:
 		"Este filtro busca en esta página ({count}). Puede ir a otra página para buscar más registros.",
+	expandCaseDetails: "Mostrar detalles del caso",
+	collapseCaseDetails: "Ocultar detalles del caso",
 	viewCaseDetails: "Ver detalles de {name}",
 	continueWithCase: "Continuar con {name}",
 	chooseCase: "Seleccionar {name}",
@@ -378,6 +476,12 @@ const spanish: Record<RuntimeMessage, string> = {
 	chooseCaseTask: "¿Qué desea hacer con este registro?",
 	chooseCasesForm: "Puede elegir el formulario para estos registros",
 	chooseCases: "Puede elegir los registros para este formulario",
+	automaticSelectionTooMany:
+		"Coinciden {count} registros. La lista admite hasta {maximum}.",
+	automaticSelectionFailed:
+		"No se pudo continuar automáticamente con estos registros.",
+	automaticSelectionUnavailable:
+		"Puede volver o limitar la búsqueda e intentarlo de nuevo.",
 	chooseAllShown: "Seleccionar todos los registros mostrados",
 	reviewSelectedCases: "Revisar los registros seleccionados",
 	selectedCases: "Registros seleccionados",
@@ -442,6 +546,7 @@ const spanish: Record<RuntimeMessage, string> = {
 		"Puede crear un registro o añadir registros de ejemplo en los datos de registros",
 	askCreateCase:
 		"Puede pedir a un editor de la aplicación que cree un registro o añada registros de ejemplo",
+	noChoicesMatch: "Ninguna opción coincide con su búsqueda",
 	noSearchMatches: "Ningún registro coincide con la búsqueda",
 	retrySearch:
 		"Puede revisar la ortografía, borrar un campo o ampliar la búsqueda",
@@ -499,6 +604,15 @@ const spanish: Record<RuntimeMessage, string> = {
 	answerTypeTime: "una hora",
 	answerTypeDatetime: "una fecha y hora",
 	answerTypeInt: "un número entero",
+	answerTypeLong:
+		"un número entero entre −9 223 372 036 854 775 808 y 9 223 372 036 854 775 807",
+	answerTypeBoolean: "una respuesta de sí o no",
+	refusalDateAsBoolean:
+		"El cálculo de «{question}» da una fecha. Puede comparar la fecha con otro valor para obtener una respuesta de sí o no, o elegir un tipo de respuesta de fecha.",
+	refusalEmptyCalculatedChoice:
+		"El cálculo de «{question}» da una lista con una opción vacía. Puede modificar el cálculo para que empiece con la primera opción.",
+	refusalBooleanStartingAnswer:
+		"«{question}» contiene una respuesta de sí o no. CommCare puede establecer esa respuesta mediante un cálculo. Puede pasar el valor inicial a Cálculo o elegir otro tipo de respuesta.",
 	answerTypeDecimal: "un número",
 	answerTypeGeopoint: "una ubicación",
 	answerTypeChoiceList: "una lista de opciones sin una selección vacía",
@@ -509,6 +623,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	submit: "Enviar",
 	submitting: "Enviando",
 	clear: "Borrar",
+	cancel: "Cancelar",
+	previousMonth: "Mes anterior",
+	nextMonth: "Mes siguiente",
 	clearAnswers: "Borrar respuestas",
 	clearForm: "Borrar formulario",
 	startingFresh: "Empezando de nuevo",
@@ -522,6 +639,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	questionPosition: "Pregunta {position}.",
 	sectionPosition: "Sección {position}.",
 	requiredLabel: "Obligatoria.",
+	searchForBlank: "Incluir resultados donde '{label}' está en blanco",
+	confirmMessage: "OK. Por favor continue.",
 	expand: "Expandir",
 	collapse: "Contraer",
 	untitledGroup: "Grupo sin título",
@@ -546,6 +665,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	addressSearching: "Buscando",
 	addressSearchMinimum: "Puedes buscar con al menos {count} caracteres",
 	addressNoResults: "No hay lugares que coincidan",
+	addressChooseFromList: "Elige una dirección de la lista",
+	clearAddress: "Borrar la dirección",
 	locationGuidance:
 		"Puedes buscar una dirección o tocar el mapa para marcar un punto",
 	hereColumnsWaiting:
@@ -582,12 +703,17 @@ const spanish: Record<RuntimeMessage, string> = {
 	dataRefusalSubjectMenu: "Este menú lee",
 	dataRefusalSubjectSearch: "Esta búsqueda lee",
 	dataRefusalSubjectList: "Esta lista de casos lee",
+	projectSearchTitle: "Esta búsqueda se realiza en CommCare HQ",
+	projectSearchBody:
+		"Abra la aplicación publicada en el espacio de proyecto conectado para ver los resultados.",
 	dataRefusalPlacesPersona:
 		"{subject} un lugar, y {worker} no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalPlacesMe:
 		"{subject} un lugar, y usted no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede ver la vista previa como una persona que tenga un lugar.",
 	dataRefusalOwnerPlacePersona:
 		"Este formulario mueve el caso al lugar de {worker}, y {worker} no tiene ningún lugar asignado, así que el caso no tiene a qué propietario moverse y un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
+	dataRefusalGroupCount:
+		"Este formulario necesita un solo grupo para sus nuevos casos. Puede revisar los grupos de esta persona en Datos del proyecto y sus lugares en la configuración de la aplicación.",
 	dataRefusalOwnerPlaceMe:
 		"Este formulario mueve el caso a su lugar, y usted no tiene ningún lugar asignado, así que el caso no tiene a qué propietario moverse y un teléfono se detiene aquí. Puede ver la vista previa como una persona que tenga un lugar.",
 	dataRefusalTable:
@@ -598,12 +724,18 @@ const spanish: Record<RuntimeMessage, string> = {
 		"El campo de búsqueda «{input}» toma sus opciones de «{table}», que no tiene filas, así que un teléfono no abrirá esta búsqueda. Puede añadir filas a «{table}» en los datos del proyecto.",
 	dataRefusalSearchAnswers:
 		"{subject} una respuesta de búsqueda que quedó en blanco, así que un teléfono se detiene aquí. Puede buscar de nuevo con esa respuesta.",
+	dataRefusalStartingRange:
+		"Web Apps no pudo abrir las fechas iniciales de «{input}». Puede elegir dos fechas o cambiar el cálculo en los campos de búsqueda.",
 	dataRefusalStartingChoice:
 		"El campo de búsqueda «{input}» empieza con una opción que su lista no ofrece. CommCare deja de lado esa opción solo en una búsqueda de más de un campo, así que un teléfono no abrirá esta búsqueda. Puede darle a «{input}» un valor inicial que su lista ofrezca.",
 	dataRefusalWorkerPersona:
 		"{subject} información del trabajador que {worker} no tiene, así que un teléfono se detiene aquí. Si lee el lugar de {worker}, puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalWorkerMe:
 		"{subject} información del trabajador que usted no tiene, así que un teléfono se detiene aquí. Si lee su lugar, puede ver la vista previa como una persona que tenga un lugar.",
+	dataRefusalCaseLocation:
+		"Una ubicación guardada tiene coordenadas que el teléfono no puede leer. Una persona con permiso para editar el proyecto puede corregir la ubicación en los datos del caso o elegir otro orden para la lista.",
+	dataRefusalEntryRecord:
+		"No encontramos el registro para «{selection}» en el dispositivo de este trabajador. Puede revisar de dónde obtiene ese registro el formulario o elegir a un trabajador que lo tenga.",
 	dataRefusalOther:
 		"{subject} un valor que un teléfono no tiene en este punto, así que un teléfono se detiene aquí.",
 	thisQuestion: "esta pregunta",
@@ -612,11 +744,24 @@ const spanish: Record<RuntimeMessage, string> = {
 	deviceHomeStart: "Iniciar",
 	deviceHomeSaved: "Guardados",
 	deviceHomeIncomplete: "Incompletos",
+	deviceHomeNoSaved: "No hay formularios guardados",
+	deviceHomeNoIncomplete: "No hay formularios incompletos",
+	deviceHomeArchiveAccess: "Comprobando el acceso a la aplicación",
+	deviceHomeRemoveDraft: "Quitar",
+	deviceHomeRemoveNamedDraft: "Quitar {name}",
+	deviceHomeDraftChanged:
+		"La aplicación cambió desde que se guardó el formulario. Puede iniciar otro desde la pantalla de inicio de la aplicación.",
+	deviceHomeDraftLanguage:
+		"Este formulario se abrió en otro idioma. Puede volver a ese idioma o iniciar otro formulario.",
 	deviceHomeSync: "Sincronizar con el servidor",
 	deviceHomeLastSync: "Última sincronización con el servidor: {time}",
 	deviceHomeLogOut: "Cerrar sesión en CommCare",
 	detailDone: "Listo",
 	finish: "Terminar",
+	saveForLater: "Guardar para más tarde",
+	savingForm: "Guardando formulario",
+	saveIncompleteFailed:
+		"No se pudo guardar el formulario. Puede revisar las respuestas y volver a intentarlo.",
 	repeatGoBack: "Volver",
 	repeatAddNew: "¿Agregar un nuevo {label}?",
 	repeatAddAnother: "¿Agregar otro {label}?",
@@ -636,9 +781,19 @@ const spanish: Record<RuntimeMessage, string> = {
 	altitudeLine: "Altitud: {m}m",
 	accuracyLine: "Precisión: {m}m",
 	scanBarcode: "Escanear",
+	switchCamera: "Cambiar de cámara",
+	facePhotoGuide:
+		"Centra el rostro en la guía y quédate quieto, o toma la foto cuando estés listo.",
+	photoFrameGuide:
+		"Coloque el motivo dentro del rectángulo. La foto incluye todo el encuadre.",
+	cameraUnavailable:
+		"No se pudo abrir la cámara. Compruebe el acceso y vuelva a intentarlo.",
 	takePicture: "Tomar foto",
 	chooseImage: "Elegir imagen",
 	removeImage: "Quitar imagen",
+	chooseAudio: "Elegir audio",
+	pauseRecording: "Pausar grabación",
+	resumeRecording: "Continuar grabación",
 	recordSound: "Grabar sonido",
 	startRecording: "Empezar a grabar",
 	stopRecording: "Detener la grabación",
@@ -690,6 +845,8 @@ const ANSWER_TYPE_PHRASE: Readonly<Record<RefusingAnswerType, RuntimeMessage>> =
 		time: "answerTypeTime",
 		datetime: "answerTypeDatetime",
 		int: "answerTypeInt",
+		long: "answerTypeLong",
+		boolean: "answerTypeBoolean",
 		decimal: "answerTypeDecimal",
 		geopoint: "answerTypeGeopoint",
 		"choice-list": "answerTypeChoiceList",
@@ -722,6 +879,20 @@ export function refusalCopy(
 		question: names.question ?? details.path,
 		repeat: names.repeat ?? runtimeMessage(language, "entry"),
 	};
+	if (details.answerType === "boolean") {
+		return {
+			...(details.cause === "repeat-insert"
+				? {}
+				: {
+						title: runtimeMessage(
+							language,
+							"refusalStartingValueTitle",
+							values,
+						),
+					}),
+			body: runtimeMessage(language, "refusalBooleanStartingAnswer", values),
+		};
+	}
 	switch (details.cause) {
 		case "preload":
 			return {
@@ -790,6 +961,26 @@ export function dataRefusalCopy(
 	const body = (key: RuntimeMessage, values: Record<string, string> = {}) =>
 		runtimeMessage(language, key, { subject: lead, ...values });
 	switch (subject.kind) {
+		case "entry-record":
+			return {
+				title,
+				body: body("dataRefusalEntryRecord", { selection: subject.selection }),
+			};
+		case "hidden-calculation":
+			return {
+				title,
+				body: body(
+					subject.problem === "date-as-boolean"
+						? "refusalDateAsBoolean"
+						: "refusalEmptyCalculatedChoice",
+					{ question: subject.question },
+				),
+			};
+		case "project-search":
+			return {
+				title: body("projectSearchTitle"),
+				body: body("projectSearchBody"),
+			};
 		case "places":
 			return {
 				title,
@@ -798,6 +989,10 @@ export function dataRefusalCopy(
 						? body("dataRefusalPlacesMe")
 						: body("dataRefusalPlacesPersona", { worker: names.worker }),
 			};
+		case "group-count":
+			return { title, body: body("dataRefusalGroupCount") };
+		case "invalid-case-location":
+			return { title, body: body("dataRefusalCaseLocation") };
 		case "owner-place":
 			return {
 				title,
@@ -829,6 +1024,11 @@ export function dataRefusalCopy(
 			};
 		case "search-answers":
 			return { title, body: body("dataRefusalSearchAnswers") };
+		case "starting-range":
+			return {
+				title,
+				body: body("dataRefusalStartingRange", { input: subject.input }),
+			};
 		case "starting-choice":
 			return {
 				title,

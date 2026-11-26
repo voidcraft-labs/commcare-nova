@@ -54,6 +54,7 @@ export function resolvedLanguageEnglishName(
 	value: AppLanguageIdentity | LanguageTag,
 ): string | undefined {
 	const identity = toIdentity(value);
+	if (identity.kind === "project") return undefined;
 	const base = englishNames.get(identity.language);
 	if (base === undefined) return undefined;
 	const qualifiers = languageQualifierLabels(identity);
@@ -80,6 +81,7 @@ export function resolvedLanguageDisplayLabel(
  * batch digests depend on that stability.
  */
 export function languageDescriptor(identity: AppLanguageIdentity): string {
+	if (identity.kind === "project") return identity.language;
 	const base = englishNames.get(identity.language) ?? identity.language;
 	const qualifiers = languageQualifierLabels(identity);
 	const parts: string[] = [];

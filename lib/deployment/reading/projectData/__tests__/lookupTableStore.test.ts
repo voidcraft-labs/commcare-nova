@@ -59,9 +59,6 @@ function serveStatus(
 		.reply(status, "Unavailable");
 }
 
-const SOURCE =
-	'<instance id="a" src="jr://fixture/item-list:plain"/> instance(\'item-list:rich\')';
-
 function calls(peer: MockAgent): readonly string[] {
 	return (
 		peer
@@ -85,10 +82,56 @@ describe("readHqLookupTablesForReading", () => {
 				rowsPath(RICH_ID),
 				retained("lookups/fixture-rows-rich.json"),
 			);
+			const listBody = retained("lookups/lookup-tables.json"),
+				rich = retained("lookups/fixture-rows-rich.json");
+			if ("exception" in listBody || "exception" in rich)
+				throw new Error("Expected HQ answers");
+			const def = JSON.parse(listBody.body).objects.find(
+				(value: { id: string }) => value.id === RICH_ID,
+			);
+			const detailPath = (id: string) =>
+				`/a/clinic/api/lookup_table_item/v1/${id}/`;
+			const defPath = `/a/clinic/api/lookup_table/v1/${RICH_ID}/`;
+			const items = JSON.parse(rich.body).objects as {
+				id: string;
+				fields: Record<string, unknown>;
+			}[];
+			// The rich values are the ones persisted by proof/hq/test_retained_reads.py::_shape_rich.
+			for (let pass = 0; pass < 2; pass++) {
+				peer
+					.get(HOST)
+					.intercept({ path: defPath, method: "GET" })
+					.reply(200, def);
+				serve(peer, rowsPath(RICH_ID), rich);
+				for (const [index, item] of items.entries()) {
+					peer
+						.get(HOST)
+						.intercept({ path: detailPath(item.id), method: "GET" })
+						.reply(200, {
+							id: item.id,
+							data_type_id: RICH_ID,
+							sort_key: index,
+							item_attributes: { zone: index === 0 ? "upland" : "coastal" },
+							fields:
+								index === 0
+									? {
+											code: {
+												field_list: [{ field_value: "north", properties: {} }],
+											},
+											name: {
+												field_list: [
+													{ field_value: "North", properties: { lang: "en" } },
+												],
+											},
+										}
+									: item.fields,
+						});
+				}
+			}
 			const answer = await readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: "clinic",
-				sourceText: SOURCE,
+				referencedTags: async () => new Set(["plain", "rich"]),
 			});
 			if ("success" in answer) throw new Error("the read failed");
 			expect(
@@ -110,6 +153,12 @@ describe("readHqLookupTablesForReading", () => {
 				LIST,
 				rowsPath(PLAIN_ID),
 				rowsPath(RICH_ID),
+				defPath,
+				rowsPath(RICH_ID),
+				...items.map((row) => detailPath(row.id)),
+				rowsPath(RICH_ID),
+				...items.map((row) => detailPath(row.id)),
+				defPath,
 			]);
 		});
 	});
@@ -127,7 +176,7 @@ describe("readHqLookupTablesForReading", () => {
 			const answer = await readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: "clinic",
-				sourceText: "jr://fixture/item-list:long",
+				referencedTags: async () => new Set(["long"]),
 			});
 			if ("success" in answer) throw new Error("the read failed");
 			expect(answer.tables).toEqual([
@@ -144,7 +193,7 @@ describe("readHqLookupTablesForReading", () => {
 	const plainOnly = {
 		creds: CREDS,
 		domain: "clinic",
-		sourceText: "item-list:plain",
+		referencedTags: async () => new Set(["plain"]),
 	};
 
 	it("sends a row read CommCare HQ did not answer once more, and reads the rows the second time", async () => {

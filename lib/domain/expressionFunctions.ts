@@ -375,6 +375,8 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		return [name, spec];
 	}),
 	...Object.entries({
+		"project-today": [0, 0],
+		position: [0, 1],
 		null: [0, 0],
 		here: [0, 0],
 		self: [0, 0],
@@ -384,6 +386,7 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		children: [0, 2],
 		related: [0, 2],
 		ancestor: [1, -1],
+		reached: [1, -1],
 		link: [1, 2],
 		property: [2, 3],
 		via: [2, 2],
@@ -392,12 +395,21 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		user: [1, 1],
 		session: [1, 1],
 		"external-user": [1, 1],
+		"worker-record": [1, 1],
+		"device-records": [0, -1],
+		"table-rows": [1, -1],
+		"row-value": [2, 2],
 		location: [1, 1],
 		"owner-location": [2, 2],
 		"table-column": [2, 2],
+		"row-detail": [1, 1],
+		"value-with": [3, 3],
+		"value-at": [2, 2],
+		"value-detail": [2, 2],
 		literal: [1, 2],
 		quotient: [2, 2],
 		"id-of": [1, 1],
+		"case-text": [1, 1],
 		"capture-link": [1, 1],
 		lookup: [3, 3],
 		"date-add": [3, 3],
@@ -420,11 +432,24 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		// The record's own case type, and the case chosen in an earlier menu
 		// with one of its properties.
 		"record-type": [0, 0],
+		"result-field": [1, 1],
 		"chosen-case": [1, 1],
 		"chosen-case-property": [2, 2],
+		// A record or value the form opens with, by the name the form gives it.
+		"opening-record": [1, 1],
+		"opening-value": [1, 1],
 		// Several values a case value is compared with by `=` or `!=`, in a
 		// slot CommCare's server search alone reads.
 		list: [1, -1],
+		// The records a Details tab lists: the device's cases of one type, a
+		// data table's rows or every place the worker can see.
+		cases: [1, -1],
+		places: [0, 0],
+		// A field of the place a Details tab of places lists: a built-in
+		// field, an organization level's place, or a place property.
+		"place-field": [1, 1],
+		"place-level": [1, 1],
+		"place-property": [1, 1],
 	}).map(([name, [minArgs, maxArgs]]): [string, FunctionArity] => [
 		name,
 		{ minArgs, maxArgs },

@@ -14,6 +14,7 @@
 // query values run against the session and search-input instances, not
 // against a selected case.
 
+import { caseListStepDatumId } from "@/lib/commcare/formLinkProjection";
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
@@ -38,6 +39,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
+import { evaluateTextInDeviceZone } from "@/lib/preview/xpath/coreDays";
 import { evaluate, evaluateRuntime } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
@@ -57,10 +59,12 @@ import {
 } from "./lookupEvaluation";
 import type { SearchInputValues } from "./runtimeBindings";
 import { searchInputInstanceValues } from "./runtimeBindings";
+import { setStartingRangeValues } from "./searchRangeAnswer";
 import {
 	type CaseDatabaseSnapshot,
 	SEARCH_INPUT_INSTANCE_ID,
 	searchScreenXPathInstances,
+	secondaryXPathInstances,
 } from "./xpathInstances";
 
 /** Bulk helpers evaluate several different slots. Each one obtains its own
@@ -140,13 +144,16 @@ function searchScreenTree(
 	types: ExpressionContext,
 	session: PreviewSearchSessionValues,
 	lookupData: PreviewLookupData | undefined,
+	datumId?: ReturnType<typeof caseListStepDatumId>,
+	userPropertySlugs = previewUserPropertySlugMap(session),
 ): WireExpr {
 	return toWire(expression, {
 		target: "preview",
 		types,
 		bindings: {
 			searchInputInstanceId: SEARCH_INPUT_INSTANCE_ID,
-			userPropertySlugs: previewUserPropertySlugMap(session),
+			...(datumId && { datumId }),
+			userPropertySlugs,
 			...(lookupData === undefined
 				? {}
 				: {
@@ -253,21 +260,46 @@ export function emitPreviewSearchPredicate(
 	inputValues: SearchInputValues = new Map(),
 ): SearchScreenXPath {
 	const lookupData = environment.lookup;
+	const listAction = types.slot.slot === "case_list_action_condition";
+	const beforeSearch = types.slot.slot === "search_button_display_condition";
 	return {
 		source: printSearchScreenTree(
-			searchScreenTree(predicate, types, session, lookupData),
-		),
-		instances: searchScreenXPathInstances({
-			session,
-			answers: searchInputInstanceValues(
-				searchInputs,
-				withSeededHiddenValues(searchInputs, inputValues, session, environment),
+			searchScreenTree(
+				predicate,
+				types,
+				session,
+				lookupData,
+				listAction
+					? caseListStepDatumId(environment.doc, environment.moduleUuid)
+					: undefined,
 			),
-			...(lookupData === undefined ? {} : { lookupData }),
-			...(environment.sessionData === undefined
-				? {}
-				: { sessionData: environment.sessionData }),
-		}),
+		),
+		instances:
+			listAction || beforeSearch
+				? secondaryXPathInstances({
+						session,
+						lookupData: lookupData ?? null,
+						sessionData: environment.sessionData,
+						caseDatabase: environment.caseDatabase ?? null,
+						caseTypes: environment.doc.caseTypes ?? [],
+						includeFixtureAliases: true,
+					})
+				: searchScreenXPathInstances({
+						session,
+						answers: searchInputInstanceValues(
+							searchInputs,
+							withSeededHiddenValues(
+								searchInputs,
+								inputValues,
+								session,
+								environment,
+							),
+						),
+						...(lookupData === undefined ? {} : { lookupData }),
+						...(environment.sessionData === undefined
+							? {}
+							: { sessionData: environment.sessionData }),
+					}),
 	};
 }
 
@@ -327,18 +359,30 @@ export function sessionInstancePathValue(
  * default against the session context before it constructs the search-input
  * instance, so sibling defaults do not feed one another. Preview mirrors that
  * lifecycle by evaluating each expression with an empty input bag.
- *
- * Date-range inputs stay empty because their final schema has no scalar
- * default slot.
  */
 export function resolveSearchInputDefaults(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
+	deviceTimeZone?: string,
+	openedRanges?: ReadonlyMap<Uuid, Readonly<Record<string, string>>>,
 ): SearchInputValues {
 	const lookupData = environment.lookup;
 	const values = new Map<string, string>();
-	for (const input of [...searchInputs]) {
+	let evaluation: EvalContext | undefined;
+	let propertySlugs: ReturnType<typeof previewUserPropertySlugMap> | undefined;
+	// Within one module all date-range defaults share the same slot profile.
+	// Reuse its checked context and the manager's instance tree for the opening.
+	let rangeContext: ExpressionContext | undefined;
+	let ownedRanges: Set<Uuid> | undefined;
+
+	for (const input of searchInputs) {
+		const opening = openedRanges?.get(input.uuid);
+		if (opening) {
+			for (const [key, value] of Object.entries(opening))
+				values.set(key, value);
+			continue;
+		}
 		const inputDefault = searchInputDefault(input);
 		if (inputDefault === undefined) continue;
 		/* A default whose carriers the held snapshot doesn't COVER (not
@@ -349,17 +393,66 @@ export function resolveSearchInputDefaults(
 		if (!expressionLookupsCovered(inputDefault, lookupData)) {
 			continue;
 		}
-		const value = evaluatePreviewSearchExpression(
-			inputDefault,
-			searchInputContext(environment, input.uuid, "search_input_default"),
+		const isRange = input.kind !== "hidden" && input.type === "date-range";
+		if (isRange && !ownedRanges) {
+			ownedRanges = new Set(
+				environment.doc.modules[
+					environment.moduleUuid
+				]?.caseListConfig?.searchInputs
+					.filter(
+						(field) => field.kind !== "hidden" && field.type === "date-range",
+					)
+					.map((field) => field.uuid),
+			);
+		}
+		const types: ExpressionContext =
+			isRange && rangeContext && ownedRanges?.has(input.uuid)
+				? {
+						...rangeContext,
+						slot: {
+							entity: "module" as const,
+							uuid: environment.moduleUuid,
+							slot: "search_input_default" as const,
+							member: { searchInputUuid: input.uuid },
+						},
+					}
+				: searchInputContext(environment, input.uuid, "search_input_default");
+		if (isRange && ownedRanges?.has(input.uuid)) rangeContext = types;
+		evaluation ??= searchScreenEvalContext(
+			searchScreenXPathInstances({
+				session,
+				answers: new Map(),
+				lookupData,
+				sessionData: environment.sessionData,
+			}),
 			session,
-			undefined,
-			undefined,
-			lookupData,
-			environment.sessionData,
-		).trim();
-		if (value === "") continue;
-		values.set(input.name, value);
+		);
+		propertySlugs ??= previewUserPropertySlugMap(session);
+		const xpath = printSearchScreenTree(
+			searchScreenTree(
+				inputDefault,
+				types,
+				session,
+				lookupData,
+				undefined,
+				propertySlugs,
+			),
+		);
+		const context = evaluation;
+		const value = evaluateTextInDeviceZone(deviceTimeZone, () =>
+			xpathToString(evaluate(xpath, context)),
+		);
+		if (input.kind !== "hidden" && input.type === "date-range") {
+			setStartingRangeValues(
+				values,
+				input.name,
+				value,
+				dayNumberEpochOf(session),
+				deviceTimeZone,
+			);
+		} else if (value.trim() !== "") {
+			values.set(input.name, value.trim());
+		}
 	}
 	return values;
 }
@@ -374,7 +467,9 @@ export function resolveSearchInputDefaults(
  * (the validator refuses `input(...)` in its value), so each expression
  * evaluates over the session alone. A value whose lookup carriers the
  * held snapshot does not cover contributes nothing this resolution; a
- * blank result is omitted, matching an unanswered prompt.
+ * blank result is omitted, matching an unanswered prompt, as is a hidden
+ * field with no value, which Core seeds no answer for
+ * (`RemoteQuerySessionManager.initUserAnswers`).
  */
 export function resolveSearchHiddenValues(
 	searchInputs: readonly SearchInputDef[],
@@ -384,7 +479,7 @@ export function resolveSearchHiddenValues(
 	const lookupData = environment.lookup;
 	const values = new Map<string, string>();
 	for (const input of searchInputs) {
-		if (input.kind !== "hidden") continue;
+		if (input.kind !== "hidden" || input.value === undefined) continue;
 		if (!expressionLookupsCovered(input.value, lookupData)) continue;
 		const value = evaluatePreviewSearchExpression(
 			input.value,

@@ -14,6 +14,7 @@ export interface CaseRetypePlan {
 	readonly fromType: string;
 	readonly toType: string;
 	readonly retained: readonly string[];
+	readonly datesKeptAsText: readonly string[];
 	readonly conversions: readonly CaseRetypeConversion[];
 	readonly parked: readonly string[];
 	readonly reviewRequired: boolean;
@@ -50,6 +51,7 @@ export function planCaseRetype(
 		destinationProperties.map((property) => [property.name, property]),
 	);
 	const retained: string[] = [];
+	const datesKeptAsText: string[] = [];
 	const conversions: CaseRetypeConversion[] = [];
 	const parked: string[] = [];
 
@@ -61,8 +63,13 @@ export function planCaseRetype(
 		}
 		const fromDataType = effectiveDataType(property);
 		const toDataType = effectiveDataType(target);
+		// Dates are already stored as ISO strings. A text property keeps the
+		// same value when CommCare changes only the case type.
 		if (fromDataType === toDataType) retained.push(property.name);
-		else {
+		else if (fromDataType === "date" && toDataType === "text") {
+			retained.push(property.name);
+			datesKeptAsText.push(property.name);
+		} else {
 			conversions.push({
 				property: property.name,
 				fromType: fromDataType,
@@ -77,6 +84,7 @@ export function planCaseRetype(
 		fromType,
 		toType,
 		retained,
+		datesKeptAsText,
 		conversions,
 		parked,
 		reviewRequired:

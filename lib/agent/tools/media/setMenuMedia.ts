@@ -25,8 +25,8 @@
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every item must
  * resolve (module / form exists) and every set slot must pass the
- * at-source asset verdict (exists / owned / ready / kind-matched / inside
- * the export ceiling) before the single gated commit; any failure returns
+ * at-source asset verdict (exists / owned / ready / kind-matched / plays
+ * where the app runs) before the single gated commit; any failure returns
  * `{ error }` naming every offending item and nothing is written. Two
  * items addressing the same tile apply in order — the later one wins.
  *
@@ -35,17 +35,17 @@
  */
 
 import { z } from "zod";
-import { alwaysOfferedRegistrationMutations } from "@/lib/doc/alwaysOfferedRegistration";
 import {
 	alwaysOfferedRegistrationOf,
-	type CaseListMenuItem,
 	FORM_ICON_SLUGS,
 	MODULE_ICON_SLUGS,
 } from "@/lib/domain";
 import {
-	setFormMediaMutations,
-	setModuleMediaMutations,
-} from "../../blueprintHelpers";
+	appLanguageIdentitySchema,
+	effectiveAppLocalization,
+	languageTag,
+} from "@/lib/domain/localization";
+
 import type { ToolInvocationContext } from "../../workspace/types";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
@@ -66,6 +66,11 @@ import {
 
 const moduleMenuItemSchema = moduleAddressSchema
 	.extend({
+		language: appLanguageIdentitySchema
+			.optional()
+			.describe(
+				"The app language for these files. Omit for the shared files. In another language null restores the shared file.",
+			),
 		target: z.literal("module").describe("A module's home-screen tile"),
 		icon: nullableIconSlot(
 			MODULE_ICON_SLUGS,
@@ -83,6 +88,11 @@ const moduleMenuItemSchema = moduleAddressSchema
 
 const formMenuItemSchema = formAddressSchema
 	.extend({
+		language: appLanguageIdentitySchema
+			.optional()
+			.describe(
+				"The app language for these files. Omit for the shared files. In another language null restores the shared file.",
+			),
 		target: z.literal("form").describe("A form's menu tile"),
 		icon: nullableIconSlot(
 			FORM_ICON_SLUGS,
@@ -100,6 +110,11 @@ const formMenuItemSchema = formAddressSchema
 
 const caseListRegistrationItemSchema = moduleAddressSchema
 	.extend({
+		language: appLanguageIdentitySchema
+			.optional()
+			.describe(
+				"The app language for these files. Omit for the shared files. In another language null restores the shared file.",
+			),
 		target: z
 			.literal("case-list-registration")
 			.describe("The Register button on a module's case list"),
@@ -117,6 +132,11 @@ const caseListRegistrationItemSchema = moduleAddressSchema
 
 const caseListMenuItemItemSchema = moduleAddressSchema
 	.extend({
+		language: appLanguageIdentitySchema
+			.optional()
+			.describe(
+				"The app language for these files. Omit for the shared files. In another language null restores the shared file.",
+			),
 		target: z
 			.literal("case-list-menu-item")
 			.describe("A module's case list item in its menu"),
@@ -162,6 +182,7 @@ export const setMenuMediaTool = {
 	): Promise<MutatingToolResult<SetMenuMediaResult>> {
 		const doc = ctx.snapshot.doc;
 		const { items } = input;
+		const languages = effectiveAppLocalization(doc.localization);
 		try {
 			// Resolve every item before writing anything, collecting every
 			// failure — `commitMediaBatch` reports them as one all-or-nothing
@@ -170,6 +191,13 @@ export const setMenuMediaTool = {
 			const resolved: ResolvedMediaBatchItem[] = [];
 			const failures: string[] = [];
 			for (const [i, item] of items.entries()) {
+				const language = item.language
+					? languageTag(item.language)
+					: languages.sourceLanguage;
+				if (!languages.languageOrder.includes(language)) {
+					failures.push(`items[${i}]: Choose a language the app includes.`);
+					continue;
+				}
 				if (item.target === "module") {
 					const address = resolveModuleAddress(doc, item);
 					if (!address.ok) {
@@ -183,11 +211,15 @@ export const setMenuMediaTool = {
 						`the icon on ${carrierPhrase}`,
 					);
 					resolved.push({
-						mutations: setModuleMediaMutations(
-							mod.uuid,
-							icon.icon,
-							item.audioLabel,
-						),
+						mutations: [
+							{
+								kind: "setModuleMedia",
+								uuid: mod.uuid,
+								icon: icon.icon,
+								audioLabel: item.audioLabel,
+								language,
+							},
+						],
 						expectations: [
 							...icon.expectations,
 							...slotExpectation(
@@ -216,16 +248,16 @@ export const setMenuMediaTool = {
 						item.icon,
 						`the icon on ${carrierPhrase}`,
 					);
-					// The entry is set whole, its label kept; a cleared slot is an
-					// absent key of that entry, which survives JSON.
-					const entry: CaseListMenuItem = {
-						...(stored.label !== undefined && { label: stored.label }),
-						...(icon.icon !== null && { icon: icon.icon }),
-						...(item.audioLabel !== null && { audioLabel: item.audioLabel }),
-					};
 					resolved.push({
 						mutations: [
-							{ kind: "setCaseListMenuItem", uuid: mod.uuid, item: entry },
+							{
+								kind: "setModuleMedia",
+								uuid: mod.uuid,
+								caseListItem: true,
+								icon: icon.icon,
+								audioLabel: item.audioLabel,
+								language,
+							},
 						],
 						expectations: [
 							...icon.expectations,
@@ -255,18 +287,17 @@ export const setMenuMediaTool = {
 						item.icon,
 						`the icon on ${carrierPhrase}`,
 					);
-					const { icon: _icon, audioLabel: _audioLabel, ...kept } = stored;
-					const plan = alwaysOfferedRegistrationMutations(doc, mod.uuid, {
-						...kept,
-						...(icon.icon !== null && { icon: icon.icon }),
-						...(item.audioLabel !== null && { audioLabel: item.audioLabel }),
-					});
-					if (plan.kind === "blocked") {
-						failures.push(`items[${i}]: ${plan.message}`);
-						continue;
-					}
 					resolved.push({
-						mutations: plan.mutations,
+						mutations: [
+							{
+								kind: "setFormMedia",
+								uuid: stored.formUuid,
+								registrationOf: mod.uuid,
+								icon: icon.icon,
+								audioLabel: item.audioLabel,
+								language,
+							},
+						],
 						expectations: [
 							...icon.expectations,
 							...slotExpectation(
@@ -289,11 +320,15 @@ export const setMenuMediaTool = {
 						`the icon on ${carrierPhrase}`,
 					);
 					resolved.push({
-						mutations: setFormMediaMutations(
-							form.uuid,
-							icon.icon,
-							item.audioLabel,
-						),
+						mutations: [
+							{
+								kind: "setFormMedia",
+								uuid: form.uuid,
+								icon: icon.icon,
+								audioLabel: item.audioLabel,
+								language,
+							},
+						],
 						expectations: [
 							...icon.expectations,
 							...slotExpectation(

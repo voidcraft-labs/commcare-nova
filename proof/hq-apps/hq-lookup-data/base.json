@@ -1,0 +1,21 @@
+{
+	"id": "hq-lookup-data",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"LOOKUP_TABLES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"expressions-and-data/absent-field-vs-zero-values-vs-empty-string",
+		"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
+		"expressions-and-data/item-attributes-and-per-row-attribute-values",
+		"questions/itemset-refs-to-attr-or-property-qualified-fields"
+	]
+}

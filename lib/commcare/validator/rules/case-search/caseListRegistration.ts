@@ -9,7 +9,8 @@
  * forms read the search, which opens from Results after a search found
  * nothing, carrying the search answers. It also lowers to a hidden module
  * that owns the form, so it is reachable only through the Register action
- * and returns to Results showing the case it registered.
+ * and returns to Results keyed to the case it registered, which Web Apps
+ * shows with no row (`lib/preview/CLAUDE.md`, `listsNoRow`).
  *
  *   - `CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH` (module rule): the
  *     action's relevancy reads the inline results instance, which exists
@@ -44,6 +45,9 @@
  *     `Form.get_registration_actions`). So its own arm takes Case
  *     Management's slot, and no basic child of the host's type stands at its
  *     root (`basicCaseSlots.ts::rootBasicSubcaseCreates`).
+ *   - `CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT`: a return query keyed
+ *     to a case that might not be created receives a 404 from HQ after the
+ *     form saves.
  *   - `CASE_LIST_REGISTRATION_MULTIPLE_RETURN`: a several-case host can't
  *     carry the one new case back into a selection of several.
  *
@@ -56,6 +60,7 @@ import {
 	afterEmptySearchRegistrationFormOf,
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
+	caseListRegistrationReturnOf,
 	caseSelectionCardinality,
 	type Module,
 	menuFormUuidsOf,
@@ -68,9 +73,120 @@ import {
 	registrationMintsOwnCaseId,
 	rootBasicSubcaseCreates,
 } from "@/lib/domain/basicCaseSlots";
+import {
+	eligibleCaseListAction,
+	sameCaseListActionTarget,
+} from "@/lib/domain/caseListActionTargets";
+import { checkExpression, slotContext } from "@/lib/domain/expression";
+import { advancedFormLoads } from "../../../advancedSelections";
+import { emissionPlan } from "../../../emissionPlan";
+import {
+	caseListActionReturnFrames,
+	entrySessionDatums,
+	formLinkProjectionContext,
+	moduleFrameActionsBuildable,
+} from "../../../formLinkProjection";
 import { emittedModuleKind } from "../../../moduleKind";
+import { caseListActionUndeclaredInstances } from "../../../suite/case-list/actionCondition";
 import { type ValidationError, validationError } from "../../errors";
-import { caseListReturnSharesFirstMenuCase } from "../formsInMenuAbove";
+import {
+	checkErrorDetails,
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../../lookupTypeContext";
+import { caseListReturnFirstMenuCase } from "../formsInMenuAbove";
+
+/** What a list action's condition reads, in a person's words, by the id of
+ *  the instance the read needs. */
+function instanceWords(id: string): string {
+	if (id === "commcaresession") return "the worker's session";
+	if (id === "casedb") return "the worker's records";
+	if (id === "locations") return "the organization's places";
+	if (id.startsWith("item-list:")) return "a data table";
+	if (id.startsWith("results") || id.startsWith("search"))
+		return "the search's results";
+	return "information";
+}
+
+function joinedWords(words: readonly string[]): string {
+	return words.length < 2
+		? (words[0] ?? "")
+		: `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
+
+/** An action condition is evaluated while the list is still asking which
+ * case to open. The worker and earlier selections are already available. */
+export function caseListActionVisibility(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
+): ValidationError[] {
+	const slot = mod.caseListRegistrationForm;
+	if (slot?.kind !== "always" || slot.showWhen === undefined) return [];
+	const loc = { moduleUuid, moduleName: mod.name };
+	const formName = doc.forms[slot.formUuid]?.name ?? "";
+	const details = { formUuid: slot.formUuid, formName };
+	if (slot.showWhen.kind === "empty-search") {
+		return moduleFormsReadSearch(mod)
+			? []
+			: [
+					validationError(
+						"CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH",
+						"module",
+						`To offer "${formName}" after an empty search, "${mod.name}" needs to run the search before showing its list. You can turn on Forms read the search or change when the button appears.`,
+						loc,
+						details,
+					),
+				];
+	}
+	const context = slotContext(
+		doc,
+		{ entity: "module", uuid: moduleUuid, slot: "case_list_action_condition" },
+		lookupTables ?? new Map(),
+	);
+	if (!context)
+		throw new Error("A saved list form condition has no owning menu.");
+	const semantic = semanticCheckErrors(
+		checkExpression(slot.showWhen.condition, context),
+	);
+	if (semantic.length === 0) {
+		const undeclared = caseListActionUndeclaredInstances(
+			doc,
+			moduleUuid,
+			slot.showWhen,
+		);
+		if (undeclared.length === 0) return [];
+		const reads = [...new Set(undeclared.map(instanceWords))];
+		return [
+			validationError(
+				"CASE_LIST_ACTION_CONDITION_INVALID",
+				"module",
+				`The condition for offering "${formName}" in "${mod.name}" reads ${joinedWords(reads)}, which the case list doesn't load, so the list would not open once the app is on CommCare HQ. You can base the condition on what the list itself reads, such as its filter or the record chosen before it, or clear the button condition.`,
+				loc,
+				{
+					...details,
+					reason: "instance-not-on-the-list",
+					instances: undeclared.join(" "),
+					slot: "caseListRegistrationForm.showWhen.condition",
+				},
+			),
+		];
+	}
+	return semantic.map((error) =>
+		validationError(
+			"CASE_LIST_ACTION_CONDITION_INVALID",
+			"module",
+			`The condition for offering "${formName}" in "${mod.name}" cannot run on the case list. ${error.message} You can change or clear the button condition.`,
+			loc,
+			{
+				...details,
+				...checkErrorDetails(error),
+				slot: "caseListRegistrationForm.showWhen.condition",
+			},
+		),
+	);
+}
 
 /** The module rule: the `after-empty-search` arm's findings that read the
  *  host alone. The `always` arm and the shared findings are
@@ -110,6 +226,7 @@ export function caseListRegistrationForm(
 			: []),
 		...(form.displayCondition !== undefined ? ["a display condition"] : []),
 		...(form.hiddenFromMenu === true ? ["hiddenFromMenu"] : []),
+		...(form.badge === undefined ? [] : ["a menu badge"]),
 	];
 	if (navigation.length > 0) {
 		errors.push(
@@ -170,10 +287,67 @@ export function caseListRegistrationApp(doc: BlueprintDoc): ValidationError[] {
 		const mod = doc.modules[moduleUuid];
 		const slot = mod?.caseListRegistrationForm;
 		if (mod === undefined || slot === undefined) return [];
-		return slot.kind === "after-empty-search"
-			? afterEmptySearchFindings(doc, mod, moduleUuid, slot.formUuid)
-			: alwaysFindings(doc, mod, moduleUuid, slot.formUuid, slot.afterSubmit);
+		const errors =
+			slot.kind === "after-empty-search"
+				? afterEmptySearchFindings(doc, mod, moduleUuid, slot.formUuid)
+				: alwaysFindings(doc, mod, moduleUuid, slot.formUuid, slot.afterSubmit);
+		const conditionalReturn = conditionalRegistrationReturn(doc, mod);
+		if (conditionalReturn) errors.push(conditionalReturn);
+		return errors;
 	});
+}
+
+/** HQ saves the form before it rebuilds the return frame. A query in that
+ * frame can use the ID allocated before the form ran even when the form never
+ * created the case. HQ's case fixture returns 404 on that ID. */
+function conditionalRegistrationReturn(
+	doc: BlueprintDoc,
+	host: Module,
+): ValidationError | undefined {
+	const slot = host.caseListRegistrationForm;
+	const returned = caseListRegistrationReturnOf(doc, host.uuid);
+	if (
+		!slot ||
+		!moduleFormsReadSearch(host) ||
+		!returned ||
+		returned.kind === "own"
+	)
+		return undefined;
+	const form = doc.forms[slot.formUuid];
+	if (!form) return undefined;
+	const target = slot.kind === "always" ? slot.target : undefined;
+	const condition =
+		target?.kind === "created-case"
+			? form.caseOperations?.find(
+					(operation) =>
+						operation.uuid === target.operationUuid &&
+						operation.action === "create",
+				)?.condition
+			: form.openCondition;
+	if (!condition || condition.kind === "match-all") return undefined;
+	const projected = emissionPlan(doc).doc;
+	const owner = moduleUuidOfForm(projected, form.uuid);
+	if (!owner || !moduleFrameActionsBuildable(projected, [host.uuid, owner]))
+		return undefined;
+	const ctx = formLinkProjectionContext(projected, {
+		entryMetadataOnly: true,
+		expressionDoc: doc,
+	});
+	const frames = caseListActionReturnFrames(
+		projected,
+		ctx,
+		host.uuid,
+		entrySessionDatums(projected, ctx, owner, form.uuid),
+	);
+	const withoutCase = returned.kind === "new-case" ? frames[1] : frames[0];
+	if (!withoutCase?.newCaseSearchModuleUuids.length) return undefined;
+	return validationError(
+		"CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT",
+		"module",
+		`“${form.name}” can save without creating the case “${host.name}” needs to reopen its search results. You can have the form always create that case or choose First menu after submit.`,
+		{ moduleUuid: host.uuid, moduleName: host.name },
+		{ formUuid: form.uuid, formName: form.name },
+	);
 }
 
 function afterEmptySearchFindings(
@@ -285,6 +459,21 @@ function alwaysNotRegistration(
 			loc,
 			{ ...details, reason, ...extra },
 		);
+	const slot = host.caseListRegistrationForm;
+	const target = slot?.kind === "always" ? slot.target : undefined;
+	const eligible = eligibleCaseListAction(doc, hostUuid, formUuid);
+	if (eligible && sameCaseListActionTarget(target, eligible.target))
+		return undefined;
+	if (target !== undefined || eligible?.target !== undefined) {
+		const message =
+			target?.kind === "chosen-parent"
+				? `"${form.name}" needs the parent record selected before "${host.name}". You can choose the parent list that supplies it or choose another form.`
+				: `"${form.name}" needs one named case change that creates a "${caseType}" record outside a repeat. You can choose that change or another form.`;
+		return refuse(
+			target?.kind === "chosen-parent" ? "selected-parent" : "action-target",
+			message,
+		);
+	}
 	if (form.type !== "registration")
 		return refuse(
 			"form-type",
@@ -312,19 +501,11 @@ function alwaysNotRegistration(
 			`"${host.name}" offers "${form.name}" on its case list, but "${form.name}" registers more than one "${caseType}" case, and CommCare HQ offers a form from a case list only where it registers one. You can move the other "${caseType}" case into a repeat or to another form, or stop offering "${form.name}" there.`,
 			{ operationUuid: secondCreate },
 		);
-	const offeredOnNoMenu = doc.moduleOrder.find(
-		(moduleUuid) =>
-			afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid,
+
+	return refuse(
+		"action-target",
+		`"${form.name}" needs one form entry that creates a "${caseType}" record and can load its parents. You can offer a form that creates this record or choose a follow-up for the selected parent.`,
 	);
-	if (offeredOnNoMenu !== undefined) {
-		const menuName = doc.modules[offeredOnNoMenu]?.name ?? "";
-		return refuse(
-			"after-empty-search-form",
-			`"${host.name}" offers "${form.name}" on its case list, but "${form.name}" opens only after a search finds nothing in "${menuName}", so it is on no menu to offer from. You can choose a registration form that is on a menu, or stop offering it there.`,
-			{ formModuleName: menuName },
-		);
-	}
-	return undefined;
 }
 
 function alwaysFindings(
@@ -371,7 +552,14 @@ function alwaysFindings(
 	} else {
 		const blockingFormUuid = menuFormUuidsOf(doc, hostUuid).find((uuid) => {
 			const type = doc.forms[uuid]?.type;
-			return type === undefined || !CASE_LOADING_FORM_TYPES.has(type);
+			return (
+				type === undefined ||
+				(doc.forms[uuid].caseSelections === undefined
+					? !CASE_LOADING_FORM_TYPES.has(type)
+					: !doc.forms[uuid].caseSelections?.some(
+							(row) => row.source.kind === "choose",
+						))
+			);
 		});
 		if (blockingFormUuid !== undefined) {
 			const blockingFormName = doc.forms[blockingFormUuid]?.name ?? "";
@@ -403,8 +591,8 @@ function alwaysFindings(
 			),
 		);
 	} else {
-		const shared = caseListReturnSharesFirstMenuCase(doc, hostUuid);
-		if (shared !== undefined) {
+		const shared = caseListReturnFirstMenuCase(doc, hostUuid);
+		if (shared?.conflict) {
 			const parentName = doc.modules[shared.aboveModuleUuid]?.name ?? "";
 			errors.push(
 				validationError(
@@ -425,7 +613,8 @@ function alwaysFindings(
 
 	if (
 		caseSelectionCardinality(host) === "multiple" &&
-		afterSubmit === "new-case"
+		afterSubmit === "new-case" &&
+		caseListRegistrationReturnOf(doc, hostUuid)?.kind !== "own"
 	) {
 		errors.push(
 			validationError(
@@ -438,27 +627,100 @@ function alwaysFindings(
 		);
 	}
 
-	if (emittedModuleKind(doc, hostUuid) === "advanced") {
+	const broken =
+		emittedModuleKind(doc, hostUuid) === "advanced"
+			? advancedCaseListHostBreak(doc, hostUuid)
+			: undefined;
+	if (broken !== undefined) {
+		const offending = doc.forms[broken.formUuid]?.name ?? "";
 		errors.push(
 			validationError(
 				"CASE_LIST_REGISTRATION_ADVANCED_MENU",
 				"module",
-				`"${host.name}" is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering "${form.name}" there.`,
+				advancedHostMessage(host.name, form.name, offending, broken.rule),
 				loc,
-				{ ...details, reason: "host" },
-			),
-		);
-	} else if (emittedModuleKind(doc, formModuleUuid) === "advanced") {
-		const formModuleName = doc.modules[formModuleUuid]?.name ?? "";
-		errors.push(
-			validationError(
-				"CASE_LIST_REGISTRATION_ADVANCED_MENU",
-				"module",
-				`"${form.name}" is in "${formModuleName}", which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
-				loc,
-				{ ...details, reason: "form", formModuleName },
+				{
+					...details,
+					reason: broken.rule,
+					offendingFormUuid: broken.formUuid,
+					offendingFormName: offending,
+				},
 			),
 		);
 	}
+
 	return errors;
+}
+
+/** Which of CommCare HQ's case-list-module rules a form of an advanced host
+ *  breaks, in the order `AdvancedModuleValidator.validate_with_raise` checks
+ *  them. */
+export type AdvancedCaseListHostRule =
+	| "same-records"
+	| "requires-case"
+	| "parent-chain"
+	| "host-type"
+	| "same-tag"
+	| "host-details";
+
+/**
+ * The first form of an advanced host whose loads break one of the six rules
+ * CommCare HQ's build holds a case-list module to
+ * (`helpers/validators.py::AdvancedModuleValidator.validate_with_raise`, read
+ * where the module's `case_list_form.form_id` is set): over each form's loads
+ * that select no case on their own, every form loads the same case types,
+ * loads at least one, each load after the first is indexed to the one before
+ * it, the last is the host's case type, every form keeps the last under one
+ * case tag, and the last chooses from the host's own list. The loads are the
+ * ones the export writes (`advancedSelections.ts::advancedFormLoads`), so a
+ * form moved into the host or a tag a publish keeps is checked as HQ will
+ * check it. Undefined where every form holds them.
+ */
+export function advancedCaseListHostBreak(
+	doc: BlueprintDoc,
+	hostUuid: Uuid,
+):
+	| { readonly formUuid: Uuid; readonly rule: AdvancedCaseListHostRule }
+	| undefined {
+	const caseType = doc.modules[hostUuid]?.caseType;
+	let loadedTypes: string | undefined;
+	let tag: string | undefined;
+	for (const formUuid of doc.formOrder[hostUuid] ?? []) {
+		const loads = advancedFormLoads(doc, formUuid).filter(
+			(load) => !load.worker,
+		);
+		const types = JSON.stringify(
+			[...new Set(loads.map((load) => load.caseType))].sort(),
+		);
+		const breaks = (rule: AdvancedCaseListHostRule) => ({ formUuid, rule });
+		if (loadedTypes === undefined) loadedTypes = types;
+		else if (loadedTypes !== types) return breaks("same-records");
+		const last = loads.at(-1);
+		if (last === undefined) return breaks("requires-case");
+		for (let index = 1; index < loads.length; index++)
+			if (loads[index].index?.tag !== loads[index - 1].tag)
+				return breaks("parent-chain");
+		if (last.caseType !== caseType) return breaks("host-type");
+		tag ??= last.tag;
+		if (last.tag !== tag) return breaks("same-tag");
+		if (last.listModule !== hostUuid) return breaks("host-details");
+	}
+	return undefined;
+}
+
+function advancedHostMessage(
+	hostName: string,
+	formName: string,
+	offending: string,
+	rule: AdvancedCaseListHostRule,
+): string {
+	const why: Record<AdvancedCaseListHostRule, string> = {
+		"same-records": `"${offending}" chooses different records than the menu's other forms`,
+		"requires-case": `"${offending}" opens without choosing a record`,
+		"parent-chain": `"${offending}" chooses a record that is not the parent of the next one it chooses`,
+		"host-type": `"${offending}" ends by choosing a record of another type than "${hostName}" lists`,
+		"same-tag": `CommCare HQ keeps the record "${offending}" chooses under another name than the menu's other forms use`,
+		"host-details": `"${offending}" chooses its record from another menu's list`,
+	};
+	return `"${hostName}" offers "${formName}" on its case list, but ${why[rule]}. CommCare HQ keeps "${hostName}" as an advanced menu, and offers a form from such a menu's case list only where every form of the menu chooses the same records the same way. You can move "${offending}" to another menu, or stop offering "${formName}" there.`;
 }

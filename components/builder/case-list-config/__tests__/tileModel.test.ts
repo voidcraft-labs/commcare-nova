@@ -52,6 +52,8 @@ const NAME = column("case_name", "Patient name", {
 const VILLAGE = column("village", "Village", {
 	tile: tileCell(6, 0, 6, 1),
 });
+/** The rows of a tile of two fields: at least six (`tileRowLimit`). */
+const ROWS = 6;
 
 /**
  * A case list showing exactly these columns, in the order written.
@@ -152,6 +154,7 @@ describe("planTilePlacement", () => {
 			membershipOf([styled, VILLAGE]),
 			styled.uuid,
 			{ x: 0, y: 3, width: 2, height: 1 },
+			ROWS,
 		);
 		expect(verdict).toEqual({
 			ok: true,
@@ -160,12 +163,17 @@ describe("planTilePlacement", () => {
 	});
 
 	it("refuses an overlap and names both fields", () => {
-		const verdict = planTilePlacement(placed, NAME.uuid, {
-			x: 4,
-			y: 0,
-			width: 6,
-			height: 1,
-		});
+		const verdict = planTilePlacement(
+			placed,
+			NAME.uuid,
+			{
+				x: 4,
+				y: 0,
+				width: 6,
+				height: 1,
+			},
+			ROWS,
+		);
 		expect(verdict.ok).toBe(false);
 		expect(verdict.ok === false && verdict.reason).toBe(
 			"Patient name would sit on top of Village. Two fields can't share a square on a tile: one would be drawn over the other.",
@@ -173,49 +181,72 @@ describe("planTilePlacement", () => {
 	});
 
 	it("refuses a placement past the right edge and says where it lands", () => {
-		const verdict = planTilePlacement(placed, NAME.uuid, {
-			x: 8,
-			y: 4,
-			width: 6,
-			height: 1,
-		});
+		const verdict = planTilePlacement(
+			placed,
+			NAME.uuid,
+			{
+				x: 8,
+				y: 4,
+				width: 6,
+				height: 1,
+			},
+			ROWS,
+		);
 		expect(verdict.ok).toBe(false);
 		expect(verdict.ok === false && verdict.reason).toBe(
 			"Patient name would reach column 14, past the right edge. A tile is 12 columns wide, so a field has to end by column 12.",
 		);
 	});
 
-	it("refuses a placement past the bottom edge", () => {
-		const verdict = planTilePlacement(placed, NAME.uuid, {
-			x: 0,
-			y: 11,
-			width: 6,
-			height: 3,
-		});
-		expect(verdict.ok === false && verdict.reason).toBe(
-			"Patient name would reach row 14, past the bottom edge. A tile is 12 rows tall, so a field has to end by row 12.",
+	it("refuses a placement past the bottom edge: a row for each field, at least six", () => {
+		const verdict = planTilePlacement(
+			placed,
+			NAME.uuid,
+			{ x: 0, y: 4, width: 6, height: 3 },
+			ROWS,
 		);
+		expect(verdict.ok === false && verdict.reason).toBe(
+			"Patient name would reach row 7, past the bottom edge. This tile has 6 rows, one for each field it shows and at least six, so a field has to end by row 6.",
+		);
+		expect(
+			planTilePlacement(
+				placed,
+				NAME.uuid,
+				{ x: 0, y: 3, width: 6, height: 3 },
+				ROWS,
+			).ok,
+		).toBe(true);
 	});
 
 	it("refuses a placement before the first column", () => {
-		const verdict = planTilePlacement(placed, NAME.uuid, {
-			x: -1,
-			y: 0,
-			width: 6,
-			height: 1,
-		});
+		const verdict = planTilePlacement(
+			placed,
+			NAME.uuid,
+			{
+				x: -1,
+				y: 0,
+				width: 6,
+				height: 1,
+			},
+			ROWS,
+		);
 		expect(verdict.ok === false && verdict.reason).toBe(
 			"Patient name would start before column 1. A tile starts at column 1.",
 		);
 	});
 
 	it("never compares a field against its own current place", () => {
-		const verdict = planTilePlacement(placed, NAME.uuid, {
-			x: 0,
-			y: 0,
-			width: 6,
-			height: 2,
-		});
+		const verdict = planTilePlacement(
+			placed,
+			NAME.uuid,
+			{
+				x: 0,
+				y: 0,
+				width: 6,
+				height: 2,
+			},
+			ROWS,
+		);
 		expect(verdict.ok).toBe(true);
 	});
 
@@ -225,12 +256,12 @@ describe("planTilePlacement", () => {
 			sort: { direction: "asc", priority: 1 },
 			tile: tileCell(6, 0, 6, 1),
 		});
-		const verdict = planTilePlacement(membershipOf([NAME, hidden]), NAME.uuid, {
-			x: 4,
-			y: 0,
-			width: 6,
-			height: 1,
-		});
+		const verdict = planTilePlacement(
+			membershipOf([NAME, hidden]),
+			NAME.uuid,
+			{ x: 4, y: 0, width: 6, height: 1 },
+			ROWS,
+		);
 		expect(verdict.ok).toBe(true);
 	});
 });
@@ -239,12 +270,12 @@ describe("planTileMove and planTileResize", () => {
 	const placed = membershipOf([NAME, VILLAGE]);
 
 	it("shifts a field by whole squares", () => {
-		const verdict = planTileMove(placed, NAME.uuid, 0, 2);
+		const verdict = planTileMove(placed, NAME.uuid, 0, 2, ROWS);
 		expect(verdict.ok && verdict.cell).toEqual(tileCell(0, 2, 6, 1));
 	});
 
 	it("grows and shrinks at the right and bottom edges", () => {
-		const verdict = planTileResize(placed, VILLAGE.uuid, 0, 1);
+		const verdict = planTileResize(placed, VILLAGE.uuid, 0, 1, ROWS);
 		expect(verdict.ok && verdict.cell).toEqual(tileCell(6, 0, 6, 2));
 	});
 
@@ -252,7 +283,13 @@ describe("planTileMove and planTileResize", () => {
 		const narrow = column("narrow", "Age", {
 			tile: tileCell(0, 0, 1, 1),
 		});
-		const verdict = planTileResize(membershipOf([narrow]), narrow.uuid, -1, 0);
+		const verdict = planTileResize(
+			membershipOf([narrow]),
+			narrow.uuid,
+			-1,
+			0,
+			ROWS,
+		);
 		expect(verdict.ok === false && verdict.reason).toBe(
 			"Age has to be at least one column wide.",
 		);
@@ -262,7 +299,13 @@ describe("planTileMove and planTileResize", () => {
 		const short = column("short", "Age", {
 			tile: tileCell(0, 0, 2, 1),
 		});
-		const verdict = planTileResize(membershipOf([short]), short.uuid, 0, -1);
+		const verdict = planTileResize(
+			membershipOf([short]),
+			short.uuid,
+			0,
+			-1,
+			ROWS,
+		);
 		expect(verdict.ok === false && verdict.reason).toBe(
 			"Age has to be at least one row tall.",
 		);
@@ -310,7 +353,7 @@ describe("tileKeyboardGesture", () => {
 		const verdict =
 			gesture === null
 				? null
-				: planTileKeyboardGesture(placed, NAME.uuid, gesture);
+				: planTileKeyboardGesture(placed, NAME.uuid, gesture, ROWS);
 		expect(verdict?.ok).toBe(false);
 		expect(verdict?.ok === false && verdict.reason).toContain(
 			"would sit on top of Village",
@@ -320,21 +363,23 @@ describe("tileKeyboardGesture", () => {
 
 describe("free space", () => {
 	it("finds the first free rectangle scanning across then down", () => {
-		expect(firstFreeTilePlacement([tileCell(0, 0, 6, 1)], 6, 1)).toEqual(
+		expect(firstFreeTilePlacement([tileCell(0, 0, 6, 1)], 6, 1, 12)).toEqual(
 			tileCell(6, 0, 6, 1),
 		);
 	});
 
 	it("reports no room when nothing of that size fits", () => {
-		expect(firstFreeTilePlacement([tileCell(0, 0, 12, 12)], 1, 1)).toBeNull();
+		expect(
+			firstFreeTilePlacement([tileCell(0, 0, 12, 12)], 1, 1, 12),
+		).toBeNull();
 	});
 
 	it("prefers a full line and narrows until something fits", () => {
-		expect(nextFreeTilePlacement([])).toEqual(tileCell(0, 0, 12, 1));
+		expect(nextFreeTilePlacement([], 12)).toEqual(tileCell(0, 0, 12, 1));
 		const full = Array.from({ length: 11 }, (_unused, row) =>
 			tileCell(0, row, 12, 1),
 		);
-		expect(nextFreeTilePlacement([...full, tileCell(0, 11, 8, 1)])).toEqual(
+		expect(nextFreeTilePlacement([...full, tileCell(0, 11, 8, 1)], 12)).toEqual(
 			tileCell(8, 11, 4, 1),
 		);
 	});
@@ -390,7 +435,7 @@ describe("placementForJoiningTile", () => {
 
 	it("reports no room on a full tile instead of a doomed placement", () => {
 		const full = column("full", "Patient name", {
-			tile: tileCell(0, 0, 12, 12),
+			tile: tileCell(0, 0, 12, 6),
 		});
 		const joining = column("joining", "Age");
 		expect(
@@ -447,7 +492,7 @@ describe("tileLayoutIssues", () => {
 			const found = issues([escaping], tileOn);
 			expect(found.map((issue) => issue.kind)).toEqual(["out-of-grid"]);
 			expect(found[0]?.message).toBe(
-				"Photo runs past the edge of the tile: it reaches column 14, and a tile is 12 columns by 12 rows. Move it back, or make it smaller.",
+				"Photo runs past the edge of the tile: it reaches column 14, and this tile is 12 columns wide and 6 rows tall: a row for each field it shows, and at least six. Move it back, or make it smaller.",
 			);
 		}
 	});
@@ -489,6 +534,24 @@ describe("tileLayoutIssues", () => {
 			sort: { direction: "asc", priority: 1 },
 		});
 		expect(issues([NAME, sorter], true)).toEqual([]);
+	});
+
+	it("holds a cell to a row for each field the tile shows, at least six", () => {
+		// HQ's Case List page keeps a bottom edge up to max(fields, 6) and
+		// moves one past it on its next save (proof 4, targeted-tile-row-bound).
+		const seven = Array.from({ length: 7 }, (_unused, row) =>
+			column(`line-${row}`, `Line ${row + 1}`, {
+				tile: tileCell(0, row, 12, 1),
+			}),
+		);
+		expect(issues(seven, true)).toEqual([]);
+		const low = column("low", "Line 7", { tile: tileCell(0, 7, 12, 1) });
+		const found = issues([...seven.slice(0, 6), low], true);
+		expect(found.map((issue) => [issue.uuid, issue.kind])).toEqual([
+			[low.uuid, "out-of-grid"],
+		]);
+		expect(found[0]?.message).toContain("it reaches row 8");
+		expect(found[0]?.message).toContain("7 rows tall");
 	});
 
 	it("leaves a Details-only field alone — its cell renders nowhere", () => {

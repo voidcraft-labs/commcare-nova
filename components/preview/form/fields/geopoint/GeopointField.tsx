@@ -34,6 +34,7 @@ interface GeopointFieldProps {
 }
 
 export function GeopointField({
+	field,
 	state,
 	labelledBy,
 	onChange,
@@ -64,7 +65,10 @@ export function GeopointField({
 		);
 	}
 
-	if (rules.locationQuestion === "record-location")
+	if (
+		rules.locationQuestion === "record-location" &&
+		field.locationPicker !== "map"
+	)
 		return (
 			<RecordLocationField
 				state={state}

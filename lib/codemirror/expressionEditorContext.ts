@@ -1,3 +1,4 @@
+import { inlineSearchInstance } from "@/lib/commcare/suite/case-search/types";
 /**
  * One expression slot's editor context: the parse scope its text binds
  * against, the per-form reference projection its `#form/` and `#<type>/`
@@ -16,6 +17,7 @@ import {
 	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 } from "@/lib/commcare/formLinkProjection";
+import { lookupInstanceIdForScope } from "@/lib/commcare/lookup/naming";
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "@/lib/commcare/sessionContext";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
@@ -38,6 +40,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	namedEntrySupplies,
+	namedEntrySupplyRead,
+} from "@/lib/domain/advancedEntryDatums";
+import {
 	type ExpressionContext,
 	type LookupDefinitionIndex,
 	slotContext,
@@ -56,8 +62,11 @@ import type {
 	FormNodeRef,
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
+import { datumRefKey } from "@/lib/domain/expression/types";
 import { operationCaseType, orderedCaseOperations } from "@/lib/domain/forms";
+import { unavailablePlatform } from "@/lib/domain/platforms";
 import { userPropertiesOf } from "@/lib/domain/users";
+import { lookupPathNameIssue } from "@/lib/lookup/pathNames";
 import {
 	buildFormReferenceContext,
 	type FormReferenceContext,
@@ -83,9 +92,10 @@ export interface NamedRead {
  * what the parser binds and the checker admits at this slot, so a
  * completion is never offered and then refused. */
 export interface ExpressionReads {
-	/** The Project's data tables, each by its tag. */
+	/** The Project's data tables, each by the instance this slot reads. */
 	readonly tables: ReadonlyArray<{
 		readonly tag: string;
+		readonly instanceId: string;
 		readonly name: string;
 		readonly columns: ReadonlyArray<{
 			readonly wireName: string;
@@ -107,11 +117,18 @@ export interface ExpressionReads {
 	readonly selectedCases?: string;
 	/** What the search that opened this form found: the searched case type's
 	 *  properties, standard ones included. */
-	readonly searchResults?: { readonly properties: readonly NamedRead[] };
-	/** A no-matches form's search fields, by name. */
-	readonly searchInputs?: readonly string[];
+	readonly searches?: readonly {
+		resultsId: string;
+		menu: string;
+		properties?: readonly NamedRead[];
+		inputs?: readonly string[];
+	}[];
 	/** The session values the form's entry supplies, each labelled by what
 	 *  it holds. */
+	readonly openingSupplies?: ReadonlyArray<{
+		readonly formula: string;
+		readonly label: string;
+	}>;
 	readonly sessionData: ReadonlyArray<{
 		readonly id: string;
 		readonly label: string;
@@ -263,6 +280,24 @@ export function datumLabel(
 	ownCaseType: string | undefined,
 ): string {
 	switch (ref.kind) {
+		case "form-selection": {
+			for (const form of Object.values(doc.forms)) {
+				const choice = form.caseSelections?.find(
+					(row) => row.uuid === ref.selection,
+				);
+				if (choice) return choice.name;
+			}
+			return "The record chosen for this form";
+		}
+		case "entry-value": {
+			for (const form of Object.values(doc.forms)) {
+				const value = form.computedDatums?.find(
+					(row) => row.uuid === ref.datum,
+				);
+				if (value) return value.key;
+			}
+			return "A value calculated when this form opens";
+		}
 		case "selected-case":
 			return `The case chosen in ${doc.modules[ref.module]?.name ?? "a menu"}`;
 		case "new-case":
@@ -346,6 +381,32 @@ function slotReads(
 		form === undefined
 			? undefined
 			: context.facts.moduleCaseTypes.get(form.moduleUuid);
+	const readable = new Set(
+		context.supplies.refs
+			.filter((row) => row.scalar)
+			.map((row) => datumRefKey(row.ref)),
+	);
+	const openingSupplies = [
+		...(form &&
+		(doc.forms[form.formUuid].caseSelections !== undefined ||
+			doc.forms[form.formUuid].computedDatums?.length)
+			? namedEntrySupplies(doc, form.formUuid).flatMap((supply) => {
+					if (!readable.has(datumRefKey(supply.ref))) return [];
+					const formula = namedEntrySupplyRead(doc, form.formUuid, supply.ref);
+					return formula ? [{ formula, label: supply.name }] : [];
+				})
+			: []),
+		...(context.caseListLookupCountSource !== undefined &&
+		unavailablePlatform("case-list-lookup-count", context.platforms) ===
+			undefined
+			? [
+					{
+						formula: "case-list-lookup-count()",
+						label: "Companion lookup count",
+					},
+				]
+			: []),
+	];
 	const levels = orderedOrganizationLevels(doc);
 	const chosen =
 		context.slot.entity === "field"
@@ -364,14 +425,34 @@ function slotReads(
 						),
 				)
 			: undefined;
-	const searched = context.supplies.searchResults;
-	const searchedType =
-		searched === undefined
-			? undefined
-			: context.facts.caseTypes.find(
-					(type) =>
-						type.name === context.facts.moduleCaseTypes.get(searched.module),
-				);
+	const sourceUuids = [
+		...new Set([
+			...(form?.searchSuppliers ?? []).map((search) => search.module),
+			...(form?.caseListRegistrationForm ? [form.moduleUuid] : []),
+		]),
+	];
+	const searches = sourceUuids.map((uuid) => {
+		const menu = doc.modules[uuid];
+		const type = context.facts.caseTypes.find(
+			(type) => type.name === menu.caseType,
+		);
+		return {
+			resultsId: inlineSearchInstance(menu.searchResultsName),
+			menu: menu.name,
+			...(!form?.caseListRegistrationForm &&
+				type && {
+					properties: type.properties.map((property) => ({
+						name: property.name,
+						label: projectProseTemplate(property.label, doc).text,
+					})),
+				}),
+			...(context.profile.scope === "form" && {
+				inputs: (menu.caseListConfig?.searchInputs ?? []).map(
+					(input) => input.name,
+				),
+			}),
+		};
+	});
 	const relations = caseRelations(doc);
 	const custom = Object.values(userPropertiesOf(doc));
 	const customSlugs = new Set(custom.map((property) => property.slug));
@@ -382,18 +463,42 @@ function slotReads(
 			: undefined;
 	const slotChoices =
 		slotField === undefined ? undefined : choicesOf(slotField);
+	const nameSlot = scope.slot.slot;
 	return {
 		tables:
 			lookup === "unavailable"
 				? []
-				: [...lookup.values()].map((table) => ({
-						tag: table.tag,
-						name: table.name,
-						columns: table.columns.map((column) => ({
-							wireName: column.wireName,
-							label: column.label,
+				: [...lookup.values()]
+						.filter(
+							(table) =>
+								lookupPathNameIssue(
+									table.tag,
+									nameSlot,
+									"tag",
+									context.platforms,
+								) === null,
+						)
+						.map((table) => ({
+							tag: table.tag,
+							instanceId: lookupInstanceIdForScope(context.profile.scope)(
+								table.tag,
+							),
+							name: table.name,
+							columns: table.columns
+								.filter(
+									(column) =>
+										lookupPathNameIssue(
+											column.wireName,
+											nameSlot,
+											"column",
+											context.platforms,
+										) === null,
+								)
+								.map((column) => ({
+									wireName: column.wireName,
+									label: column.label,
+								})),
 						})),
-					})),
 		...(levels.length === 0
 			? {}
 			: {
@@ -409,23 +514,11 @@ function slotReads(
 					},
 				}),
 		...(chosen === undefined ? {} : { selectedCases: chosen.id }),
-		...(searchedType === undefined || form?.caseListRegistrationForm
-			? {}
-			: {
-					searchResults: {
-						properties: searchedType.properties.map((property) => ({
-							name: property.name,
-							label: projectProseTemplate(property.label, doc).text,
-						})),
-					},
-				}),
-		...(form?.caseListRegistrationForm ||
-		(form?.formsReadSearchModule === true && context.profile.scope === "form")
-			? { searchInputs: form.searchInputs.map((input) => input.name) }
-			: {}),
+		...(searches.length > 0 && { searches }),
+		...(openingSupplies.length > 0 && { openingSupplies }),
 		sessionData: [
 			...rows.flatMap((row) => {
-				const ref = row.refs[0];
+				const ref = row.refs.find((ref) => readable.has(datumRefKey(ref)));
 				return row.scalar && ref !== undefined
 					? [{ id: row.id, label: datumLabel(doc, ref, ownCaseType) }]
 					: [];

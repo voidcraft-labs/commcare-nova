@@ -289,12 +289,16 @@ export function ordinaryAuthorityDoc(): {
 export function ordinaryAuthorityMutation(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
+	workerGroups?: readonly import("@/lib/domain/workerGroups").WorkerGroupRow[],
 ): Extract<SubmissionMutation, { kind: "registration" }> {
-	const engine = engineFor(doc, formUuid);
+	const engine = engineFor(doc, formUuid, undefined, workerGroups);
 	engine.setValue("/data/patient_name", "Ada");
 	engine.setValue("/data/age", "37");
 	engine.setValue("/data/visit_name", "First visit");
 	engine.setValue("/data/visit_notes", "Checkup");
+	// A repeat opens with no entry, as Core opens a repeat written as a
+	// template.
+	engine.addRepeat("/data/orders");
 	engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 	engine.addRepeat("/data/orders");
 	engine.setValue("/data/orders[1]/medication_name", "Aspirin");
@@ -309,6 +313,7 @@ export function engineFor(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	lookupContext: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
+	workerGroups?: readonly import("@/lib/domain/workerGroups").WorkerGroupRow[],
 ): FormEngine {
 	assertAdmittedPreviewDoc(doc, lookupContext);
 	const input: FormEngineInput = {
@@ -319,7 +324,14 @@ export function engineFor(
 		fieldOrder: doc.fieldOrder,
 		caseTypes: doc.caseTypes ?? [],
 	};
-	return new FormEngine(input, "patient", undefined, null);
+	return new FormEngine(
+		input,
+		"patient",
+		undefined,
+		null,
+		undefined,
+		workerGroups ? { rows: [], indices: [], workerGroups } : undefined,
+	);
 }
 
 /** The same accepted document is exercised by Postgres and native Core. */

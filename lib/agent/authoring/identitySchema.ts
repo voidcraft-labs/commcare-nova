@@ -21,7 +21,11 @@ export const NAMED_IDENTITY_FAMILIES = {
 	field: "Field name or path",
 	"select-option": "Choice value",
 	"case-list-column": "Column header",
+	"case-list-sort": "Default order calculation name",
+	"case-detail-tab": "Details tab title",
 	"search-input": "Search input name",
+	"search-input-group": "Search heading name",
+	"project-search": "Project search name",
 	"worker-property": "Worker property name",
 	"user-type": "Role name",
 	persona: "Persona name",
@@ -30,9 +34,13 @@ export const NAMED_IDENTITY_FAMILIES = {
 	location: "Place name or site code",
 	"case-operation": "Case operation name",
 	"entry-point": "Deep link external ID",
+	"form-entry-supply": "Opening record or value name",
+	"form-opening-assignment": "Starting value name from get_form",
 	automation: "Automation name",
 	"lookup-table": "Data table name",
 	"lookup-column": "Data column name",
+	"lookup-attribute": "Row detail name",
+	"lookup-value-property": "Value detail name",
 } satisfies Partial<Record<AuthorableIdentityFamily, string>>;
 export type NamedIdentityFamily = keyof typeof NAMED_IDENTITY_FAMILIES;
 

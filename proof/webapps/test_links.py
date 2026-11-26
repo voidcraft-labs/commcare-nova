@@ -225,3 +225,64 @@ def test_web_apps_opens_a_form_off_the_menu_only_from_an_entry_point_that_ignore
     assert [body["endpoint_id"] for body in asked] == [entry_point]
     assert _shown(opened) == HIDDEN_ENTRY_POINTS[entry_point]
     assert opened["alerts"] == []
+
+
+def test_web_apps_shows_each_menus_forms_and_uses_its_own_link_to_the_same_form(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from django.urls import reverse
+
+    with webapps_hq.project(webapps_documents["targeted-listed-forms"]) as project:
+        with project.released(formplayer_runner) as release:
+            session = Session(release, editor_driver)
+            for menu, listed in (
+                ("Visits", ["Archive", "Visit notes", "Check supplies"]),
+                ("Clinic", ["Visit notes", "Check supplies"]),
+            ):
+                run = session.run(
+                    [
+                        *steps.open_app("Field visits"),
+                        *steps.choose(menu),
+                        steps.SCREEN,
+                        *steps.choose("Visit notes"),
+                        steps.SCREEN,
+                    ]
+                )
+                assert run.page_errors == [] and run.dialogs == []
+                assert [_shown(screen) for screen in run.screens] == [
+                    {"title": menu, "commands": listed},
+                    {"form": "Visit notes"},
+                ]
+            for endpoint, expected in (
+                ("private_notes", {"form": "Private notes"}),
+                ("clinic_private", {"title": "Clinic", "commands": ["Visit notes", "Check supplies"]}),
+            ):
+                link = reverse("session_endpoint", args=[release.domain, release.app_id, endpoint])
+                opened = session.run([{"goto": link}, steps.SETTLE, *steps.arrive(any_screen=True), steps.SCREEN])
+                assert opened.page_errors == [] and opened.dialogs == []
+                assert [exchange.request_json()["endpoint_id"] for exchange in opened.answered("get_endpoint")] == [
+                    endpoint
+                ]
+                assert [_shown(screen) for screen in opened.screens] == [expected]
+                evidence(endpoint, opened.screens)
+
+
+def test_web_apps_displays_the_full_badges_formplayer_returns(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    with webapps_hq.project(webapps_documents["targeted-menu-badges"]) as project:
+        with project.released(formplayer_runner) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Field rounds"), *steps.arrive(any_screen=True), steps.SCREEN,
+                # A row's text is its badge, then its name (``partials/menu/row.html``).
+                *steps.choose("New Visit forms"), *steps.arrive(any_screen=True), steps.SCREEN,
+            ])
+    home, forms = run.screens
+    assert run.page_errors == [] and run.dialogs == []
+    assert [command["badge"] for command in home["commands"]] == ["New", ""]
+    expected = ["", "0", "0000", "1234", "2147483648", "Équipe"]
+    assert [command["badge"] for command in forms["commands"]] == expected
+    menus = [exchange.json() for exchange in run.answered("navigate_menu")]
+    response = next(menu for menu in menus if len(menu.get("commands") or ()) == len(expected))
+    assert [command.get("badgeText") or "" for command in response["commands"]] == expected
+    evidence("badges", {"formplayer": response["commands"], "webApps": forms["commands"]})

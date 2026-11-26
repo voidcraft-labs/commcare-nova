@@ -2,7 +2,11 @@ import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import { mediaIds, mediaWireFixture } from "./mediaWireFixtures";
+import {
+	localizedMediaWireFixture,
+	mediaIds,
+	mediaWireFixture,
+} from "./mediaWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import {
 	onlyXml,
@@ -172,4 +176,65 @@ describe("admitted XForm media references", () => {
 						: [],
 				);
 			});
+});
+
+it("writes the specific Project files for each language into both HQ and local installations", () => {
+	const { doc, assets } = localizedMediaWireFixture();
+	const expanded = expandDoc(doc, { assets });
+	const archive = new AdmZip(
+		compileCcz(expanded, doc.appName, doc, {
+			assets,
+			runtimeTarget: TEST_RUNTIME_TARGET,
+		}),
+	);
+	const path = (key: keyof typeof mediaIds) =>
+		`jr://file/${assets.get(mediaIds[key])?.wirePath}`;
+	const module = expanded.modules[0],
+		form = module.forms[0];
+	expect(module.media_image).toEqual({
+		en: path("label"),
+		fra: path("option"),
+	});
+	expect(form.media_image).toEqual({ en: path("option"), fra: path("icon") });
+	const hqSource = expanded._attachments[`${form.unique_id}.xml`];
+	if (typeof hqSource !== "string")
+		throw new Error("The HQ app has no survey source");
+	for (const xml of [hqSource, archive.readAsText("modules-0/forms-0.xml")]) {
+		const translations = descendants(readXmlEvidence(xml), "translation");
+		expect(translations.map((row) => row.attributes.lang)).toEqual([
+			"en",
+			"fra",
+		]);
+		for (const row of translations) {
+			const images = Object.fromEntries(
+				xmlChildren(row, "text").flatMap((text) =>
+					xmlChildren(text, "value")
+						.filter((value) => value.attributes.form === "image")
+						.map((value) => [text.attributes.id, value.text]),
+				),
+			);
+			expect(images).toEqual(
+				row.attributes.lang === "en"
+					? {
+							"answer-label": path("label"),
+							"answer-help": path("icon"),
+							"colour-opt0-label": path("option"),
+						}
+					: {
+							"answer-label": path("option"),
+							"answer-help": path("label"),
+							"colour-opt0-label": path("label"),
+						},
+			);
+		}
+	}
+	for (const [language, icon] of [
+		["default", path("label")],
+		["en", path("label")],
+		["fra", path("option")],
+	]) {
+		expect(
+			archive.readAsText(`${language}/app_strings.txt`).split("\n"),
+		).toContain(`modules.m0.icon=${icon}`);
+	}
 });

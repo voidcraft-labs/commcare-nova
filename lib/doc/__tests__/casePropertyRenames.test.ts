@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	CasePropertyRenamePlanError,
+	planCasePropertyRenames,
 	type RenameCasePropertiesMutation,
 } from "@/lib/doc/casePropertyRenames";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -53,7 +54,7 @@ function fixture(): BlueprintDoc {
 	const doc: BlueprintDoc = {
 		appId: "app",
 		appName: "App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{
@@ -204,6 +205,34 @@ function expectRoundTrip(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 }
 
 describe("explicit app-wide case-property rename", () => {
+	it("renames the typed property that matches an Android companion's case-list results", () => {
+		const start = fixture();
+		const config = start.modules[MODULE]?.caseListConfig;
+		if (!config) throw new Error("expected case-list settings");
+		config.deviceLookup = {
+			action: "org.example.LOOKUP",
+			label: "Find a case",
+			resultHeading: "Confidence",
+			resultProperty: "a",
+			extras: [{ name: "mode", value: "scan" }],
+			responses: ["key"],
+		};
+		const renamed = apply(
+			start,
+			admittedRename({ caseType: "patient", from: "a", to: "fresh" }),
+		);
+		expect(
+			renamed.modules[MODULE]?.caseListConfig?.deviceLookup?.resultProperty,
+		).toBe("fresh");
+		expect(
+			referencingSlotsOf(
+				renamed,
+				casePropertyTargetKey("patient", "fresh"),
+			).get(MODULE),
+		).toContain("case_list_lookup_result_property");
+		expect(renamed.refIndex).toEqual(buildReferenceIndex(renamed));
+	});
+
 	it("rewrites target prose tokens and keeps a current translation current", () => {
 		const start = fixture();
 		const field = start.fields[FIELD_A];
@@ -1278,5 +1307,66 @@ describe("endpoint ambiguity and exact command provenance", () => {
 				]),
 			}),
 		).toThrow(CasePropertySemanticProvenanceRequiredError);
+	});
+});
+
+describe("a related property read across different case types", () => {
+	function relatedDoc(open: boolean) {
+		const doc = fixture();
+		const patient = doc.caseTypes?.[0];
+		const config = doc.modules[MODULE].caseListConfig;
+		if (!patient || !config || !doc.caseTypes)
+			throw new Error("Missing catalog");
+		doc.caseTypes.push({
+			name: "household",
+			properties: [{ name: "a", label: proseText("A"), data_type: "text" }],
+		});
+		if (!open)
+			patient.relations = ["patient", "household"].map((targetType) => ({
+				identifier: "site",
+				targetType,
+				relationship: "child",
+			}));
+		const col = {
+			...plainColumn(testUuid("related-rename"), "a", "Site status"),
+			via: [{ identifier: "site" }] as [{ identifier: string }],
+		};
+		config.columns.push(col);
+		config.listColumnOrder.push(col.uuid);
+		config.detailColumnOrder.push(col.uuid);
+		doc.refIndex = buildReferenceIndex(doc);
+		return doc;
+	}
+	it.each([false, true])(
+		"names the dependent if a single rename could change a different case's value (open %s)",
+		(open) => {
+			const doc = relatedDoc(open);
+			expect(
+				planCasePropertyRenames(
+					doc,
+					rename({ caseType: "patient", from: "a", to: "state" }),
+				),
+			).toMatchObject({
+				ok: false,
+				issue: {
+					reason: "related-read-changes-meaning",
+					dependent: expect.stringContaining("site → a column in Patients"),
+				},
+			});
+		},
+	);
+	it("renames both known bindings together and preserves the unrestricted link", () => {
+		const doc = relatedDoc(false);
+		const next = apply(
+			doc,
+			admittedRename(
+				{ caseType: "patient", from: "a", to: "state" },
+				{ caseType: "household", from: "a", to: "state" },
+			),
+		);
+		expect(next.modules[MODULE].caseListConfig?.columns.at(-1)).toMatchObject({
+			field: "state",
+			via: [{ identifier: "site" }],
+		});
 	});
 });

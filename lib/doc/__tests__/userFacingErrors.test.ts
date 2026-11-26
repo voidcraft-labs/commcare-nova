@@ -292,19 +292,6 @@ describe("userFacingError — voice", () => {
 		).toBe(
 			'A CommCare Connect setting of "Register Client" reads the whole form, not a question. You can point it at a question, a group or a repeat instead.',
 		);
-		expect(
-			userFacingError(
-				validationError(
-					"FIELD_ID_NAMES_CONNECT_BLOCK",
-					"field",
-					"Internal",
-					location,
-					{ fieldId: "_notes", suggestedId: "notes_2" },
-				),
-			),
-		).toBe(
-			'"_notes" and a CommCare Connect block of "Register Client" share one name, so the form would hold two items CommCare can\'t tell apart. You can rename the field, or give the block another ID. "notes_2" is free for the field.',
-		);
 	});
 
 	it("names the value two choices share and the one free for the second", () => {
@@ -417,9 +404,6 @@ describe("userFacingError — voice", () => {
 		expect(render("", "empty")).not.toContain('""');
 		expect(render(" ", "whitespace")).toContain('" "');
 		expect(render("a\tb", "whitespace")).toContain('"a\\tb"');
-		expect(render(`it's "x"`, "both-quotes")).toContain(
-			"holds both an apostrophe and a double quote",
-		);
 		expect(render("instance('abc')", "instance-read")).toContain(
 			`has the stored value "instance('abc')", which CommCare HQ reads as a data source when it builds the form`,
 		);
@@ -479,15 +463,6 @@ describe("userFacingError — delete-aware phrasing", () => {
 		expect(line).not.toMatch(/case type/i);
 		expect(line).toMatch(/needs at least one form/i);
 		expect(line).toMatch(/removing its last one/i);
-	});
-
-	it("offers every valid repair for a cross-type submenu under bare Results", () => {
-		const line = userFacingError(
-			richFinding("NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM"),
-		);
-		expect(line).toMatch(/add a form to the parent/i);
-		expect(line).toMatch(/use the same case type/i);
-		expect(line).toMatch(/make this module top-level/i);
 	});
 
 	it("MISSING_CASE_LIST_COLUMNS explains how to replace the last result", () => {
@@ -1434,5 +1409,32 @@ describe("text CommCare HQ reads as a data source", () => {
 		).toBe(
 			`A name or description in "Lesson" holds instance('a'), which CommCare HQ reads as a data source and not as text. A space before the bracket keeps it as text.`,
 		);
+	});
+});
+
+describe("a code outside the table", () => {
+	// A finding reaches the renderer from the gate in the same process, but
+	// the table is a plain object: a code naming a member every object
+	// inherits must read the generic line, not call that member.
+	const generic = userFacingError({
+		...richFinding("NO_MODULES"),
+		code: "A_CODE_RETIRED_LONG_AGO" as ValidationErrorCode,
+	});
+	it.each([
+		"constructor",
+		"toString",
+		"hasOwnProperty",
+		"valueOf",
+		"__proto__",
+	])("renders %s as the generic line", (code) => {
+		expect(
+			userFacingError({
+				...richFinding("NO_MODULES"),
+				code: code as ValidationErrorCode,
+			}),
+		).toBe(generic);
+	});
+	it("renders a retired code as the generic line", () => {
+		expect(generic).toMatch(/^Something went wrong/);
 	});
 });

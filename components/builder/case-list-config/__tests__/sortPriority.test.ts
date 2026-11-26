@@ -23,9 +23,12 @@ import {
 	tileCell,
 } from "@/lib/domain";
 import {
+	choicesAfterMove,
 	columnsAfterRuleSequence,
+	columnsWithChoiceOrder,
 	orderChoiceColumn,
 	resolveSortedColumns,
+	ruleWithComparison,
 } from "../sortPriority";
 
 const NAME = testUuid("order-choice-name");
@@ -180,5 +183,75 @@ describe("columnsAfterRuleSequence", () => {
 		expect(
 			columnsAfterRuleSequence(config.columns, [name, zone])[1]?.sort,
 		).toEqual({ direction: "desc", priority: 1, label: "Zone" });
+	});
+});
+
+describe("a rule's comparison", () => {
+	const rule = columnSort("asc", 0);
+	it("stores a comparison the field would not use by itself", () => {
+		expect(ruleWithComparison(rule, "integer", "text")).toEqual({
+			...rule,
+			comparator: "integer",
+		});
+	});
+	it("stores none for the field's own comparison or Use field order", () => {
+		const chosen = { ...rule, comparator: "integer" as const };
+		expect(ruleWithComparison(chosen, "text", "text")).toEqual(rule);
+		expect(ruleWithComparison(chosen, undefined, "text")).toEqual(rule);
+	});
+	it("stores distance over a field that orders by its own labels", () => {
+		expect(ruleWithComparison(rule, "distance", undefined)).toEqual({
+			...rule,
+			comparator: "distance",
+		});
+	});
+});
+
+describe("the order of the extra fields in Sort by", () => {
+	const A = testUuid("choice-a");
+	const B = testUuid("choice-b");
+	const C = testUuid("choice-c");
+	const UNNAMED = testUuid("choice-unnamed");
+	const named = (id: string) => id !== UNNAMED;
+	const hidden = (uuid: typeof A, priority: number, label?: string) =>
+		plainColumn(uuid, "zone", "", {
+			visibleInList: false,
+			sort: columnSort("asc", priority, undefined, label),
+		});
+
+	it("moves a named choice among the named ones, around an unnamed one", () => {
+		expect(choicesAfterMove([A, UNNAMED, B, C], named, C, 0)).toEqual([
+			C,
+			UNNAMED,
+			A,
+			B,
+		]);
+	});
+
+	it("changes nothing for the same place or a place past the named ones", () => {
+		expect(choicesAfterMove([A, B], named, A, 0)).toBeUndefined();
+		expect(choicesAfterMove([A, B], named, A, 2)).toBeUndefined();
+		expect(choicesAfterMove([A, UNNAMED], named, UNNAMED, 0)).toBeUndefined();
+	});
+
+	it("gives a position only to the prefix the rules' priorities would put out of order", () => {
+		const columns = [hidden(A, 0, "A"), hidden(B, 1, "B"), hidden(C, 2, "C")];
+		// Workers see B, A, C: B is introduced first, and A and C then
+		// follow by priority.
+		expect(
+			columnsWithChoiceOrder(columns, [B, A, C]).map(
+				(column) => column.sort?.menuPosition,
+			),
+		).toEqual([undefined, 0, undefined]);
+		// Back in priority order, every stored position goes.
+		const restored = columnsWithChoiceOrder(
+			columnsWithChoiceOrder(columns, [B, A, C]),
+			[A, B, C],
+		);
+		expect(restored.map((column) => column.sort?.menuPosition)).toEqual([
+			undefined,
+			undefined,
+			undefined,
+		]);
 	});
 });

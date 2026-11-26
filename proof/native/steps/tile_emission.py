@@ -16,6 +16,7 @@ DOMAIN = "nova-tile-evidence"
 
 
 def tiles(session):
+    from corehq.apps.case_search.utils import get_child_case_types
     from corehq.apps.app_manager.suite_xml.sections.details import DetailContributor
     from corehq.apps.app_manager.suite_xml.xml_models import Suite
     from lxml import etree
@@ -39,6 +40,7 @@ def tiles(session):
                     "sourceSha256": sha256(raw),
                     "local": (exports / f"{source.stem}.suite.xml").read_bytes(),
                     "native": native,
+                    "searchChildren": {key: sorted(types) for key, types in get_child_case_types(app).items()},
                 }
             )
     session_reads(session, "tile", "targeted-tile-session-reads", DOMAIN)

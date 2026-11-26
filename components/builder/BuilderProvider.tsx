@@ -51,6 +51,7 @@ import {
 	BlueprintDocProvider,
 	BlueprintEditableContext,
 } from "@/lib/doc/provider";
+import type { Uuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { PreviewCaseDatabaseProvider } from "@/lib/preview/engine/useCaseDatabaseSnapshot";
@@ -61,6 +62,7 @@ import {
 	BuilderSessionContext,
 	BuilderSessionProvider,
 } from "@/lib/session/provider";
+import { PreviewSearchConfigurationProvider } from "./PreviewSearchConfiguration";
 
 /** Existing-app data captured in one authorized server transaction. Keeping
  *  the cursor and capability tuple in one prop prevents independently stale
@@ -73,6 +75,7 @@ export interface InitialBuilderAccess {
 	/** The hold each target's latest recording wrote, read in the same
 	 *  transaction (`AppReadSnapshot.recordedHolds`). A new build has none. */
 	readonly recordedHolds?: readonly PlacementHold[];
+	readonly publishedQuestions?: readonly Uuid[];
 }
 
 // ── Provider ────────────────────────────────────────────────────────────
@@ -208,25 +211,27 @@ function BuilderProviderInner({
 								initialProjectSpace={initialProjectSpace ?? null}
 								initialTargetFacts={initialTargetFacts ?? null}
 							>
-								<BuilderFormEngineProvider>
-									<SyncBridge />
-									<LocationRecoveryEffect />
-									{/* Asks CommCare HQ once, after the builder is drawn,
-									 *  whether the app changed there. Renders nothing and
-									 *  nothing waits on it. */}
-									<HqChangesCheck />
-									<PreviewCaseDatabaseProvider>
-										<PreviewLookupDataProvider>
-											{/* Works out each pressed search's device values on
-											 *  the session, whichever screen is showing. */}
-											<SearchDeviceValuesRecorder />
-											<AppNoticesProvider initial={initialNotices}>
-												{initialDoc ? <LoadAppHydrator /> : null}
-												{children}
-											</AppNoticesProvider>
-										</PreviewLookupDataProvider>
-									</PreviewCaseDatabaseProvider>
-								</BuilderFormEngineProvider>
+								<PreviewSearchConfigurationProvider>
+									<BuilderFormEngineProvider>
+										<SyncBridge />
+										<LocationRecoveryEffect />
+										{/* Asks CommCare HQ once, after the builder is drawn,
+										 *  whether the app changed there. Renders nothing and
+										 *  nothing waits on it. */}
+										<HqChangesCheck />
+										<PreviewCaseDatabaseProvider>
+											<PreviewLookupDataProvider>
+												{/* Works out each pressed search's device values on
+												 *  the session, whichever screen is showing. */}
+												<SearchDeviceValuesRecorder />
+												<AppNoticesProvider initial={initialNotices}>
+													{initialDoc ? <LoadAppHydrator /> : null}
+													{children}
+												</AppNoticesProvider>
+											</PreviewLookupDataProvider>
+										</PreviewCaseDatabaseProvider>
+									</BuilderFormEngineProvider>
+								</PreviewSearchConfigurationProvider>
 							</DeploymentTargetProvider>
 						</ProjectDataWorkspaceProvider>
 					</CaseListWorkspaceProvider>
@@ -247,6 +252,7 @@ function BuilderProviderInner({
 						appId={buildId === "new" ? undefined : buildId}
 						baseSeq={initialAccess?.baseSeq ?? 0}
 						recordedHolds={initialAccess?.recordedHolds}
+						publishedQuestions={initialAccess?.publishedQuestions}
 						userId={userId ?? ""}
 					>
 						{/* The presence layer rides the reconciler's single

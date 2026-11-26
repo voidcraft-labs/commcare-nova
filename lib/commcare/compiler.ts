@@ -1,16 +1,36 @@
-import { defaultAppStringsHeldText } from "@/lib/commcare/appStringKeys";
+import { requiredAndroidPackages } from "@/lib/commcare/androidAppDependencies";
+import {
+	defaultAppStringsHeldText,
+	defaultTableText,
+} from "@/lib/commcare/appStringKeys";
 import { targetProfileProperties } from "@/lib/commcare/keptProfile";
 import {
 	profileServerProperties,
 	profileUniqueId,
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
+import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
+import {
+	menuFormUuidsOf,
+	menuWithInheritedCaseSettings,
+} from "@/lib/domain/listedForms";
+import type { NavigationMedia } from "@/lib/domain/navigationMedia";
+import { declaresWebApps } from "@/lib/domain/platforms";
 import { buildEntryPointSuite } from "./entryPointSuite";
+import {
+	generatedWordingKeys,
+	generatedWordingOverrides,
+} from "./generatedWording";
+import { projectMenuBadge } from "./menuBadge";
+import { requireAssetRef } from "./multimedia/assetWirePath";
 import { basicActionsWriteWorker } from "./session";
+import { inlineSearchInstance } from "./suite/case-search/types";
 import type { TargetFacts } from "./targetFacts";
 import type { TargetFill } from "./targetOverlay";
 import { COMMCARE_VERSION_FLOOR } from "./versionFloor";
 import type { WireIdentity } from "./wireIdentity";
+import { findDataElement } from "./xform/domSplice";
+import { assertAnswerDataReachesReceiver } from "./xform/submittedData";
 import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
 //
@@ -45,13 +65,14 @@ import { assertXml } from "./xmlParse";
 // only literal — `serializeXml` does not emit XML declarations, so
 // the compiler prepends one before each rendered tree.
 
-import type { Element } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import {
 	emptyFormActions,
 	type FormActions,
 	type HqAnyForm,
 	type HqApplication,
 } from "@/lib/commcare";
+import { ENTRY_ASSERTION_MESSAGES } from "@/lib/commcare/advancedEntryValues";
 import {
 	type FormCaseWirePlan,
 	planFormCaseWire,
@@ -70,15 +91,13 @@ import {
 	requireExpressionContext,
 } from "@/lib/commcare/expressionContext";
 import {
-	alwaysOfferedReturnFrames,
-	alwaysOfferedTarget,
-	caseListFormReturnFrames,
+	caseListActionDatums,
+	caseListActionReturnFrames,
+	caseListActionTarget,
 	caseListSessionDatums,
 	caseListStepDatumId,
 	entryDatumIdResolver,
 	entryDatumIds,
-	entryFrameDatums,
-	entryNewCaseDatumId,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
 	formCommandId,
@@ -96,7 +115,10 @@ import {
 	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
 import { localeFileText } from "@/lib/commcare/localeFile";
-import { commCareLocalization } from "@/lib/commcare/localization";
+import {
+	type CommCareLocalization,
+	commCareLocalization,
+} from "@/lib/commcare/localization";
 import type {
 	CompiledLookupFixtureSet,
 	PreparedLookupWire,
@@ -123,7 +145,7 @@ import { buildInlineClaimPost } from "@/lib/commcare/suite/case-search/claim";
 import { moduleUsesInlineSearch } from "@/lib/commcare/suite/case-search/inlineSearch";
 import {
 	NEVER_RELEVANT,
-	NO_MATCHES_RELEVANCY,
+	noMatchesRelevancy,
 } from "@/lib/commcare/suite/case-search/noMatches";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import {
@@ -134,10 +156,6 @@ import {
 	FORM_SUBMIT_LABEL,
 	formSubmitLabelLocaleId,
 } from "@/lib/commcare/suite/formStrings";
-import {
-	USERCASE_MISSING_LOCALE_ID,
-	USERCASE_MISSING_MESSAGE,
-} from "@/lib/commcare/usercaseWire";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import {
@@ -157,14 +175,16 @@ import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
-	caseListsOffering,
+	caseListActionHosts,
 	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	makeTranslationUnitId,
+	menuContributionLayout,
 	moduleHasCaseListMenuItem,
 	moduleParent,
 	moduleShowsFormsInMenuAbove,
 	projectedModulePreorder,
+	type TranslationUnitId,
 	type Uuid,
 	type WireStringSource,
 } from "@/lib/domain";
@@ -173,6 +193,14 @@ import {
 	caseListMenuItemLabelUnit,
 	emissionPlan,
 } from "./emissionPlan";
+import { buildMediaSuiteXml } from "./multimedia/mediaSuiteXml";
+import { detailBindings } from "./suite/case-list/detailBindings";
+import {
+	caseContextDetailIds,
+	caseContextLineDetail,
+} from "./suite/case-list/formContext";
+import { installationProfileKey } from "./wireIdentity";
+import { needsSingleGroup } from "./workerGroupsWire";
 import { w } from "./xpath/wire/builders";
 import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
 
@@ -183,6 +211,8 @@ import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
  *  bare `<text>` nav nodes — the same archive shape with no media
  *  artifacts). */
 export interface CompileOptions {
+	/** Device builds may install an ordered subset of the app languages. */
+	readonly installationProfileUuid?: Uuid;
 	/** The deployment the archive is made for: no archive is compiled without one. */
 	readonly runtimeTarget: RuntimeTarget;
 	assets?: AssetManifest;
@@ -242,21 +272,6 @@ export interface CompileOptions {
 	identity?: WireIdentity;
 }
 
-/** The entry's new-case datum for `caseType`, which a form offered after an
- *  empty search always has. */
-function newCaseDatumId(
-	datums: readonly SessionDatum[],
-	caseType: string,
-): string {
-	const id = entryNewCaseDatumId(datums, caseType);
-	if (id === undefined) {
-		throw new Error(
-			`Cannot build the no-matches return frame: the registration entry has no new-case datum for "${caseType}"`,
-		);
-	}
-	return id;
-}
-
 /**
  * The Register action of a host module, HQ's
  * `DetailContributor.get_case_list_form_action`: the target form's own
@@ -275,39 +290,34 @@ function registerActionFor(
 	linkContext: FormLinkProjectionContext,
 	hostModuleUuid: Uuid,
 	target: { readonly moduleUuid: Uuid; readonly formUuid: Uuid },
+	localization: CommCareLocalization,
 ): RegisterActionContext {
-	const targetDatums = entryFrameDatums(
-		doc,
-		linkContext,
-		target.moduleUuid,
-		target.formUuid,
-	);
-	const [firstMenuForm] = linkContext.formOrder[hostModuleUuid] ?? [];
-	const source =
-		firstMenuForm === undefined
-			? []
-			: entryFrameDatums(doc, linkContext, hostModuleUuid, firstMenuForm);
 	const slot = alwaysOfferedRegistrationOf(doc, hostModuleUuid);
+	const media =
+		slot && localization.navigationMedia(localization.defaultLanguage, slot);
+	const relevant =
+		slot === undefined
+			? noMatchesRelevancy(
+					inlineSearchInstance(doc.modules[hostModuleUuid].searchResultsName),
+				)
+			: caseListActionCondition(
+					linkContext.expressionDoc,
+					hostModuleUuid,
+					slot.showWhen,
+					"suite",
+					linkContext.lookupNaming,
+				);
 	return {
 		commandId: formCommandId(linkContext, target.moduleUuid, target.formUuid),
-		datums: targetDatums.flatMap((datum) => {
-			if (!datum.requiresSelection) {
-				return datum.function === undefined
-					? []
-					: [{ id: datum.id, value: datum.function }];
-			}
-			const matches = source.filter(
-				(candidate) =>
-					candidate.requiresSelection && candidate.caseType === datum.caseType,
-			);
-			return matches.length === 1
-				? [{ id: datum.id, value: sessionDataRef(matches[0].id) }]
-				: [];
-		}),
-		...(slot === undefined && { relevant: NO_MATCHES_RELEVANCY }),
+		datums: caseListActionDatums(doc, linkContext, hostModuleUuid, target).map(
+			({ target, value }) => ({
+				id: target.id,
+				value,
+			}),
+		),
+		...(relevant !== undefined && { relevant }),
 		labelLocaleId: `case_list_form.m${moduleIndexOf(linkContext, hostModuleUuid)}`,
-		...(slot?.icon !== undefined && { icon: slot.icon }),
-		...(slot?.audioLabel !== undefined && { audioLabel: slot.audioLabel }),
+		...media,
 	};
 }
 
@@ -318,6 +328,7 @@ function registerActionFor(
  * each `jr://fixture` declaration against.
  */
 export type CompilePartsOptions = Omit<CompileOptions, "lookup"> & {
+	readonly streamMedia?: boolean;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly lookupFixtures?: CompiledLookupFixtureSet;
 };
@@ -338,7 +349,31 @@ export interface CczParts {
 	 */
 	readonly tables: Readonly<Record<string, ReadonlyMap<string, string>>>;
 	/** Each app string's source unit, as the walk filled it. */
+	readonly wordingUnits: Readonly<Record<string, TranslationUnitId>>;
 	readonly appStringUnits: Readonly<Record<string, WireStringSource>>;
+}
+
+/** HQ's instance post-processor walks the actual entry and the fields and
+ * nodesets of its selected, confirming and persistent details. A condition
+ * may consume only a dependency declared on this very entry. */
+function assertDetailConditionData(
+	entry: Element,
+	reads: readonly InstanceDecl[],
+): void {
+	if (!reads.length) return;
+	const declared = new Map(
+		entry.children.flatMap((child) =>
+			isTag(child) && child.name === "instance"
+				? [[child.attribs.id, child.attribs.src] as const]
+				: [],
+		),
+	);
+	for (const read of reads) {
+		if (declared.get(read.id) !== read.src)
+			throw new Error(
+				`The case screen's entry does not load '${read.id}' for its tab condition. Choose a condition using the selected case or data loaded on that route.`,
+			);
+	}
 }
 
 /**
@@ -402,9 +437,21 @@ export function compileCczParts(
 	const doc = plan.doc;
 	const hqModules = hqJson.modules;
 	const attachments = hqJson._attachments;
+	const ordinaryForms = new Map(
+		hqModules.flatMap((module) =>
+			module.forms.flatMap((form) =>
+				form.doc_type === "AdvancedForm"
+					? [[form.unique_id, form] as const]
+					: [],
+			),
+		),
+	);
 	const assets = opts.assets;
 	const lookupNaming = opts.lookupNaming;
-	const localization = commCareLocalization(authoredDoc);
+	const localization = commCareLocalization(
+		authoredDoc,
+		opts.installationProfileUuid,
+	);
 	const sequence = opts.compiledAtSeq ?? 1;
 	const archiveVersion = sequence + (opts.earlierHqApps ?? 0);
 	const emptyCaseListText = opts.emptyCaseListText === true;
@@ -417,7 +464,15 @@ export function compileCczParts(
 	// Media bundle: media_suite.xml descriptor and the CCZ byte entries. With no
 	// manifest the bundle is empty and `mediaSuiteXml` is the byte-identical
 	// empty placeholder, so a media-free app's archive is unchanged.
-	const mediaBundle = buildMediaBundle(assets ?? new Map(), "compileCcz");
+	const mediaMembers = new Map(
+		[...(assets?.values() ?? [])].map((asset) => [asset.wirePath, asset]),
+	);
+	const mediaBundle = opts.streamMedia
+		? {
+				cczEntries: [],
+				mediaSuiteXml: buildMediaSuiteXml([...mediaMembers.values()]),
+			}
+		: buildMediaBundle(assets ?? new Map(), "compileCcz");
 
 	// The set of `commcare/<hash><ext>` wire paths bundled into the archive
 	// — derived from the SAME asset manifest the expander stamped jr://
@@ -425,9 +480,7 @@ export function compileCczParts(
 	// receive this set so a generator drift between "what gets emitted as a
 	// jr:// reference" and "what gets bundled" surfaces as an oracle finding
 	// at compile time instead of as a broken-icon symptom on device.
-	const bundledWirePaths = new Set(
-		mediaBundle.cczEntries.map((entry) => entry.path),
-	);
+	const bundledWirePaths = new Set(mediaMembers.keys());
 
 	files[PROFILE_MEMBER] = generateProfile({
 		doc: authoredDoc,
@@ -436,6 +489,12 @@ export function compileCczParts(
 		facts,
 		seeds: opts.adopted === true ? "target" : "nova",
 		firstLanguage: localization.languages[0],
+		...(opts.installationProfileUuid && {
+			buildProfileId: installationProfileKey(
+				opts.installationProfileUuid,
+				opts.identity,
+			),
+		}),
 		sequence,
 		archiveVersion,
 		logoProperty: buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
@@ -451,16 +510,62 @@ export function compileCczParts(
 		"app.display.name": appName,
 		"cchq.case": "Case",
 	};
+	const submitLabels = new Map<string, Readonly<Record<string, string>>>();
+	for (const { id, name } of requiredAndroidPackages(
+		doc.appSettings.requiredAndroidApps,
+	))
+		appStrings[`android.package.name.${id}`] = name;
 	const appStringUnits: Record<string, WireStringSource> = {
 		"homescreen.title": makeTranslationUnitId("app", "name"),
 		"app.display.name": makeTranslationUnitId("app", "name"),
 	};
+	const columnWordings: Record<string, TranslationUnitId> = {};
+	const menuMediaLocales = new Map<
+		string,
+		{ carrier: NavigationMedia; role: "icon" | "audioLabel" }
+	>();
+	function collectMenuFiles(
+		base: string,
+		carrier: NavigationMedia | undefined,
+	) {
+		if (!carrier?.mediaByLanguage && !carrier?.mediaByFormerCode) return;
+		if (carrier.icon)
+			menuMediaLocales.set(`${base}.icon`, { carrier, role: "icon" });
+		if (carrier.audioLabel)
+			menuMediaLocales.set(`${base}.audio`, { carrier, role: "audioLabel" });
+	}
+
+	function navigationNode(
+		label: string,
+		base: string,
+		carrier: NavigationMedia | undefined,
+		where: string,
+		badge?: Parameters<typeof buildNavMenuNode>[6],
+	) {
+		const media =
+			carrier &&
+			localization.navigationMedia(localization.defaultLanguage, carrier);
+		collectMenuFiles(base, carrier);
+		return buildNavMenuNode(
+			label,
+			base,
+			media?.icon,
+			media?.audioLabel,
+			assets,
+			where,
+			badge,
+		);
+	}
+
 	const mergeLocalizedStrings = (emission: {
 		readonly strings: Record<string, string>;
 		readonly translationUnits: Record<string, WireStringSource>;
+		readonly wordingUnits?: Record<string, TranslationUnitId>;
 	}): void => {
 		Object.assign(appStrings, emission.strings);
 		Object.assign(appStringUnits, emission.translationUnits);
+		if (emission.wordingUnits)
+			Object.assign(columnWordings, emission.wordingUnits);
 	};
 	// Top-level `<suite>` children accumulate as typed `Element[]`. The
 	// orchestrator splices everything into one `<suite>` Element at the
@@ -486,33 +591,39 @@ export function compileCczParts(
 	// keeps the rendered suite.xml structurally local.
 	const suiteRemoteRequests: Element[] = [];
 	const detailInstances = new Map<string, readonly InstanceDecl[]>();
+	const detailConditionReads = new Map<string, readonly InstanceDecl[]>();
 	const rememberDetail = (emission: {
 		element: Element;
 		instances: readonly InstanceDecl[];
+		conditionReads?: readonly InstanceDecl[];
 	}): void => {
 		const id = emission.element.attribs.id;
 		if (id === undefined)
 			throw new Error("A rendered case detail needs its wire id.");
 		detailInstances.set(id, emission.instances);
+		if (emission.conditionReads?.length)
+			detailConditionReads.set(id, emission.conditionReads);
 	};
-	const instancesForDatums = (
-		datums: readonly SessionDatum[],
-	): readonly InstanceDecl[] => {
-		const sink = new InstanceSink();
-		for (const datum of datums) {
-			for (const id of [
+	const detailIdsFor = (datums: readonly SessionDatum[]) =>
+		datums.flatMap((datum) =>
+			[
 				datum.detailSelect,
 				datum.detailConfirm,
 				datum.detailPersistent,
-			]) {
-				if (id === undefined) continue;
-				const declarations = detailInstances.get(id);
-				if (declarations === undefined)
-					throw new Error(
-						`A session datum names detail '${id}', but the suite contains no such detail.`,
-					);
-				sink.add(declarations);
-			}
+				datum.detailInline,
+			].filter((id): id is string => id !== undefined),
+		);
+	const instancesForDetails = (
+		ids: readonly string[],
+	): readonly InstanceDecl[] => {
+		const sink = new InstanceSink();
+		for (const id of ids) {
+			const declarations = detailInstances.get(id);
+			if (declarations === undefined)
+				throw new Error(
+					`A session datum names detail '${id}', but the suite contains no such detail.`,
+				);
+			sink.add(declarations);
 		}
 		return sink.declarations();
 	};
@@ -541,6 +652,7 @@ export function compileCczParts(
 		});
 	});
 	const linkContext = formLinkProjectionContext(doc, {
+		projectSearchId: opts.identity?.projectSearchId,
 		expressionDoc: authoredDoc,
 		runtimeTarget: opts.runtimeTarget,
 		writesWorker: (formUuid) => {
@@ -558,9 +670,14 @@ export function compileCczParts(
 	for (let mIdx = 0; mIdx < hqModules.length; mIdx++) {
 		const hqMod = hqModules[mIdx];
 		const moduleUuid = sortedModuleUuids[mIdx];
-		const formUuids = orderedFormUuids(doc, moduleUuid);
-
-		const mod = doc.modules[moduleUuid];
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
+		if (!mod) throw new Error("The menu or its source is missing.");
+		const sourceUuid = mod.formsFromMenu?.menuUuid ?? moduleUuid;
+		const sourceIndex = moduleIndexOf(linkContext, sourceUuid);
+		const formUuids = orderedFormUuids(doc, sourceUuid);
+		const visible = mod.formsFromMenu
+			? new Set(menuFormUuidsOf(doc, moduleUuid))
+			: undefined;
 		const expressions = moduleExpressionContexts(doc, moduleUuid, lookupNaming);
 		const modName = mod.name;
 		// The hidden module of a no-matches form, or the host that offers one.
@@ -572,10 +689,9 @@ export function compileCczParts(
 		const caseType =
 			synthetic === undefined
 				? moduleCaseTypeForActions(doc, moduleUuid)
-				: hqMod.case_type;
-		const hqForms = hqMod.forms;
+				: (hqMod.case_type ?? "");
+		const hqForms = hqModules[sourceIndex].forms;
 		const caseSearchConfig = effectiveCaseSearchConfig(mod);
-		const noMatches = plan.caseListRegistrationOf.get(moduleUuid);
 		// Owner exclusion belongs to case availability, not to the presence of
 		// a remote Search action. Read the raw authored slot so an owner-only
 		// module still narrows its ordinary `casedb` list even when
@@ -590,7 +706,7 @@ export function compileCczParts(
 			? undefined
 			: caseSearchConfig?.searchButtonDisplayCondition;
 		const caseSource = formsReadSearch
-			? ("results:inline" as const)
+			? inlineSearchInstance(mod.searchResultsName)
 			: undefined;
 		// A no-matches form's synthetic module is never relevant; the Register
 		// action's push reaches its entry regardless
@@ -618,10 +734,11 @@ export function compileCczParts(
 		// attribute rides the case list menu entry, matching CCHQ
 		// (`commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`
 		// is consulted for the form entry and the case-list command alike).
-		const persistentTileDetailId =
-			mod.caseListConfig?.tile?.persistOnForms === true
-				? `m${mIdx}_case_short`
-				: undefined;
+		const { persistentDetailId: persistentTileDetailId } = caseContextDetailIds(
+			doc,
+			moduleUuid,
+			(id) => moduleIndexOf(linkContext, id),
+		);
 
 		// The grouped-tile companion datum rides every case-loading FORM
 		// entry in a grouped module, and nothing else. CCHQ's gate is
@@ -670,15 +787,22 @@ export function compileCczParts(
 		// form offered after an empty search opens from its hidden module and
 		// is relevant only when the inline search found nothing; a form the
 		// list always offers opens from its own menu.
-		const registerTarget =
-			noMatches !== undefined
-				? { moduleUuid: noMatches.moduleUuid, formUuid: noMatches.formUuid }
-				: alwaysOfferedTarget(doc, linkContext, moduleUuid);
+		const registerTarget = caseListActionTarget(doc, linkContext, moduleUuid);
 		const registerAction =
 			registerTarget === undefined
 				? undefined
-				: registerActionFor(doc, linkContext, moduleUuid, registerTarget);
+				: registerActionFor(
+						doc,
+						linkContext,
+						moduleUuid,
+						registerTarget,
+						localization,
+					);
 		if (registerTarget !== undefined) {
+			collectMenuFiles(
+				`case_list_form.m${mIdx}`,
+				alwaysOfferedRegistrationOf(doc, moduleUuid),
+			);
 			appStrings[`case_list_form.m${mIdx}`] =
 				authoredDoc.modules[moduleUuid]?.caseListRegistrationForm?.label ??
 				doc.forms[registerTarget.formUuid]?.name ??
@@ -740,6 +864,11 @@ export function compileCczParts(
 			const remoteRequestEmission =
 				caseSearchConfig && !formsReadSearch
 					? buildRemoteRequest({
+							projectSearchId:
+								caseSearchConfig.projectSearch &&
+								opts.identity?.projectSearchId?.(
+									caseSearchConfig.projectSearch.searchUuid,
+								),
 							runtimeTarget: opts.runtimeTarget,
 							module: { ...mod, caseSearchConfig },
 							moduleIndex: mIdx,
@@ -753,6 +882,10 @@ export function compileCczParts(
 						})
 					: undefined;
 			if (remoteRequestEmission !== undefined) {
+				assertDetailConditionData(
+					remoteRequestEmission.element,
+					searchLong?.conditionReads ?? [],
+				);
 				suiteRemoteRequests.push(remoteRequestEmission.element);
 				mergeLocalizedStrings(remoteRequestEmission);
 			}
@@ -797,6 +930,17 @@ export function compileCczParts(
 			});
 			rememberDetail(longEmission);
 			suiteDetails.push(longEmission.element);
+			const line = caseContextLineDetail(
+				mod,
+				mIdx,
+				expressions,
+				lookupNaming,
+				detailBindings(doc, mod),
+			);
+			if (line) {
+				rememberDetail(line);
+				suiteDetails.push(line.element);
+			}
 			mergeLocalizedStrings(longEmission);
 
 			// Search-target dual emission. Same `caseListConfig` walked
@@ -823,6 +967,7 @@ export function compileCczParts(
 		for (let fIdx = 0; fIdx < hqForms.length; fIdx++) {
 			const hqForm = hqForms[fIdx];
 			const formUuid = formUuids[fIdx];
+			if (visible !== undefined && !visible.has(formUuid)) continue;
 			// Form type + post-submit destination live only on the domain
 			// doc. The HQ wire shape stores a coerced `post_form_workflow`
 			// string whose mapping is lossy (e.g. "app_home" and an absent
@@ -857,21 +1002,29 @@ export function compileCczParts(
 			);
 
 			const formName = form.name;
-			const xmlns = hqForm.xmlns;
+			const content =
+				hqForm.doc_type === "ShadowForm"
+					? ordinaryForms.get(hqForm.shadow_parent_form_id)
+					: hqForm;
+			if (!content)
+				throw new Error(
+					`Shared entry ${hqForm.unique_id} needs its ordinary form.`,
+				);
+			const xmlns = content.xmlns;
 			const uniqueId = hqForm.unique_id;
 			const cmdId = `m${mIdx}-f${fIdx}`;
-			const filePath = formMemberPath(mIdx, fIdx);
+			const filePath = formMemberPath(sourceIndex, fIdx);
 
-			appStrings[`forms.m${mIdx}f${fIdx}`] = formName;
-			appStringUnits[`forms.m${mIdx}f${fIdx}`] = makeTranslationUnitId(
+			appStrings[`forms.m${sourceIndex}f${fIdx}`] = formName;
+			appStringUnits[`forms.m${sourceIndex}f${fIdx}`] = makeTranslationUnitId(
 				"form",
 				formUuid,
 				"name",
 			);
-			// HQ's build writes every form's submit label, "Submit" where none
-			// is set, which Nova never sets. Nova's own system copy, so every
-			// language takes it verbatim.
-			appStrings[formSubmitLabelLocaleId(mIdx, fIdx)] = FORM_SUBMIT_LABEL;
+			const submitId = formSubmitLabelLocaleId(sourceIndex, fIdx);
+			appStrings[submitId] = FORM_SUBMIT_LABEL;
+			if (hqForm.submit_label !== undefined)
+				submitLabels.set(submitId, hqForm.submit_label);
 
 			// Build-time injection. The emitter produces a clean XForm (no case
 			// blocks, no meta — those are CCHQ render-time artifacts the HQ-upload
@@ -891,16 +1044,18 @@ export function compileCczParts(
 			// the `auto_gps_capture` `expandDoc` writes under the same condition,
 			// and the form's data node carries the sequence as its version, as
 			// HQ's build stamps its own form version (`FormBase.add_stuff_to_xform`).
-			let xform = attachments[`${uniqueId}.xml`];
+			let xform =
+				visible === undefined ? attachments[`${uniqueId}.xml`] : undefined;
 			// An advanced form's blocks are `_create_casexml_advanced`'s, in its
 			// place (`XForm.add_case_and_meta_advanced`).
-			if (xform) {
+			if (xform && hqForm.doc_type !== "ShadowForm") {
 				xform =
 					hqForm.doc_type === "AdvancedForm"
 						? addAdvancedCaseBlocks(
 								xform,
 								{ actions: hqForm.actions },
 								{
+									caseSharing: doc.appSettings.caseSharing,
 									loadDatumIds: advancedLoadDatumIds(
 										planFormCaseWire(doc, formUuid),
 										entrySessionDatums(doc, linkContext, moduleUuid, formUuid),
@@ -915,19 +1070,22 @@ export function compileCczParts(
 									? undefined
 									: sessionDataRef(ownCaseDatumId),
 								ownCaseDatum?.maxSelectValue === undefined,
+								doc.appSettings.caseSharing,
 							);
 			}
 			// The three steps after the case blocks change one parse of the form.
 			if (xform) {
 				const form = parseXForm(xform);
 				addMetaBlockTo(form, {
-					/* HQ's build captures location on every form where the
-					 * app's `auto_gps_capture` is on: a Connect app's, which
-					 * Nova sets, or another app's where the project space
-					 * holds it (`xform.py::XForm._add_meta_2`). */
+					/* HQ builds from the independent app and form switches. */
 					captureLocation:
-						authoredDoc.connectType !== null || facts?.autoGpsCapture === true,
+						hqJson.auto_gps_capture === true ||
+						hqForm.auto_gps_capture === true,
 				});
+				assertAnswerDataReachesReceiver(
+					findDataElement(form, "compile"),
+					declaresWebApps(authoredDoc),
+				);
 				stripVellumAttributesFrom(form);
 				setFormVersionOn(form, sequence);
 				xform = serializeXForm(form);
@@ -947,7 +1105,12 @@ export function compileCczParts(
 			// Dependency declarations come from the exact rendered datum, stack,
 			// command, and referenced detail trees. The independent suite oracle
 			// checks their final XML scopes after the entry has been assembled.
-			const projectedLinks = projectAfterSubmit(doc, linkContext, formUuid);
+			const projectedLinks = projectAfterSubmit(
+				doc,
+				linkContext,
+				formUuid,
+				moduleUuid,
+			);
 			// The static frame the stack writes: the after-submit of a form
 			// without destinations, else a built-in otherwise's fallback.
 			const frameDestination =
@@ -991,26 +1154,15 @@ export function compileCczParts(
 			// registered; an explicit `firstMenu` returns to the app's first menu
 			// instead. A form case lists always offer carries each host's frames,
 			// in module order, where its own after-submit writes no frame.
-			const returnFrames =
-				synthetic !== undefined
-					? form.postSubmit === "firstMenu"
-						? []
-						: caseListFormReturnFrames(
-								doc,
-								linkContext,
-								synthetic.hostModuleUuid,
-								newCaseDatumId(projectedSessionDatums, synthetic.caseType),
-								synthetic.caseType,
-								"case-list",
-							)
-					: caseListsOffering(doc, formUuid).flatMap((hostUuid) =>
-							alwaysOfferedReturnFrames(
-								doc,
-								linkContext,
-								hostUuid,
-								projectedSessionDatums,
-							),
-						);
+			const returnFrames = caseListActionHosts(authoredDoc, formUuid).flatMap(
+				(hostUuid) =>
+					caseListActionReturnFrames(
+						doc,
+						linkContext,
+						hostUuid,
+						projectedSessionDatums,
+					),
+			);
 			const commandInstances = new InstanceSink();
 			const menuCommand = xel(
 				"command",
@@ -1020,10 +1172,39 @@ export function compileCczParts(
 				},
 				{ mode: { target: "suite" }, instances: commandInstances },
 			);
+			const badge = projectMenuBadge(
+				authoredDoc,
+				{ kind: "form", uuid: formUuid },
+				form.badge,
+				lookupNaming,
+				ownCaseDatumId,
+				entryDatumIdResolver(
+					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+				),
+			);
+			if (badge?.kind === "text") {
+				appStrings[`forms.m${sourceIndex}f${fIdx}.badge`] = badge.text;
+				appStringUnits[`forms.m${sourceIndex}f${fIdx}.badge`] = badge.unit;
+			}
+			const formNav = navigationNode(
+				`forms.m${sourceIndex}f${fIdx}`,
+				`forms.m${sourceIndex}f${fIdx}`,
+				form,
+				"compileCcz form command",
+				badge && { value: badge, instances: commandInstances },
+			);
+			Object.assign(appStrings, formNav.strings);
 			const entryDef = deriveEntryDefinition({
+				groupAssertion:
+					doc.appSettings.caseSharing && needsSingleGroup(content.actions)
+						? content.doc_type === "AdvancedForm"
+							? "advanced"
+							: "basic"
+						: undefined,
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
 				formIndex: fIdx,
+				sourceMenuIndex: sourceIndex,
 				formType,
 				postSubmit,
 				caseType: caseType || undefined,
@@ -1047,6 +1228,7 @@ export function compileCczParts(
 						: [],
 				projectedSessionDatums,
 				caseListFilter: mod.caseListConfig?.filter,
+				additionalCaseTypes: mod.caseListConfig?.additionalCaseTypes,
 				additionalInstances: commandInstances.declarations(),
 				...(hqForm.doc_type === "Form" && {
 					writesWorker: basicActionsWriteWorker(hqForm.actions),
@@ -1086,18 +1268,22 @@ export function compileCczParts(
 				}
 			}
 
-			files[filePath] = xform;
+			if (visible === undefined && hqForm.doc_type !== "ShadowForm") {
+				if (xform === undefined)
+					throw new Error("The source form has no XForm attachment.");
+				files[filePath] = xform;
 
-			// XForm resource declaration in suite.xml. Constructed via
-			// nested `el(...)` calls — the serializer escapes the file
-			// path and version once at render time.
-			suiteResources.push(
-				el("xform", {}, [
-					el("resource", { id: filePath, version: String(sequence) }, [
-						el("location", { authority: "local" }, [text(`./${filePath}`)]),
+				// XForm resource declaration in suite.xml. Constructed via
+				// nested `el(...)` calls — the serializer escapes the file
+				// path and version once at render time.
+				suiteResources.push(
+					el("xform", {}, [
+						el("resource", { id: filePath, version: String(sequence) }, [
+							el("location", { authority: "local" }, [text(`./${filePath}`)]),
+						]),
 					]),
-				]),
-			);
+				);
+			}
 
 			// Form menu-command media: the entry's `<command>` display gains
 			// `<text form="image|audio">` media locales (icon / audio label)
@@ -1105,26 +1291,18 @@ export function compileCczParts(
 			// it doesn't, so the no-media shape is unchanged. Its app_strings
 			// (the jr:// path locales) merge into the table the suite oracle
 			// resolves `<locale id>` against.
-			const formNav = buildNavMenuNode(
-				`forms.m${mIdx}f${fIdx}`,
-				`forms.m${mIdx}f${fIdx}`,
-				form.icon,
-				form.audioLabel,
-				assets,
-				"compileCcz form command",
-			);
-			Object.assign(appStrings, formNav.strings);
-			// The worker-record assertion's message. CommCare throws
+			// Each entry assertion's message. CommCare throws
 			// `NoLocalizedTextException` on a locale id with no app_strings
-			// entry, so the string travels with the assertion that references
-			// it rather than being seeded unconditionally — a suite that never
+			// entry, so a string travels with the assertion that references it
+			// rather than being seeded unconditionally: a suite that never
 			// asserts carries no orphaned message.
 			//
 			// It carries no translation unit: it is Nova's own system copy
 			// rather than something an author wrote, so every language table
 			// takes the source text verbatim.
-			if (entryDef.assertions !== undefined) {
-				appStrings[USERCASE_MISSING_LOCALE_ID] = USERCASE_MISSING_MESSAGE;
+			for (const assertion of entryDef.assertions ?? []) {
+				appStrings[assertion.localeId] =
+					ENTRY_ASSERTION_MESSAGES[assertion.localeId];
 			}
 			suiteEntryDefinitions.push({
 				definition: entryDef,
@@ -1153,12 +1331,10 @@ export function compileCczParts(
 			// same builder the form / module nav nodes use, here fed the
 			// entry's `icon` / `audioLabel`, the media the expander stamps
 			// as `case_list.media_*`.
-			const caseListNav = buildNavMenuNode(
+			const caseListNav = navigationNode(
 				`case_lists.m${mIdx}`,
 				`case_lists.m${mIdx}`,
-				mod.caseListMenuItem?.icon,
-				mod.caseListMenuItem?.audioLabel,
-				assets,
+				mod.caseListMenuItem,
 				"compileCcz case-list command",
 			);
 			// The command's label is the entry's own label, else the module
@@ -1217,13 +1393,26 @@ export function compileCczParts(
 			above && parentUuid !== undefined && parentKeepsScreen
 				? sortedModuleUuids.indexOf(parentUuid)
 				: mIdx;
-		const moduleNav = buildNavMenuNode(
+		const moduleInstances = new InstanceSink();
+		const badge =
+			synthetic === undefined
+				? projectMenuBadge(
+						authoredDoc,
+						{ kind: "module", uuid: moduleUuid },
+						mod.badge,
+						lookupNaming,
+					)
+				: undefined;
+		if (badge?.kind === "text") {
+			appStrings[`modules.m${mIdx}.badge`] = badge.text;
+			appStringUnits[`modules.m${mIdx}.badge`] = badge.unit;
+		}
+		const moduleNav = navigationNode(
 			`modules.m${textLocaleModuleIndex}`,
 			`modules.m${mIdx}`,
-			mod.icon,
-			mod.audioLabel,
-			assets,
+			mod,
 			"compileCcz module menu",
+			badge && { value: badge, instances: moduleInstances },
 		);
 		Object.assign(appStrings, moduleNav.strings);
 
@@ -1247,7 +1436,7 @@ export function compileCczParts(
 				: moduleRelevant === undefined
 					? parentRelevant
 					: w.and(w.paren(moduleRelevant), w.paren(parentRelevant));
-		const moduleInstances = new InstanceSink();
+		const layout = menuContributionLayout(doc, moduleUuid);
 		const moduleMenu = xel(
 			"menu",
 			{
@@ -1256,6 +1445,7 @@ export function compileCczParts(
 						? { root: menuIdOf(doc, linkContext, parentUuid) }
 						: {}),
 					id: menuIdOf(doc, linkContext, moduleUuid),
+					...(layout === undefined ? {} : { style: layout }),
 				},
 				xpath: menuRelevant === undefined ? {} : { relevant: menuRelevant },
 			},
@@ -1274,8 +1464,22 @@ export function compileCczParts(
 					el("instance", { id: instance.id, src: instance.src }),
 				),
 		);
-		suiteMenus.push(moduleMenu);
+		// A menu with no command is left out, as HQ's build leaves it out
+		// (`suite_xml/sections/menus.py::MenuContributor.
+		// get_module_contributions`, `if len(menu.commands)`). Only a menu
+		// listing another menu's forms reaches here without one: every form it
+		// lists is hidden, or its source has none.
+		if (menuCommands.length > 0) suiteMenus.push(moduleMenu);
 	}
+
+	// HQ’s GridMenuHelper adds the styled root even when all modules keep their screens.
+	if (
+		doc.appSettings.firstMenuLayout === "grid" &&
+		!suiteMenus.some((menu) => menu.attribs.id === "root")
+	)
+		suiteMenus.push(
+			el("menu", { id: "root", style: "grid" }, [el("text", {})]),
+		);
 
 	// A projected session can select a detail belonging to a later module.
 	// Resolve dependencies after all details have actually been printed, while
@@ -1283,11 +1487,17 @@ export function compileCczParts(
 	const suiteEntries = suiteEntryDefinitions.map(
 		({ definition, commandDisplay }) => {
 			const instances = new InstanceSink(definition.instances);
-			instances.add(instancesForDatums(definition.session?.datums ?? []));
-			return buildEntryElement(
+			const ids = detailIdsFor(definition.session?.datums ?? []);
+			instances.add(instancesForDetails(ids));
+			const entry = buildEntryElement(
 				{ ...definition, instances: instances.declarations() },
 				commandDisplay,
 			);
+			assertDetailConditionData(
+				entry,
+				ids.flatMap((id) => detailConditionReads.get(id) ?? []),
+			);
+			return entry;
 		},
 	);
 
@@ -1427,21 +1637,73 @@ export function compileCczParts(
 	// HQ's build merges into its default table from every language
 	// (`defaultAppStringsHeldText`); a language of the facts the app does not
 	// have writes nothing, as HQ builds no table for it.
+	const wording = generatedWordingKeys(authoredDoc, plan);
+	for (const [key, id] of Object.entries(columnWordings)) wording.set(key, id);
+	const overrides = generatedWordingOverrides(authoredDoc, wording);
+	const generatedText = (language: string, key: string): string | undefined => {
+		const own = ownEntry(ownEntry(overrides, language), key);
+		if (own !== undefined) return own;
+		// A form's own submit wording, under the override as HQ's build puts
+		// the app's translations over `submit_label`. A language with none
+		// shows the built default.
+		const labels = submitLabels.get(key);
+		if (labels !== undefined) return labels[language] ?? FORM_SUBMIT_LABEL;
+		if (!Object.hasOwn(appStrings, key)) return undefined;
+		const base = ownEntry(appStringUnits, key);
+		return base === undefined
+			? appStrings[key]
+			: localization.wireTextFor(language, base);
+	};
 	const defaultHeldText =
 		facts === null
 			? {}
-			: defaultAppStringsHeldText(facts.uiText, localization.languages);
+			: defaultAppStringsHeldText(
+					facts.uiText,
+					localization.languages,
+					generatedText,
+				);
 	const tables: Record<string, ReadonlyMap<string, string>> = {};
 	for (const [language, dir] of langDirs) {
 		const table = new Map<string, string>();
 		for (const [localeId, source] of Object.entries(appStrings)) {
-			const unitSource = appStringUnits[localeId];
-			table.set(
-				localeId,
-				unitSource === undefined
-					? source
-					: localization.wireTextFor(language, unitSource),
-			);
+			const menuFile = menuMediaLocales.get(localeId);
+			if (menuFile && assets) {
+				const value =
+					dir === "default"
+						? localization.navigationMedia(language, menuFile.carrier)[
+								menuFile.role
+							]
+						: (localization.menuMediaOverride(language, menuFile.carrier)[
+								menuFile.role
+							] ??
+							localization.storedMenuMedia(language, menuFile.carrier)[
+								menuFile.role
+							]);
+				if (value && value !== "blank")
+					table.set(
+						localeId,
+						requireAssetRef(value, assets, "local menu translation"),
+					);
+				continue;
+			}
+			let value = generatedText(language, localeId) ?? source;
+			if (dir === "default" && defaultTableText(value) === "") {
+				for (const code of localization.languages) {
+					const alternative = generatedText(code, localeId);
+					if (
+						alternative !== undefined &&
+						defaultTableText(alternative) !== ""
+					) {
+						value = alternative;
+						break;
+					}
+				}
+			}
+			// A named HQ locale omits a zero-length generated value. Core
+			// falls back to its default locale for this key. Whitespace is
+			// a present value and the locale writer preserves that distinction.
+			if (dir === "default" || value !== "" || !wording.has(localeId))
+				table.set(localeId, value);
 		}
 		const heldNames = ownEntry(facts?.languageNames, language);
 		for (const code of localization.languages) {
@@ -1455,11 +1717,13 @@ export function compileCczParts(
 		))
 			table.set(key, value);
 		table.set("lang.current", language);
+		const installed =
+			dir === "default" ? table : new Map([...tables.default, ...table]);
 		const localizedSuiteErrors = validateSuiteStrings(
 			oracleSuite,
-			new Set(table.keys()),
+			new Set(installed.keys()),
 			{
-				appStringValues: table,
+				appStringValues: installed,
 				manifest: bundledWirePaths,
 			},
 		);
@@ -1478,6 +1742,7 @@ export function compileCczParts(
 		mediaEntries: mediaBundle.cczEntries,
 		tables,
 		appStringUnits,
+		wordingUnits: Object.fromEntries(wording),
 	};
 }
 
@@ -1534,6 +1799,7 @@ function generateProfile(input: {
 	readonly facts: TargetFacts | null;
 	readonly seeds: TargetFill;
 	readonly firstLanguage: string | undefined;
+	readonly buildProfileId?: string;
 	readonly sequence: number;
 	readonly archiveVersion: number;
 	readonly logoProperty?: Element;
@@ -1547,6 +1813,7 @@ function generateProfile(input: {
 			xmlns: "http://cihi.commcarehq.org/jad",
 			version: archiveVersion,
 			uniqueid: profileUniqueId(input.doc.appId, runtimeTarget),
+			...(input.buildProfileId && { buildProfileID: input.buildProfileId }),
 			requiredMajor: String(COMMCARE_VERSION_FLOOR.major),
 			requiredMinor: String(COMMCARE_VERSION_FLOOR.minor),
 			requiredMinimal: "0",
@@ -1583,6 +1850,17 @@ function generateProfile(input: {
 			el("features", {}, [
 				el("checkoff", { active: "true" }),
 				el("users", { active: "true" }),
+				...(input.doc.appSettings.requiredAndroidApps?.length
+					? [
+							el(
+								"dependencies",
+								{ active: "true" },
+								requiredAndroidPackages(
+									input.doc.appSettings.requiredAndroidApps,
+								).map(({ id }) => el("android_package", { id })),
+							),
+						]
+					: []),
 				...(facts === null || facts.credentialLevel === null
 					? []
 					: [

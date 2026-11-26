@@ -1,11 +1,11 @@
 // components/builder/media/useReferencedAssetRows.ts
 //
 // The asset rows a media display needs, read from the session's registry
-// (`assetMeta`, filled by every library page, upload confirm and budget
+// (`assetMeta`, filled by every library page, upload confirm and attach
 // check) and fetched once for the ids it lacks. Every caller in one tick asks
 // one shared batch, so a form of many media slots makes one resolve request,
 // and a Project scope reset aborts the batch in flight and forgets what it
-// asked, as the attach budget guard does.
+// asked.
 //
 // Each id reads as its row, `undefined` while the row is unknown and being
 // resolved, or `null` when the resolve failed or no builder session is

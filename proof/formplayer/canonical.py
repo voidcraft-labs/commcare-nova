@@ -17,6 +17,13 @@ nowhere in the inputs. An id an app or a restore authors
 stays as it is. Each generated id is then replaced wherever it occurs, also
 inside longer text.
 
+A Java object a message names by ``Object.toString`` (its class's name, ``@``
+and its identity hash, such as the ``java.io.InputStreamReader@7161e1cc`` of a
+submission Core's parser refused) is written by its class alone: the hash is
+the JVM's, different on every run, and nothing an app decides
+(``IDENTITY_HASH``, the pattern ``proof.observe.intent`` drops from Core's
+messages).
+
 ``encode`` writes a marked value as the canonical bytes a record keeps: keys
 sorted, no insignificant space, non-ASCII text kept as it is.
 
@@ -27,11 +34,14 @@ whole.
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from collections.abc import Iterable
 from io import BytesIO
 
 HEX = frozenset("0123456789abcdef")
+# A Java object written with ``Object.toString``: its class's name, ``@`` and its identity hash.
+IDENTITY_HASH = re.compile(r"\b((?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*)@[0-9a-f]{1,8}\b")
 DASHES = (8, 13, 18, 23)
 TOKEN = "@generated:uuid:"
 
@@ -154,14 +164,26 @@ def _drawn_id(value: str) -> str | None:
     return None
 
 
+def _without_identity_hashes(value):
+    if isinstance(value, dict):
+        return {key: _without_identity_hashes(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_identity_hashes(item) for item in value]
+    if isinstance(value, str):
+        return IDENTITY_HASH.sub(r"\1", value)
+    return value
+
+
 def mark(value, given: set[str]):
-    """``value`` with every generated id replaced by its token, and how many ids were generated."""
+    """``value`` with every generated id replaced by its token and every Java object's identity hash left out, and
+    how many ids were generated."""
     tokens: dict[str, str] = {}
     for held in _whole_values(value):
         drawn = _drawn_id(held)
         if drawn is not None and drawn not in given and drawn not in tokens:
             tokens[drawn] = f"{TOKEN}{len(tokens) + 1}"
-    return _replaced(value, tokens, sorted(tokens, key=len, reverse=True)), len(tokens)
+    marked = _replaced(value, tokens, sorted(tokens, key=len, reverse=True))
+    return _without_identity_hashes(marked), len(tokens)
 
 
 def replace_text(value, replacements: dict[str, str]):

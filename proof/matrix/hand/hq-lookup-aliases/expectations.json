@@ -1,0 +1,26 @@
+[
+	{
+		"id": "worker-place-and-both-table-answers",
+		"entry": "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+		"form": { "menu": 0, "form": 0 },
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{ "path": "/data/meeting_site", "value": "2" },
+				{ "path": "/data/visit_type", "value": "1" }
+			],
+			"expressions": [
+				"/data/meeting_site",
+				"/data/visit_type",
+				"/data/worker_village",
+				"/data/visit_description"
+			]
+		},
+		"expect": [
+			{ "pointer": "/values/0/value", "value": "clinic" },
+			{ "pointer": "/values/1/value", "value": "initial" },
+			{ "pointer": "/values/2/value", "value": "Northfield" },
+			{ "pointer": "/values/3/value", "value": "First visit" }
+		]
+	}
+]

@@ -37,10 +37,16 @@ import tablerFolder from "@iconify-icons/tabler/folder";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { type ProseTemplate, proseTemplateIsEmpty } from "../prose";
+import { displaySchemas } from "../questionDisplaySchemas";
 import { containerFieldBase, formLogicSchema } from "./base";
 
 export const groupFieldSchema = containerFieldBase.extend({
 	kind: z.literal("group"),
+	compact: displaySchemas.compact.optional(),
+	collapse: displaySchemas.collapse.optional(),
+	border: displaySchemas.border.optional(),
+	itemsPerRow: displaySchemas.itemsPerRow.optional(),
+	repeatsPerRow: displaySchemas.repeatsPerRow.optional(),
 	relevant: formLogicSchema.optional(),
 	/** Shows the group's questions together on one screen on Android. Absent: one per screen. */
 	fieldList: z.literal(true).optional(),

@@ -113,7 +113,10 @@ BASE_ADDRESS = "www.commcarehq.org"
 DEFAULT_PROTOCOL = "https"
 
 # The map layer HQ's pages draw maps with (Web Apps' location question, entries.js::GeoPointEntry, which draws
-# no map and takes no answer without one). Production names one, so a worker answers a location question on the
-# map; the map's pictures come from the layer's host, which the browser does not reach, and the map moves and
-# answers all the same.
-MAPBOX_ACCESS_TOKEN = "proof-map-layer"
+# no map and takes no answer without one) and search addresses with (entries.js::AddressEntry, whose geocoder
+# reads the token's public payload before it draws, so a token it cannot parse stops the form drawing at the
+# address question). Production names one, so a worker answers a location question on the map and an address
+# question in its search box. This one is a public token's shape around a synthetic payload, no credential: the
+# map's pictures and the geocoder's answers come from the provider's hosts, which the browser does not reach, and
+# the map moves and answers all the same.
+MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjogInByb29mLXdvcmtlciJ9.synthetic"

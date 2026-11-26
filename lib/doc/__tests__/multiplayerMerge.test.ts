@@ -40,19 +40,23 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
+	dateLiteral,
 	eq,
+	gte,
 	input,
 	literal,
 	prop,
-	sessionUser,
 	term,
+	today,
 	whenInput,
 } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 /** A Search action setting that, unlike the screen's title and subtitle,
- * survives the module's last Search input. */
-const PEER_BUTTON_CONDITION = eq(sessionUser("user_type"), literal("peer"));
+ * survives the module's last Search input. It reads the device's day, which
+ * every entry showing the list can evaluate (a worker read needs the list to
+ * load the session, `suite/case-search/buttonCondition.ts`). */
+const PEER_BUTTON_CONDITION = gte(today(), dateLiteral("2026-01-01"));
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -1021,6 +1025,93 @@ describe("setCaseListMeta on a peer-removed config", () => {
 		expect(merged.modules[moduleUuid].caseListConfig?.filter).toEqual({
 			kind: "match-none",
 		});
+	});
+
+	it("replays a single-surface edit over a peer edit when the first edit collapsed the shared spelling", () => {
+		const { doc, moduleUuid: uuid } = moduleWithFilter();
+		const original = apply(doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid,
+				patch: { filter: { kind: "match-none" } },
+			},
+		]);
+		const base = apply(original, [
+			{ kind: "setCaseListMeta", uuid, patch: { searchCondition: null } },
+		]);
+		const shared = apply(base, [
+			{
+				kind: "setCaseListMeta",
+				uuid,
+				patch: { searchCondition: { kind: "match-none" } },
+			},
+		]);
+		const peer = apply(base, [
+			{ kind: "setCaseListMeta", uuid, patch: { listCondition: null } },
+		]);
+		const replay = apply(peer, diffDocsToMutations(base, shared));
+		expect(replay.modules[uuid].caseListConfig?.filter).toBeUndefined();
+		expect(replay.modules[uuid].caseListConfig?.searchCondition).toEqual({
+			kind: "match-none",
+		});
+	});
+
+	it("replays search filter adds, edits, reorders and removals as the target holds them", () => {
+		const filter = (name: string, property: string, value: string) => ({
+			uuid: testUuid(`replay-search-filter-${name}`),
+			target: { kind: "property" as const, property },
+			value: term(literal(value)),
+		});
+		const [a, b, c, d] = [
+			filter("a", "region", "north"),
+			filter("b", "status", "open"),
+			filter("c", "phone", "555"),
+			filter("d", "region", "south"),
+		];
+		const base = canonicalFixture(
+			buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: ["case_name", "region", "status", "phone"].map(
+							(name) => ({ name, label: proseText(name) }),
+						),
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [survey()],
+						caseSearchConfig: {},
+						caseListConfig: {
+							...caseListConfig([{ field: "case_name", header: "Name" }]),
+							searchFilters: [a, b, c],
+						},
+					},
+				],
+			}),
+		);
+		const uuid = base.moduleOrder[0];
+		const withRows = (rows: (typeof a)[] | undefined) =>
+			produce(base, (draft) => {
+				const config = draft.modules[uuid].caseListConfig;
+				if (config === undefined) throw new Error("fixture config missing");
+				if (rows === undefined) delete config.searchFilters;
+				else config.searchFilters = rows;
+			});
+		for (const target of [
+			// c edited and moved first, b removed, d added after a.
+			withRows([{ ...c, value: term(literal("556")) }, a, d]),
+			// The last row leaves with the list.
+			withRows(undefined),
+		]) {
+			const batch = diffDocsToMutations(base, target);
+			expect(batch.every((m) => m.kind === "setCaseListMeta")).toBe(true);
+			expect(apply(base, batch).modules[uuid].caseListConfig).toEqual(
+				target.modules[uuid].caseListConfig,
+			);
+		}
 	});
 
 	it("a same-batch config birth then setCaseListMeta is not falsely rejected", () => {

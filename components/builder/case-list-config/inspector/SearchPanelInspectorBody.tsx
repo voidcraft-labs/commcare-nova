@@ -5,7 +5,10 @@
 //
 //   1. `searchScreenTitle`: title above the search inputs. **Show a title**
 //      off writes `NO_SEARCH_SCREEN_TITLE` and hides the field; on clears
-//      the slot, which shows the default title in the field again.
+//      the slot, which shows the default title in the field again. In
+//      another language the switch is that language's own: off holds the
+//      title blank there, and on gives it the default title's words, since
+//      clearing would show the source's title, which may be none.
 //   2. `searchScreenSubtitle`: markdown subtitle below the title.
 //   3. `searchButtonDisplayCondition`: optional predicate gating the
 //      button's visibility at runtime. This rail only summarizes it
@@ -33,9 +36,11 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { type ReactNode, useEffect, useId, useState } from "react";
+import { SearchResultsNameSection } from "@/components/builder/detail/moduleSettings/SearchResultsNameSection";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
+import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
@@ -45,6 +50,13 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
@@ -57,9 +69,11 @@ import {
 	searchWorkflow,
 	type Uuid,
 } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression";
+import { type Expression, matchAll } from "@/lib/domain/expression";
 import type { PlatformFeatureId } from "@/lib/domain/platforms";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
+import { ProjectSearchSettings } from "./ProjectSearchSettings";
 import { SearchWorkflowSetting } from "./SearchWorkflowSetting";
 import {
 	BUTTON_ONLY_SEARCH_SCREEN_LINE,
@@ -76,6 +90,7 @@ export interface SearchPanelInspectorBodyProps {
 	readonly onChange: (next: OrdinaryCaseSearchConfig) => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
+	readonly requestedTypes?: readonly string[];
 	/** Search-input declarations available while authoring the condition. */
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/** False when there are no input fields, so Search-screen copy never renders. */
@@ -87,14 +102,14 @@ export interface SearchPanelInspectorBodyProps {
 	readonly onEditDisplayCondition: (focusNewCondition?: boolean) => void;
 	/** The Search-action condition is invalid and needs repair. */
 	readonly searchSettingsHasError?: boolean;
-	/** Why this menu takes no Search at all (it shows its forms in the menu
-	 *  above): stated first, with every control below it disabled. */
-	readonly searchUnavailableReason?: string;
+	/** Where the worker can reach this search on a menu that shows its forms above. */
+	readonly formsAboveSearchNote?: string;
 }
 
 /** What the Search screen's platform note can state. Search first's and
  *  Results first's notes sit under When this menu opens. */
 const SEARCH_PANEL_NOTE_FEATURES: readonly PlatformFeatureId[] = [
+	"search-on-clear",
 	"search",
 	"search-screen-text",
 ];
@@ -105,12 +120,13 @@ export function SearchPanelInspectorBody({
 	onChange,
 	caseTypes,
 	currentCaseType,
+	requestedTypes = [currentCaseType],
 	knownInputs = [],
 	hasVisibleSearchScreen = true,
 	hasSearchAction,
 	onEditDisplayCondition,
 	searchSettingsHasError = false,
-	searchUnavailableReason,
+	formsAboveSearchNote,
 }: SearchPanelInspectorBodyProps) {
 	const unavailableReasonId = useId();
 	const expressionContext = useExpressionSlotContext(
@@ -122,17 +138,26 @@ export function SearchPanelInspectorBody({
 					slot: "search_button_display_condition",
 				},
 	);
+	const showsSource = useShowsSourceLanguage();
 	const showsTitle = searchScreenTitleText(value) !== null;
+	/* Showing a title is the app's setting, in every language: off holds no
+	 * title on the source, which every language then shows, and on clears
+	 * it, so every language shows its title again, whichever language the
+	 * Builder shows (`projectBuilderLanguageMutations.ts`). */
 	const setShowTitle = (next: boolean) =>
 		onChange(
 			setOptionalSlot(
 				value,
 				"searchScreenTitle",
-				next ? undefined : NO_SEARCH_SCREEN_TITLE,
+				!next ? NO_SEARCH_SCREEN_TITLE : undefined,
 			),
 		);
 	const setTitle = (next: string | undefined) => {
-		const authored = next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
+		// The default title's words are the absent title in the source; in
+		// another language they are that language's own text, since clearing
+		// would show the source's title there.
+		const authored =
+			showsSource && next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
 		// Clearing an untouched default should only restore that default in the
 		// control; it must not materialize an empty search-settings object.
 		if (authored === undefined && value?.searchScreenTitle === undefined)
@@ -152,26 +177,48 @@ export function SearchPanelInspectorBody({
 	const searchActionIsActive = hasSearchAction ?? value !== undefined;
 	const advancedIsActive = value?.searchButtonDisplayCondition !== undefined;
 
+	const relatedPolicies = {
+		auto: "Follow the displayed information",
+		details: "Only records used by details",
+		hierarchy: "The whole related hierarchy",
+	} as const;
+	const policy = value?.relatedRecords ?? "auto";
+	const property = value?.relatedRecordIdProperty;
+	const properties = [
+		...new Set([
+			...caseTypes
+				.filter((type) => requestedTypes.includes(type.name))
+				.flatMap((type) => type.properties.map((p) => p.name))
+				.filter((name) => !isDeviceOnlyCaseProperty(name)),
+			...(property ? [property] : []),
+		]),
+	];
 	return (
 		<>
-			{searchUnavailableReason !== undefined && (
+			{formsAboveSearchNote !== undefined && (
 				<p
 					id={unavailableReasonId}
-					data-search-unavailable
+					data-search-forms-above
 					className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
 				>
-					{searchUnavailableReason}
+					{formsAboveSearchNote}
 				</p>
 			)}
 			<fieldset
-				disabled={searchUnavailableReason !== undefined}
 				aria-describedby={
-					searchUnavailableReason === undefined
-						? undefined
-						: unavailableReasonId
+					formsAboveSearchNote === undefined ? undefined : unavailableReasonId
 				}
 				className="m-0 min-w-0 space-y-4 border-0 p-0"
 			>
+				{moduleUuid && (
+					<ProjectSearchSettings
+						moduleUuid={moduleUuid}
+						value={value}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={knownInputs}
+					/>
+				)}
 				{hasVisibleSearchScreen ? (
 					<>
 						<div data-search-show-title={showsTitle ? "true" : "false"}>
@@ -235,6 +282,78 @@ export function SearchPanelInspectorBody({
 					label="More settings"
 					defaultOpen={false}
 				>
+					{moduleUuid !== undefined && (
+						<SearchResultsNameSection moduleUuid={moduleUuid} />
+					)}
+					{searchActionIsActive && (
+						<>
+							<div className="space-y-1 text-sm">
+								Related records
+								<Select
+									value={policy}
+									onValueChange={(choice) => {
+										if (
+											choice === "auto" ||
+											choice === "details" ||
+											choice === "hierarchy"
+										)
+											onChange(
+												setOptionalSlot(
+													value,
+													"relatedRecords",
+													choice === "auto" ? undefined : choice,
+												),
+											);
+									}}
+								>
+									<SelectTrigger aria-label="Related records">
+										<SelectValue>{relatedPolicies[policy]}</SelectValue>
+									</SelectTrigger>
+									<SelectContent>
+										{Object.entries(relatedPolicies).map(([key, label]) => (
+											<SelectItem key={key} value={key}>
+												{label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+							{properties.length > 0 && (
+								<div className="space-y-1 text-sm">
+									Record ID to follow
+									<Select
+										value={property ?? "#none"}
+										onValueChange={(choice) => {
+											if (choice)
+												onChange(
+													setOptionalSlot(
+														value,
+														"relatedRecordIdProperty",
+														choice === "#none" ? undefined : choice,
+													),
+												);
+										}}
+									>
+										<SelectTrigger aria-label="Record ID to follow">
+											<SelectValue>
+												{property ?? "No additional record"}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="#none">
+												No additional record
+											</SelectItem>
+											{properties.map((key) => (
+												<SelectItem key={key} value={key}>
+													{key}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							)}
+						</>
+					)}
 					{formsReadSearch &&
 					value?.searchButtonDisplayCondition === undefined ? (
 						<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
@@ -256,7 +375,12 @@ export function SearchPanelInspectorBody({
 							currentCaseType={currentCaseType}
 							knownInputs={knownInputs}
 							// The Search action's relevance resolves before any case is
-							// selected, so the seed compares a session value.
+							// selected, in the scope of each entry that shows the list,
+							// which loads the session only where its selection or its
+							// forms' returns read it (`CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST`).
+							// So Add seeds "always", which every list can evaluate, and
+							// the author builds the rule from there.
+							seed={matchAll}
 						/>
 					)}
 				</AdvancedSearchSettings>

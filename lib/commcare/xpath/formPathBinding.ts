@@ -4,6 +4,7 @@ import {
 	type ExpressionContext,
 	pushRowScope,
 	type RowScope,
+	readsProjectSearchResults,
 	withFormContextNode,
 } from "@/lib/domain/expression/context";
 import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
@@ -31,11 +32,17 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
+import { bindLookupRead, lookupReadSyntax } from "../lookup/readPath";
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "../sessionContext";
+import { inlineSearchInstance } from "../suite/case-search/types";
 import type { FormNodeProjection } from "./formNodeProjection";
 import { FormParseRefusal, refuse } from "./formParseIssues";
 import type { FormParseScope } from "./formParseScope";
-import { type FormSyntax, readFormSyntax } from "./formSyntax";
+import {
+	type FormSyntax,
+	literalInstanceId,
+	readFormSyntax,
+} from "./formSyntax";
 
 export interface FormPathBinder {
 	readonly scope: FormParseScope;
@@ -154,6 +161,114 @@ function rowValue(
 			whole,
 			"This path needs one property of the selected row.",
 		);
+	if (row.kind === "worker-group") {
+		const firstName = name(first.node);
+		if (
+			!first.where.length &&
+			steps.length === 1 &&
+			firstName &&
+			((firstName.name === "id" && firstName.attribute) ||
+				(firstName.name === "name" && !firstName.attribute))
+		)
+			return {
+				kind: "worker-group-field",
+				field: firstName.name as "id" | "name",
+			};
+		const detail = steps[1],
+			keyStep = steps[2] && name(steps[2].node),
+			node = detail && name(detail.node);
+		if (
+			plain(first, "group_data") &&
+			detail &&
+			node?.name === "data" &&
+			!node.attribute &&
+			detail.where.length <= 1 &&
+			(steps.length === 2 ||
+				(steps.length === 3 &&
+					keyStep?.attribute &&
+					keyStep.name === "key" &&
+					!steps[2].where.length))
+		) {
+			const filter = detail.where[0];
+			const attr = filter?.kind === "binary" ? name(filter.left) : undefined;
+			if (
+				!filter ||
+				(filter.kind === "binary" &&
+					filter.op === "=" &&
+					attr?.attribute &&
+					attr.name === "key" &&
+					filter.right.kind === "string")
+			) {
+				const key =
+					filter?.kind === "binary" && filter.right.kind === "string"
+						? filter.right.value
+						: undefined;
+				return {
+					kind: "worker-group-field",
+					field: {
+						detail: keyStep ? "key" : "value",
+						...(key !== undefined && { key }),
+					},
+				};
+			}
+		}
+		refuse(
+			"row-step-after-value",
+			whole,
+			"A worker group has an identifier, a name and details you can read by key.",
+		);
+	}
+	if (row.kind === "table") {
+		if (binder.scope.lookup === "unavailable")
+			refuse(
+				"lookup-unavailable",
+				whole,
+				"Project data is still loading. You can try this table read again in a moment.",
+			);
+		const table = binder.scope.lookup.get(row.tableId);
+		const projected = steps
+			.map(({ node, where }) =>
+				where.reduce<FormSyntax>(
+					(base, predicate) => ({
+						kind: "filter",
+						base,
+						where: predicate,
+						from: base.from,
+						to: predicate.to,
+					}),
+					node,
+				),
+			)
+			.reduce((left, step) => ({
+				kind: "child",
+				left,
+				step,
+				descendant: false,
+				from: left.from,
+				to: step.to,
+			}));
+		const path = lookupReadSyntax(projected);
+		const read =
+			path &&
+			table &&
+			bindLookupRead(path, {
+				column: (name) =>
+					table.columns.find((column) => column.wireName === name)?.id,
+				attribute: (name) =>
+					table.attributes?.find((member) => member.wireName === name)?.id,
+				property: (id, name) =>
+					table.columns
+						.find((column) => column.id === id)
+						?.properties?.find((member) => member.wireName === name)?.id,
+			});
+		if (!read)
+			refuse(
+				"unknown-column",
+				whole,
+				`Choose a column or a detail from “${table?.name ?? "the selected table"}” for this read.`,
+			);
+		return { kind: "table-column", tableId: row.tableId, columnId: read };
+	}
 	if (steps.some((step) => step.where.length > 0))
 		refuse(
 			"filter-root",
@@ -175,6 +290,13 @@ function rowValue(
 		);
 	const tail = steps.slice(1);
 	if (row.kind === "case") {
+		if (
+			row.root !== "casedb" &&
+			readsProjectSearchResults(context) &&
+			!named.attribute &&
+			tail.length === 0
+		)
+			return { kind: "search-result-field", name: named.name };
 		if (named.attribute && !CASE_NODE_ATTRIBUTE_PROPERTIES.has(named.name))
 			refuse(
 				"case-row-attribute",
@@ -239,26 +361,7 @@ function rowValue(
 			...(caseType === undefined ? {} : { caseType }),
 		};
 	}
-	if (row.kind === "table") {
-		if (binder.scope.lookup === "unavailable")
-			refuse(
-				"lookup-unavailable",
-				whole,
-				"Project data is still loading, so this table read can't be checked yet. You can try again in a moment.",
-			);
-		const table = binder.scope.lookup.get(row.tableId);
-		const column =
-			!named.attribute && tail.length === 0
-				? table?.columns.find((column) => column.wireName === named.name)
-				: undefined;
-		if (column === undefined)
-			refuse(
-				"unknown-column",
-				whole,
-				`The ${table?.name ?? "selected"} table has no column ${named.name}. You can use one of its columns: ${table?.columns.map((column) => column.wireName).join(", ") ?? "none"}.`,
-			);
-		return { kind: "table-column", tableId: row.tableId, columnId: column.id };
-	}
+
 	if (row.kind === "location") {
 		if (
 			!named.attribute &&
@@ -329,14 +432,6 @@ function rowValue(
 	);
 }
 
-/** The case type of the search whose results the slot's entry holds. */
-function searchedCaseType(context: ExpressionContext): string | undefined {
-	const searched = context.supplies.searchResults;
-	return searched === undefined
-		? undefined
-		: context.facts.moduleCaseTypes.get(searched.module);
-}
-
 function instancePath(
 	binder: FormPathBinder,
 	path: ReadPath,
@@ -344,18 +439,29 @@ function instancePath(
 	whole: FormSyntax,
 ): Expression {
 	const root = path.root;
-	if (
-		root?.kind !== "call" ||
-		root.name !== "instance" ||
-		root.args.length !== 1 ||
-		root.args[0].kind !== "string"
-	)
+	const literal = literalInstanceId(root);
+	if (root === undefined || literal === undefined)
 		refuse(
 			"instance-argument",
 			whole,
 			"instance() needs the name of what it reads in quotes, such as instance('casedb').",
 		);
-	const id = readInstanceId(binder, root.args[0].value, whole);
+	const reading = binder.scope.reading;
+	const binding = reading?.instanceSource(literal.value, literal.from);
+	const localId = binding?.localId ?? literal.value;
+	const source = binding?.source;
+	if (reading !== undefined && source === undefined)
+		refuse(
+			"instance-unknown",
+			whole,
+			`This form reads instance('${localId}'), whose source Nova can't resolve. You can read records, the session, data tables, places and search answers.`,
+		);
+	const id =
+		source?.kind === "native"
+			? source.id
+			: source?.kind === "table"
+				? `item-list:${source.tag}`
+				: localId;
 	const steps = path.steps;
 	const form = context.form;
 	const entryDatums = (): readonly EntryDatumId[] => {
@@ -388,6 +494,30 @@ function instancePath(
 		);
 		return own === -1 ? rows : rows.slice(0, own);
 	};
+	if (
+		(source?.kind === "selected" || reading === undefined) &&
+		plain(steps[0], "results") &&
+		plain(steps[1], "value") &&
+		steps.length === 2
+	) {
+		const chosen = entryDatums().find(
+			(row) =>
+				!row.scalar &&
+				row.id === (source?.kind === "selected" ? source.datum : localId),
+		);
+		const ref = chosen?.refs.find((ref) => ref.kind === "selected-case");
+		if (ref !== undefined && ref.kind === "selected-case")
+			return binder.remember(
+				{ kind: "selected-cases", module: ref.module },
+				whole,
+			);
+	}
+	if (source?.kind === "selected")
+		refuse(
+			"instance-unknown",
+			whole,
+			`This form has no matching list of chosen records at instance('${localId}') on this path.`,
+		);
 	if (id === "commcaresession") {
 		if (
 			!plain(steps[0], "session") ||
@@ -476,12 +606,6 @@ function instancePath(
 			`This form doesn't open with a session value at this path. You can read a question or a case property instead.`,
 		);
 	}
-	if (id === "groups")
-		refuse(
-			"groups-held",
-			whole,
-			"Reading the worker's case-sharing groups isn't available yet. You can read the places the worker is assigned to with instance('locations') instead.",
-		);
 	if (id === "results") {
 		const ownType =
 			form === undefined
@@ -495,7 +619,7 @@ function instancePath(
 			} instead.`,
 		);
 	}
-	if (id === "search-input:results" || id === "search-input:results:inline") {
+	if (id === "search-input:results" || id.startsWith("search-input:results:")) {
 		// Core builds this instance as <input><field name="…">answer</field>
 		// …</input> (`VirtualInstances.java::buildSearchInputInstance`), so an
 		// answer is read as /input/field[@name = '<name>'] with the name quoted.
@@ -530,34 +654,54 @@ function instancePath(
 			(binder.scope.reading === undefined
 				? undefined
 				: context.profile.searchInputs);
-		const input = fields?.find((input) => input.name === keyed.value);
+		const supplier = form?.searchSuppliers?.find(
+			(search) =>
+				`search-input:${inlineSearchInstance(search.resultsName)}` === id,
+		);
+		if (
+			form &&
+			supplier === undefined &&
+			!(
+				form.caseListRegistrationForm &&
+				id ===
+					`search-input:${inlineSearchInstance(binder.scope.doc.modules[form.moduleUuid]?.searchResultsName)}`
+			)
+		)
+			refuse(
+				"search-answer-unloaded",
+				whole,
+				"This form’s entry has not loaded that search. Choose a case through this search to use its answers.",
+			);
+		const external =
+			supplier?.module === form?.moduleUuid ? undefined : supplier?.module;
+		const input = fields?.find(
+			(input) => input.name === keyed.value && input.supplier === external,
+		);
 		if (input === undefined)
 			refuse(
 				"unknown-search-input",
 				whole,
 				`This menu's search has no field called ${keyed.value}.`,
 			);
-		return binder.term({ kind: "input", searchInputUuid: input.uuid }, whole);
+		return binder.term(
+			{
+				kind: "input",
+				searchInputUuid: input.uuid,
+				...(external !== undefined && { supplier: external }),
+			},
+			whole,
+		);
 	}
-	if (
-		plain(steps[0], "results") &&
-		plain(steps[1], "value") &&
-		steps.length === 2
-	) {
-		const chosen = entryDatums().find((row) => !row.scalar && row.id === id);
-		const ref = chosen?.refs.find((ref) => ref.kind === "selected-case");
-		if (ref !== undefined && ref.kind === "selected-case")
-			return binder.remember(
-				{ kind: "selected-cases", module: ref.module },
-				whole,
-			);
-	}
-	let base: Extract<Expression, { kind: "cases" | "table-rows" | "locations" }>;
+
+	let base: Extract<
+		Expression,
+		{ kind: "cases" | "table-rows" | "locations" | "worker-groups" }
+	>;
 	let row: RowScope;
 	let predicates: readonly FormSyntax[];
 	const consumed = 2;
 	const rowsStep = steps[1];
-	if (id === "casedb" || id === "results:inline") {
+	if (id === "casedb" || id.startsWith("results:")) {
 		if (
 			!plain(steps[0], id === "casedb" ? "casedb" : "results") ||
 			rowsStep === undefined ||
@@ -569,7 +713,13 @@ function instancePath(
 				`The records in ${id} are at instance('${id}')/${id === "casedb" ? "casedb" : "results"}/case.`,
 			);
 		predicates = rowsStep.where;
-		if (id === "results:inline") {
+		const resultSupplier = form?.searchSuppliers?.find(
+			(search) => inlineSearchInstance(search.resultsName) === id,
+		);
+		if (
+			id.startsWith("results:") &&
+			!readsProjectSearchResults(context, resultSupplier?.module)
+		) {
 			const guard = predicates[0];
 			const expected =
 				guard?.kind === "call" &&
@@ -589,12 +739,22 @@ function instancePath(
 				refuse(
 					"search-results-unexcluded",
 					whole,
-					"Search results also hold cases CommCare adds to show related details. You can read the cases the search found with instance('results:inline')/results/case[not(commcare_is_related_case = true())].",
+					`Search results also hold cases CommCare adds to show related details. You can read the cases the search found with instance('${id}')/results/case[not(commcare_is_related_case = true())].`,
 				);
 			predicates = predicates.slice(1);
 		}
+		if (id.startsWith("results:") && form && resultSupplier === undefined)
+			refuse(
+				"search-results-remote",
+				whole,
+				"This form’s entry has not loaded that search.",
+			);
 		base = {
 			kind: "cases",
+			...(resultSupplier !== undefined &&
+				resultSupplier.module !== form?.moduleUuid && {
+					supplier: resultSupplier.module,
+				}),
 			source: id === "casedb" ? "casedb" : "search-results",
 			where: [],
 		};
@@ -639,11 +799,31 @@ function instancePath(
 				: { kind: "case", root: id === "casedb" ? "casedb" : "results:inline" };
 		// A search's rows are the searched module's case type, so a custom
 		// property binds to that type even where another type declares it too.
+		const source =
+			resultSupplier?.module ?? context.supplies.searchResults?.module;
 		const searched =
-			id === "results:inline" && typed.caseType === undefined
-				? searchedCaseType(context)
+			id.startsWith("results:") &&
+			typed.caseType === undefined &&
+			source !== undefined &&
+			!readsProjectSearchResults(context, source)
+				? context.facts.moduleCaseTypes.get(source)
 				: undefined;
 		row = searched === undefined ? typed : { ...typed, caseType: searched };
+	} else if (id === "groups") {
+		if (
+			!plain(steps[0], "groups") ||
+			!rowsStep ||
+			name(rowsStep.node)?.name !== "group" ||
+			name(rowsStep.node)?.attribute
+		)
+			refuse(
+				"instance-unknown",
+				whole,
+				"The worker’s groups are at instance('groups')/groups/group.",
+			);
+		base = { kind: "worker-groups", where: [] };
+		row = { kind: "worker-group", root: "worker-groups" };
+		predicates = rowsStep.where;
 	} else if (id === "locations") {
 		if (
 			!plain(steps[0], "locations") ||
@@ -659,6 +839,14 @@ function instancePath(
 		row = { kind: "location", root: "locations" };
 		predicates = rowsStep.where;
 	} else {
+		// In HQ source an unregistered bare id has no factory. The authoring
+		// parser may still use the local id Nova will declare for its table.
+		if (binder.scope.reading !== undefined && !id.startsWith("item-list:"))
+			refuse(
+				"instance-unknown",
+				whole,
+				`CommCare can't load instance('${localId}') without a matching declaration.`,
+			);
 		const tag = id.startsWith("item-list:")
 			? id.slice("item-list:".length)
 			: id;
@@ -686,7 +874,7 @@ function instancePath(
 			refuse(
 				"table-path-mismatch",
 				whole,
-				`The rows of ${tag} are at instance('${tag}')/${tag}_list/${tag}.`,
+				`The rows of ${tag} are at instance('${localId}')/${tag}_list/${tag}.`,
 			);
 		base = { kind: "table-rows", tableId: table.id, where: [] };
 		row = { kind: "table", root: "table", tableId: table.id };
@@ -707,7 +895,7 @@ function instancePath(
 		(predicates.length === 2 || firstOfAll) &&
 		last?.kind === "number" &&
 		last.value === 1 &&
-		projected.length === 1
+		projected.length > 0
 	) {
 		const value = rowValue(binder, projected, rowContext, whole);
 		if (value.kind === "table-column")
@@ -898,53 +1086,6 @@ export function refuseReadHashtag(node: FormSyntax): never {
 	);
 }
 
-/** The instance id a reading binds: the canonical id of the source the form
- *  declares under `id`, or `id` as written where the form declares none (a
- *  suite slot's ids name their sources). */
-function readInstanceId(
-	binder: FormPathBinder,
-	id: string,
-	whole: FormSyntax,
-): string {
-	const reading = binder.scope.reading;
-	if (reading === undefined) return id;
-	const source = reading.instanceSource(id);
-	if (source === undefined) return id;
-	const canonical = canonicalInstanceId(source);
-	if (canonical === undefined)
-		refuse(
-			"instance-unknown",
-			whole,
-			`This form reads instance('${id}'), whose source Nova doesn't read. A form can read records, the session, data tables, places and search answers.`,
-		);
-	return canonical;
-}
-
-const INSTANCE_SOURCE_IDS: Readonly<Record<string, string>> = {
-	"jr://instance/casedb": "casedb",
-	"jr://instance/session": "commcaresession",
-	"jr://fixture/locations": "locations",
-	"jr://fixture/user-groups": "groups",
-	"jr://instance/search-input/results": "search-input:results",
-	"jr://instance/search-input/results:inline": "search-input:results:inline",
-	"jr://instance/remote/results": "results",
-	"jr://instance/remote/results:inline": "results:inline",
-};
-
-/** The id the binder knows for a declared source
- *  (`suite_xml/post_process/instances.py`'s factories, inverted). */
-export function canonicalInstanceId(source: string): string | undefined {
-	if (Object.hasOwn(INSTANCE_SOURCE_IDS, source))
-		return INSTANCE_SOURCE_IDS[source];
-	const table = "jr://fixture/item-list:";
-	if (source.startsWith(table) && source.length > table.length)
-		return `item-list:${source.slice(table.length)}`;
-	const selected = "jr://instance/selected-entities/";
-	if (source.startsWith(selected) && source.length > selected.length)
-		return source.slice(selected.length);
-	return undefined;
-}
-
 function bindFormNodePath(
 	binder: FormPathBinder,
 	path: ReadPath,
@@ -1003,11 +1144,11 @@ function bindFormNodePath(
 	let hasName = false;
 	let steps = path.steps;
 	if (spelling === "absolute") {
-		if (!plain(steps[0], "data"))
+		if (!plain(steps[0], form.dataRootName ?? "data"))
 			refuse(
 				"unknown-field",
 				whole,
-				"A form's absolute answer path starts at /data. You can also use #form/question.",
+				`This form's absolute answer path starts at /${form.dataRootName ?? "data"}. You can also use #form/question.`,
 			);
 		steps = steps.slice(1);
 	}
@@ -1117,7 +1258,11 @@ function bindFormNodePath(
 			if (
 				logical &&
 				!named.attribute &&
-				(current.kind === "field" || current.kind === "form-root")
+				(current.kind === "field" || current.kind === "form-root") &&
+				!(
+					current.kind === "field" &&
+					form.fields.get(current.uuid)?.kind === "connect_activity"
+				)
 			) {
 				const parent = current.kind === "field" ? current.uuid : current.form;
 				logicalPath = [...logicalPath, named.name];
@@ -1200,7 +1345,11 @@ function bindFormNodePath(
 			},
 			whole,
 		);
-	if (spelling !== "relative" && spelling !== "current")
+	if (
+		spelling !== "relative" &&
+		spelling !== "current" &&
+		!(spelling === "absolute" && "activity" in current)
+	)
 		refuse(
 			"unknown-field",
 			whole,

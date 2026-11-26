@@ -60,6 +60,7 @@ processing of the media reported.
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 from proof.observe.record import bytes_digest, digest
@@ -69,7 +70,7 @@ AUTHORED = "authored"
 # The project data a base holds beside its app, each a file ``<name>.json`` under ``AUTHORED`` where the base holds
 # any, made before the app in this order (``create_authored``): its lookup tables, its levels and places, and its
 # practice workers.
-AUTHORED_PROJECT_DATA = ("tables", "places", "practice-workers")
+AUTHORED_PROJECT_DATA = ("tables", "places", "practice-workers", "project-searches")
 
 
 def _json(value):
@@ -218,8 +219,11 @@ def create_authored(unit, document):
     workbook is uploaded."""
     from proof.hq import operations
 
+    from proof.hq.project_search import install_project_searches
+
     directory = document.root / AUTHORED
     for name, save in (
+        ("project-searches", install_project_searches),
         ("tables", operations.save_authored_tables),
         ("places", operations.save_authored_places),
         ("practice-workers", _save_practice_workers),
@@ -283,7 +287,8 @@ def held_ids(unit, app_id, brought_in):
         return {}
     app = operations.held_app(unit, app_id)
     modules = {module.unique_id for module in app.get_modules()}
-    forms = {form.xmlns: form.unique_id for form in app.get_forms()}
+    forms = {form.xmlns: form.unique_id for form in app.get_forms() if form.form_type != "shadow_form" and form.xmlns is not None}
+    shared = {form.unique_id for form in app.get_forms() if form.form_type == "shadow_form"}
     ids = {}
     for row in brought_in.identities:
         captured = row.get("uniqueId")
@@ -296,7 +301,7 @@ def held_ids(unit, app_id, brought_in):
                     " hold. The harness adds no menu in a person's place, so the capture read another app."
                 )
             continue
-        held = forms.get(row.get("xmlns"))
+        held = captured if captured in shared else forms.get(row.get("xmlns"))
         if held is None:
             raise operations.CapturedIdsNotHeld(
                 f"The bring-in's record names the form {captured} under {row.get('xmlns')}, and the app HQ holds"
@@ -314,9 +319,8 @@ class MediaNotProcessed(AssertionError):
 class MediaReportNotMapped(AssertionError):
     """HQ's report of a media upload names, for a path it matched, a file the app's map does not hold there.
 
-    Nova records which file stands at each path it publishes from that report (``matched_files``, each entry's
-    ``path`` and ``m_id``; ``lib/deployment/store.ts::recordDeploymentMediaFiles``), so the report must be a witness
-    of the map: after HQ processed the upload, the app's ``multimedia_map`` holds at every matched path the document
+    Nova checks each reported path and file identity against the current app map and the authenticated file bytes
+    (``lib/deployment/mediaReceipt.ts::readMediaReceipt``). The report must agree with the map: after HQ processed the upload, the app's ``multimedia_map`` holds at every matched path the document
     the report names (``hqmedia/tasks.py::process_bulk_upload_zip``, ``app.create_mapping`` then
     ``get_media_info``)."""
 
@@ -337,11 +341,45 @@ def hold_report_maps(unit, app_id, processing):
                 raise MediaReportNotMapped(
                     f"HQ's report of the media upload for {app_id} names {info.get('m_id')!r} ({media_class}) at"
                     f" {info['path']}, and the app's multimedia_map holds {mapped!r} there after the processing. Nova"
-                    " records the file at each path from that report, so the record would name a file the path does"
-                    " not hold; read the report from the app's source after the upload instead."
+                    " verifies every reported identity against the current map before recording its bytes."
                 )
             held += 1
     return held
+
+
+def hold_media_bytes(unit, app_id, expected):
+    """Compare the captured digest to the mapped file served by HQ's ViewMultimediaFile.get."""
+    from corehq.apps.hqmedia.models import CommCareMultimedia
+
+    from proof.hq import operations
+
+    if not expected:
+        return
+    mapped = operations.held_app(unit, app_id).multimedia_map
+    for path, digest in expected.items():
+        item = mapped.get(path)
+        if item is None or not item.multimedia_id:
+            raise MediaReportNotMapped(f"HQ's app {app_id} has no mapped file at {path} for the verified receipt.")
+        media = CommCareMultimedia.get_doc_class(item.media_type).get(item.multimedia_id)
+        data = media.get_display_file(return_type=False)
+        if data is None or hashlib.sha256(data).hexdigest() != digest:
+            raise MediaReportNotMapped(f"HQ's app {app_id} serves different bytes at {path} from the capture.")
+
+
+def _hold_uploaded_bytes(unit, app_id, upload, processing):
+    """Hold each matched stored file to the submitted ZIP member the native job actually named."""
+    import io
+    import zipfile
+
+    from proof.hq import operations
+
+    expected = {}
+    with zipfile.ZipFile(io.BytesIO(operations.upload_field(upload, "bulk_upload_file"))) as archive:
+        for infos in processing["matched_files"].values():
+            for info in infos:
+                with archive.open(info["original_path"]) as member:
+                    expected[info["path"]] = hashlib.file_digest(member, "sha256").hexdigest()
+    hold_media_bytes(unit, app_id, expected)
 
 
 def _logo_refs(app, path):
@@ -426,7 +464,7 @@ def upload_media(unit, app_id, captured, *, counter=None):
 
     Every path the processing reports it matched is held to the app's map first
     (``hold_report_maps``), the report being what Nova records the file at each
-    path from. Returns HQ's refusal of the upload, or what its processing reported as
+    path from. Each mapped file is also compared with the submitted bytes. Returns HQ's refusal of the upload, or what its processing reported as
     Nova's status poll reads it: each file it matched to a reference of the
     app (by the reference it mapped and the media class it stored), each it
     did not match (with HQ's reason, its cause, ``_unmatched_cause``, and the
@@ -447,6 +485,7 @@ def upload_media(unit, app_id, captured, *, counter=None):
             " inline in the harness (CELERY_TASK_ALWAYS_EAGER), so an unfinished one never reached the task."
         )
     hold_report_maps(unit, app_id, processing)
+    _hold_uploaded_bytes(unit, app_id, upload, processing)
     operations.hold_save_counter(unit, app_id, counter, before, "the captured media upload")
     return _json(
         {

@@ -21,10 +21,11 @@ import {
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type {
 	HqAppSource,
-	HqAppSourceForm,
 	HqAppSourceModule,
 } from "@/lib/commcare/hq/appSource";
+import { readBuildProfiles } from "@/lib/commcare/hq/buildProfiles";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
+import { expectedXmlnsOf } from "@/lib/commcare/hq/sharedFormSource";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type {
 	AssetManifest,
@@ -96,16 +97,6 @@ export function emissionAssets(
 	return assets as AssetManifest;
 }
 
-/** The source's form of `xmlns`, in any menu: a reading's forms come from the source's. */
-function sourceFormOf(
-	source: HqAppSource,
-	xmlns: string,
-): HqAppSourceForm | undefined {
-	for (const module of source.modules)
-		for (const form of module.forms) if (form.xmlns === xmlns) return form;
-	return undefined;
-}
-
 /** What a reading's emission is made from. */
 export interface ReadingEmissionInput {
 	/** The document to print: the reading's, or the one a choice's split makes of it. */
@@ -154,21 +145,31 @@ export function readingEmissionOptions(
 			xmlns: null,
 		}),
 	);
+	const sourceById = new Map(
+		input.source.modules.flatMap((menu) =>
+			menu.forms.map((form) => [form.readUniqueId, form] as const),
+		),
+	);
 	for (const form of identities.forms) {
-		const read = sourceFormOf(input.source, form.xmlns);
+		const read = sourceById.get(form.readUniqueId);
 		if (read === undefined)
 			throw new Error(
-				"Nova tried to print a reading under its source's own form ids and found no form with the namespace it read. Every form of a reading comes from a form of the source; the draft and the source handed to acceptance are not from one read.",
+				"Nova tried to print a reading under its source's own form ids and found no entry with the id from that read. Every form of a reading comes from a form of the source; the draft and the source handed to acceptance are not from one read.",
 			);
 		overrides.push({
 			entityKind: "form",
 			novaEntityUuid: form.uuid,
 			uniqueId: read.readUniqueId,
-			xmlns: form.xmlns,
+			xmlns: read.xmlns,
 		});
 	}
 	return {
-		identity: targetWireIdentity(overrides, identities.columnFieldWords),
+		identity: targetWireIdentity(
+			overrides,
+			identities.columnFieldWords,
+			identities.projectSearches,
+			identities.installationProfiles,
+		),
 		attachmentTarget: {
 			origin: input.reader.target.origin,
 			domain: input.reader.target.domain,
@@ -237,7 +238,7 @@ function servedModules(
 					docType: text(form.doc_type) ?? "",
 					xmlns: text(form.xmlns),
 					readUniqueId,
-					shadowParentReadId: null,
+					shadowParentReadId: text(form.shadow_parent_form_id),
 					attachment: typeof attachment === "string" ? attachment : null,
 				};
 			}),
@@ -267,15 +268,14 @@ export function sourceFromEmission(
 export function readerSourceOfEmission(
 	emission: HqApplication,
 	source: HqAppSource,
+	aligned: readonly HqAlignedModule[] = [],
 ): {
 	readonly source: HqAppSource;
 	readonly modules: readonly HqAlignedModule[];
 } {
 	const body = served(emission);
-	return {
-		source: sourceFromServed(body, source),
-		modules: alignedFromServed(body),
-	};
+	const read = sourceFromServed(body, source);
+	return { source: read, modules: alignedFromSource(read.modules, aligned) };
 }
 
 function sourceFromServed(
@@ -288,6 +288,7 @@ function sourceFromServed(
 		if (value === undefined) delete raw[key];
 		else raw[key] = value;
 	}
+	const modules = servedModules(body);
 	return {
 		docType: "Application",
 		buildSpecVersion: source.buildSpecVersion,
@@ -306,12 +307,17 @@ function sourceFromServed(
 			string,
 			boolean
 		>,
-		modules: servedModules(body),
+		modules,
 		raw,
 		name: text(body.name),
 		lastModified: null,
 		multimediaMap: source.multimediaMap,
-		buildProfiles: [],
+		buildProfiles:
+			readBuildProfiles(
+				raw.build_profiles ?? NO_ENTRIES,
+				new Set(Array.isArray(body.langs) ? body.langs : []),
+				modules.length,
+			) ?? [],
 	};
 }
 
@@ -323,19 +329,30 @@ function sourceFromServed(
 export function alignedFromEmission(
 	emission: HqApplication,
 ): readonly HqAlignedModule[] {
-	return alignedFromServed(served(emission));
+	return alignedFromSource(servedModules(served(emission)), []);
 }
 
-function alignedFromServed(
-	body: Readonly<Record<string, unknown>>,
+function alignedFromSource(
+	modules: readonly HqAppSourceModule[],
+	original: readonly HqAlignedModule[],
 ): readonly HqAlignedModule[] {
-	return servedModules(body).map((module) => ({
+	const realIds = new Map(
+		original.flatMap((menu) =>
+			menu.kind === "aligned"
+				? menu.forms.map(
+						(entry) => [entry.source.readUniqueId, entry.uniqueId] as const,
+					)
+				: [],
+		),
+	);
+	const xmlnsFor = expectedXmlnsOf({ modules });
+	return modules.map((module) => ({
 		kind: "aligned",
 		uniqueId: module.uniqueId,
 		docType: module.docType,
 		forms: module.forms.map((form) => ({
-			uniqueId: form.readUniqueId,
-			xmlns: form.xmlns,
+			uniqueId: realIds.get(form.readUniqueId) ?? form.readUniqueId,
+			xmlns: xmlnsFor(form),
 			source: form,
 			questions: [],
 		})),

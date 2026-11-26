@@ -8,6 +8,7 @@ import {
 	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 
@@ -17,7 +18,8 @@ export type LookupReferenceReadExecutor =
 	| Transaction<AppDatabase>;
 
 interface StoredLookupReferenceTargetRow {
-	target_kind: "table" | "column";
+	target_kind: "table" | "column" | "member";
+	member_id: string | null;
 	project_id: string;
 	table_id: string;
 	column_id: string | null;
@@ -105,7 +107,7 @@ export async function readStoredLookupReferenceTargets(
 			'table'::text AS target_kind,
 			project_id,
 			table_id::text AS table_id,
-			NULL::text AS column_id
+			NULL::text AS column_id, NULL::text AS member_id
 		FROM lookup_table_references
 		WHERE app_id = ${appId}
 		UNION ALL
@@ -113,15 +115,33 @@ export async function readStoredLookupReferenceTargets(
 			'column'::text AS target_kind,
 			project_id,
 			table_id::text AS table_id,
-			column_id::text AS column_id
+			column_id::text AS column_id, NULL::text AS member_id
 		FROM lookup_column_references
 		WHERE app_id = ${appId}
+		UNION ALL
+		SELECT 'member', r.project_id, r.table_id::text, m.column_id::text, r.member_id::text
+		FROM lookup_member_references r JOIN lookup_members m
+			ON (r.project_id,r.table_id,r.member_id) = (m.project_id,m.table_id,m.id)
+		WHERE r.app_id = ${appId}
 		ORDER BY table_id ASC, column_id ASC NULLS FIRST,
 			project_id ASC, target_kind ASC
 	`.execute(db);
 
 	try {
 		return normalizeLookupReferenceTargetSet({
+			memberTargets: result.rows.flatMap((row) =>
+				row.target_kind !== "member"
+					? []
+					: [
+							{
+								tableId: lookupTableIdSchema.parse(row.table_id),
+								memberId: lookupMemberIdSchema.parse(row.member_id),
+								...(row.column_id !== null && {
+									columnId: lookupColumnIdSchema.parse(row.column_id),
+								}),
+							},
+						],
+			),
 			tableIds: result.rows.flatMap((row) =>
 				row.target_kind === "table"
 					? [lookupTableIdSchema.parse(row.table_id)]
@@ -158,8 +178,9 @@ export interface LookupReferencingApp {
 /**
  * The apps whose blueprints reference a lookup table, or one of its columns.
  *
- * This is the confirmation surface's read, and it is deliberately ADVISORY:
- * the authority is the transactional edge check inside
+ * At confirmation time this read is advisory. Under the rename writer's
+ * table lock it selects the committed apps whose exact uses must be checked.
+ * For destructive operations the authority is the transactional edge check inside
  * `applyLookupSchemaGovernanceInTransaction`, which re-proves zero edges under
  * the table lock. This read exists so an author is told which apps a
  * destructive change would break BEFORE they ask for it, rather than being
@@ -181,21 +202,29 @@ export async function readLookupReferencingApps(
 		projectId: string;
 		tableId: LookupTableId;
 		columnId?: LookupColumnId;
+		memberId?: import("@/lib/domain/lookupIds").LookupMemberId;
 	},
 ): Promise<LookupReferencingApp[]> {
 	const edges =
-		args.columnId === undefined
+		args.memberId !== undefined
 			? db
-					.selectFrom("lookup_table_references")
-					.where("project_id", "=", args.projectId)
-					.where("table_id", "=", args.tableId)
+					.selectFrom("lookup_member_references")
 					.select("app_id")
-			: db
-					.selectFrom("lookup_column_references")
 					.where("project_id", "=", args.projectId)
 					.where("table_id", "=", args.tableId)
-					.where("column_id", "=", args.columnId)
-					.select("app_id");
+					.where("member_id", "=", args.memberId)
+			: args.columnId === undefined
+				? db
+						.selectFrom("lookup_table_references")
+						.where("project_id", "=", args.projectId)
+						.where("table_id", "=", args.tableId)
+						.select("app_id")
+				: db
+						.selectFrom("lookup_column_references")
+						.where("project_id", "=", args.projectId)
+						.where("table_id", "=", args.tableId)
+						.where("column_id", "=", args.columnId)
+						.select("app_id");
 
 	/* The Project predicate is on BOTH sides deliberately. The edge subquery
 	 * already scopes to this Project, and an app carrying edges cannot move
@@ -254,6 +283,10 @@ export async function replaceLookupReferenceEdges(
 	}
 
 	await tx
+		.deleteFrom("lookup_member_references")
+		.where("app_id", "=", args.appId)
+		.execute();
+	await tx
 		.deleteFrom("lookup_column_references")
 		.where("app_id", "=", args.appId)
 		.execute();
@@ -287,5 +320,34 @@ export async function replaceLookupReferenceEdges(
 				})),
 			)
 			.execute();
+	}
+	if (targets.memberTargets?.length) {
+		const members = await tx
+			.selectFrom("lookup_members")
+			.select(["table_id", "column_id", "id"])
+			.where("project_id", "=", args.projectId)
+			.where(
+				"id",
+				"in",
+				targets.memberTargets.map((target) => target.memberId),
+			)
+			.execute();
+		const byId = new Map(
+			members.map((member) => [`${member.table_id}:${member.id}`, member]),
+		);
+		const edges = targets.memberTargets.map(
+			({ tableId, columnId, memberId }) => {
+				const member = byId.get(`${tableId}:${memberId}`);
+				if (!member || member.column_id !== (columnId ?? null))
+					throwUnavailable();
+				return {
+					project_id: args.projectId,
+					table_id: tableId,
+					member_id: memberId,
+					app_id: args.appId,
+				};
+			},
+		);
+		await tx.insertInto("lookup_member_references").values(edges).execute();
 	}
 }

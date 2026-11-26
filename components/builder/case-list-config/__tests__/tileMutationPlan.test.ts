@@ -100,21 +100,17 @@ describe("tile plans commit real document transitions", () => {
 		expect(w.config.columns[0]).toEqual(first);
 		expect(w.config.columns[1].tile).toEqual(tileCell(0, 0, 12, 1));
 	});
-	it("refuses a reachable rows layout with more members than a tile can hold without a partial edit", () => {
+	it("lays out more members than a full grid of single squares: a tile has a row for each field", () => {
 		const w = workspace(
 			Array.from({ length: 145 }, (_, i) => column(`field_${i}`)),
 		);
-		const before = structuredClone(w.config);
-		expect(planTileLayoutEnable(w)).toEqual({
-			ok: false,
-			reason:
-				"A tile has room for 144 fields, and Results shows 145. Hide some information from Results first.",
-		});
-		expect(w.config).toEqual(before);
+		w.apply(planTileLayoutEnable(w));
+		expect(w.config.tile).toEqual({});
+		expect(w.config.columns.at(-1)?.tile).toEqual(tileCell(0, 12, 1, 1));
 	});
 	it("refuses when the retained drawing fills the grid and names the unplaced member", () => {
 		const w = workspace([
-			column("case_name", { tile: tileCell(0, 0, 12, 12) }),
+			column("case_name", { tile: tileCell(0, 0, 12, 6) }),
 			column("village"),
 		]);
 		expect(planTileLayoutEnable(w)).toEqual({
@@ -218,7 +214,7 @@ describe("tile plans commit real document transitions", () => {
 	});
 	it("refuses a full grid and a stale removed field at the planner boundary", () => {
 		const w = workspace([
-			column("case_name", { tile: tileCell(0, 0, 12, 12) }),
+			column("case_name", { tile: tileCell(0, 0, 12, 6) }),
 			column("village"),
 		]);
 		expect(planTilePlaceField({ ...w, uuid: testUuid("village") })).toEqual({

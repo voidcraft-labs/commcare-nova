@@ -94,7 +94,7 @@ function emptyDoc(): BlueprintDoc {
 		...blueprintDocSchema.parse({
 			appId: "app-1",
 			appName: "App",
-			connectType: null,
+			connectRoles: [],
 			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {},

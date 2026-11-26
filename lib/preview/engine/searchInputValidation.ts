@@ -3,6 +3,7 @@
 import { isSilentRuntimeCsqlRejection } from "@/lib/commcare/csql/segment";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import { caseListStepDatumId } from "@/lib/commcare/formLinkProjection";
+import { workerPromptCheck } from "@/lib/commcare/generatedSearchWording";
 import {
 	buildRuntimeCsqlPromptValidations,
 	type ComposedXPathQuery,
@@ -13,6 +14,7 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type CaseListConfig,
 	materializableCaseTypes,
+	searchInputValidationMessage,
 	searchRuntimeGlobalValidationMessage,
 } from "@/lib/domain";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
@@ -39,6 +41,7 @@ import {
 	locationsXPathInstance,
 	lookupXPathInstances,
 	searchInputXPathInstance,
+	workerGroupsXPathInstance,
 } from "./xpathInstances";
 
 const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
@@ -112,7 +115,27 @@ export function searchInputRuntimeQuoteErrors(
 		if (!rejected) continue;
 		for (const name of rejection.inputNames ?? []) {
 			const validation = validations.get(name);
-			if (validation !== undefined) errors.set(name, validation.message);
+			if (validation !== undefined) {
+				const input = caseListConfig.searchInputs.find(
+					(one) => one.name === name,
+				);
+				const wording =
+					input &&
+					options?.language &&
+					workerPromptCheck(
+						environment.doc,
+						environment.moduleUuid,
+						input.uuid,
+						options.language,
+					);
+				const nativeMessage =
+					input &&
+					input.kind !== "hidden" &&
+					input.validation?.message === undefined
+						? searchInputValidationMessage(input)
+						: undefined;
+				errors.set(name, wording ?? nativeMessage ?? validation.message);
+			}
 		}
 	}
 	return errors;
@@ -295,6 +318,8 @@ function runtimeRejectionApplies(
 				materializableCaseTypes(environment.doc),
 			),
 		);
+		const groups = environment.caseDatabase?.workerGroups;
+		if (groups) instances.set("groups", workerGroupsXPathInstance(groups));
 		const locations = environment.caseDatabase?.locations;
 		if (locations !== undefined)
 			instances.set(

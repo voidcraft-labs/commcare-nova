@@ -15,6 +15,7 @@ import {
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useExpressionLookupTypes } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { workerOutputOverrides } from "@/lib/doc/localizationWorkspace";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -30,9 +31,11 @@ import {
 	resolveCalculatedTemporalType,
 } from "@/lib/preview/columnDisplay";
 import {
+	columnOutputWording,
 	projectLocalizedCaseProperties,
 	relatedColumnProperties,
 } from "@/lib/preview/localizedCaseProperties";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
 
 /**
@@ -47,11 +50,22 @@ export function useColumnDisplayContext(
 	owner: {
 		readonly doc: BlueprintDoc;
 		readonly moduleUuid: Uuid;
+		readonly searchOutput?: boolean;
 		/** Which rows the surface shows: the device's cases or HQ's
 		 *  results rows. The read decides it, never the module. */
 		readonly reading: CaseQueryReading["columns"];
 	},
-): ColumnDisplayContext {
+): ColumnDisplayContext & {
+	readonly detailWording: Pick<
+		ColumnDisplayContext,
+		"columnProperties" | "imageDescription"
+	>;
+} {
+	const {
+		labelMarkdown: markdownRendering,
+		caseLocationDetail,
+		readsCaseImageDescriptions,
+	} = usePreviewPlatformRules();
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const effectiveCaseType = effectiveCaseTypes.find(
 		(candidate) => candidate.name === currentCaseType,
@@ -81,6 +95,35 @@ export function useColumnDisplayContext(
 				localizedValues,
 			),
 		[config, currentCaseType, effectiveCaseTypes, localizedValues],
+	);
+	const { searchOutput = false } = owner;
+	const explicitValues = useMemo(
+		() => workerOutputOverrides(owner.doc, language),
+		[owner.doc, language],
+	);
+	const [rowWording, detailWording] = useMemo(
+		() =>
+			[false, true].map((detail) =>
+				columnOutputWording(
+					config,
+					currentCaseType,
+					effectiveCaseTypes,
+					caseProperties,
+					relatedProperties,
+					explicitValues,
+					searchOutput,
+					detail,
+				),
+			),
+		[
+			config,
+			currentCaseType,
+			effectiveCaseTypes,
+			caseProperties,
+			relatedProperties,
+			explicitValues,
+			searchOutput,
+		],
 	);
 	const today = useLocalCalendarDay();
 	const projectProse = useProseProjection();
@@ -114,7 +157,12 @@ export function useColumnDisplayContext(
 	}, [config, doc, moduleUuid, lookupTypes, columnsReading]);
 	return useMemo(
 		() => ({
+			...rowWording,
+			detailWording,
 			language,
+			markdownRendering,
+			caseLocationDetail,
+			readsCaseImageDescriptions,
 			calculatedTemporalTypes,
 			caseProperties,
 			relatedProperties,
@@ -123,7 +171,12 @@ export function useColumnDisplayContext(
 			projectProse,
 		}),
 		[
+			rowWording,
+			detailWording,
 			language,
+			markdownRendering,
+			caseLocationDetail,
+			readsCaseImageDescriptions,
 			calculatedTemporalTypes,
 			caseProperties,
 			relatedProperties,

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { type ZodError, z } from "zod";
 import {
@@ -18,7 +19,11 @@ import {
 	hasUnpairedUtf16Surrogate,
 	lookupRevisionSchema,
 } from "@/lib/lookup/schema";
-import { getLookupTable, replaceLookupRows } from "@/lib/lookup/service";
+import {
+	getLookupImportDefinition,
+	replaceLookupRows,
+	replayLookupCsvImport,
+} from "@/lib/lookup/service";
 import type {
 	LookupFailure,
 	LookupImportErrorCode,
@@ -145,9 +150,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
 				projectId: projectIdSchema,
 				tableId: lookupTableIdSchema,
 				expectedTableRevision: lookupRevisionSchema,
+				operationId: z.uuid().optional(),
 			})
 			.safeParse({
 				...rawParams,
+				operationId: req.nextUrl.searchParams.get("operationId") ?? undefined,
 				expectedTableRevision: req.nextUrl.searchParams.get(
 					"expectedTableRevision",
 				),
@@ -155,7 +162,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
 		if (!parsedRequest.success) {
 			return failureResponse(invalidInput(parsedRequest.error));
 		}
-		const { projectId, tableId, expectedTableRevision } = parsedRequest.data;
+		const { projectId, tableId, expectedTableRevision, operationId } =
+			parsedRequest.data;
 
 		const access = await resolveProjectAccess(
 			session.user.id,
@@ -182,7 +190,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
 		 * A table CommCare HQ manages is refused before the revision or the CSV
 		 * is judged, as the service's lock refuses it: a stale tab learns the
 		 * table is managed, not that it should reload first. */
-		const current = await getLookupTable(scope, tableId);
+		const receiptBytes = operationId
+			? await readBodyBytes(req, LOOKUP_MAX_CSV_BYTES)
+			: undefined;
+		const bodyDigest = receiptBytes
+			? createHash("sha256").update(receiptBytes).digest("hex")
+			: undefined;
+		if (operationId && bodyDigest) {
+			const prior = await replayLookupCsvImport(
+				scope,
+				tableId,
+				expectedTableRevision,
+				operationId,
+				bodyDigest,
+			);
+			if (prior) return NextResponse.json({ success: true, value: prior });
+		}
+		const current = await getLookupImportDefinition(scope, tableId);
 		if (current.hq?.managedBy === "commcare-hq") {
 			return failureResponse({
 				success: false,
@@ -203,17 +227,33 @@ export async function POST(req: NextRequest, context: RouteContext) {
 			});
 		}
 
-		const bytes = await readBodyBytes(req, LOOKUP_MAX_CSV_BYTES);
+		if (
+			current.attributes?.length ||
+			current.columns.some((column) => column.repeated)
+		) {
+			return failureResponse({
+				success: false,
+				code: "invalid_input",
+				message:
+					"CSV cannot keep the row and value details in this table. You can import structured rows in Project data.",
+			});
+		}
+		const bytes =
+			receiptBytes ?? (await readBodyBytes(req, LOOKUP_MAX_CSV_BYTES));
 		const parsed = parseLookupCsv(bytes);
 		if (!parsed.success) return failureResponse(parsed);
 		const validated = validateLookupCsv(parsed.value, current.columns);
 		if (!validated.success) return failureResponse(validated);
 
-		const receipt = await replaceLookupRows(scope, {
+		const input = {
 			tableId,
 			expectedTableRevision,
 			rows: validated.value.rows,
-		});
+			...(operationId ? { operationId } : {}),
+		};
+		const receipt = bodyDigest
+			? await replaceLookupRows(scope, input, bodyDigest)
+			: await replaceLookupRows(scope, input);
 		return NextResponse.json({ success: true, value: receipt });
 	} catch (error) {
 		if (error instanceof ApiError && error.status === 413) {

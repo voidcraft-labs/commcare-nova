@@ -5,7 +5,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readIco } from "../ico";
+import { readIco as readIcoAt } from "../ico";
+import { bufferBytes } from "../randomAccess";
+
+/** The reader over bytes in memory. */
+const readIco = (bytes: Uint8Array) => readIcoAt(bufferBytes(bytes));
 
 function fixture(name: string): Buffer {
 	return Buffer.from(readFileSync(join(import.meta.dirname, "fixtures", name)));

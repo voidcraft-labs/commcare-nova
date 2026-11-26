@@ -33,6 +33,7 @@ import {
 	XHTML_NS,
 } from "../xmlNamespaces";
 import { heldXmlParse } from "../xmlParse";
+import { advancedFormParents, sharedFormParent } from "./sharedFormSource";
 
 /** Core's data type for a bind's `type`, by `XFormParser.java::typeMappings`. */
 export type CoreTypeClass =
@@ -141,6 +142,8 @@ export interface ContainerIdentity {
 	readonly appearance: string | null;
 	/** A repeat's `jr:count`, present or not. */
 	readonly counted: boolean;
+	/** Web Apps can distribute rows when a direct child is a repeat or its Vellum wrapper. */
+	readonly hasRepeatingRows?: true;
 }
 
 /**
@@ -160,6 +163,8 @@ export interface FormIdentity {
 	readonly xmlns: string;
 	/** The data root's own namespace, which must equal `xmlns`. */
 	readonly dataNamespace: string;
+	/** The submitted envelope name, including forms adopted from HQ. */
+	readonly dataRootName: string;
 	readonly uniqueId: string;
 	readonly docType: string;
 	readonly leaves: ReadonlyMap<string, AnswerLeaf>;
@@ -173,6 +178,7 @@ export interface FormIdentity {
 /** Why a form is left out. Each is one of the reasons a form's case blocks are
  *  left out under (`publishedCaseBlocks.ts::UnreadFormReason`), by the same name. */
 export type UnreadSourceFormReason =
+	| "shadow-parent-missing-or-not-advanced"
 	| "no-xmlns"
 	| "shared-xmlns"
 	| "no-xform"
@@ -180,12 +186,15 @@ export type UnreadSourceFormReason =
 
 export interface SourceIdentity {
 	readonly languages: readonly string[];
-	/** Menus in order: id, document type, case type, and each form's `xmlns` in order. */
+	/** Menus in order: id, document type, case type, and each entry's id and content owner in order. */
 	readonly menus: readonly {
 		readonly uniqueId: string;
 		readonly docType: string;
 		readonly caseType: string | null;
-		readonly forms: readonly string[];
+		readonly forms: readonly {
+			readonly id: string;
+			readonly parent: string | null;
+		}[];
 	}[];
 	readonly forms: ReadonlyMap<string, FormIdentity>;
 	/** Each form left out, with why. A source both readers read whole has none. */
@@ -275,6 +284,7 @@ export function sourceIdentity(application: unknown): SourceIdentity {
 		: NO_ENTRIES;
 
 	const holders = new Map<string, number>();
+	const parents = advancedFormParents(modules);
 	for (const module of modules) {
 		if (!isObject(module) || !Array.isArray(module.forms)) continue;
 		for (const form of module.forms) {
@@ -283,18 +293,46 @@ export function sourceIdentity(application: unknown): SourceIdentity {
 		}
 	}
 
+	/* A listing menu's case type is its source's: HQ's `ShadowModule.case_type`
+	 * is a property read from the source module, and the stored key is inert. */
+	const storedCaseType = new Map(
+		modules.flatMap((module) =>
+			isObject(module) && typeof module.unique_id === "string"
+				? [[module.unique_id, stringOr(module.case_type, null)] as const]
+				: [],
+		),
+	);
 	const menus = modules.map((module, menu) => {
 		const moduleForms =
 			isObject(module) && Array.isArray(module.forms) ? module.forms : [];
 		moduleForms.forEach((form: unknown, position: number) => {
-			const reason = readForm(form, holders, attachments, forms);
+			const reason =
+				isObject(form) && form.doc_type === "ShadowForm"
+					? isObject(module) &&
+						module.doc_type === "AdvancedModule" &&
+						sharedFormParent(form, parents)
+						? undefined
+						: "shadow-parent-missing-or-not-advanced"
+					: readForm(form, holders, attachments, forms);
 			if (reason !== undefined) unread.push({ menu, form: position, reason });
 		});
 		return {
 			uniqueId: isObject(module) ? stringOr(module.unique_id, "") : "",
 			docType: isObject(module) ? stringOr(module.doc_type, "") : "",
-			caseType: isObject(module) ? stringOr(module.case_type, null) : null,
-			forms: moduleForms.map((form: unknown) => storedXmlns(form) ?? ""),
+			caseType: !isObject(module)
+				? null
+				: module.doc_type === "ShadowModule"
+					? typeof module.source_module_id === "string"
+						? (storedCaseType.get(module.source_module_id) ?? null)
+						: null
+					: stringOr(module.case_type, null),
+			forms: moduleForms.map((form: unknown) => ({
+				id: isObject(form) ? stringOr(form.unique_id, "") : "",
+				parent:
+					isObject(form) && form.doc_type === "ShadowForm"
+						? stringOr(form.shadow_parent_form_id, null)
+						: null,
+			})),
 		};
 	});
 	return { languages, menus, forms, unread };
@@ -407,15 +445,6 @@ function formIdentity(xml: string): FormRecord {
 		unparsed("the primary instance holds no single data root");
 	const rootName = splitName(root.element.name).local;
 
-	// The data root reads as `data` whatever it is named.
-	const normalize = (path: string): string => {
-		const prefix = `/${rootName}`;
-		if (path === prefix) return "/data";
-		return path.startsWith(`${prefix}/`)
-			? `/data${path.slice(prefix.length)}`
-			: path;
-	};
-
 	// Step 1: the model's leaves.
 	const leafPaths: string[] = [];
 	const walkData = (parent: Scoped, path: string): void => {
@@ -427,7 +456,7 @@ function formIdentity(xml: string): FormRecord {
 			else walkData(child, childPath);
 		}
 	};
-	walkData(root, "/data");
+	walkData(root, `/${rootName}`);
 
 	// Step 2: each bind's type, by its resolved nodeset; a later bind of one
 	// node replaces an earlier one, as Core attaches binds in order.
@@ -437,7 +466,7 @@ function formIdentity(xml: string): FormRecord {
 	for (const { element } of binds) {
 		const nodeset = plainAttribute(element, "nodeset");
 		if (nodeset === null) continue;
-		const path = normalize(resolvePath(nodeset, ""));
+		const path = resolvePath(nodeset, "");
 		typeOf.set(path, plainAttribute(element, "type"));
 		const id = plainAttribute(element, "id");
 		if (id !== null && !bindPaths.has(id)) bindPaths.set(id, path);
@@ -485,7 +514,7 @@ function formIdentity(xml: string): FormRecord {
 			return path;
 		}
 		const ref = plainAttribute(element, local === "repeat" ? "nodeset" : "ref");
-		return ref === null ? null : normalize(resolvePath(ref, context));
+		return ref === null ? null : resolvePath(ref, context);
 	};
 
 	// Step 3: the body, in document order.
@@ -509,7 +538,31 @@ function formIdentity(xml: string): FormRecord {
 					continue;
 				}
 				const path = bound;
-				addContainer({ path, kind: "group", appearance, counted: false });
+				const hasRepeatingRows =
+					childNamed(child, XFORMS_NS, "repeat").length > 0 ||
+					childNamed(child, XFORMS_NS, "group").some((nested) => {
+						if (
+							plainAttribute(nested.element, "appearance")?.toLowerCase() ===
+							"field-list"
+						)
+							return false;
+						const controls = childrenOf(nested).filter(
+							({ element, scope }) =>
+								elementNamespace(element, scope) === XFORMS_NS &&
+								!NOT_CONTROLS.has(splitName(element.name).local),
+						);
+						return (
+							controls.length === 1 &&
+							splitName(controls[0].element.name).local === "repeat"
+						);
+					});
+				addContainer({
+					path,
+					kind: "group",
+					appearance,
+					counted: false,
+					...(hasRepeatingRows && { hasRepeatingRows: true }),
+				});
 				written.set(path, { labelRef: labelRef(child), itemLabelRefs: [] });
 				walkBody(child, path, child);
 				continue;
@@ -566,7 +619,7 @@ function formIdentity(xml: string): FormRecord {
 		containers.set(container.path, container);
 	};
 	const body = childNamed(html, XHTML_NS, "body")[0];
-	if (body !== undefined) walkBody(body, "/data", body);
+	if (body !== undefined) walkBody(body, `/${rootName}`, body);
 
 	const repeatPaths = [...containers.values()]
 		.filter((container) => container.kind === "repeat")
@@ -587,6 +640,7 @@ function formIdentity(xml: string): FormRecord {
 
 	return {
 		dataNamespace: elementNamespace(root.element, root.scope) ?? "",
+		dataRootName: rootName,
 		leaves,
 		containers,
 		order,

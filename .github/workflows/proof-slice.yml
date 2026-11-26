@@ -56,6 +56,8 @@ jobs:
           cd "$RUNNER_TEMP"
           npm install --global "npm@$npm_version" --ignore-scripts
       - run: npm ci
+      - name: Check inherited lookup property identity
+        run: node_modules/.bin/vitest run lib/doc/__tests__/sharedMenuEdits.test.ts lib/doc/__tests__/casePropertyRenames.test.ts lib/doc/__tests__/referenceIndex.test.ts --maxWorkers=1
       - id: selection
         name: Validate the slice
         env:

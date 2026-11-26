@@ -4,12 +4,12 @@
  * Browser uploads PUT to `pending/<project>/...` via a V4 signed URL. That URL
  * binds the allowed body length (exact for captures and capped for authoring
  * media) plus a create-only precondition, so GCS rejects an invalid or reused
- * attempt at the boundary. This idempotent operation installs both GCS
+ * attempt at the boundary. This idempotent operation installs the GCS
  * lifecycle rules that reap abandoned media attempts under `pending/` after
- * one day and staged capture sources after their seven-day preparation window.
+ * one day, private export parts after one day and staged capture sources after seven days.
  * The same metageneration-fenced policy disables soft delete, versioning, and
  * default event holds, and refuses to overwrite a bucket retention policy, so
- * those windows are hard byte-retention backstops rather than hints.
+ * the asynchronous rules can retire eligible objects even if the service is idle.
  *
  * Run against the real bucket, with ADC configured for an identity allowed
  * to set bucket metadata (`storage.buckets.update`):
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
 	console.log(`Applying temporary-object storage policy to gs://${bucket} …`);
 	await applyMediaBucketStoragePolicy();
 	console.log(
-		"Done — GCS will hard-delete abandoned media attempts and staged captures on their configured windows.",
+		"Verified the bucket’s temporary upload, capture and export cleanup rules.",
 	);
 }
 

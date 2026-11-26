@@ -6,22 +6,40 @@
  * `search_config` must equal the stored one key by key after the inert
  * claims and the same-state rows.
  */
-import type { BlueprintDoc, Expression, Module } from "@/lib/domain";
+import type { BlueprintDoc, Expression, Module, Uuid } from "@/lib/domain";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import { caseTypeNameSchema } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
+	type CaseListConfig,
 	DEFAULT_CASE_SEARCH_TITLE,
+	emptyCaseListConfig,
 	NO_SEARCH_SCREEN_TITLE,
 	type OrdinaryCaseSearchConfig,
+	searchResultsNameSchema,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import {
+	SEARCH_RUNTIME_VALIDATION_MESSAGES,
+	type SearchRuntimeValidationMessage,
+} from "@/lib/domain/searchRuntimeValidationMessages";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
+import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import { moduleExpressionContexts } from "../../expressionContext";
 import {
 	projectCaseListForHq,
 	type SearchConfigRewrites,
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
-import { excludedOwnerClauseWritten } from "../../suite/case-list/nodesetFilter";
+import { emitExcludedOwnerFilterExpression } from "../../suite/case-list/nodesetFilter";
+import { searchGuardedFieldNames } from "../../suite/case-search/moduleXPathQuery";
+import { includeSearchHierarchy } from "../../suite/case-search/relatedCaseProjection";
+import {
+	dedicatedOrderRefusal,
+	readDedicatedOrder,
+} from "../../suite/case-search/requestOrder";
 import { normalizeSpace } from "../../suite/wire";
 import { rethrowWorkStop } from "../../workMeter";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
@@ -79,6 +97,7 @@ import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { sameSyntax, sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
+import { itemsetSource } from "./itemsetSource";
 import type { PromptReading } from "./prompts";
 import { searchPlace } from "./workflow";
 
@@ -92,6 +111,17 @@ export const BLANK_IS_ABSENT = `${S}a-blank-text-in-a-search-key-hq-reads-only-w
 const NO_REGISTRY = `${S}the-registry-workflow-and-cases-where-no-registry-is-named`;
 
 export const SETTING_CLAIMS = defineClaims("search.settings", {
+	/** A Search button condition reading an instance its case list does not load
+	 *  (`index.ts::settleSearchButtonConditions`). */
+	buttonNotOnTheList: refuse(
+		`${S}search-button-display-condition-reading-what-the-case-list-does-not-load`,
+		"schema:CaseSearch.search_button_display_condition",
+	),
+	/** A check whose native test cannot keep the guard and its runtime message together. */
+	checkWithoutMessageGuarded: refuse(
+		`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
+		"schema:Assertion.text",
+	),
 	title: take(
 		`${S}title-label-lang-non-empty`,
 		"schema:CaseSearch.title_label",
@@ -100,7 +130,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}title-label-or-blank-hq-s-default`,
 		"schema:CaseSearch.title_label",
 	),
-	titleSome: refuse(
+	titleSome: take(
 		`${S}title-label-blank-in-some-languages`,
 		"schema:CaseSearch.title_label",
 	),
@@ -116,24 +146,28 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}search-button-label-any-other-value`,
 		"schema:CaseSearch.search_button_label",
 	),
-	ownerWithoutClause: refuse(
-		`${S}blacklisted-owner-ids-expression-without-that-clause`,
+	dormantOwners: drop(
+		`${S}owner-exclusion-in-a-dormant-search-setting`,
 		"schema:CaseSearch.blacklisted_owner_ids_expression",
 	),
 	includeDerived: derived(
 		`${S}include-all-related-cases-implied-by-nova-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	includeFalse: refuse(
+	includeFalse: take(
 		`${S}include-all-related-cases-false-where-nova-s-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	includeAuthored: refuse(
+	includeAuthored: take(
 		`${S}include-all-related-cases-authored-without-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	instanceUnreserved: refuse(
+	instanceUnreserved: take(
 		`${S}instance-name-without-casedb-ledgerdb-fixture-or-session-in-it`,
+		"schema:CaseSearch.instance_name",
+	),
+	instanceUneditable: refuse(
+		`${S}results-name-outside-the-search-editor`,
 		"schema:CaseSearch.instance_name",
 	),
 	instanceReserved: refuse(
@@ -144,11 +178,15 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}a-module-whose-effective-results-instance-results-instance-name`,
 		"schema:CaseSearch.instance_name",
 	),
-	instanceClashInert: drop(
+	instanceClashOutsideInline: take(
 		`${S}an-effective-results-instance-equal-to-a-module-s-that-does-not`,
 		"schema:CaseSearch.instance_name",
 	),
-	additionalTypes: refuse(
+	additionalTypeWithoutMenu: refuse(
+		`${S}additional-record-type-without-menu`,
+		"schema:CaseSearch.additional_case_types",
+	),
+	additionalTypes: take(
 		`${S}additional-case-types`,
 		"schema:CaseSearch.additional_case_types",
 	),
@@ -156,15 +194,43 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}additional-case-types-naming-only-the-menu-s-own-type`,
 		"schema:CaseSearch.additional_case_types",
 	),
-	relatedProperty: refuse(
+	relatedPropertyDeviceOnly: refuse(
+		`${S}a-related-record-property-only-devices-hold`,
+		"schema:CaseSearch.custom_related_case_property",
+	),
+	relatedProperty: take(
 		`${S}custom-related-case-property`,
 		"schema:CaseSearch.custom_related_case_property",
 	),
-	customSort: refuse(
+	sortTerm: take(
+		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearchCustomSortProperty",
+	),
+	sortProperty: take(
+		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearchCustomSortProperty.property_name",
+	),
+	sortComparison: take(
+		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearchCustomSortProperty.sort_type",
+	),
+	sortDirection: take(
+		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearchCustomSortProperty.direction",
+	),
+	customSort: take(
 		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
 		"schema:CaseSearch.custom_sort_properties",
 	),
-	searchOnClear: refuse(
+	customSortReserved: refuse(
+		`${S}a-server-order-naming-a-property-nova-reserves`,
+		"schema:CaseSearch.custom_sort_properties",
+	),
+	customSortDeviceOnly: refuse(
+		`${S}a-server-order-naming-a-property-only-devices-hold`,
+		"schema:CaseSearch.custom_sort_properties",
+	),
+	searchOnClear: take(
 		`${S}search-on-clear`,
 		"schema:CaseSearch.search_on_clear",
 	),
@@ -172,7 +238,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}search-on-clear-with-the-case-list-s-auto-select-checked-whether`,
 		"schema:CaseSearch.search_on_clear",
 	),
-	endpoint: refuse(
+	endpoint: take(
 		`${S}case-search-endpoint-id`,
 		"schema:CaseSearch.case_search_endpoint_id",
 	),
@@ -386,29 +452,6 @@ function instanceClash(
 	return clash;
 }
 
-/** Whether the menu's root menu, or the menu its parent selection names, searches inline: the
- *  menus HQ's build compares its results instance with (`instanceClash`). */
-function underInlineSearch(ctx: ReadContext, module: DraftModule): boolean {
-	const root = module.json.peek("root_module_id");
-	const parent = module.json.peek("parent_select");
-	const ids = [
-		...(typeof root === "string" && root !== "" ? [root] : []),
-		...(isJsonObject(parent) &&
-		parent.active === true &&
-		typeof parent.module_id === "string"
-			? [parent.module_id]
-			: []),
-	];
-	return ids.some((id) => {
-		const other = ctx.draft.modules.find((one) => one.uniqueId === id);
-		return (
-			other !== undefined &&
-			other !== module &&
-			usesInlineSearch(other.json.peek("search_config"))
-		);
-	});
-}
-
 /**
  * The menus' refusal of the menu's parent selection, where the menu it names searches inline
  * under this menu's results instance and the root menu gives no such clash: that entry
@@ -511,6 +554,13 @@ function offersOverRaw(config: unknown): boolean {
 function ownerSource(module: DraftModule): "config" | "filter" | undefined {
 	const config = module.json.peek("search_config");
 	if (storesOwners(config)) return "config";
+	if (
+		isJsonObject(config) &&
+		objectMembers(config.default_properties)?.some(
+			(row) => row.property === "commcare_blacklisted_owner_ids",
+		)
+	)
+		return "filter";
 	return offersOverRaw(config) ? undefined : "filter";
 }
 
@@ -595,7 +645,7 @@ function wrapperCall(
 
 /** The list inside the wrapper `suite/wire.ts::normalizeSpace` writes (found by re-emitting the
  *  wrapper and comparing syntax), or inside a whole-text `normalize-space(...)`; else the text. */
-function withoutNormalizeSpace(text: string): string {
+export function withoutNormalizeSpace(text: string): string {
 	const node = unwrap(parse(text));
 	const innerWrapper =
 		NORMALIZE_SPACE_WRAPPER?.kind === "call"
@@ -616,6 +666,62 @@ function withoutNormalizeSpace(text: string): string {
 	return text.slice(inner.from, inner.to);
 }
 
+/** Register the availability clause on the assigned list independently from the search. */
+export function registerListOwner(
+	ctx: ReadContext,
+	module: DraftModule,
+): number | undefined {
+	const filter = filterWithOwnerClause(module);
+	if (!filter) return;
+	const short = caseListReadings(ctx).get(module.uuid)?.short;
+	const text = ownerListInFilter(filter);
+	const whole = listFilterWithoutOwnerClause(module, filter) === "";
+	const site = whole
+		? { json: short, key: "filter" }
+		: { json: module.json, key: "case_details" };
+	if (!site.json || text === undefined) return;
+	return ctx.pending.register(
+		{
+			ref: { entity: "module", uuid: module.uuid, slot: "excluded_owner_ids" },
+			text,
+			mode: { target: "hq-json", interpolation: "case" },
+			place: searchPlace(module),
+			key: "schema:CaseSearch.blacklisted_owner_ids_expression",
+			slotText: whole ? filter : null,
+		},
+		{ json: site.json, key: site.key },
+	);
+}
+
+/** Compare the actual list clause with the clause this shared expression prints when all Search answers are blank. */
+export function sharedOwnerRuleFits(
+	ctx: ReadContext,
+	module: DraftModule,
+	doc: BlueprintDoc,
+	candidate: Expression,
+): boolean {
+	const naming = readProjectionInputs(ctx).lookupNaming;
+	const expected = emitExcludedOwnerFilterExpression(
+		candidate,
+		moduleExpressionContexts(
+			doc,
+			module.uuid,
+			naming,
+		)({ slot: "excluded_owner_ids" }),
+		naming,
+	);
+	const filter = filterWithOwnerClause(module);
+	if (!filter || !expected) return !filter && !expected;
+	const clause = ownerClauseOf(parse(filter))?.clause;
+	return (
+		clause !== undefined &&
+		sameXPathValue(
+			filter.slice(clause.from, clause.to),
+			hqXPathText(new HqXPath(expected, "case")),
+		)
+	);
+}
+
 /** The stored list filter, where it holds the owner clause. */
 function filterWithOwnerClause(module: DraftModule): string | undefined {
 	const details = module.json.peek("case_details");
@@ -630,6 +736,45 @@ const REFUSED_INSTANCE_NAMES = new WeakMap<
 	ReadContext,
 	Map<string, { readonly claim: Claim<"refuse">; readonly place: HqPlace }>
 >();
+
+/** HQ compares names even on a submenu with Search turned off. Its stored name is independent of activation. */
+export function readSearchResultsName(
+	ctx: ReadContext,
+	module: DraftModule,
+	cursor: JsonCursor,
+	place: HqPlace,
+): { ok: boolean; claimed: boolean } {
+	const raw = cursor.peek("instance_name");
+	const named = typeof raw === "string" && raw !== "";
+	if (named && RESERVED_INSTANCE_WORDS.some((word) => raw.includes(word))) {
+		refuseInstanceName(ctx, cursor, T.instanceReserved, place);
+		return { ok: false, claimed: true };
+	}
+	const clash = instanceClash(ctx, module);
+	if (clash === "inline") {
+		const existing = parentSelectionClash(ctx, module);
+		if (existing !== undefined) {
+			if (named)
+				ctx.accounting.cover({ json: cursor, key: "instance_name" }, existing);
+		} else if (named) refuseInstanceName(ctx, cursor, T.instanceClash, place);
+		else ctx.accounting.finding(T.instanceClash, place);
+		return { ok: false, claimed: named };
+	}
+	if (!named) return { ok: true, claimed: false };
+	if (!searchResultsNameSchema.safeParse(raw).success) {
+		refuseInstanceName(ctx, cursor, T.instanceUneditable, place);
+		return { ok: false, claimed: true };
+	}
+	const name = cursor.take(
+		"instance_name",
+		clash === "other" ? T.instanceClashOutsideInline : T.instanceUnreserved,
+		String,
+	);
+	ctx.writeDraft(() => {
+		module.module.searchResultsName = name.value;
+	});
+	return { ok: true, claimed: true };
+}
 
 function refuseInstanceName(
 	ctx: ReadContext,
@@ -688,10 +833,11 @@ export function readSearchSettings(
 	cursor: JsonCursor,
 	offers: boolean,
 	config: Partial<OrdinaryCaseSearchConfig>,
+	coveredSettings: ReadonlySet<string> = new Set(),
 ): SettingsReading {
 	const place = searchPlace(module);
 	let ok = true;
-	const claimed = new Set<string>();
+	const claimed = new Set(coveredSettings);
 	for (const [key, claim] of BLANK_KEYS)
 		if (cursor.peek(key) === "") {
 			cursor.drop(key, claim);
@@ -709,8 +855,41 @@ export function readSearchSettings(
 	if (cursor.used("additional_case_types")) {
 		claimed.add("additional_case_types");
 		if (widensTheList(cursor.peek("additional_case_types"), module)) {
-			cursor.refuse("additional_case_types", T.additionalTypes);
-			ok = false;
+			const values = cursor.peek("additional_case_types");
+			if (
+				Array.isArray(values) &&
+				values.every((value) => caseTypeNameSchema.safeParse(value).success)
+			) {
+				const additional = [...new Set(values as string[])]
+					.filter((type) => type !== module.module.caseType)
+					.sort();
+				const choices = new Set(
+					ctx.draft.modules.map((menu) => menu.module.caseType),
+				);
+				const missing = additional.find((type) => !choices.has(type));
+				if (missing !== undefined) {
+					cursor.refuse("additional_case_types", T.additionalTypeWithoutMenu, {
+						name: missing,
+					});
+					ok = false;
+				} else {
+					cursor.take(
+						"additional_case_types",
+						T.additionalTypes,
+						() => additional,
+					).value;
+					ctx.writeDraft(() => {
+						const target = module.module as { caseListConfig?: CaseListConfig };
+						target.caseListConfig ??= emptyCaseListConfig();
+						target.caseListConfig.additionalCaseTypes = additional;
+					});
+				}
+			} else {
+				ctx.accounting.circumstance("unrecognized", place, {
+					name: "schema:CaseSearch.additional_case_types",
+				});
+				ok = false;
+			}
 		} else {
 			cursor.drop("additional_case_types", T.additionalOwnType);
 			if (offers)
@@ -722,113 +901,55 @@ export function readSearchSettings(
 				);
 		}
 	}
-	const register = (
-		slot: "excluded_owner_ids" | "search_button_display_condition",
-		key: string,
-	) => {
-		const stored = cursor.peek(key);
-		if (typeof stored !== "string" || stored.trim() === "") return undefined;
-		// The owner list is written inside `normalize-space(...)` (`suite/wire.ts::normalizeSpace`),
-		// which the projection writes again around the list it holds.
-		const text =
-			slot === "excluded_owner_ids" ? withoutNormalizeSpace(stored) : stored;
+	const registerButtonCondition = () => {
+		const key = "search_button_display_condition";
+		const text = cursor.peek(key);
+		if (typeof text !== "string" || text.trim() === "") return;
 		return ctx.pending.register(
 			{
-				ref: { entity: "module", uuid: module.uuid, slot },
+				ref: {
+					entity: "module",
+					uuid: module.uuid,
+					slot: "search_button_display_condition",
+				},
 				text,
 				mode: { target: "hq-json", interpolation: "none" },
 				place,
-				key: `schema:CaseSearch.${key}`,
+				key: "schema:CaseSearch.search_button_display_condition",
 			},
 			{ json: cursor, key },
 		);
 	};
-	const clash = instanceClash(ctx, module);
-	const selectionClash =
-		clash === "inline" ? parentSelectionClash(ctx, module) : undefined;
+	const name = readSearchResultsName(ctx, module, cursor, place);
+	if (name.claimed) claimed.add("instance_name");
+	if (!name.ok) ok = false;
 	let owners: number | undefined;
 	const filter = filterWithOwnerClause(module);
 	let ownersWithoutClause = false;
 	if (holdsText(cursor, "blacklisted_owner_ids_expression")) {
 		claimed.add("blacklisted_owner_ids_expression");
-		if (filter === undefined && offers)
+		if (offers)
 			// Nova's list writes no clause for an exclusion that reads a Search answer alone, which
 			// only the bound tree tells: `readOwnersWithoutClause`, once the menu's fields are drafted.
 			ownersWithoutClause = true;
-		else if (filter === undefined) {
-			cursor.refuse("blacklisted_owner_ids_expression", T.ownerWithoutClause);
-			ok = false;
-		} else {
-			owners = register(
-				"excluded_owner_ids",
-				"blacklisted_owner_ids_expression",
+		else {
+			// HQ creates no remote request for this menu. The stored Search
+			// setting says nothing about the cases on its assigned list.
+			cursor.drop("blacklisted_owner_ids_expression", T.dormantOwners);
+			sameState(
+				ctx,
+				T.dormantOwners.entry,
+				`${cursor.pointer}/blacklisted_owner_ids_expression`,
+				"list-settings-respelled",
 			);
-			if (owners !== undefined)
-				config.excludedOwnerIds = pendingPlaceholder("value");
-		}
-	} else if (
-		!offers &&
-		filter !== undefined &&
-		ownerSource(module) === "filter"
-	) {
-		// A menu that offers no search writes its exclusion as the list filter's clause alone,
-		// so the list is read from there. Where the clause is the whole filter its claims land on
-		// the filter; beside an authored operand, whose own registration claims the filter's
-		// grammar there, they land on the menu's `case_details`, which holds the filter, so no
-		// use of the grammar is claimed twice at one node.
-		const short = caseListReadings(ctx).get(module.uuid)?.short;
-		const text = ownerListInFilter(filter);
-		const whole = listFilterWithoutOwnerClause(module, filter) === "";
-		const site = whole
-			? { json: short, key: "filter" }
-			: { json: module.json, key: "case_details" };
-		if (short !== undefined && site.json !== undefined && text !== undefined) {
-			owners = ctx.pending.register(
-				{
-					ref: {
-						entity: "module",
-						uuid: module.uuid,
-						slot: "excluded_owner_ids",
-					},
-					text,
-					mode: { target: "hq-json", interpolation: "case" },
-					place,
-					key: "schema:CaseSearch.blacklisted_owner_ids_expression",
-					// HQ interpolates the filter whole, and the menu's `case_details` not at all.
-					slotText: whole ? filter : null,
-				},
-				{ json: site.json, key: site.key },
-			);
-			config.excludedOwnerIds = pendingPlaceholder("value");
 		}
 	}
+	if (filter !== undefined && (!offers || ownerSource(module) === "filter")) {
+		owners = registerListOwner(ctx, module);
+		if (owners !== undefined)
+			config.excludedOwnerIds = pendingPlaceholder("value");
+	}
 	if (!offers) {
-		// A menu that offers no search still loads its results instance by name.
-		if (clash === "inline") {
-			if (selectionClash === undefined)
-				ctx.accounting.finding(T.instanceClash, place);
-			ok = false;
-		} else if (
-			holdsText(cursor, "instance_name") &&
-			underInlineSearch(ctx, module)
-		) {
-			// Under a menu that searches inline, a menu that searches nothing keeps HQ's build
-			// only by a results instance name of its own (`validate_search_config` and
-			// `validate_parent_select` compare it with that menu's whether or not this one
-			// searches), and Nova holds no such name: its export would give both menus
-			// `results:inline`, which CommCare HQ refuses.
-			const instance = String(cursor.peek("instance_name"));
-			claimed.add("instance_name");
-			refuseInstanceName(
-				ctx,
-				cursor,
-				RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
-					? T.instanceReserved
-					: T.instanceUnreserved,
-				place,
-			);
-			ok = false;
-		}
 		return { ok, claimed, ...(owners !== undefined && { owners }) };
 	}
 
@@ -894,34 +1015,48 @@ export function readSearchSettings(
 				`${cursor.pointer}/title_label`,
 				"list-settings-respelled",
 			);
-	} else if (source === undefined || blank.includes(source)) {
-		// The source language's title is the slot's, which Nova holds nonblank or not at all
-		// beside every language's: a title a device shows blank in the source language and not in
-		// another has no document that prints it.
-		cursor.refuse("title_label", T.titleSome);
-		ok = false;
 	} else {
-		// Held as every app string is (`heldText.ts::heldText`): no space at either end, and a
-		// language that shows a blank title beside the source's text shows the source's, which the
-		// reading records under `text-spaces-dropped`. Every title is one Nova's gate admits a
-		// spelling of (`unheld` above).
-		const held = heldTitles(title, codes, source);
+		// Each language shows its own title, else the first language's (`shownTitles`), so a
+		// language shows none where the first language shows none too, which Nova's gate holds
+		// (`searchTitleLanguages.ts`): the source language's title is the slot's, text or `none`,
+		// and each other language's text a translation of it. A source title a device shows blank
+		// beside the first language's text holds only spaces there (`titleShownBlank`), and Nova
+		// writes no such title: it is held as the first language's text, which the reading
+		// records under `text-spaces-dropped`. Otherwise held as every app string is
+		// (`heldText.ts::heldText`): no space at either end, and a language that shows a blank
+		// title beside the source's text shows the source's, which the reading records under
+		// `text-spaces-dropped` too. Every title is one Nova's gate admits a spelling of
+		// (`unheld` above).
+		// The codes are not all blank here, so there is a first language and a source.
+		const first = codes[0] ?? "";
+		const src = source ?? first;
+		const sourceShownBlank = blank.includes(src);
+		const firstShownBlank = blank.includes(first);
+		const held = heldTitles(title, codes, src);
 		if (
 			held === undefined ||
 			// A source title a device shows (U+FEFF alone) that Nova's content policy reads as
 			// blank has no document that prints it either.
-			(held.texts[source] ?? "").trim() === ""
+			(!sourceShownBlank && (held.texts[src] ?? "").trim() === "")
 		) {
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:CaseSearch.title_label",
 			});
 			ok = false;
 		} else {
-			cursor.take("title_label", T.title, languageMap).value;
-			// "Search" in the source language is the absent title, whose text is that word: a
-			// document holds its other languages as the title unit's translations either way.
+			const blankInSource = sourceShownBlank && firstShownBlank;
+			cursor.take(
+				"title_label",
+				blankInSource ? T.titleSome : T.title,
+				languageMap,
+			).value;
+			// "Search" in the source language is the absent title, whose text is that word, and a
+			// blank source title the `none` title: a document holds its other languages as the
+			// title unit's translations either way.
 			const text = sourceText(ctx, held.texts);
-			if (text !== DEFAULT_CASE_SEARCH_TITLE) config.searchScreenTitle = text;
+			if (text === "") config.searchScreenTitle = NO_SEARCH_SCREEN_TITLE;
+			else if (text !== DEFAULT_CASE_SEARCH_TITLE)
+				config.searchScreenTitle = text;
 			ctx.translations.set(
 				makeTranslationUnitId("module", module.uuid, "search-title"),
 				"text",
@@ -933,7 +1068,10 @@ export function readSearchSettings(
 			)
 				recordTextRewrite(
 					ctx,
-					{ entry: T.title.entry, path: `${cursor.pointer}/title_label` },
+					{
+						entry: (blankInSource ? T.titleSome : T.title).entry,
+						path: `${cursor.pointer}/title_label`,
+					},
 					"list-settings-respelled",
 					held.workersSeeAnother,
 				);
@@ -1033,58 +1171,84 @@ export function readSearchSettings(
 		cursor.refuse("search_button_label", T.buttonOther);
 		ok = false;
 	}
-	const buttonIndex = register(
-		"search_button_display_condition",
-		"search_button_display_condition",
-	);
+	const buttonIndex = registerButtonCondition();
 	if (buttonIndex !== undefined)
 		config.searchButtonDisplayCondition = pendingPlaceholder("condition");
 
-	const instance = claimed.has("instance_name")
-		? undefined
-		: cursor.peek("instance_name");
-	const named = typeof instance === "string" && instance !== "";
-	if (
-		named &&
-		RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
-	) {
-		refuseInstanceName(ctx, cursor, T.instanceReserved, place);
-		ok = false;
-	} else if (clash === "inline") {
-		if (selectionClash !== undefined) {
-			if (named)
-				ctx.accounting.cover(
-					{ json: cursor, key: "instance_name" },
-					selectionClash,
-				);
-		} else if (named) refuseInstanceName(ctx, cursor, T.instanceClash, place);
-		else ctx.accounting.finding(T.instanceClash, place);
-		ok = false;
-	} else if (named && clash === "other") {
-		cursor.drop("instance_name", T.instanceClashInert);
-	} else if (named) {
-		refuseInstanceName(ctx, cursor, T.instanceUnreserved, place);
-		ok = false;
-	}
-	const findings: [string, typeof T.additionalTypes][] = [
-		["custom_related_case_property", T.relatedProperty],
-		["custom_sort_properties", T.customSort],
-		["case_search_endpoint_id", T.endpoint],
-	];
-	for (const [key, claim] of findings)
-		if (!claimed.has(key) && cursor.used(key)) {
-			cursor.refuse(key, claim);
+	if (cursor.used("custom_sort_properties")) {
+		const stored = cursor.peek("custom_sort_properties");
+		const order = readDedicatedOrder(stored);
+		const refusal = dedicatedOrderRefusal(stored);
+		if (order === undefined && refusal !== undefined) {
+			cursor.refuse(
+				"custom_sort_properties",
+				refusal === "reserved" ? T.customSortReserved : T.customSortDeviceOnly,
+			);
 			ok = false;
+		} else if (order === undefined) {
+			const detail = { name: "schema:CaseSearch.custom_sort_properties" };
+			ctx.accounting.circumstance("unrecognized", place, detail);
+			ctx.accounting.cover(
+				{ json: cursor, key: "custom_sort_properties" },
+				circumstanceFinding("unrecognized", place, detail),
+			);
+			ok = false;
+		} else {
+			const members = cursor.list(
+				"custom_sort_properties",
+				"CaseSearchCustomSortProperty",
+				T.customSort,
+			);
+			for (const row of members) {
+				row.takeClass(T.sortTerm).value;
+				row.take("property_name", T.sortProperty, String).value;
+				row.take("sort_type", T.sortComparison, String).value;
+				row.take("direction", T.sortDirection, String).value;
+			}
+			config.requestOrder = order;
 		}
+		claimed.add("custom_sort_properties");
+	}
+	if (
+		!claimed.has("custom_related_case_property") &&
+		cursor.used("custom_related_case_property")
+	) {
+		const property = authoredCasePropertyNameSchema.safeParse(
+			cursor.peek("custom_related_case_property"),
+		);
+		if (!property.success) {
+			ctx.accounting.circumstance("unrecognized", place, {
+				name: "schema:CaseSearch.custom_related_case_property",
+			});
+			ok = false;
+		} else if (isDeviceOnlyCaseProperty(property.data)) {
+			cursor.refuse(
+				"custom_related_case_property",
+				T.relatedPropertyDeviceOnly,
+				{
+					name: property.data,
+				},
+			);
+			ok = false;
+		} else {
+			cursor.take(
+				"custom_related_case_property",
+				T.relatedProperty,
+				() => property.data,
+			).value;
+			config.relatedRecordIdProperty = property.data;
+		}
+	}
 	if (!readRegistry(ctx, cursor, claimed)) ok = false;
 	if (cursor.used("search_on_clear")) {
-		cursor.refuse(
-			"search_on_clear",
-			hqAutoSelects(module) ? T.searchOnClearAuto : T.searchOnClear,
-		);
-		ok = false;
+		if (hqAutoSelects(module)) {
+			cursor.refuse("search_on_clear", T.searchOnClearAuto);
+			ok = false;
+		} else if (cursor.take("search_on_clear", T.searchOnClear, Boolean).value) {
+			config.searchOnClear = true;
+		}
 	}
-	cursor.derived("include_all_related_cases", T.includeDerived);
+
 	claimUndeclaredSearchKeys(cursor);
 	return {
 		ok,
@@ -1108,30 +1272,11 @@ export function ownersWithoutClauseRegistration(
 	if (typeof stored !== "string" || stored.trim() === "") return undefined;
 	return {
 		ref: { entity: "module", uuid: module.uuid, slot: "excluded_owner_ids" },
-		text: withoutNormalizeSpace(stored),
+		text: stored,
 		mode: { target: "hq-json", interpolation: "none" },
 		place: searchPlace(module),
 		key: "schema:CaseSearch.blacklisted_owner_ids_expression",
 	};
-}
-
-/**
- * A stored owner exclusion with no clause in the list filter: HQ applies it to the search's
- * results alone (`remote_requests.py`, the `x_commcare_blacklisted_owner_ids` query datum), and
- * so does Nova's print of an exclusion that reads a Search answer alone, which its list cannot
- * see (`nodesetFilter.ts::excludedOwnerClauseWritten`). `candidate` is the tree the reading
- * proposes for the stored text; it is registered and held where Nova's list writes no clause for
- * it, and the settle's projection then holds the whole search. Any other exclusion, or one the
- * reading cannot bind, is a search-only exclusion Nova cannot hold, refused under its entry.
- */
-export function holdsOwnersWithoutClause(
-	cursor: JsonCursor,
-	candidate: Expression | undefined,
-): boolean {
-	if (candidate !== undefined && !excludedOwnerClauseWritten(candidate))
-		return true;
-	cursor.refuse("blacklisted_owner_ids_expression", T.ownerWithoutClause);
-	return false;
 }
 
 /**
@@ -1234,10 +1379,32 @@ function heldTitles(
 	source: string | undefined,
 ): HeldTexts | undefined {
 	if (source === undefined) return { texts: shown, workersSeeAnother: false };
-	const held = heldText(shown, codes, source, "search-screen-title");
+	// A source title a device shows blank beside the first language's text holds only spaces,
+	// which Nova writes no title for: the source takes the first language's text, which a worker
+	// there then reads.
+	const first = codes[0] ?? source;
+	const spacesOnly =
+		titleShownBlank(shown[source] ?? "") &&
+		!titleShownBlank(shown[first] ?? "");
+	const held = heldText(
+		spacesOnly
+			? recordFromEntries(
+					codes.map((code) => [
+						code,
+						code === source ? (shown[first] ?? "") : (shown[code] ?? ""),
+					]),
+				)
+			: shown,
+		codes,
+		source,
+		"search-screen-title",
+	);
 	return held === undefined
 		? undefined
-		: { texts: held.printed, workersSeeAnother: held.workersSeeAnother };
+		: {
+				texts: held.printed,
+				workersSeeAnother: held.workersSeeAnother || spacesOnly,
+			};
 }
 
 /**
@@ -1292,6 +1459,22 @@ function promptDifference(
 	ours: JsonObject,
 	firstValidation: Readonly<Record<string, string>> | undefined,
 ): string | undefined {
+	const storedGroup = stored.is_group === true;
+	if (storedGroup !== (ours.is_group === true))
+		return "schema:CaseSearchProperty.is_group";
+	if (storedGroup)
+		return sameTexts(
+			codes,
+			source,
+			"search-input-group-label",
+			stored.label,
+			ours.label,
+		)
+			? undefined
+			: "schema:CaseSearchProperty.label";
+	// Group keys change with row placement in the Case List editor. The
+	// first pass already proved every field belongs to its preceding heading.
+
 	for (const key of PROMPT_PLAIN_KEYS)
 		if (!(BLANK(stored[key]) && BLANK(ours[key])) && stored[key] !== ours[key])
 			return `schema:CaseSearchProperty.${key}`;
@@ -1312,7 +1495,17 @@ function promptDifference(
 		return "schema:CaseSearchProperty.default_value";
 	const itemA = isJsonObject(stored.itemset) ? stored.itemset : NO_ENTRIES;
 	const itemB = isJsonObject(ours.itemset) ? ours.itemset : NO_ENTRIES;
-	if ((itemA.instance_id ?? null) !== (itemB.instance_id ?? null))
+	// The instance only HQ's Case List page reads: beside a nodeset that reads a table's item list,
+	// the field's table is that one whatever the stored instance names, and the projection names it
+	// (`prompts.ts::readPrompt`).
+	const storedTable = itemsetSource(itemA.nodeset)?.tag;
+	if (
+		!(
+			storedTable !== undefined &&
+			itemB.instance_id === `item-list:${storedTable}`
+		) &&
+		(itemA.instance_id ?? null) !== (itemB.instance_id ?? null)
+	)
 		return "schema:Itemset.instance_id";
 	for (const key of ["nodeset", "label", "value", "sort"] as const)
 		if (!sameXPathValue(itemA[key], itemB[key])) return `schema:Itemset.${key}`;
@@ -1381,6 +1574,7 @@ type SearchSlotRef = Parameters<SearchConfigRewrites>[0];
 
 /** The key a search slot's level is kept under. */
 function searchSlotKey(ref: SearchSlotRef): string {
+	if ("parameterUuid" in ref) return `${ref.slot}/${ref.parameterUuid}`;
 	return "searchInputUuid" in ref
 		? `${ref.slot}/${ref.searchInputUuid}`
 		: ref.slot;
@@ -1391,6 +1585,13 @@ function searchSlotTree(
 	mod: Module,
 	ref: SearchSlotRef,
 ): Expression | undefined {
+	if ("parameterUuid" in ref) {
+		const config = mod.caseSearchConfig;
+		return config && "projectSearch" in config
+			? config.projectSearch?.defaults.find((p) => p.uuid === ref.parameterUuid)
+					?.value
+			: undefined;
+	}
 	if (!("searchInputUuid" in ref)) {
 		const config = mod.caseSearchConfig;
 		if (config === undefined) return undefined;
@@ -1439,12 +1640,15 @@ function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
 		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
 		if (expression === undefined || level === undefined) continue;
-		const member = (ref as { readonly member?: { searchInputUuid?: string } })
-			.member;
-		const key =
-			member?.searchInputUuid === undefined
-				? ref.slot
-				: `${ref.slot}/${member.searchInputUuid}`;
+		const member = "member" in ref ? ref.member : undefined;
+		const uuid =
+			member &&
+			("searchInputUuid" in member
+				? member.searchInputUuid
+				: "parameterUuid" in member
+					? member.parameterUuid
+					: undefined);
+		const key = uuid ? `${ref.slot}/${uuid}` : ref.slot;
 		held.set(key, { tree: expression, level });
 	}
 	return (ref) => {
@@ -1473,8 +1677,8 @@ function searchDifference(
 	mod: Module,
 	stored: JsonCursor,
 	prompts: readonly PromptReading[],
-	place: HqPlace,
 	fields?: Map<string, string | undefined>,
+	addedGuards?: Set<string>,
 ): string | undefined {
 	const inputs = readProjectionInputs(ctx);
 	const ours = printed(
@@ -1521,6 +1725,13 @@ function searchDifference(
 	] as const)
 		if (!sameXPathValue(stored.peek(key), ours[key]))
 			return `schema:CaseSearch.${key}`;
+	if (
+		!sameJson(
+			readDedicatedOrder(stored.peek("custom_sort_properties")) ?? [],
+			readDedicatedOrder(ours.custom_sort_properties) ?? [],
+		)
+	)
+		return "schema:CaseSearch.custom_sort_properties";
 	// Each stored prompt with the pointer its reading's cursor has.
 	const promptsA = Array.isArray(stored.peek("properties"))
 		? (stored.peek("properties") as unknown[]).flatMap((one, index) =>
@@ -1537,36 +1748,59 @@ function searchDifference(
 	const validationTexts = new Map(
 		prompts.map((prompt) => [prompt.cursor.pointer, prompt.validationText]),
 	);
-	const guardsAdded = ctx.facts.rewrites.some(
-		(one) => one.id === "search-value-guards" && sameJson(one.place, place),
-	);
 	const uuidAt = new Map(
 		prompts.map((prompt) => [prompt.cursor.pointer, prompt.uuid]),
 	);
-	/** Whether the projection's check of the field stored at `pointer` is Nova's guard alone,
-	 *  added beside a stored field that holds no check. */
-	const guardAlone = (pointer: string, one: JsonObject): boolean => {
-		if (!guardsAdded) return false;
-		const storedChecks = one.validations;
-		if (Array.isArray(storedChecks) && storedChecks.length > 0) return false;
-		const input = mod.caseListConfig?.searchInputs.find(
-			(entry) => entry.uuid === uuidAt.get(pointer),
-		);
-		return (
-			input !== undefined &&
-			(input.kind === "hidden" || input.validation === undefined)
-		);
-	};
 	let firstField: string | undefined;
 	for (const [index, prompt] of promptsA.entries()) {
-		const projected = promptsB[index] as JsonObject;
+		let projected = promptsB[index] as JsonObject;
+		const field = mod.caseListConfig?.searchInputs.find(
+			(entry) => entry.uuid === uuidAt.get(prompt.pointer),
+		);
+		const ours = objectMembers(projected.validations) ?? [];
+		const stored = objectMembers(prompt.one.validations) ?? [];
+		if (
+			field &&
+			(field.kind === "hidden" || field.validation === undefined) &&
+			ours.length === 1
+		) {
+			const check = ours[0];
+			if (stored.length === 0) {
+				addedGuards?.add(prompt.pointer);
+				projected = { ...projected, validations: [] };
+			} else if (
+				check &&
+				stored.length === 1 &&
+				typeof check.test === "string" &&
+				typeof stored[0]?.test === "string"
+			) {
+				const before = readFormSyntax(stored[0].test);
+				const after = readFormSyntax(check.test);
+				if (before.ok && before.node && after.ok && after.node) {
+					const oldClauses = clauses(before.node, "and");
+					const newClauses = clauses(after.node, "and");
+					if (
+						oldClauses.length < newClauses.length &&
+						oldClauses.every((old) =>
+							newClauses.some((next) => sameSyntax(old, next)),
+						)
+					) {
+						// The field already carries part of the proven runtime guard. A new
+						// use of its answer adds the remaining clauses at first publish.
+						addedGuards?.add(prompt.pointer);
+						projected = {
+							...projected,
+							validations: [{ ...check, test: stored[0].test }],
+						};
+					}
+				}
+			}
+		}
 		const key = promptDifference(
 			codes,
 			source,
 			prompt.one,
-			guardAlone(prompt.pointer, prompt.one)
-				? { ...projected, validations: [] }
-				: projected,
+			projected,
 			validationTexts.get(prompt.pointer),
 		);
 		fields?.set(prompt.pointer, key);
@@ -1600,10 +1834,23 @@ export function runtimeGuardEndings(
 	doc: BlueprintDoc,
 	mod: Module,
 	prompts: readonly PromptReading[],
-): ReadonlyMap<PromptReading, { readonly rule?: string } | undefined> {
+): ReadonlyMap<
+	PromptReading,
+	| {
+			readonly rule?: string;
+			readonly whole: boolean;
+			readonly message: SearchRuntimeValidationMessage;
+	  }
+	| undefined
+> {
 	const endings = new Map<
 		PromptReading,
-		{ readonly rule?: string } | undefined
+		| {
+				readonly rule?: string;
+				readonly whole: boolean;
+				readonly message: SearchRuntimeValidationMessage;
+		  }
+		| undefined
 	>();
 	const asked = prompts.flatMap((prompt) => {
 		const validations = prompt.cursor.peek("validations");
@@ -1626,7 +1873,7 @@ export function runtimeGuardEndings(
 		const ours = printed(
 			projectCaseListForHq(
 				without,
-				withReadTexts(unchecked, ctx.translations),
+				{ ...unchecked, localization: undefined },
 				inputs.assets,
 				inputs.lookupNaming,
 			).searchConfig,
@@ -1645,10 +1892,14 @@ export function runtimeGuardEndings(
 			: undefined;
 		const check = Array.isArray(printedChecks) ? printedChecks[0] : undefined;
 		const guard = isJsonObject(check) ? check.test : undefined;
-		endings.set(
-			prompt,
-			typeof guard === "string" ? guardEnding(stored, guard) : undefined,
+		const texts =
+			isJsonObject(check) && isJsonObject(check.text) ? check.text : undefined;
+		const message = SEARCH_RUNTIME_VALIDATION_MESSAGES.find(
+			(one) => one.message === texts?.en,
 		);
+		const ending =
+			typeof guard === "string" ? guardEnding(stored, guard) : undefined;
+		if (ending && message) endings.set(prompt, { ...ending, message });
 	}
 	return endings;
 }
@@ -1658,7 +1909,7 @@ export function runtimeGuardEndings(
 function guardEnding(
 	stored: string,
 	guard: string,
-): { readonly rule?: string } | undefined {
+): { readonly rule?: string; readonly whole: boolean } | undefined {
 	const storedSyntax = readFormSyntax(stored);
 	const guardSyntax = readFormSyntax(guard);
 	if (
@@ -1678,9 +1929,11 @@ function guardEnding(
 			return one !== undefined && sameSyntax(one, clause);
 		});
 	if (!ends) return undefined;
-	if (offset === 0) return {};
+	if (offset === 0) return { whole: true };
 	const rule = leadingClauses(storedSyntax.node, guardClauses.length);
-	return rule === undefined ? {} : { rule: stored.slice(rule.from, rule.to) };
+	return rule === undefined
+		? { whole: false }
+		: { whole: false, rule: stored.slice(rule.from, rule.to) };
 }
 
 /** The node of `node`'s `and` chain that holds every conjunct but the last `count`, where one
@@ -1743,8 +1996,31 @@ export function settleSearchSettings(
 	prompts: readonly PromptReading[],
 ): void {
 	const place = searchPlace(module);
-	const start = ctx.doc;
-	if (start === undefined || start.modules[module.uuid] === undefined) return;
+	const original = ctx.doc;
+	if (original === undefined || original.modules[module.uuid] === undefined)
+		return;
+	const list = original.modules[module.uuid]?.caseListConfig;
+	const storedIncludes = cursor.peek("include_all_related_cases") === true;
+	const derivedIncludes =
+		list !== undefined &&
+		includeSearchHierarchy(
+			list,
+			moduleExpressionContexts(original, module.uuid),
+		);
+	let start = original;
+	if (storedIncludes === derivedIncludes) {
+		cursor.derived("include_all_related_cases", T.includeDerived);
+	} else {
+		const claim = storedIncludes ? T.includeAuthored : T.includeFalse;
+		cursor.take("include_all_related_cases", claim, Boolean).value;
+		start = withCandidate(original, (draft) => {
+			const menu = draft.modules[module.uuid];
+			menu.caseSearchConfig ??= {};
+			const settings = menu.caseSearchConfig;
+			if ("searchActionEnabled" in settings) return;
+			settings.relatedRecords = storedIncludes ? "hierarchy" : "details";
+		});
+	}
 	const ruled = prompts.flatMap((prompt) => {
 		const entry = start.modules[module.uuid]?.caseListConfig?.searchInputs.find(
 			(one) => one.uuid === prompt.uuid,
@@ -1787,6 +2063,7 @@ export function settleSearchSettings(
 	const compared = (
 		doc: BlueprintDoc,
 		fields?: Map<string, string | undefined>,
+		addedGuards?: Set<string>,
 	): string | undefined => {
 		try {
 			return searchDifference(
@@ -1795,12 +2072,29 @@ export function settleSearchSettings(
 				doc.modules[module.uuid] as Module,
 				cursor,
 				prompts,
-				place,
 				fields,
+				addedGuards,
 			);
 		} catch (error) {
 			rethrowWorkStop(error);
 			return EMITTER_THREW;
+		}
+	};
+	const keep = (candidate: BlueprintDoc, addedGuards: ReadonlySet<string>) => {
+		ctx.doc = candidate;
+		for (const pointer of addedGuards) {
+			const path = `${pointer}/validations`;
+			if (
+				!ctx.facts.rewrites.some(
+					(row) => row.id === "search-value-guards" && row.pointer === path,
+				)
+			)
+				ctx.facts.rewrites.push({
+					id: "search-value-guards",
+					place,
+					key: "schema:CaseSearchProperty.validations",
+					pointer: path,
+				});
 		}
 	};
 	const chosen = new Map<string, number>();
@@ -1812,14 +2106,16 @@ export function settleSearchSettings(
 		);
 		if (variant > 0 && open.length === 0) continue;
 		const fields = new Map<string, string | undefined>();
+		const addedGuards = new Set<string>();
 		const difference = compared(
 			withRules(start, () => variant),
 			fields,
+			addedGuards,
 		);
 		if (variant === 0) {
 			asRead = difference;
 			if (difference === undefined) {
-				ctx.doc = start;
+				keep(start, addedGuards);
 				return;
 			}
 		}
@@ -1831,28 +2127,68 @@ export function settleSearchSettings(
 				chosen.set(field.prompt.uuid, variant);
 	}
 	const settled = withRules(start, (field) => chosen.get(field.prompt.uuid));
-	if (settled !== start && compared(settled) === undefined) {
-		ctx.doc = settled;
+	const addedGuards = new Set<string>();
+	if (
+		settled !== start &&
+		compared(settled, undefined, addedGuards) === undefined
+	) {
+		keep(settled, addedGuards);
 		return;
 	}
 	const first = asRead;
-	if (first === "schema:CaseSearch.include_all_related_cases") {
-		ctx.accounting.finding(
-			cursor.peek("include_all_related_cases") === true
-				? T.includeAuthored
-				: T.includeFalse,
-			place,
-		);
-		return;
-	}
 	if (first === EMITTER_THREW)
 		ctx.accounting.defect(
 			place,
 			"schema:Module.search_config",
 			readerDefect.emissionThrew(place, "projectCaseListForHq"),
 		);
-	else if (first !== undefined && !ctx.accounting.hasFindingAt(place))
-		ctx.accounting.circumstance("unrecognized", place, { name: first });
+	else if (first !== undefined && !ctx.accounting.hasFindingAt(place)) {
+		const guarded = checksWithoutMessageTheSearchGuards(
+			start,
+			module.uuid,
+			prompts,
+		);
+		if (guarded.length === 0)
+			ctx.accounting.circumstance("unrecognized", place, { name: first });
+		for (const prompt of guarded)
+			ctx.accounting.findingAt(
+				T.checkWithoutMessageGuarded,
+				place,
+				`${prompt.cursor.pointer}/validations`,
+				{ name: prompt.name },
+			);
+	}
+}
+
+/**
+ * A native check with no message can share the runtime sentence when its
+ * authored rule and existing guard project to the same native test. This
+ * names the remaining checked shapes whose projected test cannot match.
+ */
+function checksWithoutMessageTheSearchGuards(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	prompts: readonly PromptReading[],
+): readonly PromptReading[] {
+	const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
+	const messageless = prompts.filter((prompt) => {
+		const input = inputs.find((one) => one.uuid === prompt.uuid);
+		return (
+			input !== undefined &&
+			input.kind !== "hidden" &&
+			input.validation !== undefined &&
+			input.validation.message === undefined
+		);
+	});
+	if (messageless.length === 0) return [];
+	let guarded: ReadonlySet<string>;
+	try {
+		guarded = searchGuardedFieldNames(doc, moduleUuid);
+	} catch (error) {
+		rethrowWorkStop(error);
+		return [];
+	}
+	return messageless.filter((prompt) => guarded.has(prompt.name));
 }
 
 /**

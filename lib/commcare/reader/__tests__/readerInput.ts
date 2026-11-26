@@ -16,9 +16,11 @@ import {
 	retainedBodyJson,
 	retainedGroupRead,
 } from "@/__tests__/helpers/retainedHqReads";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import type { HqAlignedModule } from "../../hq/appReading";
 import { type HqAppSource, readHqAppSource } from "../../hq/appSource";
 import type { HqLocationType } from "../../hq/locations";
+import { expectedXmlnsOf } from "../../hq/sharedFormSource";
 import { inventoryIndex } from "../../surface/inventory";
 import { applicationReading } from "../appShell";
 import { createReadContext, type ReadContext } from "../context";
@@ -72,13 +74,14 @@ export async function sourceFromBody(
 
 /** The menus aligned by position, each form under its own read id. */
 function aligned(source: HqAppSource): HqAlignedModule[] {
+	const xmlnsOf = expectedXmlnsOf(source);
 	return source.modules.map((menu) => ({
 		kind: "aligned",
 		uniqueId: menu.uniqueId,
 		docType: menu.docType,
 		forms: menu.forms.map((form) => ({
 			uniqueId: form.readUniqueId,
-			xmlns: form.xmlns,
+			xmlns: xmlnsOf(form),
 			source: form,
 			questions: [],
 		})),
@@ -88,6 +91,12 @@ function aligned(source: HqAppSource): HqAlignedModule[] {
 export interface InputOptions {
 	readonly levels?: readonly HqLocationType[];
 	readonly media?: (path: string) => ReaderMediaResolution;
+	/** What the project space answers for the case-list action setting, which
+	 *  a reading asks only of a source that uses it
+	 *  (`hq/caseListActionSetting.ts::sourceUsesCaseListActionSetting`).
+	 *  Absent is a project space that applies it, as a publish of such a
+	 *  source requires. */
+	readonly caseListActionsApplied?: boolean;
 }
 
 export function readerInput(
@@ -107,6 +116,9 @@ export function readerInput(
 		},
 		media: { resolve: options.media ?? (() => ({ kind: "no-entry" })) },
 		appStrings: () => null,
+		...(sourceUsesCaseListActionSetting(source.raw) && {
+			caseListActionsApplied: options.caseListActionsApplied ?? true,
+		}),
 		recordDialect: (() => {
 			throw new Error("These stages never ask the record dialect.");
 		}) as unknown as ReaderInput["recordDialect"],

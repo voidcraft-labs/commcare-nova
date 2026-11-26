@@ -39,6 +39,7 @@ export * from "./hashtags";
 export * from "./hqShells";
 export * from "./identifierValidation";
 export {
+	homeSelectionConsumers,
 	type PreviousTaskProjection,
 	type PreviousTaskSelection,
 	previousTaskFrame,
@@ -50,4 +51,5 @@ export {
 export * from "./session";
 export * from "./types";
 export * from "./wireIdentity";
+export { androidAppRequest } from "./xform/androidAppRequest";
 export * from "./xml";

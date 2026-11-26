@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { AppSettings, BlueprintDoc } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
 
-/** Every change a first publish can make, in registry order. */
+/** Every change a current or historically adopted app can still publish, in display order. */
 export const FIRST_PUBLISH_CHANGE_IDS = [
 	"forms-and-settings-rewritten",
 	"hidden-values-added",
@@ -27,8 +27,11 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"search-value-guards",
 	"search-today-device-day",
 	"case-settings-respelled",
+	"question-display-respelled",
 	"search-filter-rows-recut",
+	"search-order-direction-signs-respelled",
 	"sort-rule-kept-as-hidden-column",
+	"legacy-related-case-text-rekeyed",
 	"list-settings-respelled",
 	"search-filter-joined-to-list",
 	"search-restates-list-filter",
@@ -36,7 +39,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"registration-label-fixed",
 	"date-and-time-saved-as-hq-stores-it",
 	"connect-app-captures-location",
-	"translation-overrides-folded",
+	"unused-translation-keys-removed",
 	"location-list-setting-reset",
 	"web-apps-turned-off",
 	"web-apps-turned-on",
@@ -50,20 +53,51 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"unshown-form-media-removed",
 	"unused-media-entries-removed",
 	"names-respelled",
+	"badge-respelled",
 	"media-maps-respelled",
 	"text-spaces-dropped",
 	"form-text-characters-written-as-outputs",
 	"hidden-value-defaults-dropped",
+	"hidden-answer-types-respelled",
+	"model-iteration-conditions-moved-to-rows",
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
 	"unread-fixture-declarations-dropped",
+	"owner-rule-given-to-worker",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
+
+/** Stored reviews can still display these notices. New reads preserve their source exactly. */
+export const retiredSearchFilterNotices = new Set([
+	"search-filter-joined-to-list",
+	"search-restates-list-filter",
+	"search-today-device-day",
+] as const);
+
+/** Earlier Nova reads omitted an unobserved hidden starting answer. Its
+ * notice survives on their deployment until content is published or the
+ * difference is resolved. New readings keep both expressions. */
+export type CurrentFirstPublishChangeId = Exclude<
+	FirstPublishChangeId,
+	| "hidden-value-defaults-dropped"
+	| "search-filter-joined-to-list"
+	| "search-restates-list-filter"
+	| "search-today-device-day"
+>;
+export const CURRENT_FIRST_PUBLISH_CHANGE_IDS = FIRST_PUBLISH_CHANGE_IDS.filter(
+	(id): id is CurrentFirstPublishChangeId =>
+		id !== "hidden-value-defaults-dropped" &&
+		id !== "search-filter-joined-to-list" &&
+		id !== "search-restates-list-filter" &&
+		id !== "search-today-device-day",
+);
 
 /** A list of what a publish changes, as every surface shows it. */
 export interface FirstPublishView {
 	readonly ids: readonly FirstPublishChangeId[];
 	readonly touchesWorkers: boolean;
+	/** A historical card whose accepted source can only be re-established by a full review. */
+	readonly needsReview?: true;
 	/** Which kind of list this is (`StoredFirstPublish.of`). */
 	readonly of: "first-publish" | "next-publish";
 }
@@ -75,6 +109,7 @@ export const firstPublishViewSchema: z.ZodType<FirstPublishView> =
 	z.strictObject({
 		ids: z.array(firstPublishChangeIdSchema).readonly(),
 		touchesWorkers: z.boolean(),
+		needsReview: z.literal(true).optional(),
 		of: firstPublishKindSchema,
 	});
 
@@ -94,8 +129,11 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"search-value-guards": true,
 	"search-today-device-day": true,
 	"case-settings-respelled": false,
+	"question-display-respelled": false,
 	"search-filter-rows-recut": false,
+	"search-order-direction-signs-respelled": false,
 	"sort-rule-kept-as-hidden-column": false,
+	"legacy-related-case-text-rekeyed": false,
 	"list-settings-respelled": false,
 	"search-filter-joined-to-list": false,
 	"search-restates-list-filter": true,
@@ -103,7 +141,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"registration-label-fixed": true,
 	"date-and-time-saved-as-hq-stores-it": true,
 	"connect-app-captures-location": true,
-	"translation-overrides-folded": false,
+	"unused-translation-keys-removed": false,
 	"location-list-setting-reset": false,
 	"web-apps-turned-off": true,
 	"web-apps-turned-on": true,
@@ -118,20 +156,36 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"unused-media-entries-removed": false,
 	"names-respelled": false,
 	"media-maps-respelled": false,
+	"badge-respelled": false,
 	"text-spaces-dropped": true,
 	"form-text-characters-written-as-outputs": false,
 	"hidden-value-defaults-dropped": false,
+	"hidden-answer-types-respelled": false,
+	"model-iteration-conditions-moved-to-rows": true,
 	"sort-by-entry-with-a-blank-name-dropped": true,
 	"form-titles-written": true,
 	"unread-fixture-declarations-dropped": true,
+	"owner-rule-given-to-worker": true,
 };
+
+/**
+ * The changes no reading gives alone: each stands on a list only where the
+ * person answered a review's question that makes it, and a later list keeps
+ * it only while the list it replaces holds it
+ * (`reading/firstPublishChanges.ts::withAnsweredChanges`).
+ */
+export const ANSWERED_FIRST_PUBLISH_CHANGES: readonly CurrentFirstPublishChangeId[] =
+	["owner-rule-given-to-worker"];
 
 /** Ids another entry's sentence says to a person. */
 export const FIRST_PUBLISH_SAID_BY = {
 	"search-filter-rows-recut": "forms-and-settings-rewritten",
+	"search-order-direction-signs-respelled": "forms-and-settings-rewritten",
 	"list-settings-respelled": "forms-and-settings-rewritten",
+	"question-display-respelled": "forms-and-settings-rewritten",
 	"names-respelled": "forms-and-settings-rewritten",
 	"media-maps-respelled": "forms-and-settings-rewritten",
+	"badge-respelled": "forms-and-settings-rewritten",
 } as const satisfies Partial<
 	Record<FirstPublishChangeId, FirstPublishChangeId>
 >;
@@ -168,6 +222,13 @@ export const FIRST_PUBLISH_PLATFORM: ReadonlyMap<
 
 /** What a baseline keeps of a list. */
 export interface StoredFirstPublish {
+	/** Set by a full accepted reading under the source-preserving Refresh contract.
+	 * An older first-publish list can describe a different source. */
+	readonly reviewed?: 1;
+	/** The accepted review bound the concrete non-file inputs of its listed changes. */
+	readonly reviewedInputs?: 1;
+	/** Canonical identities of the target file references this complete reading approved removing. */
+	readonly removedFiles?: readonly string[];
 	/**
 	 * The ids that applied under the chosen declaration, less the two Web Apps
 	 * ids, and each id of `FIRST_PUBLISH_PLATFORM` the reading gives under
@@ -184,16 +245,41 @@ export interface StoredFirstPublish {
 	readonly of: "first-publish" | "next-publish";
 }
 
+/** The universal spelling has no independent affected input. File removals
+ * are authorized separately for the exact projected import. */
+export function hasRegisteredPublishInputs(
+	ids: readonly FirstPublishChangeId[],
+): boolean {
+	return ids.some(
+		(id) =>
+			id !== "forms-and-settings-rewritten" &&
+			id !== "unused-media-entries-removed",
+	);
+}
+
+export function needsStoredPublishReview(card: StoredFirstPublish): boolean {
+	return (
+		(card.of === "first-publish" && card.reviewed !== 1) ||
+		(card.reviewedInputs !== 1 && hasRegisteredPublishInputs(card.ids))
+	);
+}
+
 export const storedFirstPublishSchema: z.ZodType<StoredFirstPublish> =
 	z.strictObject({
 		ids: z.array(firstPublishChangeIdSchema).readonly(),
+		reviewed: z.literal(1).optional(),
+		reviewedInputs: z.literal(1).optional(),
+		removedFiles: z
+			.array(z.string().regex(/^[0-9a-f]{64}$/))
+			.readonly()
+			.optional(),
 		webAppsOnInHq: z.boolean(),
 		of: firstPublishKindSchema,
 	});
 
 export interface FirstPublishApp {
 	readonly appSettings: Pick<AppSettings, "runsOnlyOn" | "showIncompleteForms">;
-	readonly connectType: BlueprintDoc["connectType"];
+	readonly connectRoles: BlueprintDoc["connectRoles"];
 }
 
 /**
@@ -208,7 +294,7 @@ export function firstPublishViewFromStored(
 	stored: StoredFirstPublish,
 	{
 		appSettings: { runsOnlyOn, showIncompleteForms },
-		connectType,
+		connectRoles,
 	}: FirstPublishApp,
 ): FirstPublishView {
 	const present = new Set<FirstPublishChangeId>(stored.ids);
@@ -225,7 +311,8 @@ export function firstPublishViewFromStored(
 			if (platform !== runsOnlyOn) present.delete(id);
 	}
 	if (showIncompleteForms) present.delete("incomplete-forms-tile-hidden");
-	if (connectType === null) present.delete("connect-app-captures-location");
+	if (connectRoles.length === 0)
+		present.delete("connect-app-captures-location");
 	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => present.has(id));
 	return {
 		ids,

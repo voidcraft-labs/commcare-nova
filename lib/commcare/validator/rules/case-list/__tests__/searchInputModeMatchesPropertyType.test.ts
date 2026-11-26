@@ -78,6 +78,31 @@ describe("search match mode admission", () => {
 				propertyDataType: type,
 			});
 	});
+	// The project space's own matching rule, not Nova's range, matches the field.
+	it("admits a date range over text with the project space's matching", () => {
+		const doc = candidate({ kind: "range" }, "text");
+		const module = doc.modules[doc.moduleOrder[0]];
+		const config = module.caseListConfig;
+		if (config === undefined) throw new Error("The fixture lists cases.");
+		expect(
+			findings({
+				...doc,
+				modules: {
+					...doc.modules,
+					[module.uuid]: {
+						...module,
+						caseListConfig: {
+							...config,
+							searchInputs: config.searchInputs.map((input) => ({
+								...input,
+								matching: "project-space" as const,
+							})),
+						},
+					},
+				},
+			}),
+		).toEqual([]);
+	});
 	it("uses a writer-derived text property and standard datetime property", () => {
 		const base = admittedCaseListDoc({
 			fields: [
@@ -152,4 +177,41 @@ describe("search match mode admission", () => {
 			]);
 		},
 	);
+});
+
+describe("a search input on the case's location", () => {
+	it("is refused, since CommCare HQ's case search holds no location", () => {
+		const base = admittedCaseListDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "location_id",
+							label: proseText("Location"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+		});
+		const errors = findings(
+			withSearchInputs(base, [
+				simpleSearchInputDef(
+					testUuid("location-prompt"),
+					"location",
+					"Location",
+					"text",
+					"location_id",
+				),
+			]),
+		);
+		expect(errors.map((error) => error.code)).toEqual([
+			"CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY",
+		]);
+		expect(errors[0].details).toMatchObject({
+			inputUuid: testUuid("location-prompt"),
+			property: "location_id",
+		});
+	});
 });

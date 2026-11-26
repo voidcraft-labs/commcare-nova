@@ -30,6 +30,7 @@ import { declaredPlatforms } from "@/lib/domain/platforms";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import { formReadsSearchResults } from "@/lib/preview/engine/xpathInstances";
 import {
+	buildAndroidDeepLinkVisitBlueprint,
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildPreviewAndroidMediaBlueprint,
@@ -56,6 +57,7 @@ describe("Preview runtime smoke seeds", () => {
 		["search-claim", buildSearchClaimBlueprint],
 		["search-results", buildSearchResultsBlueprint],
 		["search-start-refused", buildSearchStartRefusedBlueprint],
+		["android-deep-link-visit", buildAndroidDeepLinkVisitBlueprint],
 		["search-choice", buildSearchChoiceBlueprint],
 		["search-value-list", buildSearchValueListBlueprint],
 		["register-from-list", buildRegisterFromListBlueprint],

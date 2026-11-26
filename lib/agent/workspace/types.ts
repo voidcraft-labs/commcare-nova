@@ -127,6 +127,8 @@ export type ConversionImpactFn = (args: {
  * write twice.
  */
 export interface ToolInvocationContext {
+	/** Verified grant for remote Project data operations that span requests. */
+	readonly dataGrant?: import("@/lib/auth/dataGrant").ProjectDataGrant;
 	/** Internal identity preparation, shared by decoding and canonical execution
 	 * within this invocation; never part of the served tool input. */
 	preparedRecordNames?: Map<string, PreparedFormRecordName>;

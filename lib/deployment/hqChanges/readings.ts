@@ -22,12 +22,16 @@ import "server-only";
  * Pure: it reads its arguments and nothing else.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	knownCaseTypesOf,
+	knownFormOpenings,
 	knownLanguageCodesOf,
+	knownPositionedCaseOperationIdsOf,
 	type ReadDraft,
 	type ReaderInput,
 	type ReaderMediaIndex,
@@ -36,17 +40,27 @@ import {
 } from "@/lib/commcare/reader";
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
-import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import {
+	externalIdentityMap,
+	knownDirectParentSearchNamesOf,
+} from "@/lib/commcare/reader/identityMap";
+import {
+	baselineSearchBindings,
+	projectSearchLineage,
+} from "@/lib/commcare/reader/projectSearchLineage";
+import {
+	type ProjectSearchBinding,
 	targetWireIdentity,
-	type WireIdentityOverride,
 } from "@/lib/commcare/wireIdentity";
 import type { FormParseIssueCode } from "@/lib/commcare/xpath/formParseIssues";
+import type { Uuid } from "@/lib/domain";
 import type { CheckErrorCode } from "@/lib/domain/expression/typeChecker";
+import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import { isMediaKind } from "@/lib/domain/multimedia";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import type { Finding } from "@/lib/publish/hqFindings";
 import type { HqMediaPath } from "../hqMedia";
+import { normalizedHqAppSource } from "../hqSourceBaseline";
 import { readingAppStrings } from "../reading/appStrings";
 import { readerLookupContext } from "../reading/gather";
 import {
@@ -62,6 +76,7 @@ import {
 	type ReadingMediaPlan,
 	readingMediaIndex,
 } from "../reading/projectData/media";
+import type { TargetIdentity } from "../targetIdentity";
 import {
 	alignedFromSource,
 	inStoredKeyOrder,
@@ -112,9 +127,10 @@ export interface HqChangeReadingsInput {
 	readonly data: ReadingProjectData;
 	/** The flag answer where the source now holds a write saved only if changed. */
 	readonly saveOnlyEditedApplied?: boolean;
+	readonly caseListActionsApplied?: boolean;
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
 	/** The entities of the deployment's target-identity record (`store.ts::readTargetIdentity`). */
-	readonly overrides: readonly WireIdentityOverride[];
+	readonly targetIdentity: TargetIdentity;
 	readonly media: {
 		/** Every file the reference publishes to the deployment, settled against the source now
 		 *  (`hqMediaStandings`, then `settleHqMedia`): no path `moved` or `unrecorded`. */
@@ -303,34 +319,90 @@ export function* makeHqChangeReadingsSteps(
 	input: HqChangeReadingsInput,
 ): Generator<void, HqChangeReadingsResult, void> {
 	const { appId, reference, data } = input;
-	const resolver = matchingResolver(
-		appId,
-		externalIdentityMap(
-			reference.identityDoc,
-			targetWireIdentity(input.overrides),
+	const target = input.targetIdentity;
+	const lookup = readerLookupContext(data);
+	const reserved = new Set(
+		Object.keys(
+			reference.identityDoc.appSettings.projectSearches ?? {},
+		) as Uuid[],
+	);
+	const resolverWith = (bindings: readonly ProjectSearchBinding[]) =>
+		matchingResolver(
+			appId,
+			externalIdentityMap(
+				reference.identityDoc,
+				targetWireIdentity(
+					target.entities,
+					target.columnWords,
+					bindings,
+					target.installationProfiles,
+				),
+				lookupWireNaming(lookup.definitions),
+			),
+			reserved,
+		);
+	const baseSource = sourceFromBaseline(input.baselineSource);
+	yield;
+	const publishedBindings = baselineSearchBindings(
+		reference.doc,
+		baseSource,
+		targetWireIdentity(
+			target.entities,
+			target.columnWords,
+			[],
+			target.installationProfiles,
 		),
+		target.projectSearches ?? [],
+	);
+	const resolver = resolverWith(publishedBindings);
+
+	const identity = targetWireIdentity(
+		target.entities,
+		target.columnWords,
+		publishedBindings,
+		target.installationProfiles,
 	);
 	const shared = {
+		knownOpenings: knownFormOpenings(reference.doc, baseSource),
 		appId,
 		target: input.target,
 		resolver,
 		lookup: data.lookups,
 		organization: data.organization,
-		appStrings: readingAppStrings(readerLookupContext(data)),
+		sourceProjectFactories: data.sourceProjectFactories,
+		appStrings: readingAppStrings(lookup),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
+		knownPositionedCaseOperationIds: knownPositionedCaseOperationIdsOf(
+			reference.doc,
+		),
+		knownFormEntryChoices: knownFormEntryChoicesOf(reference.doc),
+		knownDirectParentSearchNames: knownDirectParentSearchNamesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
+		knownProjectSearchNames: reference.doc.appSettings.projectSearches,
 		...(input.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: input.saveOnlyEditedApplied,
 		}),
+		...(input.caseListActionsApplied !== undefined && {
+			caseListActionsApplied: input.caseListActionsApplied,
+		}),
 	} satisfies Omit<ReaderInput, "source" | "modules" | "media">;
 
-	const baseSource = sourceFromBaseline(input.baselineSource);
-	yield;
+	const current =
+		data.suiteDetails && normalizedHqAppSource(input.now.source.raw);
 	const baseInput: ReaderInput = {
 		...shared,
+		suiteDetails:
+			current &&
+			"normalized" in current &&
+			isDeepStrictEqual(current.normalized, input.baselineSource)
+				? data.suiteDetails
+				: undefined,
 		source: baseSource,
-		modules: alignedFromSource(baseSource),
+		modules: alignedFromSource(baseSource, {
+			doc: reference.identityDoc,
+			identity,
+		}),
 		media: baseIndex(
 			baseSource,
 			appId,
@@ -342,6 +414,12 @@ export function* makeHqChangeReadingsSteps(
 	yield;
 	const nowInput: ReaderInput = {
 		...shared,
+		suiteDetails: data.suiteDetails,
+		resolver: publishedBindings.length
+			? resolverWith(
+					projectSearchLineage(publishedBindings, baseSource, nowSource),
+				)
+			: resolver,
 		source: nowSource,
 		modules: input.now.modules,
 		media: nowIndex(nowSource, appId, input.media.published, input.media.now),
@@ -351,7 +429,21 @@ export function* makeHqChangeReadingsSteps(
 		input.heldExpansions === undefined
 			? {}
 			: { heldExpansions: input.heldExpansions };
-	const base = yield* readHqAppSteps(baseInput, options);
+	/* A reference that holds no level was read with none: its reading read no places, so Nova
+	 * holds no level for it. The base is read as it was then, so the levels CommCare HQ's change
+	 * newly reads come in as that change's own, beside the rule that reads them. A base that
+	 * reads a level all the same is read with the Project's levels, as before. */
+	const levelless =
+		(reference.doc.organizationLevelOrder ?? []).length === 0 &&
+		data.organization.levels.length > 0;
+	let base = yield* readHqAppSteps(
+		levelless
+			? { ...baseInput, organization: { levelCodes: [], levels: [] } }
+			: baseInput,
+		options,
+	);
+	if (levelless && base.kind === "account")
+		base = yield* readHqAppSteps(baseInput, options);
 	if (base.kind === "account")
 		return {
 			kind: "no-base",

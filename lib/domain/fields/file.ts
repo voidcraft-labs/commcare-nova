@@ -21,13 +21,12 @@
 import tablerFileUpload from "@iconify-icons/tabler/file-upload";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
+import { displaySchemas } from "../questionDisplaySchemas";
+import { checkedInputFieldBaseSchema } from "./base";
 
-export const fileFieldSchema = fieldBaseSchema.extend({
+export const fileFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("file"),
-	hint: proseTemplateSchema.optional(),
-	required: formLogicSchema.optional(),
-	relevant: formLogicSchema.optional(),
+	sendTopics: displaySchemas.sendTopics.optional(),
 });
 
 export type FileField = z.infer<typeof fileFieldSchema>;
@@ -40,7 +39,7 @@ export const fileFieldMetadata: FieldKindMetadata<"file"> = {
 	label: "File",
 	isStructural: false,
 	isContainer: false,
-	carriesValidation: false,
+	carriesValidation: true,
 	saDocs:
 		"File attachment: the worker attaches a document from their device. Web Apps takes a PDF, Word, Excel, HTML, RTF, text, or Outlook message file; the Android app opens its own document chooser.",
 	convertTargets: ["image", "audio", "video", "signature"],

@@ -9,21 +9,25 @@
 import {
 	afterEmptySearchRegistrationFormOf,
 	type BlueprintDoc,
-	CONNECT_TYPE_LABELS,
+	CONNECT_ROLE_LABELS,
 	caseListColumnTextShows,
 	caseWriteValueField,
 	effectiveCaseSearchConfig,
 	type Field,
 	type Module,
 	operationCaseType,
+	operationSavesOnlyChanged,
 	proseSurfaceReads,
 	searchInputDefault,
+	targetConditionUses,
 	tileCellFor,
 	type Uuid,
 } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { relationDestinationCaseType } from "@/lib/domain/expression/rewrite";
 import type { Expression, Term } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import {
 	type ProjectSpaceAdvisoryUse,
 	type ProjectSpaceCapabilityUse,
@@ -39,9 +43,11 @@ import {
 	moduleCaseTypeForActions,
 	parentSelectModuleUuid,
 } from "./formLinkProjection";
+import { addressSearchFormReasons } from "./planPrivileges";
 import { sameTypeBasicChildCases } from "./sameTypeChildCases";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
-import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
+import { readSearchFilterTarget } from "./suite/case-search/nativeFilters";
+import { includeSearchHierarchy } from "./suite/case-search/relatedCaseProjection";
 import {
 	searchInputIsSingleDate,
 	searchInputSuppressesAutoMatch,
@@ -55,13 +61,22 @@ export type HqPrivateFeatureFlagId =
 	| "deep-links"
 	| "case-search-base"
 	| "advanced-case-search"
+	| "project-search"
 	| "commcare-connect"
 	| "attachment-links"
 	| "no-matches-registration"
 	| "large-search-performance"
 	| "related-case-lookups"
 	| "case-tiles"
+	| "detail-tab-rows"
+	| "case-form-context"
+	| "empty-case-list-text"
+	| "case-list-optimizations"
+	| "case-list-icon-actions"
+	| "case-list-lookup"
+	| "case-list-biometric-lookup"
 	| "custom-case-tiles"
+	| "calculated-case-order"
 	| "save-only-edited-answers"
 	| "same-type-links-dropped";
 
@@ -82,13 +97,22 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"deep-links": "SESSION_ENDPOINTS",
 	"case-search-base": "SYNC_SEARCH_CASE_CLAIM",
 	"advanced-case-search": "CASE_SEARCH_ADVANCED",
+	"project-search": "CASE_SEARCH_ENDPOINTS",
 	"commcare-connect": "COMMCARE_CONNECT",
 	"attachment-links": "VIEW_FORM_ATTACHMENT",
 	"no-matches-registration": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
 	"large-search-performance": "CUSTOM_PROPERTIES",
 	"related-case-lookups": "CASE_SEARCH_RELATED_LOOKUPS",
 	"case-tiles": "CASE_LIST_TILE",
+	"detail-tab-rows": "DETAIL_LIST_TAB_NODESETS",
+	"case-form-context": "SHOW_PERSIST_CASE_CONTEXT_SETTING",
+	"empty-case-list-text": "USH_EMPTY_CASE_LIST_TEXT",
+	"case-list-optimizations": "CASE_LIST_OPTIMIZATIONS",
+	"case-list-icon-actions": "CASE_LIST_CLICKABLE_ICON",
+	"case-list-lookup": "CASE_LIST_LOOKUP",
+	"case-list-biometric-lookup": "BIOMETRIC_INTEGRATION",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
+	"calculated-case-order": "SORT_CALCULATION_IN_CASE_LIST",
 	"save-only-edited-answers": "SAVE_ONLY_EDITED_FORM_FIELDS",
 	"same-type-links-dropped": "DONT_INDEX_SAME_CASETYPE",
 } as const satisfies Record<HqPrivateFeatureFlagId, string>;
@@ -127,6 +151,8 @@ export interface HqProjectSpaceCapabilityProbePlan {
 	readonly featureFlags: readonly HqPrivateFeatureFlagRequirement[];
 	/** Flags the project space must have off. */
 	readonly featureFlagsOff: readonly HqPrivateFeatureFlagRequirement[];
+	/** When supplied, at least one of these flags must be on. */
+	readonly featureFlagsAny?: readonly HqPrivateFeatureFlagRequirement[];
 	readonly runtimeProbes: readonly HqProjectSpaceRuntimeProbe[];
 }
 
@@ -134,6 +160,8 @@ export interface HqProjectSpaceAdvisoryProbePlan {
 	readonly advisory: ProjectSpaceAdvisoryUse;
 	readonly featureFlags: readonly HqPrivateFeatureFlagRequirement[];
 	readonly featureFlagsOff: readonly HqPrivateFeatureFlagRequirement[];
+	/** When supplied, at least one of these flags must be on. */
+	readonly featureFlagsAny?: readonly HqPrivateFeatureFlagRequirement[];
 	readonly runtimeProbes: readonly HqProjectSpaceRuntimeProbe[];
 }
 
@@ -154,9 +182,21 @@ export interface HqProjectSpaceCompatibilityProbePlan {
  * filter for every project space.
  */
 export function advancedCaseSearchReasons(module: Module): string[] {
-	if (effectiveCaseSearchConfig(module) === undefined) return [];
+	const config = effectiveCaseSearchConfig(module);
+	if (config === undefined) return [];
 	const inputs = module.caseListConfig?.searchInputs ?? [];
 	const reasons: string[] = [];
+	if (config.searchOnClear)
+		reasons.push(
+			"Clearing Search requests fresh results on a desktop Web Apps screen.",
+		);
+	if (config.requestOrder !== undefined)
+		reasons.push("Search chooses which matches to send in a set order.");
+	if (effectiveCaseSearchConfig(module)?.relatedRecordIdProperty) {
+		reasons.push(
+			"A search includes the record named by a property of each match.",
+		);
+	}
 	if (inputs.some((input) => searchInputDefault(input) !== undefined)) {
 		reasons.push("A Search field starts with a suggested value.");
 	}
@@ -168,6 +208,12 @@ export function advancedCaseSearchReasons(module: Module): string[] {
 	if (moduleUsesInlineSearch(module)) {
 		reasons.push("The menu's forms read the search.");
 	}
+	if (
+		inputs.some(
+			(input) => input.kind !== "hidden" && input.type === "checkboxes",
+		)
+	)
+		reasons.push("A Search field lets workers tick several choices.");
 	if (inputs.some(searchInputIsSingleDate)) {
 		reasons.push("A Search field takes one date.");
 	}
@@ -194,7 +240,24 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 	}
 	const expressions = moduleExpressionContexts(doc, module.uuid);
 	const reasons: string[] = [];
+	const nativeTargets = [
+		...(list.searchFilters ?? []).flatMap((row) =>
+			"target" in row ? [row.target] : [],
+		),
+		...list.searchInputs.flatMap((input) => {
+			if (input.kind !== "simple" || searchInputSuppressesAutoMatch(input))
+				return [];
+			const target = readSearchFilterTarget(searchInputRequestKey(input));
+			return target ? [target] : [];
+		}),
+	];
 	if (
+		nativeTargets.some(
+			(target) =>
+				"ancestors" in target &&
+				target.ancestors &&
+				!(target.kind === "attribute" && target.attribute === "id"),
+		) ||
 		xpathQueryUsesRelatedLookup(
 			list,
 			module.caseType,
@@ -204,7 +267,13 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 	) {
 		reasons.push("A Search filter looks at related cases.");
 	}
-	if (searchNeedsSupportingCases(list, expressions)) {
+	if (
+		includeSearchHierarchy(
+			list,
+			expressions,
+			effectiveCaseSearchConfig(module)?.relatedRecords,
+		)
+	) {
 		reasons.push("A case list shows values from related cases.");
 	}
 	if (
@@ -293,9 +362,8 @@ export function linkWriteDestinations(
  * - A question's prose (every slot `proseSurfaceReads` lists) holds a
  *   `case-ref` to the destination, or a `field-ref` to a question whose
  *   `calculate` or `default_value` reads it, or a calculated value one of
- *   whose terms is such a read. A translation keeps its source's
- *   references (`translationValueIntegrityIssue`), so the source prose is
- *   every language's. Prose is not parsed as markdown: a markdown link is
+ *   whose terms is such a read. The prose walk includes the current
+ *   translations with independently chosen values. Prose is not parsed as markdown: a markdown link is
  *   what a worker taps (Web Apps' `markdown.js::initMd`, Android's
  *   `QuestionWidget.setQuestionText`), and a printed address the worker
  *   copies reaches the same view, so every printed reference counts.
@@ -380,9 +448,7 @@ export function linkWriteIsShown(
 function formSavesOnlyEditedAnswers(
 	form: BlueprintDoc["forms"][string],
 ): boolean {
-	return (form.caseOperations ?? []).some((operation) =>
-		(operation.writes ?? []).some((write) => write.onlyIfChanged === true),
-	);
+	return (form.caseOperations ?? []).some(operationSavesOnlyChanged);
 }
 
 /**
@@ -425,14 +491,51 @@ export function projectSpaceCompatibilityProbePlan(
 ): HqProjectSpaceCompatibilityProbePlan {
 	const reasonsByCapability = new Map<string, Set<string>>();
 	let advancedSearchRequired = false;
+	let hasSearchAction = false;
 	const addReason = (id: string, reason: string): void => {
 		const reasons = reasonsByCapability.get(id) ?? new Set<string>();
 		reasons.add(reason);
 		reasonsByCapability.set(id, reasons);
 	};
 
+	/* A list action's condition and a selected parent's follow-up reach HQ's
+	 * build only under FOLLOWUP_FORMS_AS_CASE_LIST_FORM, whether or not the
+	 * menu searches (`details.py::get_case_list_form_action`,
+	 * `validators.py`'s case list form check). */
 	for (const module of Object.values(doc.modules)) {
+		const action = module.caseListRegistrationForm;
+		if (action?.kind !== "always") continue;
+		if (action.showWhen !== undefined)
+			addReason(
+				"registration-after-empty-search",
+				"A case list shows its form button when a condition holds.",
+			);
+		if (action.target?.kind === "chosen-parent")
+			addReason(
+				"registration-after-empty-search",
+				"A case list offers a form for its selected parent record.",
+			);
+	}
+
+	for (const module of Object.values(doc.modules)) {
+		if (module.searchResultsName !== undefined) {
+			advancedSearchRequired = true;
+			addReason(
+				"case-search",
+				`“${module.name}” names its search results so forms can distinguish them from other searches.`,
+			);
+		}
+		if (
+			module.caseListConfig?.additionalCaseTypes?.length &&
+			moduleCaseTypeForActions(doc, module.uuid)
+		) {
+			addReason(
+				"mixed-record-case-lists",
+				"A case list offers more than one record type.",
+			);
+		}
 		if (effectiveCaseSearchConfig(module) === undefined) continue;
+		hasSearchAction = true;
 		addReason(
 			"case-search",
 			"The app searches for cases that may not already be available.",
@@ -441,6 +544,16 @@ export function projectSpaceCompatibilityProbePlan(
 		 * module's search does: a module that has cases
 		 * (`moduleCaseTypeForActions`, the gate `expandDoc` reads). */
 		const searchLands = moduleCaseTypeForActions(doc, module.uuid) !== "";
+		const config = effectiveCaseSearchConfig(module);
+		if (searchLands && config?.projectSearch) {
+			const name =
+				doc.appSettings.projectSearches?.[config.projectSearch.searchUuid]
+					?.name;
+			addReason(
+				"project-search",
+				`“${module.name}” uses the search “${name ?? module.name}” supplied by this project space. Its results can change whenever the project space updates it.`,
+			);
+		}
 		const advancedReasons = searchLands
 			? advancedCaseSearchReasons(module)
 			: [];
@@ -459,19 +572,67 @@ export function projectSpaceCompatibilityProbePlan(
 		}
 	}
 
+	let customTile = false;
 	for (const module of Object.values(doc.modules)) {
 		/* A case list reaches HQ only for a module that has cases: one with
 		 * a case type and a form that is not a survey, or a case list alone
 		 * (`moduleCaseTypeForActions`, the gate `expandDoc` reads). */
 		if (moduleCaseTypeForActions(doc, module.uuid) === "") continue;
+		if (module.caseListConfig?.calculatedSorts?.length)
+			addReason(
+				"calculated-case-order",
+				`${module.name} orders cases using a calculation.`,
+			);
 		if (module.caseListConfig?.selection?.kind === "multiple") {
 			addReason(
 				"multi-select-case-lists",
 				"A case list lets workers choose several cases.",
 			);
 		}
-		if (moduleHasCaseTiles(module)) {
-			addReason("case-tiles", "A case list is laid out as tiles.");
+		if (module.caseListConfig?.detailTabs?.some((tab) => tab.rowSource))
+			addReason(
+				"detail-tab-rows",
+				"Workers see a collection of records in case details.",
+			);
+		/* HQ writes a list's empty text only where the project space holds
+		 * the flag (`feature_support.py::supports_empty_case_list_text`). */
+		if (module.caseListConfig?.emptyText !== undefined)
+			addReason(
+				"empty-case-list-text",
+				`The ${module.name} case list has its own words for an empty list.`,
+			);
+		/* HQ writes a load behavior only where the project space holds the
+		 * flag (`feature_support.py::supports_case_list_optimizations`). */
+		if (module.caseListConfig?.optimizations === true)
+			addReason(
+				"case-list-optimizations",
+				`The ${module.name} case list loads some values faster on phones.`,
+			);
+		if (module.caseListConfig?.deviceLookup !== undefined)
+			addReason(
+				"case-list-android-lookup",
+				`The ${module.name} case list opens another Android app to look up cases.`,
+			);
+		if (caseContextLine(module.caseListConfig?.contextAboveForm))
+			addReason(
+				"case-form-context",
+				"A form shows a one-line value from its selected case.",
+			);
+		if (
+			module.caseListConfig?.columns.some(
+				(column) =>
+					column.kind === "image-map" && column.entryPointUuid !== undefined,
+			)
+		)
+			addReason(
+				"case-list-icon-actions",
+				`An icon on the ${module.name} case list submits a form for the tapped case.`,
+			);
+		if (moduleHasCaseTiles(module) || module.caseListConfig?.detailTile) {
+			customTile ||=
+				module.caseListConfig?.detailTile !== undefined ||
+				!module.caseListConfig?.tile?.namedSlots;
+			addReason("case-tiles", "A case list or its details use a tile layout.");
 		}
 	}
 
@@ -507,10 +668,10 @@ export function projectSpaceCompatibilityProbePlan(
 					event.content.kind === "connect-survey",
 			),
 	);
-	if (doc.connectType !== null) {
+	if (doc.connectRoles.length > 0) {
 		addReason(
 			"commcare-connect",
-			`The app uses CommCare Connect ${CONNECT_TYPE_LABELS[doc.connectType]}.`,
+			`The app uses CommCare Connect ${doc.connectRoles.map((role) => CONNECT_ROLE_LABELS[role]).join(" and ")}.`,
 		);
 	}
 	if (usesConnectAutomation) {
@@ -541,30 +702,59 @@ export function projectSpaceCompatibilityProbePlan(
 		capabilities.push({
 			capability: projectSpaceCapabilityUse("case-search", [...searchReasons]),
 			featureFlags: [
-				HQ_PRIVATE_FEATURE_FLAGS["case-search-base"],
+				...(hasSearchAction
+					? [HQ_PRIVATE_FEATURE_FLAGS["case-search-base"]]
+					: []),
 				...(advancedSearchRequired
 					? [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]]
 					: []),
 			],
 			featureFlagsOff: [],
-			runtimeProbes: ["case-search"],
+			runtimeProbes: hasSearchAction ? ["case-search"] : [],
 		});
 	}
 
 	for (const [capability, flags] of [
+		["mixed-record-case-lists", ["advanced-case-search"]],
 		["multi-select-case-lists", ["advanced-case-search"]],
+		["project-search", ["project-search"]],
 		["related-case-search", ["related-case-lookups"]],
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
+		["case-form-context", ["case-form-context"]],
+		["empty-case-list-text", ["empty-case-list-text"]],
+		["case-list-optimizations", ["case-list-optimizations"]],
+		["case-list-icon-actions", ["case-list-icon-actions"]],
+		["detail-tab-rows", ["detail-tab-rows"]],
 		["commcare-connect", ["commcare-connect"]],
 		["attachment-links", ["attachment-links"]],
+		["calculated-case-order", ["calculated-case-order"]],
 		["save-only-edited-answers", ["save-only-edited-answers"]],
 	] as const) {
 		const reasons = reasonsByCapability.get(capability);
 		if (!reasons) continue;
 		capabilities.push({
 			capability: projectSpaceCapabilityUse(capability, [...reasons]),
-			featureFlags: flags.map((flag) => HQ_PRIVATE_FEATURE_FLAGS[flag]),
+			featureFlags: flags
+				.filter((flag) => flag !== "custom-case-tiles" || customTile)
+				.map((flag) => HQ_PRIVATE_FEATURE_FLAGS[flag]),
 			featureFlagsOff: [],
+			runtimeProbes: [],
+		});
+	}
+	const deviceLookupReasons = reasonsByCapability.get(
+		"case-list-android-lookup",
+	);
+	if (deviceLookupReasons) {
+		capabilities.push({
+			capability: projectSpaceCapabilityUse("case-list-android-lookup", [
+				...deviceLookupReasons,
+			]),
+			featureFlags: [],
+			featureFlagsOff: [],
+			featureFlagsAny: [
+				HQ_PRIVATE_FEATURE_FLAGS["case-list-lookup"],
+				HQ_PRIVATE_FEATURE_FLAGS["case-list-biometric-lookup"],
+			],
 			runtimeProbes: [],
 		});
 	}
@@ -577,6 +767,26 @@ export function projectSpaceCompatibilityProbePlan(
 				...noMatchesReasons,
 			]),
 			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["no-matches-registration"]],
+			featureFlagsOff: [],
+			runtimeProbes: [],
+		});
+	}
+	/* Web Apps searches for an address only where the project space has
+	 * `CASE_SEARCH_ADVANCED` and the `geocoder` privilege
+	 * (`cloudcare/views.py::has_geocoder_privs`). The flag is checked here;
+	 * the privilege, which no API key reads, is the `geocoder` plan feature a
+	 * person confirms (`planPrivileges.ts::requiredPlanPrivileges`). An app
+	 * that runs only on Android meets no condition. */
+	const addressUses = targetConditionUses(doc).flatMap(({ condition, uses }) =>
+		condition.capability === "address-search" ? uses : [],
+	);
+	if (addressUses.length > 0) {
+		capabilities.push({
+			capability: projectSpaceCapabilityUse(
+				"address-search",
+				addressSearchFormReasons(doc, addressUses),
+			),
+			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]],
 			featureFlagsOff: [],
 			runtimeProbes: [],
 		});

@@ -33,15 +33,27 @@ import {
 	proseText,
 } from "@/lib/domain";
 import { NON_REFERENCE_FIELD_PATHS } from "@/lib/domain/referenceSlots";
+import { fieldDisplayOptionsFor } from "../fieldDisplay";
 
 /** The field configuration keys that are not a question display setting, each
  *  with why: what the registry holds is a closed choice about how a
  *  question's control is drawn, written as its `appearance`. */
 const NOT_DISPLAY_SETTINGS: Readonly<Record<string, string>> = {
 	placement: "a query repeat's held placement, an identity no author chooses",
+	maxDimension: "the maximum pixel size of the submitted image file",
 	fieldList: "a group's screen layout, written on the group and not a control",
 	plainLabel: "a label's text formatting, read by plainText.ts",
 	plainHelp: "a help text's formatting, read by plainText.ts",
+	rowTiming:
+		"when a query repeat takes its rows, which the form's events carry",
+	answerType:
+		"the data class a hidden value's bind declares, which no control draws",
+	askForConfirmation:
+		"whether a message asks for its confirmation, a switch its own editor writes rather than an appearance",
+	lockedInHq:
+		"whether CommCare HQ's form designer locks the question, which no worker sees",
+	answerNamespace:
+		"the namespace a receiving service reads a hidden value by, which no control draws",
 };
 
 /** Every string an enum or constant inside a JSON Schema admits. */
@@ -52,7 +64,10 @@ function admittedStrings(schema: unknown): string[] {
 	if (Array.isArray(node.enum))
 		for (const value of node.enum)
 			if (typeof value === "string") found.push(value);
-	if (typeof node.const === "string") found.push(node.const);
+	if (typeof node.const === "string" || node.const === true)
+		found.push(String(node.const));
+	const properties = node.properties as Record<string, unknown> | undefined;
+	if (properties?.kind) found.push(...admittedStrings(properties.kind));
 	for (const key of ["anyOf", "oneOf", "allOf"])
 		if (Array.isArray(node[key]))
 			for (const branch of node[key] as unknown[])
@@ -79,7 +94,7 @@ describe("FIELD_DISPLAY_SETTINGS", () => {
 				].sort();
 				expect([kind, admitted]).toEqual([
 					kind,
-					Object.keys(setting.values).sort(),
+					Object.keys(fieldDisplayOptionsFor(kind, setting)).sort(),
 				]);
 			}
 		});
@@ -106,9 +121,16 @@ describe("FIELD_DISPLAY_SETTINGS", () => {
 	it("gives each kind its settings in registry order, and a kind with none an empty list", () => {
 		expect(fieldDisplaySettingsFor("text").map((s) => s.key)).toEqual([
 			"keypad",
+			"inputWidth",
+			"addressLookup",
+			"sendTopics",
+			"receiveFrom",
+			"hintPlacement",
+			"banner",
+			"itemsPerRow",
+			"textAlignment",
 		]);
-		expect(fieldDisplaySettingsFor("int")).toEqual([]);
-		expect(fieldDisplaySettingsFor("group")).toEqual([]);
+		expect(fieldDisplaySettingsFor("hidden")).toEqual([]);
 	});
 });
 

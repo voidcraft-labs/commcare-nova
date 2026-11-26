@@ -8,6 +8,7 @@ import {
 	useMemo,
 } from "react";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	useAppLocalization,
@@ -15,10 +16,12 @@ import {
 	useLocalizedModule as useDocLocalizedModule,
 	useLocalizedTranslationUnit as useDocLocalizedTranslationUnit,
 	useLocalizedValues as useDocLocalizedValues,
+	useWorkerWordingOverride as useDocWorkerWordingOverride,
 } from "@/lib/doc/hooks/useLocalization";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
+	authoredTranslationValueMode,
 	type CommitOutcome,
 	effectiveAppLocalization,
 	type Field,
@@ -31,23 +34,31 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import type { InstallationProfile } from "@/lib/domain/installationProfiles";
 import { languageDirection } from "@/lib/domain/languageRegistry";
+import { hasGeneratedWording } from "@/lib/domain/translationUnits";
 import {
 	pushBuilderLensHistory,
 	useBuilderSearch,
 } from "@/lib/routing/useClientPath";
+import { usePreviewing } from "@/lib/session/hooks";
 
 const LANGUAGE_QUERY_KEY = "lang";
 
 export interface BuilderLanguageState {
 	readonly language: LanguageTag;
 	readonly identity: AppLanguageIdentity;
+	readonly profiles: readonly InstallationProfile[];
+	readonly profileUuid?: Uuid;
+	selectProfile(uuid: string): void;
 	readonly sourceLanguage: LanguageTag;
 	readonly defaultLanguage: LanguageTag;
 	readonly languages: readonly {
 		readonly tag: LanguageTag;
 		readonly identity: AppLanguageIdentity;
+		readonly direction: "ltr" | "rtl";
 	}[];
+	readonly sourceDirection: "ltr" | "rtl";
 	readonly isSource: boolean;
 	readonly direction: "ltr" | "rtl";
 	selectLanguage(language: LanguageTag): void;
@@ -63,13 +74,36 @@ export function BuilderLocalizationProvider({
 	children: ReactNode;
 }) {
 	const persisted = useAppLocalization();
+	const previewing = usePreviewing();
+	const settings = useAppSettings();
 	const search = useBuilderSearch();
 	const effective = useMemo(
 		() => effectiveAppLocalization(persisted),
 		[persisted],
 	);
-	const requested = new URLSearchParams(search).get(LANGUAGE_QUERY_KEY);
-	const language = resolveAppLanguage(persisted, requested);
+	const query = new URLSearchParams(search);
+	const requested = query.get(LANGUAGE_QUERY_KEY);
+	const profiles = useMemo(
+		() =>
+			previewing ? Object.values(settings.installationProfiles ?? {}) : [],
+		[previewing, settings.installationProfiles],
+	);
+	const profile = profiles.find(
+		(entry) => entry.uuid === query.get("installation"),
+	);
+	const order = profile?.languages ?? effective.languageOrder;
+	const language = profile
+		? requested && order.includes(requested)
+			? requested
+			: order[0]
+		: resolveAppLanguage(persisted, requested);
+	const selectProfile = useCallback((uuid: string) => {
+		const url = new URL(window.location.href);
+		if (uuid) url.searchParams.set("installation", uuid);
+		else url.searchParams.delete("installation");
+		url.searchParams.delete(LANGUAGE_QUERY_KEY);
+		pushBuilderLensHistory(`${url.pathname}${url.search}`);
+	}, []);
 	const selectLanguage = useCallback((next: LanguageTag) => {
 		const url = new URL(window.location.href);
 		url.searchParams.set(LANGUAGE_QUERY_KEY, next);
@@ -83,16 +117,29 @@ export function BuilderLocalizationProvider({
 			language,
 			identity,
 			sourceLanguage: effective.sourceLanguage,
-			defaultLanguage: effective.defaultLanguage,
-			languages: effective.languageOrder.map((tag) => ({
+			defaultLanguage: order[0],
+			profiles,
+			profileUuid: profile?.uuid,
+			selectProfile,
+			languages: order.map((tag) => ({
 				tag,
 				identity: parseLanguageTag(tag),
+				direction: languageDirection(tag, effective),
 			})),
 			isSource: language === effective.sourceLanguage,
-			direction: languageDirection(identity),
+			direction: languageDirection(identity, effective),
+			sourceDirection: languageDirection(effective.sourceLanguage, effective),
 			selectLanguage,
 		};
-	}, [effective, language, selectLanguage]);
+	}, [
+		effective,
+		language,
+		order,
+		profiles,
+		profile,
+		selectProfile,
+		selectLanguage,
+	]);
 
 	return (
 		<BlueprintAuthoringLanguageContext value={language}>
@@ -113,6 +160,34 @@ export function useBuilderLanguage(): BuilderLanguageState {
 	return value;
 }
 
+/** The language a file editor edits, and the app's source and default. */
+export interface FileLanguageLens {
+	readonly language: LanguageTag;
+	readonly sourceLanguage: LanguageTag;
+	readonly defaultLanguage: LanguageTag;
+	readonly isSource: boolean;
+}
+
+/**
+ * The selected worker language for an editor of one language's files. A
+ * surface outside the provider has no language lens, so it edits the source
+ * language's (shared) files, as {@link useShowsSourceLanguage} reads.
+ */
+export function useFileLanguageLens(): FileLanguageLens {
+	const value = useContext(BuilderLocalizationContext);
+	const persisted = useAppLocalization();
+	return useMemo(() => {
+		if (value !== null) return value;
+		const effective = effectiveAppLocalization(persisted);
+		return {
+			language: effective.sourceLanguage,
+			sourceLanguage: effective.sourceLanguage,
+			defaultLanguage: effective.defaultLanguage,
+			isSource: true,
+		};
+	}, [persisted, value]);
+}
+
 /**
  * Whether the builder shows the source language, which owns every setting a
  * text's languages share (a label's Format text, for one). A surface outside
@@ -120,6 +195,16 @@ export function useBuilderLanguage(): BuilderLanguageState {
  */
 export function useShowsSourceLanguage(): boolean {
 	return useContext(BuilderLocalizationContext)?.isSource ?? true;
+}
+
+/**
+ * The source language where the builder shows another language, which a
+ * text cleared there falls back to; undefined under the source, or outside
+ * the provider.
+ */
+export function useSourceLanguageBehindLens(): LanguageTag | undefined {
+	const value = useContext(BuilderLocalizationContext);
+	return value === null || value.isSource ? undefined : value.sourceLanguage;
 }
 
 export function useLocalizedTranslationUnit(
@@ -139,6 +224,14 @@ export function useLocalizedText(
 ): string | undefined {
 	const value = useLocalizedValue(unitId);
 	return typeof value === "string" ? value : undefined;
+}
+
+/** A control can have a platform-specific default. Only authored wording
+ * replaces that platform's normal label. */
+export function useWorkerWordingOverride(
+	unitId: TranslationUnitId,
+): string | undefined {
+	return useDocWorkerWordingOverride(useBuilderLanguage().language, unitId);
 }
 
 export function useLocalizedValues(): ReadonlyMap<
@@ -170,7 +263,7 @@ export function useTranslationUnitEditor(
 	const { inline } = useBlueprintMutations();
 	const saveTarget = useCallback(
 		(value: LocalizedValue): CommitOutcome => {
-			if (isSource || unit === undefined) {
+			if (unit === undefined || (isSource && !hasGeneratedWording(unit))) {
 				return { ok: false, messages: ["This is the source language."] };
 			}
 			const mutation: Mutation = {
@@ -179,6 +272,7 @@ export function useTranslationUnitEditor(
 				unitId,
 				entry: {
 					value,
+					...authoredTranslationValueMode(unit, value),
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "human",
 					review: "reviewed",

@@ -321,7 +321,14 @@ def verdict_lacks(verdict, configuration, where):
         raise CorpusLayoutError(
             f"{where} holds flagsOff {off!r}; a verdict lists the flags it requires off, or says nothing."
         )
+    alternatives = minimum.get("flagsAny", [])
+    if not isinstance(alternatives, list) or ("flagsAny" in minimum and not alternatives) or any(
+        not isinstance(group, list) or len(group) < 2 or not all(isinstance(flag, str) for flag in group)
+        or len(set(group)) != len(group) for group in alternatives
+    ):
+        raise CorpusLayoutError(f"{where} holds flagsAny {alternatives!r}; each group names alternative flags.")
     missing = sorted(set(minimum["flags"]) - set(configuration.flags))
+    missing.extend(" or ".join(group) for group in alternatives if not set(group) & set(configuration.flags))
     if minimum["caseSearchEnabled"] and not configuration.case_search_enabled:
         missing.append("case search")
     if sync is False and configuration.sync_cases_on_form_entry:
@@ -359,6 +366,13 @@ class Captured:
     meta: dict
     lookups: Captured | None = None
     media: Captured | None = None
+    batches: tuple = ()
+
+    def media_uploads(self):
+        """Every physical body and its peer counter in send order, including older single-body captures."""
+        if self.batches:
+            return self.batches
+        return ((self.media, self.media_save_counter),) if self.media else ()
 
     @property
     def content_type(self):
@@ -447,6 +461,7 @@ BROUGHT_IN_KEYS = frozenset(
     {"review", "taken", "discarded", "mutations", "identities", "again", "assumedSummary", "document"}
 )
 BROUGHT_IN_READING = "reading"
+BROUGHT_IN_EXACT_PLACES = ("unshownMediaPlaces", "legacyRelatedCaseTextPlaces")
 
 
 @dataclass(frozen=True)
@@ -469,14 +484,15 @@ class BroughtIn:
     document: dict
     reading: dict | None = None
     unshown_media_places: tuple[str, ...] = ()
+    legacy_related_case_text_places: tuple[str, ...] = ()
 
     @classmethod
     def from_json(cls, value, where):
-        if not isinstance(value, dict) or set(value) - {BROUGHT_IN_READING, "unshownMediaPlaces"} != BROUGHT_IN_KEYS:
+        if not isinstance(value, dict) or set(value) - {BROUGHT_IN_READING, *BROUGHT_IN_EXACT_PLACES} != BROUGHT_IN_KEYS:
             raise CorpusLayoutError(
                 f"{where} names its broughtIn as {sorted(value) if isinstance(value, dict) else value!r}; a"
                 f" bring-in's record holds exactly {sorted(BROUGHT_IN_KEYS)}, and {BROUGHT_IN_READING} where the"
-                " review read CommCare HQ's app, and unshownMediaPlaces where it newly listed that removal."
+                " review read CommCare HQ's app, with exact places where the review listed a scoped change."
             )
         if value["taken"] not in ("brought-in", "recorded"):
             raise CorpusLayoutError(f"{where} records a bring-in that took {value['taken']!r}.")
@@ -484,11 +500,16 @@ class BroughtIn:
             if not isinstance(value[key], dict) or not isinstance(value[key].get("kind", ""), str):
                 raise CorpusLayoutError(f"{where} records the bring-in's {key} as {value[key]!r}.")
         reading = value.get(BROUGHT_IN_READING)
-        media_places = value.get("unshownMediaPlaces", [])
-        if not isinstance(media_places, list) or not all(
-            isinstance(p, str) and p.startswith("/") for p in media_places
-        ):
-            raise CorpusLayoutError(f"{where} records unshownMediaPlaces without exact places in the current reading.")
+        exact = {}
+        for key in BROUGHT_IN_EXACT_PLACES:
+            if key not in value:
+                continue
+            places = value[key]
+            if not isinstance(places, list) or not places or not all(
+                isinstance(place, str) and place.startswith("/") for place in places
+            ):
+                raise CorpusLayoutError(f"{where} records {key} without exact places in the current reading.")
+            exact[key] = tuple(places)
         if reading is not None and (
             not isinstance(reading, dict)
             or not isinstance(reading.get("doc"), dict)
@@ -509,7 +530,8 @@ class BroughtIn:
             assumed_summary=value["assumedSummary"],
             document=value["document"],
             reading=reading,
-            unshown_media_places=tuple(media_places),
+            unshown_media_places=exact.get("unshownMediaPlaces", ()),
+            legacy_related_case_text_places=exact.get("legacyRelatedCaseTextPlaces", ()),
         )
 
     @property
@@ -574,6 +596,19 @@ def _captured(directory: Path, name: str):
         if not isinstance(named, str) or not named.endswith(".body"):
             raise CorpusLayoutError(f"{sidecar} names {what} {named!r}, which is not a .body file.")
         beside[key] = _captured(directory, named.removesuffix(".body"))
+    if "mediaBatches" in meta:
+        batches = meta["mediaBatches"]
+        if "media" in meta or "mediaSaveCounter" in meta or not isinstance(batches, list) or len(batches) < 2:
+            raise CorpusLayoutError(f"{sidecar} must name each physical media batch and counter in order.")
+        parsed = []
+        for batch in batches:
+            if not isinstance(batch, dict) or not isinstance(batch.get("body"), str) or not batch["body"].endswith(".body"):
+                raise CorpusLayoutError(f"{sidecar} names an invalid physical media body {batch!r}.")
+            counter = Captured(body, batch).save_counter
+            if counter is None or counter[0] is None:
+                raise CorpusLayoutError(f"{sidecar} names a media batch without its import's current save counter.")
+            parsed.append((_captured(directory, batch["body"].removesuffix(".body")), counter))
+        beside["batches"] = tuple(parsed)
     return Captured(body, meta, **beside)
 
 
@@ -656,6 +691,11 @@ class Edit:
         return path if path.exists() else None
 
     @property
+    def import_file(self):
+        path = self.root / "import-file.zip"
+        return path if path.exists() else None
+
+    @property
     def local_refusal(self):
         """The refusal D' states in place of its local archive (``edit/local-refused.json``), or None."""
         return _local_refusal(self.root)
@@ -680,6 +720,7 @@ class Authored:
     places: Path | None
     seed: Path | None
     practice_workers: Path | None = None
+    project_searches: Path | None = None
 
     def app_json(self):
         return _read_json(self.app)
@@ -760,6 +801,7 @@ class Document:
             places=held("places.json"),
             seed=held("seed.json"),
             practice_workers=held("practice-workers.json"),
+            project_searches=held("project-searches.json"),
         )
 
     @cached_property
@@ -1131,10 +1173,18 @@ class Document:
     def unshown_media_places(self):
         """The current review's exact places, the same across exports. An absent or disagreeing record cannot
         authorize removing a sibling's picture. Read only when the review newly listed this change."""
+        return self._next_publish_exact_places("unshown_media_places")
+
+    @property
+    def legacy_related_case_text_places(self):
+        """The related columns the review names agree across publication carriers."""
+        return self._next_publish_exact_places("legacy_related_case_text_places")
+
+    def _next_publish_exact_places(self, key):
         records = (export.brought_in for export in self.exports.values())
-        places = {record.unshown_media_places if record else () for record in records}
+        places = {getattr(record, key) if record else () for record in records}
         if len(places) != 1 or not next(iter(places)):
-            raise CorpusLayoutError(f"{self.root} has no consistent unshownMediaPlaces in its next-publish review.")
+            raise CorpusLayoutError(f"{self.root} has no consistent {key} in its next-publish review.")
         return next(iter(places))
 
     def republished_as_stated(self):
@@ -1167,12 +1217,14 @@ class Document:
                 continue
             if statement == "records":
                 stated = saves.get("recorded")
+                chosen = isinstance(stated, dict) and stated.get("reason") == "publish-changes"
                 if (
                     record is None
                     or record.taken != "recorded"
                     or not isinstance(stated, dict)
-                    or record.review_kind != "nothing"
-                    or record.review_reason != stated.get("reason")
+                    or record.review_kind != ("changes" if chosen else "nothing")
+                    or record.review_reason != (None if chosen else stated.get("reason"))
+                    or (chosen and (not record.publish_changes or record.mutations))
                     or len(record.publish_changes) != len(stated.get("publishChanges") or [])
                 ):
                     raise CorpusLayoutError(
@@ -1189,7 +1241,10 @@ class Document:
                     f"{where} states that the republish brings in, and names the changes its review lists for the"
                     f" next publish as {listed!r}, where it is a list of change ids (publishChanges)."
                 )
-            if record is not None and len(record.publish_changes) != len(listed):
+            removed = saves.get("removedFileReferences", [])
+            if not isinstance(removed, list) or any(not isinstance(path, str) or not path for path in removed):
+                raise CorpusLayoutError(f"{where} lists invalid file reference removals.")
+            if record is not None and len(record.publish_changes) != len(listed) + bool(removed):
                 raise CorpusLayoutError(
                     f"{export.directory} holds a republish of {self.id} sent after a review that listed"
                     f" {record.publish_changes!r} for the next publish, and {where} states {listed!r} ({name})."

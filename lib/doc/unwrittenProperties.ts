@@ -50,6 +50,7 @@
 
 import type {
 	BlueprintDoc,
+	FieldProseSlot,
 	FieldSlotId,
 	FormSlotId,
 	ModuleSlotId,
@@ -58,6 +59,7 @@ import type {
 import {
 	asUuid,
 	casePropertyTargetKey,
+	FIELD_PROSE_SLOTS,
 	isStandardCaseListProperty,
 } from "@/lib/domain";
 import { findContainingForm } from "./mutations/helpers";
@@ -216,11 +218,17 @@ const FIELD_SLOT_NOUNS: Readonly<Record<string, string>> = {
 	required: "the required condition",
 	repeat_count: "the repeat count",
 	ids_query: "the repeat data source",
-	label: "the display text",
-	hint: "the display text",
-	help: "the display text",
-	validate_msg: "the display text",
-	option_label: "the display text",
+	// Every text slot, a choice's label among them, reads as display text.
+	...(Object.fromEntries(
+		[...FIELD_PROSE_SLOTS, "option_label"].map((slot) => [
+			slot,
+			"the display text",
+		]),
+	) as Record<FieldProseSlot | "option_label", string>),
+	assessment_user_score: "the assessment score",
+	deliver_entity_id: "the delivery's person or place ID",
+	deliver_entity_name: "the delivery recipient name",
+	deliver_work_area_id: "the delivery work area",
 } satisfies Partial<Record<FieldSlotId, string>>;
 
 /** Module-slot phrasing per audience. The builder column phrases stay
@@ -232,26 +240,48 @@ const MODULE_SLOT_PHRASES: Readonly<
 	Record<ReadPhraseAudience, Readonly<Record<string, string>>>
 > = {
 	agent: {
+		case_detail_tab_condition: "a detail tab rule on module",
 		case_list_filter: "the case-list filter on module",
+		case_list_action_condition: "the form button condition on module",
+		case_search_filter: "the search condition on module",
 		case_list_column_field: "a case-list column of module",
+		case_list_lookup_result_property: "the Android lookup on module",
 		case_list_column_via: "a case-list column of module",
+		case_list_mapping_condition: "a mapping condition of module",
 		case_list_column_expression: "a case-list column of module",
+		case_list_sort_expression: "a default order calculation of module",
+		search_order_property: "the search result order of module",
+		search_filter_order_property: "a search result order filter of module",
 		search_input_property: "a search input of module",
 		search_input_via: "a search input of module",
 		search_input_default: "a search input of module",
 		search_input_predicate: "a search input of module",
+		search_filter_property: "a search filter of module",
+		search_filter_ancestor_type: "a search filter of module",
+		search_filter_value: "a search filter of module",
 		search_button_display_condition: "the search-button condition on module",
 		excluded_owner_ids: "the owner filter on module",
 	} satisfies Partial<Record<ModuleSlotId, string>>,
 	builder: {
+		case_detail_tab_condition: "a detail tab rule in module",
 		case_list_filter: "a Cases available condition in module",
+		case_list_action_condition: "the form button condition on the list in",
+		case_search_filter: "a search condition in module",
 		case_list_column_field: "case information in module",
+		case_list_lookup_result_property: "the Android lookup in module",
 		case_list_column_via: "case information in module",
+		case_list_mapping_condition: "a mapping condition in module",
 		case_list_column_expression: "a calculated value in module",
+		case_list_sort_expression: "a default order calculation in module",
+		search_order_property: "the order of online matches in module",
+		search_filter_order_property: "the order of online matches in module",
 		search_input_property: "a search field in module",
 		search_input_via: "a search field in module",
 		search_input_default: "a search field's starting value in module",
 		search_input_predicate: "a search field's condition in module",
+		search_filter_property: "a search filter in module",
+		search_filter_ancestor_type: "a search filter in module",
+		search_filter_value: "a search filter's value in module",
 		search_button_display_condition:
 			"the Search button's display condition in module",
 		excluded_owner_ids: "the Assigned cases setting in module",
@@ -261,9 +291,6 @@ const MODULE_SLOT_PHRASES: Readonly<
 const FORM_SLOT_PHRASES: Readonly<Record<string, string>> = {
 	form_link_condition: "a form link condition on",
 	form_link_datum_xpath: "a form link datum on",
-	assessment_user_score: "the Connect settings of",
-	deliver_entity_id: "the Connect settings of",
-	deliver_entity_name: "the Connect settings of",
 } satisfies Partial<Record<FormSlotId, string>>;
 
 /**

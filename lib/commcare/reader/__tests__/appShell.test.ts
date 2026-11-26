@@ -29,7 +29,8 @@ import { describe, expect, it } from "vitest";
 import { makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { inventoryIndex } from "../../surface/inventory";
-import { readApplication } from "../appShell";
+import { readHqApp } from "..";
+import { applicationReading, readApplication } from "../appShell";
 import { readStructure } from "../structure";
 import {
 	closeAfterStructure,
@@ -51,6 +52,36 @@ async function readShell(body: Readonly<Record<string, unknown>>) {
 	readStructure(ctx);
 	return { ctx, closed: closeAfterStructure(ctx) };
 }
+
+it("brings in both app layouts and retains a menu's individual choice through a change of policy", async () => {
+	const base = retainedSourceBody("navigation-base/app-source");
+	const modules = base.modules as Record<string, unknown>[];
+	for (const [policy, layout] of [
+		["some", "individual"],
+		["all", "grid"],
+		["none", undefined],
+	] as const) {
+		const body = {
+			...base,
+			use_grid_menus: true,
+			grid_form_menus: policy,
+			modules: modules.map((module, index) =>
+				index === 0 ? { ...module, display_style: "grid" } : module,
+			),
+		};
+		const outcome = await readHqApp({
+			...readerInput(await sourceFromBody(body)),
+			recordDialect: () => undefined,
+		});
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		expect(outcome.draft.doc.appSettings.firstMenuLayout).toBe("grid");
+		expect(outcome.draft.doc.appSettings.formMenuLayout).toBe(layout);
+		expect(
+			outcome.draft.doc.modules[outcome.draft.doc.moduleOrder[0]].menuLayout,
+		).toBe("grid");
+	}
+});
 
 describe("readApplication over CommCare HQ's own apps", () => {
 	it.each([
@@ -98,6 +129,34 @@ describe("readApplication over CommCare HQ's own apps", () => {
 		});
 		expect(ctx.draft.localization).toBeUndefined();
 		expect(ctx.draft.appName?.value).toBe("Patients & visits <Café>");
+	});
+
+	it("keeps required Android apps in the order workers see and locates malformed selections", async () => {
+		const body = retainedSourceBody("shell/app-source-after-app-settings-save");
+		const withApps = (dependencies: unknown) =>
+			readShell({
+				...body,
+				profile: { ...(body.profile as object), features: { dependencies } },
+			});
+		const path = "/profile/features/dependencies";
+		const accepted = await withApps(["com.simprints.id", "org.rdtoolkit"]);
+		expect(accepted.ctx.draft.appSettings.requiredAndroidApps).toEqual([
+			"simprints-id",
+			"commcare-toolkit",
+		]);
+		expect(entriesAt(accepted.closed, path)).toEqual([
+			`${A}/31-features-dependencies`,
+		]);
+		const repeated = await withApps(["com.simprints.id", "com.simprints.id"]);
+		expect(entriesAt(repeated.closed, path)).toEqual([
+			`${A}/repeated-android-app-dependency`,
+		]);
+		for (const invalid of ["com.simprints.id", ["org.example.unlisted"]]) {
+			const { closed } = await withApps(invalid);
+			expect(entriesAt(closed, path)).toEqual([
+				`${A}/profile-properties-or-features-dependencies-value-outside-its`,
+			]);
+		}
 	});
 
 	it("reads a setting outside its choices as that setting's refusal, at the app", async () => {
@@ -468,24 +527,33 @@ describe("readApplication's language names", () => {
 		);
 	});
 
-	it("reads the app's name in another language as its translation", async () => {
+	it("reads the app's name in another language as its translation where both its strings hold it", async () => {
 		const body = retainedSourceBody("shell/app-source");
 		const { ctx, closed } = await readShell({
 			...body,
 			langs: ["en", "fra"],
 			translations: {
 				en: { en: "English", fra: "français" },
-				fra: { "app.display.name": "Patients et visites" },
+				fra: {
+					"app.display.name": "Patients et visites",
+					"homescreen.title": "Patients et visites",
+				},
 			},
 		});
 		expect(entriesAt(closed, "/translations/fra/app.display.name")).toEqual([
 			`${A}/translations-app-display-name`,
 		]);
+		// A key of a language's strings other than a runtime UI string is data of the map, its claim
+		// recorded at `translations`.
+		expect(entriesAt(closed, "/translations")).toContain(
+			`${A}/translations-homescreen-title`,
+		);
 		expect(ctx.translations.units()).toEqual([
 			{
 				unit: makeTranslationUnitId("app", "name"),
 				kind: "text",
 				byLanguage: new Map([["fra", "Patients et visites"]]),
+				own: new Set(),
 			},
 		]);
 		expect(ctx.draft.localization).toEqual({
@@ -602,10 +670,13 @@ describe("readApplication's app name and the source language it tells", () => {
 	}
 
 	it("takes the second language as the source where only the first stores an app.display.name other than name", async () => {
-		/* Nova writes the source language's name as `name` and `app.display.name` only in a
-		 * language whose name differs, so the language holding none is the source, and a
-		 * reading in it prints every stored key back. */
-		const { body, name } = twoLanguages({ "app.display.name": "Clinic" });
+		/* Nova writes the source language's name as `name` and both strings only in a language
+		 * whose name differs, so the language holding none is the source, and a reading in it
+		 * prints every stored key back. */
+		const { body, name } = twoLanguages({
+			"app.display.name": "Clinic",
+			"homescreen.title": "Clinic",
+		});
 		const { ctx, closed } = await readShell(body);
 		expect(
 			closed.findings.filter((finding) => APP_PLACES.has(finding.place.kind)),
@@ -621,74 +692,87 @@ describe("readApplication's app name and the source language it tells", () => {
 				unit: makeTranslationUnitId("app", "name"),
 				kind: "text",
 				byLanguage: new Map([["eng", "Clinic"]]),
+				own: new Set(),
 			},
 		]);
-		expect(ctx.facts.foldedTranslationKeys).toHaveLength(0);
 	});
 
-	it("reads a first-language app.display.name HQ's build shows over name as the app's name where every language stores one", async () => {
+	it("keeps the app's name where every language stores an app.display.name, and holds the source language's as its own wording", async () => {
 		/* HQ's UI translations upload stores such a row in any language, and HQ's build puts
 		 * it over `name` there. No language then holds the name as `name`, so the source is the
-		 * first, and its value folds into the app's name. */
-		const { body } = twoLanguages({ "app.display.name": "Clinic" });
-		const { ctx, closed } = await readShell({
+		 * first; its strings are the app name's own wording there, which the assembly holds as
+		 * generated keys, and `name` stays the app's name. */
+		const { body, name } = twoLanguages({
+			"app.display.name": "Clinic",
+			"homescreen.title": "Clinic",
+		});
+		const { ctx } = await readShell({
 			...body,
 			translations: {
 				...body.translations,
-				fra: { ...body.translations.fra, "app.display.name": "Clinique" },
+				fra: {
+					...body.translations.fra,
+					"app.display.name": "Clinique",
+					"homescreen.title": "Clinique",
+				},
 			},
 		});
-		expect(
-			closed.findings.filter((finding) => APP_PLACES.has(finding.place.kind)),
-		).toEqual([]);
-		expect(entriesAt(closed, "/translations/en/app.display.name")).toEqual([
-			`${A}/translations-app-display-name`,
-		]);
 		expect(ctx.draft.localization?.sourceLanguage).toBe("eng");
-		expect(ctx.draft.appName?.value).toBe("Clinic");
+		expect(ctx.draft.appName?.value).toBe(name);
 		expect(ctx.translations.units()).toEqual([
 			{
 				unit: makeTranslationUnitId("app", "name"),
 				kind: "text",
 				byLanguage: new Map([["fra", "Clinique"]]),
+				own: new Set(),
 			},
 		]);
-		expect(ctx.facts.foldedTranslationKeys).toHaveLength(1);
+		expect(
+			applicationReading(ctx)
+				?.generatedKeys.filter((one) => one.language === "en")
+				.map((one) => [one.key, one.value]),
+		).toEqual([
+			["app.display.name", "Clinic"],
+			["homescreen.title", "Clinic"],
+		]);
 	});
 
 	it.each([
 		["blank", ""],
 		["equal to name", undefined],
 	])(
-		"reads a first-language app.display.name %s into nothing",
+		"leaves a first-language app.display.name %s to the assembly as a generated key, the app's name as stored",
 		async (_, given) => {
 			const { body, name } = twoLanguages({});
-			const { ctx, closed } = await readShell({
+			const { ctx } = await readShell({
 				...body,
 				translations: {
 					...body.translations,
 					en: { ...body.translations.en, "app.display.name": given ?? name },
 				},
 			});
-			expect(entriesAt(closed, "/translations/en/app.display.name")).toEqual([
-				`${A}/translations-app-display-name`,
-			]);
 			expect(ctx.draft.appName?.value).toBe(name);
 			expect(ctx.translations.units()).toEqual([]);
-			expect(ctx.facts.foldedTranslationKeys).toHaveLength(0);
+			expect(
+				applicationReading(ctx)?.generatedKeys.map((one) => [
+					one.language,
+					one.key,
+					one.value,
+				]),
+			).toEqual([["en", "app.display.name", given ?? name]]);
 		},
 	);
 });
 
-describe("readApplication's strings of a language it could not name", () => {
+describe("readApplication's strings of an invalid language code", () => {
 	it("covers every key of the language's strings by the code's finding, and holds none", async () => {
-		const cannotName = `${A}/langs-code-nova-s-language-registry-cannot-name`;
+		const cannotName = `${A}/a-non-empty-langs-code-outside-that-grammar-or-repeated`;
 		const { ctx, closed } = await readShell({
 			...retainedSourceBody("shell/app-source"),
-			langs: ["en", "xx"],
+			langs: ["en", "x x"],
 			translations: {
 				en: { en: resolvedLanguageDisplayLabel({ language: "eng" }) ?? "" },
-				xx: {
+				"x x": {
 					"app.display.name": "Clinique",
 					"homescreen.title": "Clinique",
 					"nova.unread": "OK",
@@ -702,7 +786,7 @@ describe("readApplication's strings of a language it could not name", () => {
 			"nova.unread",
 			"en",
 		])
-			expect(entriesAt(closed, `/translations/xx/${key}`)).toEqual([
+			expect(entriesAt(closed, `/translations/x x/${key}`)).toEqual([
 				cannotName,
 			]);
 		expect(
@@ -711,7 +795,7 @@ describe("readApplication's strings of a language it could not name", () => {
 			{
 				code: cannotName,
 				place: { kind: "languages" },
-				detail: { name: "xx" },
+				detail: { name: "x x" },
 			},
 		]);
 		expect(ctx.translations.units()).toEqual([]);

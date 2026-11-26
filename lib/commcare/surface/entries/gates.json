@@ -98,14 +98,18 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Case list callout, as an alternative to CASE_LIST_LOOKUP; Android app callouts need only their privileges)",
+		"content": "Android case-list lookup (an alternative to CASE_LIST_LOOKUP)",
 		"contentEntries": [
+			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
 			"menus-and-case-lists/lookup-autolaunch",
+			"menus-and-case-lists/lookup-extras-fixed-text",
+			"menus-and-case-lists/lookup-extras-worker-context",
 			"menus-and-case-lists/lookup-extras-key-value",
 			"menus-and-case-lists/lookup-responses-key",
+			"menus-and-case-lists/lookup-case-id-confidence",
 			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
 		],
 		"platforms": "n/a",
@@ -219,14 +223,18 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Case list callout)",
+		"content": "Android case-list lookup",
 		"contentEntries": [
+			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
 			"menus-and-case-lists/lookup-autolaunch",
+			"menus-and-case-lists/lookup-extras-fixed-text",
+			"menus-and-case-lists/lookup-extras-worker-context",
 			"menus-and-case-lists/lookup-extras-key-value",
 			"menus-and-case-lists/lookup-responses-key",
+			"menus-and-case-lists/lookup-case-id-confidence",
 			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
 		],
 		"platforms": "n/a",
@@ -281,7 +289,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Module fields, Detail columns)",
+		"content": "HELD (Module fields, Detail columns)",
 		"contentEntries": [
 			"menus-and-case-lists/module-show-case-list-optimization-options",
 			"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load"
@@ -398,6 +406,7 @@
 			"case-search/exclude",
 			"case-search/receiver-expression",
 			"questions/text-address",
+			"questions/secret-address",
 			"questions/barcode-numeric-address-or-receive-topic-field"
 		],
 		"platforms": "n/a",
@@ -595,9 +604,10 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Detail tabs data tabs)",
+		"content": "HELD (Detail tabs data tabs)",
 		"contentEntries": [
 			"menus-and-case-lists/data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset",
+			"menus-and-case-lists/related-child-type-beside-an-explicit-tab-collection",
 			"menus-and-case-lists/data-tab-over-a-custom-nodeset-xpath"
 		],
 		"platforms": "n/a",
@@ -664,7 +674,15 @@
 		"effects": [
 			{
 				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/action[*]"
+			},
+			{
+				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/action[*]/@relevant"
+			},
+			{
+				"artifact": "validate_app",
+				"path": "/modules/*/case list form not registration"
 			}
 		],
 		"source": {
@@ -878,6 +896,7 @@
 			"case-search/workflow-search-first-auto-launch-true-default-search-false",
 			"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 			"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false",
+			"case-search/list-first-with-a-search-that-skips-to-results",
 			"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
 			"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
 			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
@@ -1661,7 +1680,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (badges Module fields, Form fields)",
+		"content": "HELD (badges Module fields, Form fields)",
 		"contentEntries": [
 			"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
 			"forms-and-case-writes/custom-icons-0"
@@ -1788,6 +1807,7 @@
 		},
 		"content": "`practice_mobile_worker_id` target value",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",
@@ -1872,7 +1892,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Sorting `sort_calculation`)",
+		"content": "Default order calculates a value independently of Results columns.",
 		"contentEntries": [
 			"menus-and-case-lists/sort-calculation-authored-calculation-row-field"
 		],
@@ -1899,7 +1919,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Detail screens `no_items_text`)",
+		"content": "HELD (Detail screens `no_items_text`)",
 		"contentEntries": [
 			"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
 			"menus-and-case-lists/detail-no-items-text-equal-to-hq-s-default"
@@ -2229,7 +2249,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types face capture)",
+		"content": "HELD (Question types face capture)",
 		"contentEntries": ["questions/face-capture-image-face"],
 		"platforms": "n/a",
 		"preflight": {
@@ -2264,6 +2284,7 @@
 			"questions/connect-task",
 			"questions/connect-deliver-unit-and-task-in-one-form",
 			"questions/connect-learn-and-deliver-blocks-in-one-app",
+			"questions/connect-work-area-update-photo-not-forwarded",
 			"questions/connect-work-area-update"
 		],
 		"platforms": "n/a",
@@ -2326,6 +2347,7 @@
 			"case-search/workflow-search-first-auto-launch-true-default-search-false",
 			"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 			"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false",
+			"case-search/list-first-with-a-search-that-skips-to-results",
 			"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
 			"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
 			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
@@ -2441,6 +2463,7 @@
 			"case-search/workflow-search-first-auto-launch-true-default-search-false",
 			"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 			"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false",
+			"case-search/list-first-with-a-search-that-skips-to-results",
 			"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
 			"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
 			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
@@ -2882,6 +2905,9 @@
 			"expressions-and-data/item-list-tag-read-in-any-other-expression",
 			"expressions-and-data/table-tag-in-nova-s-grammar",
 			"expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any",
+			"expressions-and-data/tag-or-field-name-holding-a-period",
+			"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+			"expressions-and-data/tag-or-field-name-with-non-ascii-letters",
 			"expressions-and-data/tag-types",
 			"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
 			"expressions-and-data/item-attributes-and-per-row-attribute-values",
@@ -2912,7 +2938,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types callouts)",
+		"content": "HELD (Android app questions, with the action’s built-in or custom privilege)",
 		"contentEntries": [
 			"questions/android-app-callout-input-appearance-intent-id-bind-type-intent"
 		],
@@ -2965,7 +2991,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Settings and profile, `case_sharing`)",
+		"content": "HELD (Settings and profile, `case_sharing`)",
 		"contentEntries": ["application-and-settings/39-hq-case-sharing"],
 		"platforms": "n/a",
 		"preflight": {
@@ -3033,14 +3059,15 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "target value",
+		"content": "The practice worker chosen for a named installation on this project space.",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",
 		"preflight": {
-			"kind": "none",
-			"cell": "none"
+			"kind": "confirmation",
+			"cell": "Confirmed when a named installation requires a practice worker. Its selected suite and released restore are checked on the target."
 		},
 		"source": {
 			"kind": "row",
@@ -3082,15 +3109,12 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "`build_profiles` target value",
-		"contentEntries": [
-			"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker",
-			"application-and-settings/build-profiles-non-empty"
-		],
+		"content": "Named installation profiles and their per-team language order.",
+		"contentEntries": ["application-and-settings/build-profiles-non-empty"],
 		"platforms": "n/a",
 		"preflight": {
-			"kind": "none",
-			"cell": "none"
+			"kind": "confirmation",
+			"cell": "Confirmed before publishing named installations or advancing their profile review."
 		},
 		"source": {
 			"kind": "row",
@@ -3107,7 +3131,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Settings and profile, `features.dependencies`)",
+		"content": "HELD (Settings and profile, `features.dependencies`)",
 		"contentEntries": ["application-and-settings/31-features-dependencies"],
 		"platforms": "n/a",
 		"preflight": {
@@ -3184,7 +3208,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (badges)",
+		"content": "HELD (badges)",
 		"contentEntries": [
 			"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
 			"forms-and-case-writes/custom-icons-0"
@@ -3269,7 +3293,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types `lockedInHq`)",
+		"content": "HELD (Question types `lockedInHq`)",
 		"contentEntries": ["questions/vellum-lock-all-locked-question"],
 		"platforms": "n/a",
 		"preflight": {
@@ -3291,11 +3315,12 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Search prompts geocoder, Appearances `address`)",
+		"content": "HELD (Appearances `address`, asked at publish with CASE_SEARCH_ADVANCED for an app that runs in Web Apps) / HELD-NEW (Search prompts geocoder)",
 		"contentEntries": [
 			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
 			"case-search/receiver-expression",
 			"questions/text-address",
+			"questions/secret-address",
 			"questions/barcode-numeric-address-or-receive-topic-field"
 		],
 		"platforms": "n/a",
@@ -3635,6 +3660,7 @@
 		"content": "auto GPS 2.14",
 		"contentEntries": [
 			"application-and-settings/45-hq-auto-gps-capture",
+			"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app",
 			"forms-and-case-writes/auto-gps-capture-form"
 		],
 		"platforms": "n/a",
@@ -3715,6 +3741,7 @@
 		},
 		"content": "practice users 2.26",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",

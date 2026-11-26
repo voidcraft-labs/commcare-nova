@@ -116,8 +116,7 @@ async function sharedFirstMenuReading(
 		},
 	);
 	const reading = await readMenusOf(doc, (json) => {
-		// HQ's "Show forms in the menu above" on Clients, which Nova's gate refuses beside the
-		// deep link.
+		// The home selection and the nested visit keep distinct argument IDs after root alignment.
 		json.modules[0] = { ...json.modules[0], put_in_root: true } as never;
 	});
 	return reading;
@@ -199,19 +198,11 @@ describe("deep links", () => {
 	});
 
 	for (const slot of ["entryPoint", "caseListEntryPoint"] as const)
-		it(`refuses a ${slot} through a first menu that shares one case, at the menu`, async () => {
+		it(`keeps a ${slot} with distinct first-menu patient and nested visit arguments`, async () => {
 			const reading = await sharedFirstMenuReading(slot);
-			expect(
-				reading.findings
-					.filter(
-						(finding) =>
-							finding.code ===
-							"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
-					)
-					.map((finding) => finding.place),
-			).toEqual([expect.objectContaining({ kind: "menu", menu: 1 })]);
-			expect(
-				codesOf(reading).filter((code) => code.startsWith("unrecognized")),
-			).toEqual([]);
+			expect(codesOf(reading)).toEqual([]);
+			expect(moduleNamed(reading.doc as BlueprintDoc, "Extra")[slot]?.id).toBe(
+				"extra",
+			);
 		});
 });

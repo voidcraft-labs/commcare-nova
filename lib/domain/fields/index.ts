@@ -19,14 +19,27 @@
 // module graph acyclic with the XPathField/reference provider chain.
 
 import { z } from "zod";
+import { multiChoiceLayoutSchema } from "../choicePresentation";
+import { fieldDisplaySettingsFor } from "../fieldDisplay";
 import type { FieldKindMetadata } from "../kinds";
 import type { ProseTemplate } from "../prose";
+import { hasOtherDisplay, webShowsHintInEntry } from "../questionDisplay";
 import { type AudioField, audioFieldMetadata, audioFieldSchema } from "./audio";
 import {
 	type BarcodeField,
 	barcodeFieldMetadata,
 	barcodeFieldSchema,
 } from "./barcode";
+import {
+	type CaseChangeField,
+	caseChangeFieldMetadata,
+	caseChangeFieldSchema,
+} from "./caseChange";
+import {
+	type ConnectActivityField,
+	connectActivityFieldMetadata,
+	connectActivityFieldSchema,
+} from "./connectActivity";
 import { type DateField, dateFieldMetadata, dateFieldSchema } from "./date";
 import {
 	type DatetimeField,
@@ -51,13 +64,16 @@ import {
 	groupFieldSchema,
 } from "./group";
 import {
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	type HiddenField,
-	hiddenFieldCarriesBothValueSources,
 	hiddenFieldMetadata,
 	hiddenFieldSchema,
 } from "./hidden";
-import { type ImageField, imageFieldMetadata, imageFieldSchema } from "./image";
+import {
+	type ImageField,
+	imageDimensionSchema,
+	imageFieldMetadata,
+	imageFieldSchema,
+} from "./image";
 import { type IntField, intFieldMetadata, intFieldSchema } from "./int";
 import { type LabelField, labelFieldMetadata, labelFieldSchema } from "./label";
 import {
@@ -127,6 +143,8 @@ export const fieldKinds = [
 	"signature",
 	"label",
 	"hidden",
+	"case_change",
+	"connect_activity",
 	"secret",
 	"group",
 	"repeat",
@@ -138,7 +156,7 @@ export type FieldKind = (typeof fieldKinds)[number];
 /**
  * The capture kinds — every kind whose answer is an attachment rather
  * than a value the worker types. They share one schema shape (label +
- * hint + required + relevant; no validation, no default; a case
+ * hint, help, required, relevant, validation and a starting value; a case
  * operation saves a link to the file through a `capture-link` write
  * value) and one wire shape
  * (`<upload mediatype>` over a `binary` bind).
@@ -227,6 +245,8 @@ const fieldUnionSchema = z.union([
 		signatureFieldSchema,
 		labelFieldSchema,
 		hiddenFieldSchema,
+		caseChangeFieldSchema,
+		connectActivityFieldSchema,
 		secretFieldSchema,
 		groupFieldSchema,
 		sectionFieldSchema,
@@ -261,6 +281,8 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	signature: signatureFieldMetadata,
 	label: labelFieldMetadata,
 	hidden: hiddenFieldMetadata,
+	case_change: caseChangeFieldMetadata,
+	connect_activity: connectActivityFieldMetadata,
 	secret: secretFieldMetadata,
 	group: groupFieldMetadata,
 	repeat: repeatFieldMetadata,
@@ -310,6 +332,8 @@ const fieldKindKeySets: Record<FieldKind, ReadonlySet<string>> = {
 	signature: new Set(Object.keys(signatureFieldSchema.shape)),
 	label: new Set(Object.keys(labelFieldSchema.shape)),
 	hidden: new Set(Object.keys(hiddenFieldSchema.shape)),
+	case_change: new Set(Object.keys(caseChangeFieldSchema.shape)),
+	connect_activity: new Set(Object.keys(connectActivityFieldSchema.shape)),
 	secret: new Set(Object.keys(secretFieldSchema.shape)),
 	group: new Set(Object.keys(groupFieldSchema.shape)),
 	section: new Set(Object.keys(sectionFieldSchema.shape)),
@@ -584,6 +608,27 @@ export function reconcileFieldForKind(
 	seed?: { optionsSource?: SelectOptionsSource; label?: ProseTemplate },
 ): Field | undefined {
 	const candidate: Record<string, unknown> = { ...source, kind: toKind };
+	if (
+		source.kind === "single_select" &&
+		toKind === "multi_select" &&
+		source.choiceLayout
+	) {
+		// Both grids share a column count. Only a single answer can finish a page.
+		const layout = source.choiceLayout;
+		if (layout.kind === "grid")
+			candidate.choiceLayout =
+				layout.columns === undefined
+					? { kind: "grid" }
+					: { kind: "grid", columns: layout.columns };
+		else if (
+			layout.kind === "search" ||
+			layout.kind === "advance-on-choice" ||
+			layout.kind === "buttons" ||
+			(layout.kind === "platforms" &&
+				!multiChoiceLayoutSchema.safeParse(layout).success)
+		)
+			delete candidate.choiceLayout;
+	}
 	// A label seed fills only a label the source lacks: it exists for a
 	// conversion out of a kind with no label (a Hidden Value back to a
 	// question), whose destination requires one.
@@ -608,12 +653,51 @@ export function reconcileFieldForKind(
 	if (toKind === "repeat" && candidate.repeat_mode === undefined) {
 		candidate.repeat_mode = "user_controlled";
 	}
+	if (toKind === "barcode" && candidate.keypad === "android-numbers")
+		delete candidate.keypad;
+	if (
+		candidate.captureSource !== undefined &&
+		(toKind === "audio") !== (candidate.captureSource === "record-or-choose")
+	)
+		delete candidate.captureSource;
+	// Only a text question owns an Android action. Other supported inputs
+	// may still invoke a different question's action. The commit gate checks
+	// that no other input is left without its source by this conversion.
+	if (
+		toKind !== "text" &&
+		source.kind === "text" &&
+		source.androidApp?.kind === "open-app"
+	) {
+		delete candidate.androidApp;
+	}
 	const filtered = pickFieldKeysForKind(candidate, toKind);
 	const result = fieldSchema.safeParse(filtered);
-	if (!result.success) {
-		return undefined;
+	if (!result.success) return undefined;
+	const target = result.data;
+	// A signature needs its whole control to remain a signing pad. Shared
+	// presentation slots from the old photo or recording cannot follow it.
+	if (target.kind === "signature") {
+		for (const { key } of fieldDisplaySettingsFor(target.kind))
+			Reflect.deleteProperty(target, key);
+	} else {
+		// Choosing a different kind can remove the widget that showed the
+		// placeholder, or give the new widget a placeholder the old one hid.
+		if (
+			"hintPlacement" in target &&
+			target.hintPlacement &&
+			(target.hintPlacement === "placeholder") !== webShowsHintInEntry(target)
+		)
+			delete target.hintPlacement;
+		// A video can keep a picture's camera-only setting only if its
+		// other settings leave that exact native capture mode intact.
+		if (
+			target.kind === "video" &&
+			target.captureSource &&
+			hasOtherDisplay(target, "captureSource")
+		)
+			delete target.captureSource;
 	}
-	return result.data;
+	return target;
 }
 
 /**
@@ -734,6 +818,10 @@ export const fieldPatchSchemaByKind = {
 	signature: partialOf(signatureFieldSchema),
 	label: partialOf(labelFieldSchema),
 	hidden: partialOf(hiddenFieldSchema),
+	case_change: partialOf(caseChangeFieldSchema),
+	connect_activity: partialOf(connectActivityFieldSchema).extend({
+		activity: connectActivityFieldSchema.shape.activity.optional(),
+	}),
 	secret: partialOf(secretFieldSchema),
 	group: partialOf(groupFieldSchema),
 	section: partialOf(sectionFieldSchema),
@@ -780,10 +868,15 @@ export {
 	selectOptionSchema,
 } from "./base";
 export {
+	type AvailableCasesOptionsSource,
+	availableCasesOptionsSourceSchema,
 	type CaseOptionsSource,
 	caseOptionsSourceSchema,
+	type DeviceCaseOptionsSource,
 	type InlineOptionsSource,
 	inlineOptionsSourceSchema,
+	isDeviceCaseOptionsSource,
+	optionsSourceFilter,
 	type SelectOptionsSource,
 	selectOptionsSourceSchema,
 } from "./selectOptionsSource";
@@ -791,6 +884,8 @@ export {
 export type {
 	AudioField,
 	BarcodeField,
+	CaseChangeField,
+	ConnectActivityField,
 	CountBoundRepeatField,
 	DateField,
 	DatetimeField,
@@ -814,9 +909,4 @@ export type {
 	UserControlledRepeatField,
 	VideoField,
 };
-export {
-	groupBornFieldList,
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
-	hiddenFieldCarriesBothValueSources,
-	TEXT_KEYPADS,
-};
+export { groupBornFieldList, imageDimensionSchema, TEXT_KEYPADS };

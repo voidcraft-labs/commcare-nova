@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 100, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": [{\"field_name\": \"id\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}], \"id\": \"cfa8140d35cf468f8f3bf7b57ef7796d\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"sites\"}, {\"fields\": [{\"field_name\": \"id\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}, {\"field_name\": \"description\", \"properties\": []}], \"id\": \"d0631de1f29949ba9d7996f80d066408\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"types\"}]}"
+}

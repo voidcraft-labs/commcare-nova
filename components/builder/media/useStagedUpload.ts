@@ -24,11 +24,10 @@
 // updated every render, so it dispatches against the carrier's CURRENT
 // value, not the one captured when the upload began.
 //
-// The confirm also runs the attach budget check (`useAttachBudget.ts`)
-// BEFORE dispatching: a confirmed upload that would push the app past
-// the media export ceiling lands in the library (the bytes are valid)
-// but does NOT attach: the staged chip flips to the shared rejection
-// prose with nothing committed.
+// The confirm also runs the attach check (`useAttachGuard.ts`) BEFORE
+// dispatching: a confirmed upload the check refuses lands in the library
+// (the bytes are valid) but does NOT attach: the staged chip flips to the
+// shared rejection prose with nothing committed.
 
 "use client";
 
@@ -38,7 +37,7 @@ import type { MediaKind } from "@/lib/domain/multimedia";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { MediaAssetView } from "./mediaClient";
 import { uploadToStagedSlot } from "./stagedSlotUpload";
-import { useAttachBudgetGuard } from "./useAttachBudget";
+import { useAttachGuard } from "./useAttachGuard";
 
 /**
  * Drive staged uploads for one carrier slot family. `onReady` receives
@@ -53,7 +52,7 @@ export function useStagedSlotUpload(
 	onReady: (asset: MediaAssetView, kind: MediaKind) => void,
 ): (slotKey: string, kind: MediaKind, file: File) => void {
 	const session = useBuilderSessionApi();
-	const checkAttachBudget = useAttachBudgetGuard();
+	const checkAttach = useAttachGuard();
 	const projectToast = useProjectToast();
 	const onReadyRef = useRef(onReady);
 	useEffect(() => {
@@ -67,7 +66,7 @@ export function useStagedSlotUpload(
 				slotKey,
 				kind,
 				file,
-				checkAttachBudget,
+				checkAttach,
 				onReady: (asset) => onReadyRef.current(asset, kind),
 				onRetained: () => {
 					projectToast(
@@ -77,6 +76,6 @@ export function useStagedSlotUpload(
 					);
 				},
 			}),
-		[session, checkAttachBudget, projectToast],
+		[session, checkAttach, projectToast],
 	);
 }

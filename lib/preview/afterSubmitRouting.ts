@@ -8,7 +8,12 @@ import {
 	menuScreenOf,
 	menuTileScreenOf,
 } from "@/lib/domain";
-import type { PreviewCaseChoice } from "@/lib/session/types";
+import { routeContainsForm } from "@/lib/domain/listedForms";
+import { menuOffersRecordType } from "@/lib/domain/modules";
+import type {
+	PreviewCaseChoice,
+	PreviewEntryChoice,
+} from "@/lib/session/types";
 import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
 import type { CaseDatabaseSnapshot } from "./engine/xpathInstances";
 /**
@@ -45,8 +50,8 @@ import {
 	type TargetCaseSelection,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import {
+	dependentMenuSelectionUuids,
 	type PreviewMenuSource,
-	previewCaseDescendantModuleUuids,
 	previewContributorGatingModules,
 	previewLandingScreenOf,
 	previewMenuCaseContext,
@@ -225,7 +230,9 @@ export function afterSubmitTargetVisibility(args: {
 	if (form === undefined) return "shown";
 	const chosen = args.caseSelections.filter(
 		(selection) =>
-			selection.moduleUuid === target.moduleUuid && selection.caseId !== "",
+			(selection.moduleUuid === target.moduleUuid ||
+				selection.destinationConsumers?.includes(target.moduleUuid)) &&
+			selection.caseId !== "",
 	);
 	const selectedCase =
 		chosen.length === 1
@@ -343,6 +350,7 @@ export async function settleAfterSubmitRoute(args: {
 }
 
 export function afterSubmitRoute(args: {
+	readonly sourceModuleUuid?: Uuid;
 	readonly previousTask?: () => PreviousTask;
 	readonly choice: AfterSubmitFrameChoice;
 	/** The submitted form, which `this-form` names. */
@@ -402,7 +410,12 @@ export function afterSubmitRoute(args: {
 			reason: "The destination names no link.",
 		};
 	const { link } = entry;
-	const target = resolveFormLinkTarget(doc, args.sourceFormUuid, link.target);
+	const target = resolveFormLinkTarget(
+		doc,
+		args.sourceFormUuid,
+		link.target,
+		args.sourceModuleUuid,
+	);
 	if (target === undefined)
 		return {
 			kind: "unresolvable",
@@ -454,7 +467,7 @@ export function afterSubmitRoute(args: {
 	if (target.type === "module") return moduleRoute(target.moduleUuid);
 	if (
 		doc.forms[target.formUuid] === undefined ||
-		!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid)
+		!routeContainsForm(doc, target.moduleUuid, target.formUuid)
 	) {
 		return {
 			kind: "unresolvable",
@@ -578,6 +591,25 @@ export function afterSubmitFrameLanding(args: {
 	}
 }
 
+/** Keep the destination form's supplied choices in physical datum order, even
+ * when several independent questions draw from the same record list. */
+export function carriedFormChoices(
+	selections: readonly TargetCaseSelection[],
+): { entryChoices?: readonly PreviewEntryChoice[] } {
+	const entryChoices = selections.flatMap((row) =>
+		row.selectionUuid
+			? [
+					{
+						selectionUuid: row.selectionUuid,
+						caseId: row.caseId,
+						...(row.caseName !== undefined && { caseName: row.caseName }),
+					},
+				]
+			: [],
+	);
+	return entryChoices.length ? { entryChoices } : {};
+}
+
 /** Apply a matched target frame to the running menu session without mutating
  * the current snapshot. Root-to-leaf target order is significant: changing a
  * parent first invalidates stale structural/case descendants, and a later
@@ -593,10 +625,10 @@ export function previewMenuSelectionsAfterTargetCases(
 ): Readonly<Record<string, PreviewMenuCaseSelection>> {
 	const next: Record<string, PreviewMenuCaseSelection> = { ...current };
 	for (const selected of projected) {
-		const staleModuleUuids = new Set([
-			...childModuleUuids(menuSource, selected.moduleUuid),
-			...previewCaseDescendantModuleUuids(menuSource, selected.caseType),
-		]);
+		const staleModuleUuids = dependentMenuSelectionUuids(
+			menuSource,
+			selected.moduleUuid,
+		);
 		for (const staleModuleUuid of staleModuleUuids) {
 			delete next[staleModuleUuid];
 		}
@@ -635,12 +667,14 @@ export function previewMenuSelectionsAfterTargetCases(
 							},
 						],
 		};
+		for (const recipient of selected.destinationConsumers ?? [])
+			next[recipient] = next[selected.moduleUuid];
 	}
 	for (const collection of collections) {
-		const staleModuleUuids = new Set([
-			...childModuleUuids(menuSource, collection.moduleUuid),
-			...previewCaseDescendantModuleUuids(menuSource, collection.caseType),
-		]);
+		const staleModuleUuids = dependentMenuSelectionUuids(
+			menuSource,
+			collection.moduleUuid,
+		);
 		for (const staleModuleUuid of staleModuleUuids) {
 			delete next[staleModuleUuid];
 		}
@@ -720,7 +754,12 @@ export function automaticLinkedCaseCollection(args: {
 	const target =
 		entry === undefined
 			? undefined
-			: resolveFormLinkTarget(args.doc, args.sourceFormUuid, entry.link.target);
+			: resolveFormLinkTarget(
+					args.doc,
+					args.sourceFormUuid,
+					entry.link.target,
+					args.sourceModuleUuid,
+				);
 	if (
 		entry === undefined ||
 		/* HQ's flat module frame contains only the module command. It does not
@@ -769,7 +808,10 @@ export function automaticLinkedCaseCollection(args: {
 	);
 	const cases = args.resultCaseIds.map((caseId) => {
 		const row = rowById.get(caseId);
-		if (row === undefined || row.case_type !== sourceModule.caseType) {
+		if (
+			row === undefined ||
+			!menuOffersRecordType(sourceModule, row.case_type)
+		) {
 			throw new Error(
 				"A selected case was missing from the carried post-submit device snapshot.",
 			);
@@ -777,6 +819,7 @@ export function automaticLinkedCaseCollection(args: {
 		const previous = submittedById.get(caseId);
 		return {
 			caseId,
+			caseType: row.case_type,
 			caseName: row.case_name || previous?.caseName || "Case",
 			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 		};

@@ -20,12 +20,17 @@
 // kind-replace menu) is identical to every other kind's card.
 
 "use client";
-import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
+import { v4 } from "uuid";
+import {
+	INSPECTOR_LABEL_CLS,
+	SegmentedRow,
+} from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
+import { Button } from "@/components/shadcn/button";
 import type { Column } from "@/lib/domain";
-import { calculatedColumn } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression";
+import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
+import { asUuid } from "@/lib/domain/uuid";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 
 interface CalculatedColumnCardProps {
@@ -50,17 +55,35 @@ export function CalculatedColumnCard({
 	ctx,
 }: CalculatedColumnCardProps) {
 	const usesDefaultHeader = value.header.trim() === "";
-	const setHeader = (next: string) =>
-		onChange(
-			calculatedColumn(value.uuid, next, value.expression, slotsFrom(value)),
-		);
-	const setExpression = (next: Expression) =>
-		onChange(
-			calculatedColumn(value.uuid, value.header, next, slotsFrom(value)),
-		);
+	const setHeader = (header: string) => onChange({ ...value, header });
+	const setExpression = (expression: Expression) =>
+		onChange({ ...value, expression });
+	const { showAs, texts, ...plain } = value;
+	const used = new Set<string>();
+	walkExpressionNodes(value.expression, (node) => {
+		if (node.kind === "case-text") used.add(node.textUuid);
+	});
+	const pieces = texts ?? [];
 
 	return (
 		<div className="space-y-4">
+			{pieces.length === 0 && (
+				<SegmentedRow
+					legend="Show as"
+					options={[
+						{ value: "plain", label: "Plain text" },
+						{ value: "formatted-text", label: "Formatted text" },
+						{ value: "translated", label: "Translated text" },
+					]}
+					value={texts !== undefined ? "translated" : (showAs ?? "plain")}
+					onChange={(mode) => {
+						if (mode === "translated") onChange({ ...plain, texts: [] });
+						else if (mode === "formatted-text")
+							onChange({ ...plain, showAs: mode });
+						else onChange(plain);
+					}}
+				/>
+			)}
 			<div className="[&_input]:!text-[14px]">
 				<div className="mb-2 flex items-baseline justify-between gap-3">
 					<div className={INSPECTOR_LABEL_CLS}>Label</div>
@@ -76,6 +99,58 @@ export function CalculatedColumnCard({
 					ariaLabel="Display label"
 				/>
 			</div>
+			{texts !== undefined && (
+				<div className="space-y-2">
+					<div className={INSPECTOR_LABEL_CLS}>Translated text</div>
+					{pieces.map((piece, index) => (
+						<div key={piece.uuid} className="flex items-center gap-2">
+							<BlurCommitTextInput
+								ariaLabel={`Translated text ${index + 1}`}
+								value={piece.label}
+								onCommit={(label) =>
+									onChange({
+										...value,
+										texts: pieces.map((item) =>
+											item.uuid === piece.uuid ? { ...item, label } : item,
+										),
+									})
+								}
+							/>
+							<Button
+								variant="ghost"
+								type="button"
+								disabled={used.has(piece.uuid)}
+								title={
+									used.has(piece.uuid)
+										? "This calculation uses this text"
+										: undefined
+								}
+								aria-label={`Remove text ${index + 1}`}
+								onClick={() =>
+									onChange({
+										...value,
+										texts: pieces.filter((item) => item.uuid !== piece.uuid),
+									})
+								}
+							>
+								Remove
+							</Button>
+						</div>
+					))}
+					<Button
+						variant="outline"
+						type="button"
+						onClick={() =>
+							onChange({
+								...value,
+								texts: [...pieces, { uuid: asUuid(v4()), label: "" }],
+							})
+						}
+					>
+						Add translated text
+					</Button>
+				</div>
+			)}
 			<div className="space-y-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 p-3.5">
 				<div className={INSPECTOR_LABEL_CLS}>Calculation</div>
 				{ctx.moduleUuid === undefined ? (
@@ -99,24 +174,4 @@ export function CalculatedColumnCard({
 			</div>
 		</div>
 	);
-}
-
-/** Re-extract the column's optional common slots so each builder call
- *  threads through them verbatim. The schema's strip-mode parse omits
- *  absent keys; the builder's `slots` object preserves whichever slots
- *  the value already carries (sort, visibility, and tile presentation). */
-function slotsFrom(value: Extract<Column, { kind: "calculated" }>): {
-	sort?: typeof value.sort;
-	visibleInList?: typeof value.visibleInList;
-	visibleInDetail?: typeof value.visibleInDetail;
-	notOnList?: typeof value.notOnList;
-	tile?: typeof value.tile;
-} {
-	return {
-		sort: value.sort,
-		visibleInList: value.visibleInList,
-		visibleInDetail: value.visibleInDetail,
-		notOnList: value.notOnList,
-		tile: value.tile,
-	};
 }

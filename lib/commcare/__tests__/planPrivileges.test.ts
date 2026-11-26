@@ -31,8 +31,10 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	type Column,
 	calculatedColumn,
 	declaresAndroid,
+	idMappingColumn,
 	NEW_APP_SETTINGS,
 	plainColumn,
 	proseText,
@@ -48,6 +50,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/expression";
+import { menusUsingWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import {
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
@@ -205,6 +208,9 @@ function markers(hq: HqApplication): {
 	let itemset = false;
 	/* Web Apps lists an app by its `cloudcare_enabled` (`get_web_apps_available_to_user`). */
 	if (hq.cloudcare_enabled === true) privileges.add("cloudcare");
+	const packages = hq.profile?.features?.dependencies;
+	if (Array.isArray(packages) && packages.length)
+		privileges.add("app_dependencies");
 	for (const module of hq.modules) {
 		for (const form of module.forms) {
 			if (
@@ -235,6 +241,8 @@ function markers(hq: HqApplication): {
 			const source = hq._attachments[`${form.unique_id}.xml`];
 			if (typeof source !== "string") continue;
 			for (const node of walkXml(readXmlEvidence(source))) {
+				if (node.attributes["vellum:lock"] === "all")
+					privileges.add("locked_admin_questions");
 				if (node.attributes["vellum:role"] === "SaveToCase") {
 					privileges.add("save_to_case");
 				}
@@ -248,6 +256,16 @@ function markers(hq: HqApplication): {
 					privileges.add("data_forwarding");
 				}
 				if (node.name === "itemset") itemset = true;
+				/* Web Apps builds an address search for a text, password or
+				 * barcode control whose appearance holds the token, in an app
+				 * it lists (`entries.js::getEntry`, `stylesContains`). */
+				if (
+					hq.cloudcare_enabled === true &&
+					(node.name === "input" || node.name === "secret") &&
+					(node.attributes.appearance ?? "").split(" ").includes("address")
+				) {
+					privileges.add("geocoder");
+				}
 				for (const attribute of EXPRESSION_ATTRIBUTES[node.name] ?? []) {
 					const value = node.attributes[attribute];
 					if (value !== undefined && readsWorkerRecord(value)) {
@@ -464,7 +482,67 @@ describe("requiredPlanPrivileges over the fuzz corpora", () => {
 });
 
 describe("plan features", () => {
-	it("maps the eight privileges one to one onto the eight plan features", () => {
+	it("asks for Android app dependencies exactly when the emitted profile requires an app", () => {
+		const doc = buildDoc({ appName: "Visits" });
+		expect(derived(doc, TARGET).has("app_dependencies")).toBe(false);
+		doc.appSettings = {
+			...doc.appSettings,
+			requiredAndroidApps: ["simprints-id", "commcare-toolkit"],
+		};
+		const app = expandDoc(doc);
+		expect(app.profile?.features?.dependencies).toEqual([
+			"com.simprints.id",
+			"org.rdtoolkit",
+		]);
+		expect(markers(app).privileges.has("app_dependencies")).toBe(true);
+		expect(derived(doc, TARGET).has("app_dependencies")).toBe(true);
+	});
+	it("asks for Geocoder exactly where Web Apps reads an address search", () => {
+		const addressDoc = (runsOnlyOn?: "web-apps" | "android") =>
+			buildDoc({
+				appName: "Visits",
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn },
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind: "barcode",
+										id: "home",
+										label: "Home",
+										addressLookup: true,
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+		for (const runsOnlyOn of [undefined, "web-apps", "android"] as const) {
+			const doc = addressDoc(runsOnlyOn);
+			holdsWire(doc);
+			expect({
+				runsOnlyOn,
+				asks: derived(doc, TARGET).has("geocoder"),
+			}).toEqual({ runsOnlyOn, asks: runsOnlyOn !== "android" });
+		}
+		expect(
+			requiredPlanFeatures(addressDoc(), NO_PUSHES, TARGET).find(
+				(use) => use.id === "geocoder",
+			)?.reasons,
+		).toEqual([
+			"Visit has a question that searches for an address in Web Apps.",
+		]);
+		expect(
+			derived(buildDoc({ appName: "Visits" }), TARGET).has("geocoder"),
+		).toBe(false);
+	});
+
+	it("maps each publish privilege to its own plan feature", () => {
 		const features = HQ_PLAN_PRIVILEGE_IDS.map(
 			(id) => PLAN_FEATURE_FOR_PRIVILEGE[id],
 		);
@@ -527,6 +605,73 @@ describe("each privilege's reasons", () => {
 	) =>
 		requiredPlanPrivileges(doc, pushes, TARGET).find((use) => use.id === id)
 			?.reasons;
+
+	it("asks for menu badges and worker records where each is read on the worker's menu", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [{ name: "Follow up", type: "survey", fields: [] }],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const module = doc.modules[moduleUuid];
+		const form = doc.forms[doc.formOrder[moduleUuid][0]];
+		module.badge = { kind: "text", text: "Today" };
+		form.badge = {
+			kind: "calculation",
+			expression: {
+				kind: "term",
+				term: {
+					kind: "session-user",
+					source: "worker-record",
+					field: "district",
+				},
+			},
+		};
+		expect(reasonsOf(doc, "custom_icon_badges")).toEqual([
+			"Visits has a menu badge.",
+			"Follow up has a form badge.",
+		]);
+		expect(reasonsOf(doc, "user_case")?.join(" ")).toContain("Follow up");
+	});
+
+	it("names a form with an HQ question lock on a question or hidden integration value", () => {
+		for (const kind of ["text", "hidden"] as const) {
+			const doc = buildDoc({
+				modules: [
+					{
+						name: "Households",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind,
+										id: "note",
+										...(kind === "text" && { label: "Notes" }),
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const field = Object.values(doc.fields)[0];
+			const locked = {
+				...doc,
+				fields: { ...doc.fields, [field.uuid]: { ...field, lockedInHq: true } },
+			};
+			holdsWire(locked);
+			expect(reasonsOf(locked, "locked_admin_questions")).toEqual([
+				"Visit holds a question locked in CommCare HQ.",
+			]);
+			holdsWire(doc);
+			expect(reasonsOf(doc, "locked_admin_questions")).toBeUndefined();
+		}
+	});
 
 	it("asks for Web-Based Apps for an app that declares Web Apps, with one reason, and not for an Android-only app", () => {
 		for (const runsOnlyOn of [undefined, "web-apps"] as const) {
@@ -649,6 +794,88 @@ describe("each privilege's reasons", () => {
 		).toEqual([{ name: "Greet team", reads: true, writes: false }]);
 		expect(reasonsOf(doc, "user_case")).toEqual([
 			"Greet team reads worker information.",
+		]);
+	});
+
+	it("names a menu whose calculation or mapping condition reads the worker's record, as it names a worker-property column", () => {
+		const region = testUuid("plan-privileges-menu-region");
+		const workerRegion = term({
+			kind: "session-user-property",
+			userPropertyUuid: region,
+			source: "worker-record",
+		});
+		const columns: Record<string, Column> = {
+			Calculated: calculatedColumn(
+				testUuid("plan-privileges-calculated-region"),
+				"Region",
+				workerRegion,
+			),
+			Mapped: idMappingColumn(
+				testUuid("plan-privileges-mapped-region"),
+				"case_name",
+				"Mine",
+				[
+					{
+						uuid: testUuid("plan-privileges-mapped-row"),
+						when: eq(workerRegion, literal("north")),
+						label: "North",
+					},
+				],
+			),
+			/* A read of the login session's own data is no read of the record. */
+			Session: calculatedColumn(
+				testUuid("plan-privileges-session-region"),
+				"Region",
+				term({ kind: "session-user", field: "region" }),
+			),
+			Plain: plainColumn(
+				testUuid("plan-privileges-plain-region"),
+				"region",
+				"Region",
+				{ readFrom: "worker-record" },
+			),
+		};
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: Object.keys(columns).map((name) => ({
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{ name: `${name} visit`, type: "followup" as const, fields: [] },
+				],
+			})),
+		});
+		doc.userProperties = {
+			[region]: { uuid: region, slug: "region", label: "Region" },
+		};
+		doc.userPropertyOrder = [region];
+		for (const uuid of doc.moduleOrder) {
+			const module = doc.modules[uuid];
+			const config = module?.caseListConfig;
+			const column = module && columns[module.name];
+			if (config === undefined || column === undefined)
+				throw new Error("Each fixture menu has a list and a column.");
+			config.columns.push(column);
+			config.listColumnOrder.push(column.uuid);
+			config.detailColumnOrder.push(column.uuid);
+		}
+		expect(menusUsingWorkerRecord(doc).map(({ name }) => name)).toEqual([
+			"Calculated",
+			"Mapped",
+			"Plain",
+		]);
+		expect(reasonsOf(doc, "user_case")).toEqual([
+			"Calculated displays information from the worker’s record.",
+			"Mapped displays information from the worker’s record.",
+			"Plain displays information from the worker’s record.",
 		]);
 	});
 
@@ -1075,8 +1302,20 @@ describe("a Connect app", () => {
 
 	it("names an assessment a learn form sends alone", () => {
 		const doc = fixture("learn-default");
-		const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
-		form.connect = { assessment: { id: "quiz" } };
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const lesson = doc.fieldOrder[formUuid].find((uuid) => {
+			const field = doc.fields[uuid];
+			return (
+				field?.kind === "connect_activity" &&
+				field.activity.kind === "learning-module"
+			);
+		});
+		if (!lesson) throw new Error("Missing learning module.");
+		doc.fieldOrder[formUuid] = doc.fieldOrder[formUuid].filter(
+			(uuid) => uuid !== lesson,
+		);
+		delete doc.fieldParent[lesson];
+		delete doc.fields[lesson];
 		expect(reasonsOf(doc, "data_forwarding")).toEqual([
 			"Activity sends an assessment to CommCare Connect.",
 		]);
@@ -1170,8 +1409,7 @@ describe("CommCare Supply", () => {
 		"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.";
 	const formReason = (name: string) =>
 		`${name} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`;
-	/** The codes of the gate's findings: a form's name holding the text is
-	 *  refused, so only a document the gate refuses gives a form reason. */
+	/** The gate rejects plain-text form names that would introduce an instance read. */
 	const findingCodes = (
 		doc: BlueprintDoc,
 		context = LOOKUP_CONTEXT_UNAVAILABLE,
@@ -1212,6 +1450,29 @@ describe("CommCare Supply", () => {
 			'Your place is instance<output value="&apos;(&apos;"/>&apos;commcaresession&apos;)/session/data/supply_point_id',
 		);
 		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
+	});
+
+	it("asks about CommCare Supply when a question reads its form's own computed supply point", () => {
+		const datum = testUuid("stock-count-opening-place");
+		const doc = supplyDoc({
+			menuItem: false,
+			fields: [
+				f({
+					id: "service_point",
+					kind: "hidden",
+					calculate: term({
+						kind: "session-datum",
+						datum: { kind: "entry-value", datum },
+					}),
+				}),
+			],
+		});
+		const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+		form.computedDatums = [
+			{ uuid: datum, key: "supply_point_id", value: term(literal("depot")) },
+		];
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(commtrackReasons(doc, undefined)).toEqual([formReason(form.name)]);
 	});
 
 	it("names a form whose source holds the text, after the menu, from a document the gate refuses", () => {

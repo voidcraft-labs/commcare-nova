@@ -169,4 +169,52 @@ describe("installEntryPointLaunch", () => {
 		session.getState().installEntryPointLaunch(launch());
 		expect(session.getState().previewDeviceSyncedAt).toBeGreaterThan(1);
 	});
+
+	/* Android finishes a visit an entry point opened when its first form
+	 * ends (`SessionLaunchDelegate.kt::exitFromExternalLaunch`); Web Apps
+	 * runs the form's own after-submit. */
+	it("opens an Android visit that outlives the launch's bypass and ends at the phone's home screen", () => {
+		const { session } = stores("android");
+		session.getState().setPreviewing(true, { atHome: true });
+		session.getState().installEntryPointLaunch(launch());
+		expect(session.getState().previewEntryPointVisit).toBe(true);
+		session.getState().clearEntryPointLaunch();
+		expect(session.getState().previewEntryPointVisit).toBe(true);
+		session.getState().setPreviewAtDeviceHome(true);
+		expect(session.getState().previewEntryPointVisit).toBe(false);
+	});
+
+	it("opens no such visit in Web Apps", () => {
+		const { session } = stores("web-apps");
+		session.getState().setPreviewing(true);
+		session.getState().installEntryPointLaunch(launch());
+		expect(session.getState().previewEntryPointVisit).toBe(false);
+	});
+});
+
+it("keeps the Android form archive across Home and drops it on a worker change", () => {
+	const { session } = stores("android");
+	session.getState().setPreviewing(true);
+	const run = session.getState().previewSessionId;
+	const record = {
+		kind: "submitted" as const,
+		appId: "platform-app",
+		entryKey: testUuid("completed-entry"),
+		formUuid: testUuid("form"),
+		moduleUuid: testUuid("menu"),
+		name: "Visit",
+		descriptor: "Visit A",
+		savedAt: 1,
+	};
+	expect(session.getState().savePreviewFormRecord(record, run)).toBe(true);
+	session.getState().setPreviewAtDeviceHome(true);
+	expect(session.getState().previewFormRecords).toEqual([record]);
+	expect(
+		session
+			.getState()
+			.savePreviewFormRecord({ ...record, descriptor: "Retired" }, run),
+	).toBe(false);
+	expect(session.getState().previewFormRecords).toEqual([record]);
+	session.getState().setPreviewPersonaUuid("other-worker");
+	expect(session.getState().previewFormRecords).toEqual([]);
 });

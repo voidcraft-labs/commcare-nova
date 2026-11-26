@@ -1,3 +1,4 @@
+import { routeContainsForm } from "@/lib/domain/listedForms";
 /**
  * A menu that shows its forms in the menu above (`Module.formsInMenuAbove`)
  * has no entry and no screen of its own: its forms list on its parent's
@@ -17,7 +18,7 @@
  *   - the menu's own entry point (located at the module);
  *   - the menu's case list entry point (located at the module).
  *
- * `FORMS_IN_MENU_ABOVE_WITH_SEARCH`: such a menu takes no search. HQ's build
+ * `FORMS_IN_MENU_ABOVE_WITH_SEARCH`: such a menu can keep an ordinary search. HQ's build
  * writes no Search action on its case list (`details.py::build_detail`,
  * `not module.put_in_root`) and refuses inline search on it
  * (`validate_display_only_forms`).
@@ -29,12 +30,10 @@
  * (`workflow.py::WorkflowHelper.get_frame_children`, `_root_module_datums`),
  * and CommCare keeps that case on the first menu when a worker steps back
  * (`CommCareSession.syncState`, `getFirstMissingDatum`), for the next form
- * that asks for a case under that datum id to open on. Nova writes no such
- * frame, so the link and the entry point whose frame would open that way are
- * refused at their source, judged on the frames the wire builds. The built-in
- * `module` destination of a submenu that keeps its screen under a top-level
- * menu above is judged by the reason the offered set withholds it for
- * (`menu-opens-with-first-menu-case`, `lib/domain/postSubmit.ts`), so the
+ * that asks for a case under the same datum ID. A compatible selection is
+ * carried. A command needing a different type or multiplicity receives a
+ * placed finding. A static module return also needs the submitting entry
+ * to supply the datum (`menu-opens-with-first-menu-case`). The
  * pickers, the default and this rule read one answer.
  */
 
@@ -44,7 +43,6 @@ import {
 	type BlueprintDoc,
 	caseListRegistrationReturnOf,
 	type EntryPointTarget,
-	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	type FirstMenuCaseRead,
 	type Form,
@@ -61,8 +59,10 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
+import { projectEntryPoint } from "../../entryPointProjection";
 import {
 	caseListFormReturnFrames,
+	entryFrameDatums,
 	entryNewCaseDatumId,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
@@ -75,8 +75,10 @@ import {
 	moduleFrameActionsBuildable,
 	moduleFrameChildren,
 	owningModuleOf,
+	sourceOfFrameSelection,
 } from "../../formLinkProjection";
 import { identityLookupWireNaming } from "../../lookup/naming";
+import { homeSelectionConsumers } from "../../previousTaskProjection";
 import { type ValidationError, validationError } from "../errors";
 
 /** `the app's first menu`, or the parent's name in quotes: the screen the
@@ -142,16 +144,7 @@ export function menuAboveSearch(
 				{ reason: "forms-read-search" },
 			),
 		];
-	if (effectiveCaseSearchConfig(mod) !== undefined)
-		return [
-			validationError(
-				"FORMS_IN_MENU_ABOVE_WITH_SEARCH",
-				"module",
-				`"${mod.name}" shows its forms in the menu above, and CommCare offers no Search on the case list of such a menu, so a worker could never open its search. You can remove the search from "${mod.name}", or give it its own screen again (forms_in_menu_above null).`,
-				location,
-				{ reason: "search" },
-			),
-		];
+
 	return [];
 }
 
@@ -255,10 +248,10 @@ type FrameTarget =
  * (a missing target, or a menu with no screen, which
  * `FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION` refuses).
  */
-function frameSharesFirstMenuCase(
+function frameFirstMenuCase(
 	doc: BlueprintDoc,
 	target: FrameTarget,
-): { readonly aboveModuleUuid: Uuid } | undefined {
+): { readonly conflict: boolean; readonly aboveModuleUuid: Uuid } | undefined {
 	const projection = sharedCaseProjection(doc);
 	if (projection === undefined) return undefined;
 	const mod = doc.modules[target.moduleUuid];
@@ -268,7 +261,7 @@ function frameSharesFirstMenuCase(
 	if (
 		target.kind === "form" &&
 		(doc.forms[target.formUuid] === undefined ||
-			!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid))
+			!routeContainsForm(doc, target.moduleUuid, target.formUuid))
 	)
 		return undefined;
 	if (!moduleFrameActionsBuildable(doc, [target.moduleUuid])) return undefined;
@@ -281,9 +274,17 @@ function frameSharesFirstMenuCase(
 					target.formUuid,
 				)
 			: moduleFrameChildren(doc, projection.ctx, target.moduleUuid);
-	return frameLeadsWithSelection(children)
-		? { aboveModuleUuid: aboveModuleOf(doc, target.moduleUuid) }
-		: undefined;
+	if (!frameLeadsWithSelection(children)) return undefined;
+	return {
+		aboveModuleUuid: aboveModuleOf(doc, target.moduleUuid),
+		conflict: [
+			...homeSelectionConsumers(doc, projection.ctx, children).values(),
+		].some((row) =>
+			doc.appSettings?.runsOnlyOn === "web-apps"
+				? row.destinationConflict
+				: row.conflict,
+		),
+	};
 }
 
 /** A link target whose frame would open with the first menu's shared case:
@@ -293,7 +294,7 @@ export function linkTargetSharesFirstMenuCase(
 	doc: BlueprintDoc,
 	target: ResolvedFormLinkTarget,
 ): { readonly aboveModuleUuid: Uuid } | undefined {
-	return frameSharesFirstMenuCase(
+	const shared = frameFirstMenuCase(
 		doc,
 		target.type === "form"
 			? {
@@ -303,6 +304,28 @@ export function linkTargetSharesFirstMenuCase(
 				}
 			: { kind: "module", moduleUuid: target.moduleUuid },
 	);
+	return shared?.conflict
+		? { aboveModuleUuid: shared.aboveModuleUuid }
+		: undefined;
+}
+
+/** A physically shared compatible prefix; used for the additional reading
+ * class of an otherwise ordinary form link. */
+export function linkCarriesFirstMenuCase(
+	doc: BlueprintDoc,
+	target: ResolvedFormLinkTarget,
+): boolean {
+	const shared = frameFirstMenuCase(
+		doc,
+		target.type === "form"
+			? {
+					kind: "form",
+					moduleUuid: target.moduleUuid,
+					formUuid: target.formUuid,
+				}
+			: { kind: "module", moduleUuid: target.moduleUuid },
+	);
+	return shared?.conflict === false;
 }
 
 /** An entry point whose frame would open with the first menu's shared case:
@@ -312,16 +335,25 @@ export function entryPointSharesFirstMenuCase(
 	doc: BlueprintDoc,
 	target: EntryPointTarget,
 ): { readonly aboveModuleUuid: Uuid } | undefined {
-	return frameSharesFirstMenuCase(
-		doc,
-		target.kind === "form"
-			? {
-					kind: "form",
-					moduleUuid: target.moduleUuid,
-					formUuid: target.formUuid,
-				}
-			: { kind: "module", moduleUuid: target.moduleUuid },
-	);
+	const projection = sharedCaseProjection(doc);
+	if (!projection || !moduleFrameActionsBuildable(doc, [target.moduleUuid]))
+		return undefined;
+	let frame: readonly FrameChild[];
+	try {
+		frame = projectEntryPoint(doc, target, projection.ctx).firstMenuFrame;
+	} catch {
+		// The destination's own placed finding names an unbuildable entry.
+		return undefined;
+	}
+	if (!frameLeadsWithSelection(frame)) return undefined;
+	return [...homeSelectionConsumers(doc, projection.ctx, frame).values()].some(
+		(row) =>
+			doc.appSettings?.runsOnlyOn === "web-apps"
+				? row.destinationConflict
+				: row.conflict,
+	)
+		? { aboveModuleUuid: aboveModuleOf(doc, target.moduleUuid) }
+		: undefined;
 }
 
 /**
@@ -335,10 +367,10 @@ export function entryPointSharesFirstMenuCase(
  * (`caseListRegistrationReturnOf` gives `own`), and an entry that gives the
  * form no new case of the host's type writes none either.
  */
-export function caseListReturnSharesFirstMenuCase(
+export function caseListReturnFirstMenuCase(
 	doc: BlueprintDoc,
 	hostModuleUuid: Uuid,
-): { readonly aboveModuleUuid: Uuid } | undefined {
+): { readonly conflict: boolean; readonly aboveModuleUuid: Uuid } | undefined {
 	const returnTo = caseListRegistrationReturnOf(doc, hostModuleUuid);
 	if (returnTo === undefined || returnTo.kind === "own") return undefined;
 	const projection = sharedCaseProjection(doc);
@@ -360,17 +392,33 @@ export function caseListReturnSharesFirstMenuCase(
 		host.caseType,
 	);
 	if (newCaseId === undefined) return undefined;
+	const submitting = entryFrameDatums(
+		doc,
+		ctx,
+		formModuleUuid,
+		offered.formUuid,
+	);
 	const frames = caseListFormReturnFrames(
 		doc,
 		ctx,
 		hostModuleUuid,
 		newCaseId,
-		host.caseType,
+		submitting,
 		returnTo.kind,
 	);
-	return frames.some((frame) => frameLeadsWithSelection(frame.target))
-		? { aboveModuleUuid: aboveModuleOf(doc, hostModuleUuid) }
-		: undefined;
+	const roots = frames.flatMap((frame) => [
+		...homeSelectionConsumers(doc, ctx, frame.target),
+	]);
+	if (roots.length === 0) return undefined;
+	const conflict = roots.some(
+		([datum, row]) =>
+			(doc.appSettings?.runsOnlyOn === "web-apps"
+				? row.destinationConflict
+				: row.conflict) ||
+			(datum.caseType !== host.caseType &&
+				sourceOfFrameSelection(submitting, datum) === undefined),
+	);
+	return { conflict, aboveModuleUuid: aboveModuleOf(doc, hostModuleUuid) };
 }
 
 /** The links of `formUuid` whose frames open with the first menu's shared
@@ -445,7 +493,7 @@ export function firstMenuSharedCaseFrames(
 						validationError(
 							"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
 							"form",
-							`The link from "${form.name}" to "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the link, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${aboveName}" its own screen again (forms_in_menu_above null), or remove the link.`,
+							`The link from "${form.name}" to "${name}" would carry a first-menu choice into another command that needs a different kind or number of records. You can give "${aboveName}" its own screen again (forms_in_menu_above null), or remove the link.`,
 							location,
 							{
 								linkUuid: entry.link.uuid,
@@ -511,7 +559,7 @@ function moduleDestinationSharesFirstMenuCase(
 	return validationError(
 		"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
 		"form",
-		`"${form.name}" goes to its module ${when}, and "${menuName}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${menuName}", and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${aboveName}" its own screen again (forms_in_menu_above null), or send "${form.name}" somewhere else ${when}.`,
+		`"${form.name}" goes to its module ${when}, and "${menuName}" opens with a first-menu choice this route cannot carry into every reachable form. You can give "${aboveName}" its own screen again (forms_in_menu_above null), or send "${form.name}" somewhere else ${when}.`,
 		location,
 		{
 			slot,

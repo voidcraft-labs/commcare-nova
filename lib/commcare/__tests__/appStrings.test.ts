@@ -177,9 +177,13 @@ function partsTable(
 		languages: Object.fromEntries(
 			Object.entries(parts.tables)
 				.filter(([dir]) => dir !== "default")
-				.map(([code, table]) => [code, Object.fromEntries(table)]),
+				.map(([code, table]) => [
+					code,
+					Object.fromEntries([...parts.tables.default, ...table]),
+				]),
 		),
 		units: parts.appStringUnits,
+		wordingUnits: parts.wordingUnits,
 	};
 }
 
@@ -311,7 +315,14 @@ describe("localAppStringTable", () => {
 				for (const [key, value] of beside)
 					if (!key.includes(".alt_text."))
 						expect(paths.has(value), `${where} ${key}`).toBe(true);
-				expect([...expected.keys()].filter(mediaKey), where).toEqual([]);
+				/* A rule that shows no image keeps its description without any
+				 * media, so only a path is the manifest's alone. */
+				expect(
+					[...expected.keys()].filter(
+						(key) => mediaKey(key) && !key.includes(".alt_text."),
+					),
+					where,
+				).toEqual([]);
 				mediaStrings += beside.length;
 			}
 		}

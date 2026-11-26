@@ -14,13 +14,20 @@ import {
 	reachableCaseTypes,
 	resolveAppLanguage,
 } from "@/lib/domain";
+import {
+	formEntryRecord,
+	ownFormSelectionIndex,
+} from "@/lib/domain/advancedEntryDatums";
+import { menuOffersRecordType } from "@/lib/domain/modules";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import type { PreviewEntryChoice } from "@/lib/session/types";
 import { previewPlatformRules } from "../platform";
 import {
 	dataRefusalCopy,
 	refusalCopy,
 	runtimeMessage,
 } from "../runtimeMessages";
+import { workerChoiceProse } from "../workerProse";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -52,9 +59,10 @@ import {
 import { projectFormPresentation } from "./formPresentation";
 import { previewSessionValues } from "./identity";
 import { previewLookupData } from "./lookupEvaluation";
+import { openingCaseAssignments } from "./openingCaseAssignments";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
-import { formReadsSearchResults } from "./xpathInstances";
+import { formSearchReads } from "./xpathInstances";
 
 /** Let FormEngine apply its narrowly scoped wording policy before an uncaught
  * XPath failure becomes the public authoring-input fault. */
@@ -139,12 +147,52 @@ function dataRefusalSentence(
 	return `${copy.title}. ${copy.body}`;
 }
 
+interface AuthorizedOpening {
+	readonly includeActivity: boolean;
+	readonly entryKey: string;
+	readonly session: import("./entrySessionData").EntrySessionData;
+}
+
+type ActivityText = {
+	key: string;
+	title: string | null;
+	window: string | null;
+};
+
 /** Observe a form against one captured runtime context. No stores are reachable
  * here. The submission is a proposal; it has not passed a storage transaction. */
 export async function evaluateFormSnapshot(
 	doc: BlueprintDoc,
 	input: FormEvaluationInput,
 	context: FormEvaluationContext,
+) {
+	const result = await runFormSnapshot(doc, input, context);
+	if ("opening" in result)
+		throw new Error("The snapshot returned an activity opening.");
+	return result;
+}
+
+/** Finish the one authorized opening world before a worker can answer. */
+export async function evaluateAuthorizedFormOpeningSnapshot(
+	doc: BlueprintDoc,
+	input: FormEvaluationInput,
+	context: FormEvaluationContext,
+	authorized: AuthorizedOpening,
+): Promise<{
+	readonly activity?: ActivityText;
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
+}> {
+	const result = await runFormSnapshot(doc, input, context, authorized);
+	if (!("opening" in result) || result.opening === undefined)
+		throw new Error("The form did not return its opening.");
+	return result.opening;
+}
+
+async function runFormSnapshot(
+	doc: BlueprintDoc,
+	input: FormEvaluationInput,
+	context: FormEvaluationContext,
+	authorized?: AuthorizedOpening,
 ) {
 	const moduleUuid = moduleUuidOfForm(doc, input.formUuid);
 	const module = moduleUuid ? doc.modules[moduleUuid] : undefined;
@@ -158,62 +206,97 @@ export async function evaluateFormSnapshot(
 	/* What the evaluation says in its own words is in the language the form
 	 * runs in: the one asked for when the app has it, else the app's default. */
 	const language = resolveAppLanguage(doc.localization, input.language);
-	const form = engineInput.form;
-	const ids = input.caseIds ?? [];
+	/* A form that keeps its own opening choices is opened the way a worker
+	 * opens it: each choice made from a list holds the record named for it,
+	 * and its own record is the case the form opens on. A continued App Test
+	 * entry carries its choices already. */
+	const opening =
+		authorized === undefined && context.session?.entryChoices === undefined
+			? openingRecordChoices(doc, input, context)
+			: undefined;
+	const ids = opening?.ownCaseIds ?? input.caseIds ?? [];
 	if (new Set(ids).size !== ids.length)
 		throw new FormEvaluationInputError("Select each record once.");
-	const needsRecord = form.type === "followup" || form.type === "close";
-	if (needsRecord !== ids.length > 0)
+	const record = formEntryRecord(doc, input.formUuid);
+	const needsRecord = record.requiresCase;
+	if (opening === undefined && needsRecord !== ids.length > 0)
 		throw new FormEvaluationInputError(
 			needsRecord
 				? "Select an existing record to evaluate this form."
 				: "This form does not load a selected record.",
 		);
-	if (ids.length > caseSelectionMaximum(module))
+	if (ids.length > caseSelectionMaximum(record.menu ?? {}))
 		throw new FormEvaluationInputError(
-			`This form accepts at most ${caseSelectionMaximum(module)} selected records.`,
+			`This form accepts at most ${caseSelectionMaximum(record.menu ?? {})} selected records.`,
 		);
 	for (const id of ids) {
 		const row = context.cases.rows.find((row) => row.case_id === id);
-		if (!row || row.case_type !== module.caseType)
+		if (!row || !menuOffersRecordType(module, row.case_type))
 			throw new FormEvaluationInputError(
 				"A selected record is unavailable to this worker or has a different type.",
 			);
 	}
 	/* A device reaches a form that reads what its search found only through
 	 * that search, so without the search's snapshot the form cannot open. */
+	const needed = formSearchReads(doc, input.formUuid, module.uuid);
+	for (const [supplier, reads] of needed) {
+		if (supplier === module.uuid) continue;
+		const supplied = context.searches?.find(
+			(search) => search.menu === supplier,
+		);
+		if (!supplied || (reads.readsResults && !supplied.results))
+			throw new FormEvaluationInputError(
+				`This form reads the search in "${doc.modules[supplier].name}". Start an app test and choose a record through that search first.`,
+			);
+	}
 	if (
 		context.searchResults === undefined &&
 		moduleFormsReadSearch(module) &&
-		formReadsSearchResults(doc, input.formUuid)
+		needed.get(module.uuid)?.readsResults === true
 	)
 		throw new FormEvaluationInputError(
 			`${runtimeMessage(language, "searchResultsRefusalTitle")}. ${runtimeMessage(language, "searchResultsRefusalBody")}`,
 		);
-	const reachable = reachableCaseTypes(module.caseType, doc.caseTypes ?? []);
+	const reachable = reachableCaseTypes(
+		record.contentCaseType,
+		doc.caseTypes ?? [],
+	);
 	const caseData =
-		ids.length === 1 && caseSelectionCardinality(module) === "single"
+		ids.length === 1 && caseSelectionCardinality(record.menu ?? {}) === "single"
 			? caseDatabaseToFormPreloads(context.cases, ids[0], reachable)
 			: undefined;
 	/* The entry key comes first: the entry's session mints its created cases'
 	 * ids from it, and the engine reads them as `session/data`. */
-	const entryKey = context.entry?.entryKey ?? randomUUID();
-	const session = entrySessionData(doc, input.formUuid, {
-		appId: context.session?.appId,
-		entryKey,
-		boundCases: ids.map((caseId) => {
-			const caseName = context.cases.rows.find(
-				(row) => row.case_id === caseId,
-			)?.case_name;
-			return caseName === undefined ? { caseId } : { caseId, caseName };
-		}),
-		menuSelections: context.session?.menuSelections ?? {},
-		...(context.searchResults === undefined
-			? {}
-			: { searchResults: context.searchResults }),
-		caseDatabase: context.cases,
-		session: previewSessionValues(context.identity, context.device),
-	});
+	const entryKey =
+		authorized?.entryKey ?? context.entry?.entryKey ?? randomUUID();
+	const session =
+		authorized?.session ??
+		entrySessionData(doc, input.formUuid, {
+			appId: context.session?.appId,
+			entryChoices: opening?.entryChoices ?? context.session?.entryChoices,
+			heldEntryValues: context.session?.heldEntryValues,
+			lookupData: previewLookupData(context.lookup),
+			entryKey,
+			boundCases: ids.map((caseId) => {
+				const caseName = context.cases.rows.find(
+					(row) => row.case_id === caseId,
+				)?.case_name;
+				return caseName === undefined ? { caseId } : { caseId, caseName };
+			}),
+			menuSelections: context.session?.menuSelections ?? {},
+			searches: context.searches,
+			...(context.searchResults === undefined
+				? {}
+				: { searchResults: context.searchResults }),
+			caseDatabase: context.cases,
+			session: previewSessionValues(context.identity, context.device),
+		});
+	/* A choice no record was named for stops the entry where a worker would
+	 * pick from its list, so the form would open with none of its records. */
+	if (session.nextSelection !== undefined)
+		throw new FormEvaluationInputError(
+			`This form opens with “${session.nextSelection.name}”, a record the worker chooses from a list. Name a record for it in openingRecords.`,
+		);
 	/* The engine refuses a form as it opens where Core does (a case block
 	 * reading worker information the worker lacks, an owner moved to no
 	 * place), so that refusal is the form's, worded as Preview words it. */
@@ -228,17 +311,29 @@ export async function evaluateFormSnapshot(
 	let engine: FormEngine;
 	try {
 		engine = new FormEngine(
-			engineInput,
-			module.caseType,
+			{
+				...engineInput,
+				openingAssignments: openingCaseAssignments(
+					doc,
+					input.formUuid,
+					session.reachedCaseIds,
+					context.cases,
+				),
+			},
+			record.caseType,
 			caseData,
 			context.identity,
 			previewLookupData(context.lookup),
 			context.cases,
 			{
 				stagedAsync: true,
+				captureOpeningCaseIds: authorized !== undefined || context.captureEntry,
 				device: context.device,
 				sessionData: session.data,
 				selectedCases: session.selectedCases,
+				...(session.searches === undefined
+					? {}
+					: { searches: session.searches }),
 				...(session.searchResults === undefined
 					? {}
 					: { searchResults: session.searchResults }),
@@ -253,7 +348,7 @@ export async function evaluateFormSnapshot(
 				searchAnswers: searchInputInstanceValues(
 					module.caseListConfig?.searchInputs ?? [],
 					new Map(
-						(input.searchAnswers ?? context.searchAnswers ?? []).map(
+						(context.searchAnswers ?? input.searchAnswers ?? []).map(
 							({ name, value }) => [name, value],
 						),
 					),
@@ -301,11 +396,18 @@ export async function evaluateFormSnapshot(
 	}) as FormEngineAsyncEvaluator;
 	const fieldsByPath = new Map(
 		Object.values(engineInput.fields)
-			.filter((field) => findContainingForm(doc, field.uuid) === input.formUuid)
-			.map((field) => [`/data/${computeFieldPath(doc, field.uuid)}`, field]),
+			.filter(
+				(field) => findContainingForm(doc, field.uuid) === engineInput.formUuid,
+			)
+			.map((field) => [
+				`${engine.rootPath}/${computeFieldPath(doc, field.uuid)}`,
+				field,
+			]),
 	);
 	const normalizePath = (path: string) =>
-		path.startsWith("/data/") ? path : `/data/${path.replace(/^#form\//, "")}`;
+		path.startsWith(`${engine.rootPath}/`)
+			? path
+			: `${engine.rootPath}/${path.replace(/^#form\//, "")}`;
 	const fieldAt = (path: string) =>
 		fieldsByPath.get(path.replace(/\[\d+\]/g, ""));
 	const checkChoiceAnswers = () => {
@@ -319,6 +421,31 @@ export async function evaluateFormSnapshot(
 		if (context.entry && context.entry.language === engineInput.language)
 			engine.restoreEntryCheckpoint(context.entry.checkpoint);
 		else await engine.initializeAsync(evaluate);
+
+		if (authorized !== undefined) {
+			const key = authorized.includeActivity
+				? await engine.readBehaviorText("activityKeyText", evaluate)
+				: null;
+			return {
+				opening: {
+					caseCreateIds: engine.initialCreateIds(),
+					activity:
+						key === null
+							? undefined
+							: {
+									key,
+									title: await engine.readBehaviorText(
+										"activityTitleText",
+										evaluate,
+									),
+									window: await engine.readBehaviorText(
+										"activityWindowText",
+										evaluate,
+									),
+								},
+				},
+			};
+		}
 		checkChoiceAnswers();
 		/* The form's pages are the platform's screens (`formScreens`): the
 		 * whole form on Web Apps, a section or a group or question on
@@ -327,7 +454,12 @@ export async function evaluateFormSnapshot(
 		const oneScreen = engine
 			.formScreens()
 			.every((screen) => screen.kind === "form");
+		const leaveFor = async (target: string) => {
+			if (target !== engine.currentScreenPath())
+				await engine.saveScreenDatesAsync(evaluate);
+		};
 		const moveForwardTo = async (target: string): Promise<boolean> => {
+			await leaveFor(target);
 			for (const screen of pagesToValidate(
 				availablePages(engine.formScreens()),
 				engine.currentScreenPath() ?? "",
@@ -347,7 +479,7 @@ export async function evaluateFormSnapshot(
 				 * changes nothing; a uuid that is no section of the form refuses
 				 * as it does on Android. */
 				const named = engine
-					.getFieldTree()
+					.getControlTree()
 					.some(
 						(node) =>
 							node.field.kind === "section" && node.field.uuid === sectionUuid,
@@ -381,40 +513,51 @@ export async function evaluateFormSnapshot(
 				? undefined
 				: engine
 						.formScreens()
-						.find(
-							(screen) =>
-								path === screen.path ||
-								path.startsWith(`${screen.path}/`) ||
-								path.startsWith(`${screen.path}[`),
-						);
-		for (const repeat of input.repeats ?? []) {
+						.find((screen) => engine.containsControl(screen.path, path));
+		for (const repeat of [...(input.repeats ?? [])].sort(
+			(a, b) => a.path.split("/").length - b.path.split("/").length,
+		)) {
 			const path = normalizePath(repeat.path);
 			const field = fieldAt(path);
 			if (field?.kind !== "repeat" || field.repeat_mode !== "user_controlled")
 				throw new FormEvaluationInputError(
 					`Repeat ${repeat.path} is unavailable or its rows are calculated.`,
 				);
-		}
-		if (input.repeats?.length)
-			await engine.restoreRepeatCountSnapshotAsync(
-				new Map(
-					(input.repeats ?? []).map(({ path, count }) => [
-						normalizePath(path),
-						count,
-					]),
-				),
-				evaluate,
-			);
-		for (const repeat of input.repeats ?? []) {
-			// A requested row CommCare refuses to insert stops this evaluation,
-			// as the refused insert stops the running app's action.
-			const path = normalizePath(repeat.path);
-			const state = engine.getState(path);
-			if (
-				state.insertRefusal !== undefined &&
-				engine.getRepeatCount(path) < repeat.count
-			)
-				throw new SetvalueRefusal(state.insertRefusal);
+			if (!engine.materializePaths(path).includes(path))
+				throw new FormEvaluationInputError(
+					`Repeat ${repeat.path} needs its containing entry first.`,
+				);
+			const checkAccess = async (action: "add" | "remove") => {
+				if (
+					!(await engine.workerCanEditRepeatAsync(
+						path,
+						field.uuid,
+						action,
+						evaluate,
+					))
+				)
+					throw new FormEvaluationInputError(
+						`Open the page with repeat ${repeat.path} before changing its entries.`,
+					);
+			};
+			while (engine.getRepeatCount(path) < repeat.count) {
+				await checkAccess("add");
+				if ((await engine.addRepeatAsync(path, evaluate)) === undefined) {
+					const refusal = engine.getState(path).insertRefusal;
+					if (refusal) throw new SetvalueRefusal(refusal);
+					throw new FormEvaluationInputError(
+						`Repeat ${repeat.path} could not add an entry.`,
+					);
+				}
+			}
+			while (engine.getRepeatCount(path) > repeat.count) {
+				await checkAccess("remove");
+				await engine.removeRepeatAsync(
+					path,
+					engine.getRepeatCount(path) - 1,
+					evaluate,
+				);
+			}
 		}
 		for (const answer of input.answers) {
 			checkChoiceAnswers();
@@ -433,20 +576,40 @@ export async function evaluateFormSnapshot(
 						throw new FormEvaluationInputError(
 							"A question before this one needs an answer first. You can answer it, then try again.",
 						);
-				} else await engine.enterScreenAsync(screen.path, evaluate);
+				} else {
+					await leaveFor(screen.path);
+					await engine.enterScreenAsync(screen.path, evaluate);
+				}
 			}
 			const field = fieldAt(path);
+			if (field && !engine.materializePaths(path).includes(path)) {
+				throw new FormEvaluationInputError(
+					`Answer ${answer.path} needs an entry in its repeating group. Add that entry before answering its questions.`,
+				);
+			}
 			if (
 				!field ||
 				!Object.hasOwn(engine.store.getState(), path) ||
-				!engine.effectivelyVisiblePaths().has(path) ||
+				!engine.workerRelevantPaths().has(path) ||
 				isContainer(field) ||
 				field.kind === "hidden" ||
-				field.kind === "label" ||
+				(field.kind === "label" &&
+					(!field.askForConfirmation ||
+						previewPlatformRules(context.device.platform)
+							.messageConfirmation !== "checkbox")) ||
 				isCaptureFieldKind(field.kind)
 			) {
 				throw new FormEvaluationInputError(
 					`Answer ${answer.path} is not an editable question in this form. Media capture requires the running app.`,
+				);
+			}
+			if (
+				field.kind === "label" &&
+				answer.value !== "OK" &&
+				answer.value !== ""
+			) {
+				throw new FormEvaluationInputError(
+					"Use OK to check the message or an empty answer to clear it.",
 				);
 			}
 			await engine.setValueAsync(
@@ -459,6 +622,7 @@ export async function evaluateFormSnapshot(
 		// Retained journeys advance only through explicit page turns.
 		if (!context.captureEntry)
 			for (const screen of availablePages(engine.formScreens())) {
+				await leaveFor(screen.path);
 				await engine.enterScreenAsync(screen.path, evaluate);
 			}
 		const currentScreenPath = engine.currentScreenPath();
@@ -486,16 +650,30 @@ export async function evaluateFormSnapshot(
 			!context.captureEntry ||
 			visibleScreens.length === 0 ||
 			visibleScreens.at(-1)?.current === true;
-		/* Formplayer rebuilds the session before it validates a submission. */
-		await engine.prepareSubmitAsync(evaluate);
-		checkChoiceAnswers();
-		const valid = await engine.validateAllAsync(evaluate);
+		const submitting =
+			!context.captureEntry || (context.submitEntry === true && canSubmit);
+		// A standalone form check proposes a submission. A retained test only
+		// commits the current entry when the worker chooses Submit on its last page.
+		let valid: boolean;
+		if (submitting) {
+			await engine.saveScreenDatesAsync(evaluate);
+			await engine.prepareSubmitAsync(evaluate);
+			checkChoiceAnswers();
+			valid = await engine.validateAllAsync(evaluate);
+		} else {
+			valid = await engine.observeValidationAsync(evaluate);
+		}
 		const relevantPaths = engine.effectivelyVisiblePaths();
+		const workerRelevant = engine.workerRelevantPaths();
 		const presentation = projectFormPresentation(
-			engine.getFieldTree(),
-			{ stateAt: (_field, path) => engine.getState(path) },
+			engine.getControlTree(),
+			{ stateAt: (_field, path) => engine.getState(path), workerRelevant },
 			{
 				language: engineInput.language,
+				platform: context.device.platform,
+				textForm: engineInput.form,
+				containsControl: engine.containsControl,
+				rootPath: engine.rootPath,
 				/* A sectioned form on Android pages by section; every other
 				 * form's page is its current screen (the whole form on Web
 				 * Apps). */
@@ -503,7 +681,7 @@ export async function evaluateFormSnapshot(
 				screens.length > 0 &&
 				screens.every((screen) => screen.kind === "section")
 					? { currentSectionUuid: engine.currentSectionUuid() }
-					: { currentScreenPath: currentScreenPath ?? "/data" }),
+					: { currentScreenPath: currentScreenPath ?? engine.rootPath }),
 				availableSectionUuids: new Set(
 					sections
 						.filter(
@@ -543,7 +721,15 @@ export async function evaluateFormSnapshot(
 								value: option.value,
 								label:
 									state.resolvedOptionLabels?.[option.uuid] ??
-									projectProseTemplate(option.label, doc).text,
+									projectProseTemplate(
+										workerChoiceProse(
+											field,
+											option,
+											engineInput.form,
+											context.device.platform,
+										).template,
+										doc,
+									).text,
 							}))
 						: undefined);
 				const observedAnswer: {
@@ -551,8 +737,8 @@ export async function evaluateFormSnapshot(
 					retainedValue?: typeof value;
 				} = relevant ? { value } : { retainedValue: value };
 				return {
-					path: path.replace(/^\/data\//, ""),
-					parentPath: parentPath.replace(/^\/data\/?/, ""),
+					path: path.slice(engine.rootPath.length + 1),
+					parentPath: parentPath.slice(engine.rootPath.length + 1),
 					depth,
 					...(position === undefined ? {} : { position }),
 					...(sectionUuid === undefined ? {} : { sectionUuid }),
@@ -563,10 +749,15 @@ export async function evaluateFormSnapshot(
 					// non-relevant questions, still participate in the form.
 					participates: relevant,
 					...observedAnswer,
+					...(relevant && state.androidPickerDay
+						? { displayedDay: state.androidPickerDay }
+						: {}),
 					visible: relevant && visible,
-					required: relevant && required,
-					valid: !relevant || valid,
-					...(relevant && errorMessage ? { error: errorMessage } : {}),
+					required: workerRelevant.has(path) && required,
+					valid: !workerRelevant.has(path) || valid,
+					...(workerRelevant.has(path) && errorMessage
+						? { error: errorMessage }
+						: {}),
 					label,
 					hint,
 					help,
@@ -615,7 +806,7 @@ export async function evaluateFormSnapshot(
 			sections,
 			screens,
 			canSubmit,
-			...(valid && canSubmit
+			...(submitting && valid && canSubmit
 				? {
 						submission: engine.computeSubmissionMutation({
 							caseIds: ids,
@@ -640,4 +831,68 @@ export async function evaluateFormSnapshot(
 	} finally {
 		runtime.dispose();
 	}
+}
+
+/**
+ * The entry choices and own record of a form that keeps its own opening
+ * choices, from `input.openingRecords`: each names a choice the worker
+ * makes from a list and a record of that list's type the worker can see.
+ * Undefined for a form that keeps its menu's choice, which `caseIds` binds.
+ */
+function openingRecordChoices(
+	doc: BlueprintDoc,
+	input: FormEvaluationInput,
+	context: FormEvaluationContext,
+):
+	| {
+			readonly entryChoices: readonly PreviewEntryChoice[];
+			readonly ownCaseIds: readonly string[];
+	  }
+	| undefined {
+	const explicit = doc.forms[input.formUuid]?.caseSelections;
+	const named = input.openingRecords ?? [];
+	if (explicit === undefined) {
+		if (named.length > 0)
+			throw new FormEvaluationInputError(
+				"This form opens with its menu’s record. Select it with caseIds instead of openingRecords.",
+			);
+		return undefined;
+	}
+	if (input.caseIds?.length)
+		throw new FormEvaluationInputError(
+			"This form chooses its own opening records. Name each one in openingRecords instead of caseIds.",
+		);
+	const entryChoices: PreviewEntryChoice[] = [];
+	for (const { name, caseId } of named) {
+		const matches = explicit.filter(
+			(row) => row.source.kind === "choose" && row.name === name,
+		);
+		if (matches.length !== 1)
+			throw new FormEvaluationInputError(
+				matches.length === 0
+					? `“${name}” isn’t an opening record this form chooses from a list. Get the form to see its opening records.`
+					: `This form has more than one opening record named “${name}”. Give each its own name to evaluate it.`,
+			);
+		const [row] = matches;
+		if (entryChoices.some((choice) => choice.selectionUuid === row.uuid))
+			throw new FormEvaluationInputError(`Name one record for “${name}”.`);
+		const found = context.cases.rows.find((r) => r.case_id === caseId);
+		if (!found || found.case_type !== row.caseType)
+			throw new FormEvaluationInputError(
+				`The record named for “${name}” is unavailable to this worker or isn’t a ${row.caseType} record.`,
+			);
+		entryChoices.push({
+			selectionUuid: row.uuid,
+			caseId,
+			...(found.case_name !== null && { caseName: found.case_name }),
+		});
+	}
+	const ownIndex = ownFormSelectionIndex(doc, input.formUuid);
+	const own =
+		ownIndex === undefined
+			? undefined
+			: entryChoices.find(
+					(choice) => choice.selectionUuid === explicit[ownIndex]?.uuid,
+				);
+	return { entryChoices, ownCaseIds: own ? [own.caseId] : [] };
 }

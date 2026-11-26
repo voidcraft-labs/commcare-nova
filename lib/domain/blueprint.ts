@@ -9,15 +9,30 @@
 
 import { z } from "zod";
 import { automationNestedUuids, automationSchema } from "./automations";
-import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import { readCasePropertyNameSchema } from "./casePropertyName";
 import {
 	type CasePropertyDataType,
 	casePropertyDataTypeSchema,
 	casePropertyDataTypes,
 } from "./casePropertyTypes";
+import { caseRelationSchema } from "./caseRelations";
 import { fieldSchema, isContainer } from "./fields";
+import {
+	CONNECT_ROLES,
+	type ConnectRole,
+	connectActivityIdLimit,
+	connectActivityRole,
+	missingConnectRoleMessage,
+} from "./fields/connectActivity";
 import { formSchema } from "./forms";
-import { appLocalizationSchema } from "./localization";
+import {
+	installationProfileChangeSchema,
+	installationProfileSchema,
+} from "./installationProfiles";
+import {
+	appLocalizationSchema,
+	effectiveAppLocalization,
+} from "./localization";
 import { projectedModulePreorder } from "./moduleHierarchy";
 import { isOwnerOnlyCaseSearchConfig, moduleSchema } from "./modules";
 import { mediaAssetIdSchema } from "./multimedia";
@@ -29,6 +44,7 @@ import { PLATFORMS } from "./platforms";
 import { catalogProseTemplateSchema } from "./prose";
 import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
+import { requiredAndroidAppsSchema } from "./requiredAndroidApps";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
 
@@ -48,7 +64,7 @@ export {
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
 
 export const casePropertySchema = z.strictObject({
-	name: authoredCasePropertyNameSchema,
+	name: readCasePropertyNameSchema,
 	label: catalogProseTemplateSchema,
 	data_type: casePropertyDataTypeSchema.optional(),
 	hint: catalogProseTemplateSchema.optional(),
@@ -64,15 +80,15 @@ export const caseTypeSchema = z.strictObject({
 	name: z.string(),
 	properties: z.array(casePropertySchema),
 	parent_type: z.string().optional(),
+	relations: z.array(caseRelationSchema).min(1).optional(),
 	relationship: z.enum(["child", "extension"]).optional(),
 });
 export type CaseType = z.infer<typeof caseTypeSchema>;
 
-export const CONNECT_TYPES = ["learn", "deliver"] as const;
-export type ConnectType = (typeof CONNECT_TYPES)[number];
+export { CONNECT_ROLES, type ConnectRole };
 
-/** The one user-facing name of each Connect mode, shared by every surface. */
-export const CONNECT_TYPE_LABELS: Readonly<Record<ConnectType, string>> = {
+/** The one user-facing name of each Connect role, shared by every surface. */
+export const CONNECT_ROLE_LABELS: Readonly<Record<ConnectRole, string>> = {
 	learn: "Learn",
 	deliver: "Deliver",
 };
@@ -97,10 +113,40 @@ export const APP_GENESIS_FALLBACK_NAME = "Untitled";
  * `platforms.ts::declaredPlatforms` is the one reader of its meaning.
  * `setAppSettings` patches the object.
  */
+const projectSearchName = z.string().trim().min(1);
+const projectSearchEdit = z.discriminatedUnion("operation", [
+	z.strictObject({
+		operation: z.literal("add"),
+		uuid: uuidSchema,
+		name: projectSearchName,
+	}),
+	z.strictObject({
+		operation: z.literal("rename"),
+		uuid: uuidSchema,
+		name: projectSearchName,
+	}),
+	z.strictObject({ operation: z.literal("remove"), uuid: uuidSchema }),
+]);
+
 export const appSettingsSchema = z.strictObject({
+	captureLocation: z.literal(true).optional(),
+	caseSharing: z.boolean().optional(),
+	/** Searches that a connected project space runs. Only the display name
+	 * lives here; the destination owns the query and its connection. */
+	projectSearches: ownRecordSchema(
+		uuidSchema,
+		z.strictObject({ name: projectSearchName }),
+	).optional(),
+	installationProfiles: ownRecordSchema(
+		uuidSchema,
+		installationProfileSchema,
+	).optional(),
 	showSavedForms: z.boolean(),
 	showIncompleteForms: z.boolean(),
+	firstMenuLayout: z.literal("grid").optional(),
+	formMenuLayout: z.enum(["grid", "individual"]).optional(),
 	runsOnlyOn: z.enum(PLATFORMS).optional(),
+	requiredAndroidApps: requiredAndroidAppsSchema.min(1).optional(),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 
@@ -112,9 +158,16 @@ export type AppSettings = z.infer<typeof appSettingsSchema>;
  */
 export const appSettingsPatchSchema = z
 	.strictObject({
+		captureLocation: z.boolean().optional(),
+		caseSharing: z.boolean().nullable().optional(),
+		projectSearch: projectSearchEdit.optional(),
+		installationProfile: installationProfileChangeSchema.optional(),
 		showSavedForms: z.boolean().optional(),
 		showIncompleteForms: z.boolean().optional(),
+		firstMenuLayout: z.literal("grid").nullable().optional(),
+		formMenuLayout: z.enum(["grid", "individual"]).nullable().optional(),
 		runsOnlyOn: z.enum(PLATFORMS).nullable().optional(),
+		requiredAndroidApps: requiredAndroidAppsSchema.optional(),
 	})
 	.refine(
 		(patch) => Object.values(patch).some((value) => value !== undefined),
@@ -131,10 +184,19 @@ export const NEW_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
 	showIncompleteForms: false,
 });
 
+export const connectRolesSchema = z
+	.array(z.enum(CONNECT_ROLES))
+	.max(2)
+	.refine(
+		(roles) =>
+			roles.length < 2 || (roles[0] === "learn" && roles[1] === "deliver"),
+		{ error: "Each Connect role can be selected once." },
+	);
+
 const blueprintDocObjectSchema = z.strictObject({
 	appId: z.string(),
 	appName: z.string(),
-	connectType: z.enum(CONNECT_TYPES).nullable(),
+	connectRoles: connectRolesSchema,
 	caseTypes: z.array(caseTypeSchema).nullable(),
 	/**
 	 * Optional app-level target-language overlay. Absence is the exact legacy
@@ -265,6 +327,35 @@ export function blueprintTopologyIssues(
 		}
 	};
 
+	for (const key of Object.keys(doc.appSettings.projectSearches ?? {}))
+		registerIdentity(key, "projectSearch", [
+			"appSettings",
+			"projectSearches",
+			key,
+		]);
+	const languages = new Set(
+		effectiveAppLocalization(doc.localization).languageOrder,
+	);
+	for (const [key, profile] of Object.entries(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		const path = ["appSettings", "installationProfiles", key];
+		registerIdentity(profile.uuid, "installation profile", path);
+		if (profile.uuid !== key)
+			topologyIssue(
+				issues,
+				path,
+				"The installation profile must keep its identity.",
+			);
+		for (const language of profile.languages) {
+			if (!languages.has(language))
+				topologyIssue(
+					issues,
+					[...path, "languages"],
+					`“${profile.name || "Unnamed profile"}” uses ${language}. You can choose a different language in the installation profile before removing it from the app.`,
+				);
+		}
+	}
 	registerRecord("modules", doc.modules);
 	registerRecord("forms", doc.forms);
 	registerRecord("fields", doc.fields);
@@ -276,9 +367,41 @@ export function blueprintTopologyIssues(
 	registerRecord("automations", doc.automations ?? {});
 
 	for (const [moduleUuid, module] of Object.entries(doc.modules)) {
+		const config = module.caseSearchConfig;
+		if (config && "projectSearch" in config && config.projectSearch) {
+			const path = ["modules", moduleUuid, "caseSearchConfig", "projectSearch"];
+			if (
+				!Object.hasOwn(
+					doc.appSettings.projectSearches ?? {},
+					config.projectSearch.searchUuid,
+				)
+			)
+				topologyIssue(
+					issues,
+					[...path, "searchUuid"],
+					"Choose a project search that this app uses.",
+				);
+			for (const [index, parameter] of config.projectSearch.defaults.entries())
+				registerIdentity(parameter.uuid, "search parameter", [
+					...path,
+					"defaults",
+					index,
+					"uuid",
+				]);
+			if (
+				!config.projectSearch.defaults.length &&
+				!module.caseListConfig?.searchInputs.length
+			)
+				topologyIssue(
+					issues,
+					path,
+					"Add a search field or a starting parameter so workers can run this search.",
+				);
+		}
 		if (
 			isOwnerOnlyCaseSearchConfig(module.caseSearchConfig) &&
-			(module.caseListConfig?.searchInputs.length ?? 0) > 0
+			((module.caseListConfig?.searchInputs.length ?? 0) > 0 ||
+				(module.caseListConfig?.searchFilters?.length ?? 0) > 0)
 		) {
 			topologyIssue(
 				issues,
@@ -360,6 +483,33 @@ export function blueprintTopologyIssues(
 		}
 	}
 	for (const [formUuid, form] of Object.entries(doc.forms)) {
+		for (const [index, row] of (form.shadowOf?.selections ?? []).entries()) {
+			if (row.kind === "add")
+				registerIdentity(row.uuid, "Form selection", [
+					"forms",
+					formUuid,
+					"shadowOf",
+					"selections",
+					index,
+					"uuid",
+				]);
+		}
+		for (const [index, row] of (form.caseSelections ?? []).entries())
+			registerIdentity(row.uuid, "form selection", [
+				"forms",
+				formUuid,
+				"caseSelections",
+				index,
+				"uuid",
+			]);
+		for (const [index, row] of (form.computedDatums ?? []).entries())
+			registerIdentity(row.uuid, "entry value", [
+				"forms",
+				formUuid,
+				"computedDatums",
+				index,
+				"uuid",
+			]);
 		for (const [index, operation] of (form.caseOperations ?? []).entries()) {
 			registerIdentity(operation.uuid, "case operation", [
 				"forms",
@@ -414,42 +564,23 @@ export function blueprintTopologyIssues(
 		}
 	}
 
-	const connectIds = new Map<string, string>();
-	const connectKinds = [
-		"learn_module",
-		"assessment",
-		"deliver_unit",
-		"task",
-	] as const;
-	for (const [formUuid, form] of Object.entries(doc.forms)) {
-		const connect = form.connect;
-		if (connect === undefined) continue;
-		const isLearn = "learn_module" in connect || "assessment" in connect;
-		if (doc.connectType === null || (doc.connectType === "learn") !== isLearn) {
+	for (const field of Object.values(doc.fields)) {
+		if (field.kind !== "connect_activity") continue;
+		const kind = field.activity.kind;
+		const role = connectActivityRole(kind);
+		if (!doc.connectRoles.includes(role))
 			topologyIssue(
 				issues,
-				["forms", formUuid, "connect"],
-				"Form Connect configuration must match the app Connect mode.",
+				["fields", field.uuid, "activity"],
+				missingConnectRoleMessage(field.id, role),
 			);
-		}
-		const blocks = connect as Partial<
-			Record<(typeof connectKinds)[number], { readonly id: string }>
-		>;
-		for (const kind of connectKinds) {
-			const block = blocks[kind];
-			if (block === undefined) continue;
-			const site = `forms.${formUuid}.connect.${kind}`;
-			const previous = connectIds.get(block.id);
-			if (previous !== undefined) {
-				topologyIssue(
-					issues,
-					["forms", formUuid, "connect", kind, "id"],
-					`Connect id ${block.id} appears in both ${previous} and ${site}.`,
-				);
-			} else {
-				connectIds.set(block.id, site);
-			}
-		}
+		const limit = connectActivityIdLimit(kind);
+		if (limit !== undefined && field.id.length > limit)
+			topologyIssue(
+				issues,
+				["fields", field.uuid, "id"],
+				`This Connect activity can use an ID up to ${limit} characters long.`,
+			);
 	}
 
 	const exactSequence = (
@@ -741,6 +872,7 @@ export type PersistableDoc = z.infer<typeof blueprintDocSchema>;
 export type PersistedBlueprint = PersistableDoc & {
 	fieldParent?: never;
 	refIndex?: never;
+	publishedQuestions?: never;
 };
 
 export type BlueprintDoc = PersistableDoc & {
@@ -748,6 +880,9 @@ export type BlueprintDoc = PersistableDoc & {
 	 *  atomically by every mutation that touches fieldOrder. Rebuilt by
 	 *  rebuildFieldParent() on load. Not persisted. */
 	fieldParent: Record<Uuid, Uuid>;
+	/** Which existing questions a saved HQ copy already contains. Supplied
+	 * by the authorized deployment snapshot and excluded from persistence. */
+	publishedQuestions?: Uuid[];
 	/**
 	 * The reference + declarations index (`lib/domain/referenceIndex.ts`)
 	 * — derived state, never persisted. Seeded by every apply entry

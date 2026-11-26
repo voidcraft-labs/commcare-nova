@@ -15,7 +15,6 @@ export const EMISSION_REWRITE_IDS = [
 	"row-predicate-current",
 	"default-reads-current",
 	"search-value-guards",
-	"search-today-device-day",
 	"filter-identities-dropped",
 	"validation-counts-moved",
 ] as const;
@@ -55,8 +54,6 @@ export const EMISSION_REWRITES: Readonly<
 	"default-reads-current": { behavior: "none" },
 	/** `csql/print.ts`: a search value picks its quote mark and fails closed. */
 	"search-value-guards": { behavior: "changes" },
-	/** `csql/emitter.ts::runtimeHole` (`today`): a search's `today()` is the worker's day. */
-	"search-today-device-day": { behavior: "changes" },
 	/** The filters and conditions printed through `simplifyForEmission`: no boolean identity. */
 	"filter-identities-dropped": { behavior: "none" },
 	/** `xform/constraintCollections.ts::planConstraintCollections`: a count

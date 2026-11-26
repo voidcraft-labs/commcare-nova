@@ -28,6 +28,10 @@ import type { ReadDraft } from "@/lib/commcare/reader/types";
 import { literalOutputText } from "@/lib/commcare/reader/xform/prose";
 import { buildLabelNodes } from "@/lib/commcare/xform/builder";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
+import {
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+} from "@/lib/commcare/xform/connectActivity";
 import { isConsumerWhitespace } from "@/lib/commcare/xform/consumerWhitespace";
 import type { FormPath } from "@/lib/commcare/xform/formPath";
 import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
@@ -44,7 +48,6 @@ import {
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
 } from "@/lib/domain/caseScalarTextGuard";
-import { formConnectIds } from "@/lib/domain/connectIds";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
@@ -308,6 +311,31 @@ export function documentSummary(
 			const location = locations.get(uuid);
 			if (field === undefined || location === undefined) continue;
 			const path = (location.path as FormPath).toXPath();
+			if (field.kind === "connect_activity") {
+				// HQ's get_questions enumerates the leaves of the submitted
+				// instance. The wrapper has no worker control of its own.
+				const content = activityWireContent(field.activity);
+				const shape = CONNECT_BLOCK_SHAPES[content.block];
+				for (const leaf of shape.leaves)
+					rows.push({
+						fieldUuid: uuid,
+						kind: field.kind,
+						path: `${path}/${shape.element}/${leaf}`,
+						repeat,
+						group,
+						alwaysRequired: false,
+						hasRelevant: false,
+						hasConstraint: false,
+						hasCalculate: content.calculations.some(
+							(calculation) =>
+								calculation.leaf === leaf &&
+								calculation.expression !== undefined,
+						),
+						label: NO_ENTRIES,
+						options: null,
+					});
+				continue;
+			}
 			if (field.kind === "repeat") {
 				const query = field.repeat_mode === "query_bound";
 				const counted =
@@ -439,9 +467,9 @@ export function summaryDifferences(
 	}
 
 	/* The first form of each `xmlns`, as a search of each list in order finds it. */
-	const formUuidOf = new Map<string, Uuid>();
-	for (const one of draft.identities.forms)
-		if (!formUuidOf.has(one.xmlns)) formUuidOf.set(one.xmlns, one.uuid);
+	const entryOf = new Map(
+		draft.identities.forms.map((one) => [one.readUniqueId, one.uuid]),
+	);
 	const factsOf = new Map<string, (typeof draft.facts.forms)[number]>();
 	for (const one of draft.facts.forms)
 		if (!factsOf.has(one.xmlns)) factsOf.set(one.xmlns, one);
@@ -450,7 +478,9 @@ export function summaryDifferences(
 		for (const aligned of module.forms) {
 			if (aligned.xmlns === null) continue;
 			const xmlns = aligned.xmlns;
-			const formUuid = formUuidOf.get(xmlns);
+			const entryUuid = entryOf.get(aligned.source.readUniqueId);
+			const formUuid =
+				entryUuid && (doc.forms[entryUuid]?.shadowOf?.form ?? entryUuid);
 			if (formUuid === undefined) {
 				differ(
 					["ids", "form"],
@@ -496,7 +526,6 @@ function formSummaryDifferences(input: {
 	const explained = [
 		...(input.facts?.generated ?? []).map((node) => node.path),
 		...(input.facts?.caseRegionPaths ?? []),
-		...[...formConnectIds(doc, formUuid)].map((id) => `/data/${id}`),
 	];
 	const isExplained = (path: string) =>
 		path.includes("/@") ||
@@ -521,6 +550,12 @@ function formSummaryDifferences(input: {
 		const field = doc.fields[row.fieldUuid];
 		const dataOnly = question.type === DATA_BIND_ONLY;
 		const place = at(path);
+		if (row.kind === "connect_activity" && !dataOnly)
+			differ(
+				["question", "activity-control"],
+				place,
+				`${path} has a control in HQ`,
+			);
 
 		if (!dataOnly && row.kind !== "hidden") {
 			if ((question.repeat ?? null) !== row.repeat)

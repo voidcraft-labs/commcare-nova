@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
+import type { FormNodeRef } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { suffixUntilFree } from "@/lib/domain/idSlug";
 /**
  * Duplicating a field, planned as ordinary adds.
  *
@@ -16,8 +18,17 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
  * duplicate.
  */
 
-import { dedupeSiblingId, findFieldParent } from "@/lib/doc/mutations/helpers";
-import { HELD_FIELD_KEYS, type HeldFieldKey } from "@/lib/domain/fields";
+import {
+	findContainingForm,
+	findFieldParent,
+	walkFormFieldUuids,
+} from "@/lib/doc/mutations/helpers";
+import {
+	HELD_FIELD_KEYS,
+	type HeldFieldKey,
+	optionsSourceFilter,
+} from "@/lib/domain/fields";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { asUuid, type BlueprintDoc, type Mutation, type Uuid } from "./types";
 
 /** One field's clone, in the order the adds must land. */
@@ -70,36 +81,118 @@ export function duplicateFieldMutations(
 	if (cloneUuid === undefined) return undefined;
 
 	for (const { field } of cloned) {
-		if (
-			(field.kind === "single_select" || field.kind === "multi_select") &&
-			field.optionsSource.kind !== "inline" &&
-			field.optionsSource.filter
-		) {
-			walkExpressionTerms(field.optionsSource.filter, (term) => {
-				if (term.kind === "field")
-					term.uuid = clonedIds.get(term.uuid) ?? term.uuid;
+		if (field.kind !== "single_select" && field.kind !== "multi_select")
+			continue;
+		const filter = optionsSourceFilter(field.optionsSource);
+		if (filter === undefined) continue;
+		walkExpressionTerms(filter, (term) => {
+			if (term.kind === "field")
+				term.uuid = clonedIds.get(term.uuid) ?? term.uuid;
+		});
+	}
+
+	// A duplicate stands beside its source on screen, and each copied answer
+	// stands where its source's does: a placement naming a group inside the
+	// copy names the copy of that group. A copied answer that lands among
+	// values outside the copy (the root's group's, or a named group's) takes
+	// an ID free among them.
+	const form = findContainingForm(doc, uuid);
+	if (form === undefined) return undefined;
+	const layout = submissionLayout(form, doc.fields, doc.fieldOrder);
+	const taken = new Map<Uuid, Set<string>>();
+	const takenIn = (parent: Uuid): Set<string> => {
+		let ids = taken.get(parent);
+		if (ids === undefined) {
+			ids = new Set(
+				(layout.children.get(parent) ?? []).flatMap((sibling) => {
+					const id = doc.fields[sibling]?.id;
+					return id === undefined ? [] : [id];
+				}),
+			);
+			taken.set(parent, ids);
+		}
+		return ids;
+	};
+	for (const [index, { field }] of cloned.entries()) {
+		const named = field.submissionPlacement?.parent;
+		const rebased = named === undefined ? undefined : clonedIds.get(named);
+		if (rebased !== undefined) {
+			field.submissionPlacement = { parent: rebased };
+			continue;
+		}
+		const lands = named ?? (index === 0 ? parentUuid : undefined);
+		if (lands === undefined) continue;
+		const ids = takenIn(lands);
+		const desired = field.id;
+		for (let suffix = 2; ids.has(field.id); suffix++)
+			field.id = `${desired}_${suffix}`;
+		ids.add(field.id);
+	}
+
+	// Each app question also names a form-wide Android action definition.
+	// Rebind references to copied questions and give copied definitions free
+	// names even when their immediate parents have changed.
+	const actions = cloned.filter(
+		({ field }) =>
+			field.kind === "text" && field.androidApp?.kind === "open-app",
+	);
+	const actionIds = new Set<string>();
+	if (actions.length) {
+		for (const member of walkFormFieldUuids(doc, form)) {
+			const field = doc.fields[member];
+			if (field?.kind === "text" && field.androidApp?.kind === "open-app")
+				actionIds.add(field.id);
+		}
+	}
+	const clonedId = (id: Uuid) => clonedIds.get(id) ?? id;
+	const retarget = (node: FormNodeRef) => {
+		if (node.kind === "field") node.uuid = clonedId(node.uuid);
+		else if ("repeat" in node) node.repeat = clonedId(node.repeat);
+	};
+	for (const { field, parentUuid: into } of cloned) {
+		const app = "androidApp" in field ? field.androidApp : undefined;
+		if (!app) continue;
+		if (app.kind === "use-question") {
+			app.question = clonedId(app.question);
+			continue;
+		}
+		const submittedTo = field.submissionPlacement?.parent ?? into;
+		const taken = new Set(actionIds);
+		for (const sibling of [
+			...(doc.fieldOrder[into] ?? []),
+			...(layout.children.get(submittedTo) ?? []),
+		]) {
+			const existing = doc.fields[sibling];
+			if (existing) taken.add(existing.id);
+		}
+		for (const sibling of cloned) {
+			if (sibling.field === field) continue;
+			const siblingSubmission =
+				sibling.field.submissionPlacement?.parent ?? sibling.parentUuid;
+			if (sibling.parentUuid === into || siblingSubmission === submittedTo)
+				taken.add(sibling.field.id);
+		}
+		field.id = suffixUntilFree(field.id, taken);
+		actionIds.add(field.id);
+		for (const result of app.receive)
+			result.question = clonedId(result.question);
+		for (const parameter of app.send) {
+			walkExpressionTerms(parameter.value, (term) => {
+				if (term.kind === "field") term.uuid = clonedId(term.uuid);
+				if (term.kind === "capture-link") term.field = clonedId(term.field);
+				if (term.kind === "repeat-row") term.repeat = clonedId(term.repeat);
+				if (term.kind === "form-node") retarget(term.node);
+				if ("filters" in term)
+					for (const filter of term.filters ?? []) retarget(filter.step);
 			});
 		}
 	}
 
-	// Only the ROOT clone can collide: every descendant lands under a cloned
-	// parent, where the source's own children are the only other members and
-	// they are not there.
-	const root = cloned[0];
-	if (root !== undefined) {
-		root.field.id = dedupeSiblingId(doc, parentUuid, root.field.id, cloneUuid);
-	}
-
-	// The root lands directly after its source; each descendant appends to its
-	// (already-added) cloned parent, which is empty until its siblings arrive,
-	// so writing them in order is the whole placement.
-	return {
-		cloneUuid,
-		mutations: cloned.map((entry, index) => ({
-			kind: "addField",
-			parentUuid: entry.parentUuid,
-			field: entry.field,
-			...(index === 0 && { after: uuid }),
-		})),
-	};
+	const adds: Mutation[] = cloned.map((entry, index) => ({
+		kind: "addField",
+		parentUuid: entry.parentUuid,
+		field: entry.field,
+		...(index === 0 && { after: uuid }),
+	}));
+	return { cloneUuid, mutations: adds };
 }

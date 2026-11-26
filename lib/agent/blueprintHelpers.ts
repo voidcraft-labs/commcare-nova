@@ -1,3 +1,10 @@
+import {
+	type BehaviorText,
+	type FormBehaviorRole,
+	formBehaviorRoles,
+} from "@/lib/domain/forms";
+import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
+
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
@@ -16,6 +23,8 @@
  */
 
 import { addModuleMutation } from "@/lib/doc/addModuleMutation";
+import { reorderDetailTabFields } from "@/lib/doc/caseDetailTabMutations";
+import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	columnAddMutation,
 	columnContentEqualIgnoringGranularSlots,
@@ -27,6 +36,7 @@ import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	enableCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
+import { withDetailFieldLayout } from "@/lib/doc/detailFieldVisibility";
 import {
 	type FieldRemovalPlan,
 	planFieldRemoval,
@@ -43,12 +53,12 @@ import {
 	ownCaseOperation,
 } from "@/lib/doc/scaffolds";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
+import { offeredSearchResultsName } from "@/lib/doc/searchResultsNaming";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	CaseOperation,
 	Column,
-	ConnectConfig,
 	Field,
 	FieldKind,
 	FieldPatchFor,
@@ -70,7 +80,7 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	slugifyId,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -106,7 +116,7 @@ export function formSnapshot(
 	if (!form) return undefined;
 	return {
 		...form,
-		fields: buildFieldTree(doc, formUuid),
+		fields: buildFieldTree(doc, formContentUuid(doc, formUuid)),
 	};
 }
 
@@ -130,7 +140,10 @@ export interface NewModuleInput {
  *  supply one — mirrors the producer-side stamp pattern established by
  *  `addField` in the reducer. The module appends: the SA creates modules at
  *  the end of the app and reorders them with `moveModule`. */
-export function addModuleMutations(input: NewModuleInput): Mutation[] {
+export function addModuleMutations(
+	input: NewModuleInput,
+	doc?: BlueprintDoc,
+): Mutation[] {
 	const uuid = asUuid(
 		typeof input.uuid === "string" && input.uuid.length > 0
 			? input.uuid
@@ -158,7 +171,12 @@ export function addModuleMutations(input: NewModuleInput): Mutation[] {
 			caseListConfig: input.caseListConfig,
 		}),
 	};
-	return [addModuleMutation(module)];
+	const offered = doc && offeredSearchResultsName(doc, module);
+	return [
+		addModuleMutation(
+			offered ? { ...module, searchResultsName: offered } : module,
+		),
+	];
 }
 
 /** Remove a module (cascades forms + fields via the reducer). No-op when
@@ -168,7 +186,10 @@ export function removeModuleMutations(
 	moduleUuid: Uuid,
 ): Mutation[] {
 	if (doc.modules[moduleUuid] === undefined) return [];
-	return [{ kind: "removeModule", uuid: moduleUuid }];
+	return [
+		...retireCaseFormContextTile(doc, moduleUuid, true),
+		{ kind: "removeModule", uuid: moduleUuid },
+	];
 }
 
 /** Patch module fields. Keys mirror the domain Module shape (camelCase).
@@ -326,7 +347,10 @@ export function addColumnsMutation(
 		detailTail = column.uuid;
 		return mutation;
 	});
-	return { ok: true, mutations };
+	return {
+		ok: true,
+		mutations: withDetailFieldLayout(mod.uuid, config, mutations),
+	};
 }
 
 /**
@@ -371,7 +395,7 @@ export function updateColumnMutation(
 	mutations.push(...columnSortMutations(current, nextColumn, mod.uuid));
 	return {
 		ok: true,
-		mutations,
+		mutations: withDetailFieldLayout(mod.uuid, mod.caseListConfig, mutations),
 	};
 }
 
@@ -393,9 +417,9 @@ export function removeColumnMutation(
 	if ("error" in op) return { error: op.error };
 	return {
 		ok: true,
-		mutations: [
+		mutations: withDetailFieldLayout(mod.uuid, mod.caseListConfig, [
 			{ kind: "removeColumn", moduleUuid: mod.uuid, uuid: columnUuid },
-		],
+		]),
 	};
 }
 
@@ -436,6 +460,12 @@ export function reorderColumnsMutation(
 			? (requested.shift() ?? uuid)
 			: uuid,
 	);
+	if (surface === "detail" && mod.caseListConfig?.detailTabs) {
+		const result = reorderDetailTabFields(mod.uuid, mod.caseListConfig, target);
+		return "error" in result
+			? result
+			: { ok: true, mutations: result.mutations };
+	}
 	const mutations: Mutation[] = sequenceMovesTo(current, target).map((move) => {
 		return {
 			kind: "moveColumn",
@@ -457,11 +487,12 @@ export function addSearchInputsMutation(
 	mod: Module,
 	searchInputs: readonly SearchInputDef[],
 ): CaseListMutationOk {
-	// Each add appends, so emitting them in order lands them in order.
+	const lastGroup = mod.caseListConfig?.searchInputGroups?.at(-1)?.uuid;
+	// New fields enter the last heading so an ordinary add keeps a grouped Search valid.
 	const mutations: Mutation[] = searchInputs.map((searchInput) => ({
 		kind: "addSearchInput",
 		moduleUuid: mod.uuid,
-		searchInput,
+		searchInput: { ...searchInput, ...(lastGroup && { group: lastGroup }) },
 	}));
 	if (
 		mod.caseSearchConfig === undefined ||
@@ -493,7 +524,12 @@ export function updateSearchInputMutation(
 	}
 	return {
 		ok: true,
-		mutations: [planSearchInputUpdate(mod.uuid, current, replacement)],
+		mutations: [
+			planSearchInputUpdate(mod.uuid, current, {
+				...replacement,
+				...(current.group && { group: current.group }),
+			}),
+		],
 	};
 }
 
@@ -522,9 +558,9 @@ export function removeSearchInputMutation(
 						cleanupCaseSearchAfterFinalInputMutation({
 							uuid: mod.uuid,
 							config: mod.caseSearchConfig,
-							hasCasesAvailableCondition:
-								effectiveFilterForEmission(mod.caseListConfig?.filter) !==
-								undefined,
+							hasCasesAvailableCondition: searchContentWithoutInputs(
+								mod.caseListConfig,
+							),
 						}),
 					] satisfies Mutation[])
 				: []),
@@ -569,6 +605,7 @@ export interface NewFormInput {
 	purpose?: string;
 	postSubmit?: PostSubmitDestination;
 	/** Text formatting off for the whole form. */
+	captureLocation?: true;
 	plainText?: true;
 }
 
@@ -603,6 +640,7 @@ export function addFormMutations(
 		type: input.type,
 		...(input.purpose !== undefined && { purpose: input.purpose }),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
+		...(input.captureLocation === true && { captureLocation: true }),
 		...(input.plainText === true && { plainText: true }),
 		...(own !== undefined && { caseOperations: [own] }),
 	};
@@ -629,24 +667,26 @@ export function removeFormMutations(
 }
 
 /**
- * Patch non-Connect form-level fields. Nullable fields (`openCondition`,
- * `closeCondition`, `postSubmit`, `purpose`) follow a convention: passing `null` clears the field (the
- * reducer stores `undefined`), passing a value replaces it, and omitting
- * the key leaves it untouched. Connect participation is deliberately absent;
- * the app-wide target planner owns membership, and a type change is absent
- * too: it carries the form's own case, so `planFormTypeChange` plans it.
+ * Patch form metadata. An explicit null clears an optional field. An omitted
+ * key preserves its value. A type change also changes the form's own case,
+ * so planFormTypeChange owns that edit. Connect activities are form nodes.
  */
 export function updateFormMutations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	patch: Partial<{
-		name: string;
-		openCondition: Form["openCondition"] | null;
-		closeCondition: Form["closeCondition"] | null;
-		postSubmit: PostSubmitDestination | null;
-		purpose: string | null;
-		plainText: true | null;
-	}>,
+	patch: Partial<
+		{
+			name: string;
+			dataRootName: string | null;
+			openCondition: Form["openCondition"] | null;
+			closeCondition: Form["closeCondition"] | null;
+			postSubmit: PostSubmitDestination | null;
+			purpose: string | null;
+			submitLabel: NonNullable<Form["submitLabel"]>;
+			captureLocation: true | null;
+			plainText: true | null;
+		} & Record<FormBehaviorRole, BehaviorText | null>
+	>,
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
 	const mutations: Mutation[] = [];
@@ -654,6 +694,8 @@ export function updateFormMutations(
 		mutations.push({ kind: "renameForm", uuid: formUuid, newId: patch.name });
 	}
 	const reducerPatch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
+	if (patch.dataRootName !== undefined)
+		reducerPatch.dataRootName = patch.dataRootName;
 	if (patch.openCondition !== undefined) {
 		reducerPatch.openCondition =
 			patch.openCondition === null ? null : patch.openCondition;
@@ -669,27 +711,17 @@ export function updateFormMutations(
 	if (patch.purpose !== undefined) {
 		reducerPatch.purpose = patch.purpose === null ? null : patch.purpose;
 	}
+	if (patch.submitLabel !== undefined)
+		reducerPatch.submitLabel = patch.submitLabel;
+	if (patch.captureLocation !== undefined)
+		reducerPatch.captureLocation = patch.captureLocation;
+	for (const role of formBehaviorRoles)
+		if (patch[role] !== undefined) reducerPatch[role] = patch[role];
 	if (patch.plainText !== undefined) reducerPatch.plainText = patch.plainText;
 	if (Object.keys(reducerPatch).length > 0) {
 		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });
 	}
 	return mutations;
-}
-
-/**
- * Refine the complete Connect configuration of an existing participant.
- * This named helper cannot create or remove participation: a form without a
- * live block, or a nullish runtime value from an untyped caller, is refused
- * with an empty plan. App-wide membership transitions use
- * `planConnectTargetState` instead.
- */
-export function refineFormConnectMutations(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	connect: ConnectConfig,
-): Mutation[] {
-	if (doc.forms[formUuid]?.connect === undefined || connect == null) return [];
-	return [{ kind: "updateForm", uuid: formUuid, patch: { connect } }];
 }
 
 // ── Mutation builders — fields ──────────────────────────────────────────

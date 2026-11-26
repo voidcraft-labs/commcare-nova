@@ -1,5 +1,9 @@
 import type { CaseType } from "@/lib/domain";
 import {
+	CASE_INDEX_NAME_PATTERN,
+	declaredCaseRelations,
+} from "@/lib/domain/caseRelations";
+import {
 	ancestorPath,
 	anyRelationPath,
 	type RelationPath,
@@ -7,7 +11,6 @@ import {
 	relationStep,
 	selfPath,
 	subcasePath,
-	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/expression";
 import { humanizeId } from "@/lib/domain/idSlug";
 
@@ -51,7 +54,10 @@ export function kindLabel(kind: RelationKind): string {
 	return KIND_OPTIONS.find((option) => option.value === kind)?.label ?? kind;
 }
 
-export type RelationCaseType = Pick<CaseType, "name" | "parent_type">;
+export type RelationCaseType = Pick<
+	CaseType,
+	"name" | "parent_type" | "relations" | "relationship"
+>;
 
 export function caseTypeLabel(name: string): string {
 	return humanizeId(name);
@@ -60,24 +66,34 @@ export function caseTypeLabel(name: string): string {
 export function directChildCaseTypes(
 	originCaseType: string,
 	caseTypes: readonly RelationCaseType[],
+	identifier = DEFAULT_IDENTIFIER,
 ): RelationCaseType[] {
-	return caseTypes.filter(
-		(caseType) => caseType.parent_type === originCaseType,
+	return caseTypes.filter((type) =>
+		declaredCaseRelations(type).some(
+			(edge) =>
+				edge.identifier === identifier && edge.targetType === originCaseType,
+		),
 	);
 }
 
 export function anyRelatedCaseTypes(
 	originCaseType: string,
 	caseTypes: readonly RelationCaseType[],
+	identifier = DEFAULT_IDENTIFIER,
 ): RelationCaseType[] {
-	const parent = declaredParentCaseType(originCaseType, caseTypes);
-	return [
-		...(parent === undefined ? [] : [parent]),
-		...directChildCaseTypes(originCaseType, caseTypes),
-	].filter(
-		(candidate, index, all) =>
-			all.findIndex((other) => other.name === candidate.name) === index,
+	const origin = caseTypes.find((type) => type.name === originCaseType);
+	const outbound = new Set(
+		origin
+			? declaredCaseRelations(origin)
+					.filter((edge) => edge.identifier === identifier)
+					.map((edge) => edge.targetType)
+			: [],
 	);
+	const children = directChildCaseTypes(originCaseType, caseTypes, identifier);
+	return [
+		...caseTypes.filter((type) => outbound.has(type.name)),
+		...children.filter((type) => !outbound.has(type.name)),
+	];
 }
 
 export function availableCaseTypesForSingleRelation(
@@ -86,23 +102,41 @@ export function availableCaseTypesForSingleRelation(
 	originCaseType: string,
 	caseTypes: readonly RelationCaseType[],
 ): RelationCaseType[] {
-	// `parent` is the only relationship name represented in the case-type
-	// graph. A custom index may target any declared type, including the same
-	// type, so the author must choose explicitly instead of receiving a false
-	// graph-derived default.
-	if (identifier !== DEFAULT_IDENTIFIER) return [...caseTypes];
-	return kind === "subcase"
-		? directChildCaseTypes(originCaseType, caseTypes)
-		: anyRelatedCaseTypes(originCaseType, caseTypes);
+	const candidates =
+		kind === "subcase"
+			? directChildCaseTypes(originCaseType, caseTypes, identifier)
+			: anyRelatedCaseTypes(originCaseType, caseTypes, identifier);
+	// A historical custom index can point to a case no current form writes.
+	return candidates.length === 0 && identifier !== DEFAULT_IDENTIFIER
+		? [...caseTypes]
+		: candidates;
+}
+
+export function forwardCaseTypes(
+	originCaseType: string,
+	identifier: string,
+	caseTypes: readonly RelationCaseType[],
+): RelationCaseType[] {
+	const origin = caseTypes.find((type) => type.name === originCaseType);
+	if (origin === undefined) return [];
+	const targets = new Set(
+		declaredCaseRelations(origin)
+			.filter((edge) => edge.identifier === identifier)
+			.map((edge) => edge.targetType),
+	);
+	return caseTypes.filter((type) => targets.has(type.name));
 }
 
 export function declaredParentCaseType(
 	originCaseType: string,
 	caseTypes: readonly RelationCaseType[],
 ): RelationCaseType | undefined {
-	const origin = caseTypes.find((caseType) => caseType.name === originCaseType);
-	if (origin?.parent_type === undefined) return undefined;
-	return caseTypes.find((caseType) => caseType.name === origin.parent_type);
+	const parents = forwardCaseTypes(
+		originCaseType,
+		DEFAULT_IDENTIFIER,
+		caseTypes,
+	);
+	return parents.length === 1 ? parents[0] : undefined;
 }
 
 export function relationKindIsAvailable(
@@ -116,7 +150,7 @@ export function relationKindIsAvailable(
 		case "ancestor":
 		case "subcase":
 		case "any-relation":
-			// The graph only describes the canonical `parent` index. Saved custom
+			// Unknown historical links may reach a type the app does not write. Saved custom
 			// indexes may reach any declared case type (including a graph leaf), so
 			// direction choices stay available whenever there is a type to choose.
 			return caseTypes.length > 0;
@@ -197,7 +231,7 @@ export function changeKind(
 			: value.kind === "ancestor"
 				? value.via[0].identifier
 				: value.identifier;
-	const identifier = XML_ELEMENT_NAME_PATTERN.test(savedIdentifier)
+	const identifier = CASE_INDEX_NAME_PATTERN.test(savedIdentifier)
 		? savedIdentifier
 		: DEFAULT_IDENTIFIER;
 	const children = availableCaseTypesForSingleRelation(
@@ -382,41 +416,32 @@ export function ancestorStepContexts(
 	originCaseType: string,
 	caseTypes: readonly RelationCaseType[],
 ): readonly AncestorStepContext[] {
-	const caseTypesByName = new Map(
-		caseTypes.map((caseType) => [caseType.name, caseType]),
-	);
-	let currentCaseType: string | undefined = originCaseType;
+	const names = new Set(caseTypes.map((type) => type.name));
+	let origin = originCaseType;
 	return steps.map((step) => {
-		const origin = currentCaseType ?? "";
-		if (step.identifier !== DEFAULT_IDENTIFIER) {
-			const explicitDestination = caseTypesByName.has(
-				step.throughCaseType ?? "",
-			)
-				? step.throughCaseType
+		const candidates = forwardCaseTypes(origin, step.identifier, caseTypes);
+		const selected = step.throughCaseType;
+		const matches =
+			selected !== undefined &&
+			(candidates.some((type) => type.name === selected) ||
+				(candidates.length === 0 &&
+					step.identifier !== DEFAULT_IDENTIFIER &&
+					names.has(selected)));
+		const dest = matches
+			? selected
+			: candidates.length === 1
+				? candidates[0].name
 				: undefined;
-			currentCaseType = explicitDestination;
-			return {
-				originCaseType: origin,
-				parentCaseType: explicitDestination,
-				qualifierIsValid: explicitDestination !== undefined,
-			};
-		}
-		const parentName =
-			currentCaseType === undefined
-				? undefined
-				: caseTypesByName.get(currentCaseType)?.parent_type;
-		const parentCaseType =
-			parentName !== undefined && caseTypesByName.has(parentName)
-				? parentName
-				: undefined;
-		currentCaseType = parentCaseType;
-		return {
+		const context = {
 			originCaseType: origin,
-			parentCaseType,
+			parentCaseType: dest,
 			qualifierIsValid:
-				step.throughCaseType === undefined ||
-				step.throughCaseType === parentCaseType,
+				selected !== undefined
+					? matches
+					: step.identifier === DEFAULT_IDENTIFIER || dest !== undefined,
 		};
+		origin = dest ?? "";
+		return context;
 	});
 }
 
@@ -432,7 +457,7 @@ export function rebuildValidAncestorPath(
 	const contexts = ancestorStepContexts(steps, originCaseType, caseTypes);
 	if (
 		contexts.some((context) => context.parentCaseType === undefined) ||
-		steps.some((step) => !XML_ELEMENT_NAME_PATTERN.test(step.identifier))
+		steps.some((step) => !CASE_INDEX_NAME_PATTERN.test(step.identifier))
 	) {
 		return undefined;
 	}

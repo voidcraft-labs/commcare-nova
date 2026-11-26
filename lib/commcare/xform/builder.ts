@@ -1,5 +1,12 @@
-import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
+import { lookupReadSteps } from "@/lib/commcare/lookup/read";
+import { declaresWebApps } from "@/lib/domain/platforms";
+import {
+	availableCasesNodeset,
+	caseOptionsNodeset,
+	fieldTakesCaseChoices,
+} from "../caseOptions";
 import { caseTypeHopMap } from "../caseTypeDepths";
+import { assertAnswerDataReachesReceiver } from "./submittedData";
 /**
  * XForm XML emitter.
  *
@@ -24,8 +31,7 @@ import { caseTypeHopMap } from "../caseTypeDepths";
  *
  * Walkers consume `doc.fieldOrder[parentUuid]` and `doc.fields[fieldUuid]`,
  * using `doc.fieldOrder[fieldUuid]` being defined as the "this field is a
- * container" marker. The caller supplies the random xmlns and optional
- * Connect config via `BuildXFormOptions`.
+ * container" marker. The caller supplies the random xmlns and runtime context via `BuildXFormOptions`.
  *
  * Every CommCare wire invariant this file encodes — the dual `vellum:*`
  * attribute pattern, markdown-form itext duplication, hashtag-prose
@@ -36,14 +42,16 @@ import { caseTypeHopMap } from "../caseTypeDepths";
  */
 
 import { type ChildNode, type Element, isTag } from "domhandler";
+import { findOne } from "domutils";
+import type { ConnectActivityField } from "@/lib/domain/fields/connectActivity";
 import {
-	effectiveAssessmentUserScore,
-	effectiveDeliverEntities,
-} from "@/lib/commcare/connectDefaults";
-import {
-	connectConfigWritesBlocks,
-	type ResolvedConnectConfig,
-} from "@/lib/commcare/connectSlugs";
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+	CONNECT_XMLNS,
+} from "./connectActivity";
+
+export { CONNECT_BLOCK_SHAPES, CONNECT_XMLNS } from "./connectActivity";
+
 import {
 	el,
 	text,
@@ -88,21 +96,29 @@ import {
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
 	caseScalarTextSiblings,
+	EMPTY_PROSE_TEMPLATE,
 	expressionSlotValue,
 	expressionSlotValues,
 	type Field,
 	type Form,
 	fieldCaseWriteViews,
+	fieldKindCarriesLabelTexts,
 	fieldKindCarriesValidation,
 	helpShowsAsTyped,
 	isCaptureField,
 	isCaptureFieldKind,
 	isContainer,
+	LABEL_TEXT_SLOTS,
+	LABEL_TEXT_WIRE_FORMS,
+	type LabelTextSlot,
 	labelShowsAsTyped,
+	labelTextOf,
 	type Media,
+	makeTranslationUnitId,
 	type ProseAtomPart,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
+	type SelectOption,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -112,9 +128,11 @@ import type {
 	DatumRef,
 	Expression,
 	FormNodeRef,
+	ProseSlotRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { formWireName } from "@/lib/domain/formWireName";
+import type { FIELD_EXTENDED_TEXT_SLOTS } from "@/lib/domain/labelForms";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
@@ -134,6 +152,7 @@ import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
+import { androidAppHeadElements } from "./androidApp";
 import { fieldBindType } from "./bindType";
 import {
 	bindCarriesConstraint,
@@ -145,6 +164,7 @@ import {
 	datetimeCaseValuePath,
 	questionDatetimeCaseValue,
 } from "./datetimeCaseValue";
+import { appendChildren } from "./domSplice";
 import { formCasePropertyRead } from "./formCaseRead";
 import {
 	type FormExpressionEmission,
@@ -156,7 +176,8 @@ import {
 	trimmedValuePath,
 } from "./generatedNodes";
 import {
-	fieldItextKey,
+	behaviorWireIds,
+	fieldTextIds,
 	formItextUnits,
 	itextProseSlot,
 	itextTranslationUnitId,
@@ -166,6 +187,12 @@ interface ItextRegistration {
 	readonly registered: boolean;
 	readonly protectedConstraint?: WireExpr;
 }
+/** A label's other text, written as one more form of the label's entry
+ *  (`lib/domain/labelForms.ts`). */
+interface LabelTextForm {
+	readonly form: LabelTextSlot;
+	readonly ref: ProseSlotRef;
+}
 type AddItext = (
 	id: string,
 	label: ProseTemplate | undefined,
@@ -173,7 +200,34 @@ type AddItext = (
 	force?: boolean,
 	protectConstraint?: boolean,
 	markdown?: boolean,
+	labelTexts?: readonly LabelTextForm[],
+	owner?: Uuid,
 ) => ItextRegistration;
+
+/** `addItext` registering each text as `owner`'s, unless a field nested in it
+ *  already names itself the owner. */
+function ownedItext(addItext: AddItext, owner: Uuid): AddItext {
+	return (
+		id,
+		label,
+		media,
+		force,
+		protectConstraint,
+		markdown,
+		labelTexts,
+		nested,
+	) =>
+		addItext(
+			id,
+			label,
+			media,
+			force,
+			protectConstraint,
+			markdown,
+			labelTexts,
+			nested ?? owner,
+		);
+}
 
 export function whitespaceOutput(
 	value: string,
@@ -301,48 +355,6 @@ export function buildLabelNodes(
 	return nodes;
 }
 
-/** The namespace each Connect block's own element is in. */
-export const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
-
-/**
- * Each Connect block as `buildConnectBlocks` writes it: the wrapper's
- * `vellum:role`, the block's own element, and its leaves in order, the
- * layout HQ's form builder gives each Connect question
- * (`commcareConnect.js`, each mug's `childNodes`). The reader of CommCare
- * HQ's forms reads a block against this same layout.
- */
-export const CONNECT_BLOCK_SHAPES = {
-	learn_module: {
-		role: "ConnectLearnModule",
-		element: "module",
-		leaves: ["name", "description", "time_estimate"],
-	},
-	assessment: {
-		role: "ConnectAssessment",
-		element: "assessment",
-		leaves: ["user_score"],
-	},
-	deliver_unit: {
-		role: "ConnectDeliverUnit",
-		element: "deliver",
-		leaves: ["name", "entity_id", "entity_name", "work_area_id"],
-	},
-	task: {
-		role: "ConnectTask",
-		element: "task",
-		leaves: ["name", "description"],
-	},
-} as const satisfies Readonly<
-	Record<
-		string,
-		{
-			readonly role: string;
-			readonly element: string;
-			readonly leaves: readonly string[];
-		}
-	>
->;
-
 /** A Connect block's wrapper named `id`, its own element and its leaves in the order its
  *  shape gives, each leaf holding the text `texts` gives it, or nothing. The reader of CommCare
  *  HQ's forms holds a stored block only where this builds it whole. */
@@ -366,206 +378,60 @@ export function connectBlockData(
 	]);
 }
 
-/**
- * Build the Connect data blocks + matching binds for a form.
- *
- * Each Connect entity uses a two-level wrapper Vellum recognizes via the
- * `vellum:role` attribute: without it, HQ treats the wrapper as a plain
- * hidden XForm node and the child binds (user_score, entity_id, etc.)
- * fail at runtime. Each wrapper gets its own `vellum:nodeset` bind plus
- * a bind per declared sub-node so CommCare has paths to write to.
- */
-export function buildConnectBlocks(
-	connect: ResolvedConnectConfig | undefined,
+/** Vellum writes a wrapper bind and one bind for each calculated child.
+ * An unconfigured delivery value has a bare bind and an empty data leaf. */
+function buildActivityParts(
+	field: ConnectActivityField,
+	path: FormPath,
+	data: Element[],
+	binds: Element[],
 	context: WireElementContext,
 	expressions: FormExpressionEmission,
-): { dataElements: Element[]; binds: Element[] } {
-	const dataElements: Element[] = [];
-	const binds: Element[] = [];
-
-	if (!connectConfigWritesBlocks(connect)) return { dataElements, binds };
-
-	if (connect.learn_module) {
-		const lm = connect.learn_module;
-		// `lm.id` is the connect block's id — already a valid, unique, ≤50
-		// slug (forced correct at the source; the resolver only passed it
-		// through). It threads identically into the wrapper element name, the
-		// `id=` attribute, and the bind nodeset below, so all three references
-		// to this block always agree.
-		const lmId = lm.id;
-		const lmPath = FormPath.root().child(lmId);
-		dataElements.push(
-			connectBlockData(CONNECT_BLOCK_SHAPES.learn_module, lmId, {
-				name: lm.name,
-				description: lm.description,
-				time_estimate: String(lm.time_estimate),
-			}),
-		);
+): void {
+	const content = activityWireContent(field.activity);
+	const shape = CONNECT_BLOCK_SHAPES[content.block];
+	data.push(connectBlockData(shape, field.id, content.texts));
+	const wrapper: NonNullable<WireElementSpec<"bind">["xpath"]> = {
+		"vellum:nodeset": path.toWire("hashtag"),
+		nodeset: path.toWire(),
+	};
+	if (field.relevant !== undefined) {
+		const relevant = expressions.lower(field.relevant, {
+			entity: "field",
+			uuid: field.uuid,
+			slot: "relevant",
+		});
+		wrapper.relevant = relevant;
+		wrapper["vellum:relevant"] = relevant;
+	}
+	binds.push(xel("bind", { xpath: wrapper }, context));
+	for (const { leaf, expression, slot } of content.calculations) {
+		const nodeset = path.child(shape.element).child(leaf).toWire();
+		const calculate =
+			expression === undefined
+				? undefined
+				: expressions.lower(expression, {
+						entity: "field",
+						uuid: field.uuid,
+						slot,
+					});
 		binds.push(
 			xel(
 				"bind",
-				{
-					xpath: {
-						"vellum:nodeset": lmPath.toWire("hashtag"),
-						nodeset: lmPath.toWire(),
-					},
-				},
+				{ xpath: { nodeset, ...(calculate && { calculate }) } },
 				context,
 			),
 		);
 	}
-
-	if (connect.assessment) {
-		const assessId = connect.assessment.id;
-		// `user_score` is optional in the domain. `effectiveAssessmentUserScore`
-		// resolves it against the canonical default — same helper the
-		// session-preload builder calls, so the bind XML and the
-		// case-references load map agree on which XPath actually runs at
-		// form-fill time.
-		const userScore = effectiveAssessmentUserScore(connect.assessment);
-		const assessPath = FormPath.root().child(assessId);
-		dataElements.push(
-			connectBlockData(CONNECT_BLOCK_SHAPES.assessment, assessId, {}),
-		);
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						"vellum:nodeset": assessPath.toWire("hashtag"),
-						nodeset: assessPath.toWire(),
-					},
-				},
-				context,
-			),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: assessPath
-							.child("assessment")
-							.child("user_score")
-							.toWire(),
-						calculate: expressions.lower(userScore, {
-							entity: "form",
-							uuid: expressions.form.formUuid,
-							slot: "assessment_user_score",
-						}),
-					},
-				},
-				context,
-			),
-		);
-	}
-
-	if (connect.deliver_unit) {
-		const du = connect.deliver_unit;
-		const duId = du.id;
-		// `entity_id` / `entity_name` are optional in the domain.
-		// `effectiveDeliverEntities` resolves them against the canonical
-		// defaults — same helper the session-preload builder calls, so
-		// the bind XML and the case-references load map agree on which
-		// XPaths actually run at form-fill time.
-		const { entityId, entityName } = effectiveDeliverEntities(du);
-		const duPath = FormPath.root().child(duId);
-		// HQ's form builder lists `work_area_id` after `entity_name` and writes
-		// it with a bare bind (`commcareConnect.js`,
-		// `ConnectDeliverUnit.childNodes`); Connect reads the empty value as no
-		// work area (`form_receiver/processor.py::process_deliver_unit`).
-		dataElements.push(
-			connectBlockData(CONNECT_BLOCK_SHAPES.deliver_unit, duId, {
-				name: du.name,
-			}),
-		);
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						"vellum:nodeset": duPath.toWire("hashtag"),
-						nodeset: duPath.toWire(),
-					},
-				},
-				context,
-			),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: duPath.child("deliver").child("entity_id").toWire(),
-						calculate: expressions.lower(entityId, {
-							entity: "form",
-							uuid: expressions.form.formUuid,
-							slot: "deliver_entity_id",
-						}),
-					},
-				},
-				context,
-			),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: duPath.child("deliver").child("entity_name").toWire(),
-						calculate: expressions.lower(entityName, {
-							entity: "form",
-							uuid: expressions.form.formUuid,
-							slot: "deliver_entity_name",
-						}),
-					},
-				},
-				context,
-			),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: duPath.child("deliver").child("work_area_id").toWire(),
-					},
-				},
-				context,
-			),
-		);
-	}
-
-	if (connect.task) {
-		const t = connect.task;
-		const taskId = t.id;
-		const taskPath = FormPath.root().child(taskId);
-		dataElements.push(
-			connectBlockData(CONNECT_BLOCK_SHAPES.task, taskId, {
-				name: t.name,
-				description: t.description,
-			}),
-		);
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						"vellum:nodeset": taskPath.toWire("hashtag"),
-						nodeset: taskPath.toWire(),
-					},
-				},
-				context,
-			),
-		);
-	}
-
-	return { dataElements, binds };
 }
 
-/**
- * Options threaded into `buildXForm`. `xmlns` is the random instance
- * namespace HQ expects on every form (generated once per form by the
- * expander); `connect` is the resolved Connect config to embed (the
- * pass-through output of `buildConnectSlugMap`, whose ids are valid by
- * construction at the source) — omitted when the app-level `connectType` is
- * unset or the form carries no Connect block.
- */
+/** The form namespace and each external context used by its emitter. */
 export interface BuildXFormOptions {
+	/** A reading compares even a form whose submitted answers are being refused. The export and device paths check the emitted primary data. */
+	readonly readingComparison?: true;
+	/** Device builds may install an ordered subset of the app languages. */
+	readonly installationProfileUuid?: Uuid;
 	xmlns: string;
-	connect?: ResolvedConnectConfig;
 	/**
 	 * The owning module's case type — the form's own loaded case. Drives the
 	 * reachable-case-type depth map so `#<case_type>/<prop>` refs resolve to the
@@ -583,6 +449,9 @@ export interface BuildXFormOptions {
 	 */
 	searchAnswers?: {
 		readonly instanceId: `search-input:${string}`;
+		readonly answers?: ReadonlyMap<Uuid, `search-input:${string}`>;
+		readonly instances?: ReadonlyMap<Uuid, `results:${string}`>;
+		readonly resultsInstanceId?: `results:${string}`;
 		readonly names: ReadonlyMap<Uuid, string>;
 	};
 	/** Canonical authored ownership before a wire-only menu placement. */
@@ -716,10 +585,10 @@ export function inDataTreeOrder(
 			if (isTag(child)) visit(child, path.child(child.name));
 		}
 	};
-	visit(data, FormPath.root());
+	visit(data, FormPath.root(data.name));
 	const at = (setvalue: Element): number => {
 		const ref = setvalue.attribs.ref ?? "";
-		const target = FormPath.parse(ref);
+		const target = FormPath.parse(ref, data.name);
 		return (
 			position.get(
 				(target.endsInAttribute() ? target.parent() : target).toXPath(),
@@ -823,6 +692,10 @@ export function buildXForm(
 	return buildXFormSource(doc, formUuid, opts).xml;
 }
 
+const BEHAVIOR_WIRE_IDS: ReadonlySet<string> = new Set(
+	Object.values(behaviorWireIds),
+);
+
 /**
  * Emit the full XForm XML for `formUuid` and its Save to Case references.
  * Walks the form's field order (plus any container children), accumulates
@@ -831,12 +704,13 @@ export function buildXForm(
  * `case_references_data.save` map from that tree, and serializes the tree
  * once.
  */
+
 export function buildXFormSource(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	opts: BuildXFormOptions,
 ): XFormSource {
-	const localization = commCareLocalization(doc);
+	const localization = commCareLocalization(doc, opts.installationProfileUuid);
 
 	// The case types this form can READ, name → the index walk from its own
 	// case (own = no hop, parent = one, …). Built from the owning module's case
@@ -849,7 +723,11 @@ export function buildXFormSource(
 	const caseTypeHops = caseTypeHopMap(doc, opts.moduleCaseType);
 	const instances = new InstanceSink();
 	const context: WireElementContext = {
-		mode: { target: "xform", constraint: false },
+		mode: {
+			target: "xform",
+			constraint: false,
+			formRootName: doc.forms[formUuid]?.dataRootName,
+		},
 		instances,
 	};
 	const lookupSelects = deriveLookupSelectKit(
@@ -883,6 +761,9 @@ export function buildXFormSource(
 				? {}
 				: {
 						searchInputInstanceId: opts.searchAnswers.instanceId,
+						searchAnswerInstances: opts.searchAnswers.answers,
+						searchResultInstances: opts.searchAnswers.instances,
+						searchResultInstance: opts.searchAnswers.resultsInstanceId,
 						searchInputNames: opts.searchAnswers.names,
 					}),
 			datumId: (ref) => {
@@ -949,6 +830,10 @@ export function buildXFormSource(
 	// option label is `force`d: each `<item>` needs its `<label>`, and the
 	// validator refuses a written choice with no label and no media
 	// (`SELECT_OPTION_LABEL_EMPTY`) before emission.
+	// A form behavior text shared by several slots is one itext entry under its
+	// pragma id; each further slot only references it.
+	const writtenBehaviorIds = new Set<string>();
+	const itextOwners = new Map<Element, Uuid | undefined>();
 	const addItext: AddItext = (
 		id: string,
 		label: ProseTemplate | undefined,
@@ -956,6 +841,8 @@ export function buildXFormSource(
 		force = false,
 		protectConstraint = false,
 		markdown = true,
+		labelTexts: readonly LabelTextForm[] = [],
+		owner?: Uuid,
 	): ItextRegistration => {
 		// Every localized prose value contributes instance reads when its output
 		// attributes are serialized; untranslated or unused text declares nothing.
@@ -977,44 +864,100 @@ export function buildXFormSource(
 				? sourceTemplate
 				: localization.prose(language, unitId),
 		);
+		// Each of the label's other texts, by language, written in every
+		// language wherever the field holds it, a blank one included: Core reads
+		// a present form as it stands, so a blank `long` shows a blank caption,
+		// a blank `qrcode` still takes the image's place and a blank `tts` still
+		// shows the speaker button (`FormEntryCaption.getLongText`,
+		// `MediaLayout.setAVT`), and HQ's form builder keeps a blank form of a
+		// text that holds another (`javaRosa/util.js::getItextItemsFromMugs`
+		// drops only an item empty in every form). A language's blank is filled
+		// from another's first (`translationFill.ts`), as the form builder's
+		// save fills it (`ItextForm.getValueOrDefault`).
+		const otherForms = labelTexts.map(({ form, ref }) => {
+			const unit =
+				"member" in ref
+					? makeTranslationUnitId(
+							"field",
+							ref.uuid,
+							"option_extended_text",
+							ref.member.optionUuid,
+						)
+					: makeTranslationUnitId("field", ref.uuid, ref.slot);
+			return {
+				form: LABEL_TEXT_WIRE_FORMS[form],
+				templates: localization.languages.map((language) =>
+					localization.prose(language, unit),
+				),
+				lower: (part: ProseAtomPart): WireExpr => expressions.prose(part, ref),
+			};
+		});
 		if (
 			!force &&
 			localizedTemplates.every(proseTemplateIsEmpty) &&
-			sourceMediaValues.length === 0
+			sourceMediaValues.length === 0 &&
+			otherForms.length === 0
 		)
 			return { registered: false };
+		const extended = otherForms.find((extra) => extra.form === "long");
 		const protectedMessage = protectConstraint
 			? protectConstraintMessage(
 					id,
 					localization.languages.map((language, index) => ({
 						language,
-						template: localizedTemplates[index] ?? sourceTemplate,
+						template:
+							extended?.templates[index] ??
+							localizedTemplates[index] ??
+							sourceTemplate,
 					})),
-					lowerProse,
+					extended?.lower ?? lowerProse,
 				)
 			: undefined;
+		if (BEHAVIOR_WIRE_IDS.has(id)) {
+			if (writtenBehaviorIds.has(id))
+				return {
+					registered: true,
+					protectedConstraint: protectedMessage?.expression,
+				};
+			writtenBehaviorIds.add(id);
+		}
 		for (const [index, language] of localization.languages.entries()) {
 			const languageEntries = itextEntries.get(language);
 			if (languageEntries === undefined) {
 				throw new Error(`Missing XForm itext table for ${language}.`);
 			}
 			const labelTemplate = localizedTemplates[index] ?? sourceTemplate;
-			languageEntries.push(
-				el("text", { id }, [
-					el("value", {}, buildLabelNodes(labelTemplate, lowerProse, context)),
-					...(markdown
-						? [
-								el(
-									"value",
-									{ form: "markdown" },
-									buildLabelNodes(labelTemplate, lowerProse, context),
-								),
-							]
-						: []),
-					...itextMediaValues(media, opts.assets, "buildXForm"),
-					...(protectedMessage?.forms.get(language) ?? []),
-				]),
-			);
+			const entry = el("text", { id }, [
+				el("value", {}, buildLabelNodes(labelTemplate, lowerProse, context)),
+				...(markdown
+					? [
+							el(
+								"value",
+								{ form: "markdown" },
+								buildLabelNodes(labelTemplate, lowerProse, context),
+							),
+						]
+					: []),
+				...otherForms.map(({ form, templates, lower }) =>
+					el(
+						"value",
+						{ form },
+						buildLabelNodes(
+							templates[index] ?? EMPTY_PROSE_TEMPLATE,
+							lower,
+							context,
+						),
+					),
+				),
+				...itextMediaValues(
+					localization.media(language, media),
+					opts.assets,
+					"buildXForm",
+				),
+				...(protectedMessage?.forms.get(language) ?? []),
+			]);
+			itextOwners.set(entry, owner);
+			languageEntries.push(entry);
 		}
 		return {
 			registered: true,
@@ -1042,15 +985,17 @@ export function buildXFormSource(
 
 	// The form's text formatting switch, read beside each text's own setting.
 	const textForm: Pick<Form, "plainText"> = doc.forms[formUuid] ?? {};
-	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
+	const controls = new Map<Uuid, readonly Element[]>();
+	for (const fieldUuid of expressions.form.fieldOrder.get(formUuid) ?? []) {
+		const ownBody: Element[] = [];
 		buildFieldParts(
 			doc,
 			fieldUuid,
-			FormPath.root(),
+			FormPath.root(doc.forms[formUuid]?.dataRootName),
 			dataElements,
 			binds,
 			setvalues,
-			bodyElements,
+			ownBody,
 			false,
 			addItext,
 			context,
@@ -1061,13 +1006,11 @@ export function buildXFormSource(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
+		if (ownBody.length > 0) controls.set(fieldUuid, ownBody);
 	}
-
-	// Connect data + binds are data-only (no body elements).
-	const connectParts = buildConnectBlocks(opts.connect, context, expressions);
-	dataElements.push(...connectParts.dataElements);
-	binds.push(...connectParts.binds);
+	bodyElements.push(...orderedControls(doc, formUuid, controls));
 
 	// `<h:title>` and the data node's `name` both carry the form's name in
 	// the app's default language, the name HQ's form builder writes into both
@@ -1077,11 +1020,12 @@ export function buildXFormSource(
 
 	// Assemble the model: primary instance (the data tree), then the
 	// accumulated secondary instances, binds, setvalues, and the itext block.
+	const androidAppActions = androidAppHeadElements(doc, expressions, context);
 	// Element ORDER within the model is significant to JavaRosa's parse, so it
 	// mirrors the prior emitter's sequence exactly: instance → secondary
 	// instances → binds → setvalues → itext.
 	const dataEl = el(
-		"data",
+		doc.forms[formUuid]?.dataRootName ?? "data",
 		{
 			xmlns: opts.xmlns,
 			"xmlns:jrm": "http://dev.commcarehq.org/jr/xforms",
@@ -1125,6 +1069,8 @@ export function buildXFormSource(
 		binds.push(...owners.binds);
 	}
 
+	if (!opts.readingComparison)
+		assertAnswerDataReachesReceiver(dataEl, declaresWebApps(doc));
 	const modelChildren: ChildNode[] = [
 		el("instance", {}, [dataEl]),
 		...instances
@@ -1146,7 +1092,11 @@ export function buildXFormSource(
 							? { default: "" }
 							: {}),
 					},
-					itextEntries.get(language) ?? [],
+					orderedItext(
+						itextEntries.get(language) ?? [],
+						itextOwners,
+						screenRanks(doc, formUuid),
+					),
 				),
 			),
 		]),
@@ -1159,6 +1109,7 @@ export function buildXFormSource(
 	const headChildren: ChildNode[] = [
 		el("h:title", {}, [text(wireName)]),
 		el("model", {}, modelChildren),
+		...androidAppActions,
 	];
 	const body = el("h:body", {}, bodyElements);
 	if (caseOperations !== null) {
@@ -1201,14 +1152,7 @@ export function buildXFormSource(
  * Read the inline arm of a select field's final options-source union.
  * Lookup-backed selects emit an itemset and therefore have no inline choices.
  */
-function readOptions(field: Field):
-	| Array<{
-			value: string;
-			label: ProseTemplate;
-			media?: Media;
-			plainLabel?: true;
-	  }>
-	| undefined {
+function readOptions(field: Field): SelectOption[] | undefined {
 	if (
 		(field.kind !== "single_select" && field.kind !== "multi_select") ||
 		field.optionsSource.kind !== "inline"
@@ -1268,8 +1212,12 @@ function buildFieldParts(
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
 	textForm: Pick<Form, "plainText">,
+	controls: Map<Uuid, readonly Element[]>,
 ): void {
 	const field = doc.fields[fieldUuid];
+	// Each text this field registers is the field's own, for the order the
+	// form designer writes texts in (`orderedItext`).
+	const itext = ownedItext(addItext, fieldUuid);
 	const lookupSource =
 		(field.kind === "single_select" || field.kind === "multi_select") &&
 		field.optionsSource.kind === "lookup"
@@ -1281,11 +1229,26 @@ function buildFieldParts(
 		);
 	}
 	const nodePath = parentPath.child(field.id);
+	if (field.kind === "case_change") {
+		// The case-operation emitter fills this node in-place after the
+		// submitted tree has been built.
+		dataElements.push(el(field.id, {}));
+		return;
+	}
+	if (field.kind === "connect_activity") {
+		buildActivityParts(
+			field,
+			nodePath,
+			dataElements,
+			binds,
+			context,
+			expressions,
+		);
+		return;
+	}
 	// Itext identity follows logical authored ancestry, shared with parsing
 	// and expression printing even when physical repeats add an item node.
-	const itextKey = fieldItextKey(expressions.form, fieldUuid);
-	if (itextKey === undefined)
-		throw new Error(`Field ${fieldUuid} has no reachable itext identity.`);
+	const textId = fieldTextIds(expressions.form, fieldUuid);
 
 	const relevant = expressionSlotValue(doc, {
 		entity: "field",
@@ -1349,44 +1312,85 @@ function buildFieldParts(
 		textForm,
 		"plainHelp" in field ? field : {},
 	);
+	const labelTexts: LabelTextForm[] = fieldKindCarriesLabelTexts(field.kind)
+		? LABEL_TEXT_SLOTS.filter(
+				(slot) => labelTextOf(field, slot) !== undefined,
+			).map((slot) => ({
+				form: slot,
+				ref: { entity: "field", uuid: fieldUuid, slot },
+			}))
+		: [];
+	const extendedText = (
+		slot: (typeof FIELD_EXTENDED_TEXT_SLOTS)[keyof typeof FIELD_EXTENDED_TEXT_SLOTS],
+	): LabelTextForm[] =>
+		carrier[slot] === undefined
+			? []
+			: [
+					{
+						form: "extended_text",
+						ref: { entity: "field", uuid: fieldUuid, slot },
+					},
+				];
 	const hasLabel =
 		field.kind !== "hidden" &&
-		addItext(
-			`${itextKey}-label`,
+		itext(
+			textId("label"),
 			label,
 			labelMedia,
 			false,
 			false,
 			labelMarkdown,
+			labelTexts,
 		).registered;
 	const hasHint =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-hint`, hint, undefined, false, false, false)
-			.registered;
+		itext(
+			textId("hint"),
+			hint,
+			undefined,
+			false,
+			false,
+			false,
+			extendedText("extended_hint"),
+		).registered;
 	const hasHelp =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-help`, help, helpMedia, false, false, helpMarkdown)
-			.registered;
+		itext(
+			textId("help"),
+			help,
+			helpMedia,
+			false,
+			false,
+			helpMarkdown,
+			extendedText("extended_help"),
+		).registered;
 	// A message no constraint can fail is never shown, so none is written.
 	const validationMessage = bindCarriesConstraint(
 		field.kind,
 		validate,
 		scalarGuard,
 	)
-		? addItext(
-				`${itextKey}-constraintMsg`,
+		? itext(
+				textId("constraintMsg"),
 				validateMsg,
 				undefined,
 				false,
 				true,
 				false,
+				extendedText("extended_validate_msg"),
 			)
 		: { registered: false };
 	const hasValidationMessage = validationMessage.registered;
 
 	// Containers replace this placeholder after assembling their children.
 	const dataSlot = dataElements.length;
-	dataElements.push(el(field.id, {}));
+	const dataAttributes: Record<string, string> = {};
+	if (field.kind === "hidden") {
+		if (field.answerNamespace !== undefined)
+			dataAttributes.xmlns = field.answerNamespace;
+		if (field.lockedInHq) dataAttributes["vellum:lock"] = "all";
+	}
+	dataElements.push(el(field.id, dataAttributes));
 
 	// Both runtime and editor attributes serialize the same typed expression.
 	// The Vellum serializer decides whether that expression has an editor spelling.
@@ -1395,7 +1399,8 @@ function buildFieldParts(
 		slot: "required" | "relevant" | "calculate" | "default_value" | "validate",
 	) =>
 		expressions.lower(expression, { entity: "field", uuid: fieldUuid, slot });
-	const bindAttributes: Record<string, string> = {};
+	const bindAttributes: Record<string, string> =
+		field.lockedInHq && field.kind !== "hidden" ? { "vellum:lock": "all" } : {};
 	const bindXPath: NonNullable<WireElementSpec<"bind">["xpath"]> = {
 		"vellum:nodeset": nodePath.toWire("hashtag"),
 		nodeset: nodePath.toWire(),
@@ -1498,7 +1503,7 @@ function buildFieldParts(
 	if (hasValidationMessage) {
 		bindXPath["jr:constraintMsg"] =
 			validationMessage.protectedConstraint ??
-			w.call("jr:itext", [w.str(`${itextKey}-constraintMsg`)]);
+			w.call("jr:itext", [w.str(textId("constraintMsg"))]);
 	}
 
 	if (relevant) {
@@ -1687,7 +1692,7 @@ function buildFieldParts(
 	// Options (select kinds).
 	//
 	// itext ids are keyed by the option's stable array INDEX, not its `value` —
-	// `${itextKey}-opt${index}-label`. Two options may legally share a `value`
+	// textId(`opt${index}-label`). Two options may legally share a `value`
 	// (the domain's `selectOptionSchema` is `{ value, label }` with no
 	// uniqueness constraint), but a value-keyed itext id would then collapse
 	// both onto one id. CommCare's XForm parser hard-rejects a duplicate itext
@@ -1708,13 +1713,26 @@ function buildFieldParts(
 			// so the body-ref-iff-entry invariant forbids skipping the
 			// registration even for an empty option label — a dangling ref
 			// is parse-fatal in `verifyTextMappings`.
-			addItext(
-				`${itextKey}-opt${index}-label`,
+			itext(
+				textId(`opt${index}-label`),
 				opt.label,
 				opt.media,
 				true,
 				false,
 				!labelShowsAsTyped(textForm, opt),
+				opt.extended_text === undefined
+					? []
+					: [
+							{
+								form: "extended_text",
+								ref: {
+									entity: "field",
+									uuid: fieldUuid,
+									slot: "option_extended_text",
+									member: { optionUuid: opt.uuid },
+								},
+							},
+						],
 			);
 		});
 	}
@@ -1730,7 +1748,7 @@ function buildFieldParts(
 			field,
 			fieldUuid,
 			nodePath,
-			itextKey,
+			textId,
 			hasLabel,
 			relevant,
 			insideRepeat,
@@ -1740,7 +1758,7 @@ function buildFieldParts(
 			binds,
 			setvalues,
 			bodyElements,
-			addItext,
+			itext,
 			context,
 			expressions,
 			assets,
@@ -1749,6 +1767,7 @@ function buildFieldParts(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
 		return;
 	}
@@ -1762,37 +1781,59 @@ function buildFieldParts(
 		: undefined;
 	let caseItemset: Element | undefined;
 	if (caseSource) {
-		const nodeset = caseOptionsNodeset(
-			caseSource,
-			expressions.context({
-				entity: "field",
-				uuid: fieldUuid,
-				slot: "lookup_options_source",
-			}),
-			{
-				formFields: lookupSelects?.filterFieldPaths(nodePath),
-				formCaseProperty: lookupSelects?.formCaseProperty,
-				userPropertySlugs: userPropertySlugsByUuid(doc),
-				...(lookupSelects?.naming && {
-					lookup: {
-						naming: lookupSelects.naming,
-						instanceScope: "xform" as const,
-					},
-				}),
-			},
-			expressions.projection,
-		);
+		const nodeset =
+			caseSource.kind === "available-cases"
+				? availableCasesNodeset(caseSource.status)
+				: caseOptionsNodeset(
+						caseSource,
+						expressions.context({
+							entity: "field",
+							uuid: fieldUuid,
+							slot: "lookup_options_source",
+						}),
+						{
+							formFields: lookupSelects?.filterFieldPaths(nodePath),
+							formCaseProperty: lookupSelects?.formCaseProperty,
+							userPropertySlugs: userPropertySlugsByUuid(doc),
+							...(lookupSelects?.naming && {
+								lookup: {
+									naming: lookupSelects.naming,
+									instanceScope: "xform" as const,
+								},
+							}),
+						},
+						expressions.projection,
+					);
 		caseItemset = xel("itemset", { xpath: { nodeset } }, context, [
 			xel(
 				"label",
 				{
 					xpath: {
-						ref: w.context([casePropertyStep(caseSource.labelProperty)]),
+						ref: w.context([
+							casePropertyStep(
+								caseSource.kind === "cases"
+									? caseSource.labelProperty
+									: "case_name",
+							),
+						]),
 					},
 				},
 				context,
 			),
 			xel("value", { xpath: { ref: w.context([w.attr("case_id")]) } }, context),
+			...(caseSource.kind !== "cases" || caseSource.sortProperty === undefined
+				? []
+				: [
+						xel(
+							"sort",
+							{
+								xpath: {
+									ref: w.context([casePropertyStep(caseSource.sortProperty)]),
+								},
+							},
+							context,
+						),
+					]),
 		]);
 	}
 	const itemset =
@@ -1811,13 +1852,14 @@ function buildFieldParts(
 		buildLeafControl(
 			field,
 			nodePath,
-			itextKey,
+			textId,
 			hasLabel,
 			hasHint,
 			hasHelp,
 			hasValidationMessage &&
 				validationMessage.protectedConstraint === undefined,
 			context,
+			fieldAppearance(field, doc.fields),
 			itemset,
 		),
 	);
@@ -1845,7 +1887,7 @@ function buildFieldParts(
 					"label",
 					{
 						xpath: {
-							ref: w.call("jr:itext", [w.str(`${itextKey}-constraintMsg`)]),
+							ref: w.call("jr:itext", [w.str(textId("constraintMsg"))]),
 						},
 					},
 					context,
@@ -1947,7 +1989,7 @@ function buildLookupItemset(
 				"label",
 				{
 					xpath: {
-						ref: w.context([w.step(table.wireNameFor(source.labelColumnId))]),
+						ref: w.context(lookupReadSteps(table, source.labelColumnId)),
 					},
 				},
 				context,
@@ -1956,11 +1998,27 @@ function buildLookupItemset(
 				"value",
 				{
 					xpath: {
-						ref: w.context([w.step(table.wireNameFor(source.valueColumnId))]),
+						ref: w.context(lookupReadSteps(table, source.valueColumnId)),
 					},
 				},
 				context,
 			),
+			// Core orders the choices by this row-relative read's text
+			// (`ItemsetBinding.sortChoices`); HQ's form builder keeps it after the
+			// value (Vellum `itemset.js::writeCustomXML`).
+			...(source.sortColumnId === undefined
+				? []
+				: [
+						xel(
+							"sort",
+							{
+								xpath: {
+									ref: w.context(lookupReadSteps(table, source.sortColumnId)),
+								},
+							},
+							context,
+						),
+					]),
 		],
 	);
 }
@@ -1986,12 +2044,13 @@ function buildLookupItemset(
 function buildLeafControl(
 	field: Field,
 	nodePath: FormPath,
-	itextKey: string,
+	textId: (suffix: string) => string,
 	hasLabel: boolean,
 	hasHint: boolean,
 	hasHelp: boolean,
 	hasValidationMessage: boolean,
 	context: WireElementContext,
+	appearance: string | undefined,
 	itemset?: Element,
 ): Element {
 	// The shared head of every control: the label reference, then the optional
@@ -2004,7 +2063,7 @@ function buildLeafControl(
 		head.push(
 			xel(
 				"label",
-				{ xpath: { ref: w.call("jr:itext", [w.str(`${itextKey}-label`)]) } },
+				{ xpath: { ref: w.call("jr:itext", [w.str(textId("label"))]) } },
 				context,
 			),
 		);
@@ -2012,7 +2071,7 @@ function buildLeafControl(
 		head.push(
 			xel(
 				"hint",
-				{ xpath: { ref: w.call("jr:itext", [w.str(`${itextKey}-hint`)]) } },
+				{ xpath: { ref: w.call("jr:itext", [w.str(textId("hint"))]) } },
 				context,
 			),
 		);
@@ -2020,7 +2079,7 @@ function buildLeafControl(
 		head.push(
 			xel(
 				"help",
-				{ xpath: { ref: w.call("jr:itext", [w.str(`${itextKey}-help`)]) } },
+				{ xpath: { ref: w.call("jr:itext", [w.str(textId("help"))]) } },
 				context,
 			),
 		);
@@ -2033,7 +2092,7 @@ function buildLeafControl(
 				"alert",
 				{
 					xpath: {
-						ref: w.call("jr:itext", [w.str(`${itextKey}-constraintMsg`)]),
+						ref: w.call("jr:itext", [w.str(textId("constraintMsg"))]),
 					},
 				},
 				context,
@@ -2041,7 +2100,6 @@ function buildLeafControl(
 		);
 	}
 	const ref = nodePath.toWire();
-	const appearance = fieldAppearance(field);
 	const attributes: Record<string, string> =
 		appearance === undefined ? {} : { appearance };
 
@@ -2067,7 +2125,7 @@ function buildLeafControl(
 					"label",
 					{
 						xpath: {
-							ref: w.call("jr:itext", [w.str(`${itextKey}-opt${index}-label`)]),
+							ref: w.call("jr:itext", [w.str(textId(`opt${index}-label`))]),
 						},
 					},
 					context,
@@ -2099,6 +2157,8 @@ function buildLeafControl(
 			mediatype: UPLOAD_MEDIATYPE_BY_CAPTURE_KIND[field.kind],
 			...attributes,
 		};
+		if (field.kind === "image" && field.maxDimension !== undefined)
+			uploadAttribs["jr:imageDimensionScaledMax"] = `${field.maxDimension}px`;
 		return xel(
 			"upload",
 			{ attributes: uploadAttribs, xpath: { ref } },
@@ -2134,7 +2194,7 @@ function buildContainer(
 	field: Field,
 	fieldUuid: Uuid,
 	nodePath: FormPath,
-	itextKey: string,
+	textId: (suffix: string) => string,
 	hasLabel: boolean,
 	relevant: Expression | undefined,
 	insideRepeat: boolean,
@@ -2153,6 +2213,7 @@ function buildContainer(
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
 	textForm: Pick<Form, "plainText">,
+	controls: Map<Uuid, readonly Element[]>,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -2174,7 +2235,33 @@ function buildContainer(
 	const childParentPath =
 		queryRepeat === undefined ? nodePath : nodePath.queryBoundIteration();
 
-	for (const childUuid of orderedFieldUuids(doc, fieldUuid)) {
+	// A repeat's add captions are its own texts, registered before its
+	// children's, where the form builder writes them: each question's label,
+	// hint, help, validation message and then its captions, in question order
+	// (`javaRosa/util.js::ITEXT_PROPERTIES`, `forEachItextItem`), so a save in
+	// it keeps the texts' order.
+	const captions: Element[] = [];
+	if (field.kind === "repeat")
+		for (const [slot, suffix, tag] of [
+			["addFirstLabel", "add-empty-caption", "jr:addEmptyCaption"],
+			["addLabel", "add-caption", "jr:addCaption"],
+		] as const) {
+			const id = textId(suffix);
+			if (
+				addItext(id, field[slot], undefined, false, false, false).registered
+			) {
+				captions.push(
+					xel(
+						tag,
+						{ xpath: { ref: w.call("jr:itext", [w.str(id)]) } },
+						context,
+					),
+				);
+			}
+		}
+
+	for (const childUuid of expressions.form.fieldOrder.get(fieldUuid) ?? []) {
+		const ownBody: Element[] = [];
 		buildFieldParts(
 			doc,
 			childUuid,
@@ -2182,7 +2269,7 @@ function buildContainer(
 			childData,
 			childBinds,
 			childSetvalues,
-			childBody,
+			ownBody,
 			childInsideRepeat,
 			addItext,
 			context,
@@ -2193,7 +2280,9 @@ function buildContainer(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
+		if (ownBody.length > 0) controls.set(childUuid, ownBody);
 	}
 
 	const query =
@@ -2231,7 +2320,16 @@ function buildContainer(
 	// binds, its condition's among them. Child binds always append at the end
 	// (order is irrelevant to JavaRosa).
 	if (query !== undefined) {
-		binds.splice(bindSlot, 1, ...query.binds);
+		const queryBinds = [...query.binds];
+		if (field.lockedInHq) {
+			const original = binds[bindSlot];
+			const bind = queryBinds.find(
+				(element) => element.attribs.nodeset === original.attribs.nodeset,
+			);
+			if (bind) bind.attribs["vellum:lock"] = "all";
+			else queryBinds.unshift(original);
+		}
+		binds.splice(bindSlot, 1, ...queryBinds);
 	} else if (relevant) {
 		const value = expressions.lower(relevant, {
 			entity: "field",
@@ -2250,7 +2348,8 @@ function buildContainer(
 			},
 			context,
 		);
-	} else {
+		if (field.lockedInHq) binds[bindSlot].attribs["vellum:lock"] = "all";
+	} else if (!field.lockedInHq) {
 		binds.splice(bindSlot, 1);
 	}
 	binds.push(...childBinds);
@@ -2266,7 +2365,7 @@ function buildContainer(
 	const labelEl = hasLabel
 		? xel(
 				"label",
-				{ xpath: { ref: w.call("jr:itext", [w.str(`${itextKey}-label`)]) } },
+				{ xpath: { ref: w.call("jr:itext", [w.str(textId("label"))]) } },
 				context,
 			)
 		: undefined;
@@ -2277,7 +2376,7 @@ function buildContainer(
 				field,
 				nodePath,
 				labelEl,
-				childBody,
+				[...captions, ...childBody],
 				binds,
 				dataElements,
 				context,
@@ -2321,6 +2420,71 @@ function buildContainer(
 			groupChildren,
 		),
 	);
+}
+
+/** Each field's place in the form's screen walk, a group before its fields. */
+function screenRanks(doc: BlueprintDoc, form: Uuid): ReadonlyMap<Uuid, number> {
+	const ranks = new Map<Uuid, number>();
+	const visit = (parent: Uuid): void => {
+		for (const uuid of orderedFieldUuids(doc, parent)) {
+			ranks.set(uuid, ranks.size);
+			visit(uuid);
+		}
+	};
+	visit(form);
+	return ranks;
+}
+
+/**
+ * A language's texts in the order the form designer writes them: each
+ * question's texts in the order its question stands on screen, walking the
+ * form's groups as the designer walks its question tree
+ * (`javaRosa/util.js::forEachItextItem`), whatever group holds the answer.
+ * Texts no field registered keep their place among the rest.
+ */
+function orderedItext(
+	entries: readonly Element[],
+	owners: ReadonlyMap<Element, Uuid | undefined>,
+	ranks: ReadonlyMap<Uuid, number>,
+): Element[] {
+	let last = -1;
+	const keyed = entries.map((entry, index) => {
+		const owner = owners.get(entry);
+		const rank = owner === undefined ? undefined : ranks.get(owner);
+		if (rank !== undefined) last = rank;
+		return { entry, rank: rank ?? last, index };
+	});
+	return keyed
+		.sort((a, b) => a.rank - b.rank || a.index - b.index)
+		.map(({ entry }) => entry);
+}
+
+/** Controls are emitted against their submitted paths. Nest the visible ones
+ * in the order a worker sees them, including a repeat's actual row control. */
+function orderedControls(
+	doc: BlueprintDoc,
+	parent: Uuid,
+	controls: ReadonlyMap<Uuid, readonly Element[]>,
+): Element[] {
+	const children: Element[] = [];
+	for (const uuid of orderedFieldUuids(doc, parent)) {
+		// A field's own control comes first; a protected validation
+		// message's carrier follows it directly.
+		const [element, ...following] = controls.get(uuid) ?? [];
+		if (element === undefined) continue;
+		const field = doc.fields[uuid];
+		if (isContainer(field)) {
+			const holder =
+				field.kind === "repeat"
+					? findOne((node) => node.name === "repeat", element.children, true)
+					: element;
+			if (!holder)
+				throw new Error(`The repeat ${field.id} has no row control.`);
+			appendChildren(holder, orderedControls(doc, uuid, controls));
+		}
+		children.push(element, ...following);
+	}
+	return children;
 }
 
 /** What one query repeat writes besides its authored children. */

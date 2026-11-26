@@ -18,6 +18,8 @@
  * default (a multi-space key exists to operate across spaces).
  */
 
+import { randomUUID } from "node:crypto";
+import { type Kysely, sql } from "kysely";
 import {
 	type CommCareApiError,
 	type CommCareCredentials,
@@ -26,8 +28,9 @@ import {
 } from "@/lib/commcare/client";
 import { decrypt, encrypt } from "@/lib/commcare/encryption";
 import { type CommCareServer, isCommCareServer } from "@/lib/commcare/servers";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { resolveHqDomain } from "./domainResolution";
-import { getAppDb } from "./pg";
+import { type AppDatabase, getAppDb } from "./pg";
 
 // ── Public types ───────────────────────────────────────────────────
 
@@ -57,8 +60,49 @@ export type CommCareSettingsPublic =
  * case. The decrypted key is only attached on success, so a doomed request
  * never triggers a KMS call.
  */
+export function hqConnectionDigest(
+	username: string,
+	connectionEpoch: string,
+	server: string,
+	domain: string,
+) {
+	/* The connection's version, never its key: no key material, encrypted
+	 * or not, reaches a digest Nova stores or compares. */
+	return canonicalJsonDigest([username, connectionEpoch, server, domain]);
+}
+
+/**
+ * The connection a binding names: who, on which server, to which project
+ * spaces, and its version (`connection_epoch`, fresh on each save of the key,
+ * user name or server). It never reads the key; `configured` says one is
+ * stored. Under the caller's `FOR SHARE`, so a save waits for the binding.
+ */
+export async function lockedConnection(
+	tx: Kysely<AppDatabase>,
+	userId: string,
+) {
+	const row = await tx
+		.selectFrom("user_settings")
+		.select([
+			"commcare_username",
+			"commcare_server",
+			"approved_domains",
+			"connection_epoch",
+			sql<boolean>`commcare_api_key <> ''`.as("configured"),
+		])
+		.where("user_id", "=", userId)
+		.forShare()
+		.executeTakeFirst();
+	return row?.configured ? row : undefined;
+}
+
 export type HqCredentialsResult =
-	| { ok: true; creds: CommCareCredentials; domain: CommCareDomain }
+	| {
+			ok: true;
+			creds: CommCareCredentials;
+			domain: CommCareDomain;
+			connectionDigest: string;
+	  }
 	| { ok: false; error: "not_configured" }
 	| HqTargetRefusal;
 
@@ -71,6 +115,8 @@ export type HqTargetResult =
 			domain: CommCareDomain;
 			/** Still encrypted. Decrypt at the point of use, never before. */
 			encryptedApiKey: string;
+			/** The connection's version: what a binding names in place of the key. */
+			connectionEpoch: string;
 	  }
 	| { ok: false; error: "not_configured" }
 	| HqTargetRefusal;
@@ -149,6 +195,7 @@ export async function resolveHqTarget(
 			"commcare_api_key",
 			"commcare_server",
 			"approved_domains",
+			"connection_epoch",
 		])
 		.where("user_id", "=", userId)
 		.executeTakeFirst();
@@ -177,6 +224,7 @@ export async function resolveHqTarget(
 		server: data.commcare_server,
 		domain: resolved.domain,
 		encryptedApiKey: data.commcare_api_key,
+		connectionEpoch: data.connection_epoch,
 	};
 }
 
@@ -203,6 +251,12 @@ export async function getHqCredentials(
 			server: target.server,
 		},
 		domain: target.domain,
+		connectionDigest: hqConnectionDigest(
+			target.username,
+			target.connectionEpoch,
+			target.server,
+			target.domain.name,
+		),
 	};
 }
 
@@ -236,6 +290,9 @@ export async function saveCommCareSettings(
 		commcare_api_key: encryptedKey,
 		commcare_server: input.server,
 		approved_domains: JSON.stringify(input.approvedDomains),
+		// A new version on every save of the key, user name or server, on the
+		// insert and the update alike; a domain refresh keeps it.
+		connection_epoch: randomUUID(),
 		updated_at: new Date(),
 	};
 	await db

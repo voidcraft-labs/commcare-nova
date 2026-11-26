@@ -16,9 +16,10 @@ import { useCallback, useId } from "react";
 import { InlineField } from "@/components/builder/detail/formSettings/InlineField";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
+import { useNavigationFileLens } from "@/components/builder/media/useNavigationFileLens";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useModule, useStoredModule } from "@/lib/doc/hooks/useEntity";
 import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
@@ -38,6 +39,22 @@ export const CASE_LIST_MENU_ITEM_LINE =
 	"Workers can open the case list on its own, to look up a case without opening a form";
 export const CASE_LIST_MENU_ITEM_BARE_LINE =
 	"This menu has no forms, so the case list is what it opens. Once it has a form, you can turn this off.";
+
+/**
+ * The entry with one slot changed and the others as stored. It starts from
+ * the stored entry, never the worker language's projection: the projection
+ * holds the files that language sees as the entry's own, and writing it back
+ * whole would make them the shared files. An empty slot is absent, never
+ * stored empty.
+ */
+export function caseListMenuItemWithSlot<K extends keyof CaseListMenuItem>(
+	stored: CaseListMenuItem | undefined,
+	key: K,
+	value: CaseListMenuItem[K] | undefined,
+): CaseListMenuItem {
+	const { [key]: _previous, ...rest } = stored ?? {};
+	return value === undefined ? rest : { ...rest, [key]: value };
+}
 
 /** The one mutation that sets or clears the entry. */
 export function caseListMenuItemMutation(
@@ -62,6 +79,8 @@ export function CaseListMenuItemSection({
 		MENU_ITEM_NOTE_FEATURES,
 	);
 	const item = module?.caseListMenuItem;
+	const stored = useStoredModule(moduleUuid)?.caseListMenuItem;
+	const lens = useNavigationFileLens(stored);
 	const on = item !== undefined;
 	const plan = useCallback(
 		(doc: BlueprintDoc) => ({
@@ -79,20 +98,22 @@ export function CaseListMenuItemSection({
 		canEdit && module?.caseType !== undefined && !bare,
 	);
 
-	if (module === undefined || module.caseType === undefined) return null;
+	if (
+		module === undefined ||
+		module.formsFromMenu ||
+		module.caseType === undefined
+	)
+		return null;
 	const switchRefusal =
 		on && bare ? CASE_LIST_MENU_ITEM_BARE_LINE : gate.toggle;
 	const setItem = (next: CaseListMenuItem | null) =>
 		commitMany([caseListMenuItemMutation(moduleUuid, next)]);
-	/* Each slot change writes the whole entry with the other slots as they
-	 * are; an empty slot is absent, never stored empty. */
+	/* Each slot change writes the whole entry with the other slots as
+	 * stored (`caseListMenuItemWithSlot`). */
 	const withSlot = <K extends keyof CaseListMenuItem>(
 		key: K,
 		value: CaseListMenuItem[K] | undefined,
-	): CaseListMenuItem => {
-		const { [key]: _previous, ...rest } = item ?? {};
-		return value === undefined ? rest : { ...rest, [key]: value };
-	};
+	): CaseListMenuItem => caseListMenuItemWithSlot(stored, key, value);
 
 	return (
 		<section
@@ -146,12 +167,25 @@ export function CaseListMenuItemSection({
 							Icon
 						</span>
 						<SingleAssetSlot
-							value={item.icon}
+							value={lens.icon}
+							reading={lens.reading("icon")}
+							removalLabel={lens.removalLabel("icon")}
 							kind="image"
 							iconLibrary="module"
-							slotKey={`caselist:${moduleUuid}:icon`}
+							slotKey={`caselist:${moduleUuid}:icon:${lens.language}`}
 							ariaLabel="Case list menu item icon"
-							onChange={(icon) => setItem(withSlot("icon", icon))}
+							onChange={(icon) =>
+								commitMany([
+									{
+										kind: "setModuleMedia",
+										uuid: moduleUuid,
+										caseListItem: true,
+										language: lens.language,
+										icon: icon ?? null,
+										audioLabel: lens.audioLabel ?? null,
+									},
+								])
+							}
 						/>
 					</div>
 					<div>
@@ -159,12 +193,23 @@ export function CaseListMenuItemSection({
 							Spoken label
 						</span>
 						<SingleAssetSlot
-							value={item.audioLabel}
+							value={lens.audioLabel}
+							reading={lens.reading("audioLabel")}
+							removalLabel={lens.removalLabel("audioLabel")}
 							kind="audio"
-							slotKey={`caselist:${moduleUuid}:audioLabel`}
+							slotKey={`caselist:${moduleUuid}:audioLabel:${lens.language}`}
 							ariaLabel="Case list menu item spoken label"
 							onChange={(audioLabel) =>
-								setItem(withSlot("audioLabel", audioLabel))
+								commitMany([
+									{
+										kind: "setModuleMedia",
+										uuid: moduleUuid,
+										caseListItem: true,
+										language: lens.language,
+										icon: lens.icon ?? null,
+										audioLabel: audioLabel ?? null,
+									},
+								])
 							}
 						/>
 					</div>

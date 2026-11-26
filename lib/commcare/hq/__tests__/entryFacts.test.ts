@@ -26,7 +26,7 @@ import {
 import { STAGES } from "@/lib/commcare/reader/index";
 import { bindExpressions } from "@/lib/commcare/reader/provisional";
 import type { HqApplication } from "@/lib/commcare/types";
-import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
+import { derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import type { Uuid } from "@/lib/domain";
 import {
 	datumIdsFromFacts,
@@ -142,7 +142,7 @@ function moduleOf(hq: HqApplication, uuid: Uuid): Json {
 }
 
 function formFacts(facts: HqAppEntryFacts, uuid: Uuid): HqEntryFacts {
-	const form = facts.forms.get(derivedFormXmlns(uuid));
+	const form = facts.forms.get(derivedUniqueId(uuid));
 	if (form === undefined) throw new Error(`No facts for ${uuid}`);
 	return form;
 }
@@ -166,7 +166,7 @@ const HOUSEHOLD_MENU: HqMenuFacts = {
 	inlineSearch: false,
 	searchInstance: null,
 	additionalCaseTypes: [],
-	firstForm: derivedFormXmlns(REGISTER),
+	firstForm: derivedUniqueId(REGISTER),
 };
 
 describe("hqEntryFacts", () => {
@@ -181,7 +181,7 @@ describe("hqEntryFacts", () => {
 			caseType: "member",
 			rootModule: derivedUniqueId(HOUSEHOLDS),
 			parentSelect: derivedUniqueId(HOUSEHOLDS),
-			firstForm: derivedFormXmlns(MEMBER_VISIT),
+			firstForm: derivedUniqueId(MEMBER_VISIT),
 		});
 		expect(menuFacts(facts, BROWSE)).toEqual({
 			...HOUSEHOLD_MENU,
@@ -212,6 +212,7 @@ describe("hqEntryFacts", () => {
 			usesWorkerRecord: false,
 			loads: [],
 			opens: [],
+			arbitraryDatums: [],
 		};
 		expect(formFacts(facts, VISIT)).toEqual(visit);
 		expect(formFacts(facts, REGISTER)).toEqual({
@@ -494,7 +495,67 @@ describe("hqEntryFacts", () => {
 				},
 			],
 			opens: [{ tag: "open_visit_1", caseType: "visit", index: 1 }],
+			arbitraryDatums: [],
 		});
+	});
+
+	it("keeps each entry of a shared form's selections and its parent's new case", () => {
+		const app = retainedSourceBody("reading/source-shadow");
+		const menu = (app.modules as Json[])[1];
+		const forms = menu.forms as Json[];
+		const [parent, , entry] = forms;
+		const select = (tag: string, type: string) => ({
+			case_tag: tag,
+			case_type: type,
+			case_properties: {},
+		});
+		parent.actions = {
+			load_update_cases: [
+				select("client", "client"),
+				select("unused", "village"),
+			],
+			open_cases: [{ case_tag: "visit", case_type: "visit", case_indices: [] }],
+		};
+		// The source read gives each entry its own id. Only the parent supplies an attachment.
+		entry.extra_actions = {
+			load_update_cases: [
+				select("worker", "worker"),
+				select("client", "contact"),
+			],
+			open_cases: [{ case_tag: "ignored", case_type: "ignored" }],
+		};
+		const secondId = "second-entry";
+		forms.push({
+			...entry,
+			unique_id: secondId,
+			extra_actions: {
+				load_update_cases: [select("client", "client")],
+				open_cases: [],
+			},
+		});
+		const facts = hqEntryFacts(app);
+		const session = (id: unknown) => {
+			const form = facts.forms.get(String(id));
+			expect(form).toBeDefined();
+			return form && datumIdsFromFacts(form, facts);
+		};
+		expect(session(parent.unique_id)).toEqual([
+			"case_id_client",
+			"case_id_unused",
+			"case_id_new_visit_0",
+		]);
+		expect(session(entry.unique_id)).toEqual([
+			"case_id_worker",
+			"case_id_client",
+			"case_id_new_visit_0",
+		]);
+		expect(facts.forms.get(String(entry.unique_id))?.loads[1].caseType).toBe(
+			"contact",
+		);
+		expect(session(secondId)).toEqual([
+			"case_id_client",
+			"case_id_new_visit_0",
+		]);
 	});
 
 	it("has no record of a form CommCare HQ's case blocks reader leaves out", () => {
@@ -503,8 +564,8 @@ describe("hqEntryFacts", () => {
 			`${(moduleOf(hq, HOUSEHOLDS).forms as Json[])[1].unique_id as string}.xml`
 		];
 		const facts = hqEntryFacts(hq);
-		expect(facts.forms.has(derivedFormXmlns(VISIT))).toBe(false);
-		expect(facts.forms.has(derivedFormXmlns(REGISTER))).toBe(true);
+		expect(facts.forms.has(derivedUniqueId(VISIT))).toBe(false);
+		expect(facts.forms.has(derivedUniqueId(REGISTER))).toBe(true);
 	});
 });
 

@@ -21,8 +21,12 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { eq, literal, sessionUser, term } from "@/lib/domain/expression";
+import { proseText } from "@/lib/domain/prose";
 import { readFormSearchAnswers } from "@/lib/preview/caseListRegistration";
-import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import {
+	androidDevice,
+	webAppsDevice,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { WORKER_INFORMATION_REFUSAL } from "@/lib/preview/engine/dataRefusal";
 import { FormEvaluationInputError } from "@/lib/preview/engine/evaluateForm";
 import {
@@ -50,7 +54,14 @@ function searchStartingOn(key: "commcare_first_name" | "commcare_location_id") {
 
 function searchApp(searchInputs: SearchInputDef[]) {
 	return buildDoc({
-		caseTypes: [{ name: "patient", properties: [] }],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "period", label: proseText("Period"), data_type: "date" },
+				],
+			},
+		],
 		modules: [
 			{
 				uuid: MODULE,
@@ -109,6 +120,28 @@ function answers(
 it("reads each Search field's starting value from the worker's session", () => {
 	expect(answers(searchStartingOn("commcare_first_name"))).toEqual([
 		{ name: "patient_name", value: "Amina" },
+	]);
+});
+
+it("carries raw endpoints to the form’s single instance projection", () => {
+	const doc = searchApp([
+		simpleSearchInputDef(
+			testUuid("form-search-period"),
+			"period",
+			"Period",
+			"date-range",
+			"period",
+			{
+				default: {
+					kind: "term",
+					term: { kind: "literal", value: "2024-01-01 to 2024-12-31" },
+				},
+			},
+		),
+	]);
+	expect(answers(doc)).toEqual([
+		{ name: "period:from", value: "2024-01-01" },
+		{ name: "period:to", value: "2024-12-31" },
 	]);
 });
 
@@ -336,4 +369,136 @@ it("refuses a one-field Search screen whose starting choice its list doesn't off
 	).toThrow(
 		/This search doesn't open on a phone\. Search field “Region” starts on a choice its list doesn't offer\./,
 	);
+});
+
+/* The device seeds each hidden prompt's value as it builds the Search screen
+ * (`RemoteQuerySessionManager.initUserAnswers` walks every prompt), so a form
+ * of the menu reads that value beside the starting values or the answers the
+ * worker gave. No worker answers it, so the check works it out rather than
+ * taking it. */
+function searchWithHiddenRegion() {
+	return searchApp([
+		simpleSearchInputDef(
+			testUuid("forms-read-search-answers-input"),
+			"patient_name",
+			"Patient name",
+			"text",
+			"case_name",
+		),
+		hiddenSearchInputDef(
+			testUuid("forms-read-search-answers-hidden"),
+			"region",
+			"Region",
+			term(sessionUser("commcare_first_name")),
+		),
+	]);
+}
+
+it("reads a hidden value beside the starting values, in the form check and Preview's form screen alike", () => {
+	const doc = searchWithHiddenRegion();
+	expect(answers(doc)).toEqual([{ name: "region", value: "Amina" }]);
+	expect(previewFormRead(doc)).toEqual({
+		kind: "read",
+		value: new Map([["region", "Amina"]]),
+	});
+});
+
+it("reads a hidden value beside the answers the check supplies", () => {
+	expect(
+		answers(searchWithHiddenRegion(), [{ name: "patient_name", value: "Ada" }]),
+	).toEqual([
+		{ name: "patient_name", value: "Ada" },
+		{ name: "region", value: "Amina" },
+	]);
+});
+
+it("refuses an answer for a hidden value, which the search works out itself", () => {
+	expect(() =>
+		answers(searchWithHiddenRegion(), [{ name: "region", value: "north" }]),
+	).toThrow(
+		/Search answer region is a hidden value: the search works it out when the worker searches/,
+	);
+});
+
+it("names a Search answer supplied twice as that, not as a date range", () => {
+	expect(() =>
+		answers(searchWithHiddenRegion(), [
+			{ name: "patient_name", value: "Ada" },
+			{ name: "patient_name", value: "Bea" },
+		]),
+	).toThrow(
+		"Supply each Search answer once. patient_name appears more than once.",
+	);
+});
+
+it("refuses a search for blank in an Android form check, whose Search screen draws no box", () => {
+	const doc = searchApp([
+		simpleSearchInputDef(
+			testUuid("forms-read-search-answers-input"),
+			"patient_name",
+			"Patient name",
+			"text",
+			"patient_name",
+			{ allowBlank: true },
+		),
+	]);
+	const read = (device: ReturnType<typeof webAppsDevice>) =>
+		formsReadSearchFormAnswers(
+			doc,
+			{
+				formUuid: FORM,
+				searchAnswers: [{ name: "patient_name:blank", value: "true" }],
+			},
+			{
+				identity: workerOf(doc),
+				device,
+				cases: { rows: [], indices: [] },
+				lookup: {
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				},
+			},
+		);
+	expect(read(webAppsDevice())).toEqual([
+		{ name: "patient_name:blank", value: "true" },
+	]);
+	expect(() => read(androidDevice())).toThrow(
+		"Android's Search screen shows patient_name without the box to also find blank",
+	);
+});
+
+it("refuses an answer for a field Web Apps doesn't draw, and takes it on Android", () => {
+	const doc = searchApp([
+		simpleSearchInputDef(
+			testUuid("forms-read-search-answers-region"),
+			"region",
+			"Region",
+			"text",
+			"region",
+			{ hidden: true, default: term(literal("north")) },
+		),
+	]);
+	const read = (device: ReturnType<typeof webAppsDevice>) =>
+		formsReadSearchFormAnswers(
+			doc,
+			{
+				formUuid: FORM,
+				searchAnswers: [{ name: "region", value: "south" }],
+			},
+			{
+				identity: workerOf(doc),
+				device,
+				cases: { rows: [], indices: [] },
+				lookup: {
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				},
+			},
+		);
+	expect(() => read(webAppsDevice())).toThrow(
+		"Web Apps doesn't show region on the Search screen, so a Web Apps run takes no answer for it",
+	);
+	expect(read(androidDevice())).toEqual([{ name: "region", value: "south" }]);
 });

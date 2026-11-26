@@ -363,3 +363,28 @@ identity and request identity when available; saved-app execution also carries
 its loaded Project and run identity. Reporting does not include tool arguments;
 tool, work, request and run identities remain diagnostic-only fields. The logger indexes Project, work,
 tool, operation and phase alongside app/run/user identities in Sentry tags.
+
+
+### Private export storage
+
+Private downloads expire after one hour or sooner when their authorization,
+Project, contents or destination change. The export gateway checks access
+before reading each part. A subsequent preparation or the bounded
+`scripts/reclaim-lookup-storage.ts --max-batches` drain deletes expired
+parts by generation and refunds their Project charge after verifying deletion.
+A lost write acknowledgement remains charged while its possible write settles.
+
+The media bucket requires uniform bucket-level access and enforced public
+access prevention. Its `private-exports/` rule makes an object eligible for
+deletion one day after creation. GCS applies lifecycle actions asynchronously
+and publishes no upper bound on deletion lag. A rule change can take up to
+24 hours to propagate. The gateway enforces the one-hour visibility limit
+throughout this interval. [Google Cloud lifecycle rules](https://docs.cloud.google.com/storage/docs/lifecycle)
+
+For the first release, inspect the bucket and save its current metageneration.
+`python3 scripts/infra/manage-deployment.py export-lifecycle --action install --if-metageneration NUMBER`
+shows the candidate. Its `--apply` form requires deploy approval, updates only
+the lifecycle field and verifies every rule and the new metageneration.
+The preceding capture and pending-upload rules stay in effect. For rollback
+use `--action restore` with the verified post-update metageneration. A change
+by another operator requires a fresh inspection.

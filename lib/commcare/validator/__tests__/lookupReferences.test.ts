@@ -101,6 +101,86 @@ function lookupFindings(
 }
 
 describe("lookup reference validation", () => {
+	it("checks the actual worker and each consuming slot, leaving unused XML columns alone", () => {
+		const { doc, table, context } = lookupAppFixture();
+		const withNames = (tag: string, wireName: string) => ({
+			...context,
+			definitions: [
+				{
+					...table,
+					tag,
+					columns: [
+						{ ...table.columns[0], wireName },
+						...table.columns.slice(1),
+						{ ...table.columns[0], wireName: "名前", id: columnId("999") },
+					],
+				},
+			],
+		});
+		const issues = (app: BlueprintDoc, tag: string, wireName: string) =>
+			runValidation(app, withNames(tag, wireName))
+				.filter((one) => one.code === "LOOKUP_PATH_NAME_UNAVAILABLE")
+				.map((one) => [
+					one.details?.registrySlot,
+					one.details?.part,
+					one.details?.issue,
+				]);
+		// CommCare HQ checks a menu's display condition with js-xpath, whose
+		// names are unaccented, and its form builder loses a form's table of
+		// such a tag (each select's, its row filter's, a case change's value),
+		// so those slots refuse the accented tag; the case list reads it.
+		expect(issues(doc, "clínicas", "code.1")).toEqual([
+			["module_display_condition", "tag", "hq-unreadable-name"],
+			...Array.from({ length: 5 }, () => [
+				"lookup_options_source",
+				"tag",
+				"form-builder-unreadable-name",
+			]),
+			["case_operation_write_value", "tag", "form-builder-unreadable-name"],
+		]);
+		expect(issues(doc, "clinicas", "code.1")).toEqual([]);
+		// HQ's form builder drops a form's declaration of a table tagged
+		// __proto__; the case list and the menu's condition read it in the suite.
+		expect(issues(doc, "__proto__", "code.1")).toEqual([
+			...Array.from({ length: 5 }, () => [
+				"lookup_options_source",
+				"tag",
+				"form-builder-prototype-tag",
+			]),
+			["case_operation_write_value", "tag", "form-builder-prototype-tag"],
+		]);
+		expect(issues(doc, "sites.1", "code")).toContainEqual([
+			"case_list_column_expression",
+			"tag",
+			"undeclared-instance",
+		]);
+		expect(issues(doc, "sites.1", "code")).not.toContainEqual([
+			"lookup_options_source",
+			"tag",
+			"undeclared-instance",
+		]);
+		expect(issues(doc, "sites", "名前")).toContainEqual([
+			"lookup_options_source",
+			"column",
+			"unreadable-name",
+		]);
+		// Georgian Mtavruli U+1C90 is cased on the build JVM and is absent
+		// from the minimum Android worker's character table.
+		expect(issues(doc, "sites", "Ა")).toContainEqual([
+			"lookup_options_source",
+			"column",
+			"unreadable-name",
+		]);
+		// Web Apps reads it, and HQ's form builder keeps a column of any name.
+		expect(
+			issues(
+				{ ...doc, appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" } },
+				"sites",
+				"Ა",
+			),
+		).toEqual([]);
+	});
+
 	it("finds no lookup references in documents without lookup carriers", () => {
 		const doc = buildDoc({ appName: "Existing app" });
 		expect(

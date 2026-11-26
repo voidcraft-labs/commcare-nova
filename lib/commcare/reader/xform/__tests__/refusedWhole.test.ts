@@ -26,7 +26,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import {
+	type InputOptions,
 	readerInput,
 	retainedSourceBody,
 	sourceFromBody,
@@ -46,6 +48,7 @@ function itext(texts: readonly (readonly [string, string])[]): string {
 
 interface WholeOptions {
 	readonly langs?: readonly string[];
+	readonly media?: InputOptions["media"];
 	/** The menu's case type and the form's stored keys, beside its doc type and `xmlns`. */
 	readonly caseType?: string;
 	readonly form?: Readonly<Record<string, unknown>>;
@@ -78,7 +81,9 @@ async function readWhole(
 		_attachments: { "r1.xml": source },
 		...(options.langs === undefined ? {} : { langs: options.langs }),
 	};
-	const input = readerInput(await sourceFromBody(body));
+	const input = readerInput(await sourceFromBody(body), {
+		media: options.media,
+	});
 	return readHqApp({ ...input, recordDialect: () => undefined });
 }
 
@@ -114,37 +119,6 @@ describe("a refused question, choice, repeat or message, with what belongs to it
 				body: `<input ref="/data/w"><label ref="jr:itext('w-label')"/><hint ref="jr:itext('w-hint')"/></input>${OTHER.body}`,
 			}),
 			`${Q("long-xsd-long")} @question:w`,
-		],
-		[
-			"a help text on a capture question, and the help's itext",
-			xformSource({
-				data: `<photo/>${OTHER.data}`,
-				model: `<bind nodeset="/data/photo" type="binary"/>${OTHER.bind}${itext(
-					[
-						["photo-label", "<value>Photo</value>"],
-						["photo-help", "<value>Hold it still</value>"],
-						OTHER.text,
-					],
-				)}`,
-				body: `<upload mediatype="image/*" ref="/data/photo"><label ref="jr:itext('photo-label')"/><help ref="jr:itext('photo-help')"/></upload>${OTHER.body}`,
-			}),
-			`${Q("help-text-on-a-capture-question-or-a-label")} @question:photo`,
-		],
-		[
-			"a help on a label that holds media and no text, as help media",
-			xformSource({
-				data: `<note/>${OTHER.data}`,
-				model: `${OTHER.bind}${itext([
-					["note-label", "<value>Note</value>"],
-					[
-						"note-help",
-						'<value/><value form="image">jr://file/commcare/image/note.png</value>',
-					],
-					OTHER.text,
-				])}`,
-				body: `<trigger ref="/data/note" appearance="minimal"><label ref="jr:itext('note-label')"/><help ref="jr:itext('note-help')"/></trigger>${OTHER.body}`,
-			}),
-			`${Q("help-media-on-a-capture-question-or-a-label")} @question:note`,
 		],
 		[
 			"a choice whose value is refused, its label and the label's itext",
@@ -279,16 +253,28 @@ describe("a source refused whole refuses its form whole", () => {
 			}),
 			"forms-and-case-writes/blank-source-or-no-non-group-question @form",
 		],
+		...["instance", "parsererror", "bind"].map(
+			(root): [string, string, string] => [
+				`a root called ${root} that the designer reads as its own element`,
+				xformSource({
+					root,
+					data: "<q/>",
+					model: `<bind nodeset="/${root}/q" type="xsd:string"/>`,
+					body: `<input ref="/${root}/q"><label>Q</label></input>`,
+				}),
+				`${Q("answer-root-that-the-form-designer-reads-as-its-own-element")} @form`,
+			],
+		),
 		[
-			"a data root named other than data, whose name every path begins with",
+			"a root whose name the worker cannot use in a path",
 			xformSource({
-				root: "survey",
+				root: "患者",
 				data: "<q/>",
 				model:
-					'<bind nodeset="/survey/q" type="xsd:string" relevant="/survey/q = 1"/>',
-				body: '<input ref="/survey/q"><label>Q</label></input>',
+					'<bind nodeset="/患者/q" type="xsd:string" relevant="/患者/q = 1"/>',
+				body: '<input ref="/患者/q"><label>Q</label></input>',
 			}),
-			`${Q("data-root-element-named-other-than-data")} @form`,
+			`${Q("data-root-name-that-workers-cannot-address")} @form`,
 		],
 	];
 	for (const [name, source, finding] of cases)
@@ -388,10 +374,36 @@ describe("a node CommCare HQ's build or a plugin of HQ's form builder owns", () 
 		]);
 	});
 
-	it("reads a root question `case` in a form with no case block as a question whose id Nova refuses", async () => {
+	it("refuses a submitted case answer in a form that HQ can build", async () => {
 		expect(account(await readWhole(rootQuestion("case")))).toEqual([
-			`${Q("question-id-case-registration-script")} @question:case`,
+			`${Q("submitted-node-consumed-as-case")} @question:case`,
 		]);
+	});
+
+	it.each(["Case", "CASE"])(
+		"refuses %s even outside HQ's case-writing form",
+		async (name) => {
+			expect(account(await readWhole(rootQuestion(name)))).toEqual([
+				`${Q("submitted-node-consumed-as-case")} @question:${name}`,
+			]);
+		},
+	);
+
+	it.each(["case_note", "script", "registration", "FiXtUrE", "schema", "sync"])(
+		"can bring in the ordinary answer %s",
+		async (name) => {
+			expect(account(await readWhole(rootQuestion(name)))).toEqual([]);
+		},
+	);
+
+	it("offers Android for a question Web Apps would read as an instruction", async () => {
+		const result = await readWhole(rootQuestion("Registration"));
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		expect(result.draft.declaration).toMatchObject({
+			kind: "choices",
+			choices: [{ runsOnlyOn: "android" }],
+		});
 	});
 
 	it("refuses a root question `commcare_usercase` where the form saves to the worker's record", async () => {
@@ -469,11 +481,11 @@ describe("a callout, by the decisive cause its intent names", () => {
 			body: `${OTHER.body}<input ref="/data/code" appearance="intent:scan"><label ref="jr:itext('code-label')"/></input>`,
 		});
 
-	it("refuses a callout as a callout, its label's itext with it", async () => {
+	it("refuses a callout whose action and question IDs disagree, including its label text", async () => {
 		expect(
 			account(await readWhole(callout('class="org.example.SCAN"'))),
 		).toEqual([
-			`${Q("android-app-callout-input-appearance-intent-id-bind-type-intent")} @question:code`,
+			`${Q("android-app-callout-that-cannot-be-recreated")} @question:code`,
 		]);
 	});
 
@@ -518,4 +530,105 @@ describe("a language code `langs` repeats", () => {
 			"application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated @languages",
 		]);
 	});
+});
+
+it("reads a photo’s help text and a message’s help image even when the help has no text", async () => {
+	const photo = await readWhole(
+		xformSource({
+			data: `<photo/>${OTHER.data}`,
+			model: `<bind nodeset="/data/photo" type="binary"/>${OTHER.bind}${itext([
+				["photo-label", "<value>Photo</value>"],
+				["photo-help", "<value>Hold it still</value>"],
+				OTHER.text,
+			])}`,
+			body: `<upload mediatype="image/*" ref="/data/photo"><label ref="jr:itext('photo-label')"/><help ref="jr:itext('photo-help')"/></upload>${OTHER.body}`,
+		}),
+	);
+	expect(photo.kind === "account" ? photo.findings : []).toEqual([]);
+	expect(photo.kind).toBe("read");
+	if (photo.kind !== "read") return;
+	expect(
+		Object.values(photo.draft.doc.fields).find((field) => field.id === "photo"),
+	).toMatchObject({
+		kind: "image",
+		help: { parts: [{ kind: "text", text: "Hold it still" }] },
+	});
+	const note = await readWhole(
+		xformSource({
+			data: `<note/>${OTHER.data}`,
+			model: `${OTHER.bind}${itext([
+				["note-label", "<value>Note</value>"],
+				[
+					"note-help",
+					'<value/><value form="image">jr://file/commcare/image/note.png</value>',
+				],
+				OTHER.text,
+			])}`,
+			body: `<trigger ref="/data/note" appearance="minimal"><label ref="jr:itext('note-label')"/><help ref="jr:itext('note-help')"/></trigger>${OTHER.body}`,
+		}),
+		{
+			media: (path) =>
+				path === "jr://file/commcare/image/note.png"
+					? {
+							kind: "asset",
+							assetId: "065c5781-429a-40b7-8d13-0cb6ad9a743d",
+							mediaKind: "image",
+						}
+					: { kind: "no-entry" },
+		},
+	);
+	expect(note.kind === "account" ? note.findings : []).toEqual([]);
+	expect(note.kind).toBe("read");
+	if (note.kind !== "read") return;
+	expect(
+		Object.values(note.draft.doc.fields).find((field) => field.id === "note"),
+	).toMatchObject({
+		kind: "label",
+		help_media: { image: "065c5781-429a-40b7-8d13-0cb6ad9a743d" },
+	});
+});
+
+it("reads and republishes a locked question and a locked hidden value in the receiving namespace", async () => {
+	const source = xformSource({
+		data: '<service xmlns="urn:receiving-service:household" vellum:lock="all"/><note/>',
+		model:
+			'<bind nodeset="/data/service" type="xsd:string"/><bind nodeset="/data/note" type="xsd:string" vellum:lock="all"/>' +
+			itext([["note-label", "<value>Household notes</value>"]]),
+		body: `<input ref="/data/note"><label ref="jr:itext('note-label')"/></input>`,
+	});
+	const original = await readWhole(source);
+	if (original.kind !== "read")
+		throw new Error(JSON.stringify(original.findings));
+	const check = (doc: typeof original.draft.doc) => {
+		expect(Object.values(doc.fields)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "service",
+					kind: "hidden",
+					answerNamespace: "urn:receiving-service:household",
+					lockedInHq: true,
+				}),
+				expect.objectContaining({ id: "note", kind: "text", lockedInHq: true }),
+			]),
+		);
+	};
+	check(original.draft.doc);
+	const exported = exportedBody(original.draft.doc);
+	const next = readHqApp(await inputFor(exported));
+	if (next.kind !== "read") throw new Error(JSON.stringify(next.findings));
+	check(next.draft.doc);
+});
+
+it("explains an empty hidden namespace the designer removes on save", async () => {
+	const source = xformSource({
+		data: `<service xmlns=""/>${OTHER.data}`,
+		model:
+			'<bind nodeset="/data/service" type="xsd:string"/>' +
+			OTHER.bind +
+			itext([OTHER.text]),
+		body: OTHER.body,
+	});
+	expect(account(await readWhole(source))).toEqual([
+		`${Q("submitted-namespace-the-form-designer-cannot-keep")} @question:service`,
+	]);
 });

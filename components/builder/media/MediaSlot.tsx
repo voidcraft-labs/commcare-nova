@@ -21,11 +21,10 @@
 // uuid + bundle key, `module:<uuid>:icon`, `app:logo`, …) so a
 // remounted slot re-renders its staged chip from the store.
 //
-// BOTH attach entry points run the export-ceiling budget check
-// (`useAttachBudget.ts`) before dispatching: a library pick rejects as
-// a toast, a staged confirm rejects on its chip, each with the same
-// prose the SA/MCP verdict speaks, so an over-budget app is something
-// an honest user can't build toward an export-time surprise.
+// BOTH attach entry points run the attach check (`useAttachGuard.ts`)
+// before dispatching: a library pick rejects as a toast, a staged confirm
+// rejects on its chip, each with the same prose the SA/MCP verdict speaks,
+// so a file the app's platforms can't play never reaches the doc.
 //
 // Controls name themselves by kind ("Remove image", "Preview audio");
 // `ariaLabel`, when a carrier passes it, names the GROUP those controls
@@ -97,7 +96,7 @@ import {
 	ProjectMediaImage,
 	ProjectMediaVideo,
 } from "./ProjectMediaResource";
-import { useAttachBudgetGuard } from "./useAttachBudget";
+import { useAttachGuard } from "./useAttachGuard";
 import { useStagedSlotUpload } from "./useStagedUpload";
 
 /**
@@ -135,8 +134,8 @@ function usePlatformMediaReasons(): {
 
 /**
  * Record a picker's loaded library pages into the session's asset
- * registry: the "already-loaded library rows" the attach budget check
- * resolves referenced ids against without a fetch.
+ * registry: the "already-loaded library rows" Preview's stand-in and the
+ * referenced-row reader resolve ids against without a fetch.
  */
 function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
 	const session = useBuilderSessionApi();
@@ -155,6 +154,8 @@ function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
 // ── MediaSlot: the image/audio/video bundle ─────────────────────
 
 export interface MediaSlotProps {
+	/** A translated attachment may be replaced yet have no override to clear. */
+	removalLabel?: (kind: MediaKind) => string | null | undefined;
 	value: Media | undefined;
 	onChange: (next: Media | undefined) => void;
 	/** Which kinds this carrier can hold. Menu carriers omit "video". */
@@ -187,7 +188,14 @@ interface PickerState {
 	kinds: readonly MediaKind[];
 }
 
-export function MediaSlot({
+export function MediaSlot(props: MediaSlotProps) {
+	return <MediaSlotAtAddress key={props.slotKey} {...props} />;
+}
+
+// An upload can finish after navigation or a language switch. The originating
+// slot keeps its callbacks, while later renders of the same slot supply current values.
+function MediaSlotAtAddress({
+	removalLabel,
 	value,
 	onChange,
 	kinds,
@@ -199,7 +207,7 @@ export function MediaSlot({
 	const session = useBuilderSessionApi();
 	const canEdit = useCanEdit();
 	const appId = useAppId();
-	const checkAttachBudget = useAttachBudgetGuard();
+	const checkAttach = useAttachGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
 	const platformReasons = usePlatformMediaReasons();
 	const projectToast = useProjectToast();
@@ -237,6 +245,7 @@ export function MediaSlot({
 					kind={kind}
 					assetId={assetId}
 					editable={canEdit}
+					removalLabel={removalLabel?.(kind)}
 					onReplace={() => {
 						if (session.getState().canEdit)
 							setPicker({ open: true, kinds: [kind] });
@@ -281,10 +290,9 @@ export function MediaSlot({
 				// The picker is media-scoped for a carrier, so a picked asset is
 				// always a media kind; the `isMediaKind` narrow makes that
 				// type-safe (`setMediaSlot` keys the bundle by `MediaKind`) and
-				// is an inert guard at runtime. The attach budget check runs
-				// BEFORE the dispatch: a pick that would breach the export
-				// ceiling never reaches the doc; the shared prose lands as a
-				// toast (the picker has already closed).
+				// is an inert guard at runtime. The attach check runs BEFORE
+				// the dispatch: a pick it refuses never reaches the doc; the
+				// shared prose lands as a toast (the picker has already closed).
 				onPick={(asset) => {
 					if (asset.kind !== "uploaded") return;
 					const uploaded = asset.asset;
@@ -293,7 +301,7 @@ export function MediaSlot({
 					const start = session.getState();
 					if (start.accessPhase !== "authorized" || !start.canEdit) return;
 					const pickScopeEpoch = start.scopeEpoch;
-					void checkAttachBudget(uploaded).then((verdict) => {
+					void checkAttach(uploaded).then((verdict) => {
 						const current = session.getState();
 						if (
 							current.scopeEpoch !== pickScopeEpoch ||
@@ -330,6 +338,8 @@ export function MediaSlot({
 // ── SingleAssetSlot: one fixed-kind id ──────────────────────────
 
 interface SingleAssetSlotBase {
+	reading?: string;
+	removalLabel?: string | null;
 	kind: MediaKind;
 	/** Stable identity of this carrier slot: see `MediaSlotProps.slotKey`.
 	 *  Single slots stage directly under it (the kind is fixed). */
@@ -398,13 +408,17 @@ function commitSingleAssetValue(
 }
 
 export function SingleAssetSlot(props: SingleAssetSlotProps) {
+	return <SingleAssetAtAddress key={props.slotKey} {...props} />;
+}
+
+function SingleAssetAtAddress(props: SingleAssetSlotProps) {
 	const { value, kind, slotKey, ariaLabel } = props;
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const staged = useStagedUpload(slotKey);
 	const session = useBuilderSessionApi();
 	const canEdit = useCanEdit();
 	const appId = useAppId();
-	const checkAttachBudget = useAttachBudgetGuard();
+	const checkAttach = useAttachGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
 	const platformReasons = usePlatformMediaReasons();
 	const projectToast = useProjectToast();
@@ -428,6 +442,7 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 					kind={kind}
 					assetId={value}
 					editable={canEdit}
+					removalLabel={props.removalLabel}
 					onReplace={() => {
 						if (session.getState().canEdit) setPickerOpen(true);
 					}}
@@ -437,6 +452,9 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 						}
 					}}
 				/>
+			)}
+			{value && props.reading && (
+				<span className="text-xs text-nova-text-muted">{props.reading}</span>
 			)}
 			{staged && (
 				<StagedUploadChip
@@ -458,7 +476,7 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 				onAssetsLoaded={recordLoadedAssets}
 				assetUnavailableReason={platformReasons.assetUnavailableReason}
 				unavailableReason={platformReasons.unavailableReason}
-				// Budget BEFORE dispatch: an over-ceiling pick never reaches
+				// The attach check BEFORE dispatch: a refused pick never reaches
 				// the doc; the shared prose lands as a toast (the picker has
 				// already closed).
 				onPick={(selection: MediaPickerSelection) => {
@@ -470,7 +488,7 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 					}
 					const asset = selection.asset;
 					const pickScopeEpoch = start.scopeEpoch;
-					void checkAttachBudget(asset).then((verdict) => {
+					void checkAttach(asset).then((verdict) => {
 						const current = session.getState();
 						if (
 							current.scopeEpoch !== pickScopeEpoch ||
@@ -609,12 +627,14 @@ function AssetChip({
 	editable,
 	onReplace,
 	onRemove,
+	removalLabel,
 }: {
 	kind: MediaKind;
 	assetId: IconRef;
 	editable: boolean;
 	onReplace: () => void;
 	onRemove: () => void;
+	removalLabel?: string | null;
 }) {
 	const meta = ASSET_KIND_META[kind];
 	// Controls name themselves by kind; the enclosing group's aria-label
@@ -652,17 +672,19 @@ function AssetChip({
 							<Icon icon={tablerReplace} className="size-4" />
 						</Button>
 					</SimpleTooltip>
-					<SimpleTooltip content={`Remove ${noun}`}>
-						<Button
-							type="button"
-							variant="ghost-destructive"
-							size="icon"
-							onClick={onRemove}
-							aria-label={`Remove ${noun}`}
-						>
-							<Icon icon={tablerTrash} className="size-4" />
-						</Button>
-					</SimpleTooltip>
+					{removalLabel !== null && (
+						<SimpleTooltip content={removalLabel ?? `Remove ${noun}`}>
+							<Button
+								type="button"
+								variant="ghost-destructive"
+								size="icon"
+								onClick={onRemove}
+								aria-label={removalLabel ?? `Remove ${noun}`}
+							>
+								<Icon icon={tablerTrash} className="size-4" />
+							</Button>
+						</SimpleTooltip>
+					)}
 				</>
 			)}
 		</div>

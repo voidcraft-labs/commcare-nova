@@ -5,13 +5,16 @@ import {
 	type CaseOperationWrite,
 	caseSelectionCardinality,
 	effectiveCaseTypes,
-	moduleUuidOfForm,
-	operationCaseType,
 	operationTarget,
 	orderedCaseOperations,
 	reachableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	entryOperationCaseType,
+	formEntryRecord,
+	sharedWorkerTarget,
+} from "@/lib/domain/advancedEntryDatums";
 import {
 	type CheckPath,
 	type Expression,
@@ -22,6 +25,7 @@ import {
 	type Term,
 	walkExpression,
 } from "@/lib/domain/expression";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import {
 	type CasePlacementWords,
 	formCasePlacementWords,
@@ -100,15 +104,16 @@ export interface OperationSemantics {
  * type, and its open and close conditions are read as its conditions. */
 export function operationSemantics(
 	doc: BlueprintDoc,
-	formUuid: Uuid,
+	entryUuid: Uuid,
 ): OperationSemantics {
+	const formUuid = formContentUuid(doc, entryUuid);
 	const form = doc.forms[formUuid];
-	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	const module = moduleUuid && doc.modules[moduleUuid];
+	const record = formEntryRecord(doc, entryUuid);
+	const module = record.menu;
 	const caseTypes = effectiveCaseTypes(doc);
 	const selectedType =
 		form && (form.type === "followup" || form.type === "close")
-			? module?.caseType
+			? record.caseType
 			: undefined;
 	const ancestors = reachableCaseTypes(selectedType, caseTypes);
 	const ordered = orderedCaseOperations(form ?? {});
@@ -180,7 +185,9 @@ export function operationSemantics(
 			case "session":
 				return { kind: "selected-record" };
 			case "worker-record":
-				return { kind: "worker-record" };
+				return sharedWorkerTarget(doc, entryUuid, operation)
+					? { kind: "runtime-record" }
+					: { kind: "worker-record" };
 			case "expression": {
 				const expression = target.expr;
 				if (
@@ -386,7 +393,7 @@ export function operationSemantics(
 				...(closes ? ["status"] : []),
 			];
 			const record = targetRecord(operation);
-			const caseType = operationCaseType(doc, formUuid, operation);
+			const caseType = entryOperationCaseType(doc, entryUuid, operation);
 			const placement = placements[operation.uuid];
 			return {
 				operationUuid: operation.uuid,

@@ -22,6 +22,7 @@ import {
 	reads,
 } from "@/lib/domain/expression/__tests__/instanceReadsFixture";
 import { eq, prop, term } from "@/lib/domain/expression/builders";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import {
@@ -43,6 +44,13 @@ const CHILD = testUuid("datum-wire-members");
 const ROOT_FORM = testUuid("datum-wire-household-form");
 const CHILD_FORM = testUuid("datum-wire-member-form");
 const FOLLOWUP = testUuid("datum-wire-followup");
+/** The synthetic opening record a form with no explicit list reads its
+ * menu's chosen case as. */
+const opening = (form: Uuid, module: Uuid) =>
+	({
+		kind: "form-selection",
+		selection: implicitFormSelectionId(form, module),
+	}) as const;
 
 function rows(doc: BlueprintDoc, module: Uuid, form: Uuid) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
@@ -258,7 +266,10 @@ describe("entry datum identities on the emitted session", () => {
 			{ id: "case_id_new_household_0", refs: [], scalar: true },
 			{
 				id: "case_id",
-				refs: [{ kind: "selected-case", module: CHILD }],
+				refs: [
+					{ kind: "selected-case", module: CHILD },
+					opening(FOLLOWUP, CHILD),
+				],
 				scalar: true,
 			},
 		]);
@@ -286,12 +297,18 @@ describe("entry datum identities on the emitted session", () => {
 			expect(rows(doc, CHILD, CHILD_FORM)).toEqual([
 				{
 					id: multiple ? "parent_selected_cases" : "parent_id",
-					refs: [{ kind: "selected-case", module: ROOT }],
+					refs: [
+						{ kind: "selected-case", module: ROOT },
+						opening(CHILD_FORM, ROOT),
+					],
 					scalar: !multiple,
 				},
 				{
 					id: "case_id",
-					refs: [{ kind: "selected-case", module: CHILD }],
+					refs: [
+						{ kind: "selected-case", module: CHILD },
+						opening(CHILD_FORM, CHILD),
+					],
 					scalar: true,
 				},
 			]);
@@ -310,6 +327,7 @@ describe("entry datum identities on the emitted session", () => {
 				refs: [
 					{ kind: "selected-case", module: CHILD },
 					{ kind: "selected-case", module: ROOT },
+					opening(CHILD_FORM, CHILD),
 				],
 				scalar: true,
 			},
@@ -331,8 +349,16 @@ describe("entry datum identities on the emitted session", () => {
 				.filter((row) => row.refs.length > 0)
 				.map(({ id, chainId, refs }) => ({ id, chainId, refs })),
 		).toEqual([
-			{ id: "case_id", chainId: "parent_id", refs: [household] },
-			{ id: "case_id_member", chainId: "case_id", refs: [member] },
+			{
+				id: "case_id",
+				chainId: "parent_id",
+				refs: [household, opening(CHILD_FORM, ROOT)],
+			},
+			{
+				id: "case_id_member",
+				chainId: "case_id",
+				refs: [member, opening(CHILD_FORM, CHILD)],
+			},
 		]);
 		expect(caseListStepDatumId(doc, CHILD)(household)).toBe("case_id");
 		expect(caseListStepDatumId(doc, CHILD, "chainId")(household)).toBe(
@@ -362,7 +388,10 @@ describe("entry datum identities on the emitted session", () => {
 		expect(rows(doc, SESSION_READS.module, SESSION_READS.followup)).toEqual([
 			{
 				id: "case_id",
-				refs: [{ kind: "selected-case", module: SESSION_READS.module }],
+				refs: [
+					{ kind: "selected-case", module: SESSION_READS.module },
+					opening(SESSION_READS.followup, SESSION_READS.module),
+				],
 				scalar: true,
 			},
 			{

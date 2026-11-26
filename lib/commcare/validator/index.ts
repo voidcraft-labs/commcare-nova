@@ -73,7 +73,6 @@ interface DeepLocation {
  * A single deep-validation finding, fully typed. Three shapes:
  *   - `field-xpath` — an XPath error on a specific field surface; carries the
  *     field's uuid + id, the `surface`, and the underlying typed `FormLogicFinding`.
- *   - `connect-xpath` — an XPath error in a Connect-block slot.
  *   - `cycle` — a dependency cycle among authored field expressions in one
  *     form, including defaults, lookup-choice filters, and the relevance
  *     cascade from a group or repeat to its descendants (`cascade` names
@@ -83,6 +82,7 @@ interface DeepLocation {
 export type DeepValidationError =
 	| (DeepLocation & {
 			kind: "field-xpath";
+			ref: import("@/lib/domain/expression/types").FieldExpressionSlotRef;
 			fieldUuid: Uuid;
 			fieldId: string;
 			surface: XPathSurface;
@@ -93,11 +93,6 @@ export type DeepValidationError =
 			fieldUuid: Uuid;
 			fieldId: string;
 			surface: ProseSurface;
-			error: FormLogicFinding;
-	  })
-	| (DeepLocation & {
-			kind: "connect-xpath";
-			slot: ConnectXPathSlot;
 			error: FormLogicFinding;
 	  })
 	| (DeepLocation & {
@@ -175,6 +170,7 @@ export function validateBlueprintDeep(
 								: {
 										...loc,
 										kind: "field-xpath",
+										ref,
 										fieldUuid,
 										fieldId: field.id,
 										surface: ref.slot,
@@ -187,13 +183,13 @@ export function validateBlueprintDeep(
 					doc,
 				)) {
 					const option =
-						slot === "option_label" &&
+						(slot === "option_label" || slot === "option_extended_text") &&
 						"optionsSource" in field &&
 						field.optionsSource.kind === "inline"
 							? field.optionsSource.options[indices[0]]
 							: undefined;
 					let ref: ProseSlotRef;
-					if (slot === "option_label") {
+					if (slot === "option_label" || slot === "option_extended_text") {
 						if (option === undefined)
 							throw new Error(
 								"The prose registry returned a missing option member.",
@@ -258,9 +254,6 @@ export function validateBlueprintDeep(
 			})) {
 				if (ref.entity !== "form") continue;
 				if (
-					ref.slot !== "assessment_user_score" &&
-					ref.slot !== "deliver_entity_id" &&
-					ref.slot !== "deliver_entity_name" &&
 					ref.slot !== "form_link_condition" &&
 					ref.slot !== "form_link_datum_xpath"
 				)
@@ -276,41 +269,28 @@ export function validateBlueprintDeep(
 							]
 						: formLogicFindings(expression, ctx);
 				for (const error of findings) {
-					if (
-						ref.slot === "form_link_condition" ||
+					// Indices into `formLinkEntries`: the destinations in
+					// order, then the otherwise link.
+					const entries = formLinkEntries(form);
+					const linkIndex = entries.findIndex(
+						(entry) => entry.link.uuid === ref.member.linkUuid,
+					);
+					const datumIndex =
 						ref.slot === "form_link_datum_xpath"
-					) {
-						// Indices into `formLinkEntries`: the destinations in
-						// order, then the otherwise link.
-						const entries = formLinkEntries(form);
-						const linkIndex = entries.findIndex(
-							(entry) => entry.link.uuid === ref.member.linkUuid,
-						);
-						const datumIndex =
-							ref.slot === "form_link_datum_xpath"
-								? (entries[linkIndex]?.link.datums?.findIndex(
-										(datum) =>
-											datumRefKey(datum.name) === datumRefKey(ref.member.datum),
-									) ?? -1)
-								: undefined;
-						errors.push({
-							...loc,
-							kind: "form-link-xpath",
-							slot: ref.slot,
-							indices:
-								datumIndex === undefined
-									? [linkIndex]
-									: [linkIndex, datumIndex],
-							linkUuid: ref.member.linkUuid,
-							error,
-						});
-					} else
-						errors.push({
-							...loc,
-							kind: "connect-xpath",
-							slot: ref.slot,
-							error,
-						});
+							? (entries[linkIndex]?.link.datums?.findIndex(
+									(datum) =>
+										datumRefKey(datum.name) === datumRefKey(ref.member.datum),
+								) ?? -1)
+							: undefined;
+					errors.push({
+						...loc,
+						kind: "form-link-xpath",
+						slot: ref.slot,
+						indices:
+							datumIndex === undefined ? [linkIndex] : [linkIndex, datumIndex],
+						linkUuid: ref.member.linkUuid,
+						error,
+					});
 				}
 			}
 			for (const {

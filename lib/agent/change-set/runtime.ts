@@ -18,14 +18,12 @@ import { produce } from "immer";
 import type { Kysely, Transaction } from "kysely";
 import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb } from "@/lib/db/pg";
+import { publishedQuestions } from "@/lib/deployment/publishedQuestions";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
-import {
-	emptyGenesisBase,
-	loadCanonicalBlueprintAtSequence,
-} from "./baseLoader";
+import { emptyGenesisBase, loadPrivateEditBase } from "./baseLoader";
 import { canonicalJsonDigest } from "./digest";
 import { ChangeSetIntegrityError } from "./errors";
 import { loadChangeSetSteps } from "./store";
@@ -95,7 +93,7 @@ export async function rehydrateChangeSet(
 				`Change set ${changeSet.id} is app-edit but carries no app/base sequence.`,
 			);
 		}
-		const base = await loadCanonicalBlueprintAtSequence(db, {
+		const base = await loadPrivateEditBase(db, changeSet.id, {
 			appId: changeSet.appId,
 			seq: changeSet.baseSeq,
 			expectedDigest: changeSet.baseSnapshotDigest,
@@ -105,7 +103,16 @@ export async function rehydrateChangeSet(
 				`Change set ${changeSet.id} recorded base Project ${changeSet.baseProjectId}, but the fold at sequence ${changeSet.baseSeq} arrives in ${base.projectId}.`,
 			);
 		}
-		baseDoc = base.doc;
+		baseDoc = {
+			...base.doc,
+			publishedQuestions: await publishedQuestions(
+				db,
+				changeSet.appId,
+				base.projectId,
+				changeSet.baseSeq,
+				base.snapshot,
+			),
+		};
 	} else {
 		if (changeSet.proposedAppId === null) {
 			throw new ChangeSetIntegrityError(

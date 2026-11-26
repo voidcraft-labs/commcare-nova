@@ -255,6 +255,24 @@ describe("entrySessionData", () => {
 		expect(household).not.toBe(patient);
 	});
 
+	it("substitutes the caller's ID for the selected creation alone on every evaluation of the entry", () => {
+		const doc = households();
+		const own = doc.forms[REGISTER].caseOperations?.find(
+			(operation) => operation.action === "own",
+		);
+		if (!own) throw new Error("Missing registration operation");
+		const supplied = session(doc, REGISTER, {
+			entrySupplies: {
+				entryPointUuid: testUuid("registration-point"),
+				creations: [{ operationUuid: own.uuid, caseId: "new-household" }],
+			},
+		});
+		expect(supplied.newCaseId).toBe("new-household");
+		expect(supplied.data.case_id_new_household_0).toBe("new-household");
+		expect(supplied.data.case_id_new_patient_1).toBe(
+			session(doc, REGISTER).data.case_id_new_patient_1,
+		);
+	});
 	it("mints the same ids for the same entry and new ones for a new entry", () => {
 		const doc = households();
 		const first = session(doc, REGISTER);

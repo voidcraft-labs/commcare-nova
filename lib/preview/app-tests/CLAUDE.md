@@ -10,15 +10,23 @@ External reads finish before the test transaction opens. Admission then locks
 the source app and rechecks real-actor membership and the exact app revision.
 `lib/db/appTests.ts` serializes actions, fences expected steps and runtime
 versions, and commits state, observations and idempotency receipts together.
-Only the creating actor can continue a test; current app members can read its
-observations. Simulated worker identity never grants Project authority.
+Only the creating actor can continue a test. Current app members can read a journey over shared data. A private journey binds each observed worker to its creator, Project, source and the rows or worker groups that identity received. Start receipts, continuation receipts and observation windows check current authority and all captured worker footprints again. A successful identity change adds its own scoped snapshot to the journey. The shared SQL namespace contains only global rows. Case lists, operations, Search and form choices receive the active worker’s projection. Simulated worker identity never grants Project authority.
 
 A journey may retain one to four worker sessions in the same isolated namespace.
+Android session inputs hold the apps installed on the Preview phone. Before any
+worker screen or action, Android compares that selection with the app's ordered
+requirements. A missing app is an observable startup refusal. A test can start
+another phone session with the needed apps installed. Web Apps skips that check.
+
 `startAppTest.sessions` supplies unique bounded test-local IDs and optional saved
 identity/language choices; omission creates `default`. The first session is
 primary. Each ordered action may address `sessionId`; omission uses primary.
 An unknown ID refuses before identity materialization, navigation or submission,
-and a duplicate ID refuses before namespace admission. Session IDs are opaque
+and a duplicate ID refuses before namespace admission. Version 20 uses the completed round-trip document and worker settings. Members
+can read stored observations from earlier versions. The owner can finish an
+older test without a session ID, which disposes its namespace without executing
+its old checkpoint. New actions start from a new test of the saved app.
+Session IDs are opaque
 labels, not entity names or invented Preview workers. Identity, language,
 navigation, ancestor selections, record catalog and open-form entry/checkpoint
 belong to that session. Advancing another session never retires them. The step,
@@ -365,3 +373,14 @@ Answer, section and page-turn observations reuse the evaluation that produced
 their exact next form screen. The normal language, route and action decoration
 still applies. A standalone observe, navigation, identity change or submission
 performs a fresh evaluation; no result is cached across actions or sessions.
+
+
+Menu and form choices, record cells, selection and submission buttons project
+the same generated wording as the running app. A journey changing language
+observes the named locale over the default locale, including inherited image
+descriptions. Platform-specific actions retain their own labels.
+
+
+The records screen's `clearSearch` action clears every visible search answer and retires the previous result. A desktop Web Apps journey with `caseSearchConfig.searchOnClear` submits the cleared values through prompt validation. Android has no Clear action.
+
+A date range on a visible Web Apps Search screen displays the dates its client can read. Pressing Search submits the encoded field text, while an automatic search uses Core’s opening answers. On Android the worker sees the native raw fallback. A journey supplies the two editable date ends by name. A continued journey holds its system-generated open answer privately.

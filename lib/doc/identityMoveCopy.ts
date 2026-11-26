@@ -18,6 +18,7 @@ import {
 	projectProseTemplate,
 	type Uuid,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { describeCaseOperation } from "@/lib/domain/caseOperationDescription";
 import {
 	advancedKindBlockerSentence,
@@ -36,13 +37,20 @@ const CHOSEN_CASES_RENAMED_SENTENCE =
 const quoted = (words: string): string => `“${words}”`;
 
 /** Why a menu's kind moves, in one sentence: a blocker's is the one the
- *  gate's `HELD_PLACEMENT_INEXPRESSIBLE` finding for the menu reads too. In
- *  step 5 the one case change only an advanced menu holds is the open
- *  action of a create an after-submit link carries. */
+ *  gate's `HELD_PLACEMENT_INEXPRESSIBLE` finding for the menu reads too,
+ *  and a move to an advanced menu says what now needs one, as module
+ *  settings' **In CommCare HQ** row does (`moduleAdvancedKindLine`). */
 function moduleKindMoveReasonSentence(reason: ModuleKindMoveReason): string {
-	if (reason === "advanced-change")
-		return "A form in it now saves a case change only an advanced menu can.";
-	return advancedKindBlockerSentence(reason);
+	switch (reason) {
+		case "list-entry-change":
+			return "Its list now chooses records in a way only an advanced menu can: the worker’s own record, or a single match opened automatically.";
+		case "form-entry-change":
+			return "A form in it now opens with its own cases or values, which only an advanced menu can do.";
+		case "advanced-change":
+			return "A form in it now saves a case change only an advanced menu can.";
+		default:
+			return advancedKindBlockerSentence(reason);
+	}
 }
 
 function formWords(doc: BlueprintDoc, formUuid: Uuid): string {
@@ -68,8 +76,17 @@ export function identitySubjectName(
 	switch (subject.kind) {
 		case "case-operation":
 			return `${quoted(formWords(doc, subject.formUuid))}: ${describeCaseOperation(doc, subject.formUuid, subject.operationUuid)}`;
+		case "form-selection": {
+			const row = formCaseSelections(doc, subject.formUuid).find(
+				(choice) => choice.uuid === subject.selectionUuid,
+			);
+			return row
+				? `${quoted(formWords(doc, subject.formUuid))}, ${quoted(row.name)}`
+				: `${quoted(formWords(doc, subject.formUuid))}, an opening record`;
+		}
 		case "own-close":
 			return `${quoted(formWords(doc, subject.formUuid))}: closing its case`;
+		case "submitted-question":
 		case "query-repeat":
 			return `${quoted(formWords(doc, subject.formUuid))}, ${quoted(fieldWords(doc, subject.fieldUuid))}`;
 		case "module-kind":
@@ -90,8 +107,18 @@ export function identityMoveReasonSentence(
 ): string {
 	const { reason } = move;
 	switch (reason.source) {
+		case "submitted-question":
+			return "Future submissions will store this answer at its new address.";
 		case "case-placement":
 			return placementIneligibilitySentence(reason.reason.reason);
+		case "form-selection":
+			return reason.nextTag
+				? `From your next publish, the form opens this record under the saved name ${quoted(reason.nextTag)}. Earlier versions used ${quoted(reason.previousTag)}.`
+				: `From your next publish, the form will stop opening the record it kept under the saved name ${quoted(reason.previousTag)}.`;
+		case "query-timing":
+			return reason.timing === "on-open"
+				? "You chose to keep the records found when the form opens."
+				: "You chose to follow changes to the records found during entry.";
 		case "query-repeat": {
 			const need = reason.reason;
 			switch (need.kind) {
@@ -124,15 +151,24 @@ export function identityMoveRenamesChosenCases(move: IdentityMove): boolean {
 	return move.reason.source === "module-kind" && move.reason.chosenCasesRenamed;
 }
 
+/** The actual worker-visible change when a published narrowed menu item becomes advanced. */
+export function caseListMoveSentence(move: IdentityMove): string {
+	return move.reason.source === "module-kind" && move.reason.expandsCaseList
+		? " Its case list menu item will show every open record of this type available to the worker. Forms will keep their own selection filters."
+		: "";
+}
+
 /** The whole statement of one move, as a tool result says it. */
 export function identityMoveSentence(
 	doc: BlueprintDoc,
 	move: IdentityMove,
 ): string {
+	if (move.subject.kind === "form-selection")
+		return `${identitySubjectName(doc, move.subject)}. ${identityMoveReasonSentence(doc, move)}`;
 	const renamed = identityMoveRenamesChosenCases(move)
 		? ` ${CHOSEN_CASES_RENAMED_SENTENCE}`
 		: "";
-	return `${identitySubjectName(doc, move.subject)} moves from ${placementLabelWords(move.from)} to ${placementLabelWords(move.to)}. ${identityMoveReasonSentence(doc, move)}${renamed} ${EXPORT_COLUMNS_SENTENCE}`;
+	return `${identitySubjectName(doc, move.subject)} moves from ${placementLabelWords(move.from)} to ${placementLabelWords(move.to)}. ${identityMoveReasonSentence(doc, move)}${renamed}${caseListMoveSentence(move)} ${EXPORT_COLUMNS_SENTENCE}`;
 }
 
 /** One move as a tool result carries it. */

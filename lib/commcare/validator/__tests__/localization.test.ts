@@ -263,6 +263,12 @@ describe("an app string a device shows otherwise", () => {
  */
 describe("a placeholder opener some screen reads", () => {
 	const ARGUMENT_ROLES = new Set([
+		"menuTitle",
+		"formTitle",
+		"registrationMenuTitle",
+		"caseListEntry",
+		"registerButton",
+		"promptLabel",
 		"module-name",
 		"form-name",
 		"case-list-menu-item-label",
@@ -327,18 +333,25 @@ describe("a placeholder opener some screen reads", () => {
 			const found = runValidation(candidate, LOOKUP_CONTEXT_UNAVAILABLE)
 				.filter((e) => e.code === "APP_STRING_VALUE_UNREPRESENTABLE")
 				.map((e) => e.details?.unitId);
-			if (ARGUMENT_ROLES.has(unit.role)) {
+			if (ARGUMENT_ROLES.has(unit.generated?.role ?? unit.role)) {
 				expect(found, unit.id).toEqual([unit.id]);
-				refused.add(unit.role);
+				refused.add(unit.generated?.role ?? unit.role);
 			} else {
 				expect(found, unit.id).toEqual([]);
-				admitted.add(unit.role);
+				admitted.add(unit.generated?.role ?? unit.role);
 			}
 		}
 		// The fixture reaches the roles both ways, so neither side of the rule went unchecked.
-		for (const role of ["module-name", "form-name", "search-input-label"])
+		for (const role of [
+			"module-name",
+			"form-name",
+			"search-input-label",
+			"menuTitle",
+			"formTitle",
+			"promptLabel",
+		])
 			expect(refused).toContain(role);
-		for (const role of ["app-name", "search-input-hint"])
+		for (const role of ["app-name", "search-input-hint", "submitButton"])
 			expect(admitted).toContain(role);
 	});
 });

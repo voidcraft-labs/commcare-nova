@@ -36,6 +36,8 @@ import type { Uuid } from "@/lib/doc/types";
 import { humanizeId } from "@/lib/domain";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 
+import { CaseRelationsSection } from "./CaseRelationsSection";
+
 interface ModuleCaseTypeSectionProps {
 	moduleUuid: Uuid;
 }
@@ -60,7 +62,7 @@ export function ModuleCaseTypeSection({
 	const pickerTriggerRef = useRef<HTMLButtonElement>(null);
 	const deferFocus = useDeferredFocus();
 
-	if (!module) return null;
+	if (!module || module.formsFromMenu) return null;
 	const hasForms = (formIds?.length ?? 0) > 0;
 
 	// The set/clear patches (including the born-valid Name-column seed and the
@@ -124,6 +126,7 @@ export function ModuleCaseTypeSection({
 					Case type
 				</span>
 				<CaseTypePicker
+					offerWorkerRecord
 					triggerRef={pickerTriggerRef}
 					value={module.caseType}
 					onChange={chooseCaseType}
@@ -148,6 +151,13 @@ export function ModuleCaseTypeSection({
 					</p>
 				)}
 			</div>
+
+			{module.caseType && (
+				<CaseRelationsSection
+					key={module.caseType}
+					caseType={module.caseType}
+				/>
+			)}
 
 			<AlertDialog
 				open={pendingSwitch !== null}

@@ -23,6 +23,7 @@ import {
 	afterEmptySearchRegistrationFormOf,
 	asUuid,
 	type BlueprintDoc,
+	type CaseListRegistrationReturn,
 	type Field,
 	humanizeId,
 	menuFormUuidsOf,
@@ -30,6 +31,7 @@ import {
 	moduleHasCaseListMenuItem,
 	proseText,
 	type SearchInputDef,
+	searchOpensOnList,
 	type Uuid,
 } from "@/lib/domain";
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
@@ -45,6 +47,7 @@ import {
 	type SearchAnswerFieldDependent,
 	searchAnswerFieldDependents,
 } from "./searchReadDependents";
+import { offerSearchNameMutations } from "./searchResultsNaming";
 
 /**
  * Turn Forms read the search on for the module, or nothing when its forms
@@ -64,8 +67,9 @@ export function formsReadSearchOnMutations(
 	const listFirst =
 		mod.caseSearchConfig !== undefined &&
 		"workflow" in mod.caseSearchConfig &&
-		mod.caseSearchConfig.workflow === "listFirst";
+		searchOpensOnList(mod.caseSearchConfig.workflow);
 	return [
+		...offerSearchNameMutations(doc, moduleUuid, { turnsInline: true }),
 		{
 			kind: "updateModule",
 			uuid: moduleUuid,
@@ -171,7 +175,10 @@ export function caseListRegistrationMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
-	entry: { readonly label?: string } | null,
+	entry: {
+		readonly label?: string;
+		readonly afterSubmit?: CaseListRegistrationReturn;
+	} | null,
 ): Mutation[] {
 	const mod = doc.modules[moduleUuid];
 	if (entry === null) {
@@ -203,6 +210,12 @@ export function caseListRegistrationMutations(
 			},
 		];
 	}
+	const current = mod?.caseListRegistrationForm;
+	const afterSubmit =
+		entry.afterSubmit ??
+		(current?.kind === "after-empty-search" && current.formUuid === formUuid
+			? current.afterSubmit
+			: undefined);
 	const otherMenuForms = menuFormUuidsOf(doc, moduleUuid).filter(
 		(uuid) => uuid !== formUuid,
 	);
@@ -221,6 +234,7 @@ export function caseListRegistrationMutations(
 					kind: "after-empty-search",
 					formUuid,
 					...(entry.label !== undefined && { label: entry.label }),
+					...(afterSubmit === "new-case" && { afterSubmit }),
 				},
 			},
 		},
@@ -425,6 +439,7 @@ export function searchAnswerFields(
 	const inputs = mod?.caseListConfig?.searchInputs ?? [];
 	const fields: SearchAnswerField[] = [];
 	for (const input of inputs) {
+		if (input.kind === "address") continue;
 		const property =
 			input.kind === "hidden"
 				? hiddenPromptSavesAs(input.name)
@@ -456,7 +471,7 @@ export function searchAnswerFields(
 
 /** The field one prompt's answer is carried in, by the prompt's kind. */
 function searchAnswerField(
-	input: SearchInputDef,
+	input: Exclude<SearchInputDef, { kind: "address" }>,
 	base: {
 		readonly uuid: Uuid;
 		readonly id: string;
@@ -479,6 +494,7 @@ function searchAnswerField(
 				optionsSource: input.options,
 				default_value,
 			};
+		case "checkboxes":
 		case "multi-select":
 			return {
 				kind: "multi_select",

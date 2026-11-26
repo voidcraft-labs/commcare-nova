@@ -837,7 +837,7 @@ describe("caseListRegistrationApp: the always arm", () => {
 		}
 	});
 
-	it("refuses a form another menu offers after a search finds nothing", () => {
+	it("allows a second list to open the same hidden form and blocks reading answers from the wrong list", () => {
 		const doc = alwaysDoc({
 			intake: {
 				caseListConfig: searchList(),
@@ -850,14 +850,35 @@ describe("caseListRegistrationApp: the always arm", () => {
 			registrationFindings(doc).filter(
 				(finding) => finding.moduleUuid === CLINIC,
 			),
-		).toEqual([
-			{
-				code: "CASE_LIST_REGISTRATION_NOT_REGISTRATION",
-				moduleUuid: CLINIC,
-				reason: "after-empty-search-form",
-				message: `"Clinic" offers "Register patient" on its case list, but "Register patient" opens only after a search finds nothing in "Intake", so it is on no menu to offer from. You can choose a registration form that is on a menu, or stop offering it there.`,
+		).toEqual([]);
+		const field = Object.values(doc.fields).find(
+			(one) =>
+				one.id === "case_name" && doc.fieldOrder[REG]?.includes(one.uuid),
+		);
+		if (field === undefined) throw new Error("missing registration name field");
+		const withRead = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[field.uuid]: {
+					...field,
+					default_value: {
+						kind: "term" as const,
+						term: { kind: "input" as const, searchInputUuid: NAME_INPUT },
+					},
+				},
 			},
-		]);
+		};
+		expect(runValidation(withRead, LOOKUP_CONTEXT_UNAVAILABLE)).toContainEqual(
+			expect.objectContaining({
+				code: "INVALID_SEARCH_REF",
+				details: expect.objectContaining({ reason: "another-list" }),
+				location: expect.objectContaining({
+					formUuid: REG,
+					fieldUuid: field.uuid,
+				}),
+			}),
+		);
 	});
 
 	it("refuses a host with no case type", () => {
@@ -981,17 +1002,10 @@ describe("caseListRegistrationApp: the always arm", () => {
 		);
 	}
 
-	it("refuses a return whose frame would open with the first menu's shared case", () => {
+	it("returns with the newly registered case when the first menu and host choose the same record type", () => {
 		expect(
 			registrationFindings(underSharedCase({ afterSubmit: "new-case" })),
-		).toEqual([
-			{
-				code: "CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE",
-				moduleUuid: CLINIC,
-				reason: "parent-shares-first-menu-case",
-				message: `"Clinic" is under "Households", which shows its forms on the app's first menu, where every form listed that way opens one chosen case. CommCare HQ would put that case ahead of "Clinic" when a worker returns from "Register patient". You can give "Households" its own screen again (forms_in_menu_above null), or stop offering "Register patient" there.`,
-			},
-		]);
+		).toEqual([]);
 	});
 
 	it("admits a return cut before the shared case, and no return where the form's own after-submit is in force", () => {
@@ -1028,35 +1042,61 @@ describe("caseListRegistrationApp: the always arm", () => {
 		expect(registrationFindings(several("case-list"))).toEqual([]);
 	});
 
-	it("refuses an advanced host, and a form of an advanced menu", () => {
+	it("offers a registration from an advanced menu's list whose forms choose one record the same way", () => {
 		const host = alwaysDoc({
+			clinic: { forms: [checkup(), checkup(SECOND, "Second visit")] },
 			configure: (draft) => {
 				draft.modules[CLINIC].heldKind = "advanced";
 			},
 		});
-		expect(registrationFindings(host)).toEqual([
-			{
-				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
-				moduleUuid: CLINIC,
-				reason: "host",
-				message: `"Clinic" is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering "Register patient" there.`,
-			},
-		]);
+		expect(registrationFindings(host)).toEqual([]);
 		const form = alwaysDoc({
 			configure: (draft) => {
 				draft.modules[INTAKE].heldKind = "advanced";
 			},
 		});
-		expect(
-			registrationFindings(form).filter(
-				(finding) => finding.code === "CASE_LIST_REGISTRATION_ADVANCED_MENU",
-			),
-		).toEqual([
+		expect(registrationFindings(form)).toEqual([]);
+	});
+
+	it("refuses an advanced menu's list action where a form keeps its record under another tag, naming that form", () => {
+		// HQ's AdvancedModuleValidator: 'all forms in case list module must
+		// have same case management'. A publish keeps each form's own tag.
+		const host = alwaysDoc({
+			clinic: {
+				forms: [
+					checkup(),
+					{
+						...checkup(SECOND, "Second visit"),
+						fields: [
+							f({
+								kind: "text",
+								id: "name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+			configure: (draft) => {
+				draft.modules[CLINIC].heldKind = "advanced";
+			},
+		});
+		const second = host.forms[SECOND];
+		second.caseOperations = (second.caseOperations ?? []).map((operation) =>
+			operation.action === "own"
+				? {
+						...operation,
+						placement: { kind: "advanced", tag: "load_patient_kept" },
+					}
+				: operation,
+		);
+		expect(registrationFindings(host)).toEqual([
 			{
 				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
 				moduleUuid: CLINIC,
-				reason: "form",
-				message: `"Register patient" is in "Intake", which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
+				reason: "same-tag",
+				message: `"Clinic" offers "Register patient" on its case list, but CommCare HQ keeps the record "Second visit" chooses under another name than the menu's other forms use. CommCare HQ keeps "Clinic" as an advanced menu, and offers a form from such a menu's case list only where every form of the menu chooses the same records the same way. You can move "Second visit" to another menu, or stop offering "Register patient" there.`,
 			},
 		]);
 	});

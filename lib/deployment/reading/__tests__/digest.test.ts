@@ -84,6 +84,7 @@ const REVIEW: ReadingReview = {
 	],
 	kept: ["automatic-app-updates"],
 	tables: [TABLE],
+	ownerRules: [],
 	places: { count: 12, digest: "b".repeat(64) },
 	mediaLeftOut: 1,
 	firstPublish: PRESELECTED.firstPublish,
@@ -161,7 +162,16 @@ const RECORD: TargetIdentity = canonicalTargetIdentity({
 });
 
 const BASE: ReviewDigestInput = {
-	v: 2,
+	v: 3,
+	authority: {
+		appId: "app",
+		user: "user",
+		role: "editor",
+		projectId: "project",
+		server: "production",
+		domain: "domain",
+		remoteAppId: "remote",
+	},
 	review: REVIEW,
 	document: "e".repeat(64),
 	targetIdentity: RECORD,

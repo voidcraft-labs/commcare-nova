@@ -111,4 +111,39 @@ describe("display flag slots", () => {
 		expect(hidden).toMatchObject({ kind: "hidden" });
 		expect(hidden).not.toHaveProperty("plainLabel");
 	});
+	it("keeps only the display choices the converted question can still carry", () => {
+		const image = {
+			...identity,
+			kind: "image",
+			label,
+			itemsPerRow: "2",
+			captureSource: "camera",
+			hintPlacement: "hidden-on-web",
+		} as const;
+		expect(reconcileFieldForKind(image, "signature")).toEqual({
+			...identity,
+			kind: "signature",
+			label,
+		});
+		expect(reconcileFieldForKind(image, "video")).toEqual({
+			...identity,
+			kind: "video",
+			label,
+			itemsPerRow: "2",
+			hintPlacement: "hidden-on-web",
+		});
+		const question = {
+			...identity,
+			kind: "text",
+			label,
+			hint: proseText("Example"),
+			hintPlacement: "placeholder",
+		} as const;
+		expect(reconcileFieldForKind(question, "secret")).toEqual({
+			...identity,
+			kind: "secret",
+			label,
+			hint: question.hint,
+		});
+	});
 });

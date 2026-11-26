@@ -12,11 +12,14 @@ import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_IDENTIFIER_REGEX,
+	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_LINK_IDENTIFIER_REGEX,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_REGEX,
 	type CaseOperation,
 	type CaseWriteVia,
 	caseOperationSchema,
+	isReservedCaseOperationWrite,
 	type OwnCaseOperation,
 	orderedCaseOperations,
 	RESERVED_CASE_OPERATION_TYPES,
@@ -35,10 +38,29 @@ export {
 	type CasePlacementRead,
 	formCasePlacementReads,
 } from "../../authoring/casePlacementWords";
-export {
-	formAddressSchema as operationAddressSchema,
-	resolveFormAddress as resolveOperationAddress,
+
+import {
+	type FormAddress,
+	type FormAddressResolution,
+	resolveFormAddress,
 } from "../shared/entityAddresses";
+
+export { formAddressSchema as operationAddressSchema } from "../shared/entityAddresses";
+
+/** A shared entry owns its choices and destinations. Editing its parent's
+ * case changes affects every entry, so the caller must address that form. */
+export function resolveOperationAddress(
+	doc: BlueprintDoc,
+	input: FormAddress,
+): FormAddressResolution {
+	const address = resolveFormAddress(doc, input);
+	if (!address.ok || !address.form.shadowOf) return address;
+	const parent = doc.forms[address.form.shadowOf.form];
+	return {
+		ok: false,
+		error: `“${address.form.name}” uses the case changes in “${parent?.name ?? "the shared form"}”. You can edit them on that form (${address.form.shadowOf.form}).`,
+	};
+}
 
 const CASE_TYPE_FORMAT_MESSAGE =
 	"A case type holds only letters, digits, underscores, or hyphens.";
@@ -83,7 +105,9 @@ const propertyInputSchema = z
 	.string()
 	.regex(CASE_OPERATION_PROPERTY_REGEX, CASE_OPERATION_PROPERTY_FORMAT_MESSAGE)
 	.superRefine((value, ctx) => {
-		const verdict = caseOperationWritePropertyVerdict(value, new Set());
+		// The name and owner of a case above are writes through `via`; whether
+		// this write walks one is its object's to say (`facetNeedsVia`).
+		const verdict = caseOperationWritePropertyVerdict(value, new Set(), true);
 		if (verdict.ok) return;
 		ctx.addIssue({ code: "custom", message: verdict.userMessage });
 	});
@@ -91,11 +115,12 @@ const propertyInputSchema = z
 const linkIdInputSchema = z
 	.string()
 	.regex(
-		CASE_OPERATION_IDENTIFIER_REGEX,
-		CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+		CASE_OPERATION_LINK_IDENTIFIER_REGEX,
+		CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	)
 	.max(255)
 	.superRefine((value, ctx) => {
+		// Action names depend on the committed operation's wire placement.
 		const verdict = caseOperationLinkIdentifierVerdict(
 			value,
 			new Set(),
@@ -111,6 +136,11 @@ const newTargetInputSchema = z.strictObject({
 		.optional()
 		.describe(
 			"Optional field UUID whose answer deterministically keys the case",
+		),
+	expr: valueSchema
+		.optional()
+		.describe(
+			"An exact case ID expression, separate from the derived field key. A root create runs it when the form opens; one in a repeat runs it in each row.",
 		),
 });
 
@@ -178,28 +208,72 @@ export function toCaseWriteVia(via: readonly RelationStep[]): CaseWriteVia {
 	return [first, ...rest];
 }
 
-const writeInputSchema = z.strictObject({
+const ONLY_IF_CHANGED_DESCRIPTION =
+	"true saves only when the answer differs from the case's value; on a case this change creates, only a non-blank answer. Refused where CommCare HQ keeps this change in Save to Case.";
+
+const writeInputShape = {
 	property: propertyInputSchema,
 	value: valueSchema,
 	condition: conditionSchema.optional(),
-});
-
-/** A write of this form's own case, which alone can save to a case above
- *  it or save only a changed answer; every other arm's writes
- *  keep `writeInputSchema`, whose strict shape refuses both. */
-const ownWriteInputSchema = writeInputSchema.extend({
-	via: caseWriteViaInputSchema
-		.optional()
-		.describe(
-			'Save to a case above this form\'s case instead, one link identifier per step, parent or host, such as [{"identifier":"parent"}]. Only on a follow-up or close form.',
-		),
 	onlyIfChanged: z
 		.literal(true)
 		.optional()
-		.describe(
-			"true saves only when the worker changed the answer from the case's value. Only on a follow-up or close form, and refused where CommCare HQ keeps this form's case change in Save to Case.",
-		),
-});
+		.describe(ONLY_IF_CHANGED_DESCRIPTION),
+};
+
+/** Whether an owner is saved only when the worker gives one. */
+const ownerOnlyIfChangedInputSchema = z
+	.literal(true)
+	.optional()
+	.describe(
+		"true saves owner only when the answer is not blank, since a case keeps its owner apart from the values it compares; a blank answer leaves the owner as it is, or a new case with no owner. Not with the worker or unowned.",
+	);
+
+/** Whether a new name is saved only when it differs from the case's. */
+const renameOnlyIfChangedInputSchema = z
+	.literal(true)
+	.optional()
+	.describe(
+		"true saves the new name only when it differs from the case's name.",
+	);
+
+/** A write of `case_name` or `owner_id` saves the name or owner of the case
+ *  its `via` reaches; with none, the operation's own name and owner are its
+ *  facets (`standardCaseProperties.ts::isReservedCaseOperationWrite`). */
+function facetNeedsVia(
+	write: {
+		readonly property: string;
+		readonly via?: readonly RelationStep[];
+	},
+	ctx: z.RefinementCtx,
+): void {
+	if (!isReservedCaseOperationWrite(write)) return;
+	const verdict = caseOperationWritePropertyVerdict(write.property, new Set());
+	if (verdict.ok) return;
+	ctx.addIssue({
+		code: "custom",
+		path: ["property"],
+		message: verdict.userMessage,
+	});
+}
+
+const writeInputSchema = z
+	.strictObject(writeInputShape)
+	.superRefine(facetNeedsVia);
+
+/** A write of this form's own case, which alone can save to a case above
+ *  it; every other arm's writes keep `writeInputSchema`, whose strict shape
+ *  refuses it. */
+const ownWriteInputSchema = z
+	.strictObject({
+		...writeInputShape,
+		via: caseWriteViaInputSchema
+			.optional()
+			.describe(
+				'Save to a linked case on a follow-up or close form. Use parent or host for each step, such as [{"identifier":"parent"}]. A single user step can save through a declared link between ordinary case types on a basic follow-up or close form.',
+			),
+	})
+	.superRefine(facetNeedsVia);
 
 const linkInputSchema = z.strictObject({
 	identifier: linkIdInputSchema,
@@ -263,15 +337,30 @@ const createOperationInputSchema = z
 	.strictObject({
 		id: operationIdInputSchema,
 		action: z.literal("create"),
+		closeAfter: z
+			.literal(true)
+			.optional()
+			.describe("Close the same case in this change."),
 		caseType: caseTypeInputSchema,
 		target: newTargetInputSchema,
 		condition: conditionSchema.optional(),
+		closeCondition: conditionSchema
+			.optional()
+			.describe(
+				"Condition for closing the case. The other effects of this change still run.",
+			),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()
 			.describe("Repeat field UUID; omit to run once per submission"),
 		name: valueSchema,
 		owner: valueSchema.optional(),
+		ownerCondition: conditionSchema
+			.optional()
+			.describe(
+				"Assign the chosen owner only when this condition holds. Otherwise use the submitting worker.",
+			),
+		ownerOnlyIfChanged: ownerOnlyIfChangedInputSchema,
 		writes: z.array(writeInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
 	})
@@ -284,15 +373,31 @@ const updateOperationInputSchema = z
 	.strictObject({
 		id: operationIdInputSchema,
 		action: z.literal("update"),
+		closeAfter: z
+			.literal(true)
+			.optional()
+			.describe("Close the same case in this change."),
 		caseType: updateCaseTypeInputSchema,
 		target: updateTargetInputSchema,
 		condition: conditionSchema.optional(),
+		closeCondition: conditionSchema
+			.optional()
+			.describe(
+				"Condition for closing the case. The other effects of this change still run.",
+			),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()
 			.describe("Repeat field UUID; omit to run once per submission"),
 		owner: valueSchema.optional(),
+		ownerCondition: conditionSchema
+			.optional()
+			.describe(
+				"Assign the selected owner only when this condition holds. Otherwise keep the case's owner.",
+			),
+		ownerOnlyIfChanged: ownerOnlyIfChangedInputSchema,
 		rename: valueSchema.optional(),
+		renameOnlyIfChanged: renameOnlyIfChangedInputSchema,
 		retype: caseTypeInputSchema.optional(),
 		writes: z.array(writeInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
@@ -309,6 +414,11 @@ const closeOperationInputSchema = z
 		caseType: caseTypeInputSchema,
 		target: existingTargetInputSchema,
 		condition: conditionSchema.optional(),
+		closeCondition: conditionSchema
+			.optional()
+			.describe(
+				"Condition for closing the case. The other effects of this change still run.",
+			),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()
@@ -328,7 +438,11 @@ export const ownOperationInputSchema = z
 	.strictObject({
 		action: z.literal("own"),
 		name: valueSchema.optional(),
+		nameOnlyIfChanged: renameOnlyIfChangedInputSchema.describe(
+			"true saves the new name only when it differs from the case's name. Not on a registration.",
+		),
 		owner: valueSchema.optional(),
+		ownerOnlyIfChanged: ownerOnlyIfChangedInputSchema,
 		writes: z.array(ownWriteInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
 	})
@@ -382,7 +496,13 @@ export function resolveOwnCaseOperationInput(
 		id: existing.id,
 		action: "own",
 		...(input.name !== undefined && { name: input.name }),
+		...(input.nameOnlyIfChanged !== undefined && {
+			nameOnlyIfChanged: input.nameOnlyIfChanged,
+		}),
 		...(input.owner !== undefined && { owner: input.owner }),
+		...(input.ownerOnlyIfChanged !== undefined && {
+			ownerOnlyIfChanged: input.ownerOnlyIfChanged,
+		}),
 		...(input.writes !== undefined && { writes: input.writes }),
 		...(input.links !== undefined && { links: input.links }),
 	}) as OwnCaseOperation;
@@ -407,6 +527,9 @@ export function resolveCaseOperationInput(
 		id: input.id,
 		caseType: input.caseType,
 		...(input.condition !== undefined && { condition: input.condition }),
+		...(input.closeCondition !== undefined && {
+			closeCondition: input.closeCondition,
+		}),
 		...(input.forEach !== undefined && { forEach: input.forEach }),
 		...(input.writes !== undefined && { writes: input.writes }),
 	};
@@ -415,18 +538,35 @@ export function resolveCaseOperationInput(
 			return caseOperationSchema.parse({
 				...common,
 				action: "create",
+				...(input.closeAfter === true && { closeAfter: true }),
 				target: input.target,
 				name: input.name,
 				...(input.owner !== undefined && { owner: input.owner }),
+				...(input.ownerCondition !== undefined && {
+					ownerCondition: input.ownerCondition,
+				}),
+				...(input.ownerOnlyIfChanged !== undefined && {
+					ownerOnlyIfChanged: input.ownerOnlyIfChanged,
+				}),
 				...(input.links !== undefined && { links: input.links }),
 			});
 		case "update":
 			return caseOperationSchema.parse({
 				...common,
 				action: "update",
+				...(input.closeAfter === true && { closeAfter: true }),
 				target: input.target,
 				...(input.owner !== undefined && { owner: input.owner }),
+				...(input.ownerCondition !== undefined && {
+					ownerCondition: input.ownerCondition,
+				}),
+				...(input.ownerOnlyIfChanged !== undefined && {
+					ownerOnlyIfChanged: input.ownerOnlyIfChanged,
+				}),
 				...(input.rename !== undefined && { rename: input.rename }),
+				...(input.renameOnlyIfChanged !== undefined && {
+					renameOnlyIfChanged: input.renameOnlyIfChanged,
+				}),
 				...(input.retype !== undefined && { retype: input.retype }),
 				...(input.links !== undefined && { links: input.links }),
 			});

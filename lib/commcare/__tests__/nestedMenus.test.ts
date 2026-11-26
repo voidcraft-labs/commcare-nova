@@ -312,6 +312,113 @@ describe("ordinary nested-menu wire projection", () => {
 		).toContain("case_id");
 	});
 
+	// HQ's `add_parent_datums` aligns a child with its root's first form and
+	// returns the child's datums as they are where the root has none, so the
+	// built suite holds `case_id` (and `parent_id` for a parent selection) and
+	// the form Nova sends must read those, not ids renamed by case type.
+	function crossTypeFormlessRootDoc(parentSelect: boolean): BlueprintDoc {
+		const doc = buildDoc({
+			appName: "Households and members",
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "village", label: proseText("Village") }],
+				},
+				{
+					name: "member",
+					parent_type: "household",
+					properties: [{ name: "care_status", label: proseText("Status") }],
+				},
+			],
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					caseListMenuItem: {},
+					caseListConfig: caseListConfig([
+						{ field: "village", header: "Village" },
+					]),
+					forms: [],
+				},
+				{
+					name: "Members",
+					caseType: "member",
+					caseListMenuItem: {},
+					caseListConfig: caseListConfig([
+						{ field: "care_status", header: "Status" },
+					]),
+					forms: [
+						{
+							name: "Member visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "copied_status",
+									calculate: "#member/care_status",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const { root, child } = nestSecondModule(doc);
+		if (parentSelect) doc.modules[child].parentCaseModuleUuid = root;
+		return doc;
+	}
+
+	it.each([
+		{ parentSelect: false, ids: ["case_id"] },
+		{ parentSelect: true, ids: ["parent_id", "case_id"] },
+	])(
+		"keeps a child's own datum ids under a form-less root of another case type (parent selection: $parentSelect)",
+		({ parentSelect, ids }) => {
+			const doc = crossTypeFormlessRootDoc(parentSelect);
+			const { child, childForm } = nestSecondModule(doc);
+			if (childForm === undefined) throw new Error("missing child form");
+			admitNestedDoc(doc);
+			const ctx = formLinkProjectionContext(doc);
+			expect(
+				entrySessionDatums(doc, ctx, child, childForm).map((datum) => datum.id),
+			).toEqual(ids);
+			expect(selectedCaseDatumId(doc, ctx, child, childForm)).toBe("case_id");
+
+			const zip = new AdmZip(
+				compileCcz(expandDoc(doc), doc.appName, doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			);
+			const suite = zip.readAsText("suite.xml");
+			for (const command of ["m1-f0", "m1-case-list"]) {
+				const entry = findAll(
+					(element) =>
+						element.name === "entry" &&
+						directChildren(element, "command").some(
+							(found) => getAttributeValue(found, "id") === command,
+						),
+					parseDocument(suite, { xmlMode: true }).children,
+				)[0];
+				if (entry === undefined) throw new Error(`missing entry ${command}`);
+				expect(
+					directChildren(directChildren(entry, "session")[0], "datum").map(
+						(datum) => datum.attribs.id,
+					),
+				).toEqual(ids);
+			}
+			expect(
+				wireElement(
+					zip.readAsText("modules-1/forms-0.xml"),
+					"bind",
+					"nodeset",
+					"/data/copied_status",
+				).attribs.calculate,
+			).toBe(
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/care_status",
+			);
+		},
+	);
+
 	it("carries a form-less root's complete set into a compatible same-type child", () => {
 		const doc = sameTypeFormlessRootDoc();
 		const { root, child, childForm } = nestSecondModule(doc);

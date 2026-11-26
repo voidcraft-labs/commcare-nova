@@ -9,9 +9,7 @@
  *   string it generates (`id_strings.py::REGEXES`), other than the
  *   `android.package.name.` pattern. HQ writes each such string itself, and
  *   a stored value outranks the field that owns it, so after a rename or a
- *   reorder a carried one would name the wrong thing. Nova writes only
- *   `app.display.name` and `homescreen.title`, where a language localizes
- *   the app's name.
+ *   reorder a carried one would name the wrong thing. Nova recomputes the key from the current control and output role for every saved wording override.
  * - `language-name`: a key equal to a language's wire code. Nova writes every
  *   current language's name.
  * - `target`: anything else, every runtime UI-catalog key such as
@@ -107,6 +105,9 @@ export function translationKeyOwner(
 ): TranslationKeyOwner {
 	const written = writtenTranslationKey(key);
 	if (written === undefined) return "not-its-own";
+	// This title is also part of the training runtime catalog. A project
+	// space owns its catalog wording independently of its apps.
+	if (written === "training.root.title") return "target";
 	if (GENERATED_MATCHERS.some((matcher) => matcher.test(written))) {
 		return "generated";
 	}
@@ -253,6 +254,7 @@ export function hqCatalogMayHold(key: string, code: string): boolean {
 export function defaultAppStringsHeldText(
 	uiText: Readonly<Record<string, Readonly<Record<string, string>>>>,
 	languages: readonly string[],
+	generated?: (language: string, key: string) => string | undefined,
 ): Readonly<Record<string, string>> {
 	const tables = languages.map(
 		(code) => [code, Object.hasOwn(uiText, code) ? uiText[code] : {}] as const,
@@ -275,6 +277,15 @@ export function defaultAppStringsHeldText(
 			if (hqCatalogMayHold(key, code)) {
 				blank = false;
 				break;
+			}
+			const built = generated?.(code, key);
+			if (built !== undefined) {
+				const read = defaultTableText(built);
+				if (read !== "") {
+					text = read;
+					break;
+				}
+				blank = true;
 			}
 		}
 		if (text !== undefined) held.push([key, text]);

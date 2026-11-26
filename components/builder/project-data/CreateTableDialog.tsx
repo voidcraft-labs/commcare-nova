@@ -51,8 +51,16 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { useProjectId } from "@/lib/session/hooks";
 import { useAppendedRowReveal } from "@/lib/ui/hooks/useAppendedRowReveal";
 import { COLUMN_TYPE_LABELS, suggestWireName } from "./projectDataModel";
+import {
+	ColumnOptionFields,
+	type ColumnOptions,
+	columnOptionInputs,
+	type EditingMember,
+	MemberFields,
+	memberInputs,
+} from "./RichDefinitionFields";
 
-interface ColumnDraft {
+interface ColumnDraft extends ColumnOptions {
 	readonly key: number;
 	label: string;
 	wireName: string;
@@ -69,6 +77,9 @@ function newColumnDraft(): ColumnDraft {
 		wireName: "",
 		wireNameTouched: false,
 		dataType: "text",
+		repeated: false,
+		indexed: false,
+		properties: [],
 	};
 }
 
@@ -115,6 +126,7 @@ export function CreateTableDialog({
 	const [name, setName] = useState("");
 	const [tag, setTag] = useState("");
 	const [tagTouched, setTagTouched] = useState(false);
+	const [attributes, setAttributes] = useState<EditingMember[]>([]);
 	const [columns, setColumns] = useState<ColumnDraft[]>(() => [
 		newColumnDraft(),
 	]);
@@ -122,11 +134,14 @@ export function CreateTableDialog({
 	const [working, setWorking] = useState(false);
 	const reveal = useAppendedRowReveal(columns.length);
 
-	const effectiveTag = tagTouched ? tag : suggestWireName(name);
+	const effectiveTag = tagTouched ? tag : suggestWireName(name, "tag");
 	const ready =
 		name.trim() !== "" &&
 		effectiveTag.trim() !== "" &&
-		columns.length > 0 &&
+		(columns.length > 0 || attributes.length > 0) &&
+		memberInputs(attributes).every(
+			(member) => member.label.trim() && member.wireName.trim(),
+		) &&
 		columns.every(
 			(column) =>
 				column.label.trim() !== "" &&
@@ -187,8 +202,8 @@ export function CreateTableDialog({
 								className="h-11"
 							/>
 							<FieldDescription>
-								Letters, digits, underscores and hyphens, with a letter or an
-								underscore first. Changing it later needs admin access.
+								This name appears in exports. Changing it later needs admin
+								access.
 							</FieldDescription>
 						</Field>
 
@@ -260,7 +275,7 @@ export function CreateTableDialog({
 											<FieldLabel htmlFor={typeId}>Type of value</FieldLabel>
 											<Select
 												value={column.dataType}
-												disabled={working}
+												disabled={working || column.repeated}
 												onValueChange={(next) =>
 													patch(column.key, {
 														dataType: next as LookupDataType,
@@ -287,7 +302,13 @@ export function CreateTableDialog({
 												</SelectContent>
 											</Select>
 										</Field>
-										{columns.length > 1 && (
+										<ColumnOptionFields
+											dataType={column.dataType}
+											options={column}
+											onChange={(next) => patch(column.key, next)}
+											disabled={working}
+										/>
+										{(columns.length > 1 || attributes.length > 0) && (
 											<Button
 												type="button"
 												variant="destructive"
@@ -332,6 +353,12 @@ export function CreateTableDialog({
 							</Button>
 						</FieldSet>
 
+						<MemberFields
+							title="Row details"
+							members={attributes}
+							onChange={setAttributes}
+							disabled={working}
+						/>
 						<FieldError>{failure}</FieldError>
 					</FieldGroup>
 				</DialogBody>
@@ -375,7 +402,9 @@ export function CreateTableDialog({
 								result = await createLookupTableAction(scopedProject, {
 									name: name.trim(),
 									tag: effectiveTag.trim(),
+									attributes: memberInputs(attributes),
 									columns: columns.map((column) => ({
+										...columnOptionInputs(column),
 										label: column.label.trim(),
 										wireName: (column.wireNameTouched
 											? column.wireName

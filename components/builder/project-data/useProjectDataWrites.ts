@@ -24,6 +24,7 @@ import type {
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
 import { useProjectId } from "@/lib/session/hooks";
+import { sendLookupGesture } from "./lookupGesture";
 import { formatLookupCount, readAgainAfterRefusal } from "./projectDataModel";
 
 /** The refusal a write reports when the session has no Project yet, a state
@@ -132,7 +133,7 @@ export function useLookupOrderingWrites(
 								columnId: id,
 								toIndex,
 							})
-						: await moveLookupRowAction(projectId, {
+						: await sendLookupGesture(moveLookupRowAction, projectId, {
 								tableId: table.id,
 								expectedTableRevision,
 								rowId: id,

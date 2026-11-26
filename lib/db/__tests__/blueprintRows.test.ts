@@ -34,7 +34,7 @@ function emptyDoc(appId: string): BlueprintDoc {
 	return {
 		appId,
 		appName: "Round Trip",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},

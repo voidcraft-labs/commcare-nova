@@ -1,3 +1,5 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
+
 /**
  * The publish gates: what `publishAppToHq` asks a person to confirm, the
  * CommCare version it holds the target app to, when it asks before
@@ -73,18 +75,21 @@ import { confirmationKeyOf } from "../confirmations";
 import { DeploymentError } from "../errors";
 import { placementMoveOffer, placementMoveOfferView } from "../placementMoves";
 import { narrowingTo } from "../platformNarrowing";
+import { readPreviewDeploymentAnswer } from "../previewSpace";
 import { HQ_CHANGED_DURING_PUSH_MESSAGE } from "../remoteChanges";
-import {
-	type PublishOutcome,
-	projectSpaceConfirmations,
-	publishAppToHq,
-} from "../service";
+import { type PublishOutcome, projectSpaceConfirmations } from "../service";
 import { readDeployment, withdrawDeploymentConfirmation } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
+import { servePlaceInventory } from "./placeInventoryPeer";
+import { servePublishedImage, storeProjectImages } from "./publishedImage";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	downloadAssetBytes: vi.fn(),
+	streamAsset: vi.fn(),
+	getStoredObjectMetadata: vi.fn(),
+}));
 /* The real boundary, spied on so one test can hand the publish a prepared
  * export the boundary would never give. */
 vi.mock("@/lib/export/boundaryValidation", async (importOriginal) => {
@@ -480,22 +485,17 @@ async function seedPlace() {
 }
 /** The levels, and the places the project space holds. */
 function inventory(peer: MockAgent, withNorth: boolean) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: withNorth ? [remotePlace] : [],
-	});
+	servePlaceInventory(
+		peer,
+		"clinic",
+		withNorth ? [remotePlace] : [],
+		remoteLevels,
+	);
 }
 /** The place batch taken, and the inventory read that reads it back. */
 function placeTaken(peer: MockAgent) {
 	request(peer, PLACE_PUSH, "PATCH").reply(202, JSON.stringify(["hq-north"]));
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: [remotePlace],
-	});
+	inventory(peer, true);
 }
 
 /** A first publish of the lookup document, landed. */
@@ -620,6 +620,47 @@ describe("the version floor", () => {
 		},
 	);
 
+	it("stops before any write where the project space lists more places than Nova reads, and says retrying won't help", async () => {
+		const doc = await seed(await lookupAndPlaceDocument());
+		await seedPlace();
+		await withPeer(async (peer) => {
+			emptyTables(peer);
+			request(peer, LEVELS).reply(200, {
+				meta: { next: null, total_count: 1 },
+				objects: remoteLevels,
+			});
+			request(peer, PLACES).reply(200, {
+				meta: {
+					next: `https://india.commcarehq.org${PLACES}&offset=5000`,
+					offset: 0,
+					total_count: 100_001,
+				},
+				objects: [
+					{
+						...remotePlace,
+						domain: "clinic",
+						last_modified: "2026-11-01T09:00:00",
+					},
+				],
+			});
+			expect(refusal(await publish(doc, [LOOKUP, ORGANIZATION]))).toMatchObject(
+				{
+					phase: "preflight",
+					failure: {
+						code: "hq_resource_state_unknown",
+						message:
+							"“clinic” holds more places than Nova reads from one project space, which is up to 100,000 places, so Nova stopped rather than push places into a list it can't read whole. You can publish this app to another project space.",
+					},
+				},
+			);
+			expect(requests(peer)).toEqual([
+				`GET ${TABLES}`,
+				`GET ${LEVELS}`,
+				`GET ${PLACES}`,
+			]);
+		});
+	});
+
 	it("stops a new app below the floor after its create and before any table or place, and the next publish fills that same app", async () => {
 		const doc = await seed(await lookupAndPlaceDocument());
 		await seedPlace();
@@ -644,6 +685,7 @@ describe("the version floor", () => {
 				`GET ${TABLES}`,
 				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 			]);
@@ -697,7 +739,7 @@ describe("the version floor", () => {
 			workbookTaken(peer);
 			tablesWithOurs(peer);
 			tableRows(peer);
-			placeTaken(peer);
+			inventory(peer, true);
 			serve(peer, "source-live", edited);
 			accepted(peer, 200, bodies);
 			serve(peer, "source-live");
@@ -1383,6 +1425,32 @@ describe("links between cases of the same type", () => {
 
 // ── C5. The flat location list ──────────────────────────────────────────
 
+function serveConfiguredLevels(peer: MockAgent, doc: BlueprintDoc) {
+	const levels = Object.values(doc.organizationLevels ?? {});
+	servePlaceInventory(
+		peer,
+		"clinic",
+		[],
+		levels.map((level, index) => ({
+			id: index + 1,
+			code: level.code,
+			name: level.name,
+			shares_cases: level.caseFlow.ownsCases,
+			administrative: true,
+			view_descendants:
+				"descendantCases" in level.caseFlow &&
+				level.caseFlow.descendantCases.kind !== "none",
+			parent: level.parentLevelUuid
+				? HOST +
+					"/a/clinic/api/location_type/v1/" +
+					(levels.findIndex((parent) => parent.uuid === level.parentLevelUuid) +
+						1) +
+					"/"
+				: null,
+		})),
+	);
+}
+
 describe("the flat location list", () => {
 	it("is asked for an app whose form sets an owner from a place, and lands once confirmed", async () => {
 		const doc = await seed(locationOwnerFixture("direct"));
@@ -1400,6 +1468,7 @@ describe("the flat location list", () => {
 				whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 			});
 			expect(allRequests(peer)).toEqual([]);
+			serveConfiguredLevels(peer, doc);
 			await firstPublishConfirming(
 				peer,
 				doc,
@@ -1420,6 +1489,7 @@ describe("the flat location list", () => {
 			expect(needed.map((need) => need.kind)).not.toContain(
 				"flat-location-fixture",
 			);
+			serveConfiguredLevels(peer, doc);
 			await firstPublishConfirming(
 				peer,
 				doc,
@@ -1429,6 +1499,164 @@ describe("the flat location list", () => {
 		expect((await confirmationRows()).map((row) => row.kind)).not.toContain(
 			"flat-location-fixture",
 		);
+	});
+});
+
+// ── Q1. Address search in Web Apps ─────────────────────────────────────
+
+/** A survey whose one text question searches for an address. */
+function addressDocument(): BlueprintDoc {
+	return buildDoc({
+		appName: "Home visits",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						uuid: "visit",
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								id: "home",
+								label: "Home address",
+								addressLookup: true,
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+const GEOCODER: DeploymentConfirmationKey = {
+	kind: "plan-feature",
+	subject: "geocoder",
+};
+
+/** The slug HQ's feature-flag filter matches for advanced case search. */
+const ADVANCED_SEARCH_FLAG = domainFeatureFlag(
+	HQ_PRIVATE_FEATURE_FLAG_SYMBOLS["advanced-case-search"],
+).slug;
+
+/** The compatibility reads of the address app's publish: the target, then advanced case search answered `flag`. */
+function advancedSearchFlag(
+	peer: MockAgent,
+	flag: "on" | "off" | "unreadable",
+) {
+	request(peer, PROJECT_SPACES).reply(200, VISIBLE);
+	const filtered = request(
+		peer,
+		`${PROJECT_SPACES}&feature_flag=${ADVANCED_SEARCH_FLAG}`,
+	);
+	if (flag === "unreadable") filtered.reply(500, "Server error");
+	else
+		filtered.reply(
+			200,
+			flag === "on" ? VISIBLE : { meta: { total_count: 0 }, objects: [] },
+		);
+}
+
+function addressSearchCapability(outcome: PublishOutcome) {
+	return outcome.projectSpaceCompatibility?.required_capabilities.find(
+		(capability) => capability.id === "address-search",
+	);
+}
+
+describe("address search in Web Apps", () => {
+	it("asks for the Geocoder plan feature before any request, whatever advanced case search reads", async () => {
+		const doc = await seed(addressDocument());
+		await withPeer(async (peer) => {
+			const needed = refusal(await publish(doc)).confirmationsNeeded;
+			expect(needed).toContainEqual({
+				kind: "plan-feature",
+				subject: "geocoder",
+				label: PLAN_FEATURES.geocoder.label,
+				plans: PLAN_FEATURES.geocoder.plans,
+				consequence: PLAN_FEATURES.geocoder.consequence,
+				reasons: [
+					"Visit has a question that searches for an address in Web Apps.",
+				],
+				/* The question can take typed text, and the app can run on
+				 * Android alone, where publishing asks nothing of the plan. */
+				whereMissing:
+					"Where the plan doesn't include it, you can turn off Find an address on these questions, and workers type the address as ordinary text. If this app's workers use Android alone, you can instead set it to run on Android only, in App settings, and publishing no longer asks about Geocoder.",
+			});
+			expect(allRequests(peer)).toEqual([]);
+		});
+		expect(await confirmationRows()).toEqual([]);
+	});
+
+	it("stops before any write where the project space lacks advanced case search, with Geocoder confirmed", async () => {
+		const doc = await seed(addressDocument());
+		await withPeer(async (peer) => {
+			advancedSearchFlag(peer, "off");
+			const outcome = await publish(doc, [GEOCODER]);
+			expect(refusal(outcome)).toMatchObject({
+				phase: "preflight",
+				failure: { code: "project_space_incompatible" },
+			});
+			expect(addressSearchCapability(outcome)).toMatchObject({
+				state: "missing",
+				reasons: [
+					"Visit has a question that searches for an address in Web Apps.",
+				],
+			});
+			expect(outcome.deployment).toBeNull();
+			expect(requests(peer)).toEqual([]);
+		});
+		expect(await confirmationRows()).toEqual([]);
+	});
+
+	it("stops where advanced case search can't be read", async () => {
+		const doc = await seed(addressDocument());
+		await withPeer(async (peer) => {
+			advancedSearchFlag(peer, "unreadable");
+			const outcome = await publish(doc, [GEOCODER]);
+			expect(refusal(outcome).failure.code).toBe("project_space_incompatible");
+			expect(addressSearchCapability(outcome)?.state).toBe("unverified");
+			expect(requests(peer)).toEqual([]);
+		});
+	});
+
+	it("lands with both, and keeps the Geocoder confirmation", async () => {
+		const doc = await seed(addressDocument());
+		await withPeer(async (peer) => {
+			advancedSearchFlag(peer, "on");
+			const outcome = await firstPublishConfirming(peer, doc, [GEOCODER]);
+			expect(addressSearchCapability(outcome)?.state).toBe("available");
+		});
+		expect(await confirmationRows()).toContainEqual({
+			kind: "plan-feature",
+			subject: "geocoder",
+			confirmed_by: ACTOR,
+		});
+		/* A Preview bound to the project space reads the confirmation. */
+		expect(await readPreviewDeploymentAnswer(SCOPE)).toMatchObject({
+			projectSpace: "clinic",
+			targetFacts: { geocoderConfirmed: true },
+		});
+	});
+
+	it("asks nothing of an app that runs only on Android, where the question takes typed text", async () => {
+		const doc = await seed(androidOnly(addressDocument()));
+		await withPeer(async (peer) => {
+			const outcome = await firstPublishConfirming(peer, doc, []);
+			expect(addressSearchCapability(outcome)).toBeUndefined();
+			expect(
+				allRequests(peer).some((line) =>
+					line.includes(`feature_flag=${ADVANCED_SEARCH_FLAG}`),
+				),
+			).toBe(false);
+		});
+		expect((await confirmationRows()).map((row) => row.subject)).not.toContain(
+			"geocoder",
+		);
+		expect(
+			(await readPreviewDeploymentAnswer(SCOPE)).targetFacts,
+		).not.toHaveProperty("geocoderConfirmed");
 	});
 });
 
@@ -1753,6 +1981,7 @@ describe("logos", () => {
 		await seed(doc);
 		const first = await seedImage(logo, "public/nova-icons/household.png");
 		const second = await seedImage(other, "public/nova-icons/checklist.png");
+		storeProjectImages(PROJECT, [first, second]);
 		vi.mocked(downloadAssetBytes).mockImplementation(async (key) =>
 			key.includes(createHash("sha256").update(first).digest("hex"))
 				? first
@@ -1781,6 +2010,13 @@ describe("logos", () => {
 			accepted(peer, 200);
 			serve(peer, "source-live");
 			mediaTaken(peer);
+			servePublishedImage(peer, {
+				source: SOURCE,
+				read: "source-live",
+				wirePath: `commcare/${createHash("sha256").update(first).digest("hex")}.png`,
+				id: "updated-logo-image",
+				bytes: first,
+			});
 			const changed = landed(await publish(doc));
 			expect(changed.logoStep?.changed).toBe(true);
 			expect(requests(peer)).toContain(`POST ${MEDIA}`);
@@ -1966,6 +2202,60 @@ const withProfile =
 		};
 	};
 
+it("asks before removing a language already held at the earlier cutover", async () => {
+	const doc = await seed();
+	const hqLanguages = listing(["lug", "en"]);
+	const bodies: ImportBody[] = [];
+	await withPeer(async (peer) => {
+		await firstPublish(peer, doc, hqLanguages);
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({ origin: "cutover" })
+			.execute();
+		const before = requests(peer).length;
+		serve(peer, "source-live", hqLanguages);
+		const asked = refusal(await publish(doc));
+		expect(asked).toMatchObject({
+			phase: "preflight",
+			failure: { code: "hq_changed" },
+			remoteChanges: [
+				{
+					kind: "app",
+					novaResourceId: APP,
+					baselineKnown: true,
+					parts: [
+						"Publishing would remove Ganda (lug) from this app in CommCare HQ.",
+					],
+				},
+			],
+		});
+		expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+
+		serve(peer, "source-live", hqLanguages);
+		accepted(peer, 200, bodies);
+		serve(peer, "source-live");
+		const [shown] = asked.remoteChanges;
+		if (shown?.kind !== "app")
+			throw new Error("Expected a review of the app's languages.");
+		expect(
+			landed(
+				await publish(doc, [], {
+					discardRemoteChanges: [
+						{
+							kind: "app",
+							novaResourceId: APP,
+							observedDigest: shown.observedDigest,
+						},
+					],
+				}),
+			).hqAppAction,
+		).toBe("updated");
+	});
+	expect(bodies).toHaveLength(1);
+	expect(bodies[0]?.app).toHaveProperty("langs", ["en"]);
+});
+
 describe("a build profile that names a language the app no longer has", () => {
 	const TAB =
 		"That tab shows only where the project space's plan includes application profiles.";
@@ -1978,18 +2268,22 @@ describe("a build profile that names a language the app no longer has", () => {
 	/** The stop where the app on HQ still lists it, so its Languages tab can take it out. */
 	const ONE_ON_LANGUAGES_TAB = `An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. ${ON_PROFILES_TAB} ${TAB} On any plan, you can instead remove the language on the Languages tab of the app's settings there, which takes it out of every profile. Nova may then show you that change before it publishes. ${LEFT}`;
 
-	it("lets an update over a profile naming a language the app has land, and sends no build_profiles", async () => {
+	it("offers to bring in an unbound profile with compatible languages before sending the app", async () => {
 		const doc = await seed(bilingualDocument());
-		const bodies: ImportBody[] = [];
 		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
+			const before = requests(peer).length;
 			serve(peer, "source-live", withProfile("Field team", ["fra"]));
-			accepted(peer, 200, bodies);
-			serve(peer, "source-live");
-			expect(landed(await publish(doc)).hqAppAction).toBe("updated");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_installation_profile_review",
+					details: ["“Field team” · fra"],
+					installationProfileReviewUrl: `${HQ_APP_URL}releases/`,
+				},
+			});
+			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
 		});
-		expect(bodies).toHaveLength(1);
-		expect(bodies[0]?.app).not.toHaveProperty("build_profiles");
 	});
 
 	it("stops after a language is removed, before any write, names the profile and the language, and changes no record", async () => {
@@ -2026,12 +2320,9 @@ describe("a build profile that names a language the app no longer has", () => {
 			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
 			expect(await readDeployment(SCOPE, TARGET)).toEqual(record);
 
-			/* The profile changed on HQ's tab: the next publish lands, and the
-			 * change to the profile is no change to anything Nova writes. */
-			serve(peer, "source-live", (source) => {
-				bilingual(source);
-				withProfile("Field team", ["en"])(source);
-			});
+			/* Removing the unbound profile on HQ's Releases page restores the
+			 * all-language installation. This retry can send the app. */
+			serve(peer, "source-live", bilingual);
 			accepted(peer, 200);
 			serve(peer, "source-live");
 			const passed = landed(await publish(removed));
@@ -2088,6 +2379,31 @@ describe("a build profile that names a language the app no longer has", () => {
 					message: `An application profile of the app on “clinic” includes a language this app no longer has, which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content. ${ON_PROFILES_TAB} ${TAB} ${LEFT}`,
 					details: ["A profile with no name: French (fra)"],
 				},
+			});
+			const sent = requests(peer).slice(before);
+			expect(sent).toContain(`POST ${WORKBOOK}`);
+			expect(sent).not.toContain(`POST ${IMPORT}`);
+		});
+	});
+
+	it("holds unrelated HQ changes first when the second source also introduces a profile language gap", async () => {
+		const doc = await seed(await lookupDocument());
+		await withPeer(async (peer) => {
+			await firstLookupPublish(peer, doc);
+			const before = requests(peer).length;
+			tablesWithOurs(peer);
+			tableRows(peer);
+			serve(peer, "source-live");
+			workbookTaken(peer);
+			tablesWithOurs(peer);
+			tableRows(peer);
+			serve(peer, "source-live", (source) => {
+				webApps(false)(source);
+				withProfile("Field team", ["en", "fra"])(source);
+			});
+			expect(refusal(await publish(doc, [LOOKUP]))).toMatchObject({
+				phase: "upload",
+				failure: { code: "hq_changed" },
 			});
 			const sent = requests(peer).slice(before);
 			expect(sent).toContain(`POST ${WORKBOOK}`);

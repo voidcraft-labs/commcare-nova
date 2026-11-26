@@ -111,6 +111,28 @@ const anchor =
 	"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/selected_patient]";
 
 describe("navigation expression projection", () => {
+	it("publishes the worker record in the spelling HQ recognizes before a worker chooses a form", () => {
+		const carrier = {
+			displayCondition: eq(
+				{ ...sessionUser("district"), source: "worker-record" },
+				literal("north"),
+			),
+		};
+		const condition = formConditionForHq(
+			carrier,
+			displayContext(carrier, "form"),
+		);
+		expect(
+			condition &&
+				serializeWire(condition, {
+					target: "hq-json",
+					interpolation: "no-case",
+				}).text,
+		).toBe("#user/district = 'north'");
+		expect(emitFormDisplayConditionForSuite(carrier)).toContain(
+			"instance('casedb')/casedb/case[",
+		);
+	});
 	it("anchors nested properties to the supplied datum locally and HQ's case placeholder remotely", () => {
 		const condition = eq(
 			concat(term(prop("patient", "given_name")), term(literal("!"))),

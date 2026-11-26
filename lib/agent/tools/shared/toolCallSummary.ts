@@ -46,13 +46,33 @@ export interface ToolCallSummary {
 	 * mode switch alike, so the transcript's verb stays honest without knowing
 	 * the prior state.
 	 */
-	connect?: "learn" | "deliver" | "off";
+	connect?: "learn" | "deliver" | "both" | "off";
+	/**
+	 * For an `update_app` call that changed a menu layout: each layout it
+	 * changed, at its new value.
+	 */
+	menuLayouts?: {
+		first?: "list" | "grid";
+		forms?: "list" | "grid" | "individual";
+	};
 	/**
 	 * For a call that changed the app's form-list settings: each setting it
 	 * changed, at its new value. Absent when it changed none, so a row
 	 * recorded before the settings existed reads as it always did.
 	 */
 	formLists?: { saved?: boolean; incomplete?: boolean };
+	requiredAndroidApps?: readonly import("@/lib/domain/requiredAndroidApps").RequiredAndroidApp[];
+	/**
+	 * For a call that changed whether every form requests the device
+	 * location: the new value. Absent when it left the setting as it was.
+	 */
+	captureLocation?: boolean;
+	/**
+	 * For a call that changed whether a new case goes to the worker's
+	 * case-sharing group: the new value. Absent when it left the setting as
+	 * it was.
+	 */
+	caseSharing?: boolean;
 	/**
 	 * For a call that changed where the app runs: the RESULTING declaration,
 	 * `"both"` or the one platform. Absent when it left the declaration as it

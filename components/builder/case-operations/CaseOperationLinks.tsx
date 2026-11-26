@@ -265,8 +265,14 @@ function LinkRow({
 									setRejection(verdict.userMessage);
 									return;
 								}
+								const candidate = { ...link, identifier: next.trim() };
+								const result = linkVerdict(candidate);
+								if (!result.ok) {
+									setRejection(result.reason);
+									return;
+								}
 								setRejection(undefined);
-								onChange({ ...link, identifier: next.trim() });
+								onChange(candidate);
 							}}
 						/>
 					) : (

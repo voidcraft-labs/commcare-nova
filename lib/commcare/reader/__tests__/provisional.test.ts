@@ -103,8 +103,8 @@ function survey(): BlueprintDoc {
 	});
 }
 
-/** Renames the question `q1` to an id the question id grammar refuses, everywhere it is named. */
-const refuseQ1 = (xml: string) => xml.replaceAll("q1", "script");
+/** Renames the question `q1` to an id a worker's submission reads as a case change, everywhere it is named. */
+const refuseQ1 = (xml: string) => xml.replaceAll("q1", "Case");
 
 /** A survey whose group `boxed` holds `q1`, which `q2`'s condition reads, beside a text `q3`. */
 function boxed(): BlueprintDoc {
@@ -138,10 +138,10 @@ function boxed(): BlueprintDoc {
 	});
 }
 
-/** Renames the group `boxed` to an id the grammar refuses, and binds `q3` as a Long, a kind
+/** Renames the group `boxed` to an id a submission reads as a case change, and binds `q3` as a Long, a kind
  *  Nova refuses. */
 function refuseBoxedAndQ3(xml: string): string {
-	const renamed = xml.replaceAll("boxed", "script");
+	const renamed = xml.replaceAll("boxed", "Case");
 	const at = renamed.indexOf('nodeset="/data/q3"');
 	const open = renamed.lastIndexOf("<bind", at);
 	const close = renamed.indexOf(">", at);
@@ -172,7 +172,7 @@ describe("the provisional document", () => {
 			true,
 		);
 		const standIn = Object.values(doc.fields).find(
-			(field) => field.id === "script",
+			(field) => field.id === "Case",
 		);
 		expect(standIn?.kind).toBe("hidden");
 		bindExpressions(ctx);
@@ -199,7 +199,7 @@ describe("the provisional document", () => {
 		expect(provisional.moduleOrder).toHaveLength(1);
 		const byId = (id: string) =>
 			Object.values(provisional.fields).find((field) => field.id === id);
-		const group = byId("script");
+		const group = byId("Case");
 		expect(group?.kind).toBe("group");
 		expect(
 			provisional.fieldOrder[group?.uuid as Uuid]?.map(
@@ -218,7 +218,7 @@ describe("the provisional document", () => {
 		if (outcome.kind !== "account") return;
 		const places = outcome.findings.map((finding) => finding.place);
 		expect(places).toContainEqual(
-			expect.objectContaining({ kind: "question", path: "script" }),
+			expect.objectContaining({ kind: "question", path: "Case" }),
 		);
 		expect(places).toContainEqual(
 			expect.objectContaining({ kind: "question", path: "q3" }),
@@ -248,7 +248,7 @@ function fingerprint(ctx: ReadContext): string {
 		appSettings: draft.appSettings,
 		logo: draft.logo,
 		levels: draft.levels,
-		connectType: draft.connectType,
+		connectRoles: draft.connectRoles,
 		userProperties: draft.userProperties,
 		locationProperties: draft.locationProperties,
 		caseTypes: draft.caseTypes,
@@ -531,6 +531,59 @@ describe("applying the expression stage's answer", () => {
 							readerDefect.noCaseDatum(place),
 						]
 					: [readerDefect.expressionNotWrittenBack(place, reason)],
+			);
+		}
+	});
+
+	it("raises a finding for a tree a reader claims that the stage held nothing of, and none where it held one", async () => {
+		for (const held of [false, true]) {
+			const ctx = await readUpToBinding(survey());
+			const own = ctx.pending.list();
+			const at = own.findIndex((one) => one.ref.slot === "relevant");
+			const registration = own[at];
+			if (registration === undefined) throw new Error("No display condition");
+			// The registrar's own read claims the node; nothing else claims or refuses it.
+			const claimed = ctx.pending.register(
+				{ ...registration, readerClaimed: true },
+				ctx.pending.site(at).at,
+			);
+			const tree = pendingPlaceholder("condition");
+			applyExpressionReading(ctx, {
+				doc: provisionalDocument(ctx),
+				bound: ctx.pending
+					.list()
+					.map((_, index) => (held && index === claimed ? tree : undefined)),
+				claims: [],
+				circumstances: [],
+				rewrites: [],
+				levels: new Map(),
+				declaredProperties: [],
+				worldReads: {
+					userFields: [],
+					sessionUserFields: [],
+					locationDataSlugs: [],
+				},
+				unreadTables: [],
+				declaredTables: [],
+				ownerless: [],
+				rounds: 1,
+			});
+			const { findings, defects } = ctx.close();
+			const unrecognized = findings.filter(
+				(finding) =>
+					finding.code === "unrecognized" &&
+					finding.detail.name === registration.key,
+			);
+			expect(unrecognized).toHaveLength(held ? 0 : 1);
+			expect(defects.map((defect) => defect.why)).toEqual(
+				held
+					? []
+					: [
+							readerDefect.expressionNotWrittenBack(
+								registration.place,
+								"unknown-reason",
+							),
+						],
 			);
 		}
 	});

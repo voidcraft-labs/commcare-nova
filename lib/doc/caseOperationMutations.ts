@@ -1,5 +1,6 @@
 import {
 	type BlueprintDoc,
+	type CaseFacetOnlyIfChanged,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -18,6 +19,7 @@ import {
 import { caseWriteIdOf } from "./caseWriteKeys";
 import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
+import { entryCaseCreationsLeftBy } from "./entryCaseCreationCascade";
 import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupValidationContext,
@@ -49,10 +51,16 @@ const OPERATION_PATCH_KEYS = [
 	"caseType",
 	"target",
 	"condition",
+	"closeCondition",
+	"closeAfter",
 	"forEach",
 	"name",
+	"nameOnlyIfChanged",
 	"owner",
+	"ownerCondition",
+	"ownerOnlyIfChanged",
 	"rename",
+	"renameOnlyIfChanged",
 	"retype",
 ] as const satisfies readonly (keyof CaseOperation)[];
 
@@ -79,6 +87,19 @@ function operationMutation(
 	};
 }
 
+/** The patch of one facet flag (`CaseFacetOnlyIfChanged`): `true` sets it,
+ *  `null` clears it. */
+function flagPatch<K extends CaseFacetOnlyIfChanged>(
+	key: K,
+	before: CaseOperation,
+	after: StoredCaseOperation,
+): Partial<Record<K, true | null>> {
+	const was = (before as { readonly [key: string]: unknown })[key] === true;
+	const is = (after as { readonly [key: string]: unknown })[key] === true;
+	if (was === is) return {};
+	return { [key]: is ? true : null } as Partial<Record<K, true | null>>;
+}
+
 function scalarOperationUpdate(
 	before: CaseOperation,
 	after: StoredCaseOperation,
@@ -87,14 +108,17 @@ function scalarOperationUpdate(
 		case "own": {
 			// The own arm's case type, target, condition and repeat are the
 			// form's; its id names its block and never changes. Only its name
-			// and owner are its own slots.
+			// and owner, and whether each is saved only when changed, are its
+			// own slots.
 			const patch = {
 				...(!deepEqual(before.name, after.name)
 					? { name: clearable(after.name) }
 					: {}),
+				...flagPatch("nameOnlyIfChanged", before, after),
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
 					: {}),
+				...flagPatch("ownerOnlyIfChanged", before, after),
 			};
 			return {
 				operation: "update",
@@ -109,11 +133,26 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.caseType, after.caseType)
 					? { caseType: after.caseType }
 					: {}),
+				...(!deepEqual(
+					before.action === "create" ? before.typeCalculation : undefined,
+					after.typeCalculation,
+				)
+					? { typeCalculation: clearable(after.typeCalculation) }
+					: {}),
+				...(!deepEqual(
+					before.action === "create" ? before.typeChoice : undefined,
+					after.typeChoice,
+				)
+					? { typeChoice: clearable(after.typeChoice) }
+					: {}),
 				...(!deepEqual(before.target, after.target)
 					? { target: structuredClone(after.target) }
 					: {}),
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
 					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }
@@ -121,10 +160,23 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.name, after.name)
 					? { name: structuredClone(after.name) }
 					: {}),
+				...(before.nameOnlyIfChanged !== undefined
+					? { nameOnlyIfChanged: null }
+					: {}),
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
 					: {}),
+				...(!deepEqual(before.ownerCondition, after.ownerCondition)
+					? { ownerCondition: clearable(after.ownerCondition) }
+					: {}),
+				...flagPatch("ownerOnlyIfChanged", before, after),
+				...(!deepEqual(before.closeAfter, after.closeAfter)
+					? { closeAfter: after.closeAfter ?? null }
+					: {}),
 				...(before.rename !== undefined ? { rename: null } : {}),
+				...(before.renameOnlyIfChanged !== undefined
+					? { renameOnlyIfChanged: null }
+					: {}),
 				...(before.retype !== undefined ? { retype: null } : {}),
 			};
 			return {
@@ -146,16 +198,30 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
 					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
+					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }
 					: {}),
 				...(before.name !== undefined ? { name: null } : {}),
+				...(before.nameOnlyIfChanged !== undefined
+					? { nameOnlyIfChanged: null }
+					: {}),
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
+					: {}),
+				...(!deepEqual(before.ownerCondition, after.ownerCondition)
+					? { ownerCondition: clearable(after.ownerCondition) }
+					: {}),
+				...flagPatch("ownerOnlyIfChanged", before, after),
+				...(!deepEqual(before.closeAfter, after.closeAfter)
+					? { closeAfter: after.closeAfter ?? null }
 					: {}),
 				...(!deepEqual(before.rename, after.rename)
 					? { rename: clearable(after.rename) }
 					: {}),
+				...flagPatch("renameOnlyIfChanged", before, after),
 				...(!deepEqual(before.retype, after.retype)
 					? { retype: clearable(after.retype) }
 					: {}),
@@ -179,12 +245,27 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
 					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
+					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }
 					: {}),
 				...(before.name !== undefined ? { name: null } : {}),
+				...(before.nameOnlyIfChanged !== undefined
+					? { nameOnlyIfChanged: null }
+					: {}),
 				...(before.owner !== undefined ? { owner: null } : {}),
+				...(before.ownerCondition !== undefined
+					? { ownerCondition: null }
+					: {}),
+				...(before.ownerOnlyIfChanged !== undefined
+					? { ownerOnlyIfChanged: null }
+					: {}),
 				...(before.rename !== undefined ? { rename: null } : {}),
+				...(before.renameOnlyIfChanged !== undefined
+					? { renameOnlyIfChanged: null }
+					: {}),
 				...(before.retype !== undefined ? { retype: null } : {}),
 			};
 			return {
@@ -933,6 +1014,26 @@ export function updateCaseOperationMutations(
 	);
 	if (existing === undefined) return [];
 	const value = { ...operation };
+	if (
+		value.action === "create" &&
+		existing.action === "create" &&
+		existing.typeChoice !== undefined
+	) {
+		if (value.caseType === existing.caseType)
+			value.typeChoice ??= existing.typeChoice;
+		else if (deepEqual(value.typeChoice, existing.typeChoice))
+			delete value.typeChoice;
+	}
+	if (
+		value.action === "create" &&
+		existing.action === "create" &&
+		existing.typeCalculation !== undefined
+	) {
+		if (value.caseType === existing.caseType)
+			value.typeCalculation ??= existing.typeCalculation;
+		else if (deepEqual(value.typeCalculation, existing.typeCalculation))
+			delete value.typeCalculation;
+	}
 	return [
 		...caseOperationCatalogMutations(
 			doc,
@@ -943,11 +1044,20 @@ export function updateCaseOperationMutations(
 	];
 }
 
+export type CaseOperationRemovalPlan =
+	| CaseOperationMutationPlan
+	| {
+			readonly ok: false;
+			readonly reason: "case-list-action";
+			readonly message: string;
+			readonly dependentUuids: readonly Uuid[];
+	  };
+
 export function removeCaseOperationMutation(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	uuid: Uuid,
-): CaseOperationMutationPlan {
+): CaseOperationRemovalPlan {
 	const form = doc.forms[formUuid];
 	if (
 		form === undefined ||
@@ -964,6 +1074,24 @@ export function removeCaseOperationMutation(
 			ok: false,
 			reason: "own-case",
 			message: OWN_CASE_REMOVAL_MESSAGE,
+			dependentUuids: [],
+		};
+	}
+	const actionHost = doc.moduleOrder.find((moduleUuid) => {
+		const slot = doc.modules[moduleUuid]?.caseListRegistrationForm;
+		return (
+			slot?.kind === "always" &&
+			slot.formUuid === formUuid &&
+			slot.target?.kind === "created-case" &&
+			slot.target.operationUuid === uuid
+		);
+	});
+	if (actionHost !== undefined) {
+		const menu = doc.modules[actionHost]?.name ?? "";
+		return {
+			ok: false,
+			reason: "case-list-action",
+			message: `The case list in “${menu}” uses the record this change creates. You can choose another form on that list or stop offering this one before removing the change.`,
 			dependentUuids: [],
 		};
 	}
@@ -1005,6 +1133,7 @@ export function removeCaseOperationMutation(
 				patch: {},
 				caseOperationChange: { operation: "remove", uuid },
 			},
+			...entryCaseCreationsLeftBy(form, prospective.caseOperations ?? []),
 		],
 	};
 }

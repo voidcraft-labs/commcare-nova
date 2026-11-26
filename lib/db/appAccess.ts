@@ -15,11 +15,17 @@
 import type { Transaction } from "kysely";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import {
+	publishedQuestionSources,
+	publishedQuestions,
+} from "@/lib/deployment/publishedQuestions";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	type PlacementHold,
 	readPlacementHolds,
 } from "@/lib/doc/placementHolds";
+import type { Uuid } from "@/lib/domain";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { loadApp, loadAppInTransaction, loadAppProjectId } from "./apps";
 import { safePersistedSequence } from "./persistedJson";
 import type { AppDatabase } from "./pg";
@@ -94,6 +100,7 @@ export interface AuthorizedAppSnapshot extends AppAccess {
 	 * this says a recording wrote, as the commit kernel does.
 	 */
 	readonly recordedHolds: readonly PlacementHold[];
+	readonly publishedQuestions?: Uuid[];
 }
 
 /** Throws unless `userId` holds `required` on `projectId`. */
@@ -129,7 +136,8 @@ export async function resolveAppAccess(
  * Resolve an app's current Project, role, edit capability, and mutation cursor
  * on the caller's transaction.
  *
- * Lock order is deliberate: `apps FOR SHARE` first, then the shared
+ * Lock order is deliberate: the app row first (FOR SHARE, or FOR UPDATE when
+ * the caller must serialize a deployment eligibility check), then the shared
  * Project-membership advisory gate inside `projectRoleForInTransaction`, then
  * the exact membership row `FOR SHARE`. A Project move or blueprint commit
  * takes the conflicting app-row lock, while Better Auth membership DML takes
@@ -141,13 +149,20 @@ export async function resolveAppScopeInTransaction(
 	appId: string,
 	userId: string,
 	required: AppCapability = "view",
+	appRowLock: "share" | "update" = "share",
 ): Promise<TransactionalAppScope> {
-	const app = await tx
-		.selectFrom("apps")
-		.select(["project_id", "mutation_seq", "deleted_at", "status"])
-		.where("id", "=", appId)
-		.forShare()
-		.executeTakeFirst();
+	const app = await (appRowLock === "update"
+		? tx
+				.selectFrom("apps")
+				.select(["project_id", "mutation_seq", "deleted_at", "status"])
+				.where("id", "=", appId)
+				.forUpdate()
+		: tx
+				.selectFrom("apps")
+				.select(["project_id", "mutation_seq", "deleted_at", "status"])
+				.where("id", "=", appId)
+				.forShare()
+	).executeTakeFirst();
 	if (!app || app.deleted_at !== null) {
 		throw new AppAccessError("not_found");
 	}
@@ -197,6 +212,47 @@ export async function resolveAuthorizedAppSnapshot(
 			app,
 			...scope,
 			recordedHolds: await recordedHoldsOf(tx, appId, app),
+			publishedQuestions: scope.canEdit
+				? await publishedQuestions(
+						tx,
+						appId,
+						scope.projectId,
+						scope.baseSeq,
+						app.blueprint,
+					)
+				: [],
+		};
+	});
+}
+
+/** The deployment lane can wake repeatedly during an upload. Read the app
+ * and its history only when the source or revision carrying its questions
+ * changed. Every emit is authorized in the transaction that resolved it. */
+export async function publishedQuestionsForStream(
+	appId: string,
+	userId: string,
+	previous: string | undefined,
+) {
+	return withAppTx(async (tx) => {
+		const scope = await resolveAppScopeInTransaction(tx, appId, userId);
+		const sources = scope.canEdit
+			? await publishedQuestionSources(tx, appId, scope.projectId)
+			: [];
+		const key = canonicalJsonText([scope.projectId, sources]);
+		if (previous === key) return null;
+		if (sources.length === 0) return { key, questions: [] };
+		const app = await loadAppInTransaction(tx, appId);
+		if (app === null) throw new AppAccessError("not_found");
+		return {
+			key,
+			questions: await publishedQuestions(
+				tx,
+				appId,
+				scope.projectId,
+				scope.baseSeq,
+				app.blueprint,
+				sources,
+			),
 		};
 	});
 }

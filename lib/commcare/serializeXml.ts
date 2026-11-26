@@ -6,7 +6,7 @@ import { xmlTextIssue } from "./xmlText";
 /** The one encoder for raw XML values. XML normalizes literal CR in text and
  * all literal whitespace in attributes, so those characters require numeric
  * references even though they are legal XML characters. */
-function value(text: string, attribute: boolean): string {
+export function serializeXmlValue(text: string, attribute: boolean): string {
 	// The work meter's `print` door (`workMeter.ts`): one unit a character written, in a
 	// metered reading only.
 	chargeWork("print", text.length + 1);
@@ -30,7 +30,7 @@ function value(text: string, attribute: boolean): string {
 export function serializeXml(node: AnyNode): string {
 	if (isTag(node)) {
 		const attributes = Object.entries(node.attribs)
-			.map(([name, text]) => ` ${name}="${value(text, true)}"`)
+			.map(([name, text]) => ` ${name}="${serializeXmlValue(text, true)}"`)
 			.join("");
 		return node.children.length === 0
 			? `<${node.name}${attributes}/>`
@@ -40,7 +40,7 @@ export function serializeXml(node: AnyNode): string {
 		case "root":
 			return node.children.map(serializeXml).join("");
 		case "text":
-			return value(node.data, false);
+			return serializeXmlValue(node.data, false);
 		case "cdata":
 			// Ordinary escaped text carries the identical value without CDATA's
 			// line-ending normalization or its special closing delimiter.

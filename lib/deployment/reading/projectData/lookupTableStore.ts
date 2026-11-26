@@ -9,6 +9,7 @@ import "server-only";
 import type { Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
+	HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 	HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES,
 	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 } from "@/lib/commcare/hq/bounds";
@@ -16,20 +17,19 @@ import type {
 	CommCareApiError,
 	CommCareCredentials,
 } from "@/lib/commcare/hq/http";
+import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
 import {
+	type HqLookupTable,
 	listHqLookupTables,
-	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
 import type { AppDatabase } from "@/lib/db/pg";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
-import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
 import {
 	createManagedLookupTablesInTransaction,
 	type ManagedOriginWrite,
 	type ManagedTableReviewed,
-	readKeptLookupColumnIds,
 	refreshManagedLookupTableInTransaction,
 } from "@/lib/lookup/managed";
 import type { ManagedLookupContent } from "@/lib/lookup/managedRules";
@@ -43,11 +43,9 @@ import { readSiblingLookupMappings } from "../../store";
 import { isDeploymentServer } from "../../types";
 import {
 	type BroughtInTableWrite,
-	candidateLookupTags,
 	type HqLookupTableRead,
 	lookupTableStanding,
 	managedLookupContentOf,
-	sameManagedColumnCapFinding,
 } from "./lookupTables";
 
 // ---------------------------------------------------------------------------
@@ -81,17 +79,14 @@ function failsEveryTime(error: CommCareApiError): boolean {
 
 /**
  * The project space's lookup tables the source may read, with their rows.
- * One list read; then, for each table whose tag the source names
- * (`candidateLookupTags`), its rows, one table at a time, stopping once the
+ * One list read; then, for each table the reading references, its rows, one table at a time, stopping once the
  * first page names more rows than Nova holds (`over-row-limit`) or the rows
  * pass `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES` (`over-byte-limit`), each a finding of
  * that table. The rows the request keeps are bounded together too: each table
  * is read at most as far as what remains of
  * `HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`, and a table that passes what remains,
- * where that is less than one table's bound, is the request reading more
- * lookup data than Nova brings in, which answers a failure of cause
- * `too-large` for `lookup-rows` (`failure.ts` words it
- * `lookup-data-too-large`).
+ * including a table after the total inline budget is spent, retains its
+ * confirmed source definition for a later independent paged refresh.
  *
  * A row read that fails with an answered status of 500 or more, or with no
  * answer, is sent once more. `readHqJson` already sends a read no answer began
@@ -113,7 +108,9 @@ function failsEveryTime(error: CommCareApiError): boolean {
 export async function readHqLookupTablesForReading(input: {
 	readonly creds: CommCareCredentials;
 	readonly domain: string;
-	readonly sourceText: string;
+	readonly referencedTags: (
+		listed: readonly HqLookupTable[],
+	) => Promise<ReadonlySet<string>>;
 	readonly cancel?: AbortSignal;
 }): Promise<
 	| {
@@ -125,7 +122,22 @@ export async function readHqLookupTablesForReading(input: {
 	const { creds, domain, cancel } = input;
 	const list = await listHqLookupTables(creds, domain, { cancel });
 	if ("success" in list) return { ...list, request: "lookup-tables" };
-	const candidates = new Set(candidateLookupTags(input.sourceText, list));
+	const candidates =
+		list.length === 0
+			? new Set<string>()
+			: new Set(await input.referencedTags(list));
+	const distinct = new Set<string>();
+	for (const table of list) {
+		if (!candidates.has(table.tag)) continue;
+		if (distinct.has(table.tag))
+			return {
+				success: false,
+				status: 503,
+				cause: "moved",
+				request: "lookup-tables",
+			};
+		distinct.add(table.tag);
+	}
 	const tables: HqLookupTableRead[] = [];
 	/* What remains of the request's bound on the rows it keeps. */
 	let remaining = HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES;
@@ -134,9 +146,9 @@ export async function readHqLookupTablesForReading(input: {
 		candidates.delete(table.tag);
 		const bound = Math.min(HQ_LOOKUP_TABLE_ROWS_MAX_BYTES, remaining);
 		const readRows = () =>
-			readHqLookupTableRows(creds, domain, table, {
+			readSelectedHqLookupRows(creds, domain, table, {
 				cancel,
-				maxRows: LOOKUP_MAX_ROWS,
+				maxRows: HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 				maxBytes: bound,
 			});
 		let answer = await readRows();
@@ -165,13 +177,6 @@ export async function readHqLookupTablesForReading(input: {
 				});
 				continue;
 			}
-			if (bound < HQ_LOOKUP_TABLE_ROWS_MAX_BYTES)
-				return {
-					success: false,
-					status: 502,
-					cause: "too-large",
-					request: "lookup-rows",
-				};
 			tables.push({ kind: "over-byte-limit", table });
 			continue;
 		}
@@ -301,6 +306,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 		tx,
 		scope.projectId,
 		tableIds,
+		"project-editor",
 	);
 	const siblings = await readSiblingLookupMappings(
 		{
@@ -313,11 +319,6 @@ export async function writeBroughtInLookupTablesInTransaction(
 		tableIds,
 		tx,
 	);
-	const keptColumns = await readKeptLookupColumnIds(
-		tx,
-		scope.projectId,
-		tableIds,
-	);
 
 	const created: Parameters<
 		typeof createManagedLookupTablesInTransaction
@@ -329,6 +330,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 		readonly reviewed: ManagedTableReviewed;
 		readonly content: ManagedLookupContent;
 		readonly origin: ManagedOriginWrite;
+		readonly newMemberIds?: BroughtInTableWrite["binding"]["memberIds"];
 		readonly newColumnIds: BroughtInTableWrite["binding"]["columns"];
 	}[] = [];
 	for (const table of write.tables) {
@@ -351,10 +353,6 @@ export async function writeBroughtInLookupTablesInTransaction(
 		if (row !== undefined && definition === undefined) {
 			throw new BroughtInTableChangedError(tag);
 		}
-		const keptColumnIds =
-			definition === undefined || !Object.hasOwn(keptColumns, definition.id)
-				? []
-				: keptColumns[definition.id];
 		const standing = lookupTableStanding({
 			read: table.read,
 			origin,
@@ -371,12 +369,8 @@ export async function writeBroughtInLookupTablesInTransaction(
 			),
 			appReads: [],
 			mayAdminister,
-			keptColumnIds,
 		});
-		if (
-			standing.kind !== table.standing.kind ||
-			sameManagedColumnCapFinding(table.read, standing, keptColumnIds) !== null
-		) {
+		if (standing.kind !== table.standing.kind) {
 			throw new BroughtInTableChangedError(tag);
 		}
 		const content = managedLookupContentOf(table.read.table, table.read.rows);
@@ -446,6 +440,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 			},
 			content,
 			origin: managedOrigin,
+			newMemberIds: table.binding.memberIds,
 			newColumnIds: recordFromEntries(
 				Object.entries(table.binding.columns).filter(
 					([field]) => !wireNames.has(field),
@@ -471,6 +466,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 			content: refresh.content,
 			origin: refresh.origin,
 			at: write.readAt,
+			newMemberIds: refresh.newMemberIds,
 			newColumnIds: refresh.newColumnIds,
 			/* The app's columns bind the ids the reading gave them, so the
 			 * bring-in writes what the reading read, or refuses where a newer

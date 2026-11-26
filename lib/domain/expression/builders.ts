@@ -1,10 +1,6 @@
 /** Typed constructors for the canonical expression vocabulary. */
-import type {
-	CasePropertyDataType,
-	LookupColumnId,
-	LookupTableId,
-	Uuid,
-} from "@/lib/domain";
+import type { CasePropertyDataType, LookupTableId, Uuid } from "@/lib/domain";
+import type { LookupRead } from "../lookupRead";
 import {
 	reduceAnd as reduceAndImpl,
 	reduceNot as reduceNotImpl,
@@ -67,7 +63,7 @@ export function formField(uuid: Uuid): FormFieldRef {
 }
 export function tableColumn(
 	tableId: LookupTableId,
-	columnId: LookupColumnId,
+	columnId: LookupRead,
 ): TableColumnTerm {
 	return { kind: "table-column", tableId, columnId };
 }
@@ -345,6 +341,9 @@ export function term(t: Term): Extract<Expression, { kind: "term" }> {
 export function today(): Extract<Expression, { kind: "today" }> {
 	return { kind: "today" };
 }
+export function projectToday(): Extract<Expression, { kind: "today" }> {
+	return { kind: "today", clock: "project-space" };
+}
 export function now(): Extract<Expression, { kind: "now" }> {
 	return { kind: "now" };
 }
@@ -366,7 +365,7 @@ export function unowned(): Extract<Expression, { kind: "unowned" }> {
 }
 export function tableLookup(
 	tableId: LookupTableId,
-	resultColumnId: LookupColumnId,
+	resultColumnId: LookupRead,
 	where: Expression,
 ): Extract<Expression, { kind: "table-lookup" }> {
 	return { kind: "table-lookup", tableId, resultColumnId, where };

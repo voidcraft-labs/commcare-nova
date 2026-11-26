@@ -1,36 +1,41 @@
+import { VELLUM_NS } from "../../xmlNamespaces";
+import { ownNamespace } from "./join";
+import { attributeNameIn } from "./model";
 /**
  * Stage 10: what the bound document decides for a form. A case choices
  * itemset compared with the nodeset Nova's emitter builds for it; a
  * count that reads the rows it creates; a model-iteration repeat held
  * to where Nova's own rule runs model iteration; a pair of load-time
  * values whose order a save in HQ's form builder changes, where one reads the
- * node the other sets; and a Hidden Value whose bind type is one Nova
- * would not write for it; and a protected validation message's composed
- * expression and its text's own forms; and a Connect slot that holds the default the
- * emitter writes for an unset one, read as unset. Each is compared with the production rule
+ * node the other sets; a hidden answer type Nova's automatic type writes, and
+ * the spellings of hidden answer types; and a protected validation message's composed
+ * expression and its text's own forms. Each is compared with the production rule
  * over the document as the expression stage bound it. A check whose inputs a
  * finding withheld is skipped: that finding already sends the person to the
  * question or the form. A Hidden Value holding both a calculate and a
- * default outside every repeat is the calculate alone where no runtime reads
- * the default, and refused where one can.
+ * default keeps both, claimed by whether a runtime can read the default.
  */
 
 import { type Element, isTag } from "domhandler";
 import {
 	type BlueprintDoc,
+	effectiveCaseTypes,
 	type Field,
 	fieldCaseWriteViews,
 	type ProseAtomPart,
 	type ProseTemplate,
 	type Uuid,
 } from "@/lib/domain";
-import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { and } from "@/lib/domain/expression/builders";
 import {
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
-import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
+import type {
+	Expression,
+	ExpressionSlotRef,
+} from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	effectiveAppLocalization,
@@ -38,30 +43,24 @@ import {
 } from "@/lib/domain/localization";
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import { caseOptionsNodeset } from "../../caseOptions";
-import {
-	DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
-	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
-	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
-} from "../../connectDefaults";
+import { availableCasesNodeset, caseOptionsNodeset } from "../../caseOptions";
+
 import { el, text as textNode } from "../../elementBuilders";
 import { planLanguageWire } from "../../languageWire";
 import { commCareLocalization } from "../../localization";
 import { inertLookupWireNaming } from "../../lookup/naming";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { rethrowWorkStop } from "../../workMeter";
-import { fieldBindType } from "../../xform/bindType";
+import { fieldBindType, hiddenAnswerTypeOf } from "../../xform/bindType";
 import { protectConstraintMessage } from "../../xform/constraintMessage";
 import { questionDatetimeCaseValue } from "../../xform/datetimeCaseValue";
 import { formNodeProjection } from "../../xpath/formNodeProjection";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { withCandidate } from "../candidate";
-import { type Claim, claimRegistry } from "../claims";
 import type { DraftForm, ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
 import { pointerToken, sameJson } from "../jsonCursor";
-import { manifestFindingOf } from "../languages";
 import { builtScopes, sameElementWhole } from "../sameElement";
 import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
@@ -210,17 +209,6 @@ function fieldsOf(form: ReadXForm): DraftField[] {
 	return order;
 }
 
-/** A Hidden Value's bind type as a class: text (absent or `xsd:string`), or date and time. */
-function bindTypeClass(
-	type: string | undefined,
-): "text" | "datetime" | undefined {
-	if (type === undefined) return "text";
-	const local = type.startsWith("xsd:") ? type.slice(4) : type;
-	if (local === "string") return "text";
-	if (local === "dateTime") return "datetime";
-	return undefined;
-}
-
 /** Whether the expression stage held what a bind's attribute registered. */
 function held(ctx: ReadContext, element: object, attribute: string): boolean {
 	const index = ctx.pending.firstAt(element, attribute);
@@ -239,11 +227,30 @@ function checkLoadOrder(
 ): void {
 	const names = xform.sourceNames;
 	if (names === undefined) return;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	const positions = documentOrder(doc, formUuid);
-	const emitted = emittedLoadOrder(order, (step) =>
-		loadPosition(names, positions, step.target, positions.size),
+	const operations = doc.forms[formUuid]?.caseOperations ?? [];
+	const createPositions = new Map(
+		operations.map((operation, index) => [
+			operation.uuid,
+			index - operations.length,
+		]),
 	);
+	for (const [uuid, position] of positions) {
+		const field = doc.fields[uuid];
+		if (field?.kind === "case_change")
+			createPositions.set(field.operationUuid, position);
+	}
+	const emitted = emittedLoadOrder(order, (step) => {
+		const ref = step.pending?.ref;
+		if (
+			ref?.entity === "form" &&
+			ref.slot === "case_operation_target_expression"
+		) {
+			return createPositions.get(ref.member.operationUuid) ?? positions.size;
+		}
+		return loadPosition(names, positions, step.target, positions.size);
+	});
 	const reads = new Map<LoadStep, Set<string>>();
 	const readsOfStep = (step: LoadStep) => {
 		const known = reads.get(step) ?? readsOf(doc, names, step);
@@ -297,7 +304,7 @@ function defaultUnread(
 		!held(ctx, only.element, "value")
 	)
 		return false;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	const at = order.findIndex(
 		(step) => step.event === "xforms-ready" && step.target === path,
 	);
@@ -338,161 +345,39 @@ function defaultUnread(
 	return true;
 }
 
-/** The surface key a Hidden Value's node is claimed at. */
-const BOTH_KEY = "mug:DataBindOnly";
-
-/**
- * Each Hidden Value of a form holding both a calculate and a default outside every repeat,
- * claimed at its node and its bind's type: where no runtime reads the default
- * (`defaultUnread`), under the held entry, the document keeping the calculate alone and the
- * first publish saying so (`hidden-value-defaults-dropped`, once per form); otherwise refused
- * whole at the question.
- */
+/** Account for a root hidden question under the observed or overwritten
+ * seed class once later assignments are bound. The worker's initialization
+ * order matters to that classification. The saved question keeps both slots. */
 function settleBothSources(ctx: ReadContext, form: DraftForm): void {
 	const xform = form.xform;
 	if (xform === null) return;
-	let dropped = false;
 	for (const field of fieldsOf(xform)) {
-		const both = field.bothSources;
-		if (both === undefined) continue;
+		if (field.bothSources === undefined) continue;
 		const doc = ctx.doc;
 		const unread =
 			doc !== undefined &&
 			doc.forms[form.uuid] !== undefined &&
 			defaultUnread(ctx, doc, xform, field);
+		const sites = unread ? X.kind.hiddenBothUnread : X.kind.hiddenBothObserved;
+		ctx.accounting.claimEntry(
+			{ element: field.node.element },
+			sites.node.entry,
+			"mug:DataBindOnly",
+			field.place,
+		);
 		const bind = xform.binds.get(field.node);
-		const claimNode = (node: Claim) =>
-			ctx.accounting.claimEntry(
-				{ element: field.node.element },
-				node.entry,
-				node.key ?? BOTH_KEY,
-				field.place,
-			);
-		const typeSite =
-			both.typeDeferred && bind !== undefined
-				? { element: bind.element, attribute: "type" }
-				: undefined;
-		if (!unread || doc === undefined || field.uuid === undefined) {
-			// The bind's type belongs to the refused question: covered by its one finding.
-			const refusal = X.refusedKind.hiddenBoth;
-			claimNode(refusal);
-			if (typeSite !== undefined)
-				ctx.accounting.cover(
-					typeSite,
-					manifestFindingOf(refusal, field.place, {}),
-				);
-			continue;
-		}
-		const sites = X.kind.hiddenBothUnread;
-		claimNode(sites.node);
 		if (
-			typeSite !== undefined &&
+			field.bothSources.typeDeferred &&
+			bind !== undefined &&
 			sites.type !== undefined &&
 			sites.type.key !== null
 		)
 			ctx.accounting.claimEntry(
-				typeSite,
+				{ element: bind.element, attribute: "type" },
 				sites.type.entry,
 				sites.type.key,
 				field.place,
 			);
-		const uuid = field.uuid;
-		ctx.doc = withCandidate(doc, (draft) => {
-			delete (draft.fields[uuid] as { default_value?: unknown }).default_value;
-		});
-		delete field.field.default_value;
-		dropped = true;
-	}
-	if (!dropped) return;
-	const readId =
-		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
-	ctx.facts.sameStateRewrites.push({
-		entry: X.kind.hiddenBothUnread.node.entry,
-		path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
-		register: "hidden-value-defaults-dropped",
-	});
-}
-
-/** `caseStageEntryIds` as last derived, with the registry's size then: names
- *  are only ever added to the registry, so an unchanged size is an unchanged
- *  registry. */
-let caseStageEntries:
-	| { readonly size: number; readonly entries: ReadonlySet<string> }
-	| undefined;
-
-/** The entries the case management stage raises a finding under. */
-function caseStageEntryIds(): ReadonlySet<string> {
-	const registry = claimRegistry();
-	if (caseStageEntries?.size === registry.size) return caseStageEntries.entries;
-	const entries = new Set<string>();
-	for (const [name, claim] of registry)
-		if (
-			name.startsWith("caseManagement.") &&
-			(claim.use === "refuse" || claim.use === "account")
-		)
-			entries.add(claim.entry);
-	caseStageEntries = { size: registry.size, entries };
-	return entries;
-}
-
-/**
- * Whether a case write of the form was itself a finding, so the document may lack a write the
- * source makes: a finding the case management stage raised at the form or at one of its
- * questions, or any finding at a node of the form's case region (a Save to Case block, its
- * rows and their values).
- */
-function caseWritesUnread(
-	ctx: ReadContext,
-	formPlace: DraftField["place"],
-	xform: ReadXForm,
-): boolean {
-	if (formPlace.kind !== "form") return false;
-	const entries = caseStageEntryIds();
-	return ctx.accounting.findings().some((finding) => {
-		const place = finding.place;
-		if (place.kind !== "form" && place.kind !== "question") return false;
-		if (place.menu !== formPlace.menu || place.form !== formPlace.form)
-			return false;
-		if (entries.has(finding.code)) return true;
-		if (place.kind !== "question") return false;
-		const node = xform.nodes.get(place.path);
-		return node !== undefined && xform.roles.get(node)?.kind === "case-region";
-	});
-}
-
-/** The Hidden Value bind type check of one form: skipped for a Hidden Value whose
- *  calculate the expression stage did not hold, and for every one of a form a case write of
- *  which was itself a finding, since the inputs of either are not known. */
-function checkHiddenTypes(
-	ctx: ReadContext,
-	doc: BlueprintDoc,
-	formPlace: DraftField["place"],
-	xform: ReadXForm,
-): void {
-	const caseTypes = effectiveCaseTypes(doc);
-	const unread = caseWritesUnread(ctx, formPlace, xform);
-	for (const field of fieldsOf(xform)) {
-		if (field.standIn || field.kind !== "hidden" || field.uuid === undefined)
-			continue;
-		const stored = doc.fields[field.uuid] as Field | undefined;
-		if (stored === undefined || stored.kind !== "hidden") continue;
-		const bind = xform.binds.get(field.node);
-		const source = bindTypeClass(bind?.type);
-		if (source === undefined) continue;
-		if (unread) continue;
-		if (
-			bind !== undefined &&
-			bind.logic.calculate !== undefined &&
-			!held(ctx, bind.element, "calculate")
-		)
-			continue;
-		const nova =
-			fieldBindType(stored, caseTypes, fieldCaseWriteViews(doc, field.uuid)) ===
-			"xsd:dateTime"
-				? "datetime"
-				: "text";
-		if (nova !== source)
-			ctx.accounting.finding(X.refusedKind.hiddenOtherType, field.place);
 	}
 }
 
@@ -608,6 +493,18 @@ function settleChoices(
 						? nodeset.slice(top.base.from, top.base.to)
 						: undefined
 					: nodeset;
+		if (proposal.caseType === undefined) {
+			settleCaseChoices(
+				xform.cursor,
+				proposal,
+				field.place,
+				head !== undefined &&
+					!filtered &&
+					sameTree(head, availableCasesNodeset(proposal.status)),
+				false,
+			);
+			continue;
+		}
 		const context = slotContext(
 			doc,
 			{ entity: "field", uuid, slot: "lookup_options_source" },
@@ -696,34 +593,44 @@ function checkModelIterations(
 ): void {
 	const names = xform.sourceNames;
 	if (names === undefined) return;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	for (const repeat of xform.modelIterations) {
 		const uuid = repeat.uuid;
 		if (uuid === undefined || doc.fields[uuid] === undefined) continue;
 		if (ctx.accounting.hasFindingAt(repeat.place)) continue;
 		const ids = [...repeat.node.path, "@ids"].join("/");
-		const idsAt = order.findIndex(
-			(step) => step.event === "xforms-ready" && step.target === ids,
-		);
-		const setAfterIds = (fieldUuid: Uuid): boolean => {
+		const idsAt = order.findIndex((step) => step.target === ids);
+		const event = order[idsAt]?.event;
+		const setAfterIds = (fieldUuid: Uuid): boolean | undefined => {
 			const path = names.fieldPath(fieldUuid)?.slice(1).join("/");
-			if (path === undefined || idsAt < 0) return false;
+			if (path === undefined || idsAt < 0) return undefined;
 			const own = order
 				.map((step, at) => ({ step, at }))
-				.filter(
-					({ step }) => step.event === "xforms-ready" && step.target === path,
-				);
-			return own.length > 0 && own.every(({ at }) => at > idsAt);
+				.filter(({ step }) => step.event === event && step.target === path);
+			return own.length === 0 ? undefined : own.every(({ at }) => at > idsAt);
 		};
 		const verdict = modelIterationVerdict(doc, formUuid, uuid, setAfterIds);
-		// Each refusal is a class of the model iteration, which its node's role names.
-		if (verdict.kind === "refused")
-			ctx.accounting.findingAtNode(
-				verdict.claim,
-				repeat.place,
-				{ element: repeat.node.element },
-				"vellum-markup:model/instance//*@vellum:role",
-			);
+		// The role's wire spelling is shared. Its one manifest class is known
+		// only after the query, opening assignments and ancestors are bound.
+		const attribute = attributeNameIn(
+			repeat.node.element,
+			xform.parsed,
+			VELLUM_NS,
+			"role",
+		);
+		if (attribute === undefined) continue;
+		const claim =
+			verdict.kind === "refused"
+				? verdict.claim
+				: verdict.existingTiming
+					? X.modelIterationOutsideRule
+					: X.modelIteration.role;
+		ctx.accounting.claimEntry(
+			{ element: repeat.node.element, attribute },
+			claim.entry,
+			"vellum-markup:model/instance//*@vellum:role",
+			repeat.place,
+		);
 	}
 }
 
@@ -759,9 +666,10 @@ function settleProtectedMessage(
 	const text = formText(xform);
 	const uuid = message.field.uuid;
 	if (text === undefined || uuid === undefined) return;
-	const source = (
-		doc.fields[uuid] as { validate_msg?: ProseTemplate } | undefined
-	)?.validate_msg;
+	const field = doc.fields[uuid] as
+		| { validate_msg?: ProseTemplate; extended_validate_msg?: ProseTemplate }
+		| undefined;
+	const source = field?.extended_validate_msg ?? field?.validate_msg;
 	const slot = text.slots.find(
 		(one) =>
 			one.owner.field === message.field &&
@@ -769,12 +677,24 @@ function settleProtectedMessage(
 			one.id === message.textId,
 	);
 	if (source === undefined || slot === undefined || slot.refused) return;
+	const extended = text.labelTexts.find(
+		(one) =>
+			one.owner.field === message.field && one.slot === "extended_validate_msg",
+	);
+	const values = extended?.values ?? slot.values;
+	const registered = extended
+		? (values
+				.get(extended.own)
+				?.parts.flatMap((part) =>
+					part.kind === "output" ? [part.output] : [],
+				) ?? [])
+		: slot.registered;
 	// Each reference of the message stands where the source output it was bound from does.
 	const atoms = source.parts.filter((part) => part.kind !== "text");
-	if (atoms.length !== slot.registered.length) return;
+	if (atoms.length !== registered.length) return;
 	const outputOf = new Map<string, string>();
 	atoms.forEach((atom, index) => {
-		outputOf.set(JSON.stringify(atom), slot.registered[index]?.text ?? "");
+		outputOf.set(JSON.stringify(atom), registered[index]?.text ?? "");
 	});
 	const holeOf = new Map<string, string>();
 	const holeFor = (part: ProseAtomPart): string => {
@@ -784,11 +704,32 @@ function settleProtectedMessage(
 		return hole;
 	};
 	const localization = commCareLocalization(doc);
-	const unitId = makeTranslationUnitId("field", uuid, "validate_msg");
+	const unitId = makeTranslationUnitId(
+		"field",
+		uuid,
+		extended === undefined ? "validate_msg" : "extended_validate_msg",
+	);
 	// The text's own forms, language by language.
 	const wireCodes = planLanguageWire(
 		effectiveAppLocalization(doc.localization),
 	).wireCodeByTag;
+	for (const [language, value] of values) {
+		const code = wireCodes.get(language);
+		if (code === undefined) continue;
+		const translated = localization.prose(code, unitId);
+		const shown = translated.parts.filter((part) => part.kind !== "text");
+		const outputs = value.parts.flatMap((part) =>
+			part.kind === "output" ? [part.output] : [],
+		);
+		if (!outputs.length) continue;
+		if (outputs.length !== shown.length) return;
+		shown.forEach((atom, index) => {
+			const output = outputs[index];
+			if (output === undefined) return;
+			atoms.push(atom);
+			outputOf.set(JSON.stringify(atom), output.text);
+		});
+	}
 	const owned = [...text.itext.allValues(message.textId)].map(
 		([language, values]) => ({
 			code: wireCodes.get(language),
@@ -1202,63 +1143,200 @@ function sameFormValues(
 	);
 }
 
-/** Each Connect slot the emitter fills from its default where the slot is unset
- *  (`connectDefaults.ts::effectiveAssessmentUserScore`, `effectiveDeliverEntities`). */
-const CONNECT_DEFAULTS = [
-	{
-		block: "assessment",
-		slot: "user_score",
-		value: DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
-	},
-	{
-		block: "deliver_unit",
-		slot: "entity_id",
-		value: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
-	},
-	{
-		block: "deliver_unit",
-		slot: "entity_name",
-		value: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
-	},
-] as const;
+/** The bind type a Hidden Value's export writes, with the bound document's
+ * writes: its chosen type's, or its automatic one. */
+function emittedHiddenBind(
+	doc: BlueprintDoc,
+	field: Field,
+): string | undefined {
+	return (
+		fieldBindType(
+			field,
+			effectiveCaseTypes(doc),
+			fieldCaseWriteViews(doc, field.uuid),
+		) ?? undefined
+	);
+}
 
-/**
- * The document with each Connect slot that holds its default unset: the emitter writes the
- * default's calculate for an unset slot, so an unset slot and one holding the default print one
- * block, and the reading returns the unset one (`finishForms`).
- */
-export function connectDefaultsUnset(doc: BlueprintDoc): BlueprintDoc {
-	const unset: { form: Uuid; block: string; slot: string }[] = [];
-	for (const [formUuid, form] of Object.entries(doc.forms) as [
-		Uuid,
-		BlueprintDoc["forms"][Uuid],
-	][]) {
-		const connect = form.connect as
-			| Record<string, Record<string, unknown> | undefined>
-			| undefined;
-		if (connect === undefined) continue;
-		for (const { block, slot, value } of CONNECT_DEFAULTS) {
-			const held = connect[block]?.[slot];
-			if (held !== undefined && sameJson(held, value))
-				unset.push({ form: formUuid, block, slot });
-		}
+/** A Hidden Value whose source binds the text or date-and-time class, which
+ * the join left automatic: where Nova's automatic type, over the bound
+ * document's writes and calculate, writes another class, the source's class
+ * becomes the chosen answer type, so the export binds what the source binds.
+ * Where it writes the same class the value stays automatic, which is how
+ * Nova's own export of an automatic Hidden Value reads back. */
+function settleHiddenAnswerTypes(
+	ctx: ReadContext,
+	xform: ReadXForm,
+	doc: BlueprintDoc,
+): void {
+	const chosen = new Map<Uuid, "text" | "datetime">();
+	for (const field of fieldsOf(xform)) {
+		if (field.kind !== "hidden" || field.standIn || field.uuid === undefined)
+			continue;
+		const source = hiddenAnswerTypeOf(xform.binds.get(field.node)?.type);
+		if (source !== "text" && source !== "datetime") continue;
+		const stored = doc.fields[field.uuid];
+		if (stored?.kind !== "hidden" || stored.answerType !== undefined) continue;
+		if (hiddenAnswerTypeOf(emittedHiddenBind(doc, stored)) !== source)
+			chosen.set(field.uuid, source);
 	}
-	if (unset.length === 0) return doc;
-	return withCandidate(doc, (draft) => {
-		for (const { form, block, slot } of unset) {
-			const config = (
-				draft.forms[form]?.connect as
-					| Record<string, Record<string, unknown> | undefined>
-					| undefined
-			)?.[block];
-			if (config !== undefined) delete config[slot];
+	if (chosen.size === 0) return;
+	ctx.doc = withCandidate(doc, (draft) => {
+		for (const [uuid, answerType] of chosen) {
+			const held = draft.fields[uuid];
+			if (held?.kind === "hidden") held.answerType = answerType;
 		}
 	});
 }
 
+/** A hidden answer's spelling can name the same answer class as the emitted
+ * type. An unknown type and an absent type both hold UncastData. Record only
+ * a source with an actual attribute whose next spelling changes. */
+function recordHiddenAnswerSpellings(
+	ctx: ReadContext,
+	form: DraftForm,
+	xform: ReadXForm,
+	doc: BlueprintDoc,
+): void {
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	for (const field of fieldsOf(xform)) {
+		if (field.kind !== "hidden" || field.standIn || field.uuid === undefined)
+			continue;
+		const spelling = xform.binds.get(field.node)?.type;
+		if (spelling === undefined) continue;
+		const stored = doc.fields[field.uuid];
+		if (
+			stored?.kind !== "hidden" ||
+			emittedHiddenBind(doc, stored) === spelling
+		)
+			continue;
+		// Inside a form's source a place names its data root `data`, whatever
+		// the form calls it (`firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS`,
+		// `proof/checks/xform_parts.py::DATA`).
+		const steps = [
+			"_attachments",
+			`${readId ?? form.xmlns}.xml`,
+			"data",
+			...field.node.path,
+			":bind",
+			"@type",
+		];
+		ctx.facts.sameStateRewrites.push({
+			entry: X.hiddenTypedAnswer.entry,
+			path: `/${steps.map(pointerToken).join("/")}`,
+			register: "hidden-answer-types-respelled",
+		});
+	}
+}
+
+/**
+ * A model iteration's display condition on its container's bind (the node
+ * holding `@ids`, `@count` and `@current_index`), which the form builder never
+ * writes: its question is the rows (`modeliteration.js::getPathName`), so it
+ * discards a bind on the container (`parser.js::parseBindElement`). The
+ * condition is the repeat's, and the next publish writes it on the rows, as
+ * the form builder and Nova's export write a model iteration's condition
+ * (`buildQueryRepeat`); a condition the rows hold as well is joined to it,
+ * since Core hides a row where either is false. While it is false Core leaves
+ * the container and its rows out of the submission
+ * (`XFormSerializingVisitor.serializeNode`), and after the publish the
+ * container with its ids, so the reading records the move for the first
+ * publish's list.
+ */
+function moveContainerConditions(
+	ctx: ReadContext,
+	form: DraftForm,
+	xform: ReadXForm,
+	doc: BlueprintDoc,
+): void {
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	const joined = new Map<Uuid, Expression>();
+	for (const repeat of xform.modelIterations) {
+		const container = xform.binds.get(repeat.node);
+		if (container?.logic.relevant === undefined || repeat.uuid === undefined)
+			continue;
+		if (doc.fields[repeat.uuid] === undefined) continue;
+		const claim = X.modelIterationContainerCondition;
+		ctx.accounting.claimEntryClass(
+			{ element: container.element, attribute: "relevant" },
+			claim.entry,
+			"xform:model/bind@relevant",
+			repeat.place,
+		);
+		const row = [...xform.roles].find(
+			([, role]) => role.kind === "query-row" && role.repeat === repeat,
+		)?.[0];
+		// The move takes the condition off the container's bind and writes it on the rows'.
+		for (const node of row === undefined ? [repeat.node] : [repeat.node, row]) {
+			const steps = [
+				"_attachments",
+				`${readId ?? form.xmlns}.xml`,
+				"data",
+				...node.path,
+				":bind",
+				"@relevant",
+			];
+			ctx.facts.sameStateRewrites.push({
+				entry: claim.entry,
+				path: `/${steps.map(pointerToken).join("/")}`,
+				register: "model-iteration-conditions-moved-to-rows",
+			});
+		}
+		const rowBind = row === undefined ? undefined : xform.binds.get(row);
+		if (rowBind?.logic.relevant === undefined) continue;
+		const own = ctx.pending.firstAt(container.element, "relevant");
+		const rows = ctx.pending.firstAt(rowBind.element, "relevant");
+		const ownTree =
+			own === undefined ? undefined : ctx.pending.outcome(own).expression;
+		const rowTree =
+			rows === undefined ? undefined : ctx.pending.outcome(rows).expression;
+		if (ownTree !== undefined && rowTree !== undefined)
+			joined.set(repeat.uuid, and(ownTree, rowTree));
+	}
+	if (joined.size === 0) return;
+	ctx.doc = withCandidate(doc, (draft) => {
+		for (const [uuid, condition] of joined) {
+			const held = draft.fields[uuid];
+			if (held?.kind === "repeat") held.relevant = condition;
+		}
+	});
+}
+
+/** The entry a data node's namespace is held under where the node inherits the form's own. */
+const FORM_NAMESPACE =
+	"forms-and-case-writes/xmlns-form-json-and-xform-data-node";
+
+/**
+ * Each data node's namespace, which Core reads of every node of the main instance
+ * (`XFormParser.buildInstanceStructure`), where the node declares none of its own: the form's
+ * data namespace, held as the form's `xmlns` is. A node declaring its own is claimed where it is
+ * read (`join.ts::claimNode`, a Hidden Value's receiving namespace), and one no reading claimed
+ * stays unclaimed. Claimed last, so every reading's own claim of a namespace stands first.
+ */
+function claimInheritedNamespaces(
+	ctx: ReadContext,
+	form: DraftForm,
+	xform: ReadXForm,
+): void {
+	for (const node of xform.nodes.values()) {
+		if (node.path.length === 0 || ownNamespace(node, xform.parsed)) continue;
+		// A refused thing is claimed whole, nothing inside it apart.
+		if (xform.refusals.over({ element: node.element }) !== undefined) continue;
+		ctx.accounting.claimEntry(
+			{ element: node.element, attribute: "xmlns" },
+			FORM_NAMESPACE,
+			"xform:model/instance//*@xmlns",
+			form.place,
+			undefined,
+			{ unlessClaimed: true },
+		);
+	}
+}
+
 /** Stage 10: the checks of each form that need the bound document. */
 export function finishForms(ctx: ReadContext): void {
-	if (ctx.doc !== undefined) ctx.doc = connectDefaultsUnset(ctx.doc);
 	const types = lookupTypes(expressionEnvOf(ctx));
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
@@ -1267,13 +1345,17 @@ export function finishForms(ctx: ReadContext): void {
 			const doc = ctx.doc;
 			if (doc === undefined || xform === null) continue;
 			if (doc.forms[form.uuid] === undefined) continue;
-			settleChoices(ctx, doc, xform, types);
+			settleHiddenAnswerTypes(ctx, xform, doc);
+			const bound = ctx.doc ?? doc;
+			recordHiddenAnswerSpellings(ctx, form, xform, bound);
+			settleChoices(ctx, bound, xform, types);
 			for (const message of formText(xform)?.protectedMessages ?? [])
-				settleProtectedMessage(ctx, doc, xform, message);
-			checkCountFeedback(ctx, doc, form.uuid, xform);
-			checkModelIterations(ctx, doc, form.uuid, xform);
-			checkLoadOrder(ctx, doc, form.uuid, form.place, xform);
-			checkHiddenTypes(ctx, doc, form.place, xform);
-			checkDatetimeSiblings(ctx, doc, xform, types);
+				settleProtectedMessage(ctx, bound, xform, message);
+			checkCountFeedback(ctx, bound, form.uuid, xform);
+			checkModelIterations(ctx, bound, form.uuid, xform);
+			moveContainerConditions(ctx, form, xform, ctx.doc ?? bound);
+			claimInheritedNamespaces(ctx, form, xform);
+			checkLoadOrder(ctx, bound, form.uuid, form.place, xform);
+			checkDatetimeSiblings(ctx, bound, xform, types);
 		}
 }

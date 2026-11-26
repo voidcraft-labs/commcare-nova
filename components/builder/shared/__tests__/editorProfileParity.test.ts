@@ -18,7 +18,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
+import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
 	type BlueprintDoc,
@@ -26,10 +29,12 @@ import {
 	type CaseOperation,
 	calculatedColumn,
 	hiddenSearchInputDef,
+	idMappingColumn,
 	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
+	NEW_APP_SETTINGS,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
@@ -51,6 +56,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/expression";
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
 import { proseText } from "@/lib/domain/prose";
 import {
 	FIELD_REFERENCE_SLOTS,
@@ -92,11 +98,27 @@ const FOLLOWUP = testUuid("parity-followup");
 const REGISTER = testUuid("parity-register");
 const CASE_PICK = testUuid("parity-case-pick");
 const TABLE_PICK = testUuid("parity-table-pick");
+const VISIT_NOTE = testUuid("parity-visit-note");
+const ANDROID_APP = testUuid("parity-android-app");
+const ANDROID_APP_VALUE = term({ kind: "field", uuid: VISIT_NOTE });
+const ANDROID_APP_VALUES = [{ name: "note", value: ANDROID_APP_VALUE }];
 const COLUMN_UUID = testUuid("parity-column");
+const SORT_UUID = testUuid("parity-sort");
+const MAPPING_UUID = testUuid("parity-mapping");
+const CHILD_COLUMN = testUuid("parity-child-column");
+const ROWS_COLUMN = testUuid("parity-rows-column");
+const OWN_TAB = testUuid("parity-own-tab");
+const CHILD_TAB = testUuid("parity-child-tab");
+const ROWS_TAB = testUuid("parity-rows-tab");
+const MAPPING_ROW = testUuid("parity-mapping-row");
 const TEXT_INPUT = testUuid("parity-text-input");
 const ADVANCED_INPUT = testUuid("parity-advanced-input");
 const HIDDEN_INPUT = testUuid("parity-hidden-input");
 const SELECT_INPUT = testUuid("parity-select-input");
+const SEARCH_FILTER = testUuid("parity-search-filter");
+const PROJECT_SEARCH_MENU = testUuid("parity-project-search-menu");
+const PROJECT_SEARCH = testUuid("parity-project-search");
+const PROJECT_SEARCH_PARAMETER = testUuid("parity-project-search-parameter");
 const UPDATE = testUuid("parity-update");
 const RUNTIME = testUuid("parity-runtime");
 const CREATE = testUuid("parity-create");
@@ -110,6 +132,9 @@ function updateOperation(uuid: typeof UPDATE): CaseOperation {
 		target: { kind: "session" },
 		writes: [{ property: "visit_note", value: term(literal("seen")) }],
 		owner: term(literal("owner-id")),
+		ownerCondition: matchAll(),
+		closeAfter: true,
+		closeCondition: matchAll(),
 		links: [
 			{
 				identifier: "household",
@@ -121,11 +146,15 @@ function updateOperation(uuid: typeof UPDATE): CaseOperation {
 	};
 }
 
-/** Two modules: one whose every form opens a case (so a form's display
+/** One module whose every form opens a case (so a form's display
  * condition reads the chosen case), and one that also registers (so it reads
- * none). Every record slot has a real owner in one of them. */
+ * none). A separate menu holds a connected project search. */
 function fixture(): BlueprintDoc {
 	const doc = buildDoc({
+		appSettings: {
+			...NEW_APP_SETTINGS,
+			projectSearches: { [PROJECT_SEARCH]: { name: "Patients" } },
+		},
 		caseTypes: [
 			{
 				name: "patient",
@@ -155,9 +184,99 @@ function fixture(): BlueprintDoc {
 				caseType: "patient",
 				caseSearchConfig: {},
 				caseListConfig: {
-					columns: [calculatedColumn(COLUMN_UUID, "Value", term(literal("")))],
-					listColumnOrder: [COLUMN_UUID],
-					detailColumnOrder: [COLUMN_UUID],
+					columns: [
+						calculatedColumn(COLUMN_UUID, "Value", term(literal(""))),
+						{
+							...idMappingColumn(MAPPING_UUID, "status", "Status", [
+								{
+									uuid: MAPPING_ROW,
+									when: eq(term(prop("patient", "status")), term(literal("x"))),
+									label: "Seen",
+								},
+							]),
+							behavior: "first-match" as const,
+						},
+						calculatedColumn(
+							CHILD_COLUMN,
+							"Household note",
+							term(prop("household", "visit_note")),
+							{ notOnList: true, visibleInList: false },
+						),
+						calculatedColumn(
+							ROWS_COLUMN,
+							"Any household note",
+							term(prop("household", "visit_note")),
+							{ notOnList: true, visibleInList: false },
+						),
+					],
+					listColumnOrder: [
+						COLUMN_UUID,
+						MAPPING_UUID,
+						CHILD_COLUMN,
+						ROWS_COLUMN,
+					],
+					detailColumnOrder: [
+						COLUMN_UUID,
+						MAPPING_UUID,
+						CHILD_COLUMN,
+						ROWS_COLUMN,
+					],
+					// A tab of the selected case under a condition, a tab of its
+					// child households under a filter, and a tab of every household.
+					detailTabs: [
+						{
+							uuid: OWN_TAB,
+							title: "Patient",
+							startColumnUuid: COLUMN_UUID,
+							displayCondition: eq(
+								term(prop("patient", "status")),
+								term(literal("x")),
+							),
+						},
+						{
+							uuid: CHILD_TAB,
+							title: "Households",
+							startColumnUuid: CHILD_COLUMN,
+							rowSource: {
+								kind: "children",
+								caseType: "household",
+								condition: eq(
+									term(prop("household", "visit_note")),
+									term(literal("x")),
+								),
+							},
+						},
+						{
+							uuid: ROWS_TAB,
+							title: "All households",
+							startColumnUuid: ROWS_COLUMN,
+							rowSource: {
+								kind: "records",
+								rows: {
+									kind: "cases",
+									source: "casedb",
+									where: [
+										eq(
+											{ kind: "case-row-type" },
+											{ kind: "case-type", caseType: "household" },
+										),
+									],
+								},
+							},
+						},
+					],
+					contextAboveForm: {
+						kind: "line",
+						expression: term(prop("patient", "status")),
+					},
+					calculatedSorts: [
+						{
+							uuid: SORT_UUID,
+							expression: term(literal("a")),
+							direction: "asc",
+							priority: 0,
+						},
+					],
 					searchInputs: [
 						simpleSearchInputDef(
 							TEXT_INPUT,
@@ -188,6 +307,13 @@ function fixture(): BlueprintDoc {
 							{ options: LOOKUP_OPTIONS },
 						),
 					],
+					searchFilters: [
+						{
+							uuid: SEARCH_FILTER,
+							target: { kind: "property", property: "visit_note" },
+							value: term(literal("seen")),
+						},
+					],
 				},
 				forms: [
 					{
@@ -211,6 +337,18 @@ function fixture(): BlueprintDoc {
 								kind: "single_select",
 								optionsSource: LOOKUP_OPTIONS,
 							}),
+							f({ uuid: VISIT_NOTE, id: "note", kind: "text" }),
+							f({
+								uuid: ANDROID_APP,
+								id: "app_result",
+								kind: "text",
+								androidApp: {
+									kind: "open-app",
+									action: "org.example.VISIT",
+									send: ANDROID_APP_VALUES,
+									receive: [{ name: "result", question: ANDROID_APP }],
+								},
+							}),
 						],
 					},
 				],
@@ -220,6 +358,24 @@ function fixture(): BlueprintDoc {
 				name: "Households",
 				caseType: "household",
 				forms: [{ uuid: REGISTER, name: "Register", type: "registration" }],
+			},
+			{
+				uuid: PROJECT_SEARCH_MENU,
+				name: "Connected search",
+				caseType: "patient",
+				caseSearchConfig: {
+					projectSearch: {
+						searchUuid: PROJECT_SEARCH,
+						defaults: [
+							{
+								uuid: PROJECT_SEARCH_PARAMETER,
+								name: "site",
+								value: term(literal("north")),
+							},
+						],
+					},
+				},
+				forms: [],
 			},
 		],
 	});
@@ -241,6 +397,7 @@ function fixture(): BlueprintDoc {
 			caseType: "household",
 			target: { kind: "new" },
 			name: term(literal("Household")),
+			typeChoice: { condition: matchAll(), otherwise: "patient" },
 			writes: [{ property: "visit_note", value: term(literal("new")) }],
 			owner: term(literal("owner-id")),
 		},
@@ -279,8 +436,34 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 	{ entity: "field", uuid: TABLE_PICK, slot: "lookup_options_source" },
 	{ entity: "form", uuid: FOLLOWUP, slot: "form_display_condition" },
 	{ entity: "form", uuid: REGISTER, slot: "form_display_condition" },
+	{ entity: "form", uuid: FOLLOWUP, slot: "form_badge" },
+	{ entity: "form", uuid: REGISTER, slot: "form_badge" },
 	...operationSlots(FOLLOWUP, UPDATE),
 	...operationSlots(REGISTER, CREATE),
+	{
+		entity: "form",
+		uuid: FOLLOWUP,
+		slot: "case_operation_close_condition",
+		member: { operationUuid: UPDATE },
+	},
+	{
+		entity: "form",
+		uuid: FOLLOWUP,
+		slot: "case_operation_owner_condition",
+		member: { operationUuid: UPDATE },
+	},
+	{
+		entity: "form",
+		uuid: REGISTER,
+		slot: "case_operation_type_condition",
+		member: { operationUuid: CREATE },
+	},
+	{
+		entity: "module",
+		uuid: PROJECT_SEARCH_MENU,
+		slot: "project_search_parameter",
+		member: { parameterUuid: PROJECT_SEARCH_PARAMETER },
+	},
 	{
 		entity: "form",
 		uuid: FOLLOWUP,
@@ -294,6 +477,7 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 		member: { operationUuid: UPDATE, identifier: "household" },
 	},
 	{ entity: "module", uuid: CASE_FIRST, slot: "module_display_condition" },
+	{ entity: "module", uuid: CASE_FIRST, slot: "module_badge" },
 	{ entity: "module", uuid: CASE_FIRST, slot: "case_list_filter" },
 	{ entity: "module", uuid: MIXED, slot: "case_list_filter" },
 	{
@@ -305,9 +489,48 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 	{
 		entity: "module",
 		uuid: CASE_FIRST,
+		slot: "case_list_sort_expression",
+		member: { sortUuid: SORT_UUID },
+	},
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "case_list_mapping_condition",
+		member: { columnUuid: MAPPING_UUID, rowUuid: MAPPING_ROW },
+	},
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "case_detail_tab_condition",
+		member: { tabUuid: OWN_TAB },
+	},
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "case_detail_tab_filter",
+		member: { tabUuid: CHILD_TAB },
+	},
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "case_detail_tab_rows",
+		member: { tabUuid: ROWS_TAB },
+	},
+	{ entity: "module", uuid: CASE_FIRST, slot: "case_form_context_line" },
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
 		slot: "search_button_display_condition",
 	},
 	{ entity: "module", uuid: CASE_FIRST, slot: "excluded_owner_ids" },
+	{ entity: "module", uuid: CASE_FIRST, slot: "case_list_action_condition" },
+	{ entity: "module", uuid: CASE_FIRST, slot: "case_search_filter" },
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "search_filter_value",
+		member: { filterUuid: SEARCH_FILTER },
+	},
 	...(
 		[
 			["search_input_default", TEXT_INPUT],
@@ -334,9 +557,23 @@ function label(ref: ExpressionSlotRef): string {
 /** A probe in the shape the slot expects: a condition is compared, a value is
  * the read itself. */
 function probe(context: ExpressionContext, read: Expression): Expression {
-	return context.profile.expectation.kind === "condition"
-		? eq(read, term(literal("x")))
-		: read;
+	if (context.profile.expectation.kind === "condition")
+		return eq(read, term(literal("x")));
+	// A slot that lists records reads a case inside the collection's filter.
+	if ("many" in context.profile.expectation && context.profile.expectation.many)
+		return {
+			kind: "cases",
+			source: "casedb",
+			where: [
+				eq(
+					{ kind: "case-row-type" },
+					{ kind: "case-type", caseType: "household" },
+				),
+				// Each row is a household, whatever case the probe reads outside.
+				eq(term(prop("household", "visit_note")), term(literal("x"))),
+			],
+		};
+	return read;
 }
 
 function admits(context: ExpressionContext, candidate: Expression): boolean {
@@ -467,6 +704,40 @@ describe("the editor's axes are the slot's profile", () => {
 			}),
 		).toBe("case-search");
 		expect(target(module("module_display_condition"))).toBe("on-device");
+		expect(target(module("case_search_filter"))).toBe("case-search");
+		expect(
+			target({
+				entity: "module",
+				uuid: CASE_FIRST,
+				slot: "search_filter_value",
+				member: { filterUuid: SEARCH_FILTER },
+			}),
+		).toBe("on-device");
+	});
+
+	it("uses the question's form-logic context for values sent to an Android app", () => {
+		const slot = {
+			entity: "field",
+			uuid: ANDROID_APP,
+			slot: "android_app_input",
+			member: androidAppInputMember(ANDROID_APP_VALUES, 0),
+		} as const satisfies ExpressionSlotRef;
+		const context = slotContext(doc, slot, LOOKUP_TYPES);
+		expect(context).toMatchObject({
+			ruleSet: "form",
+			profile: { scope: "form", expectation: { kind: "value" } },
+		});
+		const editor = buildExpressionEditorContext(
+			doc,
+			slot,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(editor?.reference.validPaths).toContain("/data/note");
+		expect(editor?.check("#form/note")).toEqual([]);
+		expect(editor?.check("#form/missing")).not.toEqual([]);
+		expect(
+			parseFormExpressionForSlot(doc, slot, "#form/note", "unavailable"),
+		).toMatchObject({ ok: true, expression: ANDROID_APP_VALUE });
 	});
 
 	it("covers every record slot the reference tables declare", () => {
@@ -488,8 +759,13 @@ describe("the editor's axes are the slot's profile", () => {
 		);
 		// The form-logic slots. A question's are the text editor's; a form's
 		// open and close conditions are the card editor's over the same
-		// form-logic profile (`detail/formSettings/OwnCaseSection.tsx`).
+		// form-logic profile (`detail/formSettings/OwnCaseSection.tsx`), and
+		// a form's opening choices and computed values are the opening-cases
+		// card's formula editor over the form-logic profile read at entry
+		// (`case-operations/OpeningCasesSection.tsx`).
 		const formLogic = new Set<string>([
+			"form_selection_source",
+			"form_entry_value",
 			"form_open_condition",
 			"form_close_condition",
 			"relevant",
@@ -499,16 +775,19 @@ describe("the editor's axes are the slot's profile", () => {
 			"required",
 			"repeat_count",
 			"ids_query",
+			"android_app_input",
 			"form_link_condition",
 			"form_link_datum_xpath",
 			"assessment_user_score",
 			"deliver_entity_id",
 			"deliver_entity_name",
+			"deliver_work_area_id",
 		]);
-		for (const slot of declared)
-			expect(
-				record.has(slot) || formLogic.has(slot),
-				`${slot} is neither a covered record slot nor a form-logic slot`,
-			).toBe(true);
+		const unclassified = [...declared].filter(
+			(slot) => !record.has(slot) && !formLogic.has(slot),
+		);
+		expect(unclassified, "expression slots missing an editor profile").toEqual(
+			[],
+		);
 	});
 });

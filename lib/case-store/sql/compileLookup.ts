@@ -20,8 +20,8 @@
 // (the wire's captured case anchor), while same-table column terms
 // read the fixture row.
 
-import type { AliasableExpression, Expression } from "kysely";
-import { expressionBuilder } from "kysely";
+import type { AliasableExpression, Expression, RawBuilder } from "kysely";
+import { expressionBuilder, sql } from "kysely";
 import type { StoredLookupColumnDataType } from "@/lib/db/pg";
 import {
 	missingPredicateThunkMessage,
@@ -31,6 +31,15 @@ import type {
 	Expression as DomainExpression,
 	TableColumnTerm,
 } from "@/lib/domain/expression/types";
+import {
+	type LookupRead,
+	lookupReadType,
+	lookupReadTypes,
+} from "@/lib/domain/lookupRead";
+import type {
+	LookupFixtureDataSnapshot,
+	LookupFixtureRow,
+} from "@/lib/lookup/types";
 import type { ExpressionCompileContext } from "./compileExpression";
 import type { TermCompileContext } from "./compileTerm";
 import type { Database } from "./database";
@@ -46,7 +55,26 @@ import { POSTGRES_CAST_FOR_DATA_TYPE } from "./dataTypeTokens";
 export type LookupTableSchemas = ReadonlyMap<
 	string,
 	ReadonlyMap<string, StoredLookupColumnDataType>
->;
+> & {
+	readonly projection?: {
+		readonly projectId: string;
+		readonly rows: ReadonlyMap<string, readonly LookupFixtureRow[]>;
+	};
+};
+
+/** The store receives a Project-bound server-produced snapshot. Binding the
+ * actual row bodies also serves checked HQ restores with no database row ID. */
+export function workerLookupSchemas(
+	projectId: string,
+	snapshot: Pick<LookupFixtureDataSnapshot, "definitions" | "rowsByTable">,
+): LookupTableSchemas {
+	return Object.assign(
+		new Map(
+			snapshot.definitions.map((table) => [table.id, lookupReadTypes(table)]),
+		),
+		{ projection: { projectId, rows: snapshot.rowsByTable } },
+	);
+}
 
 /** The enclosing `table-lookup`'s row scope during `where` compilation. */
 export interface LookupRowScope {
@@ -89,13 +117,53 @@ export function compileTableLookup(
 		lookupRowScope: { tableId: expr.tableId, rowAlias },
 	});
 
-	const dyn = eb as DynamicExprBuilder;
-	const query = ctx.db.selectFrom(
-		`lookup_rows as ${rowAlias}` as never,
-	) as unknown as DynamicLookupRowsQuery;
+	const projection = ctx.lookupTableSchemas?.projection;
+	let query: DynamicLookupRowsQuery;
+	if (projection) {
+		if (projection.projectId !== ctx.projectId)
+			throw new Error("The worker’s lookup data belongs to another Project.");
+		const rows = projection.rows.get(expr.tableId);
+		if (!rows)
+			throw new Error("This worker’s current lookup rows are unavailable.");
+		// WITH ORDINALITY preserves restore order including equal rows and
+		// remote rows without a Nova identity. Values never enter SQL text.
+		const encoded = JSON.stringify(
+			rows.map((row) => ({
+				id: row.id,
+				values: row.values,
+				content: { attributes: row.attributes, occurrences: row.occurrences },
+			})),
+		);
+		const source =
+			sql`(SELECT item->>'id' AS id,item->'values' AS values,item->'content' AS content,position AS order_key FROM jsonb_array_elements(${encoded}::jsonb) WITH ORDINALITY AS source(item,position))`.as(
+				rowAlias,
+			);
+		query = ctx.db.selectFrom(source) as unknown as DynamicLookupRowsQuery;
+	} else {
+		// Legacy store callers get only fully inline global tables. Every normal
+		// worker path supplies its authorized, hydrated projection above.
+		const dyn = eb as DynamicExprBuilder;
+		query = (
+			ctx.db.selectFrom(
+				`lookup_rows as ${rowAlias}` as never,
+			) as unknown as DynamicLookupRowsQuery
+		)
+			.where(dyn(`${rowAlias}.project_id`, "=", ctx.projectId))
+			.where(dyn(`${rowAlias}.table_id`, "=", expr.tableId))
+			.where(
+				eb.exists(
+					ctx.db
+						.selectFrom("lookup_tables")
+						.select("id")
+						.where("project_id", "=", ctx.projectId)
+						.where("id", "=", expr.tableId)
+						.where(
+							sql<boolean>`worker_access='all' AND NOT EXISTS (SELECT 1 FROM lookup_rows external_row WHERE (external_row.project_id,external_row.table_id)=(lookup_tables.project_id,lookup_tables.id) AND external_row.external_bytes>0) AND (hq_server is null or hq_taken_over_at is not null or hq_canonical->'source' is null or (hq_canonical #>> '{source,distribution}' = 'global' and hq_canonical #>> '{source,inventory}' = 'complete' and hq_canonical #>> '{source,storage}' is null))`,
+						),
+				),
+			);
+	}
 	return query
-		.where(dyn(`${rowAlias}.project_id`, "=", ctx.projectId))
-		.where(dyn(`${rowAlias}.table_id`, "=", expr.tableId))
 		.where(whereExpr)
 		.orderBy(`${rowAlias}.order_key`, "asc")
 		.orderBy(`${rowAlias}.id`, "asc")
@@ -145,6 +213,19 @@ export function compileLookupColumnTerm(
 	return lookupCellRead(scope.rowAlias, term.columnId, dataType);
 }
 
+/** Every code unit Java's `String.trim` strips from either end: U+0001
+ * through U+0020 (Postgres text holds no U+0000). */
+const JAVA_TRIM_CHARACTERS = Array.from({ length: 0x20 }, (_, index) =>
+	String.fromCharCode(index + 1),
+).join("");
+
+/** `text` with Java's `String.trim` applied; `btrim` strips any of the given
+ * characters from both ends, as `trim` strips every code unit at or below
+ * U+0020. */
+function javaTrim(text: RawBuilder<unknown>): RawBuilder<unknown> {
+	return sql`btrim(${text}, ${JAVA_TRIM_CHARACTERS}::text)`;
+}
+
 /**
  * Typed cell read: `<rowAlias>.values ->> '<columnId>'` cast per the
  * column's declared type — the same cast table property reads use, so
@@ -154,24 +235,50 @@ export function compileLookupColumnTerm(
  */
 function lookupCellRead(
 	rowAlias: string,
-	columnId: string,
+	read: LookupRead,
 	dataType: StoredLookupColumnDataType,
 ): AliasableExpression<unknown> {
-	const jsonRead = (eb as DynamicExprBuilder)
-		.ref(`${rowAlias}.values`, "->>")
-		.key(columnId);
-	return eb.cast(jsonRead, POSTGRES_CAST_FOR_DATA_TYPE[dataType]);
+	const content = sql.ref(`${rowAlias}.content`);
+	const values = sql.ref(`${rowAlias}.values`);
+	if (typeof read !== "string" && "attributeId" in read)
+		return sql`${content}->'attributes'->>${read.attributeId}::text`;
+	const column = typeof read === "string" ? read : read.columnId;
+	const items = sql`${content}->'occurrences'->${column}::text`;
+	const property = typeof read === "string" ? undefined : read.propertyId;
+	const filter = typeof read === "string" ? undefined : read.where;
+	const position = typeof read === "string" ? undefined : read.occurrence;
+	const before = typeof read !== "string" && read.positionBeforeFilter;
+	const selected = sql`SELECT item,ord FROM jsonb_array_elements(${items}) WITH ORDINALITY AS occurrence(item,ord)
+		${filter ? sql`WHERE ${before ? sql`ord = ${position} AND` : sql``} item->'properties'->>${filter.propertyId}::text=${filter.equals}` : sql``}
+		ORDER BY ord ${position === undefined || before ? sql`` : sql`OFFSET ${position - 1} LIMIT 1`}`;
+	// A Core scalar conversion rejects a nodeset with more than one node. A
+	// scalar subquery has that same property, including after a detail filter.
+	// A device reads an element's text trimmed and its attributes as written
+	// (commcare-core `TreeElementParser.parse`: `parser.getText().trim()`):
+	// a cell's or an occurrence's text is trimmed as Java's `String.trim`
+	// trims it, and a row attribute or an occurrence's property is not.
+	const field = property
+		? sql`(SELECT item->'properties'->>${property}::text FROM (${selected}) AS matched WHERE (item->'properties') ? ${property}::text)`
+		: javaTrim(sql`(SELECT item->>'text' FROM (${selected}) AS matched)`);
+	const sparse =
+		property || filter || (position ?? 1) !== 1
+			? sql`null`
+			: javaTrim(sql`${values}->>${column}::text`);
+	return eb.cast(
+		sql`CASE WHEN ${items} IS NULL THEN ${sparse} ELSE ${field} END`,
+		POSTGRES_CAST_FOR_DATA_TYPE[dataType],
+	);
 }
 
 /** Resolve a column's declared type from the threaded definitions snapshot. */
 function requireLookupColumnType(
 	ctx: TermCompileContext,
 	tableId: string,
-	columnId: string,
+	columnId: LookupRead,
 	where: string,
 ): StoredLookupColumnDataType {
 	const table = ctx.lookupTableSchemas?.get(tableId);
-	const dataType = table?.get(columnId);
+	const dataType = lookupReadType(table, columnId);
 	if (dataType !== undefined) return dataType;
 	throw new Error(
 		typeCheckerBypassMessage({

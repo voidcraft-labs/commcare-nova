@@ -14,6 +14,10 @@ import * as appsProjectTenancy from "./20260728010000_apps_project_tenancy";
 import * as authAccountProviderKeyUnique from "./20260919010000_auth_account_provider_key_unique";
 import * as dropAuthAccountIssuer from "./20260919020000_drop_auth_account_issuer";
 
+import * as apiKeyGrantEpoch from "./20261207000000_api_key_grant_epoch";
+
+import * as formOpeningSessions from "./20261208010000_form_opening_sessions";
+
 export const authAppMigrations: Record<string, Migration> = {
 	"20260626000000_oauth_grant_revocation": oauthGrantRevocation,
 	"20260627000000_auth_member_unique": authMemberUnique,
@@ -22,6 +26,8 @@ export const authAppMigrations: Record<string, Migration> = {
 	"20260919010000_auth_account_provider_key_unique":
 		authAccountProviderKeyUnique,
 	"20260919020000_drop_auth_account_issuer": dropAuthAccountIssuer,
+	"20261207000000_api_key_grant_epoch": apiKeyGrantEpoch,
+	"20261208010000_form_opening_sessions": formOpeningSessions,
 };
 
 export const authAppMigrationProvider: MigrationProvider = {

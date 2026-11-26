@@ -1,21 +1,20 @@
 /** The one persisted expression vocabulary. Contextual admission belongs to profiles/check. */
+
 import { z } from "zod";
 import {
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
 	authoredCasePropertyNameSchema,
+	readCasePropertyNameSchema,
 } from "../casePropertyName";
 import { casePropertyDataTypeSchema } from "../casePropertyTypes";
+import { caseIndexNameSchema } from "../caseRelations";
 import { externalUserPropertyNameSchema } from "../externalUserProperty";
 import {
 	persistableJsonNumberSchema,
 	persistableJsonPositiveNumberSchema,
 } from "../jsonNumber";
-import {
-	type LookupColumnId,
-	type LookupTableId,
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "../lookupIds";
+import { type LookupTableId, lookupTableIdSchema } from "../lookupIds";
+import { type LookupRead, lookupReadSchema } from "../lookupRead";
 import { isStandardCaseListProperty } from "../standardCaseProperties";
 import { type Uuid, uuidSchema } from "../uuid";
 import {
@@ -33,9 +32,8 @@ export const CASE_TYPE_PATTERN = /^[A-Za-z0-9_-]+$/;
 export const CASE_PROPERTY_PATTERN = AUTHORED_CASE_PROPERTY_NAME_PATTERN;
 export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 export const caseTypeNameSchema = z.string().regex(CASE_TYPE_PATTERN);
-const xmlNameSchema = z.string().regex(XML_ELEMENT_NAME_PATTERN);
 export const relationStepSchema = z.strictObject({
-	identifier: xmlNameSchema,
+	identifier: caseIndexNameSchema,
 	throughCaseType: caseTypeNameSchema.optional(),
 });
 export type RelationStep = z.infer<typeof relationStepSchema>;
@@ -47,12 +45,12 @@ export const relationPathSchema = z.discriminatedUnion("kind", [
 	}),
 	z.strictObject({
 		kind: z.literal("subcase"),
-		identifier: xmlNameSchema,
+		identifier: caseIndexNameSchema,
 		ofCaseType: caseTypeNameSchema.optional(),
 	}),
 	z.strictObject({
 		kind: z.literal("any-relation"),
-		identifier: xmlNameSchema,
+		identifier: caseIndexNameSchema,
 		ofCaseType: caseTypeNameSchema.optional(),
 	}),
 ]);
@@ -61,14 +59,27 @@ export const propertyRefSchema = z
 	.strictObject({
 		kind: z.literal("prop"),
 		caseType: caseTypeNameSchema.optional(),
-		property: authoredCasePropertyNameSchema,
+		property: readCasePropertyNameSchema,
 		via: relationPathSchema.optional(),
+		/** A native property column reads the actual reached row, including an
+		 * existing case of a type no writer in the app declares. */
+		readReached: z.literal(true).optional(),
 	})
 	.refine(
 		(v) => v.caseType !== undefined || isStandardCaseListProperty(v.property),
 		{
 			message: "A custom property read needs its record type.",
 			path: ["caseType"],
+		},
+	)
+	.refine(
+		(value) =>
+			value.readReached !== true ||
+			(value.caseType !== undefined && value.via?.kind === "ancestor"),
+		{
+			message:
+				"A reached property needs its starting record type and a link path.",
+			path: ["via"],
 		},
 	);
 export type PropertyRef = z.infer<typeof propertyRefSchema>;
@@ -81,6 +92,8 @@ export type FormCasePropertyRef = z.infer<typeof formCasePropertyRefSchema>;
 export const searchInputRefSchema = z.strictObject({
 	kind: z.literal("input"),
 	searchInputUuid: uuidSchema,
+	/** Present when the answer belongs to another menu whose search ran for this form. */
+	supplier: uuidSchema.optional(),
 });
 export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
 export const SESSION_CONTEXT_FIELDS = [
@@ -112,6 +125,8 @@ export const sessionContextSchema = z.strictObject({
 });
 export type SessionContextRef = z.infer<typeof sessionContextSchema>;
 export const datumRefSchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("form-selection"), selection: uuidSchema }),
+	z.strictObject({ kind: z.literal("entry-value"), datum: uuidSchema }),
 	z.strictObject({ kind: z.literal("selected-case"), module: uuidSchema }),
 	z.strictObject({ kind: z.literal("new-case") }),
 	z.strictObject({
@@ -122,13 +137,27 @@ export const datumRefSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("tile-group-parents"), module: uuidSchema }),
 ]);
 export type DatumRef = z.infer<typeof datumRefSchema>;
-export type FormLinkDatumName = Extract<DatumRef, { kind: "selected-case" }>;
-export const formLinkDatumNameSchema = z.strictObject({
-	kind: z.literal("selected-case"),
-	module: uuidSchema,
-});
+/** A form link can bind a manual choice of the destination or a menu's single selection. */
+export const formLinkDatumNameSchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("selected-case"), module: uuidSchema }),
+	z.strictObject({ kind: z.literal("form-selection"), selection: uuidSchema }),
+]);
+export type FormLinkDatumName = z.infer<typeof formLinkDatumNameSchema>;
+/** A physical target exposes its stable form choice before a legacy menu alias. */
+export function formLinkSelectionName(
+	refs: readonly DatumRef[],
+): FormLinkDatumName | undefined {
+	return (
+		refs.find((ref) => ref.kind === "form-selection") ??
+		refs.find((ref) => ref.kind === "selected-case")
+	);
+}
 export function datumRefKey(datum: DatumRef): string {
 	switch (datum.kind) {
+		case "form-selection":
+			return `form-selection:${datum.selection}`;
+		case "entry-value":
+			return `entry-value:${datum.datum}`;
 		case "selected-case":
 		case "tile-group-parents":
 			return `${datum.kind}:${datum.module}`;
@@ -169,26 +198,18 @@ export const formNodeRefSchema = z.discriminatedUnion("kind", [
 	}),
 	z.strictObject({
 		kind: z.literal("connect-learn"),
-		form: uuidSchema,
-		role: z.enum([
-			"block",
-			"content",
-			"id",
-			"name",
-			"description",
-			"time-estimate",
-		]),
+		activity: uuidSchema,
+		role: z.enum(["content", "id", "name", "description", "time-estimate"]),
 	}),
 	z.strictObject({
 		kind: z.literal("connect-assessment"),
-		form: uuidSchema,
-		role: z.enum(["block", "content", "id", "score"]),
+		activity: uuidSchema,
+		role: z.enum(["content", "id", "score"]),
 	}),
 	z.strictObject({
 		kind: z.literal("connect-delivery"),
-		form: uuidSchema,
+		activity: uuidSchema,
 		role: z.enum([
-			"block",
 			"content",
 			"id",
 			"name",
@@ -199,8 +220,8 @@ export const formNodeRefSchema = z.discriminatedUnion("kind", [
 	}),
 	z.strictObject({
 		kind: z.literal("connect-task"),
-		form: uuidSchema,
-		role: z.enum(["block", "content", "name", "description"]),
+		activity: uuidSchema,
+		role: z.enum(["content", "id", "name", "description"]),
 	}),
 ]);
 export type FormNodeRef = z.infer<typeof formNodeRefSchema>;
@@ -222,7 +243,7 @@ export function formNodeKey(node: FormNodeRef): string {
 		case "connect-assessment":
 		case "connect-delivery":
 		case "connect-task":
-			return `${node.kind}:${node.form}:${node.role}`;
+			return `${node.kind}:${node.activity}:${node.role}`;
 	}
 }
 const E: z.ZodType<Expression> = z.lazy(() => expressionSchema);
@@ -276,7 +297,7 @@ export const formFieldRefSchema = z
 export type FormNodeTerm = {
 	kind: "form-node";
 	node: Exclude<FormNodeRef, FieldNodeRef | RepeatRowNodeRef>;
-	spelling: "relative" | "current";
+	spelling: "relative" | "current" | "absolute";
 	filters?: [FormStepFilter, ...FormStepFilter[]];
 };
 export const formNodeTermSchema: z.ZodType<FormNodeTerm> = z
@@ -287,9 +308,13 @@ export const formNodeTermSchema: z.ZodType<FormNodeTerm> = z
 				v.kind !== "field" && v.kind !== "repeat-row",
 			"Use the field or repeat-row leaf for that node.",
 		),
-		spelling: z.enum(["relative", "current"]),
+		spelling: z.enum(["relative", "current", "absolute"]),
 		filters: formFiltersSchema.optional(),
 	})
+	.refine(
+		(v) => v.spelling !== "absolute" || "activity" in v.node,
+		"An absolute generated-node read must name a positioned activity.",
+	)
 	.refine(
 		(v) => v.node.kind !== "form-root" || v.filters === undefined,
 		"The form root cannot carry path filters.",
@@ -319,7 +344,7 @@ export const repeatRowTermSchema = z
 export const tableColumnTermSchema = z.strictObject({
 	kind: z.literal("table-column"),
 	tableId: lookupTableIdSchema,
-	columnId: lookupColumnIdSchema,
+	columnId: lookupReadSchema,
 });
 export type TableColumnTerm = z.infer<typeof tableColumnTermSchema>;
 /** The CommCare HQ address of the file a capture question (image, audio,
@@ -365,6 +390,13 @@ export const caseTypeTermSchema = z.strictObject({
 	caseType: caseTypeNameSchema,
 });
 export type CaseTypeTerm = z.infer<typeof caseTypeTermSchema>;
+/** A named child of a project-space result row. The service owns its name;
+ * it need not be a property on any case type the app manages. */
+export const searchResultFieldSchema = z.strictObject({
+	kind: z.literal("search-result-field"),
+	name: z.string().regex(XML_ELEMENT_NAME_PATTERN),
+});
+export type SearchResultField = z.infer<typeof searchResultFieldSchema>;
 export const caseRowTypeTermSchema = z.strictObject({
 	kind: z.literal("case-row-type"),
 });
@@ -372,7 +404,7 @@ export type CaseRowTypeTerm = z.infer<typeof caseRowTypeTermSchema>;
 export const caseIndexTermSchema = z.strictObject({
 	kind: z.literal("case-index"),
 	caseType: caseTypeNameSchema.optional(),
-	identifier: xmlNameSchema,
+	identifier: caseIndexNameSchema,
 });
 export type CaseIndexTerm = z.infer<typeof caseIndexTermSchema>;
 export const sessionDatumTermSchema = z.strictObject({
@@ -404,6 +436,18 @@ export const locationFieldTermSchema = z.strictObject({
 	field: locationRowFieldSchema,
 });
 export type LocationFieldTerm = z.infer<typeof locationFieldTermSchema>;
+export const workerGroupFieldSchema = z.union([
+	z.enum(["id", "name"]),
+	z.strictObject({
+		detail: z.enum(["key", "value"]),
+		key: z.string().optional(),
+	}),
+]);
+export const workerGroupTermSchema = z.strictObject({
+	kind: z.literal("worker-group-field"),
+	field: workerGroupFieldSchema,
+});
+export type WorkerGroupField = z.infer<typeof workerGroupFieldSchema>;
 export type Term =
 	| PropertyRef
 	| FormCasePropertyRef
@@ -420,12 +464,14 @@ export type Term =
 	| Literal
 	| Choice
 	| CaseTypeTerm
+	| SearchResultField
 	| CaseRowTypeTerm
 	| CaseIndexTerm
 	| SessionDatumTerm
 	| RepeatRowTerm
 	| LocationLevelTerm
-	| LocationFieldTerm;
+	| LocationFieldTerm
+	| z.infer<typeof workerGroupTermSchema>;
 export const termSchema: z.ZodType<Term> = z.union([
 	propertyRefSchema,
 	formCasePropertyRefSchema,
@@ -442,13 +488,25 @@ export const termSchema: z.ZodType<Term> = z.union([
 	literalSchema,
 	choiceSchema,
 	caseTypeTermSchema,
+	searchResultFieldSchema,
 	caseRowTypeTermSchema,
 	caseIndexTermSchema,
 	sessionDatumTermSchema,
 	repeatRowTermSchema,
 	locationLevelTermSchema,
 	locationFieldTermSchema,
+	workerGroupTermSchema,
 ]);
+/** The field slot a form text reference names, independent of its printed itext id. */
+export const FIELD_ITEXT_SLOTS = {
+	"field-label": "label",
+	"field-hint": "hint",
+	"field-help": "help",
+	"field-validation-message": "validate_msg",
+	"field-first-add-label": "addFirstLabel",
+	"field-add-label": "addLabel",
+} as const;
+
 export const itextUnitSchema = z.union([
 	z.strictObject({
 		field: uuidSchema,
@@ -457,6 +515,8 @@ export const itextUnitSchema = z.union([
 			"field-hint",
 			"field-help",
 			"field-validation-message",
+			"field-first-add-label",
+			"field-add-label",
 		]),
 	}),
 	z.strictObject({
@@ -612,7 +672,7 @@ export type ConditionArm =
 	| { kind: "missing"; via: RelationPath; where?: Expression };
 export type ValueArm =
 	| { kind: "term"; term: Term }
-	| { kind: "today" }
+	| { kind: "today"; clock?: "project-space" }
 	| { kind: "now" }
 	| { kind: "id-of"; opUuid: Uuid }
 	| { kind: "acting-user" }
@@ -620,7 +680,7 @@ export type ValueArm =
 	| {
 			kind: "table-lookup";
 			tableId: LookupTableId;
-			resultColumnId: LookupColumnId;
+			resultColumnId: LookupRead;
 			where: Expression;
 	  }
 	| {
@@ -646,17 +706,25 @@ export type ValueArm =
 	| { kind: "format-date"; date: Expression; pattern: string | Expression }
 	| { kind: "negate"; value: Expression }
 	| { kind: "call"; fn: CallFunction; args: Expression[] }
+	| { kind: "case-text"; textUuid: Uuid }
 	| { kind: "itext"; unit: ItextUnit }
 	| { kind: "choice-name"; field: Uuid; value: Expression }
 	| { kind: "here" }
 	/** What the worker typed into the case list's search box, on the entry's
 	 * one case list: `session/data/stringquery`, which only Android sets. */
 	| { kind: "case-list-search-text" }
+	| { kind: "case-list-lookup-count"; module: Uuid }
 	| { kind: "value-list"; items: [Expression, ...Expression[]] };
 export type InstanceArm =
-	| { kind: "cases"; source: "casedb" | "search-results"; where: Expression[] }
+	| {
+			kind: "cases";
+			source: "casedb" | "search-results";
+			supplier?: Uuid;
+			where: Expression[];
+	  }
 	| { kind: "table-rows"; tableId: LookupTableId; where: Expression[] }
 	| { kind: "locations"; where: Expression[] }
+	| { kind: "worker-groups"; where: Expression[] }
 	| { kind: "selected-cases"; module: Uuid }
 	| { kind: "project"; of: Expression; value: Term };
 export type Expression = ConditionArm | ValueArm | InstanceArm;
@@ -703,16 +771,19 @@ const VALUE_KINDS = new Set<string>([
 	"format-date",
 	"negate",
 	"call",
+	"case-text",
 	"itext",
 	"choice-name",
 	"here",
 	"case-list-search-text",
+	"case-list-lookup-count",
 	"value-list",
 ]);
 const INSTANCE_KINDS = new Set<string>([
 	"cases",
 	"table-rows",
 	"locations",
+	"worker-groups",
 	"selected-cases",
 	"project",
 ]);
@@ -732,12 +803,14 @@ const TERM_KINDS = new Set<string>([
 	"literal",
 	"choice",
 	"case-type",
+	"search-result-field",
 	"case-row-type",
 	"case-index",
 	"session-datum",
 	"repeat-row",
 	"location-level",
 	"location-field",
+	"worker-group-field",
 ]);
 function hasKind(value: unknown): value is { kind: string } {
 	return (
@@ -829,7 +902,7 @@ export const unownedSchema = z.strictObject({ kind: z.literal("unowned") });
 export const tableLookupExpressionSchema = z.strictObject({
 	kind: z.literal("table-lookup"),
 	tableId: lookupTableIdSchema,
-	resultColumnId: lookupColumnIdSchema,
+	resultColumnId: lookupReadSchema,
 	where: E,
 });
 const conditionSchemas = [
@@ -943,7 +1016,10 @@ const conditionSchemas = [
 const switchCaseSchema = z.strictObject({ when: literalOrChoice, then: E });
 const valueSchemas = [
 	z.strictObject({ kind: z.literal("term"), term: termSchema }),
-	z.strictObject({ kind: z.literal("today") }),
+	z.strictObject({
+		kind: z.literal("today"),
+		clock: z.literal("project-space").optional(),
+	}),
 	z.strictObject({ kind: z.literal("now") }),
 	idOfSchema,
 	actingUserSchema,
@@ -995,6 +1071,7 @@ const valueSchemas = [
 		fn: z.enum(CALL_FUNCTIONS),
 		args: z.array(E),
 	}),
+	z.strictObject({ kind: z.literal("case-text"), textUuid: uuidSchema }),
 	z.strictObject({ kind: z.literal("itext"), unit: itextUnitSchema }),
 	z.strictObject({
 		kind: z.literal("choice-name"),
@@ -1003,20 +1080,34 @@ const valueSchemas = [
 	}),
 	z.strictObject({ kind: z.literal("here") }),
 	z.strictObject({ kind: z.literal("case-list-search-text") }),
+	z.strictObject({
+		kind: z.literal("case-list-lookup-count"),
+		module: uuidSchema,
+	}),
 	z.strictObject({ kind: z.literal("value-list"), items: manyE }),
 ] as const;
 const instanceSchemas = [
-	z.strictObject({
-		kind: z.literal("cases"),
-		source: z.enum(["casedb", "search-results"]),
-		where: z.array(E),
-	}),
+	z
+		.strictObject({
+			kind: z.literal("cases"),
+			source: z.enum(["casedb", "search-results"]),
+			supplier: uuidSchema.optional(),
+			where: z.array(E),
+		})
+		.refine(
+			(rows) => rows.supplier === undefined || rows.source === "search-results",
+			{
+				path: ["supplier"],
+				message: "Choose a search when reading its results.",
+			},
+		),
 	z.strictObject({
 		kind: z.literal("table-rows"),
 		tableId: lookupTableIdSchema,
 		where: z.array(E),
 	}),
 	z.strictObject({ kind: z.literal("locations"), where: z.array(E) }),
+	z.strictObject({ kind: z.literal("worker-groups"), where: z.array(E) }),
 	z.strictObject({ kind: z.literal("selected-cases"), module: uuidSchema }),
 	z.strictObject({
 		kind: z.literal("project"),
@@ -1025,10 +1116,12 @@ const instanceSchemas = [
 			(v) =>
 				[
 					"prop",
+					"search-result-field",
 					"case-row-type",
 					"case-index",
 					"table-column",
 					"location-field",
+					"worker-group-field",
 				].includes(v.kind),
 			"Project one value from the selected row.",
 		),
@@ -1069,30 +1162,45 @@ export const valueArmSchema: z.ZodType<ValueArm> = z.union(valueSchemas);
 export const instanceArmSchema: z.ZodType<InstanceArm> =
 	z.union(instanceSchemas);
 
-export type FieldExpressionSlotRef = {
-	readonly entity: "field";
-	readonly uuid: Uuid;
-	readonly slot:
-		| "relevant"
-		| "validate"
-		| "calculate"
-		| "default_value"
-		| "required"
-		| "repeat_count"
-		| "ids_query"
-		| "lookup_options_source";
-};
+export type FieldExpressionSlotRef =
+	| {
+			readonly entity: "field";
+			readonly uuid: Uuid;
+			readonly slot:
+				| "relevant"
+				| "validate"
+				| "calculate"
+				| "default_value"
+				| "required"
+				| "repeat_count"
+				| "ids_query"
+				| "lookup_options_source"
+				| "assessment_user_score"
+				| "deliver_entity_id"
+				| "deliver_entity_name"
+				| "deliver_work_area_id";
+	  }
+	| {
+			readonly entity: "field";
+			readonly uuid: Uuid;
+			readonly slot: "android_app_input";
+			readonly member: { readonly name: string; readonly occurrence: number };
+	  };
 export type FormExpressionSlotRef =
+	| {
+			readonly entity: "form";
+			readonly uuid: Uuid;
+			readonly slot: "form_selection_source" | "form_entry_value";
+			readonly member: { readonly supplyUuid: Uuid };
+	  }
 	| {
 			readonly entity: "form";
 			readonly uuid: Uuid;
 			readonly slot:
 				| "form_display_condition"
+				| "form_badge"
 				| "form_open_condition"
-				| "form_close_condition"
-				| "assessment_user_score"
-				| "deliver_entity_id"
-				| "deliver_entity_name";
+				| "form_close_condition";
 	  }
 	| {
 			readonly entity: "form";
@@ -1115,8 +1223,11 @@ export type FormExpressionSlotRef =
 			readonly slot:
 				| "case_operation_target_expression"
 				| "case_operation_condition"
+				| "case_operation_close_condition"
 				| "case_operation_name"
 				| "case_operation_owner"
+				| "case_operation_type_condition"
+				| "case_operation_owner_condition"
 				| "case_operation_rename";
 			readonly member: { readonly operationUuid: Uuid };
 	  }
@@ -1147,17 +1258,54 @@ export type ModuleExpressionSlotRef =
 	| {
 			readonly entity: "module";
 			readonly uuid: Uuid;
+			readonly slot: "project_search_parameter";
+			readonly member: { readonly parameterUuid: Uuid };
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
 			readonly slot:
 				| "module_display_condition"
+				| "module_badge"
 				| "case_list_filter"
+				| "case_list_action_condition"
+				| "case_form_context_line"
+				| "case_search_filter"
 				| "search_button_display_condition"
 				| "excluded_owner_ids";
 	  }
 	| {
 			readonly entity: "module";
 			readonly uuid: Uuid;
+			readonly slot:
+				| "case_detail_tab_condition"
+				| "case_detail_tab_filter"
+				| "case_detail_tab_rows";
+			readonly member: { readonly tabUuid: Uuid };
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot: "search_filter_value";
+			readonly member: { readonly filterUuid: Uuid };
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
 			readonly slot: "case_list_column_expression";
 			readonly member: { readonly columnUuid: Uuid };
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot: "case_list_mapping_condition";
+			readonly member: { readonly columnUuid: Uuid; readonly rowUuid: Uuid };
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot: "case_list_sort_expression";
+			readonly member: { readonly sortUuid: Uuid };
 	  }
 	| {
 			readonly entity: "module";
@@ -1179,12 +1327,24 @@ export type ProseSlotRef =
 	| {
 			readonly entity: "field";
 			readonly uuid: Uuid;
-			readonly slot: "label" | "hint" | "help" | "validate_msg";
+			readonly slot:
+				| "addFirstLabel"
+				| "addLabel"
+				| "label"
+				| "hint"
+				| "help"
+				| "validate_msg"
+				| "extended_text"
+				| "extended_hint"
+				| "extended_help"
+				| "extended_validate_msg"
+				| "qr_code"
+				| "spoken_text";
 	  }
 	| {
 			readonly entity: "field";
 			readonly uuid: Uuid;
-			readonly slot: "option_label";
+			readonly slot: "option_label" | "option_extended_text";
 			readonly member: { readonly optionUuid: Uuid };
 	  };
 export type SlotContextRef = ExpressionSlotRef | ProseSlotRef;
@@ -1194,7 +1354,16 @@ const PROSE_SLOT_NAMES: ReadonlySet<string> = new Set<ProseSlotRef["slot"]>([
 	"hint",
 	"help",
 	"validate_msg",
+	"extended_text",
+	"extended_hint",
+	"extended_help",
+	"extended_validate_msg",
+	"qr_code",
+	"spoken_text",
+	"addFirstLabel",
+	"addLabel",
 	"option_label",
+	"option_extended_text",
 ]);
 
 /** Whether a slot address names a prose slot (a text, and the calculated

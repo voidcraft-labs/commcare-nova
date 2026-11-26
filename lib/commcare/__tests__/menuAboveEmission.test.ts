@@ -22,8 +22,10 @@ import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
 	caseListFormReturnFrames,
+	entryFrameDatums,
 	entryNewCaseDatumId,
 	entrySessionDatums,
+	type FormLinkProjectionContext,
 	type FrameChild,
 	formFrameChildren,
 	formLinkProjectionContext,
@@ -34,6 +36,7 @@ import {
 	ROOT_MENU_ID,
 	targetFrameChildren,
 } from "@/lib/commcare/formLinkProjection";
+import { homeSelectionConsumers } from "@/lib/commcare/previousTaskProjection";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
@@ -51,9 +54,11 @@ import {
 	resolveFormLinkTarget,
 } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { menuScreenLayout } from "@/lib/domain/menuScreens";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
+import { ROUTE, SOURCE, twoMenus } from "./menuFormRoutesFixture";
 import { menuScreenDocArbitrary } from "./menuScreenDocArbitrary";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -344,6 +349,80 @@ describe("the HQ JSON of a menu that shows its forms in the menu above", () => {
 	});
 });
 
+describe("the layout of menus a worker opens", () => {
+	it("gives a menu listing another menu's forms only the app-wide grid, never a grid of its own", () => {
+		const menuWithId = (compiledSuite: Compiled, id: string) => {
+			const menus = elements(compiledSuite, "menu").filter(
+				(menu) => getAttributeValue(menu, "id") === id,
+			);
+			expect(menus).toHaveLength(1);
+			return menus[0] as Element;
+		};
+		const doc = twoMenus();
+		doc.appSettings.formMenuLayout = "individual";
+		// A grid the listing menu kept from before it listed another menu's
+		// forms, beside a grid its source chose.
+		doc.modules[ROUTE].menuLayout = "grid";
+		doc.modules[SOURCE].menuLayout = "grid";
+		const individual = compiled(admitted(doc));
+		expect(individual.hq.modules[0]?.doc_type).toBe("ShadowModule");
+		expect(individual.hq.modules[0]).not.toHaveProperty("display_style");
+		expect(individual.hq.modules[1]).toMatchObject({ display_style: "grid" });
+		expect(menuWithId(individual, "m0").attribs.style).toBeUndefined();
+		expect(menuWithId(individual, "m1").attribs.style).toBe("grid");
+		doc.appSettings.formMenuLayout = "grid";
+		const everyMenu = compiled(admitted(doc));
+		expect(menuWithId(everyMenu, "m0").attribs.style).toBe("grid");
+		expect(menuWithId(everyMenu, "m1").attribs.style).toBe("grid");
+	});
+
+	it("styles each individual contribution, then lets a parent share its child's grid", () => {
+		const doc = menuShapesDoc();
+		doc.appSettings.firstMenuLayout = "grid";
+		doc.appSettings.formMenuLayout = "individual";
+		doc.modules[testUuid("s1")].menuLayout = "grid";
+		const suite = compiled(doc);
+		expect(suite.hq.use_grid_menus).toBe(true);
+		expect(suite.hq.grid_form_menus).toBe("some");
+		expect(suite.hq.modules[1]).toMatchObject({ display_style: "grid" });
+		expect(menuHolding(suite, "m0-f0").attribs.style).toBeUndefined();
+		expect(menuHolding(suite, "m1-f0").attribs).toMatchObject({
+			id: "m0",
+			style: "grid",
+		});
+		expect(menuHolding(suite, "m2-f0").attribs).toMatchObject({
+			id: "root",
+			style: "grid",
+		});
+		expect(menuHolding(suite, "m3-f0").attribs.style).toBeUndefined();
+		expect(
+			menuScreenLayout(doc, { kind: "menu", moduleUuid: testUuid("s0") }),
+		).toBe("grid");
+		expect(
+			menuScreenLayout(doc, { kind: "menu", moduleUuid: testUuid("s3") }),
+		).toBe("list");
+	});
+	it("adds exactly one empty styled root when no menu puts forms on the first screen", () => {
+		const doc = menuShapesDoc();
+		for (const module of Object.values(doc.modules))
+			delete module.formsInMenuAbove;
+		doc.appSettings.firstMenuLayout = "grid";
+		doc.appSettings.formMenuLayout = "grid";
+		const suite = compiled(doc);
+		const menus = findAll(
+			(element) => element.name === "menu",
+			suite.suiteDoc.children,
+		);
+		expect(menus.every((menu) => menu.attribs.style === "grid")).toBe(true);
+		const roots = menus.filter((menu) => menu.attribs.id === "root");
+		expect(roots).toHaveLength(1);
+		expect(
+			findAll((element) => element.name === "command", roots[0].children),
+		).toHaveLength(0);
+		expect(suite.hq.grid_form_menus).toBe("all");
+	});
+});
+
 describe("the local suite's menus", () => {
 	const doc = menuShapesDoc();
 	const suite = compiled(doc);
@@ -525,7 +604,7 @@ describe("stacks of HQ's module-in-root shape", () => {
 			).toEqual(hqStackFrames(hqCommand));
 	});
 
-	it("projects HQ's frames for forms listed on the first menu, which Nova does not offer previous", () => {
+	it("projects the preceding frames for forms listed on the first menu", () => {
 		// HQ's m1-f0 pops to nothing; m1-f1, m2-f0 and m2-f1 keep their own
 		// command, since the root datums share no prefix.
 		for (const [hqCommand, moduleLabel, formLabel] of [
@@ -569,6 +648,8 @@ describe("stacks of HQ's module-in-root shape", () => {
  *  parent's own command where the parent keeps its screen, so it is held by
  *  that fact. */
 function writtenFrames(doc: BlueprintDoc): {
+	readonly emitted: BlueprintDoc;
+	readonly ctx: FormLinkProjectionContext;
 	readonly frames: readonly { what: string; children: FrameChild[] }[];
 	/** The ids of each Register return frame that carries the new case. */
 	readonly carryingNewCase: readonly { what: string; ids: string[] }[];
@@ -630,7 +711,7 @@ function writtenFrames(doc: BlueprintDoc): {
 					ctx,
 					hostUuid,
 					newCaseId,
-					host.caseType,
+					entryFrameDatums(emitted, ctx, moduleUuid, formUuid),
 					returnTo.kind,
 				).entries()) {
 					registerReturns++;
@@ -682,10 +763,22 @@ function writtenFrames(doc: BlueprintDoc): {
 			}
 		}
 	}
-	return { frames, carryingNewCase, parentMenuWithoutScreen, registerReturns };
+	return {
+		emitted,
+		ctx,
+		frames,
+		carryingNewCase,
+		parentMenuWithoutScreen,
+		registerReturns,
+	};
 }
 
-it("writes no frame that holds a chosen case ahead of its first command, and no Register return carrying the new case that names an id twice, over the menu-screens corpus", {
+// A frame may hold the first menu's shared case ahead of its first command
+// (`workflow.py::_root_module_datums`); Android then keeps that case for
+// every command that reads its datum (`CommCareSession.syncState`), so the
+// gate admits such a frame only where no command reads that datum as another
+// type or number of records.
+it("writes no frame whose case ahead of its first command another command reads otherwise, and no Register return carrying the new case that names an id twice, over the menu-screens corpus", {
 	timeout: 60_000,
 }, () => {
 	let frames = 0;
@@ -697,10 +790,18 @@ it("writes no frame that holds a chosen case ahead of its first command, and no 
 			registerReturns += written.registerReturns;
 			for (const frame of written.frames) {
 				frames++;
+				if (!frameLeadsWithSelection(frame.children)) continue;
+				const conflicts = [
+					...homeSelectionConsumers(
+						written.emitted,
+						written.ctx,
+						frame.children,
+					).values(),
+				].filter((row) => row.conflict);
 				expect(
-					frameLeadsWithSelection(frame.children),
-					`${frame.what} leads with a chosen case`,
-				).toBe(false);
+					conflicts,
+					`${frame.what} leads with a case another command reads otherwise`,
+				).toEqual([]);
 			}
 			for (const frame of written.carryingNewCase)
 				expect(new Set(frame.ids).size, `${frame.what} names an id twice`).toBe(

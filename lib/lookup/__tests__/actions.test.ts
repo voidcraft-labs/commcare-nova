@@ -77,7 +77,11 @@ const RECEIPT = {
 
 beforeEach(() => {
 	vi.resetAllMocks();
-	mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
+	// A browser session's id is the grant every Project data read locks.
+	mocks.getSession.mockResolvedValue({
+		user: { id: "user-1" },
+		session: { id: "session-1" },
+	});
 	mocks.resolveProjectAccess.mockResolvedValue({
 		projectId: "project-1",
 		role: "editor",

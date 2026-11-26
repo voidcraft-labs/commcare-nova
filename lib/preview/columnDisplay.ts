@@ -1,6 +1,8 @@
 /** Shared worker-facing cell values for Preview and disposable app tests. */
 
 import type { ProseTemplate } from "@/lib/domain";
+import { workerDistanceValueId } from "@/lib/domain";
+import type { CaseMappingRow } from "@/lib/domain/caseMappingRows";
 import type { LanguageTag } from "@/lib/domain/localization";
 import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 
@@ -9,6 +11,7 @@ type ProseProjector = (template: ProseTemplate) => string;
 import {
 	type CaseProperty,
 	type Column,
+	DATE_COUNT_DAYS,
 	hqInstantText,
 	type PropertyColumn,
 	TIME_SINCE_UNIT_DAYS,
@@ -30,6 +33,7 @@ import type {
 import type { PreviewPlatformRules } from "@/lib/preview/platform";
 import { toDate } from "@/lib/preview/xpath/coerce";
 import { formatConcreteCommCareDate } from "@/lib/preview/xpath/dateFormatting";
+import { javaTrim } from "@/lib/preview/xpath/javaString";
 import { XPathDate } from "@/lib/preview/xpath/types";
 
 export type CalculatedTemporalType = "date" | "datetime";
@@ -45,6 +49,12 @@ export type CalculatedTemporalType = "date" | "datetime";
 export type ColumnDisplayContext = {
 	/** Worker platform labels; omitted by authoring callers. */
 	readonly language?: LanguageTag;
+	/** Per-output option text and screen-reader descriptions. */
+	readonly columnProperties?: ReadonlyMap<Column["uuid"], CaseProperty>;
+	readonly imageDescription?: (
+		column: Column["uuid"],
+		row: CaseMappingRow,
+	) => string | undefined;
 	readonly caseProperties: readonly CaseProperty[];
 	/** The catalog entry of the property each column read through a relation
 	 *  shows, from the case type its walk reaches, by column. Absent or
@@ -69,6 +79,18 @@ export type ColumnDisplayContext = {
 	 *  Apps, and every case detail), or on Android the literal `[text](value)`
 	 *  the column holds, since its markdown arm is on the case detail alone
 	 *  (`views/EntityDetailView.java`). Absent reads as the link. */
+	readonly readsCaseImageDescriptions?: boolean;
+	readonly caseLocationDetail?: PreviewPlatformRules["caseLocationDetail"];
+	readonly markdownRendering?: PreviewPlatformRules["labelMarkdown"];
+	readonly tileText?: "html";
+	readonly listIconAction?: {
+		readonly disabled: boolean;
+		readonly groupCaseId?: string;
+		readonly run: (
+			column: Extract<Column, { kind: "image-map" }>,
+			id: string,
+		) => void;
+	};
 	readonly linkColumnInList?: PreviewPlatformRules["linkColumnInList"];
 };
 
@@ -98,7 +120,9 @@ export function projectColumnDisplay(
 		case "plain":
 			return projectPlainValue(
 				columnSourceValue(column, row, context.reading),
-				columnProperty(column, context),
+				column.showChoice === "saved-value"
+					? undefined
+					: columnProperty(column, context),
 				context.projectProse,
 			);
 		case "phone":
@@ -123,6 +147,45 @@ export function projectColumnDisplay(
 				text: isOpenableAddress(address) ? column.linkText : address,
 			};
 		}
+		case "worker-distance":
+			return {
+				kind: "value",
+				text: String(row.calculated[workerDistanceValueId(column.uuid)] ?? ""),
+			};
+		case "map-location":
+		case "map-layer":
+		case "formatted-text":
+			return {
+				kind: "value",
+				text: columnDisplayText(column, row, context.reading),
+			};
+		case "overdue-marker":
+		case "date-count": {
+			const raw = columnDisplayText(column, row, context.reading);
+			if (raw === "")
+				return {
+					kind: "value",
+					text: column.kind === "overdue-marker" ? "*" : "",
+				};
+			const date = toDate(raw);
+			if (date === null)
+				return {
+					kind: "fallback",
+					text: raw,
+					message:
+						"Preview can’t count from this date because the saved value isn’t a valid date",
+				};
+			const today = XPathDate.localDateOf(
+				(context.today ?? new Date()).getTime(),
+			);
+			const days = today.calendarDays - date.calendarDays;
+			if (column.kind === "overdue-marker")
+				return { kind: "value", text: days > column.afterDays ? "*" : "" };
+			return {
+				kind: "value",
+				text: String(Math.trunc(days / DATE_COUNT_DAYS[column.period])),
+			};
+		}
 		case "date":
 			return formatDateForPreview(
 				columnDisplayText(column, row, context.reading),
@@ -138,13 +201,18 @@ export function projectColumnDisplay(
 			return projectMappedValue(
 				columnSourceValue(column, row, context.reading),
 				column.mapping,
+				row,
+				column.behavior,
 			);
 		case "image-map":
 			return projectImageMappedValue(
 				columnSourceValue(column, row, context.reading),
 				column.mapping,
+				row,
 				columnProperty(column, context),
 				context.projectProse,
+				context.readsCaseImageDescriptions !== false,
+				(row) => context.imageDescription?.(column.uuid, row),
 			);
 		case "calculated":
 			return projectCalculatedValue(
@@ -160,7 +228,9 @@ function columnProperty(
 	column: PropertyColumn,
 	context: ColumnDisplayContext,
 ): CaseProperty | undefined {
-	if (column.via !== undefined)
+	const projected = context.columnProperties?.get(column.uuid);
+	if (projected) return projected;
+	if (column.via !== undefined || column.readFrom)
 		return context.relatedProperties?.get(column.uuid);
 	return context.caseProperties.find(
 		(property) => property.name === column.field,
@@ -179,7 +249,7 @@ function columnSourceValue(
 	row: CaseRowWithCalculated,
 	reading?: Extract<CaseReading, "casedb" | "results">,
 ): ReturnType<typeof caseRowDisplaySourceValue> {
-	if (column.via === undefined)
+	if (column.via === undefined && !column.readFrom && !column.showOwner)
 		return caseListDisplaySourceValue(row, column.field, reading);
 	const related = row.calculated[column.uuid];
 	return related === undefined || related === null ? "" : String(related);
@@ -191,7 +261,7 @@ function columnDisplayText(
 	row: CaseRowWithCalculated,
 	reading?: Extract<CaseReading, "casedb" | "results">,
 ): string {
-	if (column.via === undefined)
+	if (column.via === undefined && !column.readFrom && !column.showOwner)
 		return caseListDisplayValue(row, column.field, reading);
 	return String(columnSourceValue(column, row, reading) ?? "");
 }
@@ -203,11 +273,14 @@ function columnDisplayText(
  * carrier both hold it.
  */
 export function columnRawText(
-	column: Pick<PropertyColumn, "uuid" | "field" | "via">,
+	column: Pick<
+		PropertyColumn,
+		"uuid" | "field" | "via" | "readFrom" | "showOwner"
+	>,
 	row: CaseRowWithCalculated,
 	reading?: Extract<CaseReading, "casedb" | "results">,
 ): string {
-	if (column.via === undefined)
+	if (column.via === undefined && !column.readFrom && !column.showOwner)
 		return caseListRawText(row, column.field, reading);
 	const related = row.calculated[column.uuid];
 	return related === undefined || related === null ? "" : String(related);
@@ -335,16 +408,24 @@ function projectPlainValue(
 
 function projectMappedValue(
 	source: ReturnType<typeof caseRowDisplaySourceValue>,
-	mapping: readonly { readonly value: string; readonly label: string }[],
+	mapping: Extract<Column, { kind: "id-mapping" }>["mapping"],
+	row: CaseRowWithCalculated,
+	behavior?: "first-match",
 ): PreviewFormattedValue {
-	const selected = selectedTokens(source);
-	if (selected === undefined) return unsupportedStoredValue();
+	if (behavior === "first-match") {
+		const index = firstMatchingRuleIndex(mapping, source, row, true);
+		return index === undefined
+			? unsupportedStoredValue()
+			: { kind: "value", text: mapping[index]?.label ?? "" };
+	}
+	const matches = mappingValueMatcher(source);
+	if (!matches) return unsupportedStoredValue();
 	return {
 		kind: "value",
 		// Wire uses mapping order and drops every unmapped token via the empty
 		// arm of selected(...), then collapses the join to single spaces.
 		text: mapping
-			.filter((entry) => selected.has(entry.value))
+			.filter((entry) => matches(entry.value ?? ""))
 			.map((entry) => entry.label)
 			.join(" "),
 	};
@@ -353,20 +434,33 @@ function projectMappedValue(
 function projectImageMappedValue(
 	source: ReturnType<typeof caseRowDisplaySourceValue>,
 	mapping: Extract<Column, { kind: "image-map" }>["mapping"],
+	row: CaseRowWithCalculated,
 	property: CaseProperty | undefined,
 	projectProse: ProseProjector,
+	readsDescription: boolean,
+	description: (row: CaseMappingRow) => string | undefined,
 ): PreviewFormattedValue {
-	const selected = selectedTokens(source);
-	if (selected === undefined) return unsupportedStoredValue();
-	const match = mapping.find((entry) => selected.has(entry.value));
+	const index = firstMatchingRuleIndex(mapping, source, row);
+	if (index === undefined) return unsupportedStoredValue();
+	const match = mapping[index];
 	const option = property?.options?.find(
 		(candidate) => candidate.value === match?.value,
 	);
-	return match === undefined
-		? { kind: "value", text: "" }
+	// This view's own description replaces the rule's description.
+	const altText = !readsDescription
+		? undefined
+		: match && (description(match) ?? match.altText);
+	return match?.assetId === undefined
+		? {
+				kind: "value",
+				text: readsDescription && match ? altText || "\u00a0" : "",
+			}
 		: {
 				kind: "image",
-				text: option ? projectProse(option.label) : match.value,
+				text: option
+					? projectProse(option.label)
+					: (match.value ?? match.altText ?? ""),
+				...(altText !== undefined && { altText }),
 				assetId: match.assetId,
 			};
 }
@@ -383,26 +477,50 @@ export function mappingPositionText(
 	row: CaseRowWithCalculated,
 	reading?: Extract<CaseReading, "casedb" | "results">,
 ): string {
-	const selected = selectedTokens(columnSourceValue(column, row, reading));
-	if (selected === undefined) return "";
-	const index = column.mapping.findIndex((entry) => selected.has(entry.value));
-	return index === -1 ? "" : String(index);
+	const index = firstMatchingRuleIndex(
+		column.mapping,
+		columnSourceValue(column, row, reading),
+		row,
+		column.kind === "id-mapping" && column.behavior === "first-match",
+	);
+	return index === undefined || index < 0 ? "" : String(index);
 }
 
-function selectedTokens(
+/** A condition reading the case has its own projected truth value. An
+ * unsupported stored property matters only if a value rule reaches it. */
+function firstMatchingRuleIndex(
+	rules: readonly CaseMappingRow[],
 	source: ReturnType<typeof caseRowDisplaySourceValue>,
-): ReadonlySet<string> | undefined {
-	if (source === null || source === undefined) return new Set();
-	if (Array.isArray(source)) {
-		const tokens = new Set<string>();
-		for (const item of source) {
-			if (typeof item === "object") return undefined;
-			tokens.add(String(item));
+	row: CaseRowWithCalculated,
+	exact = false,
+): number | undefined {
+	const matches = mappingValueMatcher(source);
+	for (const [index, rule] of rules.entries()) {
+		if (rule.when) {
+			if (rule.uuid && row.calculated[rule.uuid] === "1") return index;
+		} else {
+			if (!matches) return undefined;
+			if (matches(rule.value ?? "", exact ? "exact" : rule.match)) return index;
 		}
-		return tokens;
 	}
-	if (typeof source === "object") return undefined;
-	return new Set(String(source).split(/\s+/).filter(Boolean));
+	return -1;
+}
+
+/** Core's selected() compares a sequence between literal spaces. Blank keys match a
+ * blank value, adjacent spaces, or leading/trailing spaces. The source stays verbatim. */
+function mappingValueMatcher(
+	source: ReturnType<typeof caseRowDisplaySourceValue>,
+): ((value: string, match?: "exact") => boolean) | undefined {
+	if (Array.isArray(source) && source.some((part) => typeof part === "object"))
+		return undefined;
+	if (source != null && typeof source === "object" && !Array.isArray(source))
+		return undefined;
+	const text = Array.isArray(source) ? source.join(" ") : String(source ?? "");
+	const padded = ` ${text} `;
+	return (value, match) =>
+		match === "exact"
+			? text === value
+			: padded.includes(` ${javaTrim(value)} `);
 }
 
 function projectStoredScalar(
@@ -536,11 +654,11 @@ export type PreviewFormattedValue =
 	  }
 	| {
 			readonly kind: "image";
+			readonly altText?: string;
 			readonly text: string;
-			readonly assetId: Extract<
-				Column,
-				{ kind: "image-map" }
-			>["mapping"][number]["assetId"];
+			readonly assetId: NonNullable<
+				Extract<Column, { kind: "image-map" }>["mapping"][number]["assetId"]
+			>;
 	  }
 	| {
 			readonly kind: "fallback";

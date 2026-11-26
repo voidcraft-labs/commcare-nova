@@ -7,7 +7,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readWav } from "../wav";
+import { bufferBytes } from "../randomAccess";
+import { readWav as readWavAt } from "../wav";
+
+/** The reader over bytes in memory. */
+const readWav = (bytes: Uint8Array) => readWavAt(bufferBytes(bytes));
 
 function fixture(name: string): Buffer {
 	return readFileSync(join(import.meta.dirname, "fixtures", name));
@@ -36,38 +40,44 @@ function pcmFormat(tag: number, bits: number): Buffer {
 }
 
 describe("readWav", () => {
-	it("reads 8- and 16-bit PCM", () => {
-		expect(readWav(fixture("tone.wav"))).toEqual({ kind: "pcm", bits: 16 });
-		expect(readWav(fixture("tone-8.wav"))).toEqual({ kind: "pcm", bits: 8 });
+	it("reads 8- and 16-bit PCM", async () => {
+		expect(await readWav(fixture("tone.wav"))).toEqual({
+			kind: "pcm",
+			bits: 16,
+		});
+		expect(await readWav(fixture("tone-8.wav"))).toEqual({
+			kind: "pcm",
+			bits: 8,
+		});
 	});
 
-	it("names 24-bit, float and mu-law files by their encoding", () => {
-		expect(readWav(fixture("tone-24.wav"))).toEqual({
+	it("names 24-bit, float and mu-law files by their encoding", async () => {
+		expect(await readWav(fixture("tone-24.wav"))).toEqual({
 			kind: "codec",
 			codec: "24-bit PCM",
 		});
-		expect(readWav(fixture("tone-float.wav"))).toEqual({
+		expect(await readWav(fixture("tone-float.wav"))).toEqual({
 			kind: "codec",
 			codec: "32-bit float",
 		});
-		expect(readWav(fixture("tone-mulaw.wav"))).toEqual({
+		expect(await readWav(fixture("tone-mulaw.wav"))).toEqual({
 			kind: "codec",
 			codec: "mu-law",
 		});
 	});
 
-	it("steps over a chunk of odd size and its pad byte before `fmt `", () => {
+	it("steps over a chunk of odd size and its pad byte before `fmt `", async () => {
 		const list = Buffer.alloc(8 + 3 + 1);
 		list.write("LIST", 0, "latin1");
 		list.writeUInt32LE(3, 4);
-		expect(readWav(wav(pcmFormat(1, 16), [list]))).toEqual({
+		expect(await readWav(wav(pcmFormat(1, 16), [list]))).toEqual({
 			kind: "pcm",
 			bits: 16,
 		});
 	});
 
-	it("reads a file with no format chunk as unreadable", () => {
-		expect(readWav(fixture("tone.wav").subarray(0, 12))).toEqual({
+	it("reads a file with no format chunk as unreadable", async () => {
+		expect(await readWav(fixture("tone.wav").subarray(0, 12))).toEqual({
 			kind: "unreadable",
 			detail: "no format chunk",
 		});

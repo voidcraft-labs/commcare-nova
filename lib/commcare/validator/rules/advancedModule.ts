@@ -58,10 +58,20 @@ export function newCaseDatumCauseWords(
 	if (cause.kind === "blocker") {
 		const { blocker, moduleName } = cause;
 		switch (blocker.kind) {
+			case "individual-grid":
+				return {
+					reason: `"${moduleName}" has its own grid layout, which CommCare HQ cannot keep while handing a new case on`,
+					remedy: `choose List for "${moduleName}", or make all form menus grids in App settings and clear this menu’s individual choice`,
+				};
 			case "several-cases":
 				return {
 					reason: `"${moduleName}" lets workers choose several cases, and CommCare HQ can hand a new case on only from a menu where they choose one`,
 					remedy: `let workers choose one case in "${moduleName}"`,
+				};
+			case "several-record-types":
+				return {
+					reason: `a case selection in "${moduleName}" offers several record types, and CommCare HQ can hand a new case on only when each selection asks for one type`,
+					remedy: "choose one record type in each case list for this form",
 				};
 			case "forms-read-search":
 				return {

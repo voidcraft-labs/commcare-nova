@@ -124,7 +124,7 @@ function buildMetaBlock(
 	// One meta-child path per setvalue / bind, constructed via FormPath so the
 	// `/data/meta/...` shape is structural rather than string-templated. Every
 	// downstream attribute reads the same typed value through `.toWire()`.
-	const meta = FormPath.root().child("meta");
+	const meta = FormPath.root(context.mode.formRootName).child("meta");
 	const deviceIDPath = meta.child("deviceID").toWire();
 	const timeStartPath = meta.child("timeStart").toWire();
 	const timeEndPath = meta.child("timeEnd").toWire();
@@ -271,9 +271,6 @@ function buildMetaBlock(
 	return { dataElement, setvalues, binds };
 }
 
-/** The location node a capturing form's poll writes its fix into. */
-const LOCATION_PATH = FormPath.root().child("meta").child("location");
-
 /** Whether the model holds a `geopoint` bind, the shape HQ's `elif` reads. */
 function holdsGeopointBind(model: Element): boolean {
 	return getChildren(model).some(
@@ -301,7 +298,12 @@ function pollsensorNodes(
 				"orx:pollsensor",
 				{
 					attributes: { event: "xforms-ready" },
-					xpath: { ref: LOCATION_PATH.toWire() },
+					xpath: {
+						ref: FormPath.root(context.mode.formRootName)
+							.child("meta")
+							.child("location")
+							.toWire(),
+					},
 				},
 				context,
 			),
@@ -309,7 +311,12 @@ function pollsensorNodes(
 				"bind",
 				{
 					attributes: { type: "geopoint" },
-					xpath: { nodeset: LOCATION_PATH.toWire() },
+					xpath: {
+						nodeset: FormPath.root(context.mode.formRootName)
+							.child("meta")
+							.child("location")
+							.toWire(),
+					},
 				},
 				context,
 			),
@@ -357,9 +364,10 @@ export function addMetaBlockTo(
 	options: { readonly captureLocation?: boolean } = {},
 ): void {
 	const captureLocation = options.captureLocation === true;
+	const dataEl = findDataElement(doc, "addMetaBlock");
 	const instances = new InstanceSink();
 	const context: WireElementContext = {
-		mode: { target: "xform", constraint: false },
+		mode: { target: "xform", constraint: false, formRootName: dataEl.name },
 		instances,
 	};
 	const meta = buildMetaBlock(captureLocation, context);
@@ -367,7 +375,7 @@ export function addMetaBlockTo(
 	// Append `<orx:meta>` last under `<data>`. On the `.ccz` path `addCaseBlocks`
 	// has already appended the `<case>` transaction block, so appending meta last
 	// yields the case-before-meta instance order CCHQ's `_add_meta_2` produces.
-	const dataEl = findDataElement(doc, "addMetaBlock");
+
 	appendChildren(dataEl, [meta.dataElement]);
 
 	const modelEl = findModelElement(doc, "addMetaBlock");

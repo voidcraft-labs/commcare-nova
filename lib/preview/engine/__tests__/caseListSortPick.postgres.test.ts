@@ -14,6 +14,7 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/domain";
 import { CASEDB_READING } from "@/lib/domain/expression/temporalType";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { choiceValueColumns } from "@/proof/targeted/documents/choiceValueColumns";
 import {
 	type CaseListSortChoice,
 	LIST_ORDER,
@@ -209,6 +211,29 @@ function picks(
 }
 
 describe("a pick in the list's Sort by orders the rows in the case store", () => {
+	it("orders and pages independent saved value and choice label columns", async () => {
+		const doc = hydratePersistedBlueprint(choiceValueColumns().doc);
+		const { caseListConfig: config } = doc.modules[doc.moduleOrder[0]];
+		if (!config) throw new Error("The worker needs a case list.");
+		const store = await seededStore(doc, {
+			"cv-ana": ["Ana", "a", undefined],
+			"cv-bea": ["Bea", "z", undefined],
+			"cv-cy": ["Cy", "past", undefined],
+		});
+		expect(await listed(store, doc, config, LIST_ORDER)).toEqual([
+			"cv-ana",
+			"cv-cy",
+			"cv-bea",
+		]);
+		const label = {
+			picks: [{ column: config.columns[1].uuid, reversed: false }],
+			thenListOrder: false,
+		};
+		expect(
+			await listed(store, doc, config, label, { offset: 0, limit: 1 }),
+		).toEqual(["cv-bea"]);
+	});
+
 	it("keeps the list's own order with no pick: age descending, blanks last, then name", async () => {
 		const { doc, config } = listDoc();
 		const store = await seededStore(doc);

@@ -112,6 +112,8 @@ on.
 
 ## Places
 
+Open a place to see the places directly below it. Search by name or site code to find a place elsewhere in the organization. Results include the parent path so you can distinguish places with the same name. Larger organizations load one page at a time.
+
 The places themselves — your actual districts and facilities. Unlike levels,
 these are data, so you can add thousands. [Publishing](/docs/publishing) sends
 them to your CommCare HQ project space, working down from the top so each place
@@ -130,8 +132,7 @@ that skips a level**, so Nova stops before sending anything and names each
 place, and you either add the missing rung on CommCare HQ or move the place.
 And **CommCare HQ needs the places under one parent to have different names**,
 where Nova only asks their codes to differ, so two clinics called "North" in the
-same district stop a publish until one is renamed. Both are checked before any
-place is sent, so a publish never leaves half a tree over there.
+same district stop a publish until one is renamed. Nova checks both before sending the first place. If a later batch stops, the publish records what arrived so you can continue from there.
 
 One owner rule stays closed at export: **a particular place**, which names that
 place by Nova's own id rather than the one CommCare HQ gave it, so the rule would
@@ -208,8 +209,10 @@ to another project space, that project space gets Nova's copy, as places Nova
 made there.
 
 You can add or change places in CommCare HQ, then choose **Refresh from CommCare
-HQ** in Organization. Nova refreshes the copy before each publish too. Levels
+HQ** in Organization. Publishing to the source refreshes the copy too. To send the latest places to a different space, refresh the copy before publishing there. Levels
 and place information stay yours to change in Nova.
+
+Nova reads the place’s ID in another system from the same project space as its hierarchy. It keeps the source spelling of codes, coordinates and place information. Preview shows the text a worker would see. If a formula needs information whose worker text the source cannot establish, the review names the place and field. You can change that field to text in CommCare HQ, then refresh again.
 
 A place CommCare HQ holds at a level this app doesn't have stays out of the
 copy. Where a persona, an owner rule or an automation uses such a place, Nova

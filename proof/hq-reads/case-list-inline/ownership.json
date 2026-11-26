@@ -1,4 +1,5 @@
 {
+	"menuLayouts": true,
 	"addOns": [
 		"calc_xpaths",
 		"enum_image"
@@ -7,6 +8,10 @@
 		"cc-show-saved",
 		"cc-show-incomplete"
 	],
+	"profileFeatures": [
+		"dependencies"
+	],
 	"profileCustomProperties": [],
-	"autoGpsCapture": false
+	"autoGpsCapture": true,
+	"caseSharing": true
 }

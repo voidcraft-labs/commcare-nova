@@ -17,7 +17,7 @@ for a run without one, by the server from its own collection
      "selection": {"documents": [<document id>, ...], "left": [<group>, ...]},
      "readers": false | [<reader>, ...],
      "reader": <digest of the corpus's reader bundle>,
-     "setAside": [{"base": <base id>, "reading": "account" | "declaration-not-offered", "notice": <text>}, ...]}
+     "setAside": [{"base": <base id>, "reading": "account" | "declaration-not-offered" | "answer-missing" | "owner-rules-not-answered", "notice": <text>}, ...]}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
 (from ``proof-plan``), and the main queue (from ``proof-corpus``, once the
@@ -298,8 +298,10 @@ class Selection:
 
 @dataclass(frozen=True)
 class SetAside:
-    """A base made in HQ the corpus set aside: its id, what Nova's reading of it answered (``account`` or
-    ``declaration-not-offered``), and the emission's notice naming why."""
+    """A base made in HQ the corpus set aside: its id, what Nova's reading of it answered (``account``,
+    ``declaration-not-offered``, ``answer-missing`` where it asked HQ for a request the base was retained
+    without, or ``owner-rules-not-answered`` where its owner-rule answers are not one a question it asks), and the
+    emission's notice naming why."""
 
     base: str
     reading: str
@@ -479,7 +481,7 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
     )
 
 
-SET_ASIDE_READINGS = ("account", "declaration-not-offered")
+SET_ASIDE_READINGS = ("account", "declaration-not-offered", "answer-missing", "owner-rules-not-answered")
 
 
 def _set_aside(raw, where: str) -> tuple[tuple[SetAside, ...], list[str]]:

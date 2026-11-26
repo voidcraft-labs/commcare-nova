@@ -20,11 +20,16 @@ import {
 	advancedSearchInputDef,
 	contentRunsOn,
 	type FormOtherwise,
+	makeTranslationUnitId,
+	NO_SEARCH_SCREEN_TITLE,
 	PLATFORM_FEATURE_IDS,
 	PLATFORMS,
 	type PlatformFeatureId,
 	platformFeatureUses,
 	proseText,
+	targetConditionUses,
+	tileCell,
+	translationSourceFingerprint,
 	unavailablePlatform,
 } from "@/lib/domain";
 import {
@@ -63,6 +68,86 @@ describe("each feature's detector", () => {
 			expect(platformFeatureUses(fixture.without(), only(feature))).toEqual([]);
 		});
 	}
+});
+
+describe("a map location in a Results tile", () => {
+	// HQ writes an address with a zero template width: Web Apps hides it in a
+	// custom tile and Android draws its stored value at its cell, the same
+	// difference as a raw field.
+	it("is a raw tile field read differently on Android", () => {
+		const doc = PLATFORM_FEATURE_FIXTURES["case-map-location"].with();
+		const config = doc.modules[FIXTURE_MODULE]?.caseListConfig;
+		if (config === undefined) throw new Error("The fixture has no list.");
+		config.tile = {};
+		config.columns = config.columns.map((column, index) => ({
+			...column,
+			tile: tileCell(0, index, 4, 1),
+		}));
+		expect(platformFeatureUses(doc, only("raw-custom-tile-field"))).toEqual([
+			expect.objectContaining({
+				feature: "raw-custom-tile-field",
+				site: { kind: "slot", slot: "caseListConfig.columns[1].kind" },
+			}),
+		]);
+	});
+});
+
+describe("a search title in another language", () => {
+	// A search with no title in its source language shows a title in a language that holds a
+	// current text of its own, which Android leaves out like any other; a translation of an
+	// older title shows the source's, which is none.
+	function untitled(fingerprintOf: string) {
+		const doc = PLATFORM_FEATURE_FIXTURES["search-screen-text"].without();
+		const unit = makeTranslationUnitId(
+			"module",
+			FIXTURE_MODULE,
+			"search-title",
+		);
+		const mod = doc.modules[FIXTURE_MODULE];
+		if (mod === undefined) throw new Error("The fixture holds a menu.");
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[FIXTURE_MODULE]: {
+					...mod,
+					caseSearchConfig: { searchScreenTitle: NO_SEARCH_SCREEN_TITLE },
+				},
+			},
+			localization: {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "spa"],
+				wireCodes: { eng: "en", spa: "es" },
+				translations: {
+					spa: {
+						[unit]: {
+							value: "Buscar",
+							sourceFingerprint: translationSourceFingerprint(
+								"text",
+								fingerprintOf,
+							),
+							origin: "human" as const,
+							review: "reviewed" as const,
+							translatedFrom: "eng",
+						},
+					},
+				},
+			},
+		};
+	}
+
+	it("is a use where that language's text is current, and none where it is stale", () => {
+		expect(
+			platformFeatureUses(untitled(""), only("search-screen-text")),
+		).toHaveLength(1);
+		expect(
+			platformFeatureUses(
+				untitled("Find a patient"),
+				only("search-screen-text"),
+			),
+		).toEqual([]);
+	});
 });
 
 describe("the search workflow and the case list menu entry", () => {
@@ -539,5 +624,56 @@ describe("contentRunsOn", () => {
 			"web-apps",
 			"android",
 		]);
+	});
+});
+
+describe("targetConditionUses", () => {
+	const addressDoc = (runsOnlyOn?: "web-apps" | "android", lookup = true) =>
+		buildDoc({
+			appSettings: {
+				...buildDoc().appSettings,
+				runsOnlyOn,
+			},
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "note", label: "Note" }),
+								f({
+									kind: "secret",
+									id: "home",
+									label: "Home",
+									...(lookup && { addressLookup: true }),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it("meets the address condition wherever the app runs in Web Apps, at the question that searches", () => {
+		for (const runsOnlyOn of [undefined, "web-apps"] as const) {
+			const [met, ...rest] = targetConditionUses(addressDoc(runsOnlyOn));
+			expect(rest).toEqual([]);
+			expect(met?.feature).toBe("address-lookup");
+			expect(met?.condition).toMatchObject({
+				platform: "web-apps",
+				capability: "address-search",
+				planFeature: "geocoder",
+			});
+			expect(met?.uses.map((use) => [use.owner.kind, use.site])).toEqual([
+				["field", { kind: "slot", slot: "addressLookup" }],
+			]);
+		}
+	});
+
+	it("meets nothing for Android alone, which reads the question as typed text, or with no address search", () => {
+		expect(targetConditionUses(addressDoc("android"))).toEqual([]);
+		expect(targetConditionUses(addressDoc(undefined, false))).toEqual([]);
 	});
 });

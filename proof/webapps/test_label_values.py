@@ -73,7 +73,9 @@ def test_web_apps_formats_a_label_after_its_value_is_spliced_in(
     ]
     with webapps_hq.project(webapps_documents[DOCUMENT]) as project:
         with project.released(formplayer_runner) as release:
-            run = Session(release, editor_driver).run(made)
+            session = Session(release, editor_driver)
+            run = session.run(made)
+            french = session.run(made, worker_language="fr", name="webapps-french")
     captions = run.value(-1)
     handed = [
         question.get("caption_markdown")
@@ -81,7 +83,10 @@ def test_web_apps_formats_a_label_after_its_value_is_spliced_in(
         if str(question.get("caption") or "").startswith("Styled")
     ]
     evidence("label-values", {"screen": run.screens, "captions": captions, "handed": handed})
-    assert run.page_errors == []
+    assert run.page_errors == [] and french.page_errors == []
+    (translated,) = [caption for caption in french.value(-1) if caption["text"].startswith("Zone")]
+    assert translated == {"text": "Zone nord, secteur nord", "bold": []}, translated
+    assert any(question.get("caption") == "Zone nord, secteur nord" for question in _questions(french.formplayer))
 
     # Formplayer handed the client the label's markdown form with the value spliced in as written.
     assert handed and set(handed) == {SPLICED}, handed

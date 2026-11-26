@@ -16,6 +16,7 @@ import {
 	lookupOptionsSourceSchema,
 	type SelectOptionsSource,
 } from "@/lib/domain";
+import { lookupColumnIdSchema } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import type { MutationEvent } from "@/lib/log/types";
 import { signalGrid } from "@/lib/signalGrid/store";
@@ -51,8 +52,16 @@ const catalog = availableLookupContext(
 			name: `Table ${index}`,
 			tag: `table_${index}`,
 			columns: [
-				{ id: source.valueColumnId, wireName: "code", label: "Code" },
-				{ id: source.labelColumnId, wireName: "name", label: "Name" },
+				{
+					id: lookupColumnIdSchema.parse(source.valueColumnId),
+					wireName: "code",
+					label: "Code",
+				},
+				{
+					id: lookupColumnIdSchema.parse(source.labelColumnId),
+					wireName: "name",
+					label: "Name",
+				},
 			],
 		}),
 	),

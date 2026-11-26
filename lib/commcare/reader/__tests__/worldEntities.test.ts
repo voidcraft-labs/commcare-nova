@@ -107,6 +107,20 @@ describe("levelsFromHq", () => {
 		},
 	);
 
+	it("holds an empty source code as distinct from a missing root relation", () => {
+		const { levels, findings } = levelsFromHq(
+			[level("ward", ""), { ...level("", null), name: "?!" }],
+			claimsUnder(mintingResolver("app-1")),
+		);
+		expect(findings).toEqual([]);
+		expect(
+			levels.map((row) => [row.name, row.code, row.parentLevelUuid]),
+		).toEqual([
+			["?!", "", undefined],
+			["WARD", "ward", levels[0].uuid],
+		]);
+	});
+
 	it("leaves out a level whose code Nova cannot hold, and every level beneath it", () => {
 		const { levels, findings } = levelsFromHq(
 			[
@@ -121,8 +135,8 @@ describe("levelsFromHq", () => {
 		expect(levels.map((one) => one.code)).toEqual(["state", "region"]);
 		expect(findings).toEqual([
 			{
-				code: "place-not-holdable",
-				standing: "not-yet",
+				code: "place-field-unusable",
+				standing: "fix-in-hq",
 				place: { kind: "organization" },
 				subject: null,
 				detail: { name: "9-DISTRICT" },
@@ -137,7 +151,7 @@ describe("levelsFromHq", () => {
 		);
 		expect(levels).toEqual([]);
 		expect(findings).toMatchObject([
-			{ code: "place-not-holdable", detail: { name: "CLINIC" } },
+			{ code: "place-field-unusable", detail: { name: "CLINIC" } },
 		]);
 	});
 });

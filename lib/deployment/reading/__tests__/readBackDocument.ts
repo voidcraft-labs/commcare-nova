@@ -67,11 +67,62 @@ export function everyKindDocument(): BlueprintDoc {
 		throw new Error("The fixture holds a menu and a form.");
 	const module = modules[moduleUuid] as Record<string, unknown>;
 	const config = module.caseListConfig as Record<string, unknown>;
-	config.searchInputs = [{ uuid: U("search"), name: "name" }];
+	const searchGroup = U("search-group");
+	const projectSearch = U("project-search");
+	const profile = U("installation-profile");
+	config.searchInputGroups = [{ uuid: searchGroup, label: "Patient" }];
+	config.searchInputs = [
+		{ uuid: U("search"), name: "name", group: searchGroup },
+	];
+	module.caseSearchConfig = {
+		projectSearch: {
+			searchUuid: projectSearch,
+			defaults: [
+				{
+					uuid: U("project-search-parameter"),
+					name: "district",
+					value: { kind: "term", term: { kind: "literal", value: "north" } },
+				},
+			],
+		},
+	};
+	doc.appSettings = {
+		...(doc.appSettings as Record<string, unknown>),
+		projectSearches: { [projectSearch]: { name: "Patients in the project" } },
+		installationProfiles: {
+			[profile]: {
+				uuid: profile,
+				name: "English",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+		},
+	};
+	config.calculatedSorts = [{ uuid: U("sort") }];
+	(config.columns as unknown[]).push({
+		uuid: U("mapping"),
+		kind: "id-mapping",
+		field: "colour",
+		header: "Colour",
+		mapping: [{ uuid: U("mapping-row"), value: "red", label: "Red" }],
+	});
+	(config.listColumnOrder as unknown[]).push(U("mapping"));
+	(config.detailColumnOrder as unknown[]).push(U("mapping"));
+	config.detailTabs = [
+		{
+			uuid: U("tab"),
+			title: "Patient",
+			startColumnUuid: (config.detailColumnOrder as unknown[])[0],
+		},
+	];
+	config.searchFilters = [{ uuid: U("search-filter") }];
 	module.entryPoint = { uuid: U("menu-entry") };
 	const form = forms[formUuid] as Record<string, unknown>;
 	form.caseOperations = [{ uuid: U("operation"), id: "patient" }];
 	form.formLinks = [{ uuid: U("link") }];
+	form.caseSelections = [{ uuid: U("selection") }];
+	form.computedDatums = [{ uuid: U("entry-value") }];
+	form.openingAssignments = [{ uuid: U("opening-assignment") }];
 	doc.userProperties = { [U("property")]: { uuid: U("property"), slug: "d" } };
 	doc.userPropertyOrder = [U("property")];
 	doc.userTypes = { [U("type")]: { uuid: U("type"), name: "Nurse" } };
@@ -411,7 +462,9 @@ function holders(value: unknown, uuid: string): Record<string, unknown>[] {
 /** `doc` with one change planted inside the entity `uuid`, on a copy. */
 export function plantedInside(doc: BlueprintDoc, uuid: string): BlueprintDoc {
 	const copy = JSON.parse(JSON.stringify(doc)) as BlueprintDoc;
-	const [holder] = holders(copy, uuid);
+	// A Project search's UUID is the record key, not a property of its value.
+	const holder: Record<string, unknown> | undefined =
+		holders(copy, uuid)[0] ?? copy.appSettings.projectSearches?.[uuid];
 	if (holder === undefined)
 		throw new Error(`The document holds no entity ${uuid}.`);
 	holder.planted = true;

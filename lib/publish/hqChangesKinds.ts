@@ -40,13 +40,11 @@ export const HQ_CHANGES_UNAVAILABLE = [
 export type HqChangesUnavailable = (typeof HQ_CHANGES_UNAVAILABLE)[number];
 
 /**
- * The two changes Nova names and can't take as a change: the language the
- * app's own text is written in moved, or CommCare HQ's version runs on
- * fewer platforms than the app.
+ * An HQ change whose version runs on fewer platforms than the app requires.
  */
 export const HQ_CHANGE_HELD = [
-	"languages-reordered",
 	"runs-elsewhere",
+	"stale-source-translation",
 ] as const;
 export type HqChangeHeld = (typeof HQ_CHANGE_HELD)[number];
 
@@ -71,3 +69,28 @@ export const HQ_CHANGES_STAGES = [
 	"bringing-in",
 ] as const;
 export type HqChangesStage = (typeof HQ_CHANGES_STAGES)[number];
+
+/** Reversing the full list as one rename requires a unique source and
+ * destination in each case type. A former occupant can share either name. */
+export function renameNamesReused(
+	renames: readonly CasePropertyRename[],
+): boolean {
+	const sources = new Set<string>(),
+		destinations = new Set<string>();
+	for (const { caseType, from, to } of renames) {
+		const source = JSON.stringify([caseType, from]),
+			destination = JSON.stringify([caseType, to]);
+		if (sources.has(source) || destinations.has(destination)) return true;
+		sources.add(source);
+		destinations.add(destination);
+	}
+	return false;
+}
+
+/** The phrase whose saved translation needs a decision before it becomes source. */
+export interface HqSourceTranslationRecovery {
+	readonly language: import("@/lib/domain").AppLanguageIdentity;
+	readonly languageName: string;
+	readonly unitId: string;
+	readonly breadcrumb: readonly string[];
+}

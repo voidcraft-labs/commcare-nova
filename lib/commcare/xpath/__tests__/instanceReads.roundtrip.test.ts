@@ -5,18 +5,20 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	INSTANCE_READS,
 	instanceReadFixture,
 } from "@/lib/commcare/__tests__/instanceReadFixture";
 import { projectFormExpression } from "@/lib/doc/expressionText";
-import { proseText, type Uuid } from "@/lib/domain";
+import { calculatedColumn, proseText, type Uuid } from "@/lib/domain";
 import {
 	instanceReadsDoc,
 	reads,
 } from "@/lib/domain/expression/__tests__/instanceReadsFixture";
 import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
 import { expressionSchema } from "@/lib/domain/expression/types";
+import { projectSearchUses } from "@/lib/domain/projectSearches";
 import { parseFormExpression } from "../expressionAst";
 
 const { doc, table } = instanceReadFixture();
@@ -97,6 +99,26 @@ describe("secondary-instance reads in form logic", () => {
 		).toMatchObject({ kind: "table-lookup", tableId: table.id });
 	});
 
+	it("keeps a table named locations distinct from the worker’s places in editable form logic", () => {
+		const definitions = new Map([[table.id, { ...table, tag: "locations" }]]);
+		const source =
+			"count(instance('item-list:locations')/locations_list/locations)";
+		const parsed = parseFormExpression(source, {
+			doc,
+			slot: VISIT,
+			lookup: definitions,
+		});
+		if (!parsed.ok || parsed.expression === undefined)
+			throw new Error("expected a lookup read");
+		expect(parsed.expression).toMatchObject({
+			kind: "count",
+			via: { kind: "table-rows", tableId: table.id },
+		});
+		expect(
+			projectFormExpression(doc, VISIT, parsed.expression, definitions).text,
+		).toBe(source);
+	});
+
 	it("round-trip a read of places, a level code and a lineage attribute", () => {
 		for (const source of [
 			"instance('locations')/locations/location[@type = 'clinic']/name",
@@ -168,6 +190,108 @@ describe("secondary-instance reads in form logic", () => {
 		).toEqual(["case-query-untyped"]);
 	});
 
+	it("keeps project-space result children even when their names are unknown or also name case attributes", () => {
+		const sourceDoc = structuredClone(doc);
+		const module = sourceDoc.modules[INSTANCE_READS.searchModule];
+		const searchUuid = testUuid("worker-supplied-regional-results");
+		sourceDoc.appSettings.projectSearches = {
+			[searchUuid]: { name: "Regional results" },
+		};
+		module.caseSearchConfig = {
+			...module.caseSearchConfig,
+			projectSearch: {
+				searchUuid,
+				defaults: [
+					{
+						uuid: testUuid("district argument"),
+						name: "district",
+						value: { kind: "term", term: { kind: "literal", value: "north" } },
+					},
+				],
+			},
+		};
+		for (const name of [
+			"risk_band",
+			"case_id",
+			"index",
+			"name",
+			"commcare_is_related_case",
+		]) {
+			const text = `instance('results:inline')/results/case[commcare_is_related_case = 'returned']/${name}`;
+			const parsed = parseFormExpression(text, {
+				doc: sourceDoc,
+				slot: CHECK_IN,
+				lookup,
+			});
+			expect(parsed).toMatchObject({
+				ok: true,
+				expression: {
+					kind: "project",
+					value: { kind: "search-result-field", name },
+				},
+			});
+			if (!parsed.ok || !parsed.expression)
+				throw new Error("The returned field was refused.");
+			expect(expressionSchema.safeParse(parsed.expression).success).toBe(true);
+			expect(
+				projectFormExpression(sourceDoc, CHECK_IN, parsed.expression, lookup)
+					.text,
+			).toBe(text);
+			const field = sourceDoc.fields[CHECK_IN.uuid];
+			if (field.kind !== "hidden") throw new Error("Expected a hidden result.");
+			field.calculate = parsed.expression;
+			expect(projectSearchUses(sourceDoc)[0]?.results).toContainEqual({
+				name,
+				type: "text",
+			});
+		}
+		const source =
+			"instance('results:inline')/results/case[@case_type = 'patient'][count(instance('casedb')/casedb/case[@case_type = 'patient'][district = 'north']) > 0]/risk_band";
+		const parsed = parseFormExpression(source, {
+			doc: sourceDoc,
+			slot: CHECK_IN,
+			lookup,
+		});
+		if (!parsed.ok || !parsed.expression)
+			throw new Error(JSON.stringify(parsed));
+		const found = sourceDoc.fields[CHECK_IN.uuid];
+		if (found.kind !== "hidden" || !module.caseListConfig)
+			throw new Error("Expected a searchable menu.");
+		found.calculate = parsed.expression;
+		// The result and local case have the same type. Its local district
+		// is read both from the form and an expression on the results screen.
+		module.caseListConfig.columns = [
+			calculatedColumn(testUuid("local count"), "Nearby", {
+				kind: "count",
+				via: {
+					kind: "cases",
+					source: "casedb",
+					where: [
+						{
+							kind: "eq",
+							left: {
+								kind: "term",
+								term: {
+									kind: "prop",
+									caseType: "patient",
+									property: "district",
+								},
+							},
+							right: {
+								kind: "term",
+								term: { kind: "literal", value: "north" },
+							},
+						},
+					],
+				},
+			}),
+		];
+		const names = projectSearchUses(sourceDoc)[0]?.results.map(
+			(field) => field.name,
+		);
+		expect(names).toContain("risk_band");
+		expect(names).not.toContain("district");
+	});
 	it("refuses search results without the related-case exclusion, and the remote search's instance", () => {
 		expect(
 			refusal("count(instance('results:inline')/results/case)", CHECK_IN),

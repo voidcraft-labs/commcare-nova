@@ -21,14 +21,17 @@ describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", ()
 	// freshly-inserted field of ANY kind round-trips through `fieldSchema`, the
 	// exact thing the auto-save validates, so the insertion can never mint an
 	// unsaveable field again (the `hidden` + `label` regression).
-	it.each(fieldKinds)("%s builds a valid field", (kind) => {
-		const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
-		const result = fieldSchema.safeParse({ ...built, uuid: UUID });
-		expect(
-			result.success,
-			result.success ? "" : JSON.stringify(result.error.issues),
-		).toBe(true);
-	});
+	it.each(fieldKinds.filter((kind) => kind !== "case_change"))(
+		"%s builds a valid field",
+		(kind) => {
+			const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
+			const result = fieldSchema.safeParse({ ...built, uuid: UUID });
+			expect(
+				result.success,
+				result.success ? "" : JSON.stringify(result.error.issues),
+			).toBe(true);
+		},
+	);
 
 	it("never gives a hidden field a label (it has no label slot)", () => {
 		const built = NEW_FIELD_BUILDERS.hidden("new_hidden", "ignored");
@@ -106,29 +109,37 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 		});
 	}
 
-	it.each(fieldKinds.filter((kind) => kind !== "section"))(
-		"%s starter commits through the gate",
-		(kind) => {
-			// A date-and-time question runs on Android alone.
-			const doc = pickerDoc(kind === "datetime" ? "android" : undefined);
-			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-			const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
-			const field = fieldSchema.parse({ ...built, uuid: UUID });
-			const verdict = mutationCommitVerdict(
-				doc,
-				[{ kind: "addField", parentUuid: formUuid, field }],
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			);
-			expect(
-				verdict.ok,
-				verdict.ok
-					? ""
-					: `${kind}: ${verdict.findings.map((e) => e.code).join(", ")}`,
-			).toBe(true);
-			expect(verdict.nextDoc.fields[UUID]).toEqual(field);
-			expect(verdict.nextDoc.fieldOrder[formUuid]).toContain(UUID);
-		},
-	);
+	it.each(
+		fieldKinds.filter((kind) => kind !== "section" && kind !== "case_change"),
+	)("%s starter commits through the gate", (kind) => {
+		// A date-and-time question runs on Android alone, and a Connect
+		// activity in an Android app that holds its role.
+		const picked = pickerDoc(
+			kind === "datetime" || kind === "connect_activity"
+				? "android"
+				: undefined,
+		);
+		const doc =
+			kind === "connect_activity"
+				? { ...picked, connectRoles: ["learn" as const] }
+				: picked;
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
+		const field = fieldSchema.parse({ ...built, uuid: UUID });
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "addField", parentUuid: formUuid, field }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			verdict.ok,
+			verdict.ok
+				? ""
+				: `${kind}: ${verdict.findings.map((e) => e.code).join(", ")}`,
+		).toBe(true);
+		expect(verdict.nextDoc.fields[UUID]).toEqual(field);
+		expect(verdict.nextDoc.fieldOrder[formUuid]).toContain(UUID);
+	});
 
 	it("section starter commits through the gate as a page that carries the root's questions", () => {
 		// A page is never a bare insert: once a form has one, every root

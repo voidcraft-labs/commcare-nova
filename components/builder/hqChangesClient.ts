@@ -15,7 +15,7 @@
  * gave no answer.
  */
 
-import type { LookupTableChoice } from "@/lib/deployment";
+import type { LookupTableChoice, OwnerRuleChoice } from "@/lib/deployment";
 import {
 	HQ_CHANGES_STAGES,
 	type HqChangesKey,
@@ -170,11 +170,13 @@ export function postHqChangesReview(
 	);
 }
 
-/** What a bring-in sends: the review's key, its reading and digest, and each table's answer. */
+/** What a bring-in sends: the review's key, its reading and digest, and each table's and owner
+ *  rule's answer. */
 export interface HqChangesBringInBody extends HqChangesKey {
 	readonly readingId: string;
 	readonly reviewDigest: string;
 	readonly tableChoices: Readonly<Record<string, LookupTableChoice>>;
+	readonly ownerRuleChoices: Readonly<Record<string, OwnerRuleChoice>>;
 }
 
 /** `POST /api/commcare/changes/bring-in`. It takes no signal: a bring-in is never stopped. */

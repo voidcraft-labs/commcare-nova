@@ -1,29 +1,36 @@
 import { v4 as uuidv4 } from "uuid";
 import type { EditorLookupTableDecl } from "@/components/builder/shared/lookupTablePresentation";
 import {
+	type AvailableCasesOptionsSource,
 	asUuid,
 	type CaseOptionsSource,
 	type CaseType,
 	DEFAULT_SELECT_OPTIONS,
 	type InlineOptionsSource,
-	type LookupColumnId,
 	type LookupOptionsSource,
 	type LookupTableId,
 	type SelectOptionsSource,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
+import {
+	type LookupRead,
+	lookupReadType,
+	lookupReadTypes,
+} from "@/lib/domain/lookupRead";
 export interface LookupSourceDraft {
 	readonly kind: "lookup";
 	readonly tableId: LookupTableId;
-	readonly valueColumnId?: LookupColumnId;
-	readonly labelColumnId?: LookupColumnId;
+	readonly valueColumnId?: LookupRead;
+	readonly labelColumnId?: LookupRead;
 	readonly filter?: Expression;
+	readonly sortColumnId?: LookupRead;
 }
 
 export type SourceDraft =
 	| InlineOptionsSource
 	| LookupSourceDraft
-	| CaseOptionsSource;
+	| CaseOptionsSource
+	| AvailableCasesOptionsSource;
 
 export function freshInlineSource(): InlineOptionsSource {
 	return {
@@ -50,6 +57,14 @@ export function beginOptionsSource(
 	caseTypes: readonly CaseType[] = [],
 ) {
 	if (next === null) return { kind: "unchanged" as const };
+	if (next === "available-cases")
+		return {
+			kind: "draft" as const,
+			draft:
+				source.kind === "available-cases"
+					? null
+					: { kind: "available-cases" as const },
+		};
 	if (next === "cases") {
 		const type = caseTypes[0];
 		if (!type)
@@ -93,8 +108,10 @@ export function completeLookupSource(
 		table.id !== draft.tableId ||
 		draft.valueColumnId === undefined ||
 		draft.labelColumnId === undefined ||
-		!table.columns.some((column) => column.id === draft.valueColumnId) ||
-		!table.columns.some((column) => column.id === draft.labelColumnId)
+		!lookupReadType(lookupReadTypes(table), draft.valueColumnId) ||
+		!lookupReadType(lookupReadTypes(table), draft.labelColumnId) ||
+		(draft.sortColumnId !== undefined &&
+			!lookupReadType(lookupReadTypes(table), draft.sortColumnId))
 	)
 		return undefined;
 	return {
@@ -103,6 +120,9 @@ export function completeLookupSource(
 		valueColumnId: draft.valueColumnId,
 		labelColumnId: draft.labelColumnId,
 		...(draft.filter === undefined ? {} : { filter: draft.filter }),
+		...(draft.sortColumnId === undefined
+			? {}
+			: { sortColumnId: draft.sortColumnId }),
 	};
 }
 

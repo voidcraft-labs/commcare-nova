@@ -61,7 +61,8 @@ from pathlib import Path
 
 import pytest
 
-from proof.core.client import CoreRunner
+from proof.core.artifacts import BASIC_APP
+from proof.core.client import AppHandle, CoreRunner
 from proof.editors.client import EditorDriver
 from proof.formplayer.client import FormplayerRunner
 from proof.hq.boot import GUARD, BootReport, boot
@@ -93,6 +94,19 @@ def core_runner() -> Iterator[CoreRunner]:
             record_timing("core_runner_compile", runner.timings.compile)
         record_timing("core_runner_start", runner.timings.starts[0])
         yield runner
+
+
+@pytest.fixture(scope="module")
+def basic_app(core_runner: CoreRunner) -> Iterator[AppHandle]:
+    """An installed Core control app with its own locale catalog."""
+    report = core_runner.admit(BASIC_APP)
+    assert report["admitted"], report["problems"]
+    app = report["app"]
+    try:
+        yield app
+    finally:
+        if core_runner.holds(app):
+            core_runner.release(app)
 
 
 def _formplayer_started(runner: FormplayerRunner) -> None:

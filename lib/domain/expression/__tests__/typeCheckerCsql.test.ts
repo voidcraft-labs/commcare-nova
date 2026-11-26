@@ -6,6 +6,8 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	chosen,
 	chosenCase,
@@ -72,6 +74,14 @@ function searchDoc(): BlueprintDoc {
 			],
 		},
 	);
+	member.properties.push({
+		name: "location_id",
+		label: proseText("Location ID"),
+	});
+	household.properties.push({
+		name: "location_id",
+		label: proseText("Location ID"),
+	});
 	household.properties.push({
 		name: "kind",
 		label: proseText("Kind"),
@@ -174,6 +184,41 @@ describe("Date closed", () => {
 				),
 			),
 		).toContain("closed-on-not-on-device");
+	});
+});
+
+describe("a case's location ID", () => {
+	// CommCare HQ keeps a case's location as its own column, which its case
+	// search indexes nothing of (`corehq/pillows/case_search.py::
+	// _get_case_properties`), while a device holds it as a property.
+	const location = member("location_id");
+	it("is refused where CommCare's server search reads it", () => {
+		expect(
+			findings(PREDICATE, eq(location, term(literal("district-7")))),
+		).toMatchObject([
+			{
+				code: "location-not-in-search",
+				message:
+					"A case's location ID is kept on the device but not in CommCare's server search, so a search can't read it. A property of your own can hold the same value for searching.",
+			},
+		]);
+	});
+	it("reads as text wherever a device reads it, a chosen case in a search among them", () => {
+		expect(
+			codes(FILTER(chosen.members), eq(location, term(literal("district-7")))),
+		).toEqual([]);
+		expect(
+			codes(
+				PREDICATE,
+				eq(
+					member("village_name"),
+					chosenCaseProperty(chosen.households, "household", "location_id"),
+				),
+			),
+		).toEqual([]);
+		expect(codes(DISPLAY, eq(location, term(literal("x"))))).not.toContain(
+			"location-not-in-search",
+		);
 	});
 });
 
@@ -515,6 +560,67 @@ describe("reads held for import", () => {
 		).toEqual(["arm-unavailable"]);
 	});
 });
+
+describe("a read of whatever case a link reaches", () => {
+	const reached = (identifier: string): Expression => ({
+		kind: "term",
+		term: {
+			kind: "prop",
+			caseType: "member",
+			property: "village_name",
+			via: { kind: "ancestor", via: [{ identifier }] },
+			readReached: true,
+		},
+	});
+	const north = term(literal("North"));
+	it.each(["home", "parent"])(
+		"is refused by name where HQ's server search runs, through %s",
+		(identifier) => {
+			// CSQL's relation lift names the type the app declares for the link,
+			// so it has no spelling of a reached read and would throw on one.
+			for (const slot of [PREDICATE, FILTER(chosen.members)]) {
+				const errors = findings(slot, eq(reached(identifier), north));
+				expect(errors.map((error) => [error.code, error.reason])).toEqual([
+					["relation-destination", "reached-in-search"],
+				]);
+			}
+			const findingsOf = runValidation(
+				withFilter(searchDoc(), eq(reached(identifier), north)),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(findingsOf.map((finding) => finding.message).join("\n")).toContain(
+				"A search can't read whichever record a link reaches",
+			);
+		},
+	);
+	it("is read on the device where no search runs", () => {
+		expect(
+			findings(
+				FILTER(chosen.members),
+				eq(reached("home"), north),
+				chosenCaseDoc(),
+			),
+		).toEqual([]);
+	});
+});
+
+/** `doc` with the Members list filtered by `filter`. */
+function withFilter(doc: BlueprintDoc, filter: Expression): BlueprintDoc {
+	const members = doc.modules[chosen.members];
+	return {
+		...doc,
+		modules: {
+			...doc.modules,
+			[chosen.members]: {
+				...members,
+				caseListConfig: {
+					...(members.caseListConfig ?? caseListConfig([])),
+					filter,
+				},
+			},
+		},
+	} as BlueprintDoc;
+}
 
 describe("what both search slots refuse wherever the value sits", () => {
 	it("refuses a computed date format and a number of a date in a value the device works out", () => {

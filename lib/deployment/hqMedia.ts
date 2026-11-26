@@ -7,9 +7,10 @@
 import { z } from "zod";
 import { isGeneratedMemberPath } from "@/lib/commcare/cczMembers";
 import type { HqMediaMapItem, HqMediaType } from "@/lib/commcare/hq/appSource";
+import { matchesHqMediaKind } from "@/lib/commcare/hq/mediaType";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { xmlTextIssue } from "@/lib/commcare/xmlText";
-import type { AssetKind, IconRef } from "@/lib/domain";
+import type { IconRef, MediaKind } from "@/lib/domain";
 import {
 	NO_ENTRIES,
 	ownRecordValue,
@@ -118,7 +119,8 @@ export interface PublishedMediaFile {
 	readonly assetId: IconRef;
 	/** The SHA-256 of the file's bytes, as `media_assets.content_hash` holds it. */
 	readonly contentHash: string;
-	readonly kind: AssetKind;
+	readonly sizeBytes?: number;
+	readonly kind: MediaKind;
 }
 
 /**
@@ -133,6 +135,7 @@ export function publishedMediaFiles(
 		wirePath: asset.wirePath,
 		assetId: asset.assetId,
 		contentHash: asset.contentHash,
+		...(asset.byteSource && { sizeBytes: asset.byteSource.size }),
 		kind: asset.kind,
 	}));
 }
@@ -159,7 +162,7 @@ export interface HqMediaPath extends PublishedMediaFile {
 }
 
 /** The map's entries by wire path. A key outside `jr://file/` is no path an app publishes to. */
-function entriesByWirePath(
+export function entriesByWirePath(
 	map: readonly HqMediaMapItem[],
 ): ReadonlyMap<string, HqMediaMapItem> {
 	const byPath = new Map<string, HqMediaMapItem>();
@@ -168,6 +171,29 @@ function entriesByWirePath(
 			byPath.set(item.path.slice(JR_FILE.length), item);
 	}
 	return byPath;
+}
+
+/**
+ * The map paths in `now` that hold, readably, the file id `record` keeps for
+ * them: a file Nova's own upload put there and recorded. HQ's bulk upload
+ * adds such a path to the map after the publish read the app back, so a
+ * comparison against that read settles it rather than reading HQ's change.
+ */
+export function recordedHqFilePaths(
+	record: HqMediaRecord | null,
+	now: readonly HqMediaMapItem[],
+): ReadonlySet<string> {
+	const settled = new Set<string>();
+	if (record === null) return settled;
+	for (const [wirePath, item] of entriesByWirePath(now)) {
+		if (
+			!item.unreadable &&
+			item.multimediaId !== null &&
+			record[wirePath] === item.multimediaId
+		)
+			settled.add(item.path);
+	}
+	return settled;
 }
 
 /**
@@ -211,6 +237,7 @@ export function mediaMovedBetween(
 	first: readonly HqMediaMapItem[],
 	second: readonly HqMediaMapItem[],
 	published: readonly PublishedMediaFile[],
+	unreadableMoved?: (path: string) => boolean,
 ): readonly HqMediaPath[] {
 	const before = entriesByWirePath(first);
 	const after = entriesByWirePath(second);
@@ -219,7 +246,11 @@ export function mediaMovedBetween(
 		const later = after.get(file.wirePath);
 		if (earlier === undefined || later === undefined) return earlier !== later;
 		return (
+			(earlier.unreadable &&
+				later.unreadable &&
+				(unreadableMoved?.(later.path) ?? true)) ||
 			earlier.unreadable !== later.unreadable ||
+			earlier.mediaType !== later.mediaType ||
 			earlier.multimediaId !== later.multimediaId
 		);
 	});
@@ -244,6 +275,8 @@ export function hqMediaStandings(input: {
 		if (item.unreadable) return { ...file, hq: null, standing: "replaced" };
 		if (item.multimediaId === null || item.mediaType === null)
 			return { ...file, hq: null, standing: "absent" };
+		if (!matchesHqMediaKind(item.mediaType, file.kind))
+			return { ...file, hq: null, standing: "replaced" };
 		const hq = { mediaType: item.mediaType, multimediaId: item.multimediaId };
 		const recorded = input.record?.[file.wirePath];
 		return {
@@ -293,6 +326,54 @@ export function nextHqMediaRecord(input: {
 		if (id !== undefined) record[wirePath] = id;
 	}
 	return record;
+}
+
+/** The path evidence the remote request saw and the evidence it can now
+ * establish. A removed key is a deliberate change just like a new file id. */
+export interface HqMediaObservation {
+	readonly read: HqMediaRecord | null;
+	readonly next: HqMediaRecord;
+	/** Files whose prior standing the review used to decide what to take.
+	 * An upload reports its results without committing any review decision. */
+	readonly judgedPaths?: readonly string[];
+}
+
+/** Apply only this observation's changes. A new or corrected fact learned
+ * since the read survives. Conflicting paths keep their current fact, allowing
+ * the caller to retry a review or report a partial publish observation. */
+export function mergeHqMediaObservation(
+	current: HqMediaRecord | null,
+	observation: HqMediaObservation,
+) {
+	const read = observation.read ?? NO_ENTRIES;
+	const next = observation.next;
+	const merged = recordFromEntries(Object.entries(current ?? NO_ENTRIES));
+	const judged = new Set(observation.judgedPaths);
+	let conflict = false;
+	for (const path of new Set([
+		...Object.keys(read),
+		...Object.keys(next),
+		...judged,
+	])) {
+		const previous = ownRecordValue(read, path);
+		const observed = ownRecordValue(next, path);
+		const stored = ownRecordValue(merged, path);
+		// A new id can change a replacement into an already-owned file,
+		// even when it is the id the proposed take would store.
+		if (judged.has(path) && previous !== stored) {
+			conflict = true;
+			continue;
+		}
+		if (previous === observed || stored === observed) continue;
+		if (stored !== previous) {
+			conflict = true;
+		} else if (observed === undefined) {
+			delete merged[path];
+		} else {
+			merged[path] = observed;
+		}
+	}
+	return { files: merged, conflict };
 }
 
 /**

@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getEntryPointLink } from "@/lib/deployment/entryPointLinks";
 import { getEntryPointLinkSchema } from "@/lib/deployment/entryPointTypes";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { toMcpErrorResult } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { registerScopedTool } from "../scopedTool";
@@ -9,6 +10,7 @@ import type { ToolContext } from "../types";
 
 const shapes = getEntryPointLinkSchema.shape;
 const selection = shapes.selections.element.shape;
+const creation = shapes.creations.unwrap().element.shape;
 
 export function registerGetEntryPointLink(
 	server: McpServer,
@@ -26,6 +28,14 @@ export function registerGetEntryPointLink(
 				server: shapes.server,
 				domain: shapes.domain,
 				entry_point_uuid: shapes.entryPointUuid,
+				creations: z
+					.array(
+						z.strictObject({
+							operation_uuid: creation.operationUuid,
+							case_id: creation.caseId,
+						}),
+					)
+					.optional(),
 				selections: z.array(
 					z.strictObject({
 						module_uuid: selection.moduleUuid,
@@ -47,11 +57,16 @@ export function registerGetEntryPointLink(
 						projectId: access.projectId,
 						role: access.role,
 						actorUserId: ctx.userId,
+						requireOperation: toolWriteGrant(ctx, "get_entry_point_link", args),
 					},
 					target: { server: args.server, domain: args.domain },
 					doc,
 					sourceSequence: app.mutation_seq,
 					entryPointUuid: args.entry_point_uuid,
+					creations: args.creations?.map((row) => ({
+						operationUuid: row.operation_uuid,
+						caseId: row.case_id,
+					})),
 					selections: args.selections.map((item) => ({
 						moduleUuid: item.module_uuid,
 						caseIds: item.case_ids,

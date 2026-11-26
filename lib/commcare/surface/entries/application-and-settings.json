@@ -323,8 +323,8 @@
 			"parser:ProfileParser/profile@buildProfileID"
 		],
 		"valueClass": "empty",
-		"disposition": "TARGET-OWNED",
-		"dispositionCell": "**TARGET-OWNED**: project-space build configuration, excluded on overwrite (`ApplicationBase._update_excluded_fields`), gated by privilege `build_profiles`; an import-create keeps the source's profiles in the new app, and Nova writes none; a publish reads the profiles and stops where one names a language the app no longer has",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an app with no named installation profiles uses its complete language order.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -333,7 +333,8 @@
 			"cell": "omit",
 			"markers": ["omit"]
 		},
-		"gates": ["privilege/build_profiles"]
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "application-and-settings/build-profiles-non-empty",
@@ -349,20 +350,62 @@
 			"schema:BuildProfile.practice_mobile_worker_id",
 			"parser:ProfileParser/profile@buildProfileID"
 		],
-		"valueClass": "non-empty",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: build profiles as part of the app Nova holds. HQ builds each profile with its own `langs` (`app_strings.py::_create_custom_app_strings`, `ApplicationBase.get_build_langs`) and an update never writes the key, so a language Nova adds joins no profile, and a publish stops where a profile names a language the app no longer has (`hq_build_profile_language_missing`)",
-		"subject": "build-profiles",
-		"owner": "settings-nova-comes-to-own",
+		"valueClass": "nonempty-ordered-language-subset",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: each named installation has a stable Nova UUID, an ordered language subset and a practice-worker requirement. The destination holds its profile key and practice worker.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "Complete profile map on create, verified Language Profiles edit on update",
+			"markers": []
 		},
-		"gates": ["privilege/build_profiles"]
+		"gates": [
+			"privilege/build_profiles",
+			"privilege/practice_mobile_workers",
+			"build-version/supports_practice_users",
+			"toggle/MOBILE_USER_DEMO_MODE"
+		],
+		"slotChanges": []
+	},
+	{
+		"id": "application-and-settings/build-profiles-invalid-language-subset",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "An installation profile with no default language, a repeated language or a language outside its app",
+		"surfaceKeys": [
+			"schema:Application.build_profiles",
+			"schema:BuildProfile",
+			"schema:BuildProfile.doc_type",
+			"schema:BuildProfile.langs",
+			"schema:BuildProfile.name",
+			"schema:BuildProfile.practice_mobile_worker_id",
+			"parser:ProfileParser/profile@buildProfileID"
+		],
+		"valueClass": "empty-repeated-or-unknown-profile-language",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: a build needs a default language and the Language Profiles editor offers an app language once.",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"subject": "build-profiles",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "get_build_langs returns the empty list and the build takes its first language"
+			},
+			{
+				"kind": "not-hq-editable",
+				"named": "language_profiles.js takes the selection from the app language options"
+			}
+		]
 	},
 	{
 		"id": "application-and-settings/archived-media",
@@ -529,10 +572,9 @@
 		"item": "a `langs` code in HQ's grammar that names no living language of ISO 639-3, or two codes that name one language (`en` beside `eng`)",
 		"surfaceKeys": ["schema:Application.langs"],
 		"valueClass": "code-outside-nova-s-registry",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a language held by a code alone, with no identity in Nova's registry (`languageRegistry/index.ts::languageCodeVerdict`)",
-		"subject": "language-codes",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a project language retains its own code and translations, including a code that shares a registered language with another app language",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -638,7 +680,7 @@
 		],
 		"valueClass": "app-display-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `appName` (+ its localization)",
+		"dispositionCell": "**HELD**: in a language other than the source, equal to that language's `homescreen.title` and other than `name`, the app name's translation there; any other stored value is the app name's own wording on phones and Web Apps (`translations-generated-wording`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -652,7 +694,7 @@
 			}
 		},
 		"emission": {
-			"cell": "per language, the localized name where it differs from `appName` (which `app_name` sets on create and update, and from which HQ generates the key), and no key otherwise (today `lib/commcare/expander.ts` writes it in every language)",
+			"cell": "per language, the app name's translation where it differs from `appName`, written beside an equal `homescreen.title`, and the app name's own wording there as stored; no key otherwise (`expander.ts::appLevelValues`)",
 			"markers": []
 		},
 		"gates": []
@@ -693,14 +735,15 @@
 		"item": "`translations['homescreen.title']`",
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "homescreen-title",
-		"disposition": "INERT",
-		"dispositionCell": "**INERT**: HQ writes it (`app_strings.py`), and no runtime reads it (no reader in commcare-core, commcare-android or formplayer)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: equal to `app.display.name` in a language whose app name that translates, derived from the translation; any other stored value is its own wording (`translations-generated-wording`). No runtime reads it (no reader in commcare-core, commcare-android or formplayer), but CommCare HQ's page shows it, so Nova keeps it as stored",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "HQ's current value; outside Nova's owned keys (Nova writes it in every language today, `lib/commcare/expander.ts`: defect 4)",
+			"cell": "beside `app.display.name` where the app name's translation differs from `appName`, and its own wording as stored (`expander.ts::appLevelValues`)",
 			"markers": []
 		},
 		"gates": []
@@ -1875,31 +1918,33 @@
 		"id": "application-and-settings/translations-generated-key-with-no-effect",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "a key matching a generated pattern, in a language, whose value is blank, or names no string of this app, or equals the text the app's own fields give that string in that language",
+		"item": "a key matching a generated pattern, in a language, whose value is blank, or that names no string of this app, or whose value equals the string HQ's build generates there where no wording of Nova's writes that key",
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "generated-key-no-effect",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: no runtime shows anything else: a blank value is dropped (`app_strings.py`, `non_empty_only`), HQ's build generates no string under an id this app does not have, and an equal value is the string HQ generates",
+		"dispositionCell": "**INERT**: no runtime and no CommCare HQ page shows it: a blank value is dropped from the build (`app_strings.py::DumpKnownAppStrings.app_strings_parts`, `non_empty_only`); a key naming no string of this app is written into the app strings file but no screen, form or detail of the app refers to it; and an equal value is the string HQ generates",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "nothing: Nova never carries a generated key (`appStringKeys.ts::translationKeyOwner`, `generated`), so a publish removes it",
+			"cell": "nothing: Nova never carries a generated key it does not word (`appStringKeys.ts::translationKeyOwner`, `generated`), so a publish removes it from CommCare HQ's app translations, which the review lists as `unused-translation-keys-removed`",
 			"markers": []
 		},
 		"gates": []
 	},
 	{
-		"id": "application-and-settings/translations-generated-key-over-one-text",
+		"id": "application-and-settings/translations-generated-wording",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "any other key matching a generated pattern whose string comes from one authored text, where every string that text feeds in that language holds the same override: read as that text's wording in that language",
-		"surfaceKeys": ["schema:Application.translations"],
-		"valueClass": "generated-key-folded",
+		"item": "a key matching a generated pattern that one of Nova's generated wordings writes (a menu's or form's name, a case list column's header, a Search field's text, the app's name as `app.display.name` or `homescreen.title`, a constant, one of several outputs of a shared slot), in a language, whatever its value: read as that output's own wording in that language",
+		"surfaceKeys": [
+			"schema:Application.translations",
+			"ui-string:app.display.name"
+		],
+		"valueClass": "generated-output-wording",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the override is the text's wording in that language, which Nova writes into every string the text feeds",
-		"slotChanges": [],
+		"dispositionCell": "**HELD**: the wording is held for this language and the stable control that generates the output, even where it equals the text the output's base gives; the base (a name, a header) keeps CommCare HQ's own text",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1911,20 +1956,78 @@
 			}
 		},
 		"emission": {
-			"cell": "the text's translation in that language, from which HQ generates the string; no key",
+			"cell": "the override under the key the current control position generates",
 			"markers": []
 		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "application-and-settings/translations-generated-navigation-file",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "Navigation icon or spoken label overridden in one generated locale string",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-navigation-file",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the language's Project media asset and the ordinary media map keep their own values.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "The localized path under the carrier's current generated icon or audio key",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-generated-navigation-file-not-packaged",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "a generated navigation locale names a file a matching ordinary media surface does not carry",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-navigation-file-not-packaged",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the locale can choose this file only while a native package includes it. HQ's locale files alone do not package media.",
+		"subject": "translation-overrides",
+		"owner": "settings-nova-comes-to-own",
+		"platforms": { "kind": "not-applicable", "cell": "n/a" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-generated-menu-icon-without-mapping",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "A generated menu icon points to an unmapped local file without an ordinary carrier for the language",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-menu-icon-without-mapping",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the generated locale replaces the menu's icon with an address for which neither reader can find a file.",
+		"subject": "translation-overrides",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ emits the overriding icon URL in app strings. Without a multimedia map entry, Android cannot install a file at that address, and Web Apps cannot resolve the address. Neither reader falls back to the ordinary custom icon."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
 		"gates": []
 	},
 	{
 		"id": "application-and-settings/translations-generated-key-anything-else",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "any other key matching a generated pattern: an override of a string Nova writes from a constant or derives, or of one string of a text that feeds several",
+		"item": "effective generated translation that no retained wording or navigation file owns",
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "generated-key-other",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a per-language override of one generated string, which no slot of Nova's document holds; a publish removes the key (`appStringKeys.ts::translationKeyOwner`, `generated`) and the worker would see the field's own text again",
+		"dispositionCell": "**HELD-NEW**: an effective generated override outside the retained wording and navigation-file roles",
 		"subject": "translation-overrides",
 		"owner": "settings-nova-comes-to-own",
 		"platforms": {
@@ -2545,7 +2648,7 @@
 		"noSurfaceKey": "Who opens a Connect app is Connect's and HQ's account state, which no export carries: Connect makes each worker's HQ account with no password (commcare-connect users/helpers.py::create_hq_user_and_link), HQ's user page refuses to set one (users/forms.py::SetUserPasswordForm), and HQ takes the worker's PersonalID token only at /oauth/token/ (domain/auth.py::ConnectIDAuthBackend), which the Connect app on Android calls (ApiPersonalId.retrieveHqToken).",
 		"origin": "export-use",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connectType` (learn or deliver) with its form blocks; declared Android only",
+		"dispositionCell": "**HELD**: the configured Connect roles and their positioned activities; declared Android only",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3210,10 +3313,9 @@
 			"parser:ProfileParser/android_package@id"
 		],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.androidAppDependencies`",
-		"subject": "android-app-dependencies",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android apps workers need before opening this app",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -3229,6 +3331,32 @@
 			"markers": []
 		},
 		"gates": ["privilege/app_dependencies"]
+	},
+	{
+		"id": "application-and-settings/repeated-android-app-dependency",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "One Android app more than once in the required apps",
+		"surfaceKeys": ["setting:features.dependencies"],
+		"valueClass": "duplicate-package",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the Android app picker in CommCare HQ offers one selection for each app. Selecting the apps again replaces repeated entries.",
+		"subject": "android-app-dependencies",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the multiselect widget offers each package once and writes its selected options"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "application-and-settings/32-features-credentials",
@@ -3466,10 +3594,9 @@
 			"setting:hq.case_sharing",
 			"schema:Application.case_sharing"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSharing`: owner from the user's case-sharing group plus the entry assertion (`xform.py::XFormCaseBlock.add_create_block`, `entries.py::add_case_sharing_assertion`)",
-		"subject": "case-sharing",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseSharing`: owner from the user's case-sharing group plus the entry assertion (`xform.py::XFormCaseBlock.add_create_block`, `entries.py::add_case_sharing_assertion`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3670,7 +3797,7 @@
 		],
 		"valueClass": "connect-app",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: `true` on a Connect app (`expander.ts::expandDoc` from `connectType`)",
+		"dispositionCell": "**HELD**: derived: `true` on a Connect app (`expander.ts::expandDoc` from the configured Connect roles)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3699,8 +3826,8 @@
 			"schema:Application.auto_gps_capture"
 		],
 		"valueClass": "not-a-connect-app",
-		"disposition": "TARGET-OWNED",
-		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value. A publish leaves the key out; a `.ccz` made for the project space captures location where it is on (`xform/metaBlock.ts::addMetaBlock`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: App settings choose whether every form requests the Android device location.",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (`meta/location` submitted empty; HQ's own setting names it Android's, `commcare-app-settings.yml`, `auto_gps_capture`) / RUNS",
@@ -3713,10 +3840,11 @@
 			}
 		},
 		"emission": {
-			"cell": "nothing in the HQ JSON; the local `.ccz` captures location with every form where the project space has it on (`xform/metaBlock.ts::addMetaBlock`)",
+			"cell": "`auto_gps_capture` (true or false)",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "application-and-settings/46-hq-use-grid-menus",
@@ -3727,10 +3855,8 @@
 			"setting:hq.use_grid_menus",
 			"schema:Application.use_grid_menus"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `menuStyle.rootGrid`",
-		"subject": "menu-display",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `appSettings.firstMenuLayout`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (grid audio IGNORED: no audio control) / RUNS",
@@ -3746,6 +3872,36 @@
 			"cell": "`use_grid_menus`",
 			"markers": []
 		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "application-and-settings/menu-layout-outside-editor-choices",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "Menu layout outside the options the settings page can save",
+		"surfaceKeys": [
+			"schema:Application.use_grid_menus",
+			"schema:Application.grid_form_menus"
+		],
+		"valueClass": "outside-layout-choices",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: The app settings page offers List or Grid for the first menu and List, Grid or individual layouts for form menus.",
+		"subject": "menu-display",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The app settings page offers List or Grid for the first menu and List, Grid or individual layouts for form menus."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
 		"gates": []
 	},
 	{
@@ -3757,10 +3913,8 @@
 			"setting:hq.grid_form_menus",
 			"schema:Application.grid_form_menus"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `menuStyle.formMenus`",
-		"subject": "menu-display",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `appSettings.formMenuLayout`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (grid audio IGNORED) / RUNS",
@@ -3776,7 +3930,8 @@
 			"cell": "`grid_form_menus` (+ per-module `display_style`, Module fields)",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "application-and-settings/48-hq-target-commcare-flavor-none",

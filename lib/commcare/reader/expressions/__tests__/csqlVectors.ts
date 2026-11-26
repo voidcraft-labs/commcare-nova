@@ -101,10 +101,13 @@ export function patientsMenu(doc: BlueprintDoc): Uuid {
 /** The context of the menu's case list filter, or of its `region` field's condition. */
 export function rowContext(
 	doc: BlueprintDoc,
-	slot: "case_list_filter" | "search_input_predicate" = "case_list_filter",
+	slot:
+		| "case_list_filter"
+		| "case_search_filter"
+		| "search_input_predicate" = "case_search_filter",
 ): ExpressionContext {
 	const ref: SlotContextRef =
-		slot === "case_list_filter"
+		slot !== "search_input_predicate"
 			? { entity: "module", uuid: patientsMenu(doc), slot }
 			: {
 					entity: "module",
@@ -163,30 +166,32 @@ export const CSQL_READER_VECTORS: readonly CsqlReaderVector[] = [
 	{
 		id: "server-today",
 		csql: "dob < today()",
-		reads: { held: "guards", rewrites: ["search-today-device-day"] },
+		reads: EXACT,
 	},
 	{
 		id: "text-ordered-against-a-date",
 		csql: "village > '2020-01-01'",
-		reads: {
-			entry: "case-search/xpath-query-condition-outside-what-nova-types",
-		},
+		reads: EXACT,
+	},
+	{
+		id: "text-ordered-against-quoted-number",
+		csql: "village > '1.5'",
+		reads: EXACT,
+	},
+	{
+		id: "datetime-exact-stored-text",
+		csql: "seen = 'unrecorded'",
+		reads: EXACT,
 	},
 	{
 		id: "system-date-ordered",
 		csql: "date_opened > '2023-01-01'",
-		reads: {
-			entry:
-				"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
-		},
+		reads: EXACT,
 	},
 	{
 		id: "system-date-equality",
 		csql: "date_opened = '2023-01-01'",
-		reads: {
-			entry:
-				"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
-		},
+		reads: EXACT,
 	},
 	{
 		id: "function-on-the-left",

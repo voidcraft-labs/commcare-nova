@@ -5,6 +5,7 @@ import {
 	loadAppInTransaction,
 } from "@/lib/db/canonicalCommitKernel";
 import type { AppDatabase } from "@/lib/db/pg";
+import type { PersistableDoc } from "@/lib/domain";
 
 /**
  * Establish the HQ round-trip emission fold horizon over one app the way the
@@ -109,34 +110,44 @@ async function writeTransformedHorizon(
 		}
 		const target = { ...saved.blueprint, appName };
 		const seq = Number(app.mutation_seq) + 1;
-		await tx
-			.updateTable("apps")
-			.set({ ...denormalize(target), mutation_seq: seq })
-			.where("id", "=", appId)
-			.execute();
-		await tx
-			.deleteFrom("blueprint_entities")
-			.where("app_id", "=", appId)
-			.execute();
-		const rows = decomposeBlueprint(target);
-		if (rows.length > 0) {
-			await tx
-				.insertInto("blueprint_entities")
-				.values(
-					rows.map((row) => ({
-						app_id: appId,
-						uuid: row.uuid,
-						kind: row.kind,
-						parent_uuid: row.parent_uuid,
-						ordinal: row.ordinal,
-						data: JSON.stringify(row.data),
-					})),
-				)
-				.execute();
-		}
-		await insertHorizon(tx, appId, seq, cutover);
+		await writeHorizonInTransaction(tx, appId, target, seq, cutover);
 		return seq;
 	});
+}
+
+export async function writeHorizonInTransaction(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	target: PersistableDoc,
+	seq: number,
+	cutover: OperatorCutover,
+): Promise<void> {
+	await tx
+		.updateTable("apps")
+		.set({ ...denormalize(target), mutation_seq: seq })
+		.where("id", "=", appId)
+		.execute();
+	await tx
+		.deleteFrom("blueprint_entities")
+		.where("app_id", "=", appId)
+		.execute();
+	const rows = decomposeBlueprint(target);
+	if (rows.length > 0) {
+		await tx
+			.insertInto("blueprint_entities")
+			.values(
+				rows.map((row) => ({
+					app_id: appId,
+					uuid: row.uuid,
+					kind: row.kind,
+					parent_uuid: row.parent_uuid,
+					ordinal: row.ordinal,
+					data: JSON.stringify(row.data),
+				})),
+			)
+			.execute();
+	}
+	await insertHorizon(tx, appId, seq, cutover);
 }
 
 /** The marker row and its baseline, for one cutover's operator identity. */

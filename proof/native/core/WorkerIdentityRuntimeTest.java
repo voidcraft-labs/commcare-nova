@@ -45,7 +45,10 @@ public class WorkerIdentityRuntimeTest {
    InstanceUtils.setUpInstanceRoot(root,instance.getInstanceId(),instance.getBase());return new ConcreteInstanceRoot(root);
   }
  }
- private static final class Parser extends SuiteParser{Parser(InputStream input,Runtime runtime)throws IOException{super(input,null,"worker-wire",runtime.sandbox.getAppFixtureStorage(),true,false,false);}}
+ private static final class Parser extends SuiteParser{
+  Parser(InputStream input,Runtime runtime)throws IOException{this(input,runtime.sandbox);}
+  Parser(InputStream input,MockUserDataSandbox sandbox)throws IOException{super(input,null,"worker-wire",sandbox.getAppFixtureStorage(),true,false,false);}
+ }
  @Test public void builtInFormIdentityRequiresTheMatchingWorkerRecord()throws Exception{
   for(boolean present:new boolean[]{true,false}){
    Runtime runtime=new Runtime("is_supervisor","n","n",present);
@@ -80,7 +83,7 @@ public class WorkerIdentityRuntimeTest {
    TreeElement root=node("session",null),context=node("context",null),userNode=node("user",null),userData=node("data",null),data=node("data",null);
    context.addChild(node("userid","worker"));for(String key:new String[]{"deviceid","username","appversion"})context.addChild(node(key,"fixture-"+key));context.addChild(node("drift","0"));
    for(Map.Entry<String,String> field:user.entrySet())userData.addChild(node(field.getKey(),field.getValue()));
-   data.addChild(node("case_id","patient-1"));userNode.addChild(userData);root.addChild(context);root.addChild(userNode);root.addChild(data);
+   data.addChild(node("case_id","patient-1"));data.addChild(node("case_id_new_patient_0","shared-patient"));userNode.addChild(userData);root.addChild(context);root.addChild(userNode);root.addChild(data);
    InstanceUtils.setUpInstanceRoot(root,instance.getInstanceId(),instance.getBase());return new ConcreteInstanceRoot(root);
   }
  }
@@ -118,4 +121,54 @@ public class WorkerIdentityRuntimeTest {
   // The worker assigned nowhere is refused on both forms, and the placed worker's group owns the patient on both.
   assertEquals(2,refused);assertEquals(2,opened);
  }
+
+    @Test public void hqRestoredGroupsAdmitOneOwnerAndCoreSubmitsTheCaseToThatGroup() throws Exception {
+        for (boolean hq : new boolean[]{false, true}) {
+            for (String name : new String[]{"ada", "bea", "cal"}) {
+                String label = name + (hq ? " via HQ" : " local");
+                MockUserDataSandbox sandbox = MockDataUtils.getStaticStorage();
+                sandbox.setLoggedInUser(new org.javarosa.core.model.User(name, "synthetic", "mobile-" + name));
+                try (InputStream restore = getClass().getResourceAsStream("/worker/worker-groups-" + name + ".restore.xml")) {
+                    assertNotNull(label, restore);
+                    org.commcare.core.parse.ParseUtils.parseIntoSandbox(restore, sandbox);
+                }
+                PlaceRuntime runtime = new PlaceRuntime(sandbox, Collections.emptyMap());
+                Suite suite;
+                try (InputStream input = getClass().getResourceAsStream("/worker/worker-shared-case" + (hq ? ".hq-suite.xml" : ".suite.xml"))) {
+                    assertNotNull(label, input);
+                    suite = new Parser(input, sandbox).parse();
+                }
+                org.commcare.suite.model.Entry entry = suite.getEntry("m0-f0");
+                Hashtable<String, DataInstance> instances = entry.getInstances(null);
+                for (String id : new ArrayList<>(instances.keySet())) {
+                    instances.put(id, instances.get(id).initialize(runtime, id));
+                }
+                EvaluationContext context = new EvaluationContext(null, instances);
+                assertEquals(label, !name.equals("bea"), entry.getAssertions().getAssertionFailure(context) != null);
+                if (!name.equals("bea")) {
+                    assertEquals(label, 0, sandbox.getCaseStorage().getNumRecords());
+                    continue;
+                }
+                // HQ serves the detail as " Friday " (the HQ step holds it); Core reads every fixture text trimmed
+                // (TreeElementParser.parse), as Preview's groups instance does.
+                assertEquals(label, "Friday", org.javarosa.test_utils.ExprEvalUtils.xpathEval(context,
+                    "string(instance('groups')/groups/group/group_data/data[@key='meeting'])"));
+                FormParseInit parsed = new FormParseInit("/worker/worker-shared-case" + (hq ? ".hq.xml" : ".xml"));
+                parsed.getFormDef().initialize(true, runtime);
+                FormEntryController controller = parsed.getFormEntryController();
+                controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+                int steps = 0;
+                while (controller.stepToNextEvent() != FormEntryController.EVENT_END_OF_FORM) {
+                    if (++steps > 20) throw new AssertionError("Shared registration did not finish");
+                    if (parsed.getFormEntryModel().getEvent() == FormEntryController.EVENT_QUESTION) {
+                        controller.answerQuestion(new StringData("Shared patient"));
+                    }
+                }
+                parsed.getFormDef().postProcessInstance();
+                byte[] submission = new XFormSerializingVisitor().serializeInstance(parsed.getFormDef().getMainInstance());
+                XmlFormRecordProcessor.process(sandbox, new ByteArrayInputStream(submission));
+                assertEquals(label, "east", sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, "shared-patient").getUserId());
+            }
+        }
+    }
 }

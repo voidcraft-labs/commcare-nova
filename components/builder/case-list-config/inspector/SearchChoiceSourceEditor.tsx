@@ -20,29 +20,36 @@ import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import { useId, useMemo, useState } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { LookupChoiceNameOption } from "@/components/builder/lookup/LookupChoiceNameOption";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
+import { LookupValuePicker } from "@/components/builder/shared/LookupValuePicker";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
 import {
 	Select,
 	SelectContent,
-	SelectItem,
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import type {
 	CaseType,
-	LookupColumnId,
 	LookupTableId,
 	SearchInputDef,
 	SearchInputLookupOptions,
 	UserProperty,
 } from "@/lib/domain";
 import type { Expression, ExpressionSlotRef } from "@/lib/domain/expression";
+import {
+	type LookupRead,
+	lookupReadType,
+	lookupReadTypes,
+	sameLookupRead,
+} from "@/lib/domain/lookupRead";
 import { useCanEdit } from "@/lib/session/hooks";
 
 export interface SearchChoiceSourceEditorProps {
@@ -64,25 +71,22 @@ export interface SearchChoiceSourceEditorProps {
 
 interface LookupSourceDraft {
 	readonly tableId: LookupTableId;
-	readonly valueColumnId?: LookupColumnId;
-	readonly labelColumnId?: LookupColumnId;
+	readonly valueColumnId?: LookupRead;
+	readonly labelColumnId?: LookupRead;
 	/** Absent means the choices are ordered by the label column. */
-	readonly sortColumnId?: LookupColumnId;
+	readonly sortColumnId?: LookupRead;
 	readonly filter?: Expression;
 }
 
-/** The sort picker's item for "order by the label column". */
-const LABEL_COLUMN_SORT = "label-column";
-
 function completeSource(
 	draft: LookupSourceDraft,
-	columnIds: ReadonlySet<LookupColumnId>,
+	columnIds: ReturnType<typeof lookupReadTypes>,
 ): SearchInputLookupOptions | undefined {
 	if (
 		draft.valueColumnId === undefined ||
 		draft.labelColumnId === undefined ||
-		!columnIds.has(draft.valueColumnId) ||
-		!columnIds.has(draft.labelColumnId)
+		!lookupReadType(columnIds, draft.valueColumnId) ||
+		!lookupReadType(columnIds, draft.labelColumnId)
 	) {
 		return undefined;
 	}
@@ -94,8 +98,8 @@ function completeSource(
 		/* A sort column equal to the label column is the default's other
 		 * spelling, and one that left the table orders by the label too. */
 		...(draft.sortColumnId === undefined ||
-		draft.sortColumnId === draft.labelColumnId ||
-		!columnIds.has(draft.sortColumnId)
+		sameLookupRead(draft.sortColumnId, draft.labelColumnId) ||
+		!lookupReadType(columnIds, draft.sortColumnId)
 			? {}
 			: { sortColumnId: draft.sortColumnId }),
 		...(draft.filter === undefined ? {} : { filter: draft.filter }),
@@ -118,17 +122,18 @@ export function SearchChoiceSourceEditor({
 	const sortColumnSelectId = useId();
 	const canEdit = useCanEdit();
 	const catalog = useBuilderLookupCatalog();
+	const platforms = useDeclaredPlatforms();
 	const [draft, setDraft] = useState<LookupSourceDraft | null>(null);
 	const [rejection, setRejection] = useState<string | null>(null);
 
-	const tables = catalog.kind === "ready" ? catalog.tables : [];
+	const tables = catalog.kind === "ready" ? catalog.definitions : [];
 	const active: LookupSourceDraft | undefined = draft ?? value;
 	const table =
 		active === undefined || catalog.kind !== "ready"
 			? undefined
 			: catalog.byId.get(active.tableId);
 	const columnIds = useMemo(
-		() => new Set(table?.columns.map((column) => column.id) ?? []),
+		() => (table ? lookupReadTypes(table) : new Map()),
 		[table],
 	);
 	const staging = draft !== null || value === undefined;
@@ -187,52 +192,20 @@ export function SearchChoiceSourceEditor({
 	const columnSelect = (
 		id: string,
 		label: string,
-		selected: LookupColumnId | undefined,
-		onPick: (columnId: LookupColumnId) => void,
-	) => {
-		if (table === undefined) return null;
-		return (
-			<div>
-				<Label htmlFor={id} className="text-[13px]">
-					{label}
-				</Label>
-				<Select
-					value={selected ?? null}
-					disabled={!canEdit}
-					onValueChange={(next) => {
-						const column = table.columns.find(
-							(candidate) => candidate.id === next,
-						);
-						if (column === undefined) {
-							setRejection(
-								"That column is no longer available. Choose another column.",
-							);
-							return;
-						}
-						onPick(column.id);
-					}}
-				>
-					<SelectTrigger id={id} wrapValue className="mt-1 min-h-11 w-full">
-						<SelectValue placeholder="Choose a column">
-							{(current) =>
-								current === null || current === undefined
-									? "Choose a column"
-									: (table.columns.find((column) => column.id === current)
-											?.label ?? "A column that is no longer available")
-							}
-						</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						{table.columns.map((column) => (
-							<SelectItem key={column.id} value={column.id} wrap>
-								{column.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-			</div>
+		selected: LookupRead | undefined,
+		onPick: (read: LookupRead) => void,
+	) =>
+		table && (
+			<LookupValuePicker
+				table={table}
+				id={id}
+				label={label}
+				value={selected}
+				disabled={!canEdit}
+				names={{ slot: "search_input_options", platforms }}
+				onChange={onPick}
+			/>
 		);
-	};
 
 	return (
 		<section
@@ -277,9 +250,15 @@ export function SearchChoiceSourceEditor({
 					</SelectTrigger>
 					<SelectContent>
 						{tables.map((candidate) => (
-							<SelectItem key={candidate.id} value={candidate.id} wrap>
-								{candidate.name}
-							</SelectItem>
+							<LookupChoiceNameOption
+								key={candidate.id}
+								value={candidate.id}
+								name={candidate.tag}
+								label={candidate.name}
+								part="tag"
+								slot="search_input_options"
+								platforms={platforms}
+							/>
 						))}
 					</SelectContent>
 				</Select>
@@ -339,63 +318,22 @@ export function SearchChoiceSourceEditor({
 						active.labelColumnId,
 						(columnId) => write({ ...active, labelColumnId: columnId }),
 					)}
-					<div>
-						<Label htmlFor={sortColumnSelectId} className="text-[13px]">
-							Sort choices by
-						</Label>
-						<Select
-							value={active.sortColumnId ?? LABEL_COLUMN_SORT}
-							disabled={!canEdit}
-							onValueChange={(next) => {
-								const { sortColumnId: _sort, ...rest } = active;
-								if (next === LABEL_COLUMN_SORT) {
-									write(rest);
-									return;
-								}
-								const column = table.columns.find(
-									(candidate) => candidate.id === next,
-								);
-								if (column === undefined) {
-									setRejection(
-										"That column is no longer available. Choose another column.",
-									);
-									return;
-								}
-								write({ ...rest, sortColumnId: column.id });
-							}}
-						>
-							<SelectTrigger
-								id={sortColumnSelectId}
-								wrapValue
-								className="mt-1 min-h-11 w-full"
-							>
-								<SelectValue>
-									{(current) =>
-										current === LABEL_COLUMN_SORT ||
-										current === null ||
-										current === undefined
-											? "Label column"
-											: (table.columns.find((column) => column.id === current)
-													?.label ?? "A column that is no longer available")
-									}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value={LABEL_COLUMN_SORT} wrap>
-									Label column
-								</SelectItem>
-								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id} wrap>
-										{column.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<p className="mt-1 text-[12px] leading-snug text-nova-text-muted">
-							Choices are listed in the order of this column's text.
-						</p>
-					</div>
-
+					<LookupValuePicker
+						table={table}
+						id={sortColumnSelectId}
+						label="Sort choices by"
+						value={active.sortColumnId}
+						disabled={!canEdit}
+						names={{ slot: "search_input_options", platforms }}
+						defaultChoice={{
+							label: "Same as display value",
+							select: () => {
+								const { sortColumnId: _, ...rest } = active;
+								write(rest);
+							},
+						}}
+						onChange={(read) => write({ ...active, sortColumnId: read })}
+					/>
 					<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
 						<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">
 							<Icon

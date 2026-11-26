@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	ROUTE,
+	SOURCE,
+	twoMenus,
+	VISIT,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { expandDoc } from "@/lib/commcare/expander";
 import { EMPTY_LOOKUP_REFERENCE_TARGETS } from "@/lib/doc/lookupReferences";
 import { simpleSearchInputDef } from "@/lib/domain";
@@ -116,4 +122,74 @@ describe("published entry point selection contracts", () => {
 			).toBe(multiple ? "case-a,case-b" : "case-a");
 		},
 	);
+});
+
+describe("a deep link a menu holds for another menu's form", () => {
+	it("is published with its own route's signature and selection, beside the source's", () => {
+		const doc = twoMenus();
+		const revision = parseLookupRevision("0");
+		const prepared: PreparedExportBoundary = {
+			mode: "hq-upload",
+			doc,
+			compiledAtSeq: 4,
+			assets: new Map(),
+			lookupTargets: EMPTY_LOOKUP_REFERENCE_TARGETS,
+			lookupSnapshot: {
+				projectId: "project",
+				projectRevision: revision,
+				definitions: [],
+				rowsByTable: new Map(),
+			},
+			lookupContext: {
+				kind: "available",
+				projectId: "project",
+				projectRevision: revision,
+				definitions: [],
+			},
+			attachmentTarget: null,
+			managedLookupTables: [],
+			managedLookupWorkbooks: [],
+		};
+		const runtimeTarget = {
+			server: "india" as const,
+			domain: "clinic",
+			appId: "working-app",
+		};
+		const entries = publishedEntryPoints(
+			prepared,
+			expandDoc(doc, { runtimeTarget }),
+			doc.appName,
+			runtimeTarget,
+		);
+		const byId = new Map(entries.map((entry) => [entry.id, entry]));
+		const routed = byId.get("clinic-visit");
+		const owned = byId.get("visit");
+		if (!routed || !owned) throw new Error("Both form links are published.");
+		expect(routed.target).toEqual({
+			kind: "form",
+			moduleUuid: ROUTE,
+			formUuid: VISIT,
+		});
+		expect(owned.target).toEqual({
+			kind: "form",
+			moduleUuid: SOURCE,
+			formUuid: VISIT,
+		});
+		// Each link is checked against the suite's own endpoint for its route.
+		expect(routed.signature).not.toBe(owned.signature);
+		expect(routed.requiredSelections).toEqual([
+			{
+				moduleUuid: ROUTE,
+				caseType: "patient",
+				cardinality: "one",
+				maximum: 1,
+				argumentId: "case_id",
+			},
+		]);
+		expect(
+			entryPointArguments(routed, [
+				{ moduleUuid: ROUTE, caseIds: ["case-a"] },
+			]).get("case_id"),
+		).toBe("case-a");
+	});
 });
