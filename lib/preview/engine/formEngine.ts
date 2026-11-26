@@ -3632,6 +3632,10 @@ export class FormEngine {
 		if (node === undefined || !isCaptureFieldKind(node.field.kind)) {
 			return "removed";
 		}
+		return this.answerPathDisposition(path);
+	}
+
+	answerPathDisposition(path: string): AttachmentPathDisposition {
 		const states = this.store.getState();
 		const state = states[path];
 		if (state === undefined || state === DEFAULT_ENGINE_STATE) {

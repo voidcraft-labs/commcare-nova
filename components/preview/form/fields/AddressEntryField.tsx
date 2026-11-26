@@ -65,10 +65,8 @@ interface AddressEntryFieldProps {
 	field: TextFieldEntity | SecretField | BarcodeField;
 	state: FieldState;
 	labelledBy?: string;
-	onChange: (value: string) => unknown;
+	onCommit: (value: string, message?: QuestionMessage) => Promise<boolean>;
 	onBlur: () => void;
-	/** Sends a chosen address, or `null` for a cleared one, to the question's channels. */
-	onDisplayMessage: (message: QuestionMessage) => Promise<void>;
 }
 
 /** The line Preview shows the author about what Web Apps needs of the project space. */
@@ -87,9 +85,8 @@ export function AddressEntryField({
 	field,
 	state,
 	labelledBy,
-	onChange,
+	onCommit,
 	onBlur,
-	onDisplayMessage,
 }: AddressEntryFieldProps) {
 	const { language } = useBuilderLanguage();
 	const direction = usePortaledContentDirection();
@@ -100,22 +97,11 @@ export function AddressEntryField({
 	const searches = googleMapsConfigured();
 
 	const answerLine = addressAnswerLine(state.value);
-	const [query, setQuery] = useState(answerLine);
-	/* Web Apps' `editing`: true until a choice is made, and again once the
-	 * worker types over one. */
-	const [editing, setEditing] = useState(answerLine === "");
+	// A typed query belongs to the worker. A committed address is drawn
+	// from the engine, including when an attempted change is refused.
+	const [draft, setDraft] = useState<string | null>(null);
+	const query = draft ?? answerLine;
 	const [choiceNeeded, setChoiceNeeded] = useState(false);
-	const lastAnswerRef = useRef(state.value);
-	useEffect(() => {
-		if (state.value === lastAnswerRef.current) return;
-		lastAnswerRef.current = state.value;
-		const line = addressAnswerLine(state.value);
-		if (line !== "") {
-			setQuery(line);
-			setEditing(false);
-			setChoiceNeeded(false);
-		}
-	}, [state.value]);
 
 	const [results, setResults] = useState<Suggestion[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -125,6 +111,7 @@ export function AddressEntryField({
 	);
 	const reqRef = useRef(0);
 	const detailsReqRef = useRef(0);
+	const pendingChoice = useRef<number | null>(null);
 	useEffect(
 		() => () => {
 			reqRef.current += 1;
@@ -205,14 +192,19 @@ export function AddressEntryField({
 				})),
 			};
 			const message = addressMessage(found);
-			setQuery(found.full);
-			setEditing(false);
+			pendingChoice.current = reqId;
+			const applied = await onCommit(JSON.stringify(message), message);
+			if (reqId !== detailsReqRef.current) return;
+			if (applied === false) {
+				setChoiceNeeded(true);
+				return;
+			}
+			setDraft(null);
 			setChoiceNeeded(false);
-			const applied = await onChange(JSON.stringify(message));
-			if (reqId === detailsReqRef.current && applied !== false)
-				await onDisplayMessage(message);
 		} catch {
-			/* The place's details didn't arrive: nothing was chosen. */
+			if (reqId === detailsReqRef.current) setChoiceNeeded(true);
+		} finally {
+			if (pendingChoice.current === reqId) pendingChoice.current = null;
 		}
 	}
 
@@ -222,13 +214,31 @@ export function AddressEntryField({
 		if (debounceRef.current) clearTimeout(debounceRef.current);
 		tokenRef.current = null;
 		setLoading(false);
-		setQuery("");
+		pendingChoice.current = null;
 		setResults([]);
-		setEditing(true);
+		const applied = await onCommit("", null);
+		if (reqId !== detailsReqRef.current || applied === false) return;
+		setDraft(null);
 		setChoiceNeeded(false);
-		const applied = await onChange("");
-		if (reqId === detailsReqRef.current && applied !== false)
-			await onDisplayMessage(null);
+	}
+
+	async function search(next: string) {
+		const reqId = ++detailsReqRef.current;
+		const replaceAddress = answerLine !== "" || pendingChoice.current !== null;
+		pendingChoice.current = null;
+		setDraft(next);
+		runSearch(next);
+		if (!replaceAddress) return;
+		// Typing over a chosen address clears the sender and broadcasts nothing.
+		setChoiceNeeded(true);
+		const applied = await onCommit("");
+		if (reqId !== detailsReqRef.current || applied !== false) return;
+		reqRef.current += 1;
+		if (debounceRef.current) clearTimeout(debounceRef.current);
+		setLoading(false);
+		setResults([]);
+		setDraft(null);
+		setChoiceNeeded(false);
 	}
 
 	const showError = state.touched && !state.valid;
@@ -253,17 +263,7 @@ export function AddressEntryField({
 							if (picked) void choose(picked);
 							return;
 						}
-						detailsReqRef.current += 1;
-						setQuery(next);
-						/* Typing over a chosen address lets the answer go until the
-						 * worker chooses again, and sends nothing
-						 * (`AddressEntry._inputOnKeyDown`). */
-						if (!editing) {
-							setEditing(true);
-							setChoiceNeeded(true);
-							void onChange("");
-						}
-						runSearch(next);
+						void search(next);
 					}}
 				>
 					<Autocomplete.InputGroup className="relative">

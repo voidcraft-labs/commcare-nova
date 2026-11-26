@@ -241,10 +241,13 @@ export interface RepeatInstanceIdentity {
 	readonly instanceKey: string;
 }
 
-export interface CaptureAnswerTarget {
+export interface QuestionAnswerTarget {
 	readonly fieldUuid: Uuid;
-	readonly kind: CaptureFieldKind;
 	readonly repeatInstances: readonly RepeatInstanceIdentity[];
+}
+
+export interface CaptureAnswerTarget extends QuestionAnswerTarget {
+	readonly kind: CaptureFieldKind;
 }
 
 export interface CaptureCommitGate {
@@ -3074,16 +3077,59 @@ export class EngineController {
 		);
 	}
 
-	/** Read-only stable-slot lookup. Removed/shrunk rows and reused indices
-	 * cannot stand in for the repeat identity that started a capture. */
-	private captureAnswerPath(target: CaptureAnswerTarget): string | undefined {
+	/** Stage the chosen address and any channel receivers in the same input
+	 * turn. A later blur can retire evaluation without undoing this write. */
+	async commitAddressAnswer(
+		entryKey: string,
+		target: QuestionAnswerTarget,
+		value: string,
+		message?: QuestionMessage,
+	): Promise<boolean> {
+		if (
+			this.currentEntryKey !== entryKey ||
+			this.previewRules().addressQuestion !== "search"
+		)
+			return false;
+		const path = this.activeAnswerPath(
+			target,
+			(field) =>
+				(field.kind === "text" ||
+					field.kind === "secret" ||
+					field.kind === "barcode") &&
+				field.addressLookup === true,
+		);
+		if (path === undefined) return false;
+		const work = this.beginValueChangeAt(path, value);
+		if (
+			work === undefined ||
+			this.engine?.store.getState()[path]?.value !== value
+		)
+			return false;
+		await Promise.all([
+			work,
+			message === undefined
+				? undefined
+				: this.applyDisplayMessage(path, message),
+		]);
+		return this.currentEntryKey === entryKey;
+	}
+
+	/** Resolve the field and its repeat instances before staging an answer.
+	 * Removed rows cannot stand in for their former path after compaction. */
+	private activeAnswerPath(
+		target: QuestionAnswerTarget,
+		matches: (field: FieldTreeNode["field"]) => boolean,
+	): string | undefined {
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const document = this.docStore?.getState();
+		const field = document?.fields[target.fieldUuid];
 		if (
 			engine === undefined ||
 			formUuid === undefined ||
-			document?.fields[target.fieldUuid]?.kind !== target.kind ||
+			document === undefined ||
+			field === undefined ||
+			!matches(field) ||
 			!collectFormUuids(
 				formContentUuid(document, formUuid),
 				document.fieldOrder,
@@ -3100,9 +3146,9 @@ export class EngineController {
 				const path = `${prefix}/${node.field.id}`;
 				if (
 					node.field.uuid === target.fieldUuid &&
-					node.field.kind === target.kind &&
+					matches(node.field) &&
 					repeatDepth === target.repeatInstances.length &&
-					engine.attachmentPathDisposition(path) === "active"
+					engine.answerPathDisposition(path) === "active"
 				)
 					return path;
 				if (node.field.kind === "repeat") {
@@ -3184,7 +3230,10 @@ export class EngineController {
 		if (!(await this.awaitCaptureEntryReady(entryKey, gate.signal)))
 			return false;
 		if (!gate.isCurrent()) return false;
-		const path = this.captureAnswerPath(target);
+		const path = this.activeAnswerPath(
+			target,
+			(field) => field.kind === target.kind,
+		);
 		if (path === undefined) return false;
 		const work = this.beginValueChangeAt(path, value);
 		if (work === undefined) return false;
@@ -3192,7 +3241,10 @@ export class EngineController {
 		if (!(await this.awaitCaptureEntryReady(entryKey, gate.signal)))
 			return false;
 		if (!gate.isCurrent()) return false;
-		const currentPath = this.captureAnswerPath(target);
+		const currentPath = this.activeAnswerPath(
+			target,
+			(field) => field.kind === target.kind,
+		);
 		if (
 			currentPath === undefined ||
 			this.engine?.store.getState()[currentPath]?.value !== value

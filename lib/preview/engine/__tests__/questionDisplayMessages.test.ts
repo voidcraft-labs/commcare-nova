@@ -102,12 +102,26 @@ describe("a worker question receiving a form update", () => {
 				controllers.map((controller) => controller.activateFormAsync(FORM)),
 			);
 			await first.setValueAtAsync("/data/stops[0]/plain_region", "north_id");
-			await first.applyDisplayMessage("/data/stops[0]/address", {
-				city: "Mtoni",
-				province: "Missing",
-				region: "South",
-			});
 			const row = "/data/stops[0]/";
+			const message = { city: "Mtoni", province: "Missing", region: "South" };
+			const value = JSON.stringify(message);
+			const entry = first.entryKey;
+			if (entry === undefined) throw new Error("The form did not open.");
+			const stops = testUuid("form.stops");
+			const target = {
+				fieldUuid: testUuid("form.stops.address"),
+				repeatInstances: [
+					{
+						fieldUuid: stops,
+						instanceKey: first.getRepeatInstanceKey(stops, 0),
+					},
+				],
+			};
+			const pending = first.commitAddressAnswer(entry, target, value, message);
+			await first.touchAtAsync(`${row}address`);
+			await expect(pending).resolves.toBe(true);
+			await first.awaitSettled();
+			expect(first.store.getState()[`${row}address`]?.value).toBe(value);
 			expect(first.store.getState()[`${row}city`]?.value).toBe("Mtoni");
 			expect(first.store.getState()[`${row}region`]?.value).toBe("south_id");
 			expect(first.store.getState()[`${row}plain_region`]?.value).toBe("");
@@ -128,6 +142,17 @@ describe("a worker question receiving a form update", () => {
 			await first.applyDisplayMessage(`${row}address`, null);
 			expect(first.store.getState()[`${row}region`]?.value).toBe("");
 			expect(first.store.getState()[`${row}filename`]?.value).toBe("route.pdf");
+
+			await first.addRepeatAsync(stops);
+			expect(await first.removeRepeatAsync(stops, 0)).toBe(true);
+			expect(first.getRepeatCount(stops)).toBe(1);
+			await expect(
+				first.commitAddressAnswer(entry, target, value, message),
+			).resolves.toBe(false);
+			await first.awaitSettled();
+			expect(first.getRepeatCount(stops)).toBe(1);
+			expect(first.store.getState()[`${row}address`]?.value).toBe("");
+			expect(first.store.getState()[`${row}city`]?.value).toBe("");
 		} finally {
 			for (const controller of controllers) controller.dispose();
 			await Promise.all(
