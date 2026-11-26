@@ -47,7 +47,10 @@ import {
 	FormAttachmentWriteRejectedError,
 	loadAuthorizedFormSubmissionSnapshot,
 } from "@/lib/db/formAttachments";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import {
+	previewProjectSpaceFor,
+	previewProjectSpaceForSubmission,
+} from "@/lib/deployment/previewSpace";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
@@ -2123,7 +2126,7 @@ export async function submitFormAction(
 		 * conditions read `commcare_project` exactly as the form engine did
 		 * when it showed them. The receipt digest covers only the actor,
 		 * owner, and persona, so this cannot disturb replay. */
-		const projectSpace = await previewProjectSpaceFor(
+		const projectSpace = await previewProjectSpaceForSubmission(
 			{
 				appId,
 				projectId: authorized.projectId,
@@ -2132,6 +2135,12 @@ export async function submitFormAction(
 			},
 			suppliedDevice?.searchConfiguration,
 		);
+		if (projectSpace === undefined)
+			return {
+				kind: "error",
+				message:
+					"The project space changed while this form was open. Reopen the form and try again.",
+			};
 		let identity: ResolvedPreviewIdentity | null;
 		if (personaUuid === undefined) {
 			identity = previewAsMe(
