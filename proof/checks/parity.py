@@ -66,7 +66,7 @@ from dataclasses import dataclass
 
 from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
-from proof.checks.manifest_value_classes import save_to_case_retype_property_types
+from proof.checks.manifest_value_classes import save_to_case_before_optional_own_update, save_to_case_retype_property_types
 from proof.observe.manifest import expression_tree
 
 CHECK = "parity"
@@ -299,6 +299,7 @@ CHILD_REGISTRATION = (
     "menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case"
 )
 ADVANCED_REGISTRATION = "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form"
+OWN_CASE_BESIDE = "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it"
 DATE_TO_TEXT = "questions/a-savetocase-retype-that-keeps-a-date-as-text"
 RETYPE_CONVERTS = "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type"
 RETYPE_ENTRIES = {DATE_TO_TEXT, RETYPE_CONVERTS}
@@ -423,7 +424,7 @@ def _automatic_multiple_case_selection(use):
 
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
-    wanted = {AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES}.intersection(entries)
+    wanted = {AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, OWN_CASE_BESIDE, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES}.intersection(entries)
     if not wanted:
         return
     by_id = _entries_by_id(held)
@@ -440,6 +441,10 @@ def _forms_variant_uses(found, held, entries):
                 yield Decided(block, manifest_usage.HELD, (by_id[DATE_TO_TEXT],))
             elif types == ("string", "date") and RETYPE_CONVERTS in wanted:
                 yield Decided(block, manifest_usage.HELD_NEW, (by_id[RETYPE_CONVERTS],))
+        if (OWN_CASE_BESIDE in wanted and use.key == "vellum-markup:model/instance//*@vellum:role"
+                and save_to_case_before_optional_own_update(use)):
+            block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
+            yield Decided(block, manifest_usage.HELD_NEW, (by_id[OWN_CASE_BESIDE],))
         if LOCATION_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
             yield from _location_write_uses(use, by_id[LOCATION_WRITE])
         if HYPHEN_TAG in wanted and use.key in ADVANCED_TAG_KEYS:
