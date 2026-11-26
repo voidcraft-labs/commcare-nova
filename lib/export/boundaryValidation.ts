@@ -111,6 +111,8 @@ import type {
 } from "@/lib/lookup/archiveRows";
 
 export interface PrepareExportBoundaryInput {
+	/** Include an authenticated data-install manifest in an HQ import package. */
+	readonly manualLookupInstaller?: boolean;
 	readonly mode: ExportMode;
 	readonly installTarget?: { server: string; domain: string; appId: string };
 	readonly streamMedia?: boolean;
@@ -474,6 +476,7 @@ async function prepareWithRegistry(
 		exportCarrierFindings({
 			doc: input.doc,
 			mode: input.mode,
+			manualLookupInstaller: input.manualLookupInstaller,
 			fixtureData,
 			assignments: assignment?.owners,
 			restoreTableIds: new Set(restoreIds),
@@ -559,10 +562,11 @@ async function prepareWithRegistry(
 			!input.jsonDestinationTableIds?.has(definition.id) &&
 			input.workbookLookupTags?.get(definition.id)?.has(tableNaming.tag);
 		const direct = input.mode === "hq-upload";
+		const jsonAllowed = direct || input.manualLookupInstaller;
 		let issue: string;
 		let code: ValidationError["code"] = "LOOKUP_WORKER_SOURCE_UNAVAILABLE";
 		let delivery: string = carrier.kind;
-		if (direct && carrier.kind === "json" && !inWorkbook) {
+		if (jsonAllowed && carrier.kind === "json" && !inWorkbook) {
 			const staged = await stagePagedLookupJson(table, tableNaming, {
 				rows: remainingRows,
 				bytes: remainingBytes,

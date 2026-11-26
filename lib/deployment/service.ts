@@ -4120,7 +4120,7 @@ async function pushLookupTables(
  * partial so a refusal later in the publish supersedes nothing; the
  * resources phase's complete record retains it (`mapped`).
  */
-async function pushLookupTablesJson(
+export async function pushLookupTablesJson(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	creds: CommCareCredentials,
@@ -4128,8 +4128,9 @@ async function pushLookupTablesJson(
 	plan: LookupJsonPushPlan,
 	createdApp: boolean,
 	fence: DeploymentFence,
-	contentGeneration: string,
+	contentGeneration: string | undefined,
 	letOut: string[],
+	manualInstall = false,
 ): Promise<{
 	readonly failure: DeploymentFailure | null;
 	readonly recorded: RecordAnswer | null;
@@ -4170,6 +4171,7 @@ async function pushLookupTablesJson(
 							...(letOut.length === 0 && {
 								firstContentGeneration: contentGeneration,
 							}),
+							manualInstall,
 							tableId: table.tableId,
 							authority: plan.authority,
 							entry,
