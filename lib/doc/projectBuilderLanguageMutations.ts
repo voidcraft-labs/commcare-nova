@@ -8,6 +8,7 @@ import {
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	effectiveAppLocalization,
+	isOrdinaryCaseSearchConfig,
 	type LanguageTag,
 	type LocalizedValue,
 	localizeTranslationUnit,
@@ -152,12 +153,25 @@ export function projectBuilderLanguageMutations(
 						if (!hasOwn(searchPatch, slot)) continue;
 						const id = makeTranslationUnitId("module", mutation.uuid, unitSlot);
 						const value = searchPatch[slot];
-						// No title is the source's setting: the source takes turning it
-						// off, and this language drops a title of its own, so it shows none.
-						// Another language keeps a title of its own, which the source's
-						// `none` leaves standing (`searchTitleLanguages.ts`). A language
-						// gives itself a title as text, a translation of the blank source.
+						// Showing a title is the source's setting, in every language:
+						// the source takes turning it off, and this language drops a
+						// title of its own, so it shows none. Turning it back on clears
+						// the source's `none`, so every language shows its title again;
+						// clearing a title of this language's own over a source that
+						// shows one is a translation's clear. A brought-in language with
+						// a title of its own over the source's `none` keeps it
+						// (`searchTitleLanguages.ts`).
 						if (slot === "searchScreenTitle" && isNoSearchScreenTitle(value)) {
+							if (units.has(id)) redirectClear(id);
+							continue;
+						}
+						const stored = doc.modules[mutation.uuid]?.caseSearchConfig;
+						if (
+							slot === "searchScreenTitle" &&
+							value === null &&
+							isOrdinaryCaseSearchConfig(stored) &&
+							isNoSearchScreenTitle(stored.searchScreenTitle)
+						) {
 							if (units.has(id)) redirectClear(id);
 							continue;
 						}

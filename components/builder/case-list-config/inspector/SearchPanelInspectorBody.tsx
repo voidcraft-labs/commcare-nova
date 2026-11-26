@@ -128,16 +128,16 @@ export function SearchPanelInspectorBody({
 	);
 	const showsSource = useShowsSourceLanguage();
 	const showsTitle = searchScreenTitleText(value) !== null;
+	/* Showing a title is the app's setting, in every language: off holds no
+	 * title on the source, which every language then shows, and on clears
+	 * it, so every language shows its title again, whichever language the
+	 * Builder shows (`projectBuilderLanguageMutations.ts`). */
 	const setShowTitle = (next: boolean) =>
 		onChange(
 			setOptionalSlot(
 				value,
 				"searchScreenTitle",
-				!next
-					? NO_SEARCH_SCREEN_TITLE
-					: showsSource
-						? undefined
-						: DEFAULT_CASE_SEARCH_TITLE,
+				!next ? NO_SEARCH_SCREEN_TITLE : undefined,
 			),
 		);
 	const setTitle = (next: string | undefined) => {

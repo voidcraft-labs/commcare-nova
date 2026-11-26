@@ -581,6 +581,28 @@ describe("projectBuilderLanguageMutations", () => {
 				projectLocalizedModule(restored, "spa", MODULE)?.caseSearchConfig,
 			),
 		).toBe("Buscar");
+
+		// Show a title switched back on in this language clears the source's
+		// none: every language shows its title again, as before it went off.
+		const { searchScreenTitle: _none, ...withoutTitle } = shown;
+		const switchedOn = apply(
+			untitled,
+			project(
+				untitled,
+				caseSearchConfigPatchMutations(MODULE, shown, withoutTitle),
+			),
+		);
+		const source = switchedOn.modules[MODULE]?.caseSearchConfig;
+		if (!isOrdinaryCaseSearchConfig(source))
+			throw new Error("Expected a source search.");
+		expect(source.searchScreenTitle).toBeUndefined();
+		for (const language of ["eng", "spa"] as const)
+			expect(
+				searchScreenTitleText(
+					projectLocalizedModule(switchedOn, language, MODULE)
+						?.caseSearchConfig,
+				),
+			).not.toBeNull();
 	});
 
 	it("leaves source-lens mutations canonical and refuses a removed target", () => {
