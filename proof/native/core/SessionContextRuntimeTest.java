@@ -79,12 +79,16 @@ public class SessionContextRuntimeTest {
 
     /** Core's own session instance, with the given width and no case-list step. */
     private static InstanceInitializationFactory session(String windowWidth) {
+        return session(new SessionFrame(), windowWidth);
+    }
+
+    private static InstanceInitializationFactory session(SessionFrame frame, String windowWidth) {
         return new InstanceInitializationFactory() {
             @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
                 if (!"commcaresession".equals(instance.getInstanceId())) {
                     throw new AssertionError("The gate's form reads no instance " + instance.getInstanceId());
                 }
-                TreeElement root = SessionInstanceBuilder.getSessionInstance(new SessionFrame(), "device", "1", 0L,
+                TreeElement root = SessionInstanceBuilder.getSessionInstance(frame, "device", "1", 0L,
                         "worker", "worker-id", new Hashtable<>(), windowWidth, "en");
                 InstanceUtils.setUpInstanceRoot(root, instance.getInstanceId(), new InstanceBase(instance.getInstanceId()));
                 return new ConcreteInstanceRoot(root);
@@ -166,6 +170,14 @@ public class SessionContextRuntimeTest {
 
     private static List<String> lookupCounts(OrderedHashtable<String, String> parent,
                                              OrderedHashtable<String, String> child) {
+        TreeElement root = SessionInstanceBuilder.getSessionInstance(lookupFrame(parent, child), "device", "1", 0L,
+                "worker", "worker-id", new Hashtable<>(), null, "en");
+        return root.getChildrenWithName("data").firstElement().getChildrenWithName("fingerprintquery")
+                .stream().map(node -> String.valueOf(node.getValue().getValue())).collect(Collectors.toList());
+    }
+
+    private static SessionFrame lookupFrame(OrderedHashtable<String, String> parent,
+                                            OrderedHashtable<String, String> child) {
         StackFrameStep first = new StackFrameStep(SessionFrame.STATE_DATUM_VAL, "parent", "chosen-parent");
         StackFrameStep second = new StackFrameStep(SessionFrame.STATE_DATUM_VAL, "child", "chosen-child");
         first.addExtra(SessionInstanceBuilder.KEY_LAST_QUERY_STRING, "typed search");
@@ -174,10 +186,55 @@ public class SessionContextRuntimeTest {
         SessionFrame frame = new SessionFrame();
         frame.pushStep(first);
         frame.pushStep(second);
-        TreeElement root = SessionInstanceBuilder.getSessionInstance(frame, "device", "1", 0L,
-                "worker", "worker-id", new Hashtable<>(), null, "en");
-        return root.getChildrenWithName("data").firstElement().getChildrenWithName("fingerprintquery")
-                .stream().map(node -> String.valueOf(node.getValue().getValue())).collect(Collectors.toList());
+        return frame;
+    }
+
+    @Test public void aBareLookupScalarRefusesAnAbsentOrMultipleCount() throws Exception {
+        String path = "instance('commcaresession')/session/data/fingerprintquery";
+        JSONObject reads = rows().getJSONObject("reads");
+        OrderedHashtable<String, String> empty = new OrderedHashtable<>();
+        OrderedHashtable<String, String> one = new OrderedHashtable<>();
+        one.put("chosen-parent", "4");
+
+        FormDef absent = openLookupFrame(reads, null, null);
+        assertLookupScalarError(absent, path, "not a valid question or value");
+
+        FormDef multiple = openLookupFrame(reads, one, empty);
+        assertLookupScalarError(multiple, path, "more than one node");
+
+        String guard = "if(count(" + path + ") = 1, number(" + path + "[1]), '')";
+        String unindexedGuard = "if(count(" + path + ") = 1, number(" + path + "), '')";
+        assertLookupGuards(absent, guard, unindexedGuard, "");
+        assertLookupGuards(multiple, guard, unindexedGuard, "");
+        assertLookupGuards(openLookupFrame(reads, empty, null), guard, unindexedGuard, 0.0);
+        assertLookupGuards(openLookupFrame(reads, null, one), guard, unindexedGuard, 1.0);
+    }
+
+    private static FormDef openLookupFrame(JSONObject reads, OrderedHashtable<String, String> parent,
+                                           OrderedHashtable<String, String> child) {
+        SessionFrame frame = lookupFrame(parent, child);
+        frame.pushStep(new StackFrameStep(SessionFrame.STATE_DATUM_VAL,
+                reads.getString("caseDatum"), reads.getString("caseId")));
+        FormDef form = parse(reads.getString("form"));
+        form.initialize(true, session(frame, null));
+        return form;
+    }
+
+    private static void assertLookupScalarError(FormDef form, String path, String reason) throws Exception {
+        try {
+            Object read = ExprEvalUtils.xpathEval(form.getEvaluationContext(), path);
+            fail("The bare lookup read returned '" + read + "' instead of refusing " + reason);
+        } catch (XPathTypeMismatchException exception) {
+            String detail = described(exception);
+            assertTrue(detail, detail.contains("fingerprintquery") && detail.contains(reason));
+            System.out.println(detail);
+        }
+    }
+
+    private static void assertLookupGuards(FormDef form, String guard, String unindexedGuard, Object expected)
+            throws Exception {
+        assertEquals(expected, ExprEvalUtils.xpathEval(form.getEvaluationContext(), guard));
+        assertEquals(expected, ExprEvalUtils.xpathEval(form.getEvaluationContext(), unindexedGuard));
     }
 
     @Test public void caseListSearchTextReadsItsFirstNodeOrBlank() throws Exception {
