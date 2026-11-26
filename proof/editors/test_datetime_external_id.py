@@ -56,9 +56,6 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
         )
         restore = etree.fromstring(TEMPLATE_RESTORE.read_bytes())
         restore.append(etree.fromstring(starting_case.encode()))
-        initial = operations.process_case_blocks(unit, _submission(starting_case))
-        assert initial.refusal is None
-
         def read(label, answers):
             built = compare.build(unit, app_id, record)
             assert not built.errors, built.errors
@@ -83,6 +80,8 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
             payload = etree.fromstring(submission)
             snapshot = etree.fromstring(form_step(run)["caseDb"].encode())
             stored = snapshot.findtext(f"case[@case_id='{RECORD}']/external_id")
+            initial = operations.process_case_blocks(unit, _submission(starting_case))
+            assert initial.refusal is None
             applied = operations.process_case_blocks(unit, submission, cases=[initial.touched[RECORD].case])
             assert applied.refusal is None
             kept = applied.touched.get(RECORD) or initial.touched[RECORD]
