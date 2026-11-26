@@ -17,11 +17,14 @@ from proof.observe import casedata
 VARIANT = "hq-search/field-named-by-a-parent-path"
 KEY = "parent/village"
 VALUE = "Dyer's crossing"
+ENTERED = "Dyer's cross!ing"
 
 
 def test_hq_editor_and_worker_keep_the_parent_path_search_key(
     hq, core_runner, editor_driver, formplayer_runner, evidence,
 ):
+    from corehq.apps.case_search.models import CaseSearchConfig, IgnorePatterns
+
     row = next(variant for variant in load_variants() if variant.id == VARIANT)
     source = json.loads((HQ_APPS / row.base / "app.json").read_bytes())
     assert row.change["pointer"] == "/modules/0/search_config/properties/1"
@@ -30,15 +33,15 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
     source["cloudcare_enabled"] = True
     stamp = "2025-12-01T08:00:00.000Z"
 
-    def case(case_id, kind, village, parent=None):
+    def case(case_id, kind, village, parent=None, owner=casedata.USER_ID):
         return casedata.CaseRecord(
-            case_id, kind, case_id, casedata.USER_ID, stamp, stamp, None,
+            case_id, kind, case_id, owner, stamp, stamp, None,
             (("village", village), ("last_visit", "2024-01-01")),
             (("parent", "household", parent, "child"),) if parent else (),
         )
 
     database = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), (
-        case("target-house", "household", VALUE),
+        case("target-house", "household", VALUE, owner="other-worker"),
         case("other-house", "household", "North"),
         case("linked", "client", "South", "target-house"),
         case("own-value", "client", VALUE, "other-house"),
@@ -52,6 +55,10 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
     )
     with hq_check(configuration) as (unit, _):
         with unit.operation("parent-path:import", VARIANT.encode()):
+            config = CaseSearchConfig.objects.get(domain=unit.domain)
+            config.ignore_patterns.add(IgnorePatterns.objects.create(
+                domain=unit.domain, case_type="client", case_property=KEY, regex="!",
+            ))
             districts = workbook([
                 ("types", ("Delete(Y/N)", "table_id", "is_global?", "field 1", "field 2"),
                  [("N", "districts", "yes", "id", "name")]),
@@ -87,10 +94,10 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
             assert any(display["id"] == KEY and display["text"] == "Village" for display in search["displays"]), search
             assert not served.hq.searches
             results = web.navigate(path, query_data={search["queryKey"]: {
-                "inputs": {KEY: VALUE}, "execute": True,
+                "inputs": {KEY: ENTERED}, "execute": True,
             }})
             sent = served.hq.searches
-            assert len(sent) == 1 and sent[0].values(KEY) == (VALUE,), sent
+            assert len(sent) == 1 and sent[0].values(KEY) == (ENTERED,), sent
             assert sent[0].values("village") == (), sent
             entities = {item["id"] for item in results.get("entities", [])}
             compiled = operations.compile_case_search(unit, f'{KEY} = "{VALUE}"', ("client",))
