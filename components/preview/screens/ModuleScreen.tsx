@@ -52,6 +52,7 @@ import {
 	type NavigationItemVisibility,
 	navigationSelectedCase,
 } from "@/lib/preview/engine/displayConditionEvaluation";
+import { entryWalksChoices } from "@/lib/preview/engine/entrySessionData";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { previewParentCaseBeforeMenu } from "@/lib/preview/engine/parentCaseSelection";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
@@ -707,13 +708,24 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 								}
 								return;
 							}
-							if (launch.kind === "select-case-first") {
+							if (form.shadowOf || form.caseSelections !== undefined) {
+								setPreviewCaseTarget({ formUuid: form.uuid, entryChoices: [] });
+								navigate.openForm(formModuleUuid, form.uuid);
+							} else if (launch.kind === "select-case-first") {
 								if (formMenuCase) {
 									void openFormWithMenuCase(
 										formModuleUuid,
 										form.uuid,
 										formMenuCase.cases,
 									);
+								} else if (entryWalksChoices(menuSource.doc, form.uuid)) {
+									/* A datum that opens its single match automatically
+									 * is walked step by step, as the entry asks for it. */
+									setPreviewCaseTarget({
+										formUuid: form.uuid,
+										entryChoices: [],
+									});
+									navigate.openForm(formModuleUuid, form.uuid);
 								} else {
 									setPreviewCaseTarget({ formUuid: form.uuid });
 									navigate.openCaseList(formModuleUuid);

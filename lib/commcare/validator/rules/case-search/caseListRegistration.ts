@@ -552,7 +552,14 @@ function alwaysFindings(
 	} else {
 		const blockingFormUuid = menuFormUuidsOf(doc, hostUuid).find((uuid) => {
 			const type = doc.forms[uuid]?.type;
-			return type === undefined || !CASE_LOADING_FORM_TYPES.has(type);
+			return (
+				type === undefined ||
+				(doc.forms[uuid].caseSelections === undefined
+					? !CASE_LOADING_FORM_TYPES.has(type)
+					: !doc.forms[uuid].caseSelections?.some(
+							(row) => row.source.kind === "choose",
+						))
+			);
 		});
 		if (blockingFormUuid !== undefined) {
 			const blockingFormName = doc.forms[blockingFormUuid]?.name ?? "";
@@ -641,6 +648,7 @@ function alwaysFindings(
 			),
 		);
 	}
+
 	return errors;
 }
 

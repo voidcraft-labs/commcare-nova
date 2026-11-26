@@ -8,6 +8,7 @@ import {
 	type HqFormLinkTree,
 	type HqFormTree,
 	type HqModuleTree,
+	type HqShadowFormTree,
 	type HqXPath,
 	hqXPath,
 } from "./hqJson/xpath";
@@ -607,7 +608,7 @@ export function advancedModuleShell(
 	uniqueId: string,
 	name: string | Record<string, string>,
 	caseType: string,
-	forms: HqAdvancedFormTree[],
+	forms: (HqAdvancedFormTree | HqShadowFormTree)[],
 	caseDetails: DetailPair<HqXPath>,
 	productHeaderLanguage: string,
 	languages: readonly string[],

@@ -1,5 +1,6 @@
 import { caseTypeNameVerdict } from "@/lib/doc/identifierVerdicts";
 import { humanizeId, slugifyId } from "@/lib/domain";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 
 interface CaseTypeDisplay {
 	readonly label: string;
@@ -14,7 +15,11 @@ interface CaseTypeDisplay {
 export function caseTypeDisplays(
 	names: readonly string[],
 ): ReadonlyMap<string, CaseTypeDisplay> {
-	const labels = names.map((name) => ({ name, label: humanizeId(name) }));
+	const labels = names.map((name) => ({
+		name,
+		label:
+			name === USERCASE_CASE_TYPE ? "Worker’s own record" : humanizeId(name),
+	}));
 	const labelCounts = new Map<string, number>();
 	for (const { label } of labels) {
 		const key = label.toLowerCase();

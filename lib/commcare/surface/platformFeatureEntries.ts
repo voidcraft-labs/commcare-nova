@@ -32,6 +32,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"case-search/list-first-where-web-apps-is-declared",
 		"case-search/list-first-with-a-search-that-skips-to-results",
 	],
+	"form-submit-wording": ["forms-and-case-writes/submit-label-non-default"],
+	"auto-select-confirm": [
+		"menus-and-case-lists/auto-select-case-on-an-advanced-module",
+	],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",

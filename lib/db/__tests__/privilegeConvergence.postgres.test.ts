@@ -1291,6 +1291,20 @@ describe("database privilege convergence", () => {
 				});
 				await sql`SELECT count(*) FROM cases`.execute(tx);
 				await sql`SELECT project_id FROM public.media_asset_refs`.execute(tx);
+				const openingGrants = await sql`
+					SELECT has_table_privilege(current_user,'public.form_opening_data','SELECT') AS can_read,
+						has_table_privilege(current_user,'public.form_opening_data','INSERT') AS can_create,
+						has_table_privilege(current_user,'public.form_opening_data','UPDATE') AS can_change,
+						has_table_privilege(current_user,'public.form_opening_data','DELETE') AS can_remove
+				`.execute(tx);
+				expect(openingGrants.rows).toEqual([
+					{
+						can_read: true,
+						can_create: true,
+						can_change: false,
+						can_remove: false,
+					},
+				]);
 			});
 			await expect(
 				asRole(h.db, config.runtimeRole, async (tx) => {
@@ -1301,6 +1315,16 @@ describe("database privilege convergence", () => {
 			).rejects.toMatchObject({ code: "42501" });
 
 			await asRole(h.db, config.cleanupRole, async (tx) => {
+				// Maintenance may retire expired temporary entries, but cannot
+				// inspect or alter a worker's live opening values.
+				const openingGrants = await sql`
+					SELECT has_table_privilege(current_user,'public.form_opening_data','SELECT') AS can_read,
+						has_table_privilege(current_user,'public.form_opening_data','DELETE') AS can_remove,
+						public.nova_reclaim_expired_form_openings() AS expired
+				`.execute(tx);
+				expect(openingGrants.rows).toEqual([
+					{ can_read: false, can_remove: false, expired: 0 },
+				]);
 				const grants = await sql<{
 					can_select: boolean;
 					can_update: boolean;

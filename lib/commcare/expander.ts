@@ -84,6 +84,7 @@ import {
 	projectedModulePreorder,
 	type Uuid,
 } from "@/lib/domain";
+import { advancedActionsWithEntry } from "./advancedEntryValues";
 import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
 import { buildConnectSlugMap } from "./connectSlugs";
 import {
@@ -97,6 +98,7 @@ import { buildCaseReferencesLoad } from "./formActions";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
+	entrySessionDatums,
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	type ProjectedFormLink,
@@ -115,12 +117,14 @@ import {
 	type HqAdvancedFormTree,
 	type HqFormLinkTree,
 	type HqFormTree,
+	type HqShadowFormTree,
 	hqXPath,
 	serializeHqApplication,
 } from "./hqJson/xpath";
 import { hqMenuBadges, projectMenuBadge } from "./menuBadge";
 import { emittedModuleKind } from "./moduleKind";
 import { buildXFormSource } from "./xform/builder";
+import { serializeWire } from "./xpath/wire/serialize";
 
 /**
  * One projected link in HQ's `FormLink` shape. `xpath` carries the `if` the
@@ -372,47 +376,49 @@ export function* expandDocSteps(
 			const multipleCaseDatum =
 				ownCaseDatum?.maxSelectValue !== undefined ? ownCaseDatum : undefined;
 
-			const source = buildXFormSource(doc, formUuid, {
-				xmlns,
-				expressionDoc: authoredDoc,
-				datumId: entryDatumIdResolver(
-					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
-				),
-				// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
-				// reachable-case-type depth map matches the deep validator's accept
-				// map, which builds from `mod.caseType` directly.
-				...(mod.caseType && { moduleCaseType: mod.caseType }),
-				// The case list registration form and every form of a menu
-				// whose forms read the search read the menu's Search answers from the inline
-				// query's input instance.
-				...(synthetic !== undefined
-					? {
-							searchAnswers: searchAnswersOf(
-								authoredDoc,
-								synthetic.hostModuleUuid,
-							),
-						}
-					: moduleFormsReadSearch(mod)
-						? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
-						: {}),
-				...(ownCaseDatumId !== undefined &&
-					multipleCaseDatum === undefined && {
-						selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
-					}),
-				...(multipleCaseDatum !== undefined && {
-					selectedCasesInstanceId: multipleCaseDatum.id,
-				}),
-				...(effectiveConnect && { connect: effectiveConnect }),
-				...(assets && { assets }),
-				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
-				...(opts.attachmentTarget && {
-					attachmentTarget: opts.attachmentTarget,
-				}),
-				...(opts.keyedCaseIdPrefixes && {
-					keyedCaseIdPrefixes: opts.keyedCaseIdPrefixes,
-				}),
-			});
-			attachments[`${formUniqueId}.xml`] = source.xml;
+			const source = form.shadowOf
+				? undefined
+				: buildXFormSource(doc, formUuid, {
+						xmlns,
+						expressionDoc: authoredDoc,
+						datumId: entryDatumIdResolver(
+							entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+						),
+						// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
+						// reachable-case-type depth map matches the deep validator's accept
+						// map, which builds from `mod.caseType` directly.
+						...(mod.caseType && { moduleCaseType: mod.caseType }),
+						// The case list registration form and every form of a menu
+						// whose forms read the search read the menu's Search answers from the inline
+						// query's input instance.
+						...(synthetic !== undefined
+							? {
+									searchAnswers: searchAnswersOf(
+										authoredDoc,
+										synthetic.hostModuleUuid,
+									),
+								}
+							: moduleFormsReadSearch(mod)
+								? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
+								: {}),
+						...(ownCaseDatumId !== undefined &&
+							multipleCaseDatum === undefined && {
+								selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
+							}),
+						...(multipleCaseDatum !== undefined && {
+							selectedCasesInstanceId: multipleCaseDatum.id,
+						}),
+						...(effectiveConnect && { connect: effectiveConnect }),
+						...(assets && { assets }),
+						...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
+						...(opts.attachmentTarget && {
+							attachmentTarget: opts.attachmentTarget,
+						}),
+						...(opts.keyedCaseIdPrefixes && {
+							keyedCaseIdPrefixes: opts.keyedCaseIdPrefixes,
+						}),
+					});
+			if (source) attachments[`${formUniqueId}.xml`] = source.xml;
 
 			// After-submit navigation. With destinations, HQ reads `form_links`
 			// only under `post_form_workflow = "form"`, and a built-in
@@ -456,7 +462,7 @@ export function* expandDocSteps(
 						xmlns,
 						advancedActions(caseWire, form.type, formUuid),
 						caseRefsLoad,
-						source.caseSaveReferences,
+						source?.caseSaveReferences ?? {},
 						postFormWorkflow,
 						postFormWorkflowFallback,
 						hqFormLinks,
@@ -468,11 +474,40 @@ export function* expandDocSteps(
 						CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
 						basicActions(caseWire, formUuid),
 						caseRefsLoad,
-						source.caseSaveReferences,
+						source?.caseSaveReferences ?? {},
 						postFormWorkflow,
 						postFormWorkflowFallback,
 						hqFormLinks,
 					);
+			if (formShellObj.doc_type === "AdvancedForm") {
+				const datums = entrySessionDatums(
+					doc,
+					linkContext,
+					moduleUuid,
+					formUuid,
+				);
+				formShellObj.actions = advancedActionsWithEntry(
+					formShellObj.actions,
+					datums,
+				);
+				formShellObj.arbitrary_datums = (form.computedDatums ?? []).map(
+					(row) => {
+						const datum = datums.find((d) => d.entryValueUuid === row.uuid);
+						if (!datum?.function)
+							throw new Error(
+								"A calculated entry value needs its session function.",
+							);
+						return {
+							doc_type: "ArbitraryDatum",
+							datum_id: row.key,
+							datum_function: serializeWire(datum.function, { target: "suite" })
+								.text,
+						};
+					},
+				);
+			}
+			if (form.submitLabel !== undefined)
+				formShellObj.submit_label = localization.formSubmitLabels(formUuid);
 			// Whether the form's entry asks for a case first: a basic form's
 			// `requires`, and for an advanced form whether its plan holds a
 			// load that is not the worker's (`AdvancedForm.requires`).
@@ -549,6 +584,19 @@ export function* expandDocSteps(
 			);
 			formShellObj.media_image = formMedia.media_image;
 			formShellObj.media_audio = formMedia.media_audio;
+			if (form.shadowOf) {
+				if (formShellObj.doc_type !== "AdvancedForm")
+					throw new Error("A shared form entry needs an advanced menu.");
+				const { xmlns: _xmlns, actions, ...presentation } = formShellObj;
+				return {
+					...presentation,
+					doc_type: "ShadowForm",
+					xmlns: null,
+					form_type: "shadow_form",
+					shadow_parent_form_id: identity.formUniqueId(form.shadowOf.form),
+					extra_actions: actions,
+				} satisfies HqShadowFormTree;
+			}
 			return formShellObj;
 		});
 
@@ -619,8 +667,8 @@ export function* expandDocSteps(
 					moduleName,
 					mod.caseType ?? "",
 					forms.filter(
-						(form): form is HqAdvancedFormTree =>
-							form.doc_type === "AdvancedForm",
+						(form): form is HqAdvancedFormTree | HqShadowFormTree =>
+							form.doc_type !== "Form",
 					),
 					caseDetails,
 					localization.defaultLanguage,
@@ -654,6 +702,8 @@ export function* expandDocSteps(
 			}
 			shell.root_module_id = rootModuleId;
 		}
+		if (mod.autoSelectSingle && shell.doc_type === "AdvancedModule")
+			shell.auto_select_case = true;
 		// A hidden module is never on a menu (`menus.py::_generate_menu`
 		// lowers the filter to `<menu relevant>`); the Register action reaches
 		// it through a stack push, which ignores relevance.

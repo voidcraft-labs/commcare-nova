@@ -10,6 +10,7 @@ import {
 	instanceReadsDoc,
 	reads,
 } from "../expression/__tests__/instanceReadsFixture";
+import { implicitFormSelectionId } from "../formEntryCases";
 import { type CaseOperation, caseOperationSchema } from "../forms";
 import type { Uuid } from "../uuid";
 import { chosen, chosenCaseDoc } from "./chosenCaseFixture";
@@ -18,6 +19,16 @@ const ROOT = testUuid("datum-root");
 const CHILD = testUuid("datum-child");
 const ROOT_FORM = testUuid("datum-root-form");
 const CHILD_FORM = testUuid("datum-child-form");
+
+/** The synthetic choice a form with no explicit list opens with, read in its
+ * own logic as the form's opening record. */
+const implicitChoice = (form: Uuid, module: Uuid, scalar = true) => ({
+	ref: {
+		kind: "form-selection",
+		selection: implicitFormSelectionId(form, module),
+	},
+	scalar,
+});
 
 function selectionDoc() {
 	return buildDoc({
@@ -51,7 +62,7 @@ describe("entry datums at their evaluation points", () => {
 		expect(
 			entryDatumSupplies(doc, { kind: "form", module: ROOT, form: ROOT_FORM })
 				.refs,
-		).toEqual([selected]);
+		).toEqual([selected, implicitChoice(ROOT_FORM, ROOT)]);
 		expect(
 			entryDatumSupplies(doc, {
 				kind: "form-menu",
@@ -90,6 +101,7 @@ describe("entry datums at their evaluation points", () => {
 		});
 		expect(entryDatumSupplies(doc, point).refs).toEqual([
 			{ ref: { kind: "selected-case", module: CHILD }, scalar: true },
+			implicitChoice(CHILD_FORM, CHILD),
 			{ ref: { kind: "selected-case", module: ROOT }, scalar: true },
 		]);
 		expect(
@@ -123,6 +135,7 @@ describe("entry datums at their evaluation points", () => {
 		});
 		expect(entryDatumSupplies(doc, point).refs).toEqual([
 			{ ref: { kind: "selected-case", module: CHILD }, scalar: false },
+			implicitChoice(CHILD_FORM, CHILD, false),
 		]);
 	});
 
@@ -270,6 +283,7 @@ describe("entry datums at their evaluation points", () => {
 				.refs,
 		).toEqual([
 			{ ref: { kind: "selected-case", module: ROOT }, scalar: true },
+			implicitChoice(ROOT_FORM, ROOT),
 			{ ref: { kind: "new-child-case", caseType: "visit" }, scalar: true },
 		]);
 	});

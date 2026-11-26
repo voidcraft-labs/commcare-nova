@@ -16,6 +16,7 @@ import {
 	type Field,
 	type Module,
 	operationCaseType,
+	operationSavesOnlyChanged,
 	proseSurfaceReads,
 	searchInputDefault,
 	targetConditionUses,
@@ -425,9 +426,7 @@ export function linkWriteIsShown(
 function formSavesOnlyEditedAnswers(
 	form: BlueprintDoc["forms"][string],
 ): boolean {
-	return (form.caseOperations ?? []).some((operation) =>
-		(operation.writes ?? []).some((write) => write.onlyIfChanged === true),
-	);
+	return (form.caseOperations ?? []).some(operationSavesOnlyChanged);
 }
 
 /**

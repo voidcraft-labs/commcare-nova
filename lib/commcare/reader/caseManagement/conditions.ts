@@ -15,7 +15,7 @@ import { caseSlotFacts, stateCondition } from "@/lib/domain/basicCaseSlots";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import { formExpressionFacts } from "@/lib/domain/expression/context";
-import { type Claim, defineClaims, refuse } from "../claims";
+import { type Claim, defineClaims, refuse, take } from "../claims";
 import type { DraftForm, ReadContext } from "../context";
 import { isJsonObject, pointerToken } from "../jsonCursor";
 import type { DraftField } from "../xform";
@@ -44,11 +44,32 @@ export const CONDITION_CLAIMS = defineClaims("caseManagement.conditions", {
 		`${F}/an-open-close-child-case-or-advanced-action-condition-with`,
 		"schema:FormActionCondition.answer",
 	),
-	notYesNo: refuse(
-		`${F}/a-child-case-or-advanced-action-condition-boolean-true-on-a`,
-		"schema:FormActionCondition.operator",
-	),
 });
+
+const ANSWER_ALONE = `${F}/a-child-case-or-advanced-action-condition-boolean-true-on-a`;
+
+/** A case change's condition that reads a question alone whose answer is no
+ *  yes or no, claimed at the action's condition key in place of the row the
+ *  key otherwise falls under (`conditionReadsAnswerAlone`). */
+export const ANSWER_ALONE_CLAIMS = defineClaims(
+	"caseManagement.conditions.answerAlone",
+	{
+		subcaseCondition: take(ANSWER_ALONE, "schema:OpenSubCaseAction.condition"),
+		subcaseClose: take(
+			ANSWER_ALONE,
+			"schema:OpenSubCaseAction.close_condition",
+		),
+		loadClose: take(ANSWER_ALONE, "schema:LoadUpdateAction.close_condition"),
+		openCondition: take(
+			ANSWER_ALONE,
+			"schema:AdvancedOpenCaseAction.open_condition",
+		),
+		openClose: take(
+			ANSWER_ALONE,
+			"schema:AdvancedOpenCaseAction.close_condition",
+		),
+	},
+);
 
 export type ReadCondition =
 	| { readonly kind: "always" }
@@ -94,7 +115,9 @@ const PRELOAD_CONDITION_ENTRY = `${F}/preload-action-condition`;
  *   serves no null for a condition Nova leaves out;
  * - a preload action's condition stored other than `never` (the Case
  *   Management page saves `case_preload` as `always` with or without a preload),
- *   which Nova writes as `never`, recorded at the condition whole;
+ *   which Nova writes as `never`, recorded at the condition whole; a case
+ *   preload that assigns values Nova writes `always` with the form's opening
+ *   assignments, so there any condition but `always` is recorded;
  * - a value of an action stored null where Nova writes the value a new action
  *   holds, which every reader reads alike: a `name_update` (Nova writes a
  *   `ConditionalCaseUpdate`, `casePlacementPlan.ts::planFormCaseWire`, whose
@@ -120,7 +143,17 @@ export function recordRespelledConditions(
 	for (const key of PRELOAD_ACTIONS) {
 		const action = actions[key];
 		if (!isObject(action) || !isObject(action.condition)) continue;
-		if (conditionType(action.condition) === "never") continue;
+		// A case preload that assigns values keeps them as the form's opening
+		// assignments, which Nova writes back as an `always` load
+		// (`casePlacementPlan.ts::buildPlan`). HQ's build reads a preload by its
+		// map alone (`form_actions.py::PreloadAction.is_active`), so any other
+		// stored condition is the same state, respelled.
+		const assigns =
+			key === "case_preload" &&
+			isObject(action.preload) &&
+			Object.keys(action.preload).length > 0;
+		if (conditionType(action.condition) === (assigns ? "always" : "never"))
+			continue;
 		const at = `${pointer}/${key}/condition`;
 		whole.add(at);
 		ctx.facts.sameStateRewrites.push({
@@ -304,25 +337,67 @@ export function statedBack(
 }
 
 /**
- * The finding for a case change's condition (a child case's, or an advanced
- * action's) that reads one question alone where CommCare holds no yes or no
- * for it: HQ's `boolean_true` over a select, a label or a Hidden Value
- * calculated as text. Core reads such an answer as true wherever it is not
- * empty (`FunctionUtils.toBoolean`), `0` included, and Nova's record rules
- * take a read alone as a condition only where it holds a yes or no
- * (`lib/domain/expression/ruleSets.ts::recordPositionVerdict`), the fact the
- * gate reads (`formExpressionFacts`' held class). The form's own conditions
- * take Core's coercions and are never this finding.
+ * Whether a case change's stored condition reads, as HQ's `boolean_true`, a
+ * question that is not a Hidden Value: a select, a label or any other
+ * question CommCare holds no yes or no for, whose answer Core reads as true
+ * wherever it is not empty (`FunctionUtils.toBoolean`). Its condition is held
+ * as that operation, `boolean(...)` (`effectiveBooleanConditions`). A Hidden
+ * Value's held class is the bound document's, so whether its read is one is
+ * settled there.
  */
-export function conditionNotYesNo(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	expression: Expression,
-): Claim<"refuse"> | undefined {
-	if (expression.kind !== "term" || expression.term.kind !== "field")
-		return undefined;
-	const held = formExpressionFacts(doc, formUuid)?.fields.get(
-		expression.term.uuid,
-	)?.held;
-	return held === "boolean" ? undefined : CONDITION_CLAIMS.notYesNo;
+export function conditionReadsAnswerAlone(
+	form: DraftForm,
+	stored: unknown,
+): boolean {
+	if (conditionType(stored) !== "if" || !isObject(stored)) return false;
+	if (stored.operator !== "boolean_true") return false;
+	const field = conditionField(form, stored);
+	return field !== undefined && field.kind !== "hidden";
+}
+
+/**
+ * Each case change's condition that reads one question alone where CommCare
+ * holds no yes or no for its answer, held as the explicit operation Core
+ * applies to it: `boolean(...)` of the question, true wherever the answer is
+ * not empty (`FunctionUtils.toBoolean`, `0` and the text `false` included),
+ * which `stateCondition` states back as HQ's `boolean_true`. A read of a
+ * Hidden Value a condition calculates stays a bare read: CommCare holds a yes
+ * or no for it (`ruleSets.ts::recordPositionVerdict`). The form's own
+ * conditions take Core's coercions and are left as they are.
+ */
+export function effectiveBooleanConditions(doc: BlueprintDoc): BlueprintDoc {
+	let forms: BlueprintDoc["forms"] | undefined;
+	for (const [uuid, form] of Object.entries(doc.forms)) {
+		const operations = form?.caseOperations;
+		if (form === undefined || operations === undefined) continue;
+		let facts: ReturnType<typeof formExpressionFacts> | null = null;
+		let changed = false;
+		const next = operations.map((operation) => {
+			const condition = operation.condition;
+			if (
+				condition === undefined ||
+				condition.kind !== "term" ||
+				condition.term.kind !== "field" ||
+				condition.term.filters !== undefined ||
+				condition.term.role !== undefined
+			)
+				return operation;
+			facts ??= formExpressionFacts(doc, uuid as Uuid);
+			if (facts?.fields.get(condition.term.uuid)?.held === "boolean")
+				return operation;
+			changed = true;
+			return {
+				...operation,
+				condition: {
+					kind: "call" as const,
+					fn: "boolean" as const,
+					args: [condition],
+				},
+			};
+		});
+		if (!changed) continue;
+		forms ??= { ...doc.forms };
+		forms[uuid as Uuid] = { ...form, caseOperations: next };
+	}
+	return forms === undefined ? doc : { ...doc, forms };
 }

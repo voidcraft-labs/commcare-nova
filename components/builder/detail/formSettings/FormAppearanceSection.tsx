@@ -115,43 +115,45 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 						}
 					/>
 				</div>
-				<div data-form-format-text={formatted ? "on" : "off"}>
-					<ToggleRow
-						label={FORM_FORMAT_TEXT_NAME}
-						description={formatTextOffLine("form", platforms)}
-						checked={formatted}
-						onChange={toggleFormatText}
-					/>
-					{confirmingOff && (
-						<fieldset
-							data-format-text-prompt
-							className="m-0 mt-2 min-w-0 rounded-lg border border-white/[0.06] bg-nova-deep/50 p-3"
-						>
-							<legend className="float-left w-full p-0 text-xs leading-relaxed text-nova-text-secondary">
-								{FORM_FORMAT_TEXT_CONFIRM}
-							</legend>
-							<div className="clear-both flex flex-wrap gap-2 pt-2">
-								<Button
-									type="button"
-									variant="secondary"
-									data-format-text-confirm="off"
-									onClick={() => writePlainText(true)}
-								>
-									{FORMAT_TEXT_CONFIRM_OFF}
-								</Button>
-								<Button
-									type="button"
-									variant="ghost"
-									data-format-text-confirm="keep"
-									onClick={() => setConfirmingOff(false)}
-								>
-									{FORMAT_TEXT_CONFIRM_KEEP}
-								</Button>
-							</div>
-						</fieldset>
-					)}
-					<RejectionInline message={formatRefusal} />
-				</div>
+				{!form.shadowOf && (
+					<div data-form-format-text={formatted ? "on" : "off"}>
+						<ToggleRow
+							label={FORM_FORMAT_TEXT_NAME}
+							description={formatTextOffLine("form", platforms)}
+							checked={formatted}
+							onChange={toggleFormatText}
+						/>
+						{confirmingOff && (
+							<fieldset
+								data-format-text-prompt
+								className="m-0 mt-2 min-w-0 rounded-lg border border-white/[0.06] bg-nova-deep/50 p-3"
+							>
+								<legend className="float-left w-full p-0 text-xs leading-relaxed text-nova-text-secondary">
+									{FORM_FORMAT_TEXT_CONFIRM}
+								</legend>
+								<div className="clear-both flex flex-wrap gap-2 pt-2">
+									<Button
+										type="button"
+										variant="secondary"
+										data-format-text-confirm="off"
+										onClick={() => writePlainText(true)}
+									>
+										{FORMAT_TEXT_CONFIRM_OFF}
+									</Button>
+									<Button
+										type="button"
+										variant="ghost"
+										data-format-text-confirm="keep"
+										onClick={() => setConfirmingOff(false)}
+									>
+										{FORMAT_TEXT_CONFIRM_KEEP}
+									</Button>
+								</div>
+							</fieldset>
+						)}
+						<RejectionInline message={formatRefusal} />
+					</div>
+				)}
 			</div>
 		</div>
 	);
