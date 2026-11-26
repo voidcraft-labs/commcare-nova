@@ -19550,6 +19550,21 @@
 		}
 	},
 	{
+		"id": "hq-empty-search/conditional-registration-returning-to-search",
+		"base": "hq-empty-search",
+		"entry": "menus-and-case-lists/case-list-form-return-search-needs-the-created-case",
+		"standing": "never",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "conditional_registration_returning_to_search"
+		}
+	},
+	{
 		"id": "hq-expressions/call-center-indicators-read",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/indicators-call-center-indicators",

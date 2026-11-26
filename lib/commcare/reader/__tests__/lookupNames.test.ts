@@ -1,14 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn } from "@/lib/domain";
-import type { SuiteDetailSources } from "../../hq/suiteDetailSources";
+import {
+	readSuiteDetailSources,
+	type SuiteDetailSources,
+	suiteFormScope,
+	suiteMenuScope,
+} from "../../hq/suiteDetailSources";
 import { wireTable } from "../../lookup/__tests__/lookupWireCorpus";
 import { lookupWireNaming } from "../../lookup/naming";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
-import { readHqApp } from "../index";
-import { type ExportEdits, exportedBody, inputFor } from "./novaExport";
+import { readHqApp, readHqLookupTagsSteps } from "../index";
+import {
+	type ExportEdits,
+	exportedBody,
+	inputFor,
+	mirrorMenu,
+} from "./novaExport";
 
-async function reading(tag: string, label: string, edits: ExportEdits = {}) {
+async function reading(
+	tag: string,
+	label: string,
+	edits: ExportEdits = {},
+	suiteDetails?: SuiteDetailSources,
+	observeSuiteDetail?: (keys: readonly string[], id: string) => void,
+) {
 	const table = wireTable(tag, [
 		{ name: "code", type: "text" },
 		{ name: label, type: "text" },
@@ -43,22 +59,27 @@ async function reading(tag: string, label: string, edits: ExportEdits = {}) {
 		expand: { lookupNaming: lookupWireNaming([table]) },
 		...edits,
 	});
-	return readHqApp(
-		await inputFor(body, {
-			lookup: {
-				definitions: new Map([[table.id, table]]),
-				table: (name) =>
-					name === table.tag
-						? {
-								tableId: table.id,
-								column: (candidate) =>
-									table.columns.find((column) => column.wireName === candidate)
-										?.id,
-							}
-						: undefined,
-			},
-		}),
-	);
+	const input = await inputFor(body, {
+		suiteDetails,
+		lookup: {
+			definitions: new Map([[table.id, table]]),
+			table: (name) =>
+				name === table.tag
+					? {
+							tableId: table.id,
+							column: (candidate) =>
+								table.columns.find((column) => column.wireName === candidate)
+									?.id,
+						}
+					: undefined,
+		},
+	});
+	if (observeSuiteDetail) {
+		for (const _ of readHqLookupTagsSteps({ ...input, observeSuiteDetail })) {
+			// Consume the same discovery steps the Project data read uses.
+		}
+	}
+	return readHqApp(input);
 }
 
 describe("reading an HQ form with named table data", () => {
@@ -175,6 +196,136 @@ describe("reading an HQ form with named table data", () => {
 			missing.kind === "account" &&
 				missing.findings.map((one) => one.detail.reason),
 		).toContain("parse:unknown-column");
+	});
+});
+
+describe("the instance declarations available to navigation", () => {
+	const id = "item-list:zones";
+	const src = "jr://fixture/item-list:zones";
+	const grouped = `count(instance((('${id}')))/zones_list/zones)`;
+	const hosted = `<instance id="${id}" src="${src}"/>`;
+	const missing =
+		"expressions-and-data/lookup-table-instance-undiscovered-in-suite";
+	// The source menu contributes its own commands to root, despite sharing
+	// the displayed menu ID with a different, unreachable contributor.
+	const suite = (own: string) => `<suite>
+		<menu id="root">${hosted}<command id="m1-f0"/></menu>
+		<menu id="root">${own}<command id="m0-f0"/></menu>
+		<entry><command id="m1-f0"/>${hosted}</entry>
+		<entry><command id="m0-f0"/>${own}</entry>
+	</suite>`;
+	const requested = new Map(
+		[suiteMenuScope(0), suiteFormScope(0, 0)].map((key) => [
+			key,
+			new Set([id]),
+		]),
+	);
+	it.each([
+		["menu", "filter"],
+		["form", "filter"],
+		["menu", "badge"],
+		["form", "badge"],
+	] as const)(
+		"binds a grouped lookup only on its %s %s scope",
+		async (where, slot) => {
+			const edit: ExportEdits = {
+				modules(menus) {
+					const owner =
+						where === "menu"
+							? menus[0]
+							: (menus[0].forms as Record<string, unknown>[])[0];
+					if (slot === "filter")
+						owner[where === "menu" ? "module_filter" : "form_filter"] =
+							`${grouped} > 0`;
+					else
+						owner.custom_icons = [{ doc_type: "CustomIcon", xpath: grouped }];
+					return menus;
+				},
+			};
+			const present = await reading(
+				"zones",
+				"label",
+				edit,
+				readSuiteDetailSources(suite(hosted), requested),
+			);
+			expect(present.kind === "account" ? present.findings : []).toEqual([]);
+			expect(present.defects).toEqual([]);
+			const absent = await reading(
+				"zones",
+				"label",
+				edit,
+				readSuiteDetailSources(suite(""), requested),
+			);
+			expect(
+				absent.kind === "account" && absent.findings.map((one) => one.code),
+			).toContain(missing);
+			expect(absent.defects).toEqual([]);
+		},
+	);
+
+	it("reads a pre-2.54 module condition on the entries of its displayed menu", () => {
+		const contents = (second: string) => `<suite>
+			<menu id="m0"><command id="m0-f0"/></menu>
+			<menu id="m0"><command id="m1-f0"/></menu>
+			<entry><command id="m0-f0"/>${hosted}</entry>
+			<entry><command id="m1-f0"/>${second}</entry>
+		</suite>`;
+		const key = suiteMenuScope(0);
+		expect(
+			readSuiteDetailSources(contents(hosted), requested, undefined, false)
+				?.get(key)
+				?.get(id),
+		).toBe("jr://fixture/item-list:zones");
+		expect(
+			readSuiteDetailSources(contents(""), requested, undefined, false)
+				?.get(key)
+				?.get(id),
+		).toBeNull();
+		expect(
+			readSuiteDetailSources(contents(hosted), requested)?.get(key)?.get(id),
+		).toBeNull();
+	});
+
+	it("observes physical copies and requires the same source on each listed entry", async () => {
+		const contents = (second: string) => `<suite>
+			<entry><command id="m0-f0"/>${hosted}</entry>
+			<entry><command id="m1-f0"/>${second}</entry>
+		</suite>`;
+		const scopes = [suiteFormScope(0, 0), suiteFormScope(1, 0)];
+		const reads = new Map(scopes.map((key) => [key, new Set([id])]));
+		const edits: ExportEdits = {
+			modules(menus) {
+				const parent = menus[0];
+				const [form] = parent.forms as Record<string, unknown>[];
+				form.form_filter = `${grouped} > 0`;
+				return [
+					parent,
+					{ ...mirrorMenu(String(parent.unique_id)), shadow_module_version: 2 },
+				];
+			},
+		};
+		const observed: unknown[] = [];
+		const held = await reading(
+			"zones",
+			"label",
+			edits,
+			readSuiteDetailSources(contents(hosted), reads),
+			(keys, instance) => observed.push([keys, instance]),
+		);
+		expect(observed).toContainEqual([scopes, id]);
+		expect(held.kind === "account" ? held.findings : []).toEqual([]);
+		const other =
+			'<instance id="item-list:zones" src="jr://fixture/item-list:elsewhere"/>';
+		const conflict = await reading(
+			"zones",
+			"label",
+			edits,
+			readSuiteDetailSources(contents(other), reads),
+		);
+		expect(
+			conflict.kind === "account" && conflict.findings.map((one) => one.code),
+		).toContain(missing);
+		expect(conflict.defects).toEqual([]);
 	});
 });
 

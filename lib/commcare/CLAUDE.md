@@ -2216,6 +2216,17 @@ because there is no search to open on.
 
 `caseSearchConfig.searchButtonDisplayCondition` is orthogonal to that flag decision. It emits as the case-list Search action's `relevant` predicate, not as a Results-row filter and not as the `auto_launch` expression itself. Core first removes irrelevant actions and then evaluates auto-launch among the remaining actions, so the predicate gates the automatic transition wherever the workflow auto-launches (search first and skip to results whose forms read their own case); in list first it gates the manual Search action. Preview and authoring copy must preserve that distinction rather than treating any input-free search config as a generic “go to Results” rule.
 
+Working HQ suite reads also resolve the lookup instances consumed by menu
+and form filters and badges. The reader reads each menu contribution's own
+declarations, including when several contributions share a displayed menu
+ID. A form uses its entry and every listed copy of that entry. A parent
+filter also uses display-only child contributions that inherit its condition.
+Those physical scopes must agree. A declaration in an unrelated entry, or
+a slot's scanner-visible spelling after HQ already proved the declaration
+absent, cannot supply the instance. Working suite evidence stays bound to
+the current source bracket and every available build profile. Calculated
+details, XForms, and Search use their own existing scope rules.
+
 ### Registration from the case list lowering
 
 Explicit `postSubmit: "firstMenu"` on a case list registration form emits HQ `root` and

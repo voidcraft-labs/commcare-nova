@@ -39,7 +39,9 @@ import {
 	parentStepRead,
 } from "../../hq/entryFacts";
 import { sourceModuleMenuLayout } from "../../hq/menuLayout";
+import { suiteFormScope, suiteMenuScope } from "../../hq/suiteDetailSources";
 import { hiddenMenuEntryPoints } from "../../validator/rules/hiddenFromMenu";
+import { chargeWork } from "../../workMeter";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import type { HeldTexts } from "../caseList/columns";
@@ -62,6 +64,7 @@ import {
 } from "../heldText";
 import type { JsonCursor } from "../jsonCursor";
 import { isJsonObject, objectMembers } from "../jsonCursor";
+import type { PendingExpression } from "../pendingExpressions";
 import { placeKey } from "../place";
 import { readNavMedia } from "./navMedia";
 
@@ -1165,9 +1168,39 @@ const BADGE = defineClaims("menus.badges", {
 	),
 });
 
+/** One source expression may run on several listed form entries or on a
+ * parent menu and its display-only children. Every reached scope must agree
+ * on the declaration. A profile with no such evaluator adds no constraint. */
+function navigationSuiteRead(
+	ctx: ReadContext,
+	suiteNavigation: readonly string[],
+): Pick<PendingExpression, "suiteNavigation" | "navigationSources"> {
+	const scopes = ctx.input.suiteDetails;
+	let navigationSources: Map<string, string | null> | undefined;
+	for (const key of suiteNavigation) {
+		const found = scopes?.get(key);
+		if (!found) continue;
+		if (!navigationSources) {
+			chargeWork("compare", found.size);
+			navigationSources = new Map(found);
+			continue;
+		}
+		chargeWork("compare", navigationSources.size + found.size);
+		for (const [id, source] of navigationSources)
+			if (found.get(id) !== source) navigationSources.set(id, null);
+		for (const id of found.keys())
+			if (!navigationSources.has(id)) navigationSources.set(id, null);
+	}
+	return { suiteNavigation, navigationSources };
+}
+
 /** The navigation item reads the first icon. Missing language entries fall back to
  * the app's first language; unlike a menu name, they never take an arbitrary language. */
-function readBadge(ctx: ReadContext, owner: DraftModule | DraftForm): void {
+function readBadge(
+	ctx: ReadContext,
+	owner: DraftModule | DraftForm,
+	scopes: readonly string[],
+): void {
 	const { json } = owner;
 	if (!nonEmptyList(json.peek("custom_icons"))) return;
 	const isForm = "form" in owner;
@@ -1219,6 +1252,7 @@ function readBadge(ctx: ReadContext, owner: DraftModule | DraftForm): void {
 				mode: { target: "hq-json", interpolation: "none" },
 				key: "schema:CustomIcon.xpath",
 				place: owner.place,
+				...navigationSuiteRead(ctx, scopes),
 			},
 			{ json: first, key: "xpath" },
 		);
@@ -1364,11 +1398,15 @@ function readMenuSettings(
 	}
 	if (nonEmptyList(stored.custom_assertions))
 		json.refuse("custom_assertions", MENU.customAssertions[cls]);
-	readBadge(ctx, module);
+	readBadge(ctx, module, [suiteMenuScope(module.index)]);
 }
 
 /** A display condition's text, registered whole for the expression stage. */
-function registerModuleFilter(ctx: ReadContext, module: DraftModule): void {
+function registerModuleFilter(
+	ctx: ReadContext,
+	module: DraftModule,
+	displayOnlyChildren: readonly number[],
+): void {
 	const { json } = module;
 	const cls = menuClass(module);
 	const text = json.peek("module_filter");
@@ -1388,6 +1426,10 @@ function registerModuleFilter(ctx: ReadContext, module: DraftModule): void {
 			mode: { target: "hq-json", interpolation: "no-case" },
 			place: module.place,
 			key: `schema:${cls}.module_filter`,
+			...navigationSuiteRead(ctx, [
+				suiteMenuScope(module.index),
+				...displayOnlyChildren.map(suiteMenuScope),
+			]),
 		},
 		{ json, key: "module_filter" },
 	);
@@ -1406,6 +1448,7 @@ function registerFormFilter(
 	ctx: ReadContext,
 	module: DraftModule,
 	form: DraftForm,
+	scopes: readonly string[],
 ): void {
 	const { json } = form;
 	const text = json.peek("form_filter");
@@ -1429,6 +1472,7 @@ function registerFormFilter(
 			},
 			place: form.place,
 			key: `schema:${form.docType}.form_filter`,
+			...navigationSuiteRead(ctx, scopes),
 			...(fixtureSelectActive(module) ? { fixtureValue: true } : {}),
 		},
 		{ json, key: "form_filter" },
@@ -1437,11 +1481,15 @@ function registerFormFilter(
 }
 
 /** A form's own navigation settings: its media, badges and assertions. */
-function readFormSettings(ctx: ReadContext, form: DraftForm): void {
+function readFormSettings(
+	ctx: ReadContext,
+	form: DraftForm,
+	scopes: readonly string[],
+): void {
 	const { json } = form;
 	if (nonEmptyList(json.peek("custom_assertions")))
 		json.refuse("custom_assertions", MENU.formCustomAssertions[form.docType]);
-	readBadge(ctx, form);
+	readBadge(ctx, form, scopes);
 	const media = readNavMedia(
 		ctx,
 		json,
@@ -1463,6 +1511,31 @@ function readFormSettings(ctx: ReadContext, form: DraftForm): void {
 export function readModules(ctx: ReadContext, app: DraftApp): void {
 	const folded = new Set(app.foldedMenus.map((one) => one.menu));
 	const stored = rawModules(ctx);
+	const displayOnlyChildren = new Map<string, number[]>();
+	const listed = new Map<
+		Uuid,
+		{ index: number; excluded: ReadonlySet<Uuid> }[]
+	>();
+	for (const module of app.modules) {
+		const parent = module.json.peek("root_module_id");
+		if (
+			module.json.peek("put_in_root") === true &&
+			typeof parent === "string"
+		) {
+			const children = displayOnlyChildren.get(parent) ?? [];
+			children.push(module.index);
+			displayOnlyChildren.set(parent, children);
+		}
+		const source = module.module.formsFromMenu;
+		if (source) {
+			const routes = listed.get(source.menuUuid) ?? [];
+			routes.push({
+				index: module.index,
+				excluded: new Set(source.excludedFormUuids),
+			});
+			listed.set(source.menuUuid, routes);
+		}
+	}
 	for (const module of app.modules) {
 		const menu = stored[module.index] ?? NO_ENTRIES;
 		readCaseType(ctx, module);
@@ -1488,7 +1561,11 @@ export function readModules(ctx: ReadContext, app: DraftApp): void {
 		readFormsInMenuAbove(ctx, module, menu);
 		readParentSelection(ctx, app, module, menu);
 		readCaseListMenuItem(ctx, module, menu);
-		registerModuleFilter(ctx, module);
+		registerModuleFilter(
+			ctx,
+			module,
+			displayOnlyChildren.get(module.uniqueId) ?? [],
+		);
 		if (media.icon !== undefined || media.audioLabel !== undefined)
 			ctx.writeDraft(() => {
 				Object.assign(module.module, media);
@@ -1496,8 +1573,12 @@ export function readModules(ctx: ReadContext, app: DraftApp): void {
 	}
 	for (const module of app.modules)
 		for (const form of module.forms) {
-			readFormSettings(ctx, form);
-			registerFormFilter(ctx, module, form);
+			const scopes = [suiteFormScope(module.index, form.index)];
+			for (const route of listed.get(module.uuid) ?? [])
+				if (!route.excluded.has(form.uuid))
+					scopes.push(suiteFormScope(route.index, form.index));
+			readFormSettings(ctx, form, scopes);
+			registerFormFilter(ctx, module, form, scopes);
 		}
 	writeMenuIds(ctx, app, folded);
 	checkMenuOrder(ctx, app, folded);
