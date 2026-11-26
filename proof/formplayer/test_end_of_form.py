@@ -237,11 +237,9 @@ def test_shared_forms_keep_their_route_and_the_links_respect_each_routes_conditi
         with apps.served(published, formplayer_runner) as served:
             menus = {}
             submitted = {}
-            home = None
             for menu, path in (("Visits", ["0"]), ("Clinic", ["1"])):
                 with served.run(menu):
                     web = apps.web(formplayer_runner, served)
-                    home = _landing(web.navigate([]))
                     screen = web.navigate(path)
                     menus[menu] = _landing(screen)
                     ordinal = next(
@@ -271,8 +269,8 @@ def test_shared_forms_keep_their_route_and_the_links_respect_each_routes_conditi
                     entered[endpoint] = _landing(opened)
     evidence("listed-forms", {"menus": menus, "entries": entered, "submissions": submitted})
     assert submitted["Clinic"]["namespace"] == submitted["Visits"]["namespace"]
-    assert home is not None and home["commands"] == ["Visits", "Clinic"]
-    assert {menu: answer["landing"] for menu, answer in submitted.items()} == dict.fromkeys(menus, home)
+    # With the ordinary app-home workflow the response has no follow-on session.
+    assert all(answer["landing"] is None for answer in submitted.values()), submitted
     assert menus["Visits"] == {
         "kind": "commands",
         "title": "Visits",
