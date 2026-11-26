@@ -1,3 +1,5 @@
+import { moduleUuidOfForm } from "@/lib/domain";
+import type { CompletedFormSearch } from "./xpathInstances";
 /**
  * After-submit destinations in the running preview.
  *
@@ -150,6 +152,7 @@ export interface FormLinkEvaluationInput {
 	/** What the source entry's search returned, in a search-first module:
 	 *  the session keeps it on its query step after the form closes. */
 	readonly searchResults?: SearchResultsSnapshot;
+	readonly searches?: readonly CompletedFormSearch[];
 }
 
 export type FormLinkAsyncEvaluator = (
@@ -426,9 +429,14 @@ function formLinkSecondaryInstances(
 		lookupData: input.lookupData ?? null,
 		caseDatabase: input.caseDatabase ?? null,
 		caseTypes: materializableCaseTypes(input.doc),
+		menus: input.doc.modules,
+		searchResultsName:
+			input.doc.modules[moduleUuidOfForm(input.doc, input.formUuid) ?? ""]
+				?.searchResultsName,
 		sessionData: Object.fromEntries(
 			[...input.sessionDatums].map(([name, datum]) => [name, datum.value]),
 		),
+		...(input.searches === undefined ? {} : { searches: input.searches }),
 		...(input.searchResults === undefined
 			? {}
 			: { searchResults: input.searchResults }),

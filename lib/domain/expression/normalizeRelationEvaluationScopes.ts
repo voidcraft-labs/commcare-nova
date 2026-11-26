@@ -296,7 +296,11 @@ function inspect(
 		else inspection.related.set(scope.key, scope);
 		return;
 	}
-	if (node.kind === "case-index" || node.kind === "case-row-type") {
+	if (
+		node.kind === "case-index" ||
+		node.kind === "case-row-type" ||
+		node.kind === "search-result-field"
+	) {
 		inspection.self++;
 		return;
 	}

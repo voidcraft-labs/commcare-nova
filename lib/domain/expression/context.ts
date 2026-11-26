@@ -15,6 +15,7 @@ import {
 	type EntryDatumSupplies,
 	entryDatumSupplies,
 	formLinkTargetSupplies,
+	loadedSearchModules,
 	sharedFormDatumSupplies,
 } from "../entryDatumSupplies";
 import { formOfField } from "../fieldForm";
@@ -40,7 +41,9 @@ import {
 import { formRouteBeforeCase } from "../menuScreens";
 import {
 	effectiveCaseSearchConfig,
+	isSearchAnswerInput,
 	moduleFormsReadSearch,
+	projectSearchOf,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
 	searchInputRuntimeValueType,
 } from "../modules";
@@ -52,6 +55,7 @@ import {
 } from "../organization";
 import { declaredPlatforms, type Platform } from "../platforms";
 import { proseText } from "../prose";
+import { searchSupplierAddresses } from "../referenceNames";
 import {
 	expressionSlotValues,
 	FIELD_REFERENCE_SLOTS,
@@ -111,6 +115,8 @@ export type LookupDefinitionIndex = ReadonlyMap<
 	}
 >;
 export interface SearchInputDecl {
+	readonly supplier?: Uuid;
+	readonly supplierId?: string;
 	readonly uuid: Uuid;
 	readonly name: string;
 	readonly data_type?: CasePropertyDataType;
@@ -149,6 +155,7 @@ export interface ExpressionFacts {
 	readonly organizationLevels: Readonly<Record<string, OrganizationLevel>>;
 	readonly locationProperties: ReadonlyMap<Uuid, LocationProperty>;
 	readonly moduleCaseTypes: ReadonlyMap<Uuid, string>;
+	readonly projectSearchMenus?: ReadonlySet<Uuid>;
 	readonly moduleUuids: ReadonlySet<Uuid>;
 	readonly operationCaseTypes: ReadonlyMap<Uuid, string>;
 	readonly moduleSearchInputs: ReadonlyMap<Uuid, readonly SearchInputDecl[]>;
@@ -186,6 +193,9 @@ export interface FormExpressionFacts extends FormStructure {
 	 * open after the inline query that keeps the Search answers
 	 * (`search-input:results:inline`). */
 	readonly formsReadSearchModule: boolean;
+	readonly searchResultsName?: string;
+	/** The menus whose query steps are in this form's entry, by their current authored names. */
+	readonly searchSuppliers?: readonly { module: Uuid; resultsName?: string }[];
 	/** Whether a translation unit this form's questions or choices own shows
 	 * an answer in some language (`translationUnits.ts::formTranslationUnits`).
 	 * Asked only by a `jr:itext` or `jr:choice-name` read, so a form with none
@@ -383,11 +393,13 @@ export function untypedExpressionFacts(
 		moduleSearchInputs: new Map(
 			Object.values(doc.modules).map((module) => [
 				module.uuid,
-				(module.caseListConfig?.searchInputs ?? []).map((input) => ({
-					uuid: input.uuid,
-					name: input.name,
-					data_type: searchInputRuntimeValueType(input),
-				})),
+				(module.caseListConfig?.searchInputs ?? [])
+					.filter(isSearchAnswerInput)
+					.map((input) => ({
+						uuid: input.uuid,
+						name: input.name,
+						data_type: searchInputRuntimeValueType(input),
+					})),
 			]),
 		),
 		userPropertySlugs: userPropertySlugsByUuid(doc),
@@ -398,6 +410,11 @@ export function untypedExpressionFacts(
 				property,
 			]),
 		),
+		projectSearchMenus: new Set(
+			Object.values(doc.modules)
+				.filter((module) => projectSearchOf(module) !== undefined)
+				.map((module) => module.uuid),
+		),
 		moduleCaseTypes: new Map(
 			Object.values(doc.modules).flatMap((module) => {
 				const value = menuWithInheritedCaseSettings(doc, module.uuid)?.caseType;
@@ -407,6 +424,18 @@ export function untypedExpressionFacts(
 	};
 	untypedFacts.set(doc, result);
 	return result;
+}
+
+/** A project service returns its own rows. Ordinary search guarantees one
+ * record type and can add related cases beside the actual matches. */
+export function readsProjectSearchResults(
+	ctx: ExpressionContext,
+	supplier?: Uuid,
+): boolean {
+	const source = supplier ?? ctx.supplies.searchResults?.module;
+	return (
+		source !== undefined && ctx.facts.projectSearchMenus?.has(source) === true
+	);
 }
 
 export function expressionFacts(doc: BlueprintDoc): ExpressionFacts {
@@ -587,16 +616,40 @@ function buildFormFacts(
 			repeats: repeatsByField.get(uuid) ?? [],
 		});
 	}
-	const searchInputs = (module?.caseListConfig?.searchInputs ?? []).map(
-		(input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			data_type: searchInputRuntimeValueType(input),
-		}),
+	const supplied = loadedSearchModules(
+		entryDatumSupplies(
+			doc,
+			{ kind: "form", module: structure.moduleUuid, form: structure.formUuid },
+			structure,
+		),
 	);
+	const menuNames = supplied.some((uuid) => uuid !== structure.moduleUuid)
+		? searchSupplierAddresses(doc.modules)
+		: undefined;
+	const searchInputs = [
+		...new Set([structure.moduleUuid, ...supplied]),
+	].flatMap((uuid) => {
+		const owner = doc.modules[uuid];
+		return (owner?.caseListConfig?.searchInputs ?? [])
+			.filter(isSearchAnswerInput)
+			.map((input) => ({
+				uuid: input.uuid,
+				name: input.name,
+				data_type: searchInputRuntimeValueType(input),
+				...(uuid !== structure.moduleUuid && {
+					supplier: uuid,
+					supplierId: menuNames?.get(uuid),
+				}),
+			}));
+	});
 	return {
 		...structure,
 		fields,
+		searchResultsName: module?.searchResultsName,
+		searchSuppliers: supplied.map((uuid) => ({
+			module: uuid,
+			resultsName: doc.modules[uuid].searchResultsName,
+		})),
 		searchInputs,
 		caseListRegistrationForm:
 			afterEmptySearchRegistrationFormOf(doc, structure.moduleUuid) ===
@@ -751,13 +804,13 @@ export function slotContext(
 			? undefined
 			: menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (module === undefined || moduleUuid === undefined) return undefined;
-	const searchInputs = (module.caseListConfig?.searchInputs ?? []).map(
-		(input) => ({
+	const searchInputs = (module.caseListConfig?.searchInputs ?? [])
+		.filter(isSearchAnswerInput)
+		.map((input) => ({
 			uuid: input.uuid,
 			name: input.name,
 			data_type: searchInputRuntimeValueType(input),
-		}),
-	);
+		}));
 	let profile: SlotProfile;
 	let caseTexts: ExpressionContext["caseTexts"];
 	let rows: RowScope[] = [];
@@ -777,9 +830,8 @@ export function slotContext(
 				!declaration.repeatModes.includes(field.repeatMode as never))
 		)
 			return undefined;
-		if (slot.slot === "option_label" && !field.choices?.kind) return undefined;
 		if (
-			slot.slot === "option_label" &&
+			(slot.slot === "option_label" || slot.slot === "option_extended_text") &&
 			(field.choices?.kind !== "inline" ||
 				!field.choices.options.some(
 					(option) => option.uuid === slot.member.optionUuid,
@@ -833,7 +885,8 @@ export function slotContext(
 		);
 		if (slot.slot === "lookup_options_source") {
 			const choices = field.choices;
-			if (choices === undefined || choices.kind === "inline") return undefined;
+			if (choices?.kind !== "lookup" && choices?.kind !== "cases")
+				return undefined;
 			profile = slotProfile(
 				"record",
 				choices.kind === "cases" ? "case" : "table",
@@ -1037,9 +1090,13 @@ export function slotContext(
 				return undefined;
 			const condition =
 				slot.slot === "case_operation_condition" ||
+				slot.slot === "case_operation_close_condition" ||
+				slot.slot === "case_operation_owner_condition" ||
+				slot.slot === "case_operation_type_condition" ||
 				slot.slot === "case_operation_write_condition";
 			const target =
-				slot.slot === "case_operation_target_expression" ||
+				(slot.slot === "case_operation_target_expression" &&
+					operation.target?.kind !== "new") ||
 				slot.slot === "case_operation_link_target_expression";
 			// A write lands on the operation's case after any retype, or through
 			// `via` on the case above it; the form's own change saves to its
@@ -1155,6 +1212,13 @@ export function slotContext(
 			)
 		)
 			return undefined;
+		if (
+			slot.slot === "project_search_parameter" &&
+			!projectSearchOf(module)?.defaults.some(
+				(parameter) => parameter.uuid === slot.member.parameterUuid,
+			)
+		)
+			return undefined;
 		if (slot.slot === "case_list_column_expression") {
 			const column = module.caseListConfig?.columns.find(
 				(entry) => entry.uuid === slot.member.columnUuid,
@@ -1217,6 +1281,7 @@ export function slotContext(
 			"case_list_sort_expression",
 			"search_input_predicate",
 			"excluded_owner_ids",
+			"project_search_parameter",
 			"search_input_required_when",
 			"search_input_validation_rule",
 		].includes(slot.slot);
@@ -1354,7 +1419,8 @@ export function slotContext(
 		if (
 			slot.slot === "search_input_predicate" ||
 			slot.slot === "search_filter_value" ||
-			slot.slot === "case_search_filter"
+			slot.slot === "case_search_filter" ||
+			slot.slot === "project_search_parameter"
 		)
 			supplies = entryDatumSupplies(doc, {
 				kind: "search",
@@ -1376,10 +1442,14 @@ export function slotContext(
 					"search_input_required_when",
 					"search_input_validation_rule",
 				].includes(slot.slot) &&
-				input.kind === "hidden"
+				(input.kind === "hidden" || input.kind === "address")
 			)
 				return undefined;
-			if (slot.slot === "search_input_default" && "type" in input)
+			if (
+				slot.slot === "search_input_default" &&
+				"type" in input &&
+				input.kind !== "address"
+			)
 				profile = {
 					...profile,
 					expectation: {

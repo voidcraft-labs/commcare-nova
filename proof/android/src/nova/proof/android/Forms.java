@@ -293,6 +293,10 @@ final class Forms {
             return false;
         }
         saved.put("resultCode", shadow.getResultCode());
+        FormRecord savedRecord = CommCareApplication.instance().getCurrentSessionWrapper().getFormRecord();
+        if (savedRecord != null && savedRecord.getDescriptor() != null) {
+            saved.put("descriptor", savedRecord.getDescriptor());
+        }
         // The save applied the form's case blocks to the device (FormRecord.updateAndProcessRecord): the form's
         // record and the cases the device now holds, read before home is handed the result.
         Device.dirty = true;
@@ -332,7 +336,7 @@ final class Forms {
     }
 
     /** The form's data as it stands, serialized as the form's own save serializes it. */
-    private static String data() throws java.io.IOException {
+    static String data() throws java.io.IOException {
         return new String(new org.javarosa.model.xform.XFormSerializingVisitor()
                 .serializeInstance(FormEntryActivity.mFormController.getInstance()),
                 java.nio.charset.StandardCharsets.UTF_8);
@@ -419,6 +423,9 @@ final class Forms {
         JSONObject entry = new JSONObject();
         entry.put("status", record.getStatus());
         entry.put("FormRecord.getDisplayName", Screens.orNull(record.getDisplayName()));
+        if (record.getDescriptor() != null) {
+            entry.put("descriptor", record.getDescriptor());
+        }
         entry.put("AndroidCommCarePlatform.getFormDefId", CommCareApplication.instance().getCommCarePlatform()
                 .getFormDefId(record.getFormNamespace()) == -1 ? "none" : "held");
         String location = metaLocation(record);
@@ -483,8 +490,9 @@ final class Forms {
             if (banners != null) found.put("banners", Views.describe(banners));
         }
         if (views && activity.getODKView() != null) {
-            // The whole screen as Android built it: each question's widget with its label, hint and media, and
-            // a group's header above them.
+            // Android mounts the group heading separately from the question widgets and action banners.
+            View groupHeading = activity.findViewById(R.id.form_entry_group_label);
+            if (groupHeading != null) found.put("groupHeading", Views.describe(groupHeading));
             found.put("view", Views.describe(activity.getODKView()));
         }
         found.put("alert", Screens.orNull(Views.alert(activity)));
@@ -544,6 +552,18 @@ final class Forms {
     private static JSONObject control(QuestionWidget widget) throws Exception {
         JSONObject shown = new JSONObject();
         shown.put("visible", widget.getVisibility() == View.VISIBLE);
+        FormEntryPrompt prompt = widget.getPrompt();
+        if (prompt.getQuestion().getDynamicChoices() != null) {
+            JSONArray choices = new JSONArray();
+            var offered = prompt.getOldSelectChoices();
+            if (offered != null) {
+                for (var choice : offered) {
+                    choices.put(new JSONObject().put("value", choice.getValue())
+                            .put("label", prompt.getSelectChoiceText(choice)).put("index", choice.getIndex()));
+                }
+            }
+            shown.put("choices", choices);
+        }
         if (widget instanceof org.commcare.views.widgets.StringWidget) {
             android.widget.EditText input = box((org.commcare.views.widgets.StringWidget)widget);
             shown.put("masked", input.getTransformationMethod() instanceof android.text.method.PasswordTransformationMethod);
@@ -732,6 +752,10 @@ final class Forms {
                 int status = FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), value);
                 entry.put("result", answerResult(status));
                 answered |= status == FormEntryController.ANSWER_OK;
+                continue;
+            }
+            if (AndroidAppAnswers.has(widget)) {
+                answered |= AndroidAppAnswers.give(activity, widget, entry);
                 continue;
             }
             if (Captures.kind(widget) != null) {

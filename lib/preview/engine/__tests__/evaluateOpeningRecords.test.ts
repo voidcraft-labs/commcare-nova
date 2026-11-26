@@ -7,14 +7,28 @@
  * read blank as though it were the form's behaviour.
  */
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	concat,
+	formField,
+	idOf,
+	literal,
+	term,
+} from "@/lib/domain/expression";
+import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import type { CaseRow } from "../caseDataBindingTypes";
-import { evaluateFormSnapshot } from "../evaluateFormSnapshot";
+import { entrySessionData } from "../entrySessionData";
+import {
+	evaluateAuthorizedFormOpeningSnapshot,
+	evaluateFormSnapshot,
+} from "../evaluateFormSnapshot";
 import {
 	type FormEvaluationContext,
 	FormEvaluationInputError,
 } from "../formEvaluationTypes";
-import { previewAsMe } from "../identity";
+import { previewAsMe, previewSessionValues } from "../identity";
 import { webAppsDevice } from "./fixtures/previewDevices";
 
 function person(caseId: string, name: string): CaseRow {
@@ -53,6 +67,106 @@ function fixture() {
 	};
 	return { doc, formUuid: form.uuid, context };
 }
+
+it("freezes root case IDs after authored defaults and before HQ's opening assignments", async () => {
+	const key = testUuid("ready-case-key");
+	const first = testUuid("ready-case-first");
+	const second = testUuid("ready-case-second");
+	const doc = buildDoc({
+		appId: "eval",
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "People",
+				caseType: "person",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								uuid: key,
+								id: "key",
+								kind: "text",
+								default_value: term(literal("initial")),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const form = doc.forms[formUuid];
+	form.openingAssignments = [
+		{
+			uuid: testUuid("ready-case-preload"),
+			field: key,
+			source: { kind: "own" },
+			property: "case_name",
+		},
+	];
+	form.caseOperations = [
+		...(form.caseOperations ?? []),
+		{
+			uuid: first,
+			id: "first",
+			action: "create",
+			caseType: "person",
+			target: {
+				kind: "new",
+				expr: concat(term(literal("case-")), term(formField(key))),
+			},
+			name: term(literal("First case")),
+		},
+		{
+			uuid: second,
+			id: "second",
+			action: "create",
+			caseType: "person",
+			target: {
+				kind: "new",
+				expr: concat(idOf(first), term(literal("-detail"))),
+			},
+			name: term(literal("Second case")),
+		},
+	];
+	assertAdmittedPreviewDoc(doc);
+	const identity = previewAsMe({ id: "member", name: "Member" }, doc);
+	if (!identity) throw new Error("Expected the worker's identity.");
+	const cases = { rows: [person("p-1", "after-HQ-preload")], indices: [] };
+	const entryKey = "11111111-1111-4111-8111-111111111111";
+	const device = webAppsDevice();
+	const opened = await evaluateAuthorizedFormOpeningSnapshot(
+		doc,
+		{ formUuid, caseIds: ["p-1"], answers: [] },
+		{
+			identity,
+			device,
+			cases,
+			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+		},
+		{
+			entryKey,
+			includeActivity: false,
+			session: entrySessionData(doc, formUuid, {
+				appId: doc.appId,
+				entryKey,
+				boundCases: [{ caseId: "p-1" }],
+				menuSelections: {},
+				caseDatabase: cases,
+				session: previewSessionValues(identity, device),
+			}),
+		},
+	);
+	expect(opened.caseCreateIds).toEqual({
+		[first]: "case-initial",
+		[second]: "case-initial-detail",
+	});
+});
 
 async function refusal(promise: Promise<unknown>): Promise<string> {
 	try {

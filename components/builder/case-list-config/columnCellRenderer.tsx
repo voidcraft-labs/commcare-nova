@@ -68,6 +68,29 @@ export function renderColumnCell(
 ): React.ReactNode {
 	const displayed = projectColumnDisplay(column, row, context);
 	if (
+		column.kind === "image-map" &&
+		column.entryPointUuid &&
+		displayed.kind === "image" &&
+		context.listIconAction
+	) {
+		const action = context.listIconAction;
+		const id = action.groupCaseId ?? row.case_id;
+		return (
+			<button
+				type="button"
+				disabled={action.disabled || !id}
+				aria-label={displayed.altText || column.header || displayed.text}
+				className="inline-flex min-h-11 min-w-11 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-nova-violet"
+				onClick={(event) => {
+					event.stopPropagation();
+					action.run(column, id);
+				}}
+			>
+				{renderPreviewValue(displayed, context.language)}
+			</button>
+		);
+	}
+	if (
 		column.kind === "formatted-text" ||
 		(column.kind === "calculated" && column.showAs === "formatted-text")
 	) {

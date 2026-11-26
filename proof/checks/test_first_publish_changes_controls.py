@@ -928,23 +928,24 @@ def _built(artifact, path, at, kind="changed"):
 def test_a_menu_s_change_holds_no_other_menu_s_build_difference():
     # The review's second defect: each of its scenarios, over the register's own rows.
     sites = changes.Sites(
-        builds={("suite.xml", "entry[1]"): ("form", "0.0"), ("suite.xml", "entry[7]"): ("form", "2.0")},
+        builds={("suite.xml", "remote-request[1]"): ("menu", "0"), ("suite.xml", "remote-request[7]"): ("menu", "2")},
         steps={
             (2, 4): ("menu", "1"),
             (2, 5): ("menu", "3", "case_details", "short"),
             (2, 6): ("menu", "2", "search_config"),
+            (2, 7): ("menu", "0", "search_config"),
         },
         choices={(2, 4, 1): ("form", "1.0"), (2, 4, 0): ("menu", "0")},
     )
-    joined = _document(RESIDUE, ("search-filter-joined-to-list", ["/menu/0/case_details/short/filter"]))
-    nodeset = "/suite/entry[*]/session[*]/datum[@id=*]/@nodeset"
-    assert (
-        _held_by(joined, _built("suite.xml", nodeset, "/suite/entry[7]/session[1]/datum[@id=case_id]/@nodeset"), sites)
-        == frozenset()
-    )
-    assert _held_by(
-        joined, _built("suite.xml", nodeset, "/suite/entry[1]/session[1]/datum[@id=case_id]/@nodeset"), sites
-    ) == frozenset()
+    recut = _document(RESIDUE, ("search-filter-rows-recut", ["/menu/0/search_config/default_properties"]))
+    query = "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]"
+
+    def clause(position):
+        at = f"/suite/remote-request[{position}]/session[1]/query[1]/data[@key=_xpath_query][@ref=typed]"
+        return _built("suite.xml", query, at, "added")
+
+    assert _held_by(recut, clause(1), sites) == {"search-filter-rows-recut"}
+    assert _held_by(recut, clause(7), sites) == frozenset()
     hidden = _document(
         RESIDUE,
         (
@@ -968,9 +969,11 @@ def test_a_menu_s_change_holds_no_other_menu_s_build_difference():
         RESIDUE, ("sort-by-entry-with-a-blank-name-dropped", ["/menu/0/case_details/short/sort_elements/0/display"])
     )
     assert _held_by(blank, _trace("/runs/2/trace/5/headers/1", "/runs/*/trace/*/headers/*"), sites) == frozenset()
-    today = _document(RESIDUE, ("search-today-device-day", ["/menu/0/search_config/properties/0/default_value"]))
     params = "/runs/*/trace/*/params/_xpath_query/*"
-    assert _held_by(today, _trace("/runs/2/trace/6/params/_xpath_query/x", params, "added"), sites) == frozenset()
+    assert _held_by(recut, _trace("/runs/2/trace/6/params/_xpath_query/x", params, "added"), sites) == frozenset()
+    assert _held_by(recut, _trace("/runs/2/trace/7/params/_xpath_query/x", params, "added"), sites) == {
+        "search-filter-rows-recut"
+    }
 
 
 def test_the_change_that_stands_everywhere_holds_no_form_source_difference_its_rows_do_not_name():
@@ -1468,3 +1471,73 @@ def test_a_native_blank_label_is_filled_only_from_the_first_language_of_that_sam
         assert not proof3.first_language_fill(altered, place, app, read)
     for altered in ((), (*place[:-2], "hin", "default"), (*place[:4], "unrelated", *place[5:])):
         assert not proof3.first_language_fill(difference, altered, app, read)
+
+
+def test_legacy_related_case_text_requires_its_exact_column_and_unchanged_text():
+    change = changes.LEGACY_RELATED_CASE_TEXT
+    register = changes.load()
+    place = "/menu/0/case_details/short/columns/1"
+    header_path = "/m*.*.*_*_*.header"
+    before = replace(
+        _built("app_strings:en", header_path, "/m0.case_short.case_parent~1zone_2.header", "removed"),
+        before="Parent area",
+        after=None,
+    )
+    after = replace(
+        _built("app_strings:en", header_path, "/m0.case_short.case_calculated_property_2.header", "added"),
+        before=None,
+        after="Parent area",
+    )
+    applying = {change: (place,)}
+    assert changes.holders(after, register, applying, siblings=(before, after)) == [change]
+    changed = replace(after, after="A different title")
+    assert changes.holders(changed, register, applying, siblings=(before, changed)) == []
+    assert changes.holders(after, register, applying, siblings=(before, after, after)) == []
+    assert changes.holders(after, register, {change: (place[:-1] + "0",)}, siblings=(before, after)) == []
+
+    header = replace(
+        _built(
+            "suite.xml", "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+            "/suite/detail[@id=m0_case_short]/field[2]/header[1]/text[1]/locale[1]/@id",
+        ),
+        before="m0.case_short.case_parent/zone_2.header",
+        after="m0.case_short.case_calculated_property_2.header",
+    )
+    assert changes.holders(header, register, applying) == [change]
+    assert changes.holders(header, register, {change: (place[:-1] + "0",)}) == []
+
+
+def test_legacy_related_case_text_allows_only_the_same_stored_projection():
+    from proof.checks import source
+
+    change = changes.LEGACY_RELATED_CASE_TEXT
+    place = "/menu/0/case_details/short/columns/0"
+    apply = {change: (place,)}
+    register = changes.load()
+    before = {
+        "model": "case", "format": "translatable-enum", "field": "parent/village", "useXpathExpression": False,
+        "enum": [{"key": "north", "value": {"en": "North village", "es": "Pueblo del norte"}}],
+    }
+    after = {
+        **before,
+        "field": "instance('casedb')/casedb/case[@case_id = current()/index/parent]/village",
+        "useXpathExpression": True,
+        "enum": [{**before["enum"][0], "key": "case_text_9ab95772fa3351eabc620be9ec96300b"}],
+    }
+
+    def stored(column):
+        return {"modules": [{"case_details": {"short": {"columns": [column]}}}]}
+
+    compared = source.compare_sources("legacy", stored(before), stored(after))
+    assert {d.at.rsplit("/", 1)[-1] for d in compared} == {"field", "key", "useXpathExpression"}
+    assert all(changes.holders(d, register, apply, siblings=compared) == [change] for d in compared)
+    assert all(changes.holders(d, register, {change: (place[:-1] + "1",)}, siblings=compared) == []
+               for d in compared)
+    for damaged in (
+        {**after, "field": after["field"].replace("/parent]", "/uncle]")},
+        {**after, "field": after["field"].replace("/village", "/town")},
+        {**after, "enum": [{**after["enum"][0], "value": {"en": "Changed words"}}]},
+    ):
+        differences = source.compare_sources("legacy", stored(before), stored(damaged))
+        assert any(changes.held(d) for d in differences)
+        assert all(not changes.holders(d, register, apply, siblings=differences) for d in differences)

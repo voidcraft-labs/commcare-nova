@@ -356,6 +356,7 @@ export function joinableChildCreate(
 			operation.forEach?.repeat === repeat &&
 			operation.target.kind === "new" &&
 			operation.target.idFrom === undefined &&
+			operation.target.expr === undefined &&
 			operation.condition === undefined &&
 			isChildOfOwnCase(ctx, operation),
 	);

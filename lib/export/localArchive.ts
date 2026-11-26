@@ -1,3 +1,5 @@
+import { installationArchiveIssue } from "@/lib/domain";
+import { resolvedLanguageEnglishName } from "@/lib/domain/languageRegistry/names";
 /**
  * The one assembly of a locally installable `.ccz` from a prepared export.
  *
@@ -12,6 +14,7 @@ import "server-only";
 import { appStringsMemberPath } from "@/lib/commcare/cczMembers";
 import { compileCcz, compileCczParts } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { installationDownloadIssue } from "@/lib/commcare/installationProfiles";
 import { localeFileText } from "@/lib/commcare/localeFile";
 /**
  * The `.ccz` for a document the export boundary prepared in `ccz` mode.
@@ -55,6 +58,7 @@ function localArchiveInput(
 	runtimeTarget: RuntimeTarget,
 	identity: WireIdentity,
 	deployment: {
+		readonly installationProfileUuid?: Uuid;
 		readonly emptyCaseListText: boolean;
 		readonly earlierHqApps: number;
 		/** The deployment's live app mapping is one Nova brought in. */
@@ -69,7 +73,20 @@ function localArchiveInput(
 		);
 	}
 	const { doc, assets, attachmentTarget, compiledAtSeq } = prepared;
+	const profileIssue =
+		installationDownloadIssue(
+			doc,
+			deployment.installationProfileUuid,
+			identity,
+		) ??
+		installationArchiveIssue(
+			doc,
+			deployment.installationProfileUuid,
+			resolvedLanguageEnglishName,
+		);
+	if (profileIssue) throw new Error(profileIssue);
 	const hqJson = expandDoc(doc, {
+		installationProfileUuid: deployment.installationProfileUuid,
 		runtimeTarget,
 		identity,
 		assets,
@@ -83,6 +100,7 @@ function localArchiveInput(
 		hqJson,
 		doc,
 		options: {
+			installationProfileUuid: deployment.installationProfileUuid,
 			runtimeTarget,
 			identity,
 			assets,

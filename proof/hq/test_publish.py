@@ -1071,6 +1071,48 @@ def test_hq_answers_an_archive_ahead_of_its_app_from_what_it_holds(hq, core_runn
         assert not paths.get(case_type) and not child_case_types.get(case_type)
 
 
+def test_hq_receiver_keeps_a_case_wrapper_but_only_its_exact_name_hides_the_nested_transaction(hq, core_runner, documents):
+    """Post to HQ directly so that neither client's earlier action dispatch can explain the result."""
+    import uuid
+
+    from corehq.apps.users.models import CommCareUser
+    from corehq.form_processor.models import CaseTransaction, XFormInstance
+    from lxml import etree
+
+    from proof.connect import hq as connect_hq
+    from proof.formplayer import hq as formplayer_hq
+    from proof.hq import redis as hq_redis
+
+    export = documents[ARCHIVE_DOCUMENT].exports["minimum"]
+    menu = _app_file(export.content.upload())["modules"][0]
+    xmlns, case_type = menu["forms"][0]["xmlns"], menu["case_type"]
+    with hq_check(export.configuration.hq()) as (state, _), hq_redis.shared(None), state.committing():
+        app_id, _ = operations.publish(state, [export.create.upload(), export.content.upload()])
+        formplayer_hq.default_roles(state)
+        username = f"proof-worker@{state.domain}.commcarehq.org"
+        worker = CommCareUser.create(state.domain, username, WORKER_PASSWORD, created_by=None, created_via=None)
+        path = connect_hq.receiver_url(state.domain, app_id)
+        for ordinal, wrapper_name in enumerate(("script", "Registration", "Case", "case"), start=1):
+            case_id, instance_id = str(uuid.UUID(int=100 + ordinal)), str(uuid.UUID(int=200 + ordinal))
+            root = etree.fromstring(_submission(xmlns, case_type, case_id, instance_id, worker.user_id, username))
+            transaction = root.find("{http://commcarehq.org/case/transaction/v2}case")
+            assert transaction is not None
+            wrapper = etree.Element(f"{{{xmlns}}}{wrapper_name}")
+            root.insert(0, wrapper)
+            etree.SubElement(wrapper, f"{{{xmlns}}}note").text = "Ordinary answer"
+            wrapper.append(transaction)
+            request = connect_hq.device_request(path, username, WORKER_PASSWORD, etree.tostring(root))
+            status, response = _ask(state, request, f"receive-{wrapper_name}")
+            assert status == 201, (wrapper_name, response)
+            stored = XFormInstance.objects.get_form(instance_id, state.domain)
+            assert stored.is_normal and stored.xmlns == xmlns
+            kept = etree.fromstring(stored.get_xml()).find(f"{{{xmlns}}}{wrapper_name}")
+            assert kept.findtext(f"{{{xmlns}}}note") == "Ordinary answer"
+            assert kept.find("{http://commcarehq.org/case/transaction/v2}case").get("case_id") == case_id
+            history = [event.form_id for event in CaseTransaction.objects.get_transactions(case_id)]
+            assert history == ([] if wrapper_name == "case" else [instance_id]), (wrapper_name, history)
+
+
 # Derived ids: what HQ does with the ids a publish sends -----------------------------------------------------
 
 ID_DOCUMENT = "navigation-base"

@@ -65,3 +65,14 @@ export function writesMoment(
 		)?.data_type;
 	return written !== "date";
 }
+
+/** The hidden assignment that keeps an explicit instant with no opening value. */
+export function keepsHiddenClock(field: Field | undefined): boolean {
+	return (
+		field?.kind === "hidden" &&
+		field.answerType === "datetime" &&
+		field.default_value === undefined &&
+		field.relevant === undefined &&
+		field.calculate?.kind === "now"
+	);
+}

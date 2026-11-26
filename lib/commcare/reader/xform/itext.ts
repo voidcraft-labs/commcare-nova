@@ -47,9 +47,11 @@ const PRAGMAS: ReadonlySet<string> = new Set(PRAGMA_KEYS);
 
 /** The pragmas Formplayer reads by presence alone, which a form holds as its
  *  behaviors (`Form.automaticSubmissionText` and the others). */
-const PRESENCE_PRAGMAS: ReadonlySet<string> = new Set(
-	Object.values(behaviorWireIds),
-);
+const PRESENCE_PRAGMAS: ReadonlySet<string> = new Set([
+	behaviorWireIds.automaticSubmissionText,
+	behaviorWireIds.skipAutomaticSyncText,
+	behaviorWireIds.validateChangedAnswersText,
+]);
 
 /** A text's slot on the field that references it. */
 export type TextSlot = Exclude<ItextRecipient["slot"], "option_label">;
@@ -481,12 +483,7 @@ function claimReferencedId(
 	for (const text of elements) {
 		if (claim.use === "account")
 			cursor.account({ element: text, attribute: "id" }, claim, place);
-		else
-			cursor.refuse(
-				{ element: text, attribute: "id" },
-				claim as typeof X.pragmaKey | typeof X.pragmaFormDescriptor,
-				place,
-			);
+		else cursor.refuse({ element: text, attribute: "id" }, claim, place);
 	}
 }
 
@@ -518,7 +515,7 @@ export function pragmaClaim(
 	| typeof X.pragmaVolatilityWithoutKey
 	| typeof X.pragmaFormDescriptor
 	| typeof X.pragmaPresence
-	| typeof X.pragmaKey {
+	| typeof X.pragmaActivity {
 	const mine = reading.allValues(id);
 	const merged = reading.ids().some((other) => {
 		if (other === id || other >= id) return false;
@@ -548,7 +545,7 @@ export function pragmaClaim(
 		return X.pragmaVolatilityWithoutKey;
 	if (id === "Pragma-Form-Descriptor") return X.pragmaFormDescriptor;
 	if (PRESENCE_PRAGMAS.has(id)) return X.pragmaPresence;
-	return X.pragmaKey;
+	return X.pragmaActivity;
 }
 
 /**

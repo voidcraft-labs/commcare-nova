@@ -565,3 +565,18 @@ export const READ_HQ_APP_NOT_CONFIGURED =
 /** `read_hq_app`, a page the app no longer matches. */
 export const READING_RESTARTED_MESSAGE =
 	"This app changed in CommCare HQ since the last page, so Nova read it again. Here is what Nova found, from the start.";
+
+/** What the worker's search sends here and which values its screens use. */
+export function projectSearchMenuLine(menu: {
+	readonly name: string;
+	readonly parameters: readonly string[];
+	readonly results: readonly { readonly name: string; readonly type: string }[];
+}) {
+	const request = menu.parameters.length
+		? "Sends " + menu.parameters.join(", ")
+		: "No named values";
+	const fields = menu.results
+		.map((field) => field.name + " (" + field.type + ")")
+		.join(", ");
+	return [menu.name, request, "Reads " + fields].join(" · ");
+}

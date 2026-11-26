@@ -27,6 +27,7 @@ import type { Accounting } from "../accounting";
 import { account, type Claim, defineClaims, refuse, take } from "../claims";
 import type { XmlCursor } from "../xmlCursor";
 import { type ControlNode, isFieldListAppearance, wrapsRepeat } from "./body";
+import { X } from "./claims";
 import { stripXsd } from "./kinds";
 import type { BindFacts } from "./model";
 
@@ -903,10 +904,6 @@ const CASE_VARIANT_READ_ALIKE = rowClaim(
 );
 
 /** The intent row and the three rows rule 4 and the multi-token strings need beside the table. */
-const INTENT_ROW_CLAIM = rowClaim(
-	"intent-id-on-any-input-other-than-an-intent-typed-one-where-id",
-	"appearance:android/intent:",
-);
 const ANDROID_INSIDE_HELD = rowClaim(
 	"a-single-string-no-row-names-that-holds-values-android-matches",
 	"appearance:android/compact",
@@ -963,8 +960,8 @@ const REFUSED = defineClaims("xform-appearance-refused", {
 /** Every rule of this file, by its entry: what `appearanceRows.test.ts` holds to the manifest. */
 export const APPEARANCE_RULE_ENTRIES: readonly string[] = [
 	...APPEARANCE_ROWS.map((row) => row.claim.entry),
+	X.androidAppAnswer.entry,
 	CASE_VARIANT_READ_ALIKE.entry,
-	INTENT_ROW_CLAIM.entry,
 	ANDROID_INSIDE_HELD.entry,
 	MULTI_TOKEN.entry,
 	MULTI_TOKEN_DROPPED.entry,
@@ -1209,7 +1206,10 @@ function heldToken(
 		case "trigger":
 			return value === kindAppearanceToken("label");
 		case "image":
-			return value === kindAppearanceToken("signature");
+			return (
+				value === kindAppearanceToken("signature") ||
+				value === FIELD_DISPLAY_SETTING_TOKENS.captureSource["face-camera"]
+			);
 		case "group":
 			return isFieldListAppearance(value);
 		case "text":
@@ -1228,18 +1228,10 @@ function rowFor(
 	control: ControlNode,
 	bind: BindFacts | undefined,
 	value: string,
-	form: AppearanceForm,
 ): Claim<"account" | "take"> | undefined {
 	const at = rowControl(control, bind);
 	if (caseVariantOf(value, at, CASE_VARIANT_ALIKE))
 		return CASE_VARIANT_READ_ALIKE;
-	if (
-		INPUTS.has(at) &&
-		at !== "intent" &&
-		value.startsWith("intent:") &&
-		form.callouts.has(value.slice("intent:".length))
-	)
-		return INTENT_ROW_CLAIM;
 	for (const row of APPEARANCE_ROWS)
 		if (row.applies(control, bind) && row.matches(value)) return row.claim;
 	return undefined;
@@ -1349,6 +1341,7 @@ function classifyOne(
 		const id = value.slice("intent:".length);
 		if (!form.intents.has(id)) return claim(REFUSED.intentNamingNothing);
 		if (!form.callouts.has(id)) return claim(REFUSED.intentNamingOrphan);
+		return { kind: "held" };
 	}
 	const tokens = words(value);
 	if (
@@ -1364,7 +1357,7 @@ function classifyOne(
 	const inside = androidInsideMatchOther(value, facts);
 	if (inside === true) return claim(REFUSED.androidInsideOther);
 	// Rule 3, the rows.
-	const row = rowFor(control, bind, value, form);
+	const row = rowFor(control, bind, value);
 	if (row !== undefined) return claim(row);
 	if (
 		inside === false &&

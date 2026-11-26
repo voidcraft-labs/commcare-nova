@@ -41,6 +41,7 @@ import * as hqBringInLedger from "./20261201000000_hq_bring_in_ledger";
 import * as hqChangesAppChangeKind from "./20261201010000_hq_changes_app_change_kind";
 import * as hqBringInProjectData from "./20261202000000_hq_bring_in_project_data";
 import * as lookupXmlNames from "./20261203000000_lookup_xml_names";
+import * as hqInstallationProfiles from "./20261203040000_hq_installation_profiles";
 import * as deploymentFoldReferences from "./20261204000000_deployment_fold_references";
 import * as lookupOccurrences from "./20261205000000_lookup_occurrences";
 import * as lookupGenerations from "./20261206000000_lookup_generations";
@@ -49,10 +50,13 @@ import * as workerAssignments from "./20261207000000_worker_assignments";
 import * as exportArtifacts from "./20261207040000_export_artifacts";
 import * as organizationPlacePages from "./20261207050000_organization_place_pages";
 import * as userSettingsConnectionEpoch from "./20261207060000_user_settings_connection_epoch";
+import * as lookupJsonDestinations from "./20261207070000_lookup_json_destinations";
 import * as connectActivityRoles from "./20261208000000_connect_activity_roles";
-import * as lookupJsonDestinations from "./20261208000000_lookup_json_destinations";
 import * as caseIndexHistory from "./20261208020000_case_index_history";
 import * as previewSearchSettings from "./20261208050000_preview_search_settings";
+import * as projectSearchBindings from "./20261208060000_project_search_bindings";
+import * as previewWebActivity from "./20261208100000_preview_web_activity";
+import * as hqRoundTripComplete from "./20261209000000_hq_round_trip_complete";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -135,6 +139,8 @@ import * as caseWritesPublishPlacement from "./20261110000000_hq_round_trip_case
 import * as caseWritesCommtrackConfirmation from "./20261110010000_hq_round_trip_case_writes_commtrack_confirmation";
 import * as caseWritesFoldHorizon from "./20261110020000_hq_round_trip_case_writes_fold_horizon";
 
+import * as hqRoundTripCompletionHorizon from "./20261208000002_hq_round_trip_completion_horizon";
+import * as authoringWorkspaceFold from "./20261208000003_authoring_workspace_fold";
 import * as formOpeningData from "./20261208010000_form_opening_data";
 import * as casesLocationId from "./20261208030000_cases_location_id";
 
@@ -268,6 +274,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261201010000_hq_changes_app_change_kind": hqChangesAppChangeKind,
 	"20261202000000_hq_bring_in_project_data": hqBringInProjectData,
 	"20261203000000_lookup_xml_names": lookupXmlNames,
+	"20261203040000_hq_installation_profiles": hqInstallationProfiles,
 	"20261204000000_deployment_fold_references": deploymentFoldReferences,
 	"20261205000000_lookup_occurrences": lookupOccurrences,
 	"20261206000000_lookup_generations": lookupGenerations,
@@ -276,12 +283,18 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261207040000_export_artifacts": exportArtifacts,
 	"20261207050000_organization_place_pages": organizationPlacePages,
 	"20261207060000_user_settings_connection_epoch": userSettingsConnectionEpoch,
-	"20261208000000_lookup_json_destinations": lookupJsonDestinations,
-	"20261208020000_case_index_history": caseIndexHistory,
-	"20261208050000_preview_search_settings": previewSearchSettings,
-	"20261208010000_form_opening_data": formOpeningData,
-	"20261208030000_cases_location_id": casesLocationId,
+	"20261207070000_lookup_json_destinations": lookupJsonDestinations,
 	"20261208000000_connect_activity_roles": connectActivityRoles,
+	"20261208000002_hq_round_trip_completion_horizon":
+		hqRoundTripCompletionHorizon,
+	"20261208000003_authoring_workspace_fold": authoringWorkspaceFold,
+	"20261208010000_form_opening_data": formOpeningData,
+	"20261208020000_case_index_history": caseIndexHistory,
+	"20261208030000_cases_location_id": casesLocationId,
+	"20261208050000_preview_search_settings": previewSearchSettings,
+	"20261208060000_project_search_bindings": projectSearchBindings,
+	"20261208100000_preview_web_activity": previewWebActivity,
+	"20261209000000_hq_round_trip_complete": hqRoundTripComplete,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

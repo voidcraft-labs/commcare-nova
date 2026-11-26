@@ -1,3 +1,4 @@
+import { searchInputGroupsWithMembers } from "@/lib/domain";
 import {
 	type LookupRead,
 	lookupReadType,
@@ -47,6 +48,7 @@ import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import {
 	isDedicatedOwnerFilter,
 	moduleFormsReadSearch,
+	projectSearchOf,
 } from "@/lib/domain/modules";
 import type { LookupTableId } from "@/lib/lookup/types";
 import { moduleExpressionContexts } from "../expressionContext";
@@ -58,7 +60,7 @@ import {
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
 import { searchRequestKey } from "../suite/case-search/nativeFilters";
-import type { WireIdentity } from "../wireIdentity";
+import { installationProfileKey, type WireIdentity } from "../wireIdentity";
 import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
@@ -149,6 +151,23 @@ export function externalIdentityMap(
 		entries.push({ kind: key.kind, parts: key.parts, uuid });
 	};
 
+	for (const uuid of Object.keys(
+		doc.appSettings.projectSearches ?? {},
+	) as Uuid[]) {
+		const endpointId = identity.projectSearchId?.(uuid);
+		if (endpointId !== undefined)
+			add(externalKey.projectSearch(endpointId), uuid);
+	}
+	for (const profile of Object.values(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		add(
+			externalKey.installationProfile(
+				installationProfileKey(profile.uuid, identity),
+			),
+			profile.uuid,
+		);
+	}
 	const caseTypes = effectiveCaseTypes(doc);
 	for (const module of Object.values(doc.modules)) {
 		const uniqueId = identity.moduleUniqueId(module.uuid);
@@ -176,6 +195,16 @@ export function externalIdentityMap(
 					endpoint.uuid,
 				);
 		}
+		const occurrences = new Map<string, number>();
+		for (const parameter of projectSearchOf(module)?.defaults ?? [])
+			add(
+				externalKey.projectSearchParameter(
+					uniqueId,
+					parameter.name,
+					nextOrdinal(occurrences, parameter.name),
+				),
+				parameter.uuid,
+			);
 		const config = module.caseListConfig;
 		if (config !== undefined) {
 			if (config.calculatedSorts?.length) {
@@ -330,6 +359,17 @@ export function externalIdentityMap(
 					filter.uuid,
 				);
 			}
+			for (const [position, group] of searchInputGroupsWithMembers(
+				config,
+			).entries())
+				add(
+					externalKey.searchInputGroup(
+						uniqueId,
+						group.inputs.map(({ name }) => name),
+						position,
+					),
+					group.uuid,
+				);
 			for (const input of config.searchInputs)
 				add(externalKey.searchInput(uniqueId, input.name), input.uuid);
 		}

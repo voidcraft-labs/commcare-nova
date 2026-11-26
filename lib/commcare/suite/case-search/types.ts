@@ -31,25 +31,28 @@ export interface WireShape {
 	readonly autoLaunch: boolean;
 	readonly defaultSearch: boolean;
 	readonly inlineSearch: boolean;
+	readonly resultsName?: string;
 }
 
 /** The results instance a search stores into and every datum reads from:
  *  `results` for the standalone `<remote-request>` roundtrip, CCHQ's
  *  `RESULTS_INSTANCE_INLINE` for the inline shape
  *  (`suite_xml/post_process/remote_requests.py`). */
+export type InlineSearchInstance = `results:${string}`;
+export function inlineSearchInstance(
+	name: string | undefined,
+): InlineSearchInstance {
+	return `results:${name ?? "inline"}`;
+}
 export function searchStorageInstance(
-	wire: Pick<WireShape, "inlineSearch">,
-): "results" | "results:inline" {
-	return wire.inlineSearch ? "results:inline" : "results";
+	wire: Pick<WireShape, "inlineSearch" | "resultsName">,
+): "results" | InlineSearchInstance {
+	return wire.inlineSearch ? inlineSearchInstance(wire.resultsName) : "results";
 }
 
-/** The virtual instance holding the worker's answers, named after the
- *  storage instance it belongs to (`VirtualInstances.makeSearchInputInstanceID`):
- *  every `input(...)` read prints through it. */
+/** Core names the prompt answers after the instance into which it stored the results. */
 export function searchInputInstanceId(
-	wire: Pick<WireShape, "inlineSearch">,
-): "search-input:results" | "search-input:results:inline" {
-	return wire.inlineSearch
-		? "search-input:results:inline"
-		: "search-input:results";
+	wire: Pick<WireShape, "inlineSearch" | "resultsName">,
+): `search-input:${ReturnType<typeof searchStorageInstance>}` {
+	return `search-input:${searchStorageInstance(wire)}`;
 }

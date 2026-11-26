@@ -93,6 +93,24 @@ describe("entry point launch server boundary", () => {
 		);
 		expect(recheck).toHaveBeenCalledWith("app", "member", "view");
 	});
+
+	it("requires editor access for a Results action and refuses an unrelated column before reading cases", async () => {
+		const listIcon = {
+			moduleUuid: testUuid("module"),
+			columnUuid: testUuid("unrelated-column"),
+		};
+		expect(
+			await launchEntryPointAction({ ...request, listIcon }),
+		).toMatchObject({
+			kind: "refused",
+		});
+		expect(authorize).toHaveBeenCalledWith(
+			expect.objectContaining({ required: "edit" }),
+		);
+		expect(readDevice).not.toHaveBeenCalled();
+		expect(recheck).not.toHaveBeenCalled();
+	});
+
 	it("rejects a stale sequence before reading case data", async () => {
 		expect(
 			await launchEntryPointAction({ ...request, expectedSeq: 3 }),
