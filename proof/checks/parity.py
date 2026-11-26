@@ -628,7 +628,10 @@ def _advanced_own_label_write(use):
     if not case_type or case_type == "commcare-user" or load.get("case_type") != case_type:
         return
     actions = form.get("actions") or {}
-    choices = [row for row in actions.get("load_update_cases") or () if not row.get("auto_select")]
+    choices = [
+        row for row in actions.get("load_update_cases") or ()
+        if isinstance(row, dict) and not row.get("auto_select")
+    ]
     if not choices or choices[-1] is not load or actions.get("open_cases"):
         return
     if (load.get("close_condition") or {}).get("type") in {"if", "always"}:
@@ -644,7 +647,7 @@ def _advanced_own_label_write(use):
         return
     source = form_source.node(at.value)
     controls = form_source.controls.get(at.value, ())
-    if source is None or source.getparent() is not form_source.data_root or len(controls) != 1:
+    if len(controls) != 1 or source is None or isinstance(source, tuple) or source.getparent() is not form_source.data_root:
         return
     (control,) = controls
     if not control.tag.endswith("}trigger") or not control.getparent().tag.endswith("}body"):

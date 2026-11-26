@@ -169,11 +169,8 @@ def test_web_apps_confirms_a_passive_label_before_the_advanced_member_update(
             session = Session(release, editor_driver)
             run = session.run([
                 *steps.open_app("Member visits"), *steps.choose("Member visits"),
-                *steps.click(steps.MENU_ROW, "Untitled Form", within=steps.WITHIN_MS),
                 *steps.click(f"#menu-region [id='row-{HOUSEHOLD}']"),
-                *steps.click("#select-case", within=steps.WITHIN_MS),
-                *steps.click(f"#menu-region [id='row-{MEMBER}']"),
-                *steps.click("#select-case", within=steps.WITHIN_MS),
+                *steps.select_case(MEMBER), *steps.choose("Untitled Form"),
                 steps.SCREEN, *steps.answer("2", TEXT), *steps.submit_and_land(),
             ])
             assert not run.page_errors, run.page_errors
