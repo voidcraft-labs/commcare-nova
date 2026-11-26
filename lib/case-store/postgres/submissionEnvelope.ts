@@ -99,6 +99,7 @@ import {
 	expressionContextFor,
 	type PredicateCompileContext,
 } from "../sql";
+import { collectWorkerLookupCtes } from "../sql/compileLookup";
 import {
 	buildRestoreScope,
 	type RestoreScopeQuery,
@@ -578,6 +579,7 @@ async function readOpeningValues(
 	program: CaseOperationProgram,
 	projectId: string,
 	query: SqlExpression<Record<string, unknown>>,
+	lookupCtes: SqlExpression<unknown>,
 ): Promise<Record<string, unknown> | undefined> {
 	const opening = program.openingReads;
 	if (!opening)
@@ -595,7 +597,7 @@ async function readOpeningValues(
 			AS opening_index(case_id text, ancestor_id text, target_case_type text, identifier text, relationship text, depth int)
 		), parked_case_values AS (
 			SELECT null::uuid AS id, null::text AS case_id, null::timestamptz AS dismissed_at WHERE false
-		) ${query}`;
+		) ${lookupCtes} ${query}`;
 	return (await statement.execute(trx)).rows[0];
 }
 
@@ -626,6 +628,7 @@ async function evaluateBatch(
 	const CHUNK = 400;
 	for (let start = 0; start < requests.length; start += CHUNK) {
 		const chunk = requests.slice(start, start + CHUNK);
+		const lookup = program.openingReads ? collectWorkerLookupCtes() : undefined;
 		const eb = expressionBuilder<Database, "cases">();
 		const selections = chunk.map((request, offset) => {
 			const alias = `e${offset}`;
@@ -656,6 +659,7 @@ async function evaluateBatch(
 				...(program.lookupTableSchemas === undefined
 					? {}
 					: { lookupTableSchemas: program.lookupTableSchemas }),
+				...(lookup && { workerLookupRowsSource: lookup.source }),
 				bindings: bindingsFor(request.instance),
 			};
 			const projection =
@@ -695,6 +699,7 @@ async function evaluateBatch(
 				.limit(1)
 				.as(alias);
 		});
+		const lookupCtes = lookup?.appendCtes() ?? sql``;
 		await sql`SAVEPOINT submission_expression`.execute(trx);
 		let row: Record<string, unknown> | undefined;
 		try {
@@ -703,6 +708,7 @@ async function evaluateBatch(
 				program,
 				host.projectId,
 				trx.selectNoFrom(selections),
+				lookupCtes,
 			);
 		} catch (error) {
 			const reasonFor = (failure: unknown) => {
@@ -729,6 +735,7 @@ async function evaluateBatch(
 						program,
 						host.projectId,
 						trx.selectNoFrom(selection),
+						lookupCtes,
 					);
 				} catch (cause) {
 					const reason = reasonFor(cause);

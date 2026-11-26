@@ -21,6 +21,7 @@ import {
 	formField,
 	gt,
 	ifExpr,
+	isBlank,
 	literal,
 	matchAll,
 	neq,
@@ -30,6 +31,8 @@ import {
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
+import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
+import type { LookupFixtureRow } from "@/lib/lookup/types";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { seedAppTest } from "@/lib/preview/app-tests/seed";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
@@ -39,6 +42,7 @@ import { buildCaseOperationProgramFromDoc } from "@/lib/preview/engine/caseDataB
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
+import { workerLookupSchemas } from "../../sql/compileLookup";
 import type { Database } from "../../sql/database";
 import { buildCaseTypeMap, type CaseRow } from "../../store";
 import type { CaseOperationProgram } from "../../submission";
@@ -180,6 +184,187 @@ function submit(
 }
 
 describe("conditional numeric writes", () => {
+	it("binds each captured lookup table once per statement across repeated expression reads", async () => {
+		const appDb = fixture.db as Kysely<AppDatabase>;
+		const { tables } = await appDb.transaction().execute(async (tx) =>
+			applyLookupAuthoringBatchInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, WRITER, "delete"),
+				{
+					createTables: [
+						{
+							key: "notes",
+							name: "Notes",
+							tag: "notes",
+							columns: [],
+							attributes: [{ wireName: "note", label: "Note" }],
+							rows: ["Live first", "Live second"].map((note, index) => ({
+								key: `row_${index}`,
+								cells: [],
+								content: { attributes: { note } },
+							})),
+						},
+						{
+							key: "empty",
+							name: "Empty",
+							tag: "empty",
+							columns: [
+								{
+									key: "text",
+									label: "Text",
+									wireName: "text",
+									dataType: "text",
+								},
+							],
+							rows: [],
+						},
+					],
+				},
+			),
+		);
+		const [notes, empty] = tables;
+		const [first, second] = notes.rowIds;
+		const [column] = empty.columnIds;
+		const { definitions } = await appDb
+			.transaction()
+			.execute((tx) =>
+				readLookupDefinitionsInTransaction(tx, PROJECT_ID, [
+					notes.tableId,
+					empty.tableId,
+				]),
+			);
+		const attribute = definitions.find((table) => table.id === notes.tableId)
+			?.attributes?.[0];
+		if (!attribute)
+			throw new Error("The fixture did not retain its note attribute.");
+		const capturedText = " Note ";
+		const rows: LookupFixtureRow[] = [
+			{
+				id: second.id,
+				values: {},
+				attributes: { [attribute.id]: capturedText },
+			},
+			{
+				id: first.id,
+				values: {},
+				attributes: { [attribute.id]: "Later in restore" },
+			},
+		];
+		const rowsByTable = new Map([
+			[notes.tableId, rows],
+			[empty.tableId, []],
+		]);
+		const original = program("yes", "1", "1");
+		const [create] = original.operations;
+		const note = tableLookup(
+			notes.tableId,
+			{ attributeId: attribute.id },
+			matchAll(),
+		);
+		const emptyCell = tableLookup(empty.tableId, column.id, matchAll());
+		const reads = 24;
+		const capturedProgram: CaseOperationProgram = {
+			...original,
+			openingReads: {
+				cases: { rows: [], indices: [] },
+				currentOwnerIds: [ACTOR],
+			},
+			lookupTableSchemas: workerLookupSchemas(PROJECT_ID, {
+				definitions,
+				rowsByTable,
+			}),
+			operations: [
+				{
+					...create,
+					operation: {
+						...create.operation,
+						writes: [
+							{
+								property: "note",
+								value: ifExpr(
+									isBlank(emptyCell),
+									concat(
+										note,
+										...Array.from({ length: reads - 1 }, () => note),
+									),
+									literal("A table without a matching row must read blank"),
+								),
+							},
+						],
+					},
+				},
+			],
+		};
+		const compiler = new PostgresQueryCompiler();
+		const observed: Array<{
+			sql: string;
+			richBinds: number;
+			emptyBinds: number;
+		}> = [];
+		const watchBindings: KyselyPlugin = {
+			transformQuery(args) {
+				const query = compiler.compileQuery(args.node, args.queryId);
+				const richBinds = query.parameters.filter(
+					(value) => typeof value === "string" && value.includes(capturedText),
+				).length;
+				if (richBinds > 0)
+					observed.push({
+						sql: query.sql,
+						richBinds,
+						emptyBinds: query.parameters.filter((value) => value === "[]")
+							.length,
+					});
+				return args.node;
+			},
+			async transformResult(args) {
+				return args.result;
+			},
+		};
+		const store = makeStore(
+			(fixture.db as Kysely<Database>).withPlugin(watchBindings),
+		);
+		await submit(store, capturedProgram);
+		expect(observed).toHaveLength(1);
+		const [{ sql: generated, richBinds, emptyBinds }] = observed;
+		expect({ richBinds, emptyBinds }).toEqual({ richBinds: 1, emptyBinds: 3 });
+		expect(generated.match(/AS MATERIALIZED/g)).toHaveLength(2);
+		expect(
+			generated.match(
+				/jsonb_array_elements\([^)]*\) WITH ORDINALITY AS source/g,
+			),
+		).toHaveLength(2);
+		expect(generated).not.toContain('"lookup_rows"');
+		const saved = await (fixture.db as Kysely<Database>)
+			.selectFrom("cases")
+			.select("properties")
+			.where("app_id", "=", APP_ID)
+			.execute();
+		expect(saved).toEqual([
+			{ properties: { note: capturedText.repeat(reads) } },
+		]);
+
+		await expect(
+			submit(
+				store,
+				{
+					...capturedProgram,
+					lookupTableSchemas: workerLookupSchemas(PROJECT_ID, {
+						definitions,
+						rowsByTable: new Map([[notes.tableId, rows]]),
+					}),
+				},
+				"missing-captured-table",
+			),
+		).rejects.toThrow("This worker’s current lookup rows are unavailable.");
+		expect(
+			await (fixture.db as Kysely<Database>)
+				.selectFrom("cases")
+				.select("properties")
+				.where("app_id", "=", APP_ID)
+				.execute(),
+		).toEqual(saved);
+	});
+
 	it("submits from captured lookup rows while a live writer holds the table lock", async () => {
 		const appDb = fixture.db as Kysely<AppDatabase>;
 		const seeded = await appDb.transaction().execute(async (tx) =>

@@ -77,6 +77,7 @@ import {
 	compileLookupColumnTerm,
 	type LookupRowScope,
 	type LookupTableSchemas,
+	type WorkerLookupRowsSource,
 } from "./compileLookup";
 import {
 	compileRelationPath,
@@ -309,6 +310,8 @@ export interface TermCompileContext {
 	 * invariant instead of guessing a cast.
 	 */
 	lookupTableSchemas?: LookupTableSchemas;
+	/** Optional statement-local source for the same authorized worker rows. */
+	workerLookupRowsSource?: WorkerLookupRowsSource;
 	/**
 	 * The enclosing `table-lookup`'s row scope. Set by
 	 * `compileTableLookup` around its `where` compilation only —
