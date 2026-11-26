@@ -120,9 +120,8 @@ def _generic_archive(archive_bytes):
         )
 
 
-def _asset_bytes(unit, app_id, paths):
+def _asset_bytes(unit, app_id, paths, credential):
     app = operations.held_app(unit, app_id)
-    credential = operations.seed_api_key(unit, unit.web_user.username, domain=unit.domain)
     for path in set(paths.values()):
         mapped = app.multimedia_map[f"jr://file/{path}"]
         answer = operations.media_file_read(unit, mapped.url, credential)
@@ -168,8 +167,7 @@ def _read_from_hq(unit, app_id, credential, label, english, french, previous=Non
     return held[""], held[options_slot], answer.get("review")
 
 
-def _edit_and_read_form_translation(unit, app_id, paths, evidence):
-    credential = operations.seed_api_key(unit, unit.web_user.username, domain=unit.domain)
+def _edit_and_read_form_translation(unit, app_id, paths, credential, evidence):
     english = f"jr://file/{paths['formEnglish']}"
     old = f"jr://file/{paths['formFrench']}"
     new = f"jr://file/{paths['menuFrench']}"
@@ -273,7 +271,8 @@ def _journey(native, runner=None):
                 "media.zip", "bulk_upload_file", (family / "media.zip").read_bytes(), "application/zip",
             ))
             assert uploaded.status == 200 and uploaded.processing, uploaded
-            _asset_bytes(unit, app_id, paths)
+            credential = operations.seed_api_key(unit, unit.web_user.username, domain=unit.domain)
+            _asset_bytes(unit, app_id, paths, credential)
 
         with formplayer_hq.serve(
             unit, None, app_id, runner=runner, database=first_db,
@@ -302,14 +301,14 @@ def _journey(native, runner=None):
                 (third, "en", "case-unassigned", (), "English"),
             )
 
-            yield released, paths, remote_ids, workers
+            yield released, paths, remote_ids, workers, credential
 
 
 @pytest.mark.reader("webapps")
 def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
     native, hq, core_runner, formplayer_runner, editor_driver, evidence,
 ):
-    with _journey(native, formplayer_runner) as (released, paths, remote_ids, workers):
+    with _journey(native, formplayer_runner) as (released, paths, remote_ids, workers, credential):
         unit = released.unit
         for worker, language, case, expected, caption in workers:
             bridge = FullRestores(unit, worker.username)
@@ -352,7 +351,7 @@ def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
                 _same_label_different_keys(released, run, bridge, evidence)
 
         with unit.committing():
-            _edit_and_read_form_translation(unit, released.app_id, paths, evidence)
+            _edit_and_read_form_translation(unit, released.app_id, paths, credential, evidence)
 
 
 def _descendants(view):
@@ -367,7 +366,7 @@ def test_android_grid_uses_each_workers_assigned_choices_and_installed_language_
     from proof.observe.record import Blobs
 
     labels = {occurrences[1][1] for _, occurrences in ROWS}
-    with _journey(native) as (released, paths, _remote_ids, workers):
+    with _journey(native) as (released, paths, _remote_ids, workers, _credential):
         archive = observe.release_archive(released)
         with ZipFile(BytesIO(archive)) as downloaded:
             for path in set(paths.values()):
