@@ -9,7 +9,10 @@ import {
 	menuTileScreenOf,
 } from "@/lib/domain";
 import { routeContainsForm } from "@/lib/domain/listedForms";
-import type { PreviewCaseChoice } from "@/lib/session/types";
+import type {
+	PreviewCaseChoice,
+	PreviewEntryChoice,
+} from "@/lib/session/types";
 import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
 import type { CaseDatabaseSnapshot } from "./engine/xpathInstances";
 /**
@@ -585,6 +588,25 @@ export function afterSubmitFrameLanding(args: {
 		case "pending":
 			return [];
 	}
+}
+
+/** Keep the destination form's supplied choices in physical datum order, even
+ * when several independent questions draw from the same record list. */
+export function carriedFormChoices(
+	selections: readonly TargetCaseSelection[],
+): { entryChoices?: readonly PreviewEntryChoice[] } {
+	const entryChoices = selections.flatMap((row) =>
+		row.selectionUuid
+			? [
+					{
+						selectionUuid: row.selectionUuid,
+						caseId: row.caseId,
+						...(row.caseName !== undefined && { caseName: row.caseName }),
+					},
+				]
+			: [],
+	);
+	return entryChoices.length ? { entryChoices } : {};
 }
 
 /** Apply a matched target frame to the running menu session without mutating

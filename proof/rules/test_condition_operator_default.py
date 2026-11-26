@@ -51,3 +51,27 @@ def test_hq_builds_a_null_operator_as_equals(rule_documents, hq, core_runner):
     assert_same_build(nova, saved)
     assert shown(stored_differences(nova.stored, selected.stored, rules=(RULE,)))
     assert build_differences(nova.build, selected.build), "HQ builds a selected() condition as an equality"
+
+
+# Its visit menu's second and third forms are shared entries of the first, each with its own extra loads.
+SHARED = "targeted-shared-visit-entries"
+
+
+def _extra_close_operator(operator):
+    def change(doc):
+        for form in doc["modules"][0]["forms"]:
+            for load in (form.get("extra_actions") or {}).get("load_update_cases") or []:
+                load["close_condition"]["operator"] = operator
+
+    return edited(change)
+
+
+def test_hq_builds_a_shared_entrys_null_close_operator_as_equals(rule_documents, hq, core_runner):
+    """A shared entry's extra loads, as HQ's advanced Case Management page saves them (each ``close_condition``'s
+    operator null), build as Nova's ``=`` does: ``ShadowForm._merge_actions`` hands them to the same reader."""
+    with published(rule_documents[SHARED], core_runner) as app:
+        nova = app.spell(doc=_extra_close_operator("="))
+        saved = app.spell(doc=_extra_close_operator(None))
+
+    assert_spelled(nova, saved, RULE, lambda path: path.endswith("/close_condition/operator"))
+    assert_same_build(nova, saved)

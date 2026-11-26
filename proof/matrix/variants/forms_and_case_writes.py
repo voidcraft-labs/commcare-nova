@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 from proof.matrix import ops
+from proof.matrix.bases.lookups import changes_lookup_data
 
 # The ends of a form HQ's form builder saves, which a question added last goes before.
 _DATA_END = "\t\t\t\t</data>"
@@ -209,25 +210,6 @@ def child_close_is_true_on_a_choice(authoring, app_id):
     ops.set_json(authoring, app_id, "/modules/0/forms/2/actions/subcases/0/close_condition/answer", None)
 
 
-def visit_kind_from_both_selects(authoring, app_id):
-    """``visit_kind`` of the household written by ``hq-case-management``'s first follow-up form from a new
-    multiple-choice question and by its second from the single-choice ``visited``."""
-    _change(
-        authoring,
-        app_id,
-        "visit-kind-question",
-        *_question("visit_kind", "Kind of visit", "select", None, items=(("home", "Home"), ("clinic", "Clinic"))),
-        menu=0,
-        form=1,
-    )
-    ops.set_json(
-        authoring, app_id, "/modules/0/forms/1/actions/update_case/update/visit_kind", _update("/data/visit_kind")
-    )
-    ops.set_json(
-        authoring, app_id, "/modules/0/forms/2/actions/update_case/update/visit_kind", _update("/data/visited")
-    )
-
-
 def members_written_as_number_and_text(authoring, app_id):
     """``members`` of the household opened by ``hq-case-management``'s first follow-up form in its whole-number
     question ``members`` (a load from the case on the Case Management tab) and written by its second from the text
@@ -255,6 +237,15 @@ def update_from_a_photo(authoring, app_id):
         form=0,
     )
     ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/update_case/update/photo", _update("/data/photo"))
+
+
+def worker_preload_observed_before_its_source_only_write(authoring, app_id):
+    """The basic worker editor preserves historical loads but cannot create them.
+    A form default reading this destination before the late write distinguishes
+    it from the otherwise equivalent ordinary worker-property starting value."""
+    _change(authoring, app_id, "worker-preload-observed", *_default_value("visit_note", "village_seen"), menu=0, form=1)
+    ops.set_json(authoring, app_id, "/modules/0/forms/1/actions/case_preload/preload", {})
+    ops.set_json(authoring, app_id, "/modules/0/forms/1/actions/usercase_preload/preload", {"/data/village_seen": "last_visit_note"})
 
 
 def preload_read_later(authoring, app_id):
@@ -432,10 +423,25 @@ def _visit_loads(authoring, app_id):
     return [json.loads(json.dumps(load.to_json())) for load in form.actions.load_update_cases]
 
 
+@changes_lookup_data
+def household_chosen_by_a_stored_table(authoring, app_id):
+    """The visit's last load takes its household id from one real global table row."""
+    from proof.matrix.bases.lookups import make_tables
+
+    make_tables(authoring, [{"tag": "villages", "fields": ["household_id"],
+                             "rows": [["4b4d8b1b-052a-400b-9a47-9ce477ddcf08"]]}])
+    loads = _visit_loads(authoring, app_id)
+    automatic = dict(loads[0], case_tag="load_household2", details_module=None,
+                     preload={}, case_properties={},
+                     auto_select={"doc_type": "AutoSelectCase", "mode": "fixture",
+                                  "value_source": "villages", "value_key": "household_id"})
+    ops.set_json(authoring, app_id, _VISIT_LOADS, [*loads, automatic])
+
+
 def worker_load_stored_first(authoring, app_id):
     """``hq-advanced``'s Member visits form with the worker's record's auto-selected load stored before the
     household and the member it chooses, which HQ's page keeps where a person drags it: HQ's entry computes the
-    worker's datum in stored order, and Nova writes it after every chosen load."""
+    worker's datum in stored order, before the first chosen case."""
     ops.set_json(authoring, app_id, _VISIT_LOADS, [_worker_load(), *_visit_loads(authoring, app_id)])
 
 
@@ -751,3 +757,55 @@ def previous_on_a_first_menu_with_no_shared_case(authoring, app_id):
     ops.set_json(authoring, app_id, "/modules/0/put_in_root", True)
     ops.set_json(authoring, app_id, "/modules/1/put_in_root", True)
     ops.set_json(authoring, app_id, "/modules/1/forms/0/post_form_workflow", "previous_screen")
+
+def connection_from_a_parent_aligned_load(authoring, app_id):
+    """The child follows a member's parent after HQ aligns that member to the root menu's datum."""
+    path = "/modules/2/forms/0/actions/load_update_cases"
+    ops.set_json(authoring, app_id, "/modules/2/root_module_id", {"$menu": 1})
+    ops.set_json(authoring, app_id, path + "/1/case_tag", "child_member")
+    ops.set_json(
+        authoring, app_id, path + "/-",
+        {
+            "doc_type": "LoadUpdateAction", "case_type": "household", "case_tag": "connected_household",
+            "details_module": None, "case_index": _index(""), "case_properties": {}, "preload": {},
+            "close_condition": _condition("never"),
+            "auto_select": {"doc_type": "AutoSelectCase", "mode": "case",
+                            "value_source": "child_member", "value_key": "parent"},
+        },
+    )
+
+
+def two_entries_opening_the_visit(authoring, app_id):
+    """Two entries created from HQ’s menu, each pointed at the ordinary parent
+    by its form settings and configured through its Advanced Case Management save."""
+    from corehq.apps.app_manager.models import AdvancedFormActions, CaseIndex, LoadUpdateAction
+    from proof.hq import operations
+    from proof.matrix.bases import _pages
+
+    app = operations.held_app(authoring.state, app_id)
+    households, visits, reviews = [app.get_module(index) for index in range(3)]
+    parent_id = visits.get_form(0).unique_id
+
+    def pick(tag, case_type, menu):
+        return LoadUpdateAction(case_type=case_type, case_tag=tag, details_module=menu.unique_id)
+
+    member = pick("load_member1", "member", visits)
+    member.case_index = CaseIndex(tag="load_household0", reference_id="parent", relationship="child")
+    for menu, name, workflow, choices in (
+        (1, "Visit from a referral", "root", [
+            pick("referring_household", "household", households),
+            pick("load_member1", "member", reviews),
+            pick("load_household0", "household", households),
+        ]),
+        (2, "Visit from a callback", "default", [pick("load_household0", "household", households), member]),
+    ):
+        _pages.new_form(authoring, app_id, menu, form_type="shadow")
+        _pages.save_form_attributes(authoring, app_id, menu, 1, [
+            ("name", name), ("shadow_parent", parent_id), ("post_form_workflow", workflow),
+        ], "shared entry")
+        actions = AdvancedFormActions(load_update_cases=choices)
+        pairs = [("actions", json.dumps(actions.to_json())), ("arbitrary_datums", "[]")]
+        with authoring.step(f"build:shared-entry-choices:{menu}", json.dumps(pairs).encode()):
+            entry = operations.held_app(authoring.state, app_id).get_module(menu).get_form(1)
+            body, content_type = ops.form_body(pairs)
+            ops.post(authoring, "edit_advanced_form_actions", [app_id, entry.unique_id], body, content_type, name)

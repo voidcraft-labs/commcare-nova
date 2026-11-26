@@ -1,9 +1,13 @@
 import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
-import type { Uuid } from "@/lib/domain";
+import { formContentUuid, type Uuid } from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
-import { afterSubmitFrameLanding, appHomeLanding } from "../afterSubmitRouting";
+import {
+	afterSubmitFrameLanding,
+	appHomeLanding,
+	carriedFormChoices,
+} from "../afterSubmitRouting";
 import {
 	afterSubmitPath,
 	completeAfterSubmit,
@@ -34,7 +38,11 @@ import {
 import type { AppTestContext } from "./context";
 import { appTestDataRefusal } from "./dataRefusal";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
-import { appTestHistoryEntry, enterAppTestMenu } from "./navigation";
+import {
+	appTestFormOpening,
+	appTestHistoryEntry,
+	enterAppTestMenu,
+} from "./navigation";
 import type {
 	AppTestAfterSubmitRoute,
 	AppTestScreen,
@@ -80,7 +88,10 @@ export async function submitAppTest(
 	const mutation =
 		state.locationFix !== undefined &&
 		context.rules.automaticLocation &&
-		capturesDeviceLocation(context.doc, context.doc.forms[screen.formUuid])
+		capturesDeviceLocation(
+			context.doc,
+			context.doc.forms[formContentUuid(context.doc, screen.formUuid)],
+		)
 			? { ...evaluated.submission, locationFix: state.locationFix }
 			: evaluated.submission;
 	const projection = validateCaptureSubmissionProjection(mutation);
@@ -493,13 +504,24 @@ export async function submitAppTest(
 						: []);
 				nextState = {
 					...nextState,
-					screen: {
-						kind: "form",
-						moduleUuid: next.route.moduleUuid,
-						formUuid: next.route.formUuid,
-						caseIds: ids,
-						entryCases: cases,
-					},
+					screen:
+						context.doc.forms[next.route.formUuid].caseSelections !== undefined
+							? appTestFormOpening(
+									{ ...context, identity },
+									nextState,
+									next.route.moduleUuid,
+									next.route.formUuid,
+									carriedFormChoices(next.route.caseSelections).entryChoices ??
+										[],
+									cases,
+								)
+							: {
+									kind: "form",
+									moduleUuid: next.route.moduleUuid,
+									formUuid: next.route.formUuid,
+									caseIds: ids,
+									entryCases: cases,
+								},
 					history: linkedHistory,
 				};
 				break;

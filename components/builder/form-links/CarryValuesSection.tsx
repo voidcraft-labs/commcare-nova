@@ -75,6 +75,12 @@ export function CarryValuesSection({
 	const [confirmingAutomatic, setConfirmingAutomatic] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingAutomatic);
 
+	const carriedLabel = (name: FormLinkDatum["name"]) => {
+		const row = required.find(
+			(item) => datumRefKey(item.name) === datumRefKey(name),
+		);
+		return row?.label ?? row?.caseType ?? "Selected record";
+	};
 	const workItOutHere = () =>
 		onCommit({ ...link, datums: seedCarriedValues(required) });
 	const carryAutomatically = () => {
@@ -195,11 +201,7 @@ export function CarryValuesSection({
 							key={datumRefKey(datum.name)}
 							formUuid={formUuid}
 							linkUuid={link.uuid}
-							label={
-								required.find(
-									(item) => datumRefKey(item.name) === datumRefKey(datum.name),
-								)?.caseType ?? "Selected record"
-							}
+							label={carriedLabel(datum.name)}
 							datum={datum}
 							canEdit={canEdit}
 							onSave={(xpath) =>
@@ -218,7 +220,10 @@ export function CarryValuesSection({
 						<div className="space-y-2 rounded-xl border border-nova-amber/30 bg-nova-amber/[0.05] p-3">
 							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 								The destination now also needs{" "}
-								{missing.map((datum) => `“${datum.id}”`).join(", ")}.
+								{missing
+									.map((datum) => `“${datum.label ?? datum.id}”`)
+									.join(", ")}
+								.
 							</p>
 							<Button
 								type="button"

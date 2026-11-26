@@ -182,16 +182,12 @@ vi.mock("@/lib/db/formAttachments", async () => {
 
 const {
 	readWorkerLookupProjectionMock,
-	getLookupFixtureDataMock,
-	getLookupDefinitionsMock,
 	loadAppMock,
 	materializeMock,
 	resolveAppScopeMock,
 	resolveAuthorizedAppSnapshotMock,
 } = vi.hoisted(() => ({
 	readWorkerLookupProjectionMock: vi.fn(),
-	getLookupFixtureDataMock: vi.fn(),
-	getLookupDefinitionsMock: vi.fn(),
 	loadAppMock: vi.fn(),
 	materializeMock: vi.fn(),
 	resolveAppScopeMock: vi.fn(),
@@ -229,16 +225,6 @@ vi.mock("@/lib/deployment/workerLookupProjection", async () => {
 	return {
 		...actual,
 		readWorkerLookupProjection: readWorkerLookupProjectionMock,
-	};
-});
-vi.mock("@/lib/lookup/service", async () => {
-	const actual = await vi.importActual<typeof import("@/lib/lookup/service")>(
-		"@/lib/lookup/service",
-	);
-	return {
-		...actual,
-		getLookupDefinitions: getLookupDefinitionsMock,
-		getLookupFixtureData: getLookupFixtureDataMock,
 	};
 });
 
@@ -437,8 +423,10 @@ function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 		query: appCaseQuery(),
 		querySearchResults: vi.fn(),
 		readSearchResultInstance: vi.fn(),
+		holdsDeviceCases: vi.fn(async () => true),
 		readDeviceCaseDatabase: vi.fn(async () => ({ rows: [], indices: [] })),
 		readCaseDatabasePatch: vi.fn(async () => ({ rows: [], indices: [] })),
+		readSubmittedCaseDatabasePatch: vi.fn(async () => undefined),
 		queryGrouped: vi.fn(),
 		count: vi.fn(),
 		insert: vi.fn(),
@@ -824,6 +812,10 @@ describe("submitFormAction", () => {
 				},
 			],
 		});
+		// Without the follow-up's generated starting value the form reads no
+		// record when it opens, so it submits without a signed opening.
+		for (const field of Object.values(committedBlueprint.fields))
+			if ("default_value" in field) delete field.default_value;
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
 			kind: "current",
 			projectId: PROJECT_A,
@@ -1616,7 +1608,10 @@ describe("submitFormAction", () => {
 		).toBeLessThan(resolveAppScopeMock.mock.invocationCallOrder[0] ?? Infinity);
 	});
 
-	it("loads the exact Project-scoped definitions once and attaches them to the submitted program", async () => {
+	it("refuses a form whose operations read a table when it arrives without its signed opening", async () => {
+		// The opening a form starts from carries the table definitions and
+		// rows its operations read (`formOpeningSnapshot.ts`); a submission
+		// that lost it is refused before any definition is read or written.
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -1655,35 +1650,7 @@ describe("submitFormAction", () => {
 				project_id: PROJECT_A,
 			},
 		});
-		readWorkerLookupProjectionMock.mockResolvedValueOnce({
-			projectId: PROJECT_A,
-			projectRevision: "1",
-			rowsByTable: new Map(),
-			workerBinding: "preview-worker",
-			definitions: [
-				{
-					id: OPERATION_LOOKUP_TABLE,
-					name: "Status",
-					tag: "status",
-					definitionRevision: "1",
-					columns: [
-						{
-							id: OPERATION_LOOKUP_COLUMN,
-							wireName: "status",
-							label: "Status",
-							dataType: "text",
-						},
-					],
-				},
-			],
-		});
-		const applySubmission = vi.fn().mockResolvedValueOnce({
-			primaryCaseIds: [],
-			createdChildren: [],
-			operations: [],
-			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
-		});
+		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
@@ -1705,36 +1672,12 @@ describe("submitFormAction", () => {
 				canonicalJsonDigest(toPersistableDoc(doc)),
 			),
 		).toEqual({
-			kind: "survey",
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+			kind: "error",
+			message:
+				"Reopen this form to load its opening records before submitting.",
 		});
-
-		// Exactly the tables the program's own operations reference, read once
-		// under the same Project scope the membership gate resolved.
-		expect(readWorkerLookupProjectionMock).toHaveBeenCalledTimes(1);
-		expect(readWorkerLookupProjectionMock).toHaveBeenCalledWith(
-			{
-				scope: { appId: APP_ID, projectId: PROJECT_A, actorUserId: OWNER_A },
-				grant: { kind: "session", sessionId: "preview-session" },
-			},
-			[OPERATION_LOOKUP_TABLE],
-		);
-		const envelope = applySubmission.mock.calls[0]?.[0];
-		expect(
-			envelope.operations?.lookupTableSchemas
-				?.get(OPERATION_LOOKUP_TABLE)
-				?.get(OPERATION_LOOKUP_COLUMN),
-		).toBe("text");
-
-		// Authorized snapshot, then definitions, then the apply — the
-		// definition read must never precede the membership proof.
-		const snapshotOrder =
-			loadAuthorizedFormSubmissionSnapshotMock.mock.invocationCallOrder[0];
-		const definitionsReadOrder =
-			readWorkerLookupProjectionMock.mock.invocationCallOrder[0];
-		const applyOrder = applySubmission.mock.invocationCallOrder[0];
-		expect(snapshotOrder).toBeLessThan(definitionsReadOrder);
-		expect(definitionsReadOrder).toBeLessThan(applyOrder);
+		expect(readWorkerLookupProjectionMock).not.toHaveBeenCalled();
+		expect(applySubmission).not.toHaveBeenCalled();
 	});
 
 	it("keeps one lookup-schema map on the same envelope across a schema-heal retry", async () => {
@@ -1776,28 +1719,59 @@ describe("submitFormAction", () => {
 				project_id: PROJECT_A,
 			},
 		});
-		readWorkerLookupProjectionMock.mockResolvedValueOnce({
-			projectId: PROJECT_A,
-			projectRevision: "1",
-			rowsByTable: new Map(),
-			workerBinding: "preview-worker",
-			definitions: [
-				{
-					id: OPERATION_LOOKUP_TABLE,
-					name: "Status",
-					tag: "status",
-					definitionRevision: "1",
-					columns: [
+		const { signFormOpening } = await import("../signedFormOpening");
+		const device = webAppsDevice();
+		const run = testUuid("retry-opening");
+		const module = Object.values(doc.modules)[0].uuid;
+		const blueprintDigest = canonicalJsonDigest(toPersistableDoc(doc));
+		const secret = "synthetic-submission-retry-test";
+		const evidence = await signFormOpening(
+			secret,
+			{
+				app: APP_ID,
+				project: PROJECT_A,
+				actor: OWNER_A,
+				worker: OWNER_A,
+				persona: null,
+				session: "preview-session",
+				device,
+				run,
+				module,
+				form: formUuid,
+				entry: FINAL_ENTRY_KEY,
+				revision: 8,
+				blueprintDigest,
+			},
+			{
+				cases: EMPTY_CASE_DATABASE_PATCH,
+				lookup: {
+					projectRevision: "1",
+					rowsByTable: {},
+					definitions: [
 						{
-							id: OPERATION_LOOKUP_COLUMN,
-							wireName: "status",
-							label: "Status",
-							dataType: "text",
+							id: OPERATION_LOOKUP_TABLE,
+							name: "Status",
+							tag: "status",
+							definitionRevision: parseLookupRevision("1"),
+							columns: [
+								{
+									id: OPERATION_LOOKUP_COLUMN,
+									wireName: "status",
+									label: "Status",
+									dataType: "text",
+								},
+							],
 						},
 					],
 				},
-			],
-		});
+				choices: [],
+				primaryCaseIds: [],
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+			},
+		);
 		materializeMock.mockResolvedValueOnce(undefined);
 		const applySubmission = vi
 			.fn()
@@ -1814,30 +1788,38 @@ describe("submitFormAction", () => {
 		);
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		expect(
-			await submitFormAction(
-				{
-					kind: "survey",
-					formUuid,
-					entryKey: FINAL_ENTRY_KEY,
-					attachmentRefs: [],
-					operationAnswers: {
-						root: [{ fieldUuid: noteUuid, value: "first" }],
-						repeats: [],
+		vi.stubEnv("BETTER_AUTH_SECRET", secret);
+		try {
+			expect(
+				await submitFormAction(
+					{
+						kind: "survey",
+						formUuid,
+						entryKey: FINAL_ENTRY_KEY,
+						attachmentRefs: [],
+						formOpening: { run, module, evidence },
+						operationAnswers: {
+							root: [{ fieldUuid: noteUuid, value: "first" }],
+							repeats: [],
+						},
 					},
-				},
-				APP_ID,
-				canonicalJsonDigest(toPersistableDoc(doc)),
-			),
-		).toEqual({
-			kind: "survey",
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
-		});
+					APP_ID,
+					blueprintDigest,
+					undefined,
+					undefined,
+					undefined,
+					device,
+				),
+			).toEqual({
+				kind: "survey",
+				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+			});
+		} finally {
+			vi.unstubAllEnvs();
+		}
 
-		// The heal retries the WHOLE envelope, so the compiler context the
-		// second attempt runs against must be the same object, not a second
-		// definition read that could observe a changed schema mid-submission.
-		expect(readWorkerLookupProjectionMock).toHaveBeenCalledTimes(1);
+		// Both attempts use the signed opening's schema without consulting live definitions.
+		expect(readWorkerLookupProjectionMock).not.toHaveBeenCalled();
 		expect(materializeMock).toHaveBeenCalledTimes(1);
 		expect(applySubmission).toHaveBeenCalledTimes(2);
 		const firstEnvelope = applySubmission.mock.calls[0]?.[0];
@@ -3107,6 +3089,7 @@ describe("loadCasesAction", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as Awaited<ReturnType<typeof getSession>>);
 			const store = {
 				...actionStore(),
@@ -3171,6 +3154,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as Awaited<ReturnType<typeof getSession>>);
 		const first = {
 			...buildSyntheticRow({}),
@@ -3264,9 +3248,10 @@ describe("loadCasesAction", () => {
 			project_id: PROJECT_A,
 		});
 		let revision = 1;
-		getLookupFixtureDataMock.mockImplementation(
+		readWorkerLookupProjectionMock.mockImplementation(
 			async (_scope, ids: LookupTableId[]) => ({
 				projectRevision: String(revision),
+				workerBinding: "preview-worker",
 				definitions: definitions.filter((table) => ids.includes(table.id)),
 				rowsByTable: new Map(
 					ids.map((id) => [
@@ -3304,10 +3289,12 @@ describe("loadCasesAction", () => {
 				"dob:starting": "opening 1 0",
 				"last_seen:starting": "opening 1 1",
 			});
-			expect(getLookupFixtureDataMock).toHaveBeenCalledExactlyOnceWith(
-				{ projectId: PROJECT_A, actorId: OWNER_A, role: "owner" },
+			expect(readWorkerLookupProjectionMock).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					scope: { appId: APP_ID, projectId: PROJECT_A, actorUserId: OWNER_A },
+					grant: { kind: "session", sessionId: "preview-session" },
+				}),
 				tables,
-				"device",
 			);
 			revision = 2;
 			vi.setSystemTime(new Date("2024-05-03T12:00:00Z"));
@@ -3351,7 +3338,7 @@ describe("loadCasesAction", () => {
 				await readCasesForSavedRange({ ...request, appId: "another-app" }),
 			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
 
-			expect(getLookupFixtureDataMock).toHaveBeenCalledTimes(1);
+			expect(readWorkerLookupProjectionMock).toHaveBeenCalledTimes(1);
 			const again = await openSearchRangesAction(target);
 			expect(
 				again.kind === "opened" &&
@@ -3379,7 +3366,7 @@ describe("loadCasesAction", () => {
 				utc.kind === "opened" && utc.fields[1].answers["last_seen:starting"],
 			).toBe("opening 2 1");
 			const { LookupError } = await import("@/lib/lookup/errors");
-			getLookupFixtureDataMock.mockRejectedValueOnce(
+			readWorkerLookupProjectionMock.mockRejectedValueOnce(
 				new LookupError(
 					"storage_limit",
 					"This app references more lookup data than Preview can load at once.",

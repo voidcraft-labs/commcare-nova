@@ -216,10 +216,7 @@ export const FINDING_COPY: Readonly<
 		never:
 			"This orders the case list by a value whose kind Nova can't tell, which Nova doesn't bring in.",
 	},
-	"case-preloads": {
-		"not-yet":
-			"This uses a way of loading a case value into a question, which Nova can't hold yet.",
-	},
+	"case-preloads": {},
 	"case-property-names": {
 		never:
 			"A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in.",
@@ -235,8 +232,6 @@ export const FINDING_COPY: Readonly<
 	"child-cases": {
 		never:
 			"This form opens a case of its menu's own type, and this project space leaves out the link between the two.",
-		"not-yet":
-			"This opens or closes a case under a condition Nova can't hold yet.",
 	},
 	"commcare-version": {},
 	"connect-blocks": {
@@ -277,9 +272,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"This form's case management is set up in a way Nova can't hold yet.",
 	},
-	"form-settings": {
-		"not-yet": "This uses a form setting, which Nova can't hold yet.",
-	},
+	"form-settings": {},
 	"form-source": {
 		"not-yet": "A form's source here is built in a way Nova can't hold yet.",
 	},
@@ -377,9 +370,7 @@ export const FINDING_COPY: Readonly<
 		never: "This uses a search setting, which Nova doesn't bring in.",
 		"not-yet": "This uses a search setting, which Nova can't hold yet.",
 	},
-	"shadow-forms": {
-		"not-yet": "This uses a shadow form, which Nova can't hold yet.",
-	},
+	"shadow-forms": {},
 	"supply-features": {
 		never: "This uses CommCare Supply features, which Nova doesn't bring in.",
 	},

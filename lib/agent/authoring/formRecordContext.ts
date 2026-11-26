@@ -7,6 +7,7 @@ import {
 	reachableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
+import { formEntryRecord } from "@/lib/domain/advancedEntryDatums";
 import { caseReferenceText } from "@/lib/domain/hashtagSegments";
 
 /** Read sources follow the same selected-record and ancestor rules as Preview
@@ -16,14 +17,17 @@ export function formRecordContext(doc: BlueprintDoc, formUuid: Uuid) {
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	const module = moduleUuid && doc.modules[moduleUuid];
 	if (!form || !module) return undefined;
-	const loadsOne = formOpensWithOneCase(
-		form.type,
-		caseSelectionCardinality(module),
-	);
+	const record = formEntryRecord(doc, formUuid);
+	const loadsOne =
+		record.requiresCase &&
+		formOpensWithOneCase(
+			form.type,
+			caseSelectionCardinality(record.menu ?? {}),
+		);
 	return {
-		selectedCaseType: loadsOne ? (module.caseType ?? null) : null,
+		selectedCaseType: loadsOne ? (record.caseType ?? null) : null,
 		readableRecords: reachableCaseTypes(
-			loadsOne ? module.caseType : undefined,
+			loadsOne ? record.contentCaseType : undefined,
 			effectiveCaseTypes(doc),
 		).map(({ name, depth }) => ({
 			caseType: name,

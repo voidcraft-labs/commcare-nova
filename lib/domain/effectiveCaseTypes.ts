@@ -50,6 +50,7 @@ import type { CaseType, PersistableDoc } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { inferExpressionTypes } from "./expression/inference";
 import { isStandardCaseListProperty } from "./standardCaseProperties";
+import { USERCASE_CASE_TYPE, usercaseCaseType } from "./usercase";
 
 const MATERIALIZABLE_CASE_TYPES_CACHE = new WeakMap<
 	PersistableDoc,
@@ -98,17 +99,37 @@ export function materializableCaseTypes(
 			new Set(ct.properties.map((p) => p.name)),
 		]),
 	);
-	const built = effectiveCaseTypes(doc).map((ct) => {
-		const declared = declaredByType.get(ct.name);
-		const properties = ct.properties.filter(
-			(p) => !isStandardCaseListProperty(p.name) || declared?.has(p.name),
-		);
-		return properties.length === ct.properties.length
-			? ct
-			: { ...ct, properties };
-	});
+	const built = effectiveCaseTypes(doc)
+		.filter((ct) => ct.name !== USERCASE_CASE_TYPE)
+		.map((ct) => {
+			const declared = declaredByType.get(ct.name);
+			const properties = ct.properties.filter(
+				(p) => !isStandardCaseListProperty(p.name) || declared?.has(p.name),
+			);
+			return properties.length === ct.properties.length
+				? ct
+				: { ...ct, properties };
+		});
 	MATERIALIZABLE_CASE_TYPES_CACHE.set(doc, built);
 	return built;
+}
+
+const entryTypes = new WeakMap<PersistableDoc, readonly CaseType[]>();
+
+/** Case schemas a form or a worker's list reads. Worker records have their
+ * system-defined schema, while sample-data creation only offers authored
+ * types through materializableCaseTypes. */
+export function entryCaseTypes(doc: PersistableDoc): readonly CaseType[] {
+	const cached = entryTypes.get(doc);
+	if (cached) return cached;
+	const catalog = materializableCaseTypes(doc);
+	const types = Object.values(doc.modules).some(
+		(menu) => menu.caseType === USERCASE_CASE_TYPE,
+	)
+		? [...catalog, usercaseCaseType(doc)]
+		: catalog;
+	entryTypes.set(doc, types);
+	return types;
 }
 
 /**
