@@ -6191,6 +6191,91 @@ def _detail_of(use):
     return at, detail, kind, module
 
 
+def _short_lookup(use):
+    _, detail, kind, _ = _detail_of(use)
+    if kind != "short" or detail.get("lookup_enabled") is not True:
+        return None
+    return detail if detail.get("case_tile_template") != "icon_text_grid" else None
+
+
+def _missing_lookup_arguments(detail):
+    return any(
+        not isinstance(detail.get(key), list) or not detail[key] for key in ("lookup_extras", "lookup_responses")
+    )
+
+
+def lookup_without_arguments(use, manifest):
+    """HQ's Case List editor requires a row in both argument lists for an active lookup."""
+    detail = _short_lookup(use)
+    return detail is not None and _missing_lookup_arguments(detail)
+
+
+def lookup_on_long_detail(use, manifest):
+    """HQ's Case List editor can only save an active lookup on the short detail."""
+    _, detail, kind, _ = _detail_of(use)
+    return kind == "long" and detail.get("lookup_enabled") is True
+
+
+def _literal_lookup_text(tree):
+    if tree is None:
+        return False
+    if tree[0] == "text":
+        return True
+    return tree[:2] == ["call", "concat"] and all(_literal_lookup_text(argument) for argument in tree[2])
+
+
+def lookup_with_nonliteral_arguments(use, manifest):
+    """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail):
+        return False
+    return any(
+        isinstance(extra, dict)
+        and isinstance(value := extra.get("value"), str)
+        and not _literal_lookup_text(expression_tree(value))
+        for extra in detail["lookup_extras"]
+    )
+
+
+def lookup_with_action_image(use, manifest):
+    detail = _short_lookup(use)
+    return detail is not None and detail.get("lookup_image") not in (None, "")
+
+
+def lookup_with_result_column(use, manifest):
+    detail = _short_lookup(use)
+    return detail is not None and detail.get("lookup_display_results") is True
+
+
+def _lookup_names(entries, keys):
+    if not all(isinstance(entry, dict) and entry.keys() == keys for entry in entries):
+        return False
+    names = [entry["key"] for entry in entries]
+    return all(_lookup_name(name) for name in names) and len(set(names)) == len(names)
+
+
+def _lookup_name(value):
+    return isinstance(value, str) and value != "" and value.strip() == value
+
+
+def lookup_outside_fixed_text(use, manifest):
+    """The remaining active short-detail lookup settings beside a fixed-text action."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail):
+        return False
+    extras = detail["lookup_extras"]
+    return (
+        lookup_with_action_image(use, manifest)
+        or lookup_with_result_column(use, manifest)
+        or not _lookup_name(detail.get("lookup_action"))
+        or not _lookup_name(detail.get("lookup_name"))
+        or not _lookup_names(detail["lookup_responses"], {"key"})
+        or not _lookup_names(extras, {"key", "value"})
+        or any(extra["key"] == "force_xpath_parsing" or not isinstance(extra["value"], str) for extra in extras)
+        or lookup_with_nonliteral_arguments(use, manifest)
+    )
+
+
 def _tabs(detail):
     return [tab for tab in (detail or {}).get("tabs") or [] if isinstance(tab, dict)]
 
@@ -12834,6 +12919,14 @@ VALUE_CLASSES = {
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
+    "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,
+    "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
+    "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
+    "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
+    "menus-and-case-lists/lookup-image-jr": lookup_with_action_image,
+    "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
+        lookup_with_result_column
+    ),
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name

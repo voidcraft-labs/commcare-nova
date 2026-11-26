@@ -5995,6 +5995,27 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/automatic-fixed-text-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-autolaunch",
+		"change": {
+			"op": "named",
+			"name": "automatic_fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/automatic",
+				"value": true
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/case-id-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-id-as-a-property-column-s-field",
@@ -8562,6 +8583,113 @@
 			"pointer": "/modules/0/case_details/short/filter",
 			"value": "#host/village = 'north'"
 		}
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-with-text-extras",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup",
+				"value": {
+					"action": "org.example.SCAN",
+					"label": "Scan a card",
+					"extras": [
+						{
+							"name": "mode",
+							"value": "scan"
+						},
+						{
+							"name": "source",
+							"value": "home visit"
+						}
+					],
+					"responses": ["patient_id", "fallback"]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-extras",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-fixed-text",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/extras",
+				"value": [
+					{
+						"name": "mode",
+						"value": "scan"
+					},
+					{
+						"name": "source",
+						"value": "home visit"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-name",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/label",
+				"value": "Scan a card"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-responses",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-responses-key",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/responses",
+				"value": ["patient_id", "fallback"]
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/follow-ups-shown-above-offering-registration",
