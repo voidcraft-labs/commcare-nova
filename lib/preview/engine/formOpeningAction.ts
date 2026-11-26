@@ -16,7 +16,10 @@ import {
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
 import { formStructure } from "@/lib/domain/expression/formStructure";
-import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
+import {
+	entrySelectionSettings,
+	formContentUuid,
+} from "@/lib/domain/formEntryCases";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { uuidSchema } from "@/lib/domain/uuid";
 import { getLookupDefinitions } from "@/lib/lookup/service";
@@ -209,6 +212,11 @@ export async function readFormOpeningAction(
 				)
 			)
 				return reopen;
+			const webActivityRestoreStartedAt =
+				device.platform === "web-apps" &&
+				doc.forms[formContentUuid(doc, args.form)]?.activityKeyText
+					? Date.now()
+					: undefined;
 			const restore = await readCaseDatabaseSnapshot(context.store, {
 				appId: args.app,
 				restoreScope: context.restoreScope,
@@ -238,6 +246,9 @@ export async function readFormOpeningAction(
 					}
 				: restored;
 			prior = {
+				...(webActivityRestoreStartedAt !== undefined && {
+					webActivityRestoreStartedAt,
+				}),
 				cases: openingCaseData(cases),
 				lookup: lookup.data,
 				choices: [],
@@ -477,7 +488,12 @@ export async function readFormOpeningAction(
 			args.previous,
 		);
 		const activityNotice = activity
-			? await recordWebActivityOpening(audience, activity, snapshot)
+			? await recordWebActivityOpening(
+					audience,
+					activity,
+					snapshot,
+					prior.webActivityRestoreStartedAt ?? Date.now(),
+				)
 			: undefined;
 		return {
 			kind: "opening",

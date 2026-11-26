@@ -89,6 +89,9 @@ export interface FormOpeningAudience {
 
 export interface FormOpeningProjection {
 	readonly webActivity?: WebFormActivityEntry;
+	/** A bound restore's start is the conservative proof of when the
+	 * worker could first see the rows. Held through the choice walk. */
+	readonly webActivityRestoreStartedAt?: number;
 	readonly cases: FormOpeningCaseData;
 	readonly lookup: LookupFixtureDataWire;
 	/** Stable supplying identities in the order the physical route reached them. */

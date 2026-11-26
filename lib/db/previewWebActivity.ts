@@ -111,6 +111,7 @@ export async function recordWebFormActivity(
 export async function initializeWebActivityRestore(
 	tx: QueryExecutorProvider,
 	scope: ActivityScope,
+	restoredAt: Date,
 ) {
 	await sql`DELETE FROM public.preview_form_activity WHERE ctid IN (
 		SELECT ctid FROM public.preview_form_activity WHERE expires_at <= clock_timestamp()
@@ -121,7 +122,7 @@ export async function initializeWebActivityRestore(
 		ORDER BY restored_at LIMIT 32 FOR UPDATE SKIP LOCKED
 	)`.execute(tx);
 	await sql`INSERT INTO public.preview_web_restores (app_id, project_id, actor_id, worker_id, restored_at)
-		VALUES (${scope.appId}, ${scope.projectId}, ${scope.actorId}, ${scope.workerId}, clock_timestamp())
+		VALUES (${scope.appId}, ${scope.projectId}, ${scope.actorId}, ${scope.workerId}, LEAST(clock_timestamp(), ${restoredAt}))
 		ON CONFLICT (app_id, project_id, actor_id, worker_id) DO NOTHING`.execute(
 		tx,
 	);

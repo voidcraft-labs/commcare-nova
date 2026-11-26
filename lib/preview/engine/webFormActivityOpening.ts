@@ -18,7 +18,7 @@ import {
 	webFormActivityWindow,
 } from "@/lib/domain/webFormActivity";
 import type { EntrySessionData } from "./entrySessionData";
-import { evaluateActivitySnapshot } from "./evaluateActivitySnapshot";
+import { evaluateActivitySnapshot } from "./evaluateFormSnapshot";
 import type { FormOpeningAudience } from "./formOpeningSnapshot";
 import type { ResolvedPreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -109,6 +109,7 @@ export async function recordWebActivityOpening(
 	audience: FormOpeningAudience,
 	entry: WebFormActivityEntry,
 	cases: CaseDatabaseSnapshot,
+	restoreStartedAt: number,
 ) {
 	const result = await withAppTx(async (tx) => {
 		const current = await resolveAppScopeInTransaction(
@@ -127,7 +128,7 @@ export async function recordWebActivityOpening(
 			actorId: audience.actor,
 			workerId: audience.worker,
 		};
-		await initializeWebActivityRestore(tx, scope);
+		await initializeWebActivityRestore(tx, scope, new Date(restoreStartedAt));
 		return recordWebFormActivity(tx, scope, audience.entry, entry, "opened");
 	});
 	if (!result) return undefined;
