@@ -182,7 +182,7 @@ const comparison: Record<
 	"eq" | "neq" | "lt" | "lte" | "gt" | "gte",
 	WireComparison
 > = { eq: "=", neq: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=" };
-export function sessionContextPath(field: SessionContextField): WireExpr {
+export function sessionContextPath(field: SessionContextField): WirePath {
 	return w.instance(sessionInstance(), [
 		w.step("session"),
 		w.step("context"),
