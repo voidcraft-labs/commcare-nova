@@ -275,6 +275,15 @@ export type PreviewSearchState =
 			/** Set once the no-matches form registers a case: Results then
 			 * shows that one case, as the wire's return frame does. */
 			readonly registeredCaseId?: string;
+			/** Set beside `registeredCaseId` where the return frame ends on
+			 * this search (a list action returning to the list): Web Apps
+			 * lands on that list with no row, though the search holds the
+			 * registered case. Formplayer rebuilds the frame counting no query
+			 * step toward a full entity screen
+			 * (`MenuSessionFactory.rebuildSessionFromFrame`), and Core lists no
+			 * reference on a screen it did not fully build
+			 * (`EntityScreen.initListSubScreen`). */
+			readonly listsNoRow?: true;
 			/** The menu's default search, which the list ran as it opened:
 			 *  no answer the worker gave, so history taking it back runs the
 			 *  default search again, whatever answers were given since

@@ -3513,7 +3513,7 @@ test.describe("authenticated builder", () => {
 				await registerAction.click();
 			});
 
-			await test.step("the form opens with the search's answer and returns to Results showing the new case", async () => {
+			await test.step("the form opens with the search's answer and returns to Results showing no row", async () => {
 				// The running question is named "Question 1. Name"; the form's own
 				// title input in the trail is "Form name".
 				const formName = main.getByRole("textbox", {
@@ -3522,11 +3522,10 @@ test.describe("authenticated builder", () => {
 				await expect(formName).toBeVisible({ timeout: 20_000 });
 				await expect(formName).toHaveValue(unmatchedName);
 				await main.getByRole("button", { name: "Submit", exact: true }).click();
+				// Web Apps lands on the list with no row and no Register, the search
+				// holding the new case (proof/webapps/test_empty_search_registration.py).
 				await expect(resultsTitle).toBeVisible({ timeout: 20_000 });
-				await expect(resultRows).toHaveCount(1);
-				await expect(resultRows.first()).toContainText(
-					`Patient ${unmatchedName}`,
-				);
+				await expect(resultRows).toHaveCount(0);
 				await expect(registerAction).toHaveCount(0);
 			});
 

@@ -1770,6 +1770,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 							searchesAtSubmit[moduleUuid],
 							registeredCaseId,
 							createdCase !== undefined,
+							registrationLanding.endsOnSearchOf !== moduleUuid,
 						),
 					);
 			setPreviewSelectedCase(undefined);

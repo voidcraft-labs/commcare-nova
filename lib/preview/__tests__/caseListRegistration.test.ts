@@ -295,6 +295,23 @@ describe("return from an empty search", () => {
 			caseListActionReturn(docWith("firstMenu"), REGISTER, launched, "new-id"),
 		).toBeUndefined();
 	});
+	// Formplayer rebuilds a frame that ends on a search without the list's rows
+	// (`MenuSessionFactory.rebuildSessionFromFrame`, `EntityScreen.initListSubScreen`):
+	// Web Apps lands on the empty list, the action hidden, for Nova's publish and for
+	// the same journey made on HQ's pages alike (`proof/formplayer/test_search.py`).
+	it("ends on the host's search returning to the list, and selects past it going on with the case", () => {
+		expect(
+			caseListActionReturn(doc, REGISTER, launched, "new-id")?.endsOnSearchOf,
+		).toBe(MODULE);
+		const continueWithCase = produce(doc, (draft) => {
+			const slot = draft.modules[MODULE]?.caseListRegistrationForm;
+			if (slot?.kind === "after-empty-search") slot.afterSubmit = "new-case";
+		});
+		expect(
+			caseListActionReturn(continueWithCase, REGISTER, launched, "new-id")
+				?.endsOnSearchOf,
+		).toBeUndefined();
+	});
 	it("selects the committed new case, and leaves the menu unselected when the create condition is false", () => {
 		const continueWithCase = produce(doc, (draft) => {
 			const slot = draft.modules[MODULE]?.caseListRegistrationForm;
@@ -713,6 +730,8 @@ describe("caseListActionReturn", () => {
 			screen: { kind: "menu", moduleUuid: HOST },
 			selectingModuleUuids: [],
 			newCaseSearchModuleUuids: [HOST],
+			// The frame ends on the host's search: Web Apps lists no row there.
+			endsOnSearchOf: HOST,
 		});
 	});
 

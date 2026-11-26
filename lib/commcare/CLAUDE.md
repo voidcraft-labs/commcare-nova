@@ -2252,7 +2252,11 @@ and App Tests record as that search.
   `<create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm{N}'">`
   with the host command plus the `case_fixture` query child
   (`formLinkProjection.ts::caseListFormReturnFrames`), so the worker lands on
-  Results showing exactly the case they registered; HQ regenerates the same
+  Results keyed to exactly the case they registered, which Formplayer shows
+  with no row: it rebuilds the frame counting no query step toward a full
+  entity screen (`MenuSessionFactory.rebuildSessionFromFrame`,
+  `EntityScreen.initListSubScreen`), for this frame and for HQ's own of the
+  same journey (`proof/formplayer/test_search.py`); HQ regenerates the same
   frame from `post_form_workflow: case_list`
   (`test_form_linking_to_inline_search_module_from_registration_form`). A
   host without menu forms has no common datum prefix (HQ reads form entries

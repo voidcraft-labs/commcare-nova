@@ -121,7 +121,8 @@ describe("an advanced open action's parent index against a menu's parent selecti
 		]);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 
-		const emitted = expandDoc(doc).modules[1]?.forms[0]?.actions as Json;
+		const emitted = expandDoc(doc).modules[1]?.forms[0]
+			?.actions as unknown as Json;
 		const indexOf = (index: Json) => ({
 			tag: index.tag,
 			reference_id: index.reference_id,

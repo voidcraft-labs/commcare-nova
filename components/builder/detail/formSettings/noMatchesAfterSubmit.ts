@@ -11,9 +11,9 @@ export function noMatchesAfterSubmitModel({
 	hasMenuForms: boolean;
 	afterSubmit?: "new-case";
 }) {
-	const returnLabel = hasMenuForms
-		? "Results showing the registered case"
-		: "Search";
+	// Web Apps lands on Results with no record (`lib/preview/CLAUDE.md`, the
+	// completed-search context's `listsNoRow`), though the search holds the case.
+	const returnLabel = hasMenuForms ? "Results" : "Search";
 	const value: NoMatchesDestination = firstMenu
 		? "firstMenu"
 		: (afterSubmit ?? "return");

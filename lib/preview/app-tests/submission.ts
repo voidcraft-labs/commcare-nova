@@ -252,6 +252,9 @@ export async function submitAppTest(
 						searchAnswers: searched.searchAnswers,
 					}),
 					registeredCaseId: caseId,
+					...(registrationLanding.endsOnSearchOf === moduleUuid && {
+						listsNoRow: true as const,
+					}),
 				};
 			};
 			const keyed =

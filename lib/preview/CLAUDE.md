@@ -2227,7 +2227,15 @@ with menu forms records the new case on the module's state
 (`recordRegisteredCase`: the same attempt, now completed with one match and
 `registeredCaseId`, which also closes the registration door) and opens the case
 list, where Results reads only that case (`useCases({ caseIds })`, the
-answers no longer narrowing it), mirroring the `case_fixture` frame. A host
+answers no longer narrowing it), mirroring the `case_fixture` frame. Where
+the frame ends on that search (the `case-list` return), Results read no row
+(`listsNoRow`): Formplayer rebuilds a frame counting no query step toward a
+full entity screen (`MenuSessionFactory.rebuildSessionFromFrame`), and Core
+lists no reference on a screen it did not fully build
+(`EntityScreen.initListSubScreen`), so Web Apps shows the list empty and,
+the results instance holding the case, no Register. Nova's publish and the
+same journey made on HQ's own pages land there alike
+(`proof/formplayer/test_search.py`, `proof/webapps/test_empty_search_registration.py`). A host
 without menu forms has a frame of the host command alone, so its context
 retires and the module opens on Search again (or its default search's Results). The
 form is on no menu:
@@ -2268,10 +2276,12 @@ search, `CaseListFormReturnFrame.newCaseSearchModuleUuids`), that menu's search
 state is `recordRegisteredCase` of it, one match where the form created the
 case and none where it did not, so Results and the forms' `results:inline`
 read that case alone, as the frame's `case_fixture` query does; App Tests carry
-the same `registeredCaseId` on that menu's records screen. So `case-list`
-lands on the host's screen with no case chosen, `new-case` with a created
-case lands there with that case chosen, and a bare case list lands on its list
-under either value. The form opened any other way is an ordinary form. App
+the same `registeredCaseId` on that menu's records screen. Where the frame ends
+on that search (`RegistrationReturnLanding.endsOnSearchOf`), Results read no row
+(`listsNoRow`, above), on the records screen too. So `case-list`
+lands on the host's screen with no case chosen and no row, `new-case` with a
+created case lands there with that case chosen, and a bare case list lands on
+its list under either value. The form opened any other way is an ordinary form. App
 Tests reach the action as a worker does: a records read of the host returns
 the form as `registration`, and the form screen carries the launch; Back to a
 form opens a fresh entry without it (`app-tests/navigation.ts::appTestBackScreen`).
@@ -2443,8 +2453,9 @@ choice; ordinary bare-module navigation follows the module-landing rule (`module
 An explicitly authored `postSubmit: "firstMenu"` on a case list registration
 returns to the home screen and retires that search/form/parent request, matching
 HQ's empty root frame. It never records the newly registered scalar case as a
-completed-search result. With no explicit override it returns to Results showing
-the registered case (§ The completed-search context); admission excludes that
+completed-search result. With no explicit override it returns to Results, keyed
+to the registered case and listing no row (§ The completed-search context,
+`listsNoRow`); admission excludes that
 implicit return for a multiple-selection host.
 
 Unexpected lookup-preview, filter-preview, sample-data, and submission failures return stable retry copy. Typed domain refusals keep their actionable payloads; unexpected exception details stay in server telemetry.

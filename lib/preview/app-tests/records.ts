@@ -55,6 +55,10 @@ export async function prepareAppTestRecords(
 		throw new AppTestActionError("Open a record list first.");
 	const registeredCaseId =
 		answers === undefined ? screen.registeredCaseId : undefined;
+	const listsNoRow =
+		registeredCaseId !== undefined && screen.listsNoRow === true
+			? (true as const)
+			: undefined;
 	/* The Search evaluation names its own reads' surfaces (the Search
 	 * action's condition the list's, the Search screen's the search's); what
 	 * is left is the Results read, the list's, as Preview shows it. */
@@ -67,6 +71,7 @@ export async function prepareAppTestRecords(
 				entry: screen.searchEntry,
 				answers,
 				registeredCaseId,
+				...(listsNoRow !== undefined && { listsNoRow }),
 			},
 			(reason) =>
 				new AppTestActionError(
@@ -83,6 +88,7 @@ export async function prepareAppTestRecords(
 			searchAnswers: search.submitted,
 			searchEntry: { draft: search.draft, errors: search.errors },
 			registeredCaseId,
+			listsNoRow,
 			offset: answers === undefined ? screen.offset : 0,
 		},
 	};
@@ -144,6 +150,11 @@ export async function appTestRecords(
 							(search.submitted ?? []).map(({ name, value }) => [name, value]),
 						),
 						matchCount: outcome.matchCount,
+						// A search a registration's return keyed to its case is no
+						// search that found nothing, whatever its list shows.
+						...(screen.registeredCaseId !== undefined && {
+							registeredCaseId: screen.registeredCaseId,
+						}),
 					}
 				: undefined,
 	});

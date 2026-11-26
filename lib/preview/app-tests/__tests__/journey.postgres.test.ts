@@ -470,23 +470,25 @@ it.each(["basic", "home", "new-case"] as const)(
 				},
 			});
 		} else {
+			// The frame ends on the search keyed to the new case, which Web Apps
+			// shows with no row and no Register (`proof/webapps/test_empty_search_registration.py`).
 			expect(saved).toMatchObject({
 				screen: "results",
-				results: {
-					kind: "rows",
-					rows: [expect.objectContaining({ case_name: "Corrected name" })],
-				},
+				results: { kind: "empty" },
 			});
 			expect(saved.registration).toBeUndefined();
 		}
 	},
 );
 
-it("returns a Register from a list whose forms read the search to that search keyed to the new case", async () => {
+it("returns a Register from a list whose forms read the search to that search keyed to the new case, listing no row", async () => {
 	/* The Patients list always offers Registration's form, Back to this list.
 	 * The return frame runs Patients' search again over the registered case
-	 * alone (HQ's `case_fixture` query), so Results list that case and not
-	 * the earlier search's matches, which the new name does not match. */
+	 * alone (HQ's `case_fixture` query) and ends there, and Formplayer
+	 * rebuilds such a frame without the list's rows
+	 * (`MenuSessionFactory.rebuildSessionFromFrame`,
+	 * `EntityScreen.initListSubScreen`): Results list neither that case nor
+	 * the earlier search's matches (`proof/formplayer/test_search.py`). */
 	const offered = testUuid("journey-offered-registration");
 	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
 	const doc = buildDoc({
@@ -604,14 +606,8 @@ it("returns a Register from a list whose forms read the search to that search ke
 	expect(saved).toMatchObject({
 		savedInTest: true,
 		screen: "results",
-		results: {
-			kind: "rows",
-			rows: [expect.objectContaining({ case_name: "Zed" })],
-		},
+		results: { kind: "empty" },
 	});
-	expect(
-		(saved.results as { rows: readonly unknown[] } | undefined)?.rows,
-	).toHaveLength(1);
 });
 
 // A start, fourteen persisted worker actions (two of them submissions) and two

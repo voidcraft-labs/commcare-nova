@@ -9,7 +9,8 @@
  * forms read the search, which opens from Results after a search found
  * nothing, carrying the search answers. It also lowers to a hidden module
  * that owns the form, so it is reachable only through the Register action
- * and returns to Results showing the case it registered.
+ * and returns to Results keyed to the case it registered, which Web Apps
+ * shows with no row (`lib/preview/CLAUDE.md`, `listsNoRow`).
  *
  *   - `CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH` (module rule): the
  *     action's relevancy reads the inline results instance, which exists

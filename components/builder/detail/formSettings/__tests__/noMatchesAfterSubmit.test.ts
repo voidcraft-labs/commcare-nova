@@ -9,7 +9,7 @@ describe("no-matches registration destinations", () => {
 			hasMenuForms: true,
 		});
 		expect(model.value).toBe("return");
-		expect(model.destination).toBe("Results showing the registered case");
+		expect(model.destination).toBe("Results");
 		expect(model.options.map((option) => option.value)).toEqual([
 			"return",
 			"new-case",
@@ -45,7 +45,7 @@ describe("no-matches registration destinations", () => {
 		});
 		expect(model.destination).toBe("First menu");
 		expect(model.options).toStrictEqual([
-			{ value: "return", label: "Results showing the registered case" },
+			{ value: "return", label: "Results" },
 			{ value: "new-case", label: "Continue with the new case" },
 			{ value: "firstMenu", label: "First menu" },
 		]);

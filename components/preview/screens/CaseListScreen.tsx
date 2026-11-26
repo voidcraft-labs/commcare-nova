@@ -1405,12 +1405,16 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	);
 	/* After the no-matches form registers a case, Results shows exactly that
 	 * case: the wire's return frame re-keys the inline search to the new
-	 * case id (`CaseListFormWorkflow`), and Search again starts over. */
+	 * case id (`CaseListFormWorkflow`), and Search again starts over. Where
+	 * the frame ends on the search, Web Apps lists no row of it
+	 * (`listsNoRow`), and neither does Results. */
 	const registeredCaseIds = useMemo(
 		() =>
 			searchState?.kind === "completed" &&
 			searchState.registeredCaseId !== undefined
-				? [searchState.registeredCaseId]
+				? searchState.listsNoRow === true
+					? []
+					: [searchState.registeredCaseId]
 				: undefined,
 		[searchState],
 	);
