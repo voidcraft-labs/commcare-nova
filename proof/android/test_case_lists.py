@@ -244,18 +244,21 @@ def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(a
             assert last_list(own) == expected | {only.case_id, excluded.case_id}, name
             assert last_list(first) == chosen, name
             assert last_list(second) == chosen, name
-            # Every form the walks sent, by its root and the cases it changed, where more than one came.
-            if len(sent) != 1:
+            # Only the walk that completes the form sends it. A walk goes on past a form to where its
+            # after-submit leads (Screens.follow, up to MAX_FORMS forms), here back to the second list, which it
+            # answers with its own case, so it sends that one form each time it completes it.
+            summaries = [_sent_summary(one) for one in sent]
+            if not sent or any(one != summaries[0] for one in summaries):
                 print(json.dumps({
                     "archive": name,
-                    "sent": [_sent_summary(one) for one in sent],
+                    "sent": summaries,
                     "walks": {
                         "/".join(path): [_step_summary(step) for step in navs["path:" + "/".join(path)]["steps"]]
                         for path in (own, first, second, completed)
                     },
                 }, indent=1))
-            assert len(sent) == 1, (name, len(sent))
-            (instance,) = sent
+            assert sent and all(one == summaries[0] for one in summaries), (name, len(sent))
+            instance = sent[0]
             submitted = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
             assert [submitted.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
                 "Before", ordinary[0].name, ordinary[1].name
@@ -305,9 +308,15 @@ def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_
                 walk = navs["path:" + "/".join(path)]
                 assert "raised" not in walk, walk
                 steps = walk["steps"]
-                if len([step for step in steps if step["screen"] == LIST]) != len(picked):
+                # The lists the walk chose at on its way to the form: a walk goes on past a form to where its
+                # after-submit leads (Screens.follow), which is that form's last list again.
+                entered = next(
+                    (index for index, step in enumerate(steps) if step["screen"] == "FormEntryActivity"), len(steps)
+                )
+                on_the_way = [step for step in steps[:entered] if step["screen"] == LIST]
+                if len(on_the_way) != len(picked):
                     print(json.dumps({"archive": name, "path": path, "steps": [_step_summary(s) for s in steps]}, indent=1))
-                assert len([step for step in steps if step["screen"] == LIST]) == len(picked), (path, len(steps))
+                assert len(on_the_way) == len(picked), (path, len(steps))
                 opened = next(step for step in steps if step["screen"] == "FormEntryActivity")
                 assert opened["session"]["command"] == command, (path, opened)
                 assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (path, opened)
