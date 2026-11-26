@@ -5001,9 +5001,9 @@ def native_filter_unbound_value(use, manifest):
 
 
 # The keys of HQ's search index Nova reads as a record's own information
-# (``lib/commcare/suite/case-search/requestOrder.ts::RECORD_KEYS``), and the names Nova reserves for a case's own facts
+# (``lib/commcare/suite/case-search/requestOrder.ts::SERVER_ORDER_RECORD_KEYS``), and the names Nova reserves for a case's own facts
 # or as CommCare HQ's reserved words (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``:
-# the SaveToCase set with the block's own rows).
+# the SaveToCase set with the block's own action rows).
 SERVER_ORDER_RECORD_KEYS = frozenset(
     {"@case_id", "@owner_id", "@case_type", "@status", "name", "case_name", "external_id", "date_opened", "last_modified"}
 )

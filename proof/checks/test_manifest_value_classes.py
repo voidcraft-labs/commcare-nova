@@ -3517,7 +3517,7 @@ def _search_and_menus():
             ),
             accepted(
                 "app",
-                search(_search_module(default_properties=[_default("commcare_sort", "'-@status:exact,+priority'")])),
+                search(_search_module(default_properties=[_default("commcare_sort", "'-@status:exact,+priority,+hq_user_id:exact'")])),
                 "schema:DefaultCaseSearchProperty.property",
                 f"{config}/default_properties/0/property",
             ),
@@ -3540,12 +3540,13 @@ def _search_and_menus():
                     _search_module(
                         default_properties=[_default("dob", "'x'")],
                         custom_sort_properties=[
-                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "@owner_id", "sort_type": "exact"}
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "@owner_id", "sort_type": "exact"},
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "location_id", "sort_type": "exact"},
                         ],
                     )
                 ),
                 "schema:CaseSearchCustomSortProperty.property_name",
-                f"{config}/custom_sort_properties/0/property_name",
+                f"{config}/custom_sort_properties/1/property_name",
             ),
         ),
         "case-search/a-related-record-property-only-devices-hold": (
