@@ -29,6 +29,13 @@
 import { useId, useMemo } from "react";
 import { Button } from "@/components/shadcn/button";
 import { FieldDescription } from "@/components/shadcn/field";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ancestorPath,
@@ -40,6 +47,7 @@ import {
 	selfPath,
 	subcasePath,
 } from "@/lib/domain/expression";
+import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
 import {
 	CONDITION_SEED_UNAVAILABLE_REASON,
 	relatedConditionSeed,
@@ -58,7 +66,20 @@ import {
 	replaceRelatedPath,
 } from "../../relatedPathEdit";
 import { resolveRelationDestination } from "../../relationDestination";
+import { useStableListIdentity } from "../../useStableListIdentity";
 import { PredicateFocusBoundary } from "../ChildPredicateEditor";
+
+function menuCountSources(
+	ctx: Pick<ExpressionEditContext, "expressionContext">,
+) {
+	const slot = ctx.expressionContext.slot.slot;
+	return [
+		"module_badge",
+		"form_badge",
+		"module_display_condition",
+		"form_display_condition",
+	].includes(slot);
+}
 
 export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 	const current = ctx.caseTypes.find(
@@ -70,7 +91,13 @@ export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 	const hasChild = ctx.caseTypes.some(
 		(caseType) => caseType.parent_type === ctx.currentCaseType,
 	);
-	return hasParent || hasChild;
+	return (
+		hasParent ||
+		hasChild ||
+		(menuCountSources(ctx) &&
+			(ctx.expressionContext.profile.caseData ||
+				Boolean(ctx.lookupTables?.length)))
+	);
 }
 
 /** Seed the first real catalog connection: parent first, then the first child.
@@ -79,6 +106,19 @@ export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 export function countDefault(
 	ctx: ExpressionEditContext,
 ): ExpressionOfKind<"count"> {
+	if (menuCountSources(ctx)) {
+		if (ctx.expressionContext.profile.caseData)
+			return {
+				kind: "count",
+				via: { kind: "cases", source: "casedb", where: [] },
+			};
+		const first = ctx.lookupTables?.[0];
+		if (first)
+			return {
+				kind: "count",
+				via: { kind: "table-rows", tableId: first.id, where: [] },
+			};
+	}
 	const current = ctx.caseTypes.find(
 		(caseType) => caseType.name === ctx.currentCaseType,
 	);
@@ -105,7 +145,156 @@ interface CountCardProps {
 	readonly path: EditorPath;
 }
 
+/** The worker can count all restored cases, one case type, or a data table.
+ * Conditions on the source rows stay alongside the source that binds them. */
+function DeviceCountCard({
+	value,
+	onChange,
+	path,
+}: CountCardProps & {
+	value: CountCardProps["value"] & {
+		via: ExpressionOfKind<"cases"> | ExpressionOfKind<"table-rows">;
+	};
+}) {
+	const ctx = usePredicateEditContext();
+	const rows = value.via;
+	const conditionIdentity = useStableListIdentity(rows.where);
+	const kinds = ctx.caseTypes ?? [];
+	const tables = ctx.lookupTables ?? [];
+	const options = [
+		...(ctx.expressionContext?.profile.caseData
+			? [
+					{
+						id: "all",
+						label: "All cases on this device",
+						rows: {
+							kind: "cases" as const,
+							source: "casedb" as const,
+							where: [],
+						},
+					},
+					...kinds.map((type) => ({
+						id: `case:${type.name}`,
+						label: type.name,
+						rows: {
+							kind: "cases" as const,
+							source: "casedb" as const,
+							where: [
+								{
+									kind: "eq" as const,
+									left: {
+										kind: "term" as const,
+										term: { kind: "case-row-type" as const },
+									},
+									right: {
+										kind: "term" as const,
+										term: { kind: "case-type" as const, caseType: type.name },
+									},
+								},
+							],
+						},
+					})),
+				]
+			: []),
+		...tables.map((table) => ({
+			id: `table:${table.id}`,
+			label: table.name,
+			rows: { kind: "table-rows" as const, tableId: table.id, where: [] },
+		})),
+	];
+	const scope =
+		ctx.expressionContext && expressionRowScope(rows, ctx.expressionContext);
+	const sourceId =
+		rows.kind === "table-rows"
+			? `table:${rows.tableId}`
+			: scope?.kind === "case" && scope.caseType
+				? `case:${scope.caseType}`
+				: "all";
+	const chosen = options.find((option) => option.id === sourceId);
+	const setRows = (
+		where: Expression[],
+		edit: Parameters<typeof conditionIdentity.stage>[1],
+	) => {
+		conditionIdentity.stage(where, edit);
+		onChange({ ...value, via: { ...rows, where } });
+	};
+	return (
+		<div className="space-y-2">
+			<Select
+				value={chosen?.id ?? ""}
+				onValueChange={(id) => {
+					const next = options.find((option) => option.id === id);
+					if (!next) return;
+					conditionIdentity.stage(next.rows.where, { kind: "replace" });
+					onChange({ ...value, via: next.rows });
+				}}
+			>
+				<SelectTrigger aria-label="Records to count">
+					<SelectValue>{chosen?.label ?? "Choose records"}</SelectValue>
+				</SelectTrigger>
+				<SelectContent>
+					{options.map((option) => (
+						<SelectItem key={option.id} value={option.id}>
+							{option.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			{rows.where.map((condition, index) => (
+				<div key={conditionIdentity.keys[index]}>
+					<PredicateFocusBoundary
+						value={condition}
+						path={[...path, "count", "via", rows.kind, "where", index]}
+						onChange={(next) =>
+							setRows(
+								rows.where.map((old, i) => (index === i ? next : old)),
+								{ kind: "replace" },
+							)
+						}
+					/>
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={() =>
+							setRows(
+								rows.where.filter((_, i) => i !== index),
+								{ kind: "splice", index, deleteCount: 1, insertCount: 0 },
+							)
+						}
+					>
+						Remove condition
+					</Button>
+				</div>
+			))}
+			<Button
+				type="button"
+				variant="ghost"
+				onClick={() =>
+					setRows([...rows.where, { kind: "match-all" }], {
+						kind: "splice",
+						index: rows.where.length,
+						deleteCount: 0,
+						insertCount: 1,
+					})
+				}
+			>
+				Add condition
+			</Button>
+		</div>
+	);
+}
+
 export function CountCard(props: CountCardProps) {
+	if (
+		props.value.via.kind === "table-rows" ||
+		(props.value.via.kind === "cases" && props.value.via.source === "casedb")
+	)
+		return (
+			<DeviceCountCard
+				{...props}
+				value={{ ...props.value, via: props.value.via }}
+			/>
+		);
 	if (!isRelationPath(props.value.via))
 		return (
 			<p role="status">This saved expression cannot be edited here yet.</p>

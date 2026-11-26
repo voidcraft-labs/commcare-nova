@@ -67,7 +67,7 @@ function patientsList(
 function read(reading: LaneReading) {
 	if (reading.kind !== "read")
 		throw new Error(
-			`The reading is ${reading.kind}: ${JSON.stringify(reading.kind === "account" ? reading.findings : reading.offered)}`,
+			`The reading is ${reading.kind}: ${JSON.stringify(reading.kind === "account" ? reading.findings : reading.kind === "declaration-not-offered" ? reading.offered : reading.askedLevels)}`,
 		);
 	return reading;
 }

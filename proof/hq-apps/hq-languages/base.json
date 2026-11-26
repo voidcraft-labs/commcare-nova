@@ -2,7 +2,9 @@
 	"id": "hq-languages",
 	"configuration": {
 		"flags": [],
-		"namedPrivileges": [],
+		"namedPrivileges": [
+			"CUSTOM_ICON_BADGES"
+		],
 		"commcareVersion": "2.57.0",
 		"commtrack": false,
 		"syncCasesOnFormEntry": false,
@@ -16,6 +18,7 @@
 		"application-and-settings/translations-generated-key-with-no-effect",
 		"application-and-settings/translations-generated-wording",
 		"application-and-settings/translations-homescreen-title",
+		"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
 		"questions/an-explicitly-blank-value-in-a-non-default-language-where-the",
 		"questions/itext-ids-other-than-a-pragma-key-default-placement",
 		"questions/label-default-text-itext-value",

@@ -1,0 +1,8921 @@
+{
+	"domain": "clinic",
+	"exchanges": [
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "POST",
+			"path": "/a/clinic/api/lookup_table/v1/",
+			"body": {
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			},
+			"status": 201,
+			"answer": null
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "POST",
+			"path": "/a/clinic/api/lookup_table_item/v2/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 1023
+			},
+			"status": 201,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "POST",
+			"path": "/a/clinic/api/lookup_table_item/v2/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 2047
+			},
+			"status": 201,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "POST",
+			"path": "/a/clinic/api/lookup_table_item/v2/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 1025
+			},
+			"status": 201,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "PUT",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000002/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 0
+			},
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "PUT",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000004/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 1023
+			},
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 0,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "PUT",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000002/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 2047
+			},
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "PUT",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000003/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 3071
+			},
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 3071,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 3071,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 3071,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 3071,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000003",
+						"fixture_type": "types",
+						"fields": {
+							"code": "002",
+							"name": "Hospital"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 3071,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000003/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000003",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 3071,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "002",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Hospital",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "DELETE",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000003/",
+			"body": null,
+			"status": 204,
+			"answer": null
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "POST",
+			"path": "/a/clinic/api/lookup_table_item/v2/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 3071
+			},
+			"status": 201,
+			"answer": {
+				"id": "00000000000000000000000000000005",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			},
+			"lost": "answer"
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000005",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000005/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000005",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000005",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000005/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000005",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000005",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000005/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000005",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000005",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000005/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000005",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "delete-row",
+			"rowId": "00000000000000000000000000000005"
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 2
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "POST",
+			"path": "/a/clinic/api/lookup_table_item/v2/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 3071
+			},
+			"status": 201,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "PUT",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000004/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 1023
+			},
+			"status": 500,
+			"answer": null,
+			"lost": "request"
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "PUT",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000004/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 1023
+			},
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post 2"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post 2"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post 2"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post 2"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "PUT",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000006/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office 2",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 2048
+			},
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office 2",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			},
+			"lost": "answer"
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post 2"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office 2"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post 2"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office 2"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/?limit=1000",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"objects": [
+					{
+						"id": "00000000000000000000000000000001",
+						"tag": "types",
+						"is_global": true,
+						"fields": [
+							{
+								"field_name": "code",
+								"properties": []
+							},
+							{
+								"field_name": "name",
+								"properties": []
+							}
+						],
+						"item_attributes": []
+					}
+				],
+				"meta": {
+					"next": null
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post 2"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office 2"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/fixture/v1/?fixture_type_id=00000000000000000000000000000001",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"meta": {
+					"next": null,
+					"total_count": 3
+				},
+				"objects": [
+					{
+						"id": "00000000000000000000000000000004",
+						"fixture_type": "types",
+						"fields": {
+							"code": "003",
+							"name": "Health post 2"
+						}
+					},
+					{
+						"id": "00000000000000000000000000000002",
+						"fixture_type": "types",
+						"fields": {
+							"code": "001",
+							"name": " Clinic 2 "
+						}
+					},
+					{
+						"id": "00000000000000000000000000000006",
+						"fixture_type": "types",
+						"fields": {
+							"code": "004",
+							"name": "Field office 2"
+						}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000004/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000004",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 1023,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "003",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Health post 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Field office 2",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table/v1/00000000000000000000000000000001/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000001",
+				"tag": "types",
+				"is_global": true,
+				"fields": [
+					{
+						"field_name": "code",
+						"properties": []
+					},
+					{
+						"field_name": "name",
+						"properties": []
+					}
+				],
+				"item_attributes": []
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000002/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": " Clinic 2 ",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"kind": "request",
+			"method": "PUT",
+			"path": "/a/clinic/api/lookup_table_item/v2/00000000000000000000000000000002/",
+			"body": {
+				"data_type_id": "00000000000000000000000000000001",
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Clinic 3",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {},
+				"sort_key": 2047
+			},
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000002",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2047,
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "001",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Clinic 3",
+								"properties": {}
+							}
+						]
+					}
+				},
+				"item_attributes": {}
+			}
+		},
+		{
+			"kind": "edit-row",
+			"rowId": "00000000000000000000000000000006",
+			"fields": {
+				"code": [
+					{
+						"field_value": "004",
+						"properties": {}
+					}
+				],
+				"name": [
+					{
+						"field_value": "Theirs",
+						"properties": {}
+					}
+				]
+			}
+		},
+		{
+			"kind": "request",
+			"method": "GET",
+			"path": "/a/clinic/api/lookup_table_item/v1/00000000000000000000000000000006/",
+			"body": null,
+			"status": 200,
+			"answer": {
+				"id": "00000000000000000000000000000006",
+				"data_type_id": "00000000000000000000000000000001",
+				"sort_key": 2048,
+				"item_attributes": {},
+				"fields": {
+					"code": {
+						"field_list": [
+							{
+								"field_value": "004",
+								"properties": {}
+							}
+						]
+					},
+					"name": {
+						"field_list": [
+							{
+								"field_value": "Theirs",
+								"properties": {}
+							}
+						]
+					}
+				}
+			}
+		}
+	],
+	"table": "00000000000000000000000000000001",
+	"final": [
+		{
+			"id": "00000000000000000000000000000004",
+			"sortKey": 1023,
+			"fields": {
+				"code": [
+					{
+						"field_value": "003",
+						"properties": {}
+					}
+				],
+				"name": [
+					{
+						"field_value": "Health post 2",
+						"properties": {}
+					}
+				]
+			},
+			"itemAttributes": {}
+		},
+		{
+			"id": "00000000000000000000000000000002",
+			"sortKey": 2047,
+			"fields": {
+				"code": [
+					{
+						"field_value": "001",
+						"properties": {}
+					}
+				],
+				"name": [
+					{
+						"field_value": "Clinic 3",
+						"properties": {}
+					}
+				]
+			},
+			"itemAttributes": {}
+		},
+		{
+			"id": "00000000000000000000000000000006",
+			"sortKey": 2048,
+			"fields": {
+				"code": [
+					{
+						"field_value": "004",
+						"properties": {}
+					}
+				],
+				"name": [
+					{
+						"field_value": "Theirs",
+						"properties": {}
+					}
+				]
+			},
+			"itemAttributes": {}
+		}
+	]
+}

@@ -84,7 +84,7 @@ function displayConditionCtx(
 describe("scope predicates", () => {
 	it("keeps the chosen case's own data in scope but not its relatives", () => {
 		expect(caseDataInScope(ctx("selected-case"))).toBe(true);
-		expect(relatedCaseDataInScope(ctx("selected-case"))).toBe(false);
+		expect(relatedCaseDataInScope(ctx("selected-case"))).toBe(true);
 		expect(relatedCaseDataInScope(ctx("per-case"))).toBe(true);
 		expect(caseDataInScope(ctx("global"))).toBe(false);
 		expect(relatedCaseDataInScope(ctx("global"))).toBe(false);
@@ -94,11 +94,11 @@ describe("scope predicates", () => {
 describe("offered predicate kinds", () => {
 	const relationBearing = new Set(["exists", "missing"]);
 
-	it("offers relation presence per-case and withholds it for a selected case", () => {
+	it("offers relation presence for a row or a chosen case", () => {
 		for (const schema of predicateCardSchemaList) {
 			if (!relationBearing.has(schema.kind)) continue;
 			expect(schema.applicable(ctx("per-case"))).toBe(true);
-			expect(schema.applicable(ctx("selected-case"))).toBe(false);
+			expect(schema.applicable(ctx("selected-case"))).toBe(true);
 			expect(schema.applicable(ctx("global"))).toBe(false);
 		}
 	});
@@ -108,15 +108,15 @@ describe("offered predicate kinds", () => {
 		expect(comparison?.applicable(ctx("selected-case"))).toBe(true);
 	});
 
-	it("explains the withheld relation kinds in the scope's own words", () => {
+	it("explains where a connection can be defined", () => {
 		const reason = predicateUnavailableReason("exists", ctx("selected-case"));
-		expect(reason).toContain("already-chosen case");
+		expect(reason).toContain("parent or child");
 		expect(predicateUnavailableReason("exists", ctx("per-case"))).toContain(
 			"parent or child",
 		);
 	});
 
-	it("never seeds a relation for a selected case, even with nothing to compare", () => {
+	it("offers no relationship for an isolated case type", () => {
 		expect(
 			firstConditionSeed(ctx("selected-case", [EMPTY], "empty")),
 		).toBeUndefined();
@@ -141,21 +141,14 @@ describe("offered predicate kinds", () => {
 });
 
 describe("scope admission at the editor boundary", () => {
-	it("uses the actual form display slot to refuse related reads while accepting its own case", () => {
-		const related = term(prop("mother", "age", subcasePath("parent", "child")));
-		const countChildren = count(subcasePath("parent", "child"));
-		for (const value of [related, countChildren]) {
-			const candidate = eq(value, literal(0));
-			expect(
-				expressionEditVerdict(
-					candidate,
-					ctx("selected-case").expressionContext,
-				),
-			).toMatchObject({ ok: false });
-			expect(
-				expressionEditVerdict(candidate, ctx("per-case").expressionContext),
-			).toEqual({ ok: true });
-		}
+	it("counts cases connected to the selected case and reads its own properties", () => {
+		const candidate = eq(count(subcasePath("parent", "child")), literal(0));
+		expect(
+			expressionEditVerdict(candidate, ctx("selected-case").expressionContext),
+		).toEqual({ ok: true });
+		expect(
+			expressionEditVerdict(candidate, ctx("per-case").expressionContext),
+		).toEqual({ ok: true });
 		for (const value of [
 			term(prop("mother", "status")),
 			term(prop("mother", "status", selfPath())),

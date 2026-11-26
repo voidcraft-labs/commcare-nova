@@ -389,6 +389,7 @@ export function formLogicFinding(
 			// forms read the search.
 			if (
 				error.reason === "form-link" ||
+				error.reason === "another-list" ||
 				error.reason === "not-forms-read-search"
 			)
 				details = { reason: error.reason };

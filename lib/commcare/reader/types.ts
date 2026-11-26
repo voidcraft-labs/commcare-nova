@@ -19,6 +19,7 @@ import type {
 	WireStringSource,
 } from "@/lib/domain";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
+import type { LabelTextSlot } from "@/lib/domain/labelForms";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
@@ -91,6 +92,8 @@ export interface ReaderInput {
 	/** Whether the source project space applies "save only if changed", as the probe of it
 	 *  answered; absent where the source holds no `update_mode: "edit"` and no probe was made. */
 	readonly saveOnlyEditedApplied?: boolean;
+	/** Authenticated source setting for case-list action conditions and parent follow-ups. */
+	readonly caseListActionsApplied?: boolean;
 	/** What Nova already holds about this app's case types that no export carries: the case type
 	 *  each index of a type reaches, consulted only where the app itself fixes none (no child
 	 *  link, no parent selection, no open action's index), and the type its catalog declares for
@@ -396,6 +399,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"names-respelled",
 	"text-spaces-dropped",
 	"media-maps-respelled",
+	"badge-respelled",
 	"form-text-characters-written-as-outputs",
 	"hidden-value-defaults-dropped",
 	"sort-by-entry-with-a-blank-name-dropped",
@@ -457,8 +461,14 @@ export interface ReadFormFacts {
 	 *  blank, each read as no translation. */
 	readonly blankTranslations: number;
 	/** Blank non-default slots filled at publication, by field, role, choice and language. */
-	readonly blankTranslationSlots?: readonly ItextRecipient[];
+	readonly blankTranslationSlots?: readonly BlankTranslationSlot[];
 }
+
+/** One blank non-default value filled at publication: a text slot's, or one of a question
+ *  label's other texts (`lib/domain/labelForms.ts`). */
+export type BlankTranslationSlot = Omit<ItextRecipient, "slot"> & {
+	readonly slot: ItextRecipient["slot"] | LabelTextSlot;
+};
 
 export interface ReadGeneratedNode {
 	readonly purpose: GeneratedNodePurpose;

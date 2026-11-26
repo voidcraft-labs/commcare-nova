@@ -12,7 +12,6 @@ import {
 	type Module,
 	menuFormUuidsOf,
 	moduleHasCaseListMenuItem,
-	moduleIsBareCaseList,
 	type Uuid,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
@@ -53,7 +52,10 @@ import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeC
 import { sortLabel } from "./case-list/sortLabel";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { sortPropertyOwnership } from "./case-list/sortPropertyOwnership";
-import { caseListRegistrationForm } from "./case-search/caseListRegistration";
+import {
+	caseListActionVisibility,
+	caseListRegistrationForm,
+} from "./case-search/caseListRegistration";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import {
@@ -163,7 +165,9 @@ function noFormsOrCaseList(
 	// must NOT be gated on caseType: a typeless, formless menu is just as
 	// invalid, and Nova would emit the exact wire CommCare then refuses to
 	// build.
-	if (moduleHasCaseListMenuItem(mod) || forms.length > 0) return [];
+	// A shared menu needs a source. HQ’s ShadowModuleValidator also accepts a route with every form hidden.
+	if (mod.formsFromMenu || moduleHasCaseListMenuItem(mod) || forms.length > 0)
+		return [];
 	// One finding, two contexts: creating a module without a form, and removing
 	// a module's LAST form. So the wording can't just say "add a form" — that
 	// reads backwards when you're deleting. It states the rule, then names the
@@ -177,42 +181,6 @@ function noFormsOrCaseList(
 			moduleUuid,
 			moduleName: mod.name,
 		}),
-	];
-}
-
-/** HQ's child-module `add_parent_datums` aligns a child entry against the
- * root module's first form. A bare case list root has no such entry,
- * so a different child case type cannot receive its distinct datum identity.
- * Same-type children need no second identity and remain representable. */
-function nestedMenuCrossTypeRootRequiresForm(
-	mod: Module,
-	moduleUuid: Uuid,
-	doc: BlueprintDoc,
-): ValidationError[] {
-	const parentUuid = mod.parentModuleUuid;
-	if (parentUuid === undefined || parentUuid === null) return [];
-	const parent = doc.modules[parentUuid];
-	if (
-		parent === undefined ||
-		!moduleIsBareCaseList(doc, parentUuid) ||
-		!parent.caseType ||
-		!mod.caseType ||
-		parent.caseType === mod.caseType
-	) {
-		return [];
-	}
-	return [
-		validationError(
-			"NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
-			"module",
-			`Module "${mod.name}" cannot be a submenu under case-list-only module "${parent.name}" because they use different case types ("${mod.caseType}" and "${parent.caseType}"). CommCare needs a form in the top-level module to keep both case selections distinct. Turn "${parent.name}" into a form-bearing module and add a form, make both modules use the same case type, or make "${mod.name}" top-level.`,
-			{ moduleUuid, moduleName: mod.name },
-			{
-				parentModuleUuid: parentUuid,
-				parentCaseType: parent.caseType,
-				childCaseType: mod.caseType,
-			},
-		),
 	];
 }
 
@@ -332,7 +300,6 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	caseFormsNoCaseType,
 	caseListMenuItemNoCaseType,
 	noFormsOrCaseList,
-	nestedMenuCrossTypeRootRequiresForm,
 	invalidCaseTypeFormat,
 	caseTypeTooLong,
 	missingCaseListColumns,
@@ -374,6 +341,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
 	// markerless inputs receive the same validation as the remote request they
 	// still emit.
+	caseListActionVisibility,
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
 	searchRelatedCalculationCompatibility,

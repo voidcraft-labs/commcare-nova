@@ -289,29 +289,27 @@ describe("planLookupJsonPublish", () => {
 		).toEqual({ kind: "review", reason });
 	});
 
-	it("updates the definition of a table with no rows, and holds a schema change over rows for review", () => {
+	it("holds every change to a definition already there for review, with rows or without", () => {
+		/* The plausible failure: a definition PUT over an empty table, which
+		 * resets an index a person set in CommCare HQ that no read shows. */
 		const wider = {
 			...DEFINITION,
 			fields: [...DEFINITION.fields, { name: "code", properties: [] }],
 		};
-		const empty = published([]);
 		expect(
 			planLookupJsonPublish({
 				definition: wider,
 				rows: [],
-				...empty,
+				...published([]),
 			}),
-		).toEqual({
-			kind: "operations",
-			operations: [{ kind: "update-table", definition: wider }],
-		});
+		).toEqual({ kind: "review", reason: "schema-change" });
 		expect(
 			planLookupJsonPublish({
 				definition: wider,
 				rows: local("a"),
 				...published([["a", 0]]),
 			}),
-		).toEqual({ kind: "review", reason: "schema-change-over-rows" });
+		).toEqual({ kind: "review", reason: "schema-change" });
 	});
 
 	it("inserts and moves in a table the carrier made by writing the new or moved row alone", () => {

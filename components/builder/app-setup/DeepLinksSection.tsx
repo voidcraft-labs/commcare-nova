@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { EntryPointPreviewLaunch } from "@/components/preview/EntryPointPreviewLaunch";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
 import { Label } from "@/components/shadcn/label";
 import { Switch } from "@/components/shadcn/switch";
 import { useEntryPoints } from "@/lib/doc/hooks/useEntryPoints";
@@ -128,7 +129,7 @@ export function DeepLinksSection() {
 							onCommit={(id) => model.update(point, { id })}
 						/>
 					</div>
-					{selected.target.kind === "form" && (
+					{selected.canSkipDisplayConditions && (
 						<div className="space-y-2">
 							<div className="flex items-center gap-3">
 								<Switch
@@ -151,6 +152,58 @@ export function DeepLinksSection() {
 								need access to the app and its cases.
 							</p>
 						</div>
+					)}
+					{selected.availableCreations.length > 0 && (
+						<fieldset className="space-y-3">
+							<legend className="font-medium text-nova-text">
+								IDs for new cases
+							</legend>
+							<p className="text-sm text-nova-text-secondary">
+								A link can supply the ID of a case this form creates. Changing
+								these choices changes the arguments that published links need.
+							</p>
+							{selected.availableCreations.map((creation) => {
+								const held = selected.requiredCreations.map(
+									(row) => row.operationUuid,
+								);
+								const controlId = `${prefix}-creation-${creation.operationUuid}`;
+								return (
+									<div
+										key={creation.operationUuid}
+										className="flex items-center gap-2"
+									>
+										<Checkbox
+											id={controlId}
+											disabled={!canWrite}
+											checked={held.includes(creation.operationUuid)}
+											onCheckedChange={(checked) => {
+												const next = checked
+													? [...held, creation.operationUuid]
+													: held.filter(
+															(uuid) => uuid !== creation.operationUuid,
+														);
+												const outcome = model.setCaseCreations(
+													selected.target,
+													next,
+													held,
+												);
+												setFailure(
+													outcome.ok ? undefined : outcome.messages[0],
+												);
+											}}
+										/>
+										<Label htmlFor={controlId}>
+											Supply the new {creation.caseType} ID
+											{selected.availableCreations.filter(
+												(row) => row.caseType === creation.caseType,
+											).length > 1
+												? ` (${creation.name})`
+												: ""}
+										</Label>
+									</div>
+								);
+							})}
+						</fieldset>
 					)}
 					<div className="rounded-lg border border-nova-border p-4 space-y-2">
 						<h4 className="font-medium text-nova-text">Required cases</h4>

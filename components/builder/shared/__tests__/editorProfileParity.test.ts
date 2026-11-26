@@ -279,6 +279,8 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 	{ entity: "field", uuid: TABLE_PICK, slot: "lookup_options_source" },
 	{ entity: "form", uuid: FOLLOWUP, slot: "form_display_condition" },
 	{ entity: "form", uuid: REGISTER, slot: "form_display_condition" },
+	{ entity: "form", uuid: FOLLOWUP, slot: "form_badge" },
+	{ entity: "form", uuid: REGISTER, slot: "form_badge" },
 	...operationSlots(FOLLOWUP, UPDATE),
 	...operationSlots(REGISTER, CREATE),
 	{
@@ -294,6 +296,7 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 		member: { operationUuid: UPDATE, identifier: "household" },
 	},
 	{ entity: "module", uuid: CASE_FIRST, slot: "module_display_condition" },
+	{ entity: "module", uuid: CASE_FIRST, slot: "module_badge" },
 	{ entity: "module", uuid: CASE_FIRST, slot: "case_list_filter" },
 	{ entity: "module", uuid: MIXED, slot: "case_list_filter" },
 	{
@@ -308,6 +311,7 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 		slot: "search_button_display_condition",
 	},
 	{ entity: "module", uuid: CASE_FIRST, slot: "excluded_owner_ids" },
+	{ entity: "module", uuid: CASE_FIRST, slot: "case_list_action_condition" },
 	...(
 		[
 			["search_input_default", TEXT_INPUT],

@@ -4,10 +4,13 @@
  * the normalization and the comparison are held to what HQ actually serves
  * and never to a hand-written app source.
  */
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { retainedMenuLayouts } from "@/lib/commcare/hq/menuLayout";
 import { readHqApp } from "@/lib/commcare/reader";
 import {
 	readerInput,
@@ -17,6 +20,7 @@ import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { adoptedAppBaselineWrite, adoptedIdentityRows } from "../adoption";
 import { appRemoteChange } from "../appRemoteChange";
+import { sourceFromBaseline } from "../hqChanges/baselineSource";
 import {
 	type AppChangePart,
 	diffHqAppSource,
@@ -25,6 +29,7 @@ import {
 	removedHqFileReplaced,
 	removedHqFiles,
 } from "../hqSourceBaseline";
+import { legacyMenuLayoutLines } from "../legacyMenuLayouts";
 import { decideRemoteChanges } from "../remoteChanges";
 import type { AppOwnership } from "../types";
 
@@ -354,6 +359,22 @@ describe("comparing two reads", () => {
 		).toEqual([{ kind: "settings" }]);
 	});
 
+	it("detects a project-space layout edit and treats absent HQ defaults as the same lists", () => {
+		const lists = edited((app) => {
+			app.use_grid_menus = false;
+			app.grid_form_menus = "none";
+		});
+		const absent = edited((app) => {
+			delete app.use_grid_menus;
+			delete app.grid_form_menus;
+		});
+		expect(diff(lists, absent, ownership)).toEqual([]);
+		const changed = edited((app) => {
+			app.grid_form_menus = "some";
+		});
+		expect(diff(lists, changed, ownership)).toEqual([{ kind: "settings" }]);
+	});
+
 	it("reads the location switch and the Android apps only where the baseline owns them", () => {
 		/* The two settings Nova writes on every publish: a person's flip of
 		 * either in HQ over a baseline that owns it is a change the publish asks
@@ -407,6 +428,184 @@ describe("comparing two reads", () => {
 			app.cloudcare_enabled = !app.cloudcare_enabled;
 		});
 		expect(diff(base, flipped, ownership)).toEqual([]);
+	});
+});
+
+describe("menu layouts HQ holds that no baseline accounts for", () => {
+	function legacyRead(edit: (app: Source) => void) {
+		const source = retainedRead("navigation-base/app-source.json");
+		edit(source);
+		return sourceFromBaseline(normalized(source).normalized);
+	}
+	const doc = buildDoc({ modules: [{ name: "Services" }] });
+	const [uuid] = doc.moduleOrder;
+	if (!uuid) throw new Error("The document needs a menu.");
+	const heldId = retainedRead("navigation-base/app-source.json").modules[0]
+		?.unique_id;
+	if (typeof heldId !== "string")
+		throw new Error("The retained first menu needs an identity.");
+	const identity = {
+		...targetWireIdentity([], []),
+		moduleUniqueId: () => heldId,
+	};
+	const held = legacyRead((app) => {
+		app.use_grid_menus = true;
+		app.grid_form_menus = "some";
+		const first = app.modules[0];
+		if (first) {
+			first.doc_type = "Module";
+			first.display_style = "grid";
+		}
+	});
+
+	it("lists every choice the document would replace, and nothing once a baseline accounts for them", () => {
+		const lines = legacyMenuLayoutLines({
+			doc,
+			identity,
+			source: held,
+			ownership: null,
+		});
+		expect(lines).toEqual([
+			"The first menu would change from a grid to a list.",
+			"The layout for the other menus would change from individual menu layouts to a list.",
+			"The layout chosen for “Patients” (menu 1) would change from a grid to a list.",
+		]);
+		expect(
+			legacyMenuLayoutLines({
+				doc,
+				identity,
+				source: held,
+				ownership: {
+					...retainedOwnership(NAVIGATION_BASE_OWNERSHIP),
+					menuLayouts: true,
+				},
+			}),
+		).toEqual([]);
+	});
+
+	it("lists nothing where the document already holds HQ's choices", () => {
+		const matched = structuredClone(doc);
+		matched.appSettings.firstMenuLayout = "grid";
+		matched.appSettings.formMenuLayout = "individual";
+		const menu = matched.modules[uuid];
+		if (menu) menu.menuLayout = "grid";
+		expect(
+			legacyMenuLayoutLines({
+				doc: matched,
+				identity,
+				source: held,
+				ownership: null,
+			}),
+		).toEqual([]);
+	});
+
+	it("names many menus in one bounded line, and a menu the document lost", () => {
+		const many = legacyRead((app) => {
+			const first = app.modules[0];
+			if (!first) return;
+			app.modules = Array.from({ length: 14 }, (_, i) => ({
+				...structuredClone(first),
+				doc_type: "Module",
+				display_style: "grid",
+				unique_id: i === 0 ? heldId : `menu-${i}`,
+				name: { en: `Menu ${i}` },
+			}));
+		});
+		const lines = legacyMenuLayoutLines({
+			doc,
+			identity,
+			source: many,
+			ownership: null,
+		});
+		expect(lines).toEqual([
+			"The layout chosen for “Menu 0” (menu 1) would change from a grid to a list.",
+			"Publishing would remove “Menu 1” (menu 2), “Menu 2” (menu 3), “Menu 3” (menu 4), “Menu 4” (menu 5), “Menu 5” (menu 6), “Menu 6” (menu 7), “Menu 7” (menu 8), “Menu 8” (menu 9), “Menu 9” (menu 10), “Menu 10” (menu 11) and 3 more menus, including the grid chosen there.",
+		]);
+	});
+
+	it("lists the replacements first on the app's change, bound to the read a person confirms", () => {
+		const read = normalized(retainedRead("navigation-base/app-source.json"));
+		const change = (layoutReplacements: readonly string[]) =>
+			appRemoteChange({
+				authority: {
+					actor: "editor",
+					role: "editor",
+					project: "project",
+					app: "app",
+					server: "production",
+					domain: "test",
+					remoteApp: "remote",
+					deployment: "deployment",
+					claim: "claim",
+					reviewGeneration: null,
+					headSeq: 1,
+					remoteRevision: 2,
+					baseline: null,
+				},
+				novaAppId: "app",
+				appName: "Care",
+				remoteAppId: "remote",
+				current: read,
+				baseline: {
+					source: read.normalized,
+					origin: "push",
+					ownership: retainedOwnership(NAVIGATION_BASE_OWNERSHIP),
+					mediaFiles: null,
+					approvedFileRemovals: [],
+				},
+				since: { kind: "published" },
+				languageNames: "nova",
+				mediaChanged: 0,
+				published: [],
+				canBringIn: true,
+				layoutReplacements,
+			});
+		/* HQ reads as the baseline does: nothing but the layouts to list. */
+		expect(change([])).toBeNull();
+		const listed = change([
+			"The first menu would change from a grid to a list.",
+		]);
+		expect(listed).toMatchObject({
+			parts: ["The first menu would change from a grid to a list."],
+			replacesMenuLayouts: true,
+			baselineKnown: true,
+		});
+		expect(listed?.requiresReview).toBeUndefined();
+		expect(listed?.note).toContain("App settings");
+		if (!listed) throw new Error("Expected the layouts to be listed.");
+		expect(
+			decideRemoteChanges({
+				observed: [listed],
+				discards: [
+					{
+						kind: "app",
+						novaResourceId: "app",
+						observedDigest: listed.observedDigest,
+					},
+				],
+			}),
+		).toMatchObject({ proceed: true });
+	});
+});
+
+it("finds a dormant individual grid in an existing target's normalized source", () => {
+	const source = retainedRead("navigation-base/app-source.json");
+	const modules = source.modules;
+	const withGrid = {
+		...source,
+		use_grid_menus: true,
+		modules: modules.map((menu, index) =>
+			index === 0
+				? { ...menu, doc_type: "Module", display_style: "grid" }
+				: menu,
+		),
+	};
+	expect(
+		retainedMenuLayouts(sourceFromBaseline(normalized(withGrid).normalized)),
+	).toEqual({
+		firstMenuLayout: "grid",
+		formMenuLayout: "list",
+		menus: [{ position: 0, layout: "grid" }],
 	});
 });
 

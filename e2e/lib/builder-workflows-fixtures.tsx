@@ -339,7 +339,11 @@ export function ModuleSettingsFixture() {
 			}}
 		>
 			<SessionDocument appId="native-module-settings">
-				<ModuleSettingsContent />
+				{/* The Builder mounts module settings inside its localization
+				    provider (BuilderProvider); the badge editor reads it. */}
+				<BuilderLocalizationProvider>
+					<ModuleSettingsContent />
+				</BuilderLocalizationProvider>
 			</SessionDocument>
 		</BuilderSessionProvider>
 	);

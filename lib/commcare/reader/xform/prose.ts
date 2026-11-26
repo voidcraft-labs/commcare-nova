@@ -17,7 +17,11 @@ import {
 	caseScalarTextGuards,
 	effectiveAppLocalization,
 	expressionSlotValue,
+	LABEL_TEXT_SLOTS,
+	LABEL_TEXT_WIRE_FORMS,
+	type LabelTextSlot,
 	type LanguageTag,
+	labelTextSlotOfWireForm,
 	type ProsePart,
 	type ProseTemplate,
 	proseText,
@@ -28,6 +32,7 @@ import type { ItextUnit } from "@/lib/domain/expression/types";
 import { fieldKindDeclaresKey } from "@/lib/domain/fields";
 import {
 	makeTranslationUnitId,
+	type TranslationUnitId,
 	translationSourceFingerprint,
 } from "@/lib/domain/localization";
 import { EMPTY_PROSE_TEMPLATE, proseTemplateIsEmpty } from "@/lib/domain/prose";
@@ -39,8 +44,11 @@ import {
 } from "@/lib/domain/translationFill";
 import {
 	itextUnitTranslationId,
+	LABEL_TEXT_ROLES,
+	LABEL_TEXT_SLOT_OF_ROLE,
 	snapshotTranslationUnits,
 	type TranslationUnit,
+	type TranslationUnitRole,
 	translatedProseValueMode,
 	translationEntryIntegrityIssue,
 } from "@/lib/domain/translationUnits";
@@ -70,7 +78,7 @@ import { attributesByName, sameAttributeMaps } from "../sameElement";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { translationEntryFor } from "../translations";
-import type { ItextRecipient } from "../types";
+import type { BlankTranslationSlot } from "../types";
 import { ownText, type XmlCursor, type XmlNode } from "../xmlCursor";
 import type { ControlNode } from "./body";
 import { TEXT_CONTROLS, type TextControl, X } from "./claims";
@@ -479,11 +487,13 @@ export interface ProtectedMessage {
 
 export interface FormText {
 	readonly slots: readonly SlotText[];
+	/** Each question label's other texts the form holds (`readLabelTexts`). */
+	readonly labelTexts: readonly LabelTextReading[];
 	readonly protectedMessages: readonly ProtectedMessage[];
 	readonly itext: ItextReading;
 	/** The values blank in a language other than the first whose first-language text is not. */
 	readonly blankTranslations: number;
-	readonly blankTranslationSlots?: readonly ItextRecipient[];
+	readonly blankTranslationSlots?: readonly BlankTranslationSlot[];
 	readonly cursor: XmlCursor;
 }
 
@@ -622,11 +632,12 @@ export function blankOptionalTextAbsent(doc: BlueprintDoc): BlueprintDoc {
 }
 
 /** The slot of a question's text, by its translation role. */
-const FILL_SLOT_OF: SourceTable<TextSlot> = tableOf({
+const FILL_SLOT_OF: SourceTable<TextSlot | LabelTextSlot> = tableOf({
 	"field-label": "label",
 	"field-hint": "hint",
 	"field-help": "help",
 	"field-validation-message": "validate_msg",
+	...LABEL_TEXT_SLOT_OF_ROLE,
 });
 
 /** Writes a form text's source value into its slot: a question's label, hint, help text or
@@ -1039,8 +1050,9 @@ export function readText(input: ReadTextInput): FormText {
 	}
 
 	const slots: SlotText[] = [];
+	const labelTexts: LabelTextReading[] = [];
 	let blankTranslations = 0;
-	const blankTranslationSlots: ItextRecipient[] = [];
+	const blankTranslationSlots: BlankTranslationSlot[] = [];
 	const firstOwner = new Map<string, Reference>();
 	for (const ref of references) {
 		if (ref.id !== undefined && !firstOwner.has(ref.id))
@@ -1055,6 +1067,17 @@ export function readText(input: ReadTextInput): FormText {
 		for (const language of read.blanks)
 			blankTranslationSlots.push(itextRecipient(ref.owner, language));
 		if (read.slot !== undefined) slots.push(read.slot);
+		for (const reading of read.labelTexts ?? []) {
+			labelTexts.push(reading);
+			// A label's other text left blank beside the default's is filled from it, as the
+			// label's own value is.
+			if (first) blankTranslations += reading.blanks.length;
+			for (const language of reading.blanks)
+				blankTranslationSlots.push({
+					...itextRecipient(ref.owner, language),
+					slot: reading.slot,
+				});
+		}
 	}
 
 	const elsewhere = referencesAnywhere(input);
@@ -1069,6 +1092,7 @@ export function readText(input: ReadTextInput): FormText {
 
 	return {
 		slots,
+		labelTexts,
 		protectedMessages,
 		itext,
 		blankTranslations,
@@ -1326,6 +1350,14 @@ function coverStandIn(input: ReadTextInput, field: DraftField): void {
 
 const MEDIA_FORMS = new Set(["image", "audio", "video"]);
 
+/** Whether a slot's media reader holds a value of this form: an image, an audio or a video on
+ *  every slot that holds media, and an inline video on a question's label alone, the one text
+ *  commcare-android asks for its `video-inline` form (`QuestionWidget.java`). */
+function heldMediaForm(owner: ItextOwner, form: string): boolean {
+	if (MEDIA_FORMS.has(form)) return true;
+	return form === "video-inline" && mediaHolding(owner) === "label_media";
+}
+
 /** The media a slot holds, by the kind of its field. */
 function mediaHolding(owner: ItextOwner): SlotText["media"] {
 	const kind = owner.field.kind;
@@ -1341,8 +1373,8 @@ function mediaHolding(owner: ItextOwner): SlotText["media"] {
 	return "unheld";
 }
 
-/** Whether a slot that holds media (a question's label or help text, a choice) carries an image,
- *  an audio or a video form in some language. */
+/** Whether a slot that holds media (a question's label or help text, a choice) carries a media
+ *  form it holds (`heldMediaForm`) in some language. */
 function writesMedia(
 	owner: ItextOwner,
 	forms: ReadonlyMap<LanguageTag, ReadonlyMap<string, Element>>,
@@ -1350,7 +1382,7 @@ function writesMedia(
 	const holding = mediaHolding(owner);
 	if (holding === "unheld" || holding === "refused") return false;
 	for (const held of forms.values())
-		for (const form of held.keys()) if (MEDIA_FORMS.has(form)) return true;
+		for (const form of held.keys()) if (heldMediaForm(owner, form)) return true;
 	return false;
 }
 
@@ -1436,6 +1468,173 @@ function registerOtherLanguageOutputs(
 		}
 }
 
+/** One of a question label's other texts (`lib/domain/labelForms.ts`), as the form stage read it:
+ *  each app language's value of its form, the language whose value the slot holds, and the outputs
+ *  of that value registered for the expression stage. */
+export interface LabelTextReading {
+	readonly owner: ItextOwner;
+	readonly slot: LabelTextSlot;
+	readonly place: HqPlace;
+	/** The label's itext id; a second label of the id takes the first's reading. */
+	readonly id: string;
+	readonly first: boolean;
+	readonly own: LanguageTag;
+	readonly values: ReadonlyMap<LanguageTag, ReadValue>;
+	/** The languages other than the default whose value is blank beside the default's text: each
+	 *  read as no translation, and filled from the source at publication. */
+	readonly blanks: readonly LanguageTag[];
+}
+
+/** Takes one of a label's other texts' values: the element, its record standing at the `form`
+ *  it names (`xmlCursor.ts::recordedNode`), and that attribute as part of what it reads. Its text
+ *  is the element's; its outputs are each claimed as the expression stage reads them. */
+function takeLabelText(
+	cursor: XmlCursor,
+	value: Element,
+	slot: LabelTextSlot,
+): void {
+	cursor.take({ element: value }, X.labelText[slot]).value;
+	cursor.partOf({ element: value, attribute: "form" }, X.labelText[slot]);
+}
+
+/** Whether a slot is a question's label, whose text Nova holds the other texts of: every
+ *  question's label but a container's (`fieldKindCarriesLabelTexts`). */
+function heldLabelTexts(owner: ItextOwner): boolean {
+	return (
+		owner.slot === "label" &&
+		!CONTAINER_KINDS.has(owner.field.kind) &&
+		fieldKindDeclaresKey(owner.field.kind, "extended_text")
+	);
+}
+
+/**
+ * Reads a question label's `long`, `qrcode` and `tts` forms into its extended text, QR code and
+ * spoken text, by the label's own rules. Each form must stand in the form's default language:
+ * Core lays the default locale's keys under every locale and refuses a key the default lacks as
+ * that language loads (`Localizer.getLocaleData`, `NoLocalizedTextException`). A language without
+ * the form shows the default's (the same merge), read as untranslated; a blank value there beside
+ * the default's text is the form builder's to fill from it (`ItextForm.getValueOrDefault`), read
+ * the same way; a blank in the default beside another language's text is refused, as the label's
+ * is, since the form builder's save fills it from that language. A form blank everywhere is held
+ * blank: Core reads a present form as it stands (a blank `long` is a blank caption), and the form
+ * builder keeps it (`javaRosa/util.js::getItextItemsFromMugs` drops only an item blank in every
+ * form). Each output of the slot's own value is registered at the slot, each other language's as
+ * a translated output, as the label's are.
+ */
+function readLabelTexts(
+	input: ReadTextInput,
+	owner: ItextOwner,
+	place: HqPlace,
+	id: string,
+	first: boolean,
+	forms: ReadonlyMap<LanguageTag, ReadonlyMap<string, Element>>,
+	defaultLanguage: LanguageTag,
+): LabelTextReading[] {
+	const { cursor, accounting, scope, itext } = input;
+	const context: ValueContext = { cursor, accounting, scope, place };
+	const out: LabelTextReading[] = [];
+	for (const slot of LABEL_TEXT_SLOTS) {
+		const wire = LABEL_TEXT_WIRE_FORMS[slot];
+		const elements = new Map<LanguageTag, Element>();
+		for (const [language, held] of forms) {
+			const value = held.get(wire);
+			if (value !== undefined) elements.set(language, value);
+		}
+		if (elements.size === 0) continue;
+		if (!elements.has(defaultLanguage)) {
+			if (first)
+				for (const value of elements.values()) {
+					claimFormValue(accounting, value, place);
+					cursor.refuseSubtree(value, X.labelTextMissingDefault[slot], place);
+				}
+			continue;
+		}
+		const read = new Map<LanguageTag, ReadValue>();
+		for (const [language, value] of elements)
+			read.set(language, readValue(value, context, first));
+		const defaultBlank = valueIsBlank(read.get(defaultLanguage) as ReadValue);
+		const blankEverywhere = [...read.values()].every(valueIsBlank);
+		if (defaultBlank && !blankEverywhere) {
+			if (first)
+				for (const [language, value] of read) {
+					claimFormValue(accounting, value.element, place);
+					if (language === defaultLanguage)
+						cursor.refuse(
+							{ element: value.element },
+							X.blankFirstLanguage,
+							place,
+						);
+					else takeLabelText(cursor, value.element, slot);
+				}
+			continue;
+		}
+		const source = itext.source ?? defaultLanguage;
+		const sourceValue = read.get(source);
+		const own =
+			sourceValue === undefined || (valueIsBlank(sourceValue) && !defaultBlank)
+				? defaultLanguage
+				: source;
+		const ownValue = read.get(own) as ReadValue;
+		if (first) {
+			for (const value of read.values()) {
+				claimFormValue(accounting, value.element, place);
+				takeLabelText(cursor, value.element, slot);
+			}
+			const registered = ownValue.parts.flatMap((part) =>
+				part.kind === "output" ? [part.output] : [],
+			);
+			const different = new Set<Element>();
+			for (const [language, value] of read) {
+				if (language === own || valueIsBlank(value)) continue;
+				const remaining = [...registered];
+				for (const part of value.parts) {
+					if (part.kind !== "output") continue;
+					const twin = remaining.findIndex((output) =>
+						sameXPathText(output.text, part.output.text, { ruleSet: "form" }),
+					);
+					if (twin < 0) different.add(part.output.element);
+					else remaining.splice(twin, 1);
+				}
+				for (const omitted of remaining) different.add(omitted.element);
+			}
+			const register = (output: SourceOutput, translatedOutput?: true) =>
+				owner.field.expressions.push({
+					slot,
+					...(translatedOutput && { translatedOutput }),
+					text: output.text,
+					at: { element: output.element, attribute: output.attribute },
+					key: OUTPUT_VALUE_KEY,
+					mode: XFORM_MODE,
+				});
+			for (const output of registered) {
+				claimSourceOutput(cursor, output, different.has(output.element));
+				register(output);
+			}
+			for (const [language, value] of read) {
+				if (language === own) continue;
+				for (const part of value.parts) {
+					if (part.kind !== "output") continue;
+					claimSourceOutput(
+						cursor,
+						part.output,
+						different.has(part.output.element),
+					);
+					register(part.output, true);
+				}
+			}
+			owner.field.field[slot] = placeholderTemplate(ownValue.parts);
+		}
+		const blanks = [...read]
+			.filter(
+				([language, value]) =>
+					language !== defaultLanguage && !defaultBlank && valueIsBlank(value),
+			)
+			.map(([language]) => language);
+		out.push({ owner, slot, place, id, first, own, values: read, blanks });
+	}
+	return out;
+}
+
 /** Reads one slot's text: its claims (made once, by the first slot of an id), its template and
  *  its outputs. */
 function readSlotText(
@@ -1445,6 +1644,7 @@ function readSlotText(
 ): {
 	readonly slot: SlotText | undefined;
 	readonly blanks: readonly LanguageTag[];
+	readonly labelTexts?: readonly LabelTextReading[];
 } {
 	const { cursor, accounting, itext, scope } = input;
 	const owner = ref.owner;
@@ -1611,14 +1811,22 @@ function readSlotText(
 					if (part.kind === "literal") claimLiteral(cursor, part.output);
 			}
 		for (const values of itext.allValues(id).values())
-			for (const value of values) claimOtherForm(input, owner, place, value);
+			for (const value of values)
+				claimOtherForm(input, owner, place, value, heldLabelTexts(owner));
 	}
+	const labelTexts = heldLabelTexts(owner)
+		? readLabelTexts(input, owner, place, id, first, forms, defaultLanguage)
+		: [];
 
-	// A text blank everywhere is an entry Nova writes only where its slot carries media, and
-	// there its markdown copy is the flag's to decide; anywhere else the flag prints nothing.
+	// A text blank everywhere is an entry Nova writes only where its slot carries media or a
+	// question's label holds one of its other texts (`builder.ts::addItext`), and there its
+	// markdown copy is the flag's to decide: a blank markdown copy the source lacks would show
+	// in place of the extended text on Android (`QuestionWidget.setTextFromPrompt` reads the
+	// markdown text first, and Core reads a present blank form as ""). Anywhere else the flag
+	// prints nothing.
 	if (
 		plain &&
-		(!blankEverywhere || writesMedia(owner, forms)) &&
+		(!blankEverywhere || writesMedia(owner, forms) || labelTexts.length > 0) &&
 		!input.plainText
 	)
 		setPlain(owner);
@@ -1677,6 +1885,7 @@ function readSlotText(
 			copies,
 		},
 		blanks,
+		labelTexts,
 	};
 }
 
@@ -1778,12 +1987,26 @@ function claimMarkdown(
 	return true;
 }
 
-/** A value of a form other than the default, markdown and media, claimed by the form it names. */
+/** A value of a form other than the default, markdown and the media its slot holds
+ *  (`heldMediaForm`), claimed by the form it names. An inline video on any text but a question's
+ *  label is not yet held: no runtime shows it there (Android asks a question's label alone,
+ *  `QuestionWidget.java`; Formplayer sends no such form, `PromptToJson`), while HQ ships its file
+ *  (`xform.py::video_references`).
+ *  A question label's other texts are read by `readLabelTexts` (`heldLabelTexts`). On any other
+ *  text a `long` form is what both runtimes show in place of the text, which Nova holds no slot
+ *  for, so it is not yet held: Core reads `long` first and the default after it for a choice
+ *  (`FormEntryPrompt.getSelectItemText`) and for a hint, a help text and a validation message
+ *  its alert names (`localizeText` through `FormEntryCaption.getQuestionText`), and for a
+ *  group's or repeat's header (Android `QuestionsView.java` reads the group's `getLongText()`,
+ *  Formplayer sends it as the caption, `PromptToJson`). A `qrcode` or `tts` form there is read by
+ *  no runtime: Android asks only a question's label for either (`QuestionWidget.addQuestionText`),
+ *  and Core reads neither of any other text. */
 function claimOtherForm(
 	input: ReadTextInput,
 	owner: ItextOwner,
 	place: HqPlace,
 	value: Element,
+	heldLabelTexts: boolean,
 ): void {
 	const { cursor } = input;
 	const form = value.attribs.form;
@@ -1791,14 +2014,25 @@ function claimOtherForm(
 		form === undefined ||
 		form === "default" ||
 		form === "markdown" ||
-		MEDIA_FORMS.has(form)
+		heldMediaForm(owner, form)
 	)
 		return;
 	if (form.startsWith("__nova_")) return;
+	const labelText = labelTextSlotOfWireForm(form);
+	if (labelText !== undefined && heldLabelTexts) return;
 	claimFormValue(input.accounting, value, place);
+	if (labelText !== undefined) {
+		if (labelText === "extended_text")
+			cursor.refuseSubtree(
+				value,
+				owner.slot === "label" ? X.longFormOnContainer : X.longFormOnOtherText,
+				place,
+			);
+		else cursor.dropSubtree(value, X.labelTextElsewhere[labelText]);
+		return;
+	}
 	if (form === "video-inline")
-		cursor.refuseSubtree(value, X.videoInline, place);
-	else if (form === "long") cursor.refuseSubtree(value, X.longForm, place);
+		cursor.refuseSubtree(value, X.videoInlineElsewhere, place);
 	else if (form === "short") cursor.accountSubtree(value, X.shortForm, place);
 	else if (form === "big-image")
 		cursor.refuseSubtree(
@@ -1806,8 +2040,6 @@ function claimOtherForm(
 			owner.slot === "option_label" ? X.choiceBigImage : X.labelBigImage,
 			place,
 		);
-	else if (form === "qrcode") cursor.refuseSubtree(value, X.qrcode, place);
-	else if (form === "tts") cursor.refuseSubtree(value, X.tts, place);
 	else cursor.accountSubtree(value, X.customForm, place);
 }
 
@@ -1974,11 +2206,84 @@ export function finishText(ctx: ReadContext): void {
 		language: LanguageTag;
 		entry: TranslationEntry;
 		place: HqPlace;
-		role: ItextUnit["role"];
+		role: TranslationUnitRole;
 	}[] = [];
 	/** Each unit's written texts by language, as `written` gains them. */
 	const writtenByUnit = new Map<string, Map<LanguageTag, ProseTemplate>>();
 	let changed = false;
+
+	/** Writes a text's translation in each app language but the one its slot holds, from each
+	 *  language's value with its outputs as bound. */
+	const translate = (
+		unitId: string,
+		template: ProseTemplate,
+		slot: {
+			readonly values: ReadonlyMap<LanguageTag, ReadValue>;
+			readonly own: LanguageTag;
+			readonly place: HqPlace;
+		},
+		formDefault: LanguageTag | undefined,
+		languages: readonly LanguageTag[],
+		role: TranslationUnitRole,
+	): void => {
+		if (localization === undefined || source === undefined) return;
+		const sourceValue = slot.values.get(slot.own);
+		const sourceBlank = sourceValue === undefined || valueIsBlank(sourceValue);
+		for (const language of languages) {
+			if (language === slot.own) continue;
+			const targets = localization.translations[language];
+			if (targets === undefined) continue;
+			// A language the text holds no value in shows the form's default language's
+			// text, and a value left blank there beside the source's text is the form
+			// builder's to fill from it; either reads as the default's text, a value
+			// the default language's own pass claims, so this pass claims nothing of it.
+			let value = slot.values.get(language);
+			const borrowed =
+				language !== formDefault &&
+				(value === undefined || (valueIsBlank(value) && !sourceBlank));
+			if (borrowed)
+				value =
+					formDefault === undefined ? undefined : slot.values.get(formDefault);
+			if (value === undefined) continue;
+			// The default's own text is the slot's: no translation.
+			if (borrowed && formDefault === slot.own) continue;
+			const parts: ProsePart[] = [];
+			let complete = true;
+			for (const part of value.parts) {
+				if (part.kind !== "output") {
+					parts.push({ kind: "text", text: part.text });
+					continue;
+				}
+				const index = indexOf.get(part.output.element);
+				const expression =
+					index === undefined
+						? undefined
+						: ctx.pending.outcome(index).expression;
+				if (expression === undefined) {
+					complete = false;
+					break;
+				}
+				parts.push(canonicalProseAtom(expression));
+			}
+			if (!complete) continue;
+			const target = canonicalProseTemplate(parts);
+			const entry = translationEntryFor("prose", template, target, source);
+			if (entry === undefined) continue;
+			Object.assign(entry, translatedProseValueMode(template, target));
+			targets[unitId as TranslationUnitId] = entry;
+			changed = true;
+			written.push({ unit: unitId, language, entry, place: slot.place, role });
+			let ofUnit = writtenByUnit.get(unitId);
+			if (ofUnit === undefined) {
+				ofUnit = new Map();
+				writtenByUnit.set(unitId, ofUnit);
+			}
+			ofUnit.set(language, entry.value as ProseTemplate);
+		}
+		const byLanguage = writtenByUnit.get(unitId);
+		if (byLanguage !== undefined && byLanguage.size > 0)
+			ctx.translations.set(unitId, "prose", new Map(byLanguage));
+	};
 
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
@@ -2010,73 +2315,47 @@ export function finishText(ctx: ReadContext): void {
 				if (template === undefined || slot.refused) continue;
 				if (localization === undefined || source === undefined) continue;
 
-				const unitId = itextUnitTranslationId(unit);
-				const sourceValue = slot.values.get(slot.own);
-				const sourceBlank =
-					sourceValue === undefined || valueIsBlank(sourceValue);
-				const formDefault = text.itext.defaultLanguage;
-				for (const language of text.itext.languages) {
-					if (language === slot.own) continue;
-					const targets = localization.translations[language];
-					if (targets === undefined) continue;
-					// A language the text holds no value in shows the form's default language's
-					// text, and a value left blank there beside the source's text is the form
-					// builder's to fill from it; either reads as the default's text, a value
-					// the default language's own pass claims, so this pass claims nothing of it.
-					let value = slot.values.get(language);
-					const borrowed =
-						language !== formDefault &&
-						(value === undefined || (valueIsBlank(value) && !sourceBlank));
-					if (borrowed)
-						value =
-							formDefault === undefined
-								? undefined
-								: slot.values.get(formDefault);
-					if (value === undefined) continue;
-					// The default's own text is the slot's: no translation.
-					if (borrowed && formDefault === slot.own) continue;
-					const parts: ProsePart[] = [];
-					let complete = true;
-					for (const part of value.parts) {
-						if (part.kind !== "output") {
-							parts.push({ kind: "text", text: part.text });
-							continue;
-						}
-						const index = indexOf.get(part.output.element);
-						const expression =
-							index === undefined
-								? undefined
-								: ctx.pending.outcome(index).expression;
-						if (expression === undefined) {
-							complete = false;
-							break;
-						}
-						parts.push(canonicalProseAtom(expression));
+				translate(
+					itextUnitTranslationId(unit),
+					template,
+					slot,
+					text.itext.defaultLanguage,
+					text.itext.languages,
+					unit.role,
+				);
+			}
+			// A question label's other texts: a second label of one id takes the first's.
+			const firstLabelText = new Map<string, LabelTextReading>();
+			for (const reading of text.labelTexts) {
+				const uuid = reading.owner.field.uuid;
+				if (uuid === undefined) continue;
+				const field = next.fields[uuid] as Record<string, unknown> | undefined;
+				if (field === undefined) continue;
+				const key = `${reading.id}\u0000${reading.slot}`;
+				if (reading.first) firstLabelText.set(key, reading);
+				else {
+					const sharedUuid = firstLabelText.get(key)?.owner.field.uuid;
+					const bound =
+						sharedUuid === undefined
+							? undefined
+							: (
+									next.fields[sharedUuid] as Record<string, unknown> | undefined
+								)?.[reading.slot];
+					if (bound !== undefined) {
+						field[reading.slot] = structuredClone(bound);
+						changed = true;
 					}
-					if (!complete) continue;
-					const target = canonicalProseTemplate(parts);
-					const entry = translationEntryFor("prose", template, target, source);
-					if (entry === undefined) continue;
-					Object.assign(entry, translatedProseValueMode(template, target));
-					targets[unitId] = entry;
-					changed = true;
-					written.push({
-						unit: unitId,
-						language,
-						entry,
-						place: slot.place,
-						role: unit.role,
-					});
-					let ofUnit = writtenByUnit.get(unitId);
-					if (ofUnit === undefined) {
-						ofUnit = new Map();
-						writtenByUnit.set(unitId, ofUnit);
-					}
-					ofUnit.set(language, entry.value as ProseTemplate);
 				}
-				const byLanguage = writtenByUnit.get(unitId);
-				if (byLanguage !== undefined && byLanguage.size > 0)
-					ctx.translations.set(unitId, "prose", new Map(byLanguage));
+				const template = field[reading.slot] as ProseTemplate | undefined;
+				if (template === undefined) continue;
+				translate(
+					makeTranslationUnitId("field", uuid, reading.slot),
+					template,
+					reading,
+					text.itext.defaultLanguage,
+					text.itext.languages,
+					LABEL_TEXT_ROLES[reading.slot],
+				);
 			}
 		}
 

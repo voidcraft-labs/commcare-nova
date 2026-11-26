@@ -2,6 +2,7 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import type { Field } from "./fields";
+import { FIELD_PROSE_SLOTS } from "./labelForms";
 import {
 	effectiveAppLocalization,
 	type LanguageTag,
@@ -297,7 +298,7 @@ function fieldItextUnits(
 ): TranslationUnit[] {
 	const ids: TranslationUnitId[] = [];
 	const record = field as unknown as Record<string, unknown>;
-	for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
+	for (const slot of FIELD_PROSE_SLOTS) {
 		if (record[slot] !== undefined) {
 			ids.push(makeTranslationUnitId("field", field.uuid, slot));
 		}
@@ -364,7 +365,7 @@ function projectFieldWithUnits(
 
 	const sourceRecord = field as unknown as Record<string, unknown>;
 	const record = localized as unknown as Record<string, unknown>;
-	for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
+	for (const slot of FIELD_PROSE_SLOTS) {
 		if (sourceRecord[slot] === undefined) continue;
 		const unit = units.get(makeTranslationUnitId("field", field.uuid, slot));
 		if (unit !== undefined) {

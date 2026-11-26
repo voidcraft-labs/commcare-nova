@@ -38,7 +38,13 @@ import type { BlueprintDoc, PersistableDoc } from "./blueprint";
 import { type IconRef, isBuiltinIconRef } from "./builtinIcons";
 import { type Field, isContainer } from "./fields";
 import { caseListColumnTextShows } from "./modules";
-import type { Media, MediaAssetId } from "./multimedia";
+import {
+	MEDIA_ROLE_KIND,
+	MEDIA_ROLES,
+	type Media,
+	type MediaAssetId,
+	type MediaRole,
+} from "./multimedia";
 import type { NavigationMedia } from "./navigationMedia";
 import type { Uuid } from "./uuid";
 
@@ -54,14 +60,11 @@ import type { Uuid } from "./uuid";
 export type MediaSlotKind = "image" | "audio" | "video";
 
 /**
- * The Media bundle's three slot keys; their order is also the order
- * the walker emits per-bundle references.
+ * The Media bundle's role keys (`MEDIA_ROLES`); their order is also the
+ * order the walker emits per-bundle references. A role's slot expects the
+ * kind `MEDIA_ROLE_KIND` names: an inline video is a video.
  */
-const MEDIA_BUNDLE_KEYS: ReadonlyArray<MediaSlotKind> = [
-	"image",
-	"audio",
-	"video",
-];
+const MEDIA_BUNDLE_KEYS: ReadonlyArray<MediaRole> = MEDIA_ROLES;
 
 /**
  * Which field-level Media bundle a reference came from. Mirrors the
@@ -176,6 +179,10 @@ export type MediaRefLocation = {
 export interface AssetRef {
 	readonly assetId: IconRef;
 	readonly slotKind: MediaSlotKind;
+	/** The role a field's or a choice's `Media` bundle holds it in, where it
+	 *  sits in one: the slot's key, which `slotKind` alone does not name
+	 *  (an inline video and a video are both videos). */
+	readonly role?: MediaRole;
 	readonly location: MediaRefLocation;
 }
 
@@ -403,6 +410,7 @@ function* yieldBundleSlots(
 	for (const ref of bundleFiles(bundle)) {
 		yield {
 			slotKind: ref.slotKind,
+			role: ref.role,
 			assetId: ref.assetId,
 			location: {
 				kind: "field_media_bundle",
@@ -419,16 +427,23 @@ function* yieldBundleSlots(
 /** The stored role is walked even when another language supplies the same file.
  * Manifest collection deduplicates by asset; editing and deletion keep each site. */
 function* bundleFiles(bundle: Media) {
-	for (const slotKind of MEDIA_BUNDLE_KEYS) {
-		const assetId = bundle[slotKind];
-		if (assetId) yield { slotKind, assetId, language: undefined };
+	for (const role of MEDIA_BUNDLE_KEYS) {
+		const assetId = bundle[role];
+		if (assetId)
+			yield {
+				role,
+				slotKind: MEDIA_ROLE_KIND[role],
+				assetId,
+				language: undefined,
+			};
 	}
 	for (const [language, values] of Object.entries(
 		bundle.mediaByLanguage ?? {},
 	)) {
-		for (const slotKind of MEDIA_BUNDLE_KEYS) {
-			const assetId = values[slotKind];
-			if (assetId) yield { slotKind, assetId, language };
+		for (const role of MEDIA_BUNDLE_KEYS) {
+			const assetId = values[role];
+			if (assetId)
+				yield { role, slotKind: MEDIA_ROLE_KIND[role], assetId, language };
 		}
 	}
 }
@@ -451,6 +466,7 @@ function* walkFieldOptionMedia(
 		for (const ref of bundleFiles(media)) {
 			yield {
 				slotKind: ref.slotKind,
+				role: ref.role,
 				assetId: ref.assetId,
 				location: {
 					kind: "option_media",
@@ -656,7 +672,7 @@ function remapFieldMedia(
 	}
 }
 
-/** Rewrite the image/audio/video slots on one `Media` bundle in place. */
+/** Rewrite every role's slot on one `Media` bundle in place. */
 function remapMediaBundle(
 	bundle: Media | undefined,
 	remap: (id: MediaAssetId) => MediaAssetId,
@@ -666,9 +682,9 @@ function remapMediaBundle(
 		bundle,
 		...Object.values(bundle.mediaByLanguage ?? {}),
 	]) {
-		for (const slotKind of MEDIA_BUNDLE_KEYS) {
-			const assetId = values[slotKind];
-			if (assetId) values[slotKind] = remap(assetId);
+		for (const role of MEDIA_BUNDLE_KEYS) {
+			const assetId = values[role];
+			if (assetId) values[role] = remap(assetId);
 		}
 	}
 }
@@ -735,7 +751,7 @@ function carrierName(ref: AssetRef): string {
 		case "form_audio_label":
 			return `the audio label on form "${loc.formName}" (module "${loc.moduleName}")`;
 		case "field_media_bundle":
-			return `the ${ref.slotKind} on field "${loc.fieldId}"'s ${bundleSlotLabel(loc.bundleKey)} (form "${loc.formName}")`;
+			return `the ${ref.role === "videoInline" ? "inline video" : ref.slotKind} on field "${loc.fieldId}"'s ${bundleSlotLabel(loc.bundleKey)} (form "${loc.formName}")`;
 		case "option_media":
 			return `the ${ref.slotKind} on option "${loc.optionValue}" of field "${loc.fieldId}" (form "${loc.formName}")`;
 		case "image_map_mapping":

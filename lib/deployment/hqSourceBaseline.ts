@@ -224,6 +224,8 @@ function project(
 	const languages: JsonObject = {};
 	copyKey(languages, source, "langs");
 	const settings: JsonObject = {};
+	copyKey(settings, source, "use_grid_menus");
+	copyKey(settings, source, "grid_form_menus");
 	copyKey(settings, source, "application_version");
 	copyKey(settings, source, "location_fixture_restore");
 	settings.add_ons = pick(source.add_ons, ownership.addOns);
@@ -673,6 +675,7 @@ export function hqDiscardDigest(
 	source: string,
 	removed: readonly RemovedHqFile[],
 	disclosure: "preview" | "complete" | "unavailable" = "preview",
+	layoutReplacements: readonly string[] = [],
 ): string {
 	return canonicalJsonDigest({
 		v: 2,
@@ -680,6 +683,7 @@ export function hqDiscardDigest(
 		authority,
 		source,
 		removed: removed.map((file) => file.digest),
+		...(layoutReplacements.length > 0 && { layoutReplacements }),
 		disclosure,
 	});
 }

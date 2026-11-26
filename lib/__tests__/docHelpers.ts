@@ -1063,7 +1063,14 @@ function installFields(
 		} else if (kind !== "hidden" && kind !== "section") {
 			base.label = proseText(id);
 		}
-		for (const proseSlot of ["hint", "help", "validate_msg"] as const) {
+		for (const proseSlot of [
+			"hint",
+			"help",
+			"validate_msg",
+			"extended_text",
+			"qr_code",
+			"spoken_text",
+		] as const) {
 			if (typeof base[proseSlot] === "string") {
 				base[proseSlot] = proseText(base[proseSlot]);
 			}

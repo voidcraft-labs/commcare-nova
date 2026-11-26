@@ -3,17 +3,23 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
-	childModuleUuids,
 	formLaunch,
+	localizeTranslationUnit,
 	type MenuScreen,
+	type MenuScreenEntry,
 	menuFormUuidsOf,
 	menuScreenOf,
 	moduleDestination,
 	moduleIsBareCaseList,
 	screenChoosesCaseFirst,
+	snapshotTranslationUnits,
 	type Uuid,
 } from "@/lib/domain";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
+import {
+	menuWithInheritedCaseSettings,
+	routeContainsForm,
+} from "@/lib/domain/listedForms";
 import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
@@ -23,6 +29,8 @@ import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
 import {
 	formDisplayVisibility,
 	type NavigationDeviceCases,
+	type NavigationItemVisibility,
+	type NavigationSelectedCase,
 	navigationSelectedCase,
 } from "../engine/displayConditionEvaluation";
 import { caseListStepSession } from "../engine/entrySessionData";
@@ -35,10 +43,11 @@ import {
 import { previousTaskFormSelectors } from "../engine/previousTask";
 import {
 	combineNavigationVisibility,
+	dependentMenuSelectionUuids,
 	moduleHasChildren,
-	previewCaseDescendantModuleUuids,
 	previewCaseListMenuEntry,
 	previewContributorVisibility,
+	previewEntryBadge,
 	previewMenuCaseContext,
 	previewModuleOwnVisibility,
 	previewModuleVisibility,
@@ -150,12 +159,41 @@ function appTestVisibilityArgs(
 	} as const;
 }
 
+/** Badges are evaluated only for commands the session offers. The observation
+ * uses the browser's value projector over this test worker's restored rows. */
+function appTestBadge(
+	context: AppTestContext,
+	state: Pick<AppTestSessionState, "deviceCases" | "platform">,
+	entry: MenuScreenEntry,
+	visibility: NavigationItemVisibility,
+	selectedCase?: NavigationSelectedCase,
+) {
+	if (visibility !== "shown") return {};
+	const badge = previewEntryBadge({
+		...appTestVisibilityArgs(context, state),
+		doc: context.doc,
+		entry,
+		platform: state.platform,
+		selectedCase,
+		localizedValues: {
+			get: (id) => {
+				const unit = snapshotTranslationUnits(context.doc).get(id);
+				return (
+					unit &&
+					localizeTranslationUnit(context.doc, context.language, unit).effective
+				);
+			},
+		},
+	});
+	return badge ? { badge } : {};
+}
+
 /** The menu tiles a home (`null`) or menu screen lists, by the same
  *  projection the browser's screens list them (`previewScreenEntries`). */
 export function appTestMenus(
 	context: AppTestContext,
 	parent: Uuid | null,
-	state: Pick<AppTestSessionState, "deviceCases">,
+	state: Pick<AppTestSessionState, "deviceCases" | "platform">,
 ) {
 	const { doc } = context;
 	const visibility = previewModuleVisibility(
@@ -168,6 +206,12 @@ export function appTestMenus(
 				? [
 						{
 							uuid: entry.moduleUuid,
+							...appTestBadge(
+								context,
+								state,
+								entry,
+								visibility.get(entry.moduleUuid) ?? "hidden",
+							),
 							name: workerWording(
 								doc,
 								context.language,
@@ -264,7 +308,7 @@ export function appTestForms(
 	loadingOnly = false,
 ) {
 	const { doc, identity, lookup } = context;
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	/* A form's row shows while every menu whose condition it carries does: its
 	 * own, and its parent where its menu shows its forms above. */
 	const contributor = previewContributorVisibility(
@@ -278,7 +322,9 @@ export function appTestForms(
 		state.screen.moduleUuid === moduleUuid &&
 		state.screen.selection !== undefined;
 	const chosenCaseId =
-		selected?.length === 1 && caseSelectionCardinality(mod) === "single"
+		selected?.length === 1 &&
+		mod !== undefined &&
+		caseSelectionCardinality(mod) === "single"
 			? selected[0].caseId
 			: undefined;
 	return menuFormUuidsOf(doc, moduleUuid).flatMap((uuid) => {
@@ -299,24 +345,32 @@ export function appTestForms(
 							session: previewSessionValues(identity, context.device),
 						}).data,
 					);
+		const visibility = combineNavigationVisibility(
+			contributor,
+			formDisplayVisibility({
+				condition: form.displayCondition,
+				hiddenFromMenu: form.hiddenFromMenu === true,
+				session: previewSessionValues(identity, context.device),
+				types: previewExpressionContext(
+					doc,
+					{ entity: "form", uuid, slot: "form_display_condition" },
+					lookup,
+				),
+				selectedCase,
+				deviceCases: appTestDeviceCases(context, state),
+				lookup: { kind: "data", data: lookup },
+			}),
+		);
 		return [
 			{
 				form,
-				visibility: combineNavigationVisibility(
-					contributor,
-					formDisplayVisibility({
-						condition: form.displayCondition,
-						hiddenFromMenu: form.hiddenFromMenu === true,
-						session: previewSessionValues(identity, context.device),
-						types: previewExpressionContext(
-							doc,
-							{ entity: "form", uuid, slot: "form_display_condition" },
-							lookup,
-						),
-						selectedCase,
-						deviceCases: appTestDeviceCases(context, state),
-						lookup: { kind: "data", data: lookup },
-					}),
+				visibility,
+				...appTestBadge(
+					context,
+					state,
+					{ kind: "form", moduleUuid, formUuid: uuid },
+					visibility,
+					selectedCase,
 				),
 			},
 		];
@@ -508,7 +562,7 @@ export function enterAppTestForm(
 	if (
 		entry?.visibility !== "shown" ||
 		!entry.form ||
-		!(context.doc.formOrder[moduleUuid] ?? []).includes(formUuid)
+		!routeContainsForm(context.doc, moduleUuid, formUuid)
 	)
 		throw new AppTestActionError(
 			"This form is not available on the current menu.",
@@ -551,7 +605,9 @@ export function enterAppTestForm(
 	const needsCase =
 		formLaunch({
 			formType: entry.form.type,
-			moduleHasCaseType: context.doc.modules[moduleUuid].caseType !== undefined,
+			moduleHasCaseType:
+				menuWithInheritedCaseSettings(context.doc, moduleUuid)?.caseType !==
+				undefined,
 		}).kind === "select-case-first";
 	if (needsCase && !selection) return { kind: "records", moduleUuid, formUuid };
 	return {
@@ -576,9 +632,10 @@ export function selectAppTestRecords(
 		throw new AppTestActionError(
 			"Open a record list before selecting records.",
 		);
-	const mod = context.doc.modules[screen.moduleUuid];
+	/* A route listing another menu's forms takes its case type and selection from its source. */
+	const mod = menuWithInheritedCaseSettings(context.doc, screen.moduleUuid);
 	if (
-		!mod.caseType ||
+		!mod?.caseType ||
 		rows.length === 0 ||
 		rows.length > caseSelectionMaximum(mod)
 	)
@@ -602,10 +659,10 @@ export function selectAppTestRecords(
 	};
 	if (selectsForMenu) {
 		selections[screen.moduleUuid] = selection;
-		for (const uuid of [
-			...childModuleUuids(context.doc, screen.moduleUuid),
-			...previewCaseDescendantModuleUuids(context.doc, mod.caseType),
-		])
+		for (const uuid of dependentMenuSelectionUuids(
+			context.doc,
+			screen.moduleUuid,
+		))
 			delete selections[uuid];
 	}
 	const next: AppTestSessionState = {

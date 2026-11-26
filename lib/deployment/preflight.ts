@@ -3,6 +3,7 @@ import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
 import {
 	plannedWorkbookTables,
 	type WorkbookAuthority,
+	type WorkbookTableIntent,
 } from "./workbookAuthority";
 import "server-only";
 
@@ -35,6 +36,7 @@ import {
 	type HqLocation,
 	readHqPlaceExternalId,
 } from "@/lib/commcare/hq/locations";
+import type { HqLookupJsonDefinition } from "@/lib/commcare/hq/lookupJson";
 import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
 import {
 	type HqLookupTable,
@@ -48,6 +50,10 @@ import {
 } from "@/lib/commcare/hq/placeWorkbook";
 import { sourceCapturesLocation } from "@/lib/commcare/locationCapture";
 import type { StreamLookupWorkbook } from "@/lib/commcare/lookup/archiveWorkbooks";
+import {
+	lookupJsonDefinition,
+	lookupJsonRowContent,
+} from "@/lib/commcare/lookup/jsonRows";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import {
@@ -79,6 +85,8 @@ import {
 	locationPropertiesOf,
 	organizationLevelsOf,
 } from "@/lib/domain";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { menusUsingWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { getLookupDefinitions } from "@/lib/lookup/service";
@@ -140,6 +148,7 @@ import {
 	matchesRecordedLookup,
 	observeLargeLookup,
 } from "./largeLookupReceipt";
+import { legacyMenuLayoutLines } from "./legacyMenuLayouts";
 import {
 	ambiguousReverseHopsOnTarget,
 	authoredReverseHops,
@@ -150,6 +159,14 @@ import {
 	plannedPlacesFor,
 	projectedTargetTree,
 } from "./locationResourcePlan";
+import {
+	readLookupJsonDestination,
+	readLookupJsonDestinationTableIds,
+} from "./lookupJsonLedger";
+import {
+	type LookupJsonLocalRow,
+	lookupJsonDefinitionDigest,
+} from "./lookupJsonPlan";
 import {
 	describeUnsupportedLookupContent,
 	type PlannedLookupPush,
@@ -187,6 +204,7 @@ import {
 	readResourceBaselines,
 	readSiblingLookupMappings,
 	readTargetIdentity,
+	readWorkbookLookupTags,
 } from "./store";
 import { exportIdentityOf, type TargetIdentity } from "./targetIdentity";
 import type {
@@ -319,6 +337,8 @@ export type PreflightResult =
 				 * when the app references no Project data.
 				 */
 				readonly lookupPush: LookupPushPlan | null;
+				/** The tables to put there through CommCare HQ's JSON resources. */
+				readonly lookupJsonPush: LookupJsonPushPlan | null;
 				/**
 				 * The places to put there, in the order CommCare HQ can take
 				 * them. Absent when the app has no organization or no live
@@ -429,6 +449,22 @@ export interface LookupPushPlan {
 	readonly pushes: readonly PlannedLookupPush[];
 	/** The author's name for each table, by Nova table id. */
 	readonly names: ReadonlyMap<string, string>;
+}
+
+/**
+ * The tables to put on the project space through CommCare HQ's JSON
+ * resources (`lookupJsonExecutor.ts`), each with every row in Nova's order,
+ * and the authority each request is admitted under.
+ */
+export interface LookupJsonPushPlan {
+	readonly authority: WorkbookAuthority;
+	readonly tables: readonly {
+		readonly tableId: LookupTableId;
+		readonly tag: string;
+		readonly name: string;
+		readonly definition: HqLookupJsonDefinition;
+		readonly rows: readonly LookupJsonLocalRow[];
+	}[];
 }
 
 /**
@@ -872,6 +908,12 @@ export async function runDeploymentPreflight(
 	// Lookup tables and an owner beneath the current case owner both pass
 	// now, the first because this publish pushes them and the second
 	// because it never carried a Nova identity to begin with.
+	/* Where this target keeps the app's entities: the files' paths below,
+	 * and the menu ids the layouts CommCare HQ holds are matched by. */
+	const targetExport = exportIdentityOf(
+		input.doc,
+		input.compiledIdentity ?? (await readTargetIdentity(input.access, target)),
+	);
 	const boundary = await prepareExportBoundary({
 		mode: "hq-upload",
 		streamMedia: true,
@@ -900,11 +942,7 @@ export async function runDeploymentPreflight(
 		/* The paths CommCare HQ keeps this target's files under, for an app
 		 * brought in from it: the bulk upload's entries and every reference
 		 * of the body name them. Empty everywhere else. */
-		heldMediaPaths: exportIdentityOf(
-			input.doc,
-			input.compiledIdentity ??
-				(await readTargetIdentity(input.access, target)),
-		).heldMediaPaths,
+		heldMediaPaths: targetExport.heldMediaPaths,
 		// A publish knows its target exactly: it IS this server and this
 		// project space. So it never consults the deployment record the
 		// download paths fall back on — the record describes where the app
@@ -916,6 +954,16 @@ export async function runDeploymentPreflight(
 		/* A table CommCare HQ manages in this project space is never written
 		 * there, so the workbook leaves it out. */
 		lookupTarget: target,
+		/* A table Nova already put there through the JSON resources keeps
+		 * going that way, since a workbook would replace the rows its ledger
+		 * names. */
+		jsonDestinationTableIds: await readLookupJsonDestinationTableIds(
+			await getAppDb(),
+			{ projectId: input.access.projectId, ...target },
+		),
+		/* A table the Project put there by a workbook stays in one: the JSON
+		 * resources cannot take over rows that carry no Nova identity. */
+		workbookLookupTags: await readWorkbookLookupTags(input.access, target),
 	});
 	if (!boundary.ok) {
 		const details = boundary.violations.map(userFacingError);
@@ -1320,6 +1368,221 @@ export async function runDeploymentPreflight(
 					: `Nova will put ${describeTableCount(sentTables.length)} on “${domain}” before sending the app. ${managedTablesLeftOut(leftOut, domain)}`,
 			items: sentTables.map(
 				(table) => `${table.tag} (${describeRowCount(table.rowCount)})`,
+			),
+		});
+	}
+
+	// ── 4b. Can the tables that travel as JSON go there? ────────────
+	// A table whose rows the workbook cannot carry exactly goes through
+	// CommCare HQ's JSON resources, one request at a time, each admitted and
+	// journaled on its own (`lookupJsonExecutor.ts`). What preflight can
+	// already tell stops here, before anything is sent: a tag held by a table
+	// Nova did not make there, a table it made that is gone or restricted to
+	// some workers, and a definition Nova changed since. Rows changed in
+	// CommCare HQ, and a request an earlier publish left open, are read by the
+	// push itself, which stops before the app's content.
+	let lookupJsonPush: LookupJsonPushPlan | null = null;
+	const jsonTables = boundary.prepared.jsonLookupTables ?? [];
+	if (jsonTables.length > 0) {
+		const listed = await listHqLookupTables(creds, domain);
+		if ("success" in listed) {
+			const detail = lookupTableListFailureDetail(
+				classifyHqFailure(listed, "lookup-tables"),
+				domain,
+			);
+			checks.push({
+				id: "project-data",
+				title: "Project data",
+				status: "blocked",
+				detail,
+				items: [],
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, "hq_resource_state_unknown", detail),
+				ready: null,
+				projectSpaceCompatibility: null,
+				conflicts: [],
+			};
+		}
+		const definitions = new Map(
+			boundary.prepared.lookupSnapshot.definitions.map(
+				(definition) => [definition.id as string, definition] as const,
+			),
+		);
+		const db = await getAppDb();
+		const tables: LookupJsonPushPlan["tables"][number][] = [];
+		const held: string[] = [];
+		const changed: string[] = [];
+		const unsupported: string[] = [];
+		const workbookMade: string[] = [];
+		const siblings = await readSiblingLookupMappings(
+			input.access,
+			target,
+			jsonTables.map((table) => table.tableId),
+		);
+		for (const table of jsonTables) {
+			const definition = definitions.get(table.tableId);
+			if (definition === undefined)
+				throw new Error("A table that travels as JSON lost its definition.");
+			const name = definition.name;
+			const destination = await readLookupJsonDestination(db, {
+				projectId: input.access.projectId,
+				server: input.server,
+				domain,
+				tableId: table.tableId,
+			});
+			/* A table given a new export tag since its last publish here goes
+			 * there as a new table under that tag, which must be free, and the
+			 * table under the old tag is left as it is. */
+			const ledger =
+				destination.ledger?.tag === table.tag ? destination.ledger : null;
+			const jsonDefinition = lookupJsonDefinition(table);
+			const there =
+				ledger === null
+					? listed.find((candidate) => candidate.tag === table.tag)
+					: listed.find((candidate) => candidate.id === ledger.remoteTableId);
+			/* A table create an earlier publish sent under this tag whose answer
+			 * never came back: the table under the tag may be the one it made,
+			 * which the push settles by the tag before it sends anything. */
+			const pendingCreate =
+				destination.open?.kind === "create-table" &&
+				destination.open.tag === table.tag;
+			/* An operation an earlier publish left open, waiting for its outcome
+			 * or for a person, is not decided here: the push settles it first by
+			 * reading what it named (`lookupJsonExecutor.ts::settleOpen`), which
+			 * releases it once CommCare HQ holds what Nova intended or what was
+			 * there before, and otherwise stops before anything is sent. */
+			if (
+				ledger === null &&
+				there !== undefined &&
+				!pendingCreate &&
+				(input.mappings.some(
+					(mapping) =>
+						mapping.kind === "lookup-table" &&
+						mapping.novaResourceId === table.tableId &&
+						mapping.remoteId === there.id &&
+						!mapping.supersededAt,
+				) ||
+					siblings.some(
+						(mapping) =>
+							mapping.tableId === table.tableId &&
+							mapping.remoteId === there.id,
+					))
+			)
+				/* An app of the Project put the table under this tag there by a
+				 * workbook, though not under this tag (the workbook keeps one
+				 * put there under its own tag: `travelsAsJson`). Its rows carry
+				 * no Nova identity, so the JSON resources cannot take them over,
+				 * and it is no stranger's either. */
+				workbookMade.push(
+					`An app of this Project put the table under ${table.tag} on “${domain}” in a workbook.`,
+				);
+			else if (ledger === null && there !== undefined && !pendingCreate)
+				held.push(
+					`“${domain}” already has a lookup table named ${table.tag}, and Nova didn't put its rows there.`,
+				);
+			else if (ledger !== null && (there === undefined || !there.isGlobal))
+				changed.push(
+					there === undefined
+						? `The table Nova put on “${domain}” for “${name}” is no longer there.`
+						: `The table Nova put on “${domain}” for “${name}” now goes only to some workers.`,
+				);
+			else if (
+				ledger !== null &&
+				ledger.definitionDigest !== lookupJsonDefinitionDigest(jsonDefinition)
+			)
+				unsupported.push(
+					`“${name}” has different columns or details than the table Nova put on “${domain}”.`,
+				);
+			const rows = boundary.prepared.lookupSnapshot.rowsByTable.get(
+				table.tableId,
+			);
+			if (rows === undefined)
+				throw new Error("A table that travels as JSON lost its rows.");
+			tables.push({
+				tableId: table.tableId,
+				tag: table.tag,
+				name,
+				definition: jsonDefinition,
+				rows: rows.map((row) => ({
+					novaRowId: row.id,
+					content: lookupJsonRowContent(table, row),
+				})),
+			});
+		}
+		const stop =
+			held.length > 0
+				? {
+						code: "hq_resource_conflict" as const,
+						detail: `“${domain}” already has lookup tables under these names, and Nova didn't make them. You can give the table another export tag in Project data, then publish again.`,
+						items: held,
+					}
+				: workbookMade.length > 0
+					? {
+							code: "hq_table_content_unsupported" as const,
+							detail: `A workbook can't carry these tables exactly any more, and CommCare HQ's table resources can't take over the rows a workbook put on “${domain}”, so Nova won't change them. You can change their rows in Project data so a workbook carries them, or give a table a new export tag so it goes to “${domain}” as a new table.`,
+							items: workbookMade,
+						}
+					: unsupported.length > 0
+						? {
+								code: "hq_table_content_unsupported" as const,
+								detail: `CommCare HQ's table resources can't change a table's columns or details without dropping what CommCare HQ holds about them, so Nova won't change these. You can give the table a new export tag in Project data, so it goes to “${domain}” as a new table and the one there now stays as it is.`,
+								items: unsupported,
+							}
+						: changed.length > 0
+							? {
+									code: "hq_resource_state_unknown" as const,
+									detail: `Some lookup tables on “${domain}” aren't as Nova left them, so Nova stopped before sending anything. You can look at them in CommCare HQ, or give a table a new export tag in Project data so it goes to “${domain}” as a new table.`,
+									items: changed,
+								}
+							: null;
+		if (stop !== null) {
+			checks.push({
+				id: "project-data",
+				title: "Project data",
+				status: "blocked",
+				detail: stop.detail,
+				items: stop.items,
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, stop.code, stop.detail, stop.items),
+				ready: null,
+				projectSpaceCompatibility: null,
+				conflicts: [],
+			};
+		}
+		if (!grant || !checkPublishAccess) return dataAccessLost();
+		await withAppTx(checkPublishAccess);
+		if (archiveBinding === undefined) return dataAccessLost();
+		const intents = new Map<string, WorkbookTableIntent>();
+		for (const table of tables) {
+			const definition = definitions.get(table.tableId);
+			if (definition?.rowsRevision === undefined) return dataAccessLost();
+			intents.set(table.tableId, {
+				tag: definition.tag,
+				definitionRevision: definition.definitionRevision,
+				rowsRevision: definition.rowsRevision,
+				isGlobal: true,
+			});
+		}
+		lookupJsonPush = {
+			authority: {
+				grant,
+				connectionDigest: credResult.connectionDigest,
+				grantBinding: archiveBinding,
+				tables: intents,
+			},
+			tables,
+		};
+		checks.push({
+			id: "project-data",
+			title: "Project data",
+			status: "passed",
+			detail: `Nova will put ${describeTableCount(tables.length)} on “${domain}” through CommCare HQ's table resources, which keep every row exactly as Nova holds it.`,
+			items: tables.map(
+				(table) => `${table.tag} (${describeRowCount(table.rows.length)})`,
 			),
 		});
 	}
@@ -2024,6 +2287,19 @@ export async function runDeploymentPreflight(
 				input.inPlaceUpdate,
 				await greatestFoldBaselineSeq(await getAppDb(), input.access.appId),
 			),
+			/* A shell's baseline accounts for nothing a person chose there
+			 * before its first complete upload. */
+			layoutReplacements: legacyMenuLayoutLines({
+				doc: boundary.prepared.doc,
+				identity: targetExport.identity,
+				source: read.source,
+				ownership:
+					appBaseline === null ||
+					appBaseline.origin === "unread" ||
+					appBaseline.origin === "create"
+						? null
+						: appBaseline.ownership,
+			}),
 		});
 		if (change !== null) observed.push(change);
 		checks.push({
@@ -2210,14 +2486,17 @@ export async function runDeploymentPreflight(
 	// A restored worker record is not observable through the API key. The
 	// plan half (user cases) is a confirmation of `plan-features`; this edge
 	// keeps the device half.
-	const workerRecordForms = formsUsingWorkerRecord(boundary.prepared.doc);
+	const workerRecordForms = [
+		...menusUsingWorkerRecord(boundary.prepared.doc),
+		...formsUsingWorkerRecord(boundary.prepared.doc),
+	];
 	checks.push({
 		id: "worker-record-access",
 		title: workerRecordSetup.title,
 		status: workerRecordForms.length === 0 ? "passed" : "attention",
 		detail:
 			workerRecordForms.length === 0
-				? "No form in this app reads or saves to the worker's own record."
+				? "This app does not use the worker's own record."
 				: `${workerRecordSetup.detail} ${workerRecordSetup.consequences}`,
 		items: workerRecordForms.map((form) => form.name),
 	});
@@ -2230,6 +2509,7 @@ export async function runDeploymentPreflight(
 			domain,
 			prepared: boundary.prepared,
 			lookupPush,
+			lookupJsonPush,
 			locationPush,
 			organization,
 			targetApp,

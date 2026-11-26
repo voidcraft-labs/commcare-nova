@@ -25,12 +25,24 @@ import type { CircumstanceFinding, Finding } from "@/lib/publish/hqFindings";
 import type { KeptLabelId } from "@/lib/publish/keptValues";
 import {
 	LOOKUP_TABLE_CHOICES,
+	ownerRuleChoicesSchema,
+	type ReviewOwnerRule,
 	type ReviewPlaces,
 	type ReviewTable,
 } from "./projectData/reviewTypes";
 
-export type { ReviewPlaces, ReviewTable } from "./projectData/reviewTypes";
-export { keptTableChoices } from "./projectData/reviewTypes";
+export type {
+	OwnerRuleChoice,
+	OwnerRuleConflict,
+	ReviewOwnerRule,
+	ReviewPlaces,
+	ReviewTable,
+} from "./projectData/reviewTypes";
+export {
+	keptOwnerRuleChoices,
+	keptTableChoices,
+	OWNER_RULE_CHOICES,
+} from "./projectData/reviewTypes";
 
 // ---------------------------------------------------------------------------
 // The key, and what a read answers
@@ -147,6 +159,12 @@ export interface ReadingReview {
 	readonly tables: readonly ReviewTable[];
 	/** The places the app's logic reads, or null where it reads none. */
 	readonly places: ReviewPlaces | null;
+	/**
+	 * Each level whose owner rule the places cannot satisfy, by level code:
+	 * the create needs an answer for every one (`ownerRuleChoices`), or the
+	 * person changes the places in CommCare HQ and reads the app again.
+	 */
+	readonly ownerRules: readonly ReviewOwnerRule[];
 	/** Count of omitted references with no worker-visible effect. An omitted icon that
 	 *  Web Apps showed broken or Android required to install has its own worker-facing
 	 *  first-publish disclosure (`broken-pictures-removed`). */
@@ -177,6 +195,8 @@ export const bringInInputSchema = z.strictObject({
 	splitDatetime: z.boolean(),
 	/** The answer for each table whose review entry asks a choice, by tag. */
 	tableChoices: z.record(z.string(), z.enum(LOOKUP_TABLE_CHOICES)),
+	/** The answer for each owner rule the review asks about, by level code. Absent is none. */
+	ownerRuleChoices: ownerRuleChoicesSchema.optional(),
 });
 export type BringInInput = z.infer<typeof bringInInputSchema>;
 

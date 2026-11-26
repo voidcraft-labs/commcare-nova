@@ -98,7 +98,12 @@ export function CaseListMenuItemSection({
 		canEdit && module?.caseType !== undefined && !bare,
 	);
 
-	if (module === undefined || module.caseType === undefined) return null;
+	if (
+		module === undefined ||
+		module.formsFromMenu ||
+		module.caseType === undefined
+	)
+		return null;
 	const switchRefusal =
 		on && bare ? CASE_LIST_MENU_ITEM_BARE_LINE : gate.toggle;
 	const setItem = (next: CaseListMenuItem | null) =>

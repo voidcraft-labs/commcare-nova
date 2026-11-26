@@ -182,6 +182,14 @@ import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { pendingIdentityMoveSlot } from "@/lib/session/store";
+import {
+	listedFormMenuMutations,
+	listedFormVisibilityMutation,
+} from "../scaffolds";
+import {
+	changeListedMenuSource,
+	withListedMenuHierarchy,
+} from "../sharedMenuHierarchy";
 
 /**
  * Outcome of an entity-adding dispatch: the minted uuid on success, the
@@ -716,6 +724,24 @@ export interface BlueprintMutations {
 		locationIds: readonly string[],
 	) => CommitOutcome;
 
+	createListedFormMenu: (args: {
+		menuUuid: Uuid;
+		name?: string;
+		parentModuleUuid?: Uuid;
+		after?: Uuid | null;
+	}) => AddCommitOutcome;
+	setListedMenuSource: (
+		route: Uuid,
+		previous: Uuid,
+		source: Uuid,
+	) => CommitOutcome;
+	setFormListed: (
+		route: Uuid,
+		source: Uuid,
+		form: Uuid,
+		included: boolean,
+	) => CommitOutcome;
+
 	createCaseListModule: (args: {
 		caseType: string;
 		name?: string;
@@ -1005,7 +1031,12 @@ export function createBlueprintMutations(
 				return { ok: false, messages: admission.messages };
 			}
 			const doc = get();
-			const authored = isMutationList(batch) ? batch : batch.authored;
+			/* A menu hierarchy edit carries the listing menus' submenus with
+			 * it. A batch it adds nothing to stays the very batch admitted,
+			 * so a stated batch commits as the one the dialog showed. */
+			const stated = isMutationList(batch) ? batch : batch.authored;
+			const listed = withListedMenuHierarchy(doc, stated);
+			const authored = listed.length === stated.length ? stated : listed;
 			/* The waiting batch was projected into the worker language when
 			 * it was dispatched, and the gate admitted it as it stands;
 			 * projecting it again would read its own translation writes as
@@ -2203,6 +2234,35 @@ export function createBlueprintMutations(
 				return toOutcome(guardedApply(removePersonaMutations(uuid)));
 			},
 
+			createListedFormMenu(args) {
+				const plan = listedFormMenuMutations(get(), args);
+				if (!plan.ok) return { ok: false, messages: [plan.message] };
+				const result = guardedApply(plan.mutations);
+				return result.ok ? { ok: true, uuid: plan.moduleUuid } : result;
+			},
+			setListedMenuSource(route, previous, source) {
+				const plan = changeListedMenuSource(get(), route, previous, source);
+				return plan.ok
+					? guardedApply(plan.mutations)
+					: { ok: false, messages: [plan.message] };
+			},
+			setFormListed(route, source, form, included) {
+				const mut = listedFormVisibilityMutation(
+					get(),
+					route,
+					source,
+					form,
+					included,
+				);
+				if (!mut)
+					return {
+						ok: false,
+						messages: [
+							"This menu's form source changed. Choose it again to continue.",
+						],
+					};
+				return guardedApply([mut]);
+			},
 			createCaseListModule({ caseType, name, parentModuleUuid, after }) {
 				const { mutations, moduleUuid } = caseListModuleMutations(get(), {
 					caseType,

@@ -986,13 +986,17 @@ class App:
 
     kind = "app"
 
-    def __init__(self, doc, artifact, configurations=None, authored=False):
+    def __init__(self, doc, artifact, configurations=None, authored=False, read=False):
         self.doc = doc
         self.artifact = artifact
         self.configurations = None if configurations is None else tuple(configurations)
         # The app HQ made, on a document made in CommCare HQ: its multimedia map names the files HQ holds for it
         # (``Readings.authored_media``), never those of Nova's local archive.
         self.authored = authored
+        # The app HQ made of a corpus document: the corpus holds a base only where Nova's reader reads it
+        # (``proof/corpus/hqAuthored.ts``, ``expected.json``'s ``reads``), so a use only that reader settles is one
+        # it held. A variant's app, which parity reads, may be refused, and is not.
+        self.read = read
         self.forms = {}  # a form's unique_id -> Form
         self.readings = None
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
@@ -1309,19 +1313,25 @@ def print_callout(use, manifest):
     return intent is not None and intent.get("class") == PRINT_ACTION
 
 
-# The itext forms that carry a file, as Core's Localizer keys them (``<id>;<form>``).
-MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video"})
+# The itext forms that carry a file, as Core's Localizer keys them (``<id>;<form>``): a question label's inline
+# video (``video-inline``) among them, whose file HQ ships beside a video's (``xform.py::video_references``).
+MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video", "video-inline"})
 
 
-def _media_itext_group(use):
-    """The media value a use sits on and every value of the same text id and form across the form's
-    translations, as ``(form, values by translation, form name)``; None where the use sits on no media value."""
+# A question label's other texts, as Core's Localizer keys them (``<id>;<form>``): ``long``, ``qrcode`` and
+# ``tts`` (``lib/domain/labelForms.ts``).
+LABEL_TEXT_ITEXT_FORMS = frozenset({"long", "qrcode", "tts"})
+
+
+def _media_itext_group(use, forms=MEDIA_ITEXT_FORMS):
+    """The value of one of ``forms`` a use sits on and every value of the same text id and form across the form's
+    translations, as ``(form, values by translation)``; None where the use sits on no such value."""
     form, element = _form_element(use)
     if form is None or _local(element) != "value":
         return None
     kind = element.get("form")
     text = element.getparent()
-    if kind not in MEDIA_ITEXT_FORMS or text is None or _local(text) != "text" or not text.get("id"):
+    if kind not in forms or text is None or _local(text) != "text" or not text.get("id"):
         return None
     text_id = text.get("id")
     values = {}
@@ -1336,7 +1346,7 @@ def _media_itext_group(use):
 
 
 def media_missing_in_default(use, manifest):
-    """``questions/media-form-missing-in-default-language``: an image, audio or video value whose text the
+    """``questions/media-form-missing-in-default-language``: an image, audio, video or inline video value whose text the
     form's default translation holds without that form. Core keys each locale's forms over the default's
     (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
     group = _media_itext_group(use)
@@ -1346,8 +1356,19 @@ def media_missing_in_default(use, manifest):
     return form.default_translation is not None and form.default_translation not in values
 
 
+def label_text_missing_in_default(use, manifest):
+    """``questions/long-qrcode-or-tts-form-missing-in-default-language``: a ``long``, ``qrcode`` or ``tts`` value
+    whose text the form's default translation holds without that form. Core keys each locale's forms over the
+    default's (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
+    group = _media_itext_group(use, LABEL_TEXT_ITEXT_FORMS)
+    if group is None:
+        return None if _form_element(use)[0] is None else False
+    form, values = group
+    return form.default_translation is not None and form.default_translation not in values
+
+
 def media_blank_beside_file(use, manifest):
-    """``questions/empty-media-form-beside-a-translated-file``: an image, audio or video value of a text one
+    """``questions/empty-media-form-beside-a-translated-file``: an image, audio, video or inline video value of a text one
     translation holds blank and another holds a file of. Vellum's save fills the blank one from the file
     (``javaRosa/itext.js::getValueOrDefault``); Core keeps the empty string as that translation's own."""
     group = _media_itext_group(use)
@@ -3664,6 +3685,19 @@ def vellum_case_references(xform):
     return found
 
 
+def menu_layout_outside_choices(use, manifest):
+    at = _json(use)
+    if at is None:
+        return None
+    if at.key == "use_grid_menus":
+        return not isinstance(at.value, bool)
+    if at.key == "grid_form_menus":
+        return at.value not in ("none", "all", "some")
+    if at.key == "display_style":
+        return at.value not in ("list", "grid")
+    return False
+
+
 def repeated_android_app(use, manifest):
     at = _json(use)
     if at is None or use.key != "setting:features.dependencies":
@@ -5384,7 +5418,10 @@ def custom_assertions_non_empty(use, manifest):
     return None if module is None else bool(module.get("custom_assertions"))
 
 
-def _parent_select_reader(test):
+def _parent_select_reader(test, *, missing=False):
+    """A reader of an active parent selection's target; ``missing`` is its answer for a ``module_id`` that names no
+    menu of the app."""
+
     def reader(use, manifest):
         at, module = _module_of_detail(use)
         if module is None:
@@ -5394,13 +5431,15 @@ def _parent_select_reader(test):
             return False
         target = at.app.modules_by_id.get(parent.get("module_id"))
         if target is None:
-            return False  # an invalid candidate is HQ's build's (``invalid parent select id``), which the bar reports
+            return missing
         return test(at, module, target)
 
     return reader
 
 
-names_a_multi_select_module = _parent_select_reader(lambda at, module, target: _multi_select(target))
+# A module_id naming no menu is an invalid candidate, which the entry names beside a multi-select one (and HQ's build
+# refuses as ``invalid parent select id``, which the bar reports as well).
+names_a_multi_select_module = _parent_select_reader(lambda at, module, target: _multi_select(target), missing=True)
 names_a_multi_select_module.__doc__ = """
 ``menus-and-case-lists/parent-select-module-id-naming-a-multi-select-module-or-an``: an active parent selection
 naming a multi-select module, which the editor never offers (an invalid candidate and a cycle are HQ's build's:
@@ -5940,7 +5979,7 @@ def media_reference_drawn_without_entry(use, manifest):
                     continue
                 for value in _children(text):
                     medium = value.get("form")
-                    if _local(value) != "value" or medium not in ("image", "audio", "video"):
+                    if _local(value) != "value" or medium not in ("image", "audio", "video", "video-inline"):
                         continue
                     path = (value.text or "").strip()
                     if not path or path in mapped:
@@ -10010,7 +10049,389 @@ VARIANTS = {
     "questions/hidden-value-with-children": nova_scaffolding_part,
 }
 
+
+# Menus listing another menu's forms, and the first menu's shared case ------------------------------------------
+
+
+def _shadow_of(use):
+    """The ShadowModule a use sits in, with its location, or (at, None) for a use in another module."""
+    at, module = _module_of_detail(use)
+    if module is None or module.get("doc_type") != "ShadowModule":
+        return at, None
+    return at, module
+
+
+def unavailable_source_form(use, manifest):
+    """``menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form``: a version-2 ShadowModule whose
+    ``source_module_id`` names no module or another ShadowModule (the menu settings page offers neither,
+    ``views/modules.py::_get_shadow_module_view_context``), or whose ``excluded_form_ids`` or
+    ``form_session_endpoints`` name a form its source does not hold, a form twice in its endpoints. HQ's source
+    download can mint a form's id anew while those two lists keep the id the application resource holds, so on an
+    app made in CommCare HQ an id that names no source form is undecided here (None): Nova's reader resolves it
+    through the aligned resource (``reader/menus/sharedForms.ts::realForms``)."""
+    at, shadow = _shadow_of(use)
+    if at is None:
+        return None
+    if shadow is None:
+        return False
+    source = at.app.modules_by_id.get(shadow.get("source_module_id"))
+    if source is None or source.get("doc_type") == "ShadowModule":
+        return True
+    forms = {form.get("unique_id") for form in _forms(source)}
+    excluded = shadow.get("excluded_form_ids") or []
+    endpoints = shadow.get("form_session_endpoints") or []
+    if not isinstance(excluded, list) or not isinstance(endpoints, list):
+        return True
+    named = [form_id for form_id in excluded]
+    seen = set()
+    for row in endpoints:
+        if not isinstance(row, dict) or not isinstance(row.get("form_id"), str):
+            return True
+        if row["form_id"] in seen:
+            return True
+        seen.add(row["form_id"])
+        named.append(row["form_id"])
+    if all(isinstance(form_id, str) and form_id in forms for form_id in named):
+        return False
+    return None if at.app.authored else True
+
+
+def incomplete_shared_submenus(use, manifest):
+    """``menus-and-case-lists/shared-form-menus-with-incomplete-submenus``: a ShadowModule under a parent other
+    than its source's (a top-level shadow of a top-level source, or one under its source's parent; one under
+    another ShadowModule is HQ's child mirror), or one without exactly one child ShadowModule naming each
+    non-shadow child of its source, which HQ's ``views/utils.py::handle_shadow_child_modules`` always makes."""
+    at, shadow = _shadow_of(use)
+    if at is None:
+        return None
+    if shadow is None:
+        return False
+    source = at.app.modules_by_id.get(shadow.get("source_module_id"))
+    if source is None or source.get("doc_type") == "ShadowModule":
+        return False  # the unavailable source's own class
+    own_parent = shadow.get("root_module_id") or None
+    parent = at.app.modules_by_id.get(own_parent) if own_parent else None
+    if (
+        (parent is None or parent.get("doc_type") != "ShadowModule")
+        and (own_parent is None or parent is not None)
+        and own_parent != (source.get("root_module_id") or None)
+    ):
+        return True
+    children = [module for module in at.app.modules if module.get("root_module_id") == source.get("unique_id")]
+    listed = [module for module in at.app.modules if module.get("root_module_id") == shadow.get("unique_id")]
+    for child in children:
+        if child.get("doc_type") == "ShadowModule":
+            continue
+        mirrors = [
+            menu
+            for menu in listed
+            if menu.get("doc_type") == "ShadowModule" and menu.get("source_module_id") == child.get("unique_id")
+        ]
+        if len(mirrors) != 1:
+            return True
+    return False
+
+
+def _creation_datum_ids(module, form):
+    """The ids of the new-case datums HQ's build gives a form, each once
+    (``suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta``): a basic form's open action
+    ``case_id_new_<menu type>_0`` and each subcase outside a repeat ``case_id_new_<type>_<index>``, its index
+    counting the open action (``Form.session_var_for_action``); an advanced form's open actions outside a repeat
+    ``case_id_new_<type>_<tag>`` (``AdvancedOpenCaseAction.case_session_var``). None for a shadow form, whose
+    actions are its source's."""
+    if form.get("doc_type") == "ShadowForm":
+        return None
+    actions = _actions(form)
+    if form.get("doc_type") == "AdvancedForm":
+        _, opens = _advanced_lists(form)
+        return [
+            f"case_id_new_{action.get('case_type')}_{action.get('case_tag')}"
+            for action in opens
+            if not action.get("repeat_context")
+        ]
+    found = []
+    opens = _active(actions.get("open_case"))
+    if opens:
+        found.append(f"case_id_new_{module.get('case_type')}_0")
+    for index, subcase in enumerate(_subcases(form)):
+        if _active(subcase) and not subcase.get("repeat_context"):
+            found.append(f"case_id_new_{subcase.get('case_type')}_{index + (1 if opens else 0)}")
+    return found
+
+
+def function_datum_without_one_creation(use, manifest):
+    """``forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier``: a form's
+    ``function_datum_endpoints`` naming an id no new-case datum of the form has (``_creation_datum_ids``). HQ's build
+    adds only the names it finds on the navigation frame (``post_process/endpoints.py``, ``child.id in
+    form.function_datum_endpoints``), so a name given twice is one argument; Nova holds each name as the case
+    creation that supplies it, twice where it is given twice, and its deep link exposes that creation once
+    (``entryPointProjection.ts::exposedEntryCaseCreations``). A shadow form's are undecided here (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    form = at.nearest(*FORMS)
+    if form is None:
+        return None
+    names = form.get("function_datum_endpoints") or []
+    if not names:
+        return False
+    module = at.app.module_of(form)
+    created = None if module is None else _creation_datum_ids(module, form)
+    if created is None:
+        return None
+    return any(name not in created for name in names)
+
+
+def _first_menu_modules(app):
+    """The menus whose forms list on the app's first menu: a top-level ``put_in_root`` menu, and a
+    ``put_in_root`` child of one (``menus.py::MenuContributor``)."""
+    found = []
+    for module in app.modules:
+        if not module.get("put_in_root"):
+            continue
+        root = app.root(module)
+        if root is None and not module.get("root_module_id"):
+            found.append(module)
+        elif root is not None and root.get("put_in_root") and not root.get("root_module_id"):
+            found.append(module)
+    return found
+
+
+def _first_menu_case(app):
+    """The case type every form on the first menu opens a chosen case of, as ``case_id`` with one record, or
+    None where they share none; ``...`` where the export alone does not say (an advanced or shadow menu, or a
+    parent selection, whose datums HQ names otherwise)."""
+    menus = _first_menu_modules(app)
+    forms = [(module, form) for module in menus for form in _forms(module)]
+    if not forms:
+        return None
+    if any(module.get("doc_type") != "Module" or (module.get("parent_select") or {}).get("active") for module in menus):
+        return ...
+    if any(_requires(form) != "case" for _, form in forms):
+        return None
+    types = {module.get("case_type") for module, _ in forms}
+    if len(types) != 1 or any(_multi_select(module) for module, _ in forms):
+        return None
+    return types.pop()
+
+
+def _reads_case_id_otherwise(app, case_type):
+    """Whether a command of the app reads ``case_id`` as another case type or as several records: a basic or
+    shadow menu's form that requires a case, or its case list shown as a menu item."""
+    for module in app.modules:
+        kind = module.get("doc_type")
+        if kind == "AdvancedModule":
+            continue
+        source = app.modules_by_id.get(module.get("source_module_id")) if kind == "ShadowModule" else module
+        if source is None:
+            continue
+        reads = (module.get("case_list") or {}).get("show") or any(_requires(form) == "case" for form in _forms(source))
+        if reads and (source.get("case_type") != case_type or _multi_select(module)):
+            return True
+    return False
+
+
+def _under_the_first_menu(app, module):
+    """Whether a menu's frame opens through the first menu: it lists there, or sits under a menu that does."""
+    menus = _first_menu_modules(app)
+    if any(module is menu for menu in menus):
+        return True
+    root = app.root(module)
+    return root is not None and any(root is menu for menu in menus)
+
+
+def first_menu_case_read_otherwise(use, manifest):
+    """``forms-and-case-writes/first-menu-selection-used-for-different-records``: a deep link or a form link whose
+    frame opens through the first menu while every form there opens one chosen case
+    (``workflow.py::WorkflowHelper.get_frame_children``, ``_root_module_datums``), where another command reads that
+    datum, ``case_id``, as another case type or as several records: Android keeps the first menu's case for it
+    (``CommCareSession.syncState``). An app whose first-menu datums HQ names otherwise is undecided (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    app = at.app
+    shared = _first_menu_case(app)
+    if shared is None:
+        return False
+    if shared is ...:
+        return None
+    owner = at.owner
+    if at.key in ("form_links", "form_id") or at.nearest("FormLink") is not None:
+        link = at.nearest("FormLink")
+        links = [link] if link is not None else [
+            each for each in (at.nearest(*FORMS) or {}).get("form_links") or [] if isinstance(each, dict)
+        ]
+        targets = []
+        for each in links:
+            if each.get("form_id"):
+                form = app.forms_by_id.get(each["form_id"])
+                targets.append(None if form is None else app.module_of(form))
+            else:
+                targets.append(app.modules_by_id.get(each.get("module_unique_id")))
+    else:
+        if not (owner.get(at.key) if at.key is not None else None):
+            return False
+        targets = [at.nearest(*MODULES)]
+    if not any(target is not None and _under_the_first_menu(app, target) for target in targets):
+        return False
+    return _reads_case_id_otherwise(app, shared)
+
+
+def first_menu_registration_return_otherwise(use, manifest):
+    """``menus-and-case-lists/first-menu-registration-return-without-a-compatible-case``: a case list's
+    registration form on a menu under a first-menu menu whose forms open one chosen case, which returns to the
+    list or its new case (``post_form_workflow`` other than ``default``), where that return frame carries the
+    first menu's ``case_id`` ahead of the host's command (``workflow.py::CaseListFormWorkflow``): the new case is
+    of another type than the first menu's, so the form does not supply it, or another command reads ``case_id``
+    otherwise (``first_menu_case_read_otherwise``). Undecided where the first menu's datums are (None)."""
+    at, module = _module_of_detail(use)
+    if module is None:
+        return None
+    listed = module.get("case_list_form") or {}
+    if not listed.get("form_id") or (listed.get("post_form_workflow") or "default") == "default":
+        return False
+    root = at.app.root(module)
+    if root is None or not any(root is menu for menu in _first_menu_modules(at.app)):
+        return False
+    shared = _first_menu_case(at.app)
+    if shared is None:
+        return False
+    if shared is ...:
+        return None
+    return module.get("case_type") != shared or _reads_case_id_otherwise(at.app, shared)
+
+
+
+# Menu and form badges, and the navigation conditions beside them -------------------------------------------------
+
+
+def _first_badge(use):
+    """The CustomIcon a use sits in, where it is the first of a menu's or a form's ``custom_icons``, the one HQ's
+    build reads (``models/mixins.py::NavMenuItemMediaMixin.custom_icon``, read by ``suite_xml/sections/menus.py``
+    and ``entries.py``), with the app; ``(at, None)`` for a later icon, one a case list or its registration
+    action holds (which no build reads), or a use in no icon."""
+    at = _json(use)
+    if at is None:
+        return None, None
+    classes = [cls for cls, _ in at.scope]
+    if "CustomIcon" not in classes:
+        return at, None
+    index = len(classes) - 1 - classes[::-1].index("CustomIcon")
+    icon = at.scope[index][1]
+    holder_cls, holder = at.scope[index - 1] if index > 0 else (None, None)
+    if holder_cls not in (*MODULES, *FORMS) or not isinstance(holder, dict):
+        return at, None
+    icons = holder.get("custom_icons")
+    if not isinstance(icons, list) or not icons or icons[0] is not icon:
+        return at, None
+    return at, icon
+
+
+def badge_form_other_than_badge(use, manifest):
+    """``menus-and-case-lists/custom-icon-form-other-than-badge``: a menu's or a form's first custom icon whose
+    ``form`` names a display form other than ``badge``. HQ's editor saves only badges
+    (``views/utils.py::handle_custom_icon_edits`` keeps ``CustomIcon.form``, which is always ``badge``)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None:
+        return False
+    return icon.get("form", "badge") != "badge"
+
+
+def badge_without_text(use, manifest):
+    """``menus-and-case-lists/badge-missing-localized-text``: a menu's or a form's first badge with no calculation
+    (``not custom_icon.xpath``, ``menus.py``, ``entries.py``), whose text holds nothing in every language of the
+    app once a missing language takes the default language's (``mixins.py::custom_icon_form_and_text_by_language``):
+    HQ's build names the badge's locale id and writes no text for it (``app_strings.py``)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None or icon.get("form", "badge") != "badge" or icon.get("xpath"):
+        return False
+    texts = icon.get("text") or {}
+    if not isinstance(texts, dict):
+        return None
+    langs = [code for code in at.app.doc.get("langs") or [] if isinstance(code, str)] or ["en"]
+    shown = [texts.get(lang, texts.get(langs[0])) for lang in langs]
+    return not any(isinstance(text, str) and text for text in shown)
+
+
+def badge_calculation_untyped(use, manifest):
+    """``menus-and-case-lists/badge-calculation-outside-typed-values``: a first badge's calculation Nova's reader
+    cannot bind to a typed value on the worker's menu. Nova prints every calculation it sends from a typed value
+    (``lib/commcare/menuBadge.ts``), so an app Nova sends holds none; on an app made in CommCare HQ only Nova's
+    reader settles it (None), and on one the corpus holds it read it (``App.read``)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None or icon.get("form", "badge") != "badge" or not icon.get("xpath"):
+        return False
+    return None if at.app.authored and not at.app.read else False
+
+
+def mirror_form_links_on_survey_listing(use, manifest):
+    """``menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms``: a menu listing another menu's
+    forms (``ShadowModule``) holding deep links to single forms (``form_session_endpoints``) where the menu it lists
+    tracks no cases (``case_type`` empty, HQ's ``is_surveys``). HQ's menu settings page sends those links with every
+    save but renders the ``session_endpoint_id`` field its save reads only in the Advanced panel, which
+    ``views/modules.py::get_module_view_context`` hides on such a menu, so ``edit_module_attr`` raises. None where the
+    listed menu is no menu of the app."""
+    at = _json(use)
+    if at is None or at.key != "form_session_endpoints":
+        return None
+    links = at.value
+    if not isinstance(links, list) or not links:
+        return False
+    source = at.app.modules_by_id.get(at.owner.get("source_module_id"))
+    if source is None:
+        return None
+    return not source.get("case_type")
+
+
+def shadow_version_one(use, manifest):
+    """``menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1``: a menu listing another menu's
+    forms (``ShadowModule``) whose ``shadow_module_version`` is 1, the retiring version HQ's model defaults to
+    (``models/modules.py::ShadowModule.shadow_module_version``), whose behaviour HQ keys on ``== 1``; Nova writes
+    version 2. Version 1 and an absent key are HQ's default and no use, so every use is outside the class."""
+    at = _json(use)
+    if at is None or at.key != "shadow_module_version":
+        return None
+    return at.value == 1
+
+
+def shadow_endpoint_id_padded(use, manifest):
+    """``menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding``: a listing menu's own
+    deep link id, or one of its forms' (``ShadowFormEndpoint``), with whitespace around it: HQ's shadow save checks
+    the stripped id and stores it as typed (``views/modules.py::set_shadow_module_and_form_session_endpoint``). In a
+    suite an endpoint's ``id`` says nothing of the menu it came from, so a padded one there is left open (None)."""
+    at = _json(use)
+    if at is not None:
+        value = at.value
+        return isinstance(value, str) and value != value.strip()
+    at = _xml(use)
+    if at is None or at.attribute is None:
+        return None
+    value = at.element.get(at.attribute) or ""
+    return None if value != value.strip() else False
+
+
+def navigation_condition_untyped(use, manifest):
+    """``menus-and-case-lists/navigation-condition-outside-typed-worker-context``: a menu's or a form's display
+    condition Nova's reader cannot bind to a typed condition on the worker's route. Nova prints every condition it
+    sends from a typed one (``lib/commcare/suite/displayConditions.ts``), so an app Nova sends holds none; on an app
+    made in CommCare HQ only Nova's reader settles it (None), and on one the corpus holds it read it
+    (``App.read``)."""
+    at = _json(use)
+    if at is None:
+        return None
+    if at.key not in ("module_filter", "form_filter") or not at.value:
+        return False
+    return None if at.app.authored and not at.app.read else False
+
 VALUE_CLASSES = {
+    "application-and-settings/menu-layout-outside-editor-choices": menu_layout_outside_choices,
+    "menus-and-case-lists/module-layout-outside-editor-choices": menu_layout_outside_choices,
     # Questions
     "questions/other-h-head-children-whose-local-name-or-a-descendant-s-core-or": head_child,
     "questions/authored-orx-pollsensor": authored_pollsensor,
@@ -10022,6 +10443,7 @@ VALUE_CLASSES = {
     "questions/a-secret-whose-bind-has-no-type-with-numeric-or-numbers-ignoring": _untyped_numeric("secret"),
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
+    "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
@@ -10299,6 +10721,20 @@ VALUE_CLASSES = {
     "menus-and-case-lists/detail-max-select-value-of-0-or-below-1-on-a-multi-select-basic": zero_or_below_minus_one,
     "menus-and-case-lists/detail-filter-failing-etree-xpath-dummy-filter": fails_filter_xpath_check,
     "menus-and-case-lists/any-other-undeclared-key": undeclared_key_no_row_names,
+    "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form": unavailable_source_form,
+    "menus-and-case-lists/shared-form-menus-with-incomplete-submenus": incomplete_shared_submenus,
+    "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case": (
+        first_menu_registration_return_otherwise
+    ),
+    "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier": function_datum_without_one_creation,
+    "forms-and-case-writes/first-menu-selection-used-for-different-records": first_menu_case_read_otherwise,
+    "menus-and-case-lists/custom-icon-form-other-than-badge": badge_form_other_than_badge,
+    "menus-and-case-lists/badge-missing-localized-text": badge_without_text,
+    "menus-and-case-lists/badge-calculation-outside-typed-values": badge_calculation_untyped,
+    "menus-and-case-lists/navigation-condition-outside-typed-worker-context": navigation_condition_untyped,
+    "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": shadow_version_one,
+    "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms": mirror_form_links_on_survey_listing,
+    "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": shadow_endpoint_id_padded,
     # Expressions and data
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,

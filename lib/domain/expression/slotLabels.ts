@@ -1,11 +1,14 @@
 // lib/domain/expression/slotLabels.ts
-import type { SlotContextRef } from "./types";
+import type { ProseSlotRef, SlotContextRef } from "./types";
 
 /** How an expression slot reads inside a sentence about the thing that
  *  owns it, in the builder's words. The validator's findings and the move
  *  refusals name a slot through this one table. */
 export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 	switch (slot) {
+		case "form_badge":
+		case "module_badge":
+			return "badge";
 		case "calculate":
 			return "calculated value";
 		case "default_value":
@@ -37,17 +40,22 @@ export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 			return "delivery identifier";
 		case "deliver_entity_name":
 			return "delivery name";
-		case "label":
-			return "label";
-		case "hint":
-			return "hint";
-		case "help":
-			return "help text";
-		case "validate_msg":
-			return "validation message";
-		case "option_label":
-			return "choice label";
 		default:
-			return "formula";
+			return Object.hasOwn(PROSE_SLOT_LABELS, slot)
+				? PROSE_SLOT_LABELS[slot as ProseSlotRef["slot"]]
+				: "formula";
 	}
 }
+
+/** Each text slot's name, total over the prose slots so a new one is named
+ *  here before it can compile, rather than read as a "formula". */
+const PROSE_SLOT_LABELS: Readonly<Record<ProseSlotRef["slot"], string>> = {
+	label: "label",
+	hint: "hint",
+	help: "help text",
+	validate_msg: "validation message",
+	extended_text: "extended text",
+	qr_code: "QR code",
+	spoken_text: "spoken text",
+	option_label: "choice label",
+};

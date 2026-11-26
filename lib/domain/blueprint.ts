@@ -103,6 +103,8 @@ export const appSettingsSchema = z.strictObject({
 	caseSharing: z.boolean().optional(),
 	showSavedForms: z.boolean(),
 	showIncompleteForms: z.boolean(),
+	firstMenuLayout: z.literal("grid").optional(),
+	formMenuLayout: z.enum(["grid", "individual"]).optional(),
 	runsOnlyOn: z.enum(PLATFORMS).optional(),
 	requiredAndroidApps: requiredAndroidAppsSchema.min(1).optional(),
 });
@@ -120,6 +122,8 @@ export const appSettingsPatchSchema = z
 		caseSharing: z.boolean().nullable().optional(),
 		showSavedForms: z.boolean().optional(),
 		showIncompleteForms: z.boolean().optional(),
+		firstMenuLayout: z.literal("grid").nullable().optional(),
+		formMenuLayout: z.enum(["grid", "individual"]).nullable().optional(),
 		runsOnlyOn: z.enum(PLATFORMS).nullable().optional(),
 		requiredAndroidApps: requiredAndroidAppsSchema.optional(),
 	})

@@ -12,6 +12,7 @@ import {
 	useLocalizedValues,
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import {
 	choosePreviewMenuTile,
 	previewModuleAsksParentCase,
@@ -24,6 +25,7 @@ import {
 	usePinnedCaseTile,
 } from "@/components/preview/shared/PinnedCaseTile";
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
+import { Badge } from "@/components/shadcn/badge";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -75,7 +77,7 @@ import {
 	previewModuleOwnVisibility,
 	previewModuleScreenIsBareCaseList,
 	previewScreenEntries,
-	previewScreenEntryVisibility,
+	previewScreenWithBadges,
 } from "@/lib/preview/menuProjection";
 import { parentCaseSelectorLocation } from "@/lib/preview/screenProjection";
 import {
@@ -97,6 +99,7 @@ import {
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { showToast } from "@/lib/ui/toastStore";
+import { PreviewMenuChoice, PreviewMenuChoices } from "./MenuLayout";
 import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
 
 /** No entry's place, while the screen shows a refusal in place of its list. */
@@ -226,7 +229,9 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		() =>
 			readPreviewScreen(() => {
 				ownModuleVisibility.get(moduleUuid);
-				return previewScreenEntryVisibility({
+				return previewScreenWithBadges({
+					platform: device.platform,
+					localizedValues,
 					doc: menuSource.doc,
 					entries,
 					ownModuleVisibility,
@@ -252,6 +257,8 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 				});
 			}),
 		[
+			device.platform,
+			localizedValues,
 			moduleUuid,
 			entries,
 			ownModuleVisibility,
@@ -264,7 +271,11 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		],
 	);
 	const entryVisibility =
-		screenRead.kind === "read" ? screenRead.value : NO_ENTRY_VISIBILITY;
+		screenRead.kind === "read"
+			? screenRead.value.visibility
+			: NO_ENTRY_VISIBILITY;
+	const badges =
+		screenRead.kind === "read" ? screenRead.value.badges : undefined;
 	const hiddenItemsOf = useCallback(
 		(listed: readonly MenuScreenEntry[]) =>
 			previewHiddenScreenEntries({
@@ -482,42 +493,56 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 			menuCaseSelections,
 		);
 		return (
-			<motion.button
+			<PreviewMenuChoice
 				key={key}
-				type="button"
-				initial={{ opacity: 0, y: 12 }}
-				animate={{ opacity: 1, y: 0 }}
-				transition={{ delay: index * 0.06, duration: 0.3 }}
-				onClick={() =>
-					choosePreviewMenuTile(
-						{ setPreviewCaseTarget, setPreviewParentCaseRequest, navigate },
-						{
-							source: menuSource,
-							moduleUuid: child.uuid,
-							selections: menuCaseSelections,
-							cancelLocation: { kind: "module", moduleUuid },
-							landing: moduleLanding({
-								isCaseFirst: caseFirstModules.has(child.uuid),
-								isBareCaseList: previewModuleScreenIsBareCaseList(
-									menuSource.doc,
-									child.uuid,
-								),
-								hasChildren: moduleHasChildren(menuSource, child.uuid),
-								hasSelectedCase: childCase.selectedCase !== undefined,
-							}),
-						},
-					)
-				}
-				className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
+				audioLabel={child.audioLabel}
+				label={childName}
 			>
-				<Icon
-					icon={tablerGridDots}
-					width="18"
-					height="18"
-					className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
-				/>
-				<div className="text-sm font-medium text-nova-text">{childName}</div>
-			</motion.button>
+				<motion.button
+					type="button"
+					initial={{ opacity: 0, y: 12 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ delay: index * 0.06, duration: 0.3 }}
+					onClick={() =>
+						choosePreviewMenuTile(
+							{ setPreviewCaseTarget, setPreviewParentCaseRequest, navigate },
+							{
+								source: menuSource,
+								moduleUuid: child.uuid,
+								selections: menuCaseSelections,
+								cancelLocation: { kind: "module", moduleUuid },
+								landing: moduleLanding({
+									isCaseFirst: caseFirstModules.has(child.uuid),
+									isBareCaseList: previewModuleScreenIsBareCaseList(
+										menuSource.doc,
+										child.uuid,
+									),
+									hasChildren: moduleHasChildren(menuSource, child.uuid),
+									hasSelectedCase: childCase.selectedCase !== undefined,
+								}),
+							},
+						)
+					}
+					className="nova-focusable w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
+				>
+					{child.icon ? (
+						<ProjectMediaImage
+							assetId={child.icon}
+							alt=""
+							className="size-7 rounded-lg object-cover shrink-0"
+						/>
+					) : (
+						<Icon
+							icon={tablerGridDots}
+							width="18"
+							height="18"
+							className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
+						/>
+					)}
+					<div className="text-sm font-medium text-nova-text">{childName}</div>
+					{badges?.get(key) && <Badge variant="muted">{badges.get(key)}</Badge>}
+				</motion.button>
+			</PreviewMenuChoice>
 		);
 	};
 
@@ -571,7 +596,10 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 				{/* One list in the projection's order, as a device lists the
 				 *  screen: a submenu's tile stands where its module stands among
 				 *  the forms of the menus that show them here. */}
-				<div className="space-y-2">
+				<PreviewMenuChoices
+					doc={menuSource.doc}
+					screen={{ kind: "menu", moduleUuid }}
+				>
 					{entries.map((entry, fIdx) => {
 						if (entry.kind === "menu") return renderTile(entry, fIdx);
 						const key = menuScreenEntryKey(entry);
@@ -700,6 +728,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 
 						return (
 							<PreviewFormRow
+								badge={badges?.get(key)}
 								key={key}
 								form={form}
 								index={fIdx}
@@ -708,7 +737,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 							/>
 						);
 					})}
-				</div>
+				</PreviewMenuChoices>
 				<HiddenItemsReveal items={hiddenEntries} />
 			</ContentFrame>
 		</>

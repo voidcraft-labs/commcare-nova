@@ -724,6 +724,29 @@ def fixture_rows_read(state, table_id, credential: ApiCredential, *, query="") -
     return api_request(state, "GET", f"{path}{query or f'?fixture_type_id={table_id}'}", credential=credential)
 
 
+def lookup_detail_targets(table, rows):
+    """The detail reads a first reading makes of one listed table whose definition or rows a plain row list cannot
+    carry: a field with properties, a row attribute, or a row the list serves with its fields' values in the detailed
+    form (``lib/commcare/hq/lookupSource.ts::readSelectedHqLookupRows`` and ``hasRichDefinition``). Returns ``[(kind,
+    resource, remote id)]``: the table's definition (``lookupDefinition``, ``lookup_table``) and then each row in the
+    list's order (``fixtureDetail``, ``lookup_table_item``), and nothing for a plain table. ``retain.py`` makes these
+    reads of a base it retains and the unit of a document made in HQ, so both hand the reader the same answers."""
+    if not (
+        table.get("item_attributes")
+        or any(field.get("properties") for field in table["fields"])
+        or any(not isinstance(value, str) for row in rows for value in row["fields"].values())
+    ):
+        return []
+    return [("lookupDefinition", "lookup_table", table["id"])] + [
+        ("fixtureDetail", "lookup_table_item", row["id"]) for row in rows
+    ]
+
+
+def lookup_detail_read(state, resource, remote_id, credential: ApiCredential) -> HqAnswer:
+    """One of ``fixtures/resources/v0_1.py``'s detail resources (``lookup_detail_targets``), as Nova's reader reads it."""
+    return api_request(state, "GET", f"/a/{state.domain}/api/{resource}/v1/{remote_id}/", credential=credential)
+
+
 def locations_read(state, credential: ApiCredential) -> HqAnswer:
     """``locations/resources/v0_6.py::LocationResource``'s list, as Nova's ``listHqLocations`` reads it."""
     return api_request(state, "GET", f"/a/{state.domain}/api/location/v2/?limit=1000", credential=credential)

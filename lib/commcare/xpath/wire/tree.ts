@@ -62,7 +62,7 @@ export interface WirePath {
 
 export type WireRoot =
 	| { readonly k: "form"; readonly spelling: "hashtag" | "absolute" }
-	| { readonly k: "context" | "current" | "hq-case" }
+	| { readonly k: "context" | "current" | "hq-case" | "hq-worker" }
 	| { readonly k: "instance"; readonly decl: InstanceDecl }
 	/** The chosen cases a multi-select list's auto-launch condition reads,
 	 * `instance('next_input')`. Core builds it into the condition's own

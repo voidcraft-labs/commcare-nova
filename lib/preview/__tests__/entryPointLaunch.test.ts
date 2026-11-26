@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
+import {
+	ENDPOINT_FORM,
+	ENDPOINT_MODULE,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
 import { eq, literal, prop, sessionContext } from "@/lib/domain/expression";
 import {
 	ANDROID_RULES,
@@ -79,6 +84,103 @@ function args(doc = fixture()) {
 		rules: WEB_APPS_RULES,
 	};
 }
+it.each([
+	["Android", ANDROID_RULES],
+	["Web Apps", WEB_APPS_RULES],
+] as const)(
+	"opens a form listed on the first menu and returns to its platform’s first-menu selection on %s",
+	(_, rules) => {
+		const doc = endpointWireFixture("first-menu");
+		const result = launch({
+			...args(doc),
+			entryPointUuid: testUuid("endpoint-identity"),
+			selections: [{ moduleUuid: ENDPOINT_MODULE, caseIds: ["b"] }],
+			rules,
+		});
+		if (result.kind !== "ready") throw new Error(result.message);
+		expect(result.launch.formTarget?.cases?.map((item) => item.caseId)).toEqual(
+			["b"],
+		);
+		const returned = result.launch.firstMenuSelections;
+		expect(returned).toBeDefined();
+		if (rules === ANDROID_RULES) {
+			expect(Object.keys(returned ?? {}).sort()).toEqual(
+				[ENDPOINT_MODULE, testUuid("endpoint-second-patient-menu")].sort(),
+			);
+			expect(
+				returned?.[testUuid("endpoint-second-patient-menu")].cases[0].caseId,
+			).toBe("b");
+		} else expect(returned).toEqual({});
+	},
+);
+it.each([
+	["Android", ANDROID_RULES],
+	["Web Apps", WEB_APPS_RULES],
+] as const)(
+	"keeps an ordinary menu's claimed case for every menu reading it on the first menu after Back on %s",
+	(_, rules) => {
+		// Neither menu shows its forms on the first menu, so the frame toward
+		// Visit starts with its menu's command; Android still holds the claimed
+		// case on Home, because the claim's push comes before every command.
+		const doc = endpointWireFixture("first-menu");
+		delete doc.modules[ENDPOINT_MODULE].formsInMenuAbove;
+		const result = launch({
+			...args(doc),
+			entryPointUuid: testUuid("endpoint-identity"),
+			selections: [{ moduleUuid: ENDPOINT_MODULE, caseIds: ["b"] }],
+			rules,
+		});
+		if (result.kind !== "ready") throw new Error(result.message);
+		const returned = result.launch.firstMenuSelections;
+		if (rules === ANDROID_RULES) {
+			expect(Object.keys(returned ?? {}).sort()).toEqual(
+				[ENDPOINT_MODULE, testUuid("endpoint-second-patient-menu")].sort(),
+			);
+			expect(
+				returned?.[testUuid("endpoint-second-patient-menu")].cases[0].caseId,
+			).toBe("b");
+		} else expect(returned ?? {}).toEqual({});
+	},
+);
+it("installs a supplied registration ID only after validating every argument and a fresh ID in this app", () => {
+	const doc = endpointWireFixture("registration-supplied");
+	const form = doc.forms[ENDPOINT_FORM];
+	const operationUuid = form.entryCaseCreations?.[0];
+	if (!form.entryPoint || !operationUuid)
+		throw new Error("Missing registration supplier");
+	const base = {
+		...args(),
+		doc,
+		entryPointUuid: form.entryPoint.uuid,
+		selections: [],
+	};
+	const input = { operationUuid, caseId: "new-household" };
+	const ok = launch({ ...base, creations: [input] });
+	expect(ok).toMatchObject({
+		kind: "ready",
+		claimCaseIds: [],
+		launch: {
+			formTarget: {
+				entrySupplies: {
+					entryPointUuid: form.entryPoint.uuid,
+					creations: [input],
+				},
+			},
+		},
+	});
+	expect(launch(base).kind).toBe("refused");
+	expect(launch({ ...base, creations: [{ ...input, caseId: "a" }] }).kind).toBe(
+		"refused",
+	);
+	expect(
+		launch({
+			...base,
+			creations: [input],
+			notHeld: { rows: [row("new-household")], indices: [] },
+		}).kind,
+	).toBe("refused");
+	expect(launch({ ...base, creations: [input, input] }).kind).toBe("refused");
+});
 describe("entry point Preview admission", () => {
 	it("binds the exact selected case without a first-case fallback or search launch", () => {
 		const result = launch(args());
@@ -271,7 +373,7 @@ describe("entry point parent selection", () => {
 			appName: "Families",
 			caseTypes: [
 				{ name: "household", properties: [] },
-				{ name: "patient", parent_type: "household", properties: [] },
+				{ name: "patient", properties: [] },
 			],
 			modules: [
 				{
@@ -321,7 +423,7 @@ describe("entry point parent selection", () => {
 				case_id: "b",
 				ancestor_id: "house",
 				target_case_type: "household",
-				identifier: "parent",
+				identifier: "clinic",
 				relationship: "child",
 				depth: 1,
 			},
@@ -329,8 +431,25 @@ describe("entry point parent selection", () => {
 		expect(launch(input).kind).toBe("ready");
 		input.database.indices[0].relationship = "extension";
 		expect(launch(input).kind).toBe("refused");
-		input.database.indices[0].relationship = "child";
-		input.database.indices[0].ancestor_id = "other-house";
+		const advancedDoc = structuredClone(doc);
+		advancedDoc.modules[M].heldKind = "advanced";
+		const advanced = { ...input, doc: advancedDoc };
+		expect(launch(advanced).kind).toBe("refused");
+		input.database.indices[0].identifier = "parent";
+		expect(launch(advanced).kind).toBe("ready");
+		expect(launch(input).kind).toBe("refused");
+		const otherLink = {
+			...input.database.indices[0],
+			relationship: "child" as const,
+		};
+		input.database.indices.push(otherLink);
+		expect(launch(input).kind).toBe("ready");
+		input.database.indices = [otherLink];
+		input.notHeld = { rows: [row("b")], indices: [otherLink] };
+		input.database.rows = [row("house", "household")];
+		input.database.indices = [];
+		expect(launch(input).kind).toBe("ready");
+		otherLink.ancestor_id = "other-house";
 		expect(launch(input).kind).toBe("refused");
 	});
 });

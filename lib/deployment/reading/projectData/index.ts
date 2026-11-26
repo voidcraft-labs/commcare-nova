@@ -33,11 +33,7 @@ import {
 } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, orderedLocationProperties } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
-import {
-	NO_ENTRIES,
-	ownRecordValue,
-	recordFromEntries,
-} from "@/lib/domain/records";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { hqManagedTagRefusal } from "@/lib/lookup/constants";
 import {
 	type LookupRowsMeasure,
@@ -68,7 +64,6 @@ import {
 	type LookupTableBinding,
 	type LookupTableStanding,
 	lookupBindingNames,
-	lookupFixtureBudgetFinding,
 	lookupSourceFieldDetails,
 	lookupTableFindings,
 	lookupTableStanding,
@@ -79,14 +74,10 @@ import {
 	readerLookupCatalog,
 	readingLookupSnapshot,
 	resolveLookupBindings,
-	sameManagedColumnCapFinding,
 } from "./lookupTables";
-import {
-	documentReadsPlaces,
-	managedPlacesOwnerFindings,
-	planManagedPlaces,
-} from "./places";
-import type { LookupTableChoice } from "./reviewTypes";
+import { managedPlacesOwnerRules } from "./ownerRules";
+import { documentReadsPlaces, planManagedPlaces } from "./places";
+import type { LookupTableChoice, ReviewOwnerRule } from "./reviewTypes";
 
 export { resolveTableChoices } from "./lookupTables";
 export {
@@ -160,8 +151,6 @@ export interface ReadingProjectData {
 			readonly apps: Readonly<
 				Record<string, readonly LookupReferencingAppSummary[]>
 			>;
-			/** The columns of each of those tables CommCare HQ's content keeps, by the table's id. */
-			readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 			readonly siblings: readonly SiblingLookupMapping[];
 			readonly mayAdminister: boolean;
 		};
@@ -189,12 +178,6 @@ export interface ReadingProjectAnswers {
 	readonly apps: Readonly<
 		Record<string, readonly LookupReferencingAppSummary[]>
 	>;
-	/**
-	 * By table id, the ids of the columns an app's reference edge names or an
-	 * accepted design protects, which CommCare HQ's content keeps where its
-	 * fields lack them (`readKeptLookupColumnIds`); a table absent keeps none.
-	 */
-	readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 	readonly siblings: readonly SiblingLookupMapping[];
 	readonly mayAdminister: boolean;
 }
@@ -355,8 +338,6 @@ export function assembleReadingProjectData(input: {
 				...rowsUnreadable,
 			};
 		}
-		const keptColumnIds =
-			existing === null ? [] : keptColumnsOf(project.keptColumns, existing);
 		const standing = lookupTableStanding({
 			read,
 			origin,
@@ -378,23 +359,7 @@ export function assembleReadingProjectData(input: {
 						),
 			appReads: [],
 			mayAdminister: project.mayAdminister,
-			keptColumnIds,
 		});
-		const capFinding = sameManagedColumnCapFinding(
-			read,
-			standing,
-			keptColumnIds,
-		);
-		if (capFinding !== null) {
-			return {
-				read,
-				findings: [capFinding],
-				standing: null,
-				binding: null,
-				choice: null,
-				projectTable,
-			};
-		}
 		const [binding] = resolveLookupBindings(
 			[read],
 			recordFromEntries([[tag, standing]]),
@@ -431,7 +396,6 @@ export function assembleReadingProjectData(input: {
 				projectRevision: project.projectRevision,
 				rowsByTable: project.rowsByTable,
 				apps: project.apps,
-				keptColumns: project.keptColumns,
 				siblings: project.siblings,
 				mayAdminister: project.mayAdminister,
 			},
@@ -441,14 +405,6 @@ export function assembleReadingProjectData(input: {
 			...(places?.inconsistent ? { inconsistent: true } : {}),
 		},
 	};
-}
-
-/** The kept columns of a Project table, none where the read named none. */
-export function keptColumnsOf(
-	keptColumns: Readonly<Record<string, readonly string[]>>,
-	table: LookupTableDefinition,
-): readonly string[] {
-	return ownRecordValue(keptColumns, table.id) ?? [];
 }
 
 function rowsOf(
@@ -672,14 +628,14 @@ const UNSERVED_DECLARATION_ENTRY =
  * where CommCare HQ's list lacks the tag, a read of a table that is not
  * there. For each tag a form only declares that the list lacks: a form that
  * cannot open; one the list holds raises nothing. Then, over the tables the document reads as the birth will hold
- * them (`readingLookupSnapshot`): a cell XML cannot carry, the tables
- * together over what one `.ccz` carries, and, with a document, one
+ * them (`readingLookupSnapshot`): a cell XML cannot carry and, with a document, one
  * `table-choices-unusable` a table whose rows cannot be the choices of a
  * question or search field that reads them. Where the app reads places:
  * `place-hierarchy-inconsistent` alone where the source still disagreed with
- * itself when read again; otherwise the levels Nova cannot hold, the places it
- * cannot, and, with a document, an owner rule the copy would refuse. A value of a place is judged
- * only with a document, once the rest of the app can come in.
+ * itself when read again; otherwise the levels Nova cannot hold and the places it
+ * cannot. A value of a place is judged only with a document, once the rest of
+ * the app can come in. An owner rule the places cannot satisfy is no finding:
+ * the review asks about it (`readingOwnerRules`).
  */
 export function readingProjectDataFindingsFor(
 	data: ReadingProjectData,
@@ -734,11 +690,6 @@ export function readingProjectDataFindingsFor(
 	const snapshot = readingLookupSnapshot(data, reads);
 	const unrepresentable = unrepresentableCellFindings(snapshot);
 	findings.push(...unrepresentable);
-	// No fixture holds a cell XML cannot carry, so the tables are measured
-	// together only once every cell can be written, as the export does.
-	const budget =
-		unrepresentable.length === 0 ? lookupFixtureBudgetFinding(snapshot) : null;
-	if (budget !== null) findings.push(budget);
 	if (doc !== null)
 		findings.push(
 			...tableChoicesUnusable(
@@ -773,7 +724,6 @@ export function readingProjectDataFindingsFor(
 				mode: "birth",
 			});
 			findings.push(...levels.findings, ...plan.findings);
-			if (doc !== null) findings.push(...managedPlacesOwnerFindings(doc, plan));
 		}
 	}
 	return findings;
@@ -981,3 +931,18 @@ export function bornPlaces(
 }
 
 export { readingLookupSnapshot } from "./lookupTables";
+
+/**
+ * The owner rules of `doc` the places the reading holds cannot satisfy, as
+ * the review's questions: none where the app reads no places. Called on a
+ * read with no finding, as `bornPlaces` is.
+ */
+export function readingOwnerRules(
+	data: ReadingProjectData,
+	reads: ReaderProjectDataReads,
+	doc: BlueprintDoc,
+	resolver: IdentityResolver,
+): readonly ReviewOwnerRule[] {
+	if (!reads.readsPlaces) return [];
+	return managedPlacesOwnerRules(doc, bornPlaces(data, doc, resolver));
+}

@@ -1,4 +1,5 @@
 import { connectWireFixtures } from "../../__tests__/connectWireFixtures";
+
 /**
  * The canonical form of a document, and the pairs its rows name.
  *
@@ -43,6 +44,7 @@ import {
 	read as readField,
 	U,
 } from "@/lib/commcare/__tests__/advancedPlacementFixture";
+import { caseListActionRolesFixture } from "@/lib/commcare/__tests__/caseListActionRolesFixture";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
@@ -981,6 +983,11 @@ const PAIRS: readonly Pair[] = [
 		id: "out-of-date-translation-is-absent",
 		name: "an app name's translation of an older source",
 		other: localized,
+	},
+	{
+		id: "parent-follow-ups-return-to-the-list",
+		name: "a list action opening the selected parent's follow-up, storing the return to the new case",
+		other: () => caseListActionRolesFixture(),
 	},
 	{
 		id: "blank-optional-text-is-absent",

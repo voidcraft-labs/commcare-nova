@@ -21,7 +21,11 @@ export { hqPlaceUrl } from "./hqPlaceUrl";
 export type { PreflightCheck, PreflightCheckStatus } from "./preflight";
 export { type AccountAnswer, accountOfOne } from "./reading/answers";
 export type { HqAppPicker, HqAppPickerRow } from "./reading/pickerTypes";
-export type { LookupTableChoice } from "./reading/projectData/reviewTypes";
+export type {
+	LookupTableChoice,
+	OwnerRuleChoice,
+	ReviewOwnerRule,
+} from "./reading/projectData/reviewTypes";
 export type {
 	BringInInput,
 	CreateAnswer,

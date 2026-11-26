@@ -145,9 +145,9 @@
 						"doc_type": "FormActions"
 					},
 					"doc_type": "Form",
-					"unique_id": "11ce71ea32ee40a4a264c5b868c851a0",
+					"unique_id": "3f77a616f0c8446f915181dccc8e8896",
 					"show_count": false,
-					"xmlns": "http://openrosa.org/formdesigner/c180927b-5d87-4111-96ec-3bb1d48921e8",
+					"xmlns": "http://openrosa.org/formdesigner/6d826f28-3406-4861-a4f8-a624d0712709",
 					"version": null,
 					"post_form_workflow": "default",
 					"post_form_workflow_fallback": null,
@@ -422,7 +422,7 @@
 			"lazy_load_case_list_fields": false,
 			"show_case_list_optimization_options": false,
 			"doc_type": "Module",
-			"unique_id": "5d88a32a68ca42a4ba00c670b77c61f9",
+			"unique_id": "9287564b181545d29c5da5259eb8ce6b",
 			"case_list_form": {
 				"form_id": null,
 				"label": {},
@@ -595,9 +595,9 @@
 						"doc_type": "FormActions"
 					},
 					"doc_type": "Form",
-					"unique_id": "10e76d43c7d749c1837de42b0402beae",
+					"unique_id": "347df53683844b14b9fb2581e6646420",
 					"show_count": false,
-					"xmlns": "http://openrosa.org/formdesigner/835904d1-e6eb-4a29-95a9-032788d30e17",
+					"xmlns": "http://openrosa.org/formdesigner/106947d8-a3de-4a83-89b9-9e162278ed13",
 					"version": null,
 					"post_form_workflow": "default",
 					"post_form_workflow_fallback": null,
@@ -872,7 +872,7 @@
 			"lazy_load_case_list_fields": false,
 			"show_case_list_optimization_options": false,
 			"doc_type": "Module",
-			"unique_id": "06a8f60cc3194c2b9834d105d261c9f3",
+			"unique_id": "0a15097273e745e4b3abf385d82e9cb5",
 			"case_list_form": {
 				"form_id": null,
 				"label": {},
@@ -896,7 +896,16 @@
 			"custom_assertions": [],
 			"media_image": {},
 			"media_audio": {},
-			"custom_icons": [],
+			"custom_icons": [
+				{
+					"form": "badge",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null,
+					"doc_type": "CustomIcon"
+				}
+			],
 			"use_default_image_for_all": false,
 			"use_default_audio_for_all": false,
 			"comment": ""
@@ -955,7 +964,7 @@
 	"doc_type": "Application",
 	"recipients": "",
 	"copy_of": null,
-	"version": 12,
+	"version": 13,
 	"short_odk_url": null,
 	"short_odk_media_url": null,
 	"build_spec": {
@@ -997,7 +1006,7 @@
 	"case_sharing": false,
 	"vellum_case_management": true,
 	"application_version": "2.0",
-	"last_modified": "2026-10-05T10:02:24.000000Z",
+	"last_modified": "2026-10-05T10:02:25.000000Z",
 	"build_profiles": {},
 	"practice_mobile_worker_id": null,
 	"target_commcare_flavor": "none",
@@ -1011,10 +1020,10 @@
 	"multimedia_map": {},
 	"logo_refs": {},
 	"archived_media": {},
-	"_id": "d753ed80-c0a3-11f1-9453-53e304fb69fe",
-	"_rev": "12-dcb13800-c0a3-11f1-907a-f3fb1ba5fb80",
+	"_id": "d753ed80-c0a3-11f1-a1fc-9d8b93ccd5d7",
+	"_rev": "13-dd49ce80-c0a3-11f1-a8ba-e979d1adb9c2",
 	"_attachments": {
-		"10e76d43c7d749c1837de42b0402beae.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Survey</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/835904d1-e6eb-4a29-95a9-032788d30e17\" uiVersion=\"1\" version=\"3\" name=\"Survey\"><remark/><crop/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"remark_text\"><value>Remark</value></text><text id=\"crop-label\"><value>Crop grown</value></text></translation><translation lang=\"fra\"><text id=\"remark_text\"><value>Remarque</value></text><text id=\"crop-label\"><value></value></text></translation><translation lang=\"hin\"><text id=\"remark_text\"><value>टिप्पणी</value></text><text id=\"crop-label\"><value>उगाई गई फसल</value></text></translation></itext><bind nodeset=\"/data/remark\" type=\"xsd:string\"/><bind nodeset=\"/data/crop\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/remark\"><label ref=\"jr:itext('remark_text')\"/></input><input ref=\"/data/crop\"><label ref=\"jr:itext('crop-label')\"/></input></h:body></h:html>",
-		"11ce71ea32ee40a4a264c5b868c851a0.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n\t<h:head>\n\t\t<h:title>Survey</h:title>\n\t\t<model>\n\t\t\t<instance>\n\t\t\t\t<data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/c180927b-5d87-4111-96ec-3bb1d48921e8\" uiVersion=\"1\" version=\"3\" name=\"Survey\">\n\t\t\t\t\t<visitor />\n\t\t\t\t\t<village />\n\t\t\t\t</data>\n\t\t\t</instance>\n\t\t\t<bind vellum:nodeset=\"#form/visitor\" nodeset=\"/data/visitor\" type=\"xsd:string\" />\n\t\t\t<bind vellum:nodeset=\"#form/village\" nodeset=\"/data/village\" />\n\t\t\t<itext>\n\t\t\t\t<translation lang=\"en\" default=\"\">\n\t\t\t\t\t<text id=\"visitor-label\">\n\t\t\t\t\t\t<value>Visitor name</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-label\">\n\t\t\t\t\t\t<value>Which village</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-upper-label\">\n\t\t\t\t\t\t<value>Upper</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-lower-label\">\n\t\t\t\t\t\t<value>Lower</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t\t<translation lang=\"fra\">\n\t\t\t\t\t<text id=\"visitor-label\">\n\t\t\t\t\t\t<value>Nom du visiteur</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-label\">\n\t\t\t\t\t\t<value>Quel village</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-upper-label\">\n\t\t\t\t\t\t<value>Upper</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-lower-label\">\n\t\t\t\t\t\t<value>Lower</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t\t<translation lang=\"hin\">\n\t\t\t\t\t<text id=\"visitor-label\">\n\t\t\t\t\t\t<value>आगंतुक का नाम</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-label\">\n\t\t\t\t\t\t<value>कौन सा गाँव</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-upper-label\">\n\t\t\t\t\t\t<value>Upper</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-lower-label\">\n\t\t\t\t\t\t<value>Lower</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t</itext>\n\t\t</model>\n\t</h:head>\n\t<h:body>\n\t\t<input vellum:ref=\"#form/visitor\" ref=\"/data/visitor\">\n\t\t\t<label ref=\"jr:itext('visitor-label')\" />\n\t\t</input>\n\t\t<select1 vellum:ref=\"#form/village\" ref=\"/data/village\">\n\t\t\t<label ref=\"jr:itext('village-label')\" />\n\t\t\t<item>\n\t\t\t\t<label ref=\"jr:itext('village-upper-label')\" />\n\t\t\t\t<value>upper</value>\n\t\t\t</item>\n\t\t\t<item>\n\t\t\t\t<label ref=\"jr:itext('village-lower-label')\" />\n\t\t\t\t<value>lower</value>\n\t\t\t</item>\n\t\t</select1>\n\t</h:body>\n</h:html>"
+		"347df53683844b14b9fb2581e6646420.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Survey</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/106947d8-a3de-4a83-89b9-9e162278ed13\" uiVersion=\"1\" version=\"3\" name=\"Survey\"><remark/><crop/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"remark_text\"><value>Remark</value></text><text id=\"crop-label\"><value>Crop grown</value></text></translation><translation lang=\"fra\"><text id=\"remark_text\"><value>Remarque</value></text><text id=\"crop-label\"><value></value></text></translation><translation lang=\"hin\"><text id=\"remark_text\"><value>टिप्पणी</value></text><text id=\"crop-label\"><value>उगाई गई फसल</value></text></translation></itext><bind nodeset=\"/data/remark\" type=\"xsd:string\"/><bind nodeset=\"/data/crop\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/remark\"><label ref=\"jr:itext('remark_text')\"/></input><input ref=\"/data/crop\"><label ref=\"jr:itext('crop-label')\"/></input></h:body></h:html>",
+		"3f77a616f0c8446f915181dccc8e8896.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n\t<h:head>\n\t\t<h:title>Survey</h:title>\n\t\t<model>\n\t\t\t<instance>\n\t\t\t\t<data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/6d826f28-3406-4861-a4f8-a624d0712709\" uiVersion=\"1\" version=\"3\" name=\"Survey\">\n\t\t\t\t\t<visitor />\n\t\t\t\t\t<village />\n\t\t\t\t</data>\n\t\t\t</instance>\n\t\t\t<bind vellum:nodeset=\"#form/visitor\" nodeset=\"/data/visitor\" type=\"xsd:string\" />\n\t\t\t<bind vellum:nodeset=\"#form/village\" nodeset=\"/data/village\" />\n\t\t\t<itext>\n\t\t\t\t<translation lang=\"en\" default=\"\">\n\t\t\t\t\t<text id=\"visitor-label\">\n\t\t\t\t\t\t<value>Visitor name</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-label\">\n\t\t\t\t\t\t<value>Which village</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-upper-label\">\n\t\t\t\t\t\t<value>Upper</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-lower-label\">\n\t\t\t\t\t\t<value>Lower</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t\t<translation lang=\"fra\">\n\t\t\t\t\t<text id=\"visitor-label\">\n\t\t\t\t\t\t<value>Nom du visiteur</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-label\">\n\t\t\t\t\t\t<value>Quel village</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-upper-label\">\n\t\t\t\t\t\t<value>Upper</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-lower-label\">\n\t\t\t\t\t\t<value>Lower</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t\t<translation lang=\"hin\">\n\t\t\t\t\t<text id=\"visitor-label\">\n\t\t\t\t\t\t<value>आगंतुक का नाम</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-label\">\n\t\t\t\t\t\t<value>कौन सा गाँव</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-upper-label\">\n\t\t\t\t\t\t<value>Upper</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"village-lower-label\">\n\t\t\t\t\t\t<value>Lower</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t</itext>\n\t\t</model>\n\t</h:head>\n\t<h:body>\n\t\t<input vellum:ref=\"#form/visitor\" ref=\"/data/visitor\">\n\t\t\t<label ref=\"jr:itext('visitor-label')\" />\n\t\t</input>\n\t\t<select1 vellum:ref=\"#form/village\" ref=\"/data/village\">\n\t\t\t<label ref=\"jr:itext('village-label')\" />\n\t\t\t<item>\n\t\t\t\t<label ref=\"jr:itext('village-upper-label')\" />\n\t\t\t\t<value>upper</value>\n\t\t\t</item>\n\t\t\t<item>\n\t\t\t\t<label ref=\"jr:itext('village-lower-label')\" />\n\t\t\t\t<value>lower</value>\n\t\t\t</item>\n\t\t</select1>\n\t</h:body>\n</h:html>"
 	}
 }

@@ -306,6 +306,14 @@ export interface BuilderSessionState {
 	 *  → `currentState.reset()`). */
 	previewAfterSubmitStack: PreviewAfterSubmitStack;
 	previewEntryPointLaunch: EntryPointPreviewLaunch | undefined;
+	/** An Android visit an entry point opened, until its first form ends.
+	 *  Android finishes such a visit when that form is submitted or left
+	 *  (`SessionLaunchDelegate.kt::exitFromExternalLaunch`, the launch's
+	 *  `ccodk_exit_after_form_submission`, true by default): it resets the
+	 *  session and returns to the app that opened the link, whatever the
+	 *  form's after-submit says. Unlike `previewEntryPointLaunch`, which
+	 *  ordinary navigation retires, it lasts through the visit's menus. */
+	previewEntryPointVisit: boolean;
 
 	/** The case currently open in the running-app case list's detail/confirm
 	 *  (the row clicked, before continuing). Mirrors the case list's local
@@ -814,7 +822,9 @@ export interface BuilderSessionState {
 
 	/** Home ends the running task, retaining worker identity and authorization,
 	 *  and starts a new one (`previewTaskId`). */
-	clearPreviewNavigation: () => void;
+	clearPreviewNavigation: (
+		homeSelections?: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	) => void;
 
 	/** Back or Forward past Home onto a history entry of an earlier task of
 	 *  this session, on Web Apps: the entry's case selections become the
@@ -1043,6 +1053,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewEntryPointLaunch: undefined as
 					| EntryPointPreviewLaunch
 					| undefined,
+				previewEntryPointVisit: false,
 				previewSelectedCase: undefined as PreviewSelectedCase | undefined,
 				previewMenuCaseSelections: {} as Readonly<
 					Record<string, PreviewMenuCaseSelection>
@@ -1265,6 +1276,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewTaskContinuation: undefined,
 										previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 										previewEntryPointLaunch: undefined,
+										previewEntryPointVisit: false,
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
 										previewSessionId: newPreviewSessionId(),
@@ -1468,6 +1480,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							? Date.now()
 							: s.previewDeviceSyncedAt,
 						previewEntryPointLaunch: launch,
+						previewEntryPointVisit: previewRunsOnAndroid(s.previewPlatform),
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewCaseTarget: launch.formTarget,
@@ -1515,6 +1528,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							previewTaskContinuation: undefined,
 							previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 							previewEntryPointLaunch: undefined,
+							previewEntryPointVisit: false,
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
 							previewSessionId: newPreviewSessionId(),
@@ -1555,6 +1569,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
+						previewEntryPointVisit: false,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewSessionId: newPreviewSessionId(),
@@ -1587,6 +1602,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
+						previewEntryPointVisit: false,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewSessionId: newPreviewSessionId(),
@@ -1625,6 +1641,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
+						previewEntryPointVisit: false,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewSessionId: newPreviewSessionId(),
@@ -1657,6 +1674,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 									previewTaskContinuation: undefined,
 									previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 									previewEntryPointLaunch: undefined,
+									previewEntryPointVisit: false,
 									previewSelectedCase: undefined,
 									previewMenuCaseSelections: {},
 									previewSessionId: newPreviewSessionId(),
@@ -1766,7 +1784,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ previewSelectedCase: selected });
 				},
 
-				clearPreviewNavigation() {
+				clearPreviewNavigation(homeSelections) {
 					const current = get();
 					/* Home leaves the path the last frame opened, so what was
 					 * pending would be dropped at the next completion anyway
@@ -1791,7 +1809,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewAfterSubmitStack: afterSubmitStack,
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
-						previewMenuCaseSelections: {},
+						previewMenuCaseSelections: homeSelections ?? {},
 						previewSearchStates: {},
 					});
 				},
@@ -2204,6 +2222,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
+						previewEntryPointVisit: false,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewSessionId: newPreviewSessionId(),

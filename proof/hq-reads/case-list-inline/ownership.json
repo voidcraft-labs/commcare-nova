@@ -1,4 +1,5 @@
 {
+	"menuLayouts": true,
 	"addOns": [
 		"calc_xpaths",
 		"enum_image"

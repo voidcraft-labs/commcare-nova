@@ -17,7 +17,11 @@
 
 import { afterSubmitCanGoHome } from "./afterSubmit";
 import type { BlueprintDoc } from "./blueprint";
-import { type EntryPointTarget, entryPointInventory } from "./entryPoints";
+import {
+	type EntryPointTarget,
+	entryPointInventory,
+	listedFormLinkPause,
+} from "./entryPoints";
 import {
 	type ExpressionContext,
 	type LookupTypeIndex,
@@ -31,6 +35,8 @@ import { walkExpressionNodes } from "./expression/walk";
 import { choiceDisplayFeatures, fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
+import { caseListRegistrationReturnOf } from "./menuForms";
+import { menuScreenOf } from "./menuScreens";
 import {
 	caseSelectionCardinality,
 	columnOnList,
@@ -45,6 +51,7 @@ import {
 	type SearchInputDef,
 	tileCellFor,
 } from "./modules";
+import { holdsLabelOnlyMedia } from "./multimedia";
 import {
 	declaredPlatforms,
 	expressionLeafFeature,
@@ -57,6 +64,7 @@ import {
 	TARGET_CONDITIONED_FEATURES,
 	unavailablePlatform,
 } from "./platforms";
+import { firstMenuCaseRead } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
 import type { Uuid } from "./uuid";
 
@@ -317,6 +325,12 @@ export function platformFeatureUses(
 		if (wanted("connect-location-capture"))
 			appUses.push(slotUse("connect-location-capture", app, "connectType"));
 	}
+	if (wanted("menu-layout")) {
+		if (doc.appSettings.firstMenuLayout === "grid")
+			appUses.push(slotUse("menu-layout", app, "appSettings.firstMenuLayout"));
+		if (doc.appSettings.formMenuLayout !== undefined)
+			appUses.push(slotUse("menu-layout", app, "appSettings.formMenuLayout"));
+	}
 	if (
 		doc.connectType === null &&
 		doc.appSettings.captureLocation &&
@@ -342,10 +356,32 @@ export function platformFeatureUses(
 		);
 	out.push(...inFeatureOrder(appUses));
 
+	const readFirstMenuCase = firstMenuCaseRead(doc);
+	const firstMenuCaseOnRoute = (moduleUuid: Uuid) => {
+		if (!wanted("first-menu-previous") || !readFirstMenuCase()) return false;
+		const parent = doc.modules[moduleUuid]?.parentModuleUuid;
+		return (
+			menuScreenOf(doc, moduleUuid).kind === "first-menu" ||
+			(parent !== undefined && menuScreenOf(doc, parent).kind === "first-menu")
+		);
+	};
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) continue;
 		out.push(...moduleUses(moduleUuid, module, wanted, expressionUses));
+		if (
+			module.caseListRegistrationForm?.kind === "always" &&
+			firstMenuCaseOnRoute(moduleUuid) &&
+			caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "new-case"
+		) {
+			out.push(
+				slotUse(
+					"first-menu-previous",
+					{ kind: "module", moduleUuid },
+					"caseListRegistrationForm",
+				),
+			);
+		}
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
@@ -363,6 +399,37 @@ export function platformFeatureUses(
 						form.formLinks === undefined ? "postSubmit" : "otherwise",
 					),
 				);
+			if (wanted("first-menu-previous") && readFirstMenuCase()) {
+				const atHome = menuScreenOf(doc, moduleUuid).kind === "first-menu";
+				const staticUsesCase = (destination: string | undefined) =>
+					(destination === "previous" && atHome) ||
+					(destination === "module" &&
+						!atHome &&
+						firstMenuCaseOnRoute(moduleUuid));
+				const linkUsesCase = (
+					link:
+						| NonNullable<typeof form.formLinks>[number]
+						| Extract<NonNullable<typeof form.otherwise>, { kind: "link" }>,
+				) =>
+					firstMenuCaseOnRoute(
+						link.target.type === "this-form"
+							? moduleUuid
+							: link.target.moduleUuid,
+					);
+				if (!form.formLinks && staticUsesCase(form.postSubmit))
+					formUses.push(
+						slotUse("first-menu-previous", formOwner, "postSubmit"),
+					);
+				if (form.formLinks?.some(linkUsesCase))
+					formUses.push(slotUse("first-menu-previous", formOwner, "formLinks"));
+				if (
+					form.otherwise &&
+					(form.otherwise.kind === "link"
+						? linkUsesCase(form.otherwise)
+						: staticUsesCase(form.otherwise.destination))
+				)
+					formUses.push(slotUse("first-menu-previous", formOwner, "otherwise"));
+			}
 			// Two destinations are two frames; an otherwise beside an
 			// every-time destination needs a destination that may not run.
 			if (
@@ -372,6 +439,8 @@ export function platformFeatureUses(
 				formUses.push(
 					slotUse("after-submit-several-destinations", formOwner, "formLinks"),
 				);
+			if (form.badge !== undefined && wanted("menu-badge"))
+				formUses.push(slotUse("menu-badge", formOwner, "badge"));
 			if (form.captureLocation && wanted("connect-location-capture"))
 				formUses.push(
 					slotUse("connect-location-capture", formOwner, "captureLocation"),
@@ -401,15 +470,16 @@ export function platformFeatureUses(
 		}
 	}
 
-	if (wanted("entry-points"))
-		for (const item of entryPointInventory(doc))
-			out.push(
-				slotUse(
-					"entry-points",
-					{ kind: "entry-point", target: item.target },
-					"entryPoint",
-				),
-			);
+	if (wanted("entry-points") || wanted("first-menu-previous")) {
+		for (const item of entryPointInventory(doc)) {
+			if (listedFormLinkPause(doc, item.target)) continue;
+			const owner = { kind: "entry-point", target: item.target } as const;
+			if (wanted("entry-points"))
+				out.push(slotUse("entry-points", owner, "entryPoint"));
+			if (firstMenuCaseOnRoute(item.target.moduleUuid))
+				out.push(slotUse("first-menu-previous", owner, "entryPoint"));
+		}
+	}
 	return out;
 }
 
@@ -467,6 +537,9 @@ function moduleUses(
 					: "caseListRegistrationForm.audioLabel",
 			),
 		);
+	// A menu's badge: Android hides and shortens what Web Apps shows whole.
+	if (module.badge !== undefined && wanted("menu-badge"))
+		own.push(slotUse("menu-badge", owner, "badge"));
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
 	// A search with no title holds no text for Android to leave out, so only
@@ -696,6 +769,24 @@ function fieldUses(
 		wanted("help-media")
 	)
 		uses.push(slotUse("help-media", owner, "help_media"));
+	if (
+		"label_media" in field &&
+		holdsLabelOnlyMedia(field.label_media) &&
+		wanted("label-inline-video")
+	)
+		uses.push(slotUse("label-inline-video", owner, "label_media"));
+	if (
+		"qr_code" in field &&
+		field.qr_code !== undefined &&
+		wanted("label-qr-code")
+	)
+		uses.push(slotUse("label-qr-code", owner, "qr_code"));
+	if (
+		"spoken_text" in field &&
+		field.spoken_text !== undefined &&
+		wanted("label-spoken-text")
+	)
+		uses.push(slotUse("label-spoken-text", owner, "spoken_text"));
 	uses.push(
 		...expressionUses({ entity: "field", uuid: owner.fieldUuid }, () => owner),
 	);

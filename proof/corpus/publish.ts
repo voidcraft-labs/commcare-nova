@@ -108,6 +108,7 @@ import { gunzipSync } from "node:zlib";
 import type { HqApplication, HqApplicationProfile } from "@/lib/commcare";
 import {
 	type CommCareCredentials,
+	createHqSourceFlagReader,
 	importApp,
 	probeHqProjectSpaceCompatibility,
 	readHqSaveOnlyEditedAnswers,
@@ -125,6 +126,7 @@ import {
 	HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 } from "@/lib/commcare/hq/bounds";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
 import {
 	type HqFixtureRow,
@@ -254,6 +256,10 @@ import {
 	readLookupReceipt,
 } from "@/lib/deployment/largeLookupReceipt";
 import {
+	legacyMenuLayoutLines,
+	observedMenuLayoutOwnership,
+} from "@/lib/deployment/legacyMenuLayouts";
+import {
 	type LookupTableConflict,
 	type LookupTableUnsupported,
 	planLookupResourcePush,
@@ -270,7 +276,10 @@ import {
 	adoptedMediaFiles,
 	type ReadingMediaPlan,
 } from "@/lib/deployment/reading/projectData/media";
-import { judgeReadingMedia } from "@/lib/deployment/reading/projectData/mediaStore";
+import {
+	judgeReadingMedia,
+	memoryMediaStaging,
+} from "@/lib/deployment/reading/projectData/mediaStore";
 import {
 	type ReadingProjectSide,
 	readReadingProjectData,
@@ -429,7 +438,7 @@ export const CCZ_CLOCK = Date.UTC(2026, 0, 1);
  */
 type LanguageNames = "nova" | "target";
 
-/** One uploaded media asset, as the Project's media store holds it. */
+/** One media asset of the Project, as its media store holds it. */
 export interface UploadedMedia {
 	readonly kind: MediaKind;
 	/** The accepted MIME type Nova's upload stores (`image/png`). */
@@ -437,6 +446,12 @@ export interface UploadedMedia {
 	/** The canonical extension Nova's upload stores for that type (`.png`). */
 	readonly extension: string;
 	readonly bytes: Buffer;
+	/**
+	 * `"commcare-hq"` for a file Nova's reading of an app made in CommCare HQ
+	 * held and a bring-in stored (`lib/deployment/reading/projectData/mediaStore.ts`),
+	 * which no upload cap bounds; absent for a file a person uploaded to Nova.
+	 */
+	readonly source?: "commcare-hq";
 }
 
 /** One admitted document, with what Nova's publish reads beside it. */
@@ -800,7 +815,9 @@ function sha256(bytes: Uint8Array): string {
  * it can. Nova's upload (`lib/media/validate.ts::validateMediaBytes`) stores
  * an accepted MIME type as written, the kind and canonical extension
  * `lib/domain/multimedia.ts` gives that type, and the bytes' SHA-256 and
- * size, within the kind's size cap.
+ * size, within the kind's size cap. A file brought in from CommCare HQ
+ * (`source: "commcare-hq"`) is stored the same way at any size: the cap is
+ * the upload's alone (`validateSniffedMediaBody`).
  */
 export function uploadedMediaProblem(asset: UploadedMedia): string | undefined {
 	const mimeType = normalizeMimeType(asset.mimeType);
@@ -815,8 +832,9 @@ export function uploadedMediaProblem(asset: UploadedMedia): string | undefined {
 	if (extension !== asset.extension) {
 		return `its extension is ${JSON.stringify(asset.extension)}, where Nova stores ${mimeType} as ${JSON.stringify(extension)}`;
 	}
+	if (asset.bytes.length === 0) return "it holds no bytes";
 	const cap = ASSET_SIZE_CAPS_BYTES[asset.kind];
-	if (asset.bytes.length === 0 || asset.bytes.length > cap) {
+	if (asset.source !== "commcare-hq" && asset.bytes.length > cap) {
 		return `it holds ${asset.bytes.length} bytes, where a ${asset.kind} upload holds 1 to ${cap}`;
 	}
 	return undefined;
@@ -1031,6 +1049,17 @@ async function prepareDocument(
 	if (!result.ok) {
 		throw new UnexportableDocumentError(source.id, mode, result.violations);
 	}
+	/* A table the workbook cannot carry exactly goes through CommCare HQ's
+	 * JSON resources on a direct publish (`travelsAsJson`). The capture sends
+	 * no such request, so a document holding one would be captured without
+	 * its table: refuse it rather than publish another app than Nova's. The
+	 * JSON carrier's requests are held to HQ's own answers by
+	 * `proof/hq/test_lookup_json_publish.py`. */
+	const json = result.prepared.jsonLookupTables ?? [];
+	if (json.length > 0)
+		throw new Error(
+			`Nova's publish of ${source.id} carries ${json.map((table) => table.tag).join(", ")} through CommCare HQ's JSON table resources, which the capture does not send. Give the document tables a workbook carries exactly.`,
+		);
 	const workbook = result.prepared.lookupWorkbook;
 	const workbookIntent =
 		mode === "hq-upload" && workbook
@@ -2000,6 +2029,7 @@ function appEdge(
 	current: { readonly normalized: unknown; readonly digest: string },
 	media: SettledMedia | null,
 	languageNames: LanguageNames,
+	layoutReplacements: readonly string[],
 ): DeploymentRemoteChange | null {
 	const remoteRevision = peer.saveCounter();
 	if (remoteRevision === null)
@@ -2038,6 +2068,7 @@ function appEdge(
 			bulkUploadAssets(prepared.export.doc, prepared.export.assets),
 		),
 		canBringIn: ledger.app.origin !== "create",
+		layoutReplacements,
 	});
 }
 
@@ -2374,7 +2405,18 @@ async function sendContent(
 				: {
 						app: {
 							normalized: readBack.normalized,
-							ownership,
+							/* As `service.ts` records it over the read after the import. */
+							ownership:
+								afterImport !== null &&
+								!("success" in afterImport) &&
+								afterImport.kind === "source-at"
+									? observedMenuLayoutOwnership(
+											ownership,
+											prepared.export.doc,
+											identity,
+											afterImport.source,
+										)
+									: ownership,
 							origin: "push",
 							digest: readBack.digest,
 							bytes: readBack.bytes,
@@ -2582,6 +2624,12 @@ async function updateStep(
 		current,
 		media,
 		languageNames,
+		legacyMenuLayoutLines({
+			doc: prepared.export.doc,
+			identity,
+			source: read,
+			ownership: ledger.app.origin === "create" ? null : ledger.app.ownership,
+		}),
 	);
 	const verdict = decideRemoteChanges({
 		observed: [...(app === null ? [] : [app]), ...(edge?.observed ?? [])],
@@ -2997,6 +3045,12 @@ async function reviewOverPeer(input: {
 		observedAt,
 		remoteRevision,
 		source,
+		layoutReplacements: legacyMenuLayoutLines({
+			doc: head.doc,
+			identity: exportIdentityOf(head.doc, input.targetIdentity).identity,
+			source,
+			ownership: baseline.ownership,
+		}),
 		modules: alignment.modules,
 		normalized,
 		published,
@@ -3017,6 +3071,23 @@ async function reviewOverPeer(input: {
 
 	/* The flag a write saved only if changed needs. */
 	const baseSource = sourceFromBaseline(baseline.source);
+	let caseListActionsApplied: boolean | undefined;
+	if (
+		sourceUsesCaseListActionSetting(source.raw) ||
+		sourceUsesCaseListActionSetting(baseSource.raw)
+	) {
+		const flag = await createHqSourceFlagReader(
+			CREDENTIALS,
+			domain,
+		)("no-matches-registration");
+		if (flag.kind === "not-a-member")
+			throw new Error(
+				"The project space was inaccessible for the case-list action check.",
+			);
+		if (flag.kind === "failed")
+			throw new Error("The case-list action setting could not be read.");
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	if (
 		sourceHoldsEditMode(publishedCaseBlocks(source.raw)) ||
@@ -3065,6 +3136,7 @@ async function reviewOverPeer(input: {
 			},
 		},
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		data: projectData.data,
 	};
 
@@ -3076,6 +3148,7 @@ async function reviewOverPeer(input: {
 		now: { source, modules: alignment.modules },
 		data: projectData.data,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		reference,
 		overrides: input.targetIdentity.entities,
 		media: { published, base: null, now: null },
@@ -3161,12 +3234,15 @@ async function reviewOverPeer(input: {
 	let judged: Pick<ReadingMediaPlan, "verdicts" | "staged" | "published"> =
 		union;
 	if (union.files.length > 0) {
+		/* A file past its kind's cap streams as a review's does, here into memory. */
+		const spill = memoryMediaStaging();
 		const read = await judgeReadingMedia({
 			creds: CREDENTIALS,
 			plan: union,
+			spill,
 			fetched: settledReads,
 			onProgress: () => {},
-		});
+		}).finally(() => spill.discard());
 		if (read.kind === "failed") {
 			throw new Error(
 				`A review of ${prepared.source.id} could not read a file the capture peer maps (${JSON.stringify(read.failure)}), and the peer serves every file it maps.`,

@@ -204,10 +204,9 @@
 			"schema:ShadowModule.source_module_id"
 		],
 		"valueClass": "version-2-naming-a-source",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf`: re-lists another module's forms under its own menu, case list, search and parent selection; a mirror of a menu with child menus has one child mirror per child menu of its source (below); when a mirror's source is chosen, HQ also gives the mirror its source's parent (`views/utils.py::handle_shadow_child_modules`), and the mirror's parent-menu selector is disabled (`module_view_settings.html`)",
-		"subject": "mirror-menus",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the menu holds its source by UUID and owns its own navigation and case views",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -223,6 +222,62 @@
 			"markers": []
 		},
 		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "A second menu has an unavailable owning menu, exclusion or form link",
+		"surfaceKeys": [
+			"schema:ShadowModule.source_module_id",
+			"schema:ShadowModule.excluded_form_ids",
+			"schema:ShadowModule.form_session_endpoints"
+		],
+		"valueClass": "unavailable-source-form",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the source menu page offers only an owning menu and its actual forms. Choose that menu and reselect each form in CommCare HQ.",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"subject": "mirror-menus",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the selected source or form is absent from the source menu choices offered by the HQ menu settings page"
+			}
+		]
+	},
+	{
+		"id": "menus-and-case-lists/shared-form-menus-with-incomplete-submenus",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "A second menu has a different parent or does not have one corresponding submenu for each child of its source",
+		"surfaceKeys": ["schema:ShadowModule.source_module_id"],
+		"valueClass": "uneditable-source-submenu-topology",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ gives a second menu its source's parent and creates one corresponding submenu for each owning child. Repair the submenu set on the source menu in HQ before checking again.",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"subject": "mirror-menus",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "handle_shadow_child_modules builds one corresponding submenu per source child and sets the parent from the selected source"
+			}
+		]
 	},
 	{
 		"id": "menus-and-case-lists/shadowmodule-with-no-source-module-id-or-one-naming-no-module",
@@ -410,10 +465,8 @@
 			"schema:ShadowModule.root_module_id"
 		],
 		"valueClass": "cross-type-child-of-a-formless-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: HQ builds it (`entries.py::add_parent_datums`); Nova refuses it (`NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM`)",
-		"subject": "menu-structure",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.parentModuleUuid`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -428,7 +481,8 @@
 			"cell": "`root_module_id`; add-on `submenus`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/child-menu-deeper-than-one-tier-grandchild",
@@ -471,10 +525,9 @@
 			"schema:ShadowModule.root_module_id"
 		],
 		"valueClass": "child-mirror-naming-its-shadow-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf` child mirrors, kept in step with the source's child menus as HQ keeps them: HQ creates one per source child when a mirror's source or a child's parent changes, deletes it with its source or its mirror parent, and offers no way to re-source, re-parent or delete one alone (`views/utils.py::handle_shadow_child_modules`, `views/modules.py::delete_module`, `ModuleBase.user_deletable`); each holds its own menu fields like any mirror",
-		"subject": "mirror-menus",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the child holds the matching source menu and its route parent by UUID",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -849,10 +902,8 @@
 			"schema:ShadowModule.module_filter"
 		],
 		"valueClass": "outside-predicate",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed expression model in `Module.displayCondition` (session-profile `Expression`)",
-		"subject": "display-conditions",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: restored-record and table queries in a menu visibility condition",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -866,6 +917,40 @@
 		"emission": {
 			"cell": "`module_filter`, printed",
 			"markers": ["printed"]
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/navigation-condition-outside-typed-worker-context",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Worker menu or form condition without a typed reading at that point in the worker's route",
+		"surfaceKeys": [
+			"schema:Form.form_filter",
+			"schema:AdvancedForm.form_filter",
+			"schema:ShadowForm.form_filter",
+			"schema:Module.module_filter",
+			"schema:AdvancedModule.module_filter",
+			"schema:ShadowModule.module_filter"
+		],
+		"valueClass": "navigation-condition-outside-typed-worker-context",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The worker's menu cannot evaluate this condition with the records and values available before the item opens.",
+		"subject": "display-conditions",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "The worker's menu cannot evaluate this condition with the records and values available before the item opens."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -1781,10 +1866,8 @@
 			"schema:ShadowModule.custom_icons"
 		],
 		"valueClass": "module-first-badge",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.badge` (`{text{lang}} | {expression}`)",
-		"subject": "menu-badges",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a localized navigation badge or a calculation shown beside the worker's menu item",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (hides `0`; shows text longer than 3 characters as `999+` when it parses as an integer and otherwise as its first 3 characters and `..`, `MenuAdapter.updateBadgeView`)",
@@ -1800,7 +1883,122 @@
 			"cell": "`custom_icons[0]`; privilege `custom_icon_badges`",
 			"markers": []
 		},
-		"gates": ["privilege/custom_icon_badges"]
+		"gates": ["privilege/custom_icon_badges"],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/custom-icon-form-other-than-badge",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Custom icon with another display form",
+		"surfaceKeys": ["schema:CustomIcon.form"],
+		"valueClass": "custom-icon-form-other-than-badge",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The editor creates only badges and has no control to select another display form.",
+		"subject": "menu-badges",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The editor creates only badges and has no control to select another display form."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/badge-missing-localized-text",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Badge with no text in any build language",
+		"surfaceKeys": ["schema:CustomIcon.text"],
+		"valueClass": "badge-missing-localized-text",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The build references its badge locale id, emits no definition for it and Core cannot evaluate the label.",
+		"subject": "menu-badges",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The build references its badge locale id, emits no definition for it and Core cannot evaluate the label."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/badge-calculation-outside-typed-values",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Badge calculation with no typed interpretation",
+		"surfaceKeys": ["schema:CustomIcon.xpath"],
+		"valueClass": "badge-calculation-outside-typed-values",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The navigation calculation cannot be bound to a typed value on the worker menu where it is evaluated.",
+		"subject": "menu-badges",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "The navigation calculation cannot be bound to a typed value on the worker menu where it is evaluated."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-item-badges",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`custom_icons` on a case list menu item",
+		"surfaceKeys": ["schema:CaseList.custom_icons"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: the case list menu item writes its label, picture and audio only",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-action-badges",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`custom_icons` on a case list action",
+		"surfaceKeys": ["schema:CaseListForm.custom_icons"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: the case list action writes its label, picture and audio only",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/custom-icons-1",
@@ -2213,6 +2411,32 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/module-layout-outside-editor-choices",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Menu layout outside the options the settings page can save",
+		"surfaceKeys": ["schema:Module.display_style"],
+		"valueClass": "outside-layout-choices",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: The menu settings page offers List or Grid for a basic menu.",
+		"subject": "menu-display",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The menu settings page offers List or Grid for a basic menu."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
@@ -2222,10 +2446,8 @@
 			"schema:Module.display_style"
 		],
 		"valueClass": "per-module-when-some-menus-are-grids",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `menuStyle.moduleGrid`",
-		"subject": "menu-display",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.menuLayout`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2240,7 +2462,8 @@
 			"cell": "`display_style`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/display-style-on-an-advanced-or-shadow-module",
@@ -2492,10 +2715,9 @@
 		"item": "`ShadowModule.excluded_form_ids` non-empty",
 		"surfaceKeys": ["schema:ShadowModule.excluded_form_ids"],
 		"valueClass": "non-empty",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf.excludedForms` (form identities): the app source keeps these as real form ids while re-minting the forms' own ids, and the reader maps them through the real ids from `ApplicationResource`",
-		"subject": "mirror-menus",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: source form UUIDs excluded on this menu in source order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2560,10 +2782,9 @@
 			"schema:ShadowModule.form_session_endpoints"
 		],
 		"valueClass": "non-empty-with-unique-slug-ids",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf.formEntryPoints` (form identity + endpoint id), mapped through the real form ids from `ApplicationResource`",
-		"subject": "mirror-menus",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the route menu holds a separate deep link for each listed source form, where the menu it lists tracks cases",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT / DIFFERENT (as for module and form entry points, Module fields)",
@@ -2580,6 +2801,32 @@
 			"markers": []
 		},
 		"gates": ["toggle/SESSION_ENDPOINTS"]
+	},
+	{
+		"id": "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`ShadowModule.form_session_endpoints` non-empty on a menu listing a survey menu's forms",
+		"surfaceKeys": ["schema:ShadowModule.form_session_endpoints"],
+		"valueClass": "on-a-menu-listing-survey-forms",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the menu settings page sends the form deep links with every save but renders the `session_endpoint_id` field its save then reads only in the Advanced panel, which it hides on a menu that tracks no cases (`views/modules.py::get_module_view_context`'s `show_advanced_settings`, `edit_module_attr`'s `request.POST['session_endpoint_id']`). Remove the menu's deep links to single forms in HQ, or give the menu it lists a case type, before checking again.",
+		"subject": "deep-links",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the menu settings page sends the form deep links with every save but renders the `session_endpoint_id` field its save then reads only in the Advanced panel, which it hides on a menu that tracks no cases (`views/modules.py::get_module_view_context`'s `show_advanced_settings`, `edit_module_attr`'s `request.POST['session_endpoint_id']`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/shadowmodule-case-type-stored-key",
@@ -8436,10 +8683,8 @@
 			"schema:ShadowModule.parent_select"
 		],
 		"valueClass": "parent-outside-declared-type",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a parent menu of any other case type HQ offers (`views/modules.py::get_modules_with_parent_case_type`)",
-		"subject": "parent-selection",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.parentCaseModuleUuid`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8454,7 +8699,8 @@
 			"cell": "that shape",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/parent-select-naming-a-module-that-searches-inline-under-the",
@@ -8737,10 +8983,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "follow-up-form-of-the-parent-case-type",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm` follow-up arm (offered only where the module selects its parent through `parent_select`, `views/modules.py::get_parent_select_followup_forms`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the list action names the earlier parent selection, binds the form to its supplied record and follows the ordinary form workflow",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8765,7 +9010,7 @@
 		"surfaceKeys": ["schema:CaseListForm.label"],
 		"valueClass": "with-text-beside-a-form-id",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the registration's label on the case list where it holds text in some language: the slot's `label`, else the form's name (`emissionPlan.ts::caseListFormLabelUnit`); a language whose value is an empty string is read as \"Create a new Case\" in that language, the text HQ's build writes there, and the first publish says so; a language the label holds no key for is no translation",
+		"dispositionCell": "**HELD**: the registration's label on the case list where it holds text in some language: the slot's `label`, else the form's name (`emissionPlan.ts::caseListFormLabelUnit`); a language whose value is an empty string is read as the text HQ's build writes there, \"Create a new Case\", or \"Continue To\" and the form's name where the source project space has FOLLOWUP_FORMS_AS_CASE_LIST_FORM, and the first publish says so; a language the label holds no key for is no translation",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -8791,7 +9036,7 @@
 		"surfaceKeys": ["schema:CaseListForm.label"],
 		"valueClass": "no-text-beside-a-form-id",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a label with no text in any language beside a `form_id` is read as the label \"Create a new Case\", the text HQ's build writes for it (`app_strings.py::_create_case_list_form_app_strings`); the first publish says the button's text is fixed at those words",
+		"dispositionCell": "**HELD**: a label with no text in any language beside a `form_id` is read as the text HQ's build writes for it (`app_strings.py::_create_case_list_form_app_strings`): \"Create a new Case\", or \"Continue To\" and the form's name where the source project space has FOLLOWUP_FORMS_AS_CASE_LIST_FORM; the first publish says the button's text is fixed at those words",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -8824,7 +9069,7 @@
 		],
 		"valueClass": "default-or-case-list",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `case_list` for the `after-empty-search` arm; the `always` arm's `afterSubmit` (`case-list` is `case_list`, `new-case` is `default`), stored also where the form's own end-of-form navigation overrides it",
+		"dispositionCell": "**HELD**: both list actions hold the destination (`case-list` is `case_list`, `new-case` is `default`), including where the form has its own overriding navigation",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -8855,10 +9100,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "default-on-the-hidden-module-shape",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `default` beside a form in an always-hidden module of a host whose forms read the search: Nova's `after-empty-search` arm returns to Results, and `default` goes on with the new case chosen (`CaseListFormWorkflow._get_stack_frames`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the empty-search action continues with the new case when it was created. With no case created, the worker returns to the list. A form with its own First menu destination keeps that navigation.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8917,10 +9161,9 @@
 			"schema:CaseListForm.relevancy_expression"
 		],
 		"valueClass": "with-followup-forms-as-case-list-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm.displayCondition` (Predicate, else the typed expression model)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the list has a typed condition on its form button, evaluated against this entry before choosing a record; a completed empty search has its own setting",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8999,7 +9242,8 @@
 			"schema:CaseListForm.post_form_workflow",
 			"schema:CaseListForm.relevancy_expression",
 			"schema:Module.case_list_form",
-			"schema:AdvancedModule.case_list_form"
+			"schema:AdvancedModule.case_list_form",
+			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "beside-a-blank-form-id",
 		"disposition": "INERT",
@@ -9182,10 +9426,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "advanced-host-or-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a host or a named form in an advanced menu: HQ's six rules bind every form of the host to one case tag and one detail module, and an advanced form registers through `case_session_var`, a second return-frame source (`AdvancedModuleValidator`); Nova's `always` arm needs both menus basic (`CASE_LIST_REGISTRATION_ADVANCED_MENU`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a host or a named form in an advanced menu. The named form's one registration of the list's type is the action's case, and its return frame reads that action's `case_session_var`. An advanced host's forms keep HQ's six case-list-module rules (`AdvancedModuleValidator.validate_with_raise`) over the loads Nova's export writes: the same records, a parent chain, the host's type, one case tag and the host's own list; a form that breaks one is named (`CASE_LIST_REGISTRATION_ADVANCED_MENU`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9215,10 +9458,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "form-registering-the-type-as-a-root-child-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a form whose one registration of the list's type is a root child case (`Form.get_registration_actions`): its action may carry a selection and its return reads a subcase datum (`session_var_for_action` of the subcase); Nova's `always` arm names a registration form of the list's type",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the action names the stable creation operation and returns with that child when it exists",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9248,10 +9490,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "form-of-another-list-s-empty-search",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: one form offered after an empty search by one list and always by another: the form is on no menu and Preview admits it from one launch",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: both hosts offer the same hidden form and each list retains its own return and action settings. A form can only read a search answer supplied through all its entries.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9281,25 +9522,82 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "host-under-a-display-only-parent-sharing-one-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Register return whose frame HQ builds through the first menu with that menu's shared case ahead of its first command, which CommCare keeps on the first menu (`firstMenuSharedCase`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the list action can carry its new record through the first menu",
 		"platforms": {
 			"kind": "each",
-			"cell": "RUNS / RUNS",
+			"cell": "DIFFERENT (fresh first-menu case choice) / DIFFERENT (first menu retains its shared case)",
 			"webApps": {
-				"reading": "runs"
+				"reading": "different",
+				"note": "fresh first-menu case choice"
 			},
 			"android": {
-				"reading": "runs"
+				"reading": "different",
+				"note": "first menu retains its shared case"
 			}
 		},
 		"emission": {
-			"cell": "`case_list_form.form_id`",
+			"cell": "case list form and its return frame",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-return-search-needs-the-created-case",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "A conditional registration whose return query fetches the case it was meant to create",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "return-search-needs-the-created-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps receives a 404 after the form saves if the case does not exist",
+		"subject": "case-list-registration",
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "the return searches for a case the form may never create"
+			}
+		]
+	},
+	{
+		"id": "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "the return would carry a case the form does not supply or a different kind of case in another command",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:CaseListForm",
+			"schema:CaseListForm.form_id",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "incompatible-first-menu-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the return would carry a case the form does not supply or a different kind of case in another command",
+		"subject": "case-list-registration",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "the return would carry a case the form does not supply or a different kind of case in another command"
+			}
+		]
 	},
 	{
 		"id": "menus-and-case-lists/hq-computed-datums-case-id-new-type-n-usercase-id-datum-parent",

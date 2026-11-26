@@ -28,6 +28,7 @@ import {
 	ASSET_SIZE_CAPS_BYTES,
 	type AssetKind,
 	type AssetMimeType,
+	HQ_PICTURE_MAX_PIXELS,
 	type MediaAssetId,
 	type MediaFormatKey,
 	type MediaKind,
@@ -212,8 +213,6 @@ const ENTRY = {
 		"expressions-and-data/multimedia-map-key-not-under-jr-file-that-the-build-keeps",
 	audioFiledAsVideo:
 		"expressions-and-data/audio-m4a-with-another-brand-isom-mp41-mp42-dash",
-	overLimit:
-		"expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
 	androidInstall:
 		"expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install",
 	runtimeDraws:
@@ -709,6 +708,14 @@ const KIND_NOUN: Readonly<Record<MediaKind, string>> = {
 	video: "a video",
 };
 
+/** A bound in whole gigabytes where it is one or more, else in megabytes. */
+function sizeWords(bytes: number): string {
+	const gib = 1024 * 1024 * 1024;
+	return bytes >= gib
+		? `${Math.round(bytes / gib)} GB`
+		: `${Math.round(bytes / 1024 / 1024)} MB`;
+}
+
 /** What the verdicts of a plan's files found. */
 export interface MediaVerdictFindings {
 	readonly findings: readonly Finding[];
@@ -759,15 +766,34 @@ export function mediaFindings(input: {
 		const place: HqPlace = { kind: "media", path };
 		switch (verdict.kind) {
 			case "over-limit":
+				/* Past what Nova reads of one file however it reads it: a file streamed past
+				 * `HQ_MEDIA_STREAM_MAX_BYTES`, or a picture sharp would read whole past
+				 * `WHOLE_PICTURE_MAX_BYTES`. A file past its kind's upload cap alone comes in
+				 * (`expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+				 * HELD). The bound is Nova's; the file is the one thing to change, so the finding
+				 * names it and the bound it passed. */
+				log.warn(
+					"[bring-in:media] a media file was past what Nova reads of one file",
+					{ mediaKind: verdict.mediaKind, capBytes: verdict.capBytes },
+				);
 				findings.push(
-					manifestFinding(
-						ENTRY.overLimit,
-						place,
-						`${path} (over ${Math.round(verdict.capBytes / 1024 / 1024)} MB, the most Nova takes for ${KIND_NOUN[verdict.mediaKind]})`,
-					),
+					circumstanceFinding("media-file-too-large", place, {
+						name: `${path} (over ${sizeWords(verdict.capBytes)}, the most Nova reads of ${KIND_NOUN[verdict.mediaKind]})`,
+					}),
 				);
 				break;
 			case "refused": {
+				/* A picture past the pixels CommCare HQ's Pillow opens (`HQ_PICTURE_MAX_PIXELS`): CommCare
+				 * HQ stores no such picture again, through its bulk upload or any other, so no publish
+				 * could send it. */
+				if (verdict.reason === "picture-too-many-pixels") {
+					findings.push(
+						circumstanceFinding("media-picture-too-many-pixels", place, {
+							name: `${path} (more than ${HQ_PICTURE_MAX_PIXELS.toLocaleString("en-US")} pixels)`,
+						}),
+					);
+					break;
+				}
 				const entry = hqMediaRefusalEntry(
 					verdict.sniffedMime,
 					verdict.reason,

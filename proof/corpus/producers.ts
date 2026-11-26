@@ -29,6 +29,7 @@ import {
 	caseCaptureFixture,
 	caseCaptureScenarios,
 } from "@/lib/commcare/__tests__/caseCaptureFixture";
+import { caseListActionRolesFixture } from "@/lib/commcare/__tests__/caseListActionRolesFixture";
 import {
 	caseListEmissionFixture,
 	caseListEmissionScenarios,
@@ -332,6 +333,7 @@ function produced(): Produced[] {
 	add("container", "live-count-effects", liveCountEntryDoc(true));
 
 	for (const scenario of endpointScenarios) {
+		if (LATER_ENDPOINT_SCENARIOS.has(scenario)) continue;
 		add("endpoint", scenario, endpointWireFixture(scenario));
 	}
 
@@ -433,8 +435,28 @@ function produced(): Produced[] {
 		const { doc, assets } = localizedMediaWireFixture();
 		add("media", "media-language-files", doc, { media: uploadedMedia(assets) });
 	}
+	add(
+		"case-list-action",
+		"basic",
+		caseListActionRolesFixture(false, { saveParentNote: true }),
+	);
+	add(
+		"case-list-action",
+		"advanced",
+		caseListActionRolesFixture(true, { saveParentNote: true }),
+	);
+	// Built last: a fixture without a fixed id mints it from one counter in
+	// build order, and CommCare HQ's retained answers for navigation-base hold
+	// the ids the documents before these took.
+	for (const scenario of LATER_ENDPOINT_SCENARIOS)
+		add("endpoint", scenario, endpointWireFixture(scenario));
 	return out;
 }
+
+/** Endpoint scenarios the corpus builds after every other producer. */
+const LATER_ENDPOINT_SCENARIOS: ReadonlySet<
+	(typeof endpointScenarios)[number]
+> = new Set(["registration-supplied", "first-menu"]);
 
 /** The corpus id of a producer document: its family and scenario. */
 export function producerDocumentId(family: string, scenario: string): string {

@@ -3,12 +3,14 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
+import { MenuBadgeSection } from "@/components/builder/conditions/MenuBadgeSection";
 import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { Button } from "@/components/shadcn/button";
 import { PopoverTitle } from "@/components/shadcn/popover";
 import { useAdvancedKindLine } from "@/lib/doc/hooks/useAdvancedKindReasons";
 import type { Uuid } from "@/lib/doc/types";
 import { CaseListMenuItemSection } from "./CaseListMenuItemSection";
+import { ListedFormsSection } from "./ListedFormsSection";
 import { MenuPlacementSection } from "./MenuPlacementSection";
 import { MenuScreenSection } from "./MenuScreenSection";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
@@ -66,10 +68,12 @@ export function ModuleSettingsPanel({
 					target={{ kind: "case-list", moduleUuid }}
 					onNavigateAway={onClose}
 				/>
+				<ListedFormsSection moduleUuid={moduleUuid} />
 				<MenuPlacementSection moduleUuid={moduleUuid} />
 				<MenuScreenSection moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
+				<MenuBadgeSection moduleUuid={moduleUuid} />
 				<ControlWording owner={moduleUuid} />
 				<CaseListMenuItemSection moduleUuid={moduleUuid} />
 				<DisplayConditionSection

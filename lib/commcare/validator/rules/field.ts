@@ -34,7 +34,11 @@ import {
 	snapshotTranslationUnits,
 } from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
-import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
+import {
+	MEDIA_ROLES,
+	type Media,
+	type MediaRole,
+} from "@/lib/domain/multimedia";
 import {
 	type QueryRepeatNeed,
 	queryRepeatPlacementNeeds,
@@ -641,6 +645,13 @@ function displayCombination(
 	];
 }
 
+const ROLE_NOUNS: Readonly<Record<MediaRole, string>> = {
+	image: "image",
+	audio: "audio",
+	video: "video",
+	videoInline: "inline video",
+};
+
 function localizedMedia(field: Field, ctx: FieldContext): ValidationError[] {
 	const bundles: (Media | undefined)[] = [];
 	if ("label_media" in field) bundles.push(field.label_media);
@@ -670,12 +681,12 @@ function localizedMedia(field: Field, ctx: FieldContext): ValidationError[] {
 					message:
 						"This media names a language outside the app. Choose an app language for the file.",
 				};
-			for (const role of MEDIA_KINDS)
+			for (const role of MEDIA_ROLES)
 				if (values[role] !== undefined && !media[role])
 					problem = {
 						kind: "needs-shared",
 						role,
-						message: `A translated ${role} needs a shared file. Choose the shared ${role} for this question or choice first, or remove its translated files.`,
+						message: `A translated ${ROLE_NOUNS[role]} needs a shared file. Choose the shared ${ROLE_NOUNS[role]} for this question or choice first, or remove its translated files.`,
 					};
 		}
 		if (problem)

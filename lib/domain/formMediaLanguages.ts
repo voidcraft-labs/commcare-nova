@@ -2,7 +2,7 @@ import type { BlueprintDoc } from "./blueprint";
 import type { IconRef } from "./builtinIcons";
 import type { Field } from "./fields";
 import type { EffectiveAppLocalization, LanguageTag } from "./localization";
-import { MEDIA_KINDS, type Media, mediaInLanguage } from "./multimedia";
+import { MEDIA_ROLES, type Media, mediaInLanguage } from "./multimedia";
 import {
 	type NavigationMedia,
 	navigationFilesInLanguage,
@@ -32,7 +32,7 @@ function rebaseBundle(
 	if (!canonical) return;
 	const previous = media.mediaByLanguage;
 	const next: NonNullable<Media["mediaByLanguage"]> = recordFromEntries([]);
-	for (const role of MEDIA_KINDS) {
+	for (const role of MEDIA_ROLES) {
 		if (canonical[role]) media[role] = canonical[role];
 		for (const [tag, shown] of effective) {
 			const prior = ownRecordValue(previous, tag)?.[role];

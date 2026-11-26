@@ -1088,6 +1088,11 @@ class Shape:
     # How many uses of the key sit there: one, but where the expression reads the key more than once (a guard and
     # the read it guards), each read is a use and each takes the verdict.
     uses: int = 1
+    # Whether the app JSON is the one HQ made (``App.authored``), which a class only Nova's reader settles there reads.
+    authored: bool = False
+    # Whether Nova's reader read that app (``App.read``): a corpus document's, which a class only that reader
+    # settles takes as held.
+    read: bool = False
 
 
 def refused(export, source, key, where, **kw):
@@ -1718,6 +1723,16 @@ def _settings_and_forms():
                 "schema:Application.logo_refs",
                 "/logo_refs",
             ),
+        ),
+        "application-and-settings/menu-layout-outside-editor-choices": (
+            refused("app", app(use_grid_menus="tiles"), "schema:Application.use_grid_menus", "/use_grid_menus"),
+            accepted("app", app(use_grid_menus=True), "schema:Application.use_grid_menus", "/use_grid_menus"),
+            refused("app", app(grid_form_menus="columns"), "schema:Application.grid_form_menus", "/grid_form_menus"),
+            accepted("app", app(grid_form_menus="some"), "schema:Application.grid_form_menus", "/grid_form_menus"),
+        ),
+        "menus-and-case-lists/module-layout-outside-editor-choices": (
+            refused("app", _app([_module(display_style="columns")]), "schema:Module.display_style", "/modules/0/display_style"),
+            accepted("app", _app([_module(display_style="grid")]), "schema:Module.display_style", "/modules/0/display_style"),
         ),
         "application-and-settings/repeated-android-app-dependency": (
             refused("app", app(profile={"features": {"dependencies": ["org.rdtoolkit", "org.rdtoolkit"]}}),
@@ -5616,6 +5631,14 @@ def _data_binds_and_itext():
             # one non-ASCII field or attribute step, which the form builder compares with the table's names as text
             accepted("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[3]/itemset[1]/label[1]/@ref"),
             accepted("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[3]/itemset[1]/value[1]/@ref"),
+            # a jr:itext label is questions/itemset-label-jr-itext-field's, never this class's
+            accepted(
+                "form",
+                itemsets,
+                "xform:select1/itemset/label@ref",
+                "select1[1]/itemset[1]/label[1]/@ref",
+                readings=True,
+            ),
         ),
         "questions/markdown-form-differing-from-the-default-text": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
@@ -6036,6 +6059,29 @@ def _per_rows():
     }
 
 
+def _label_texts():
+    """The refused shape of a question label's other texts: ``q1``'s French ``long`` and ``tts`` forms the default
+    English lacks; ``q2``'s ``qrcode`` form English holds and French inherits, held."""
+    texts = _form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q1"><value>A</value></text>
+            <text id="q2"><value>B</value><value form="qrcode">B-1</value></text></translation>
+          <translation lang="fr">
+            <text id="q1"><value>A</value><value form="long">Plus long</value><value form="tts">Dire A</value></text>
+            <text id="q2"><value>B</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
+    )
+    return {
+        "questions/long-qrcode-or-tts-form-missing-in-default-language": (
+            refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),
+            refused("form", texts, "itext-form:android/tts", "translation[2]/text[1]/value[3]/@form"),
+            refused("form", texts, VALUE_FORM, "translation[2]/text[1]/value[2]/@form"),
+            accepted("form", texts, "itext-form:android/qrcode", "translation[1]/text[2]/value[2]/@form"),
+        ),
+    }
+
+
 def _held_new():
     """The shapes of the HELD-NEW classes beside an allowing class of their key: a use the class takes (``refused``:
     its reader says True, and the use stands held-new) and one beside it that the allowing class holds."""
@@ -6368,6 +6414,287 @@ def _held_new():
     }
 
 
+def _listed_forms_and_first_menu():
+    """Menus listing another menu's forms, a deep link's case-creation arguments and the first menu's shared case."""
+
+    def shadow(**fields):
+        return {
+            "doc_type": "ShadowModule",
+            "unique_id": fields.pop("unique_id", "sh"),
+            "shadow_module_version": 2,
+            "source_module_id": "src",
+            "excluded_form_ids": [],
+            "form_session_endpoints": [],
+            **fields,
+        }
+
+    source = _module([{**_form_json(), "unique_id": "visit"}], unique_id="src")
+    child = _module([{**_form_json(), "unique_id": "check"}], unique_id="kid", root_module_id="src")
+    mirror_child = shadow(unique_id="shkid", root_module_id="sh", source_module_id="kid")
+    opening = _form_json("none", open_case={"condition": ALWAYS})
+
+    def first_menu(*others):
+        """A top-level menu that lists its one follow-up on the first menu, then ``others``."""
+        above = _module([{**_form_json(), "unique_id": "visit"}], unique_id="above", put_in_root=True)
+        return _app([above, *others])
+
+    review = _module(
+        [{**_form_json(), "unique_id": "review", "session_endpoint_id": "review"}],
+        unique_id="reviews",
+        root_module_id="above",
+    )
+    household = _module([{**_form_json(), "unique_id": "home"}], unique_id="homes", case_type="household")
+    register = {
+        "form_id": "reg",
+        "post_form_workflow": "case_list",
+    }
+    registration = _module([{**_form_json("none", open_case={"condition": ALWAYS}), "unique_id": "reg"}], unique_id="r")
+    return {
+        "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms": (
+            refused(
+                "app",
+                _app(
+                    [
+                        {**source, "case_type": ""},
+                        shadow(
+                            form_session_endpoints=[
+                                {"doc_type": "ShadowFormEndpoint", "form_id": "visit", "session_endpoint_id": "visit"}
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowModule.form_session_endpoints",
+                "/modules/1/form_session_endpoints",
+            ),
+            # The same links on a menu listing a case menu's forms, whose Advanced panel the page shows.
+            accepted(
+                "app",
+                _app(
+                    [
+                        source,
+                        shadow(
+                            form_session_endpoints=[
+                                {"doc_type": "ShadowFormEndpoint", "form_id": "visit", "session_endpoint_id": "visit"}
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowModule.form_session_endpoints",
+                "/modules/1/form_session_endpoints",
+            ),
+        ),
+        # HQ's default version is no use, so the class takes none (``DEFAULT_ONLY``).
+        "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": (
+            accepted(
+                "app",
+                _app([source, shadow()]),
+                "schema:ShadowModule.shadow_module_version",
+                "/modules/1/shadow_module_version",
+            ),
+        ),
+        "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": (
+            refused(
+                "app",
+                _app([source, shadow(session_endpoint_id=" visits ")]),
+                "schema:ShadowModule.session_endpoint_id",
+                "/modules/1/session_endpoint_id",
+            ),
+            accepted(
+                "app",
+                _app([source, shadow(session_endpoint_id="visits")]),
+                "schema:ShadowModule.session_endpoint_id",
+                "/modules/1/session_endpoint_id",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        source,
+                        shadow(
+                            form_session_endpoints=[
+                                {
+                                    "doc_type": "ShadowFormEndpoint",
+                                    "form_id": "visit",
+                                    "session_endpoint_id": "visit ",
+                                }
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowFormEndpoint.session_endpoint_id",
+                "/modules/1/form_session_endpoints/0/session_endpoint_id",
+            ),
+        ),
+        "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form": (
+            refused(
+                "app",
+                _app([source, shadow(source_module_id="gone")]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+            refused(
+                "app",
+                _app([source, shadow(excluded_form_ids=["gone"])]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+            accepted(
+                "app",
+                _app([source, shadow(excluded_form_ids=["visit"])]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+        ),
+        "menus-and-case-lists/shared-form-menus-with-incomplete-submenus": (
+            refused(
+                "app",
+                _app([source, child, shadow()]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/2/source_module_id",
+            ),
+            accepted(
+                "app",
+                _app([source, child, shadow(), mirror_child]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/2/source_module_id",
+            ),
+        ),
+        "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier": (
+            refused(
+                "app",
+                _app([_module([{**opening, "function_datum_endpoints": ["case_id_new_patient_1"]}])]),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+            accepted(
+                "app",
+                _app([_module([{**opening, "function_datum_endpoints": ["case_id_new_patient_0"]}])]),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+            # A name given twice is the one argument HQ's build adds once.
+            accepted(
+                "app",
+                _app(
+                    [
+                        _module(
+                            [
+                                {
+                                    **opening,
+                                    "function_datum_endpoints": ["case_id_new_patient_0", "case_id_new_patient_0"],
+                                }
+                            ]
+                        )
+                    ]
+                ),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+        ),
+        "forms-and-case-writes/first-menu-selection-used-for-different-records": (
+            # The review's deep link opens through the first menu, which keeps the patient for the household
+            # menu's form that reads ``case_id`` as a household.
+            refused(
+                "app",
+                first_menu(review, household),
+                "schema:Form.session_endpoint_id",
+                "/modules/1/forms/0/session_endpoint_id",
+            ),
+            accepted(
+                "app",
+                first_menu(review),
+                "schema:Form.session_endpoint_id",
+                "/modules/1/forms/0/session_endpoint_id",
+            ),
+        ),
+        "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case": (
+            refused(
+                "app",
+                first_menu({**review, "case_list_form": register}, registration, household),
+                "schema:CaseListForm.form_id",
+                "/modules/1/case_list_form/form_id",
+            ),
+            accepted(
+                "app",
+                first_menu({**review, "case_list_form": register}, registration),
+                "schema:CaseListForm.form_id",
+                "/modules/1/case_list_form/form_id",
+            ),
+        ),
+    }
+
+
+def _menu_badges():
+    """A menu's and a form's first badge, and the navigation conditions beside them."""
+
+    def icon(**fields):
+        return {"doc_type": "CustomIcon", "form": "badge", "text": {}, "xpath": None, **fields}
+
+    def badged(*icons, langs=("en",)):
+        module = _module([_form_json()], custom_icons=list(icons))
+        return _app([module], langs=list(langs))
+
+    def conditioned(module_filter):
+        return _app([_module([_form_json()], module_filter=module_filter)])
+
+    return {
+        "menus-and-case-lists/custom-icon-form-other-than-badge": (
+            refused("app", badged(icon(form="image", text={"en": "1"})), "schema:CustomIcon.form", "/custom_icons/0/form"),
+            # Only the first icon is read: a later one's form is no use of the class.
+            accepted(
+                "app",
+                badged(icon(text={"en": "1"}), icon(form="image", text={"en": "2"})),
+                "schema:CustomIcon.form",
+                "/custom_icons/1/form",
+            ),
+        ),
+        "menus-and-case-lists/badge-missing-localized-text": (
+            refused("app", badged(icon(text={"en": ""})), "schema:CustomIcon.text", "/custom_icons/0/text"),
+            # A language with no text of its own shows the default language's.
+            accepted(
+                "app",
+                badged(icon(text={"en": "New"}), langs=("en", "fr")),
+                "schema:CustomIcon.text",
+                "/custom_icons/0/text",
+            ),
+            # A calculation is read in place of the text.
+            accepted(
+                "app",
+                badged(icon(text={"en": ""}, xpath="1")),
+                "schema:CustomIcon.text",
+                "/custom_icons/0/text",
+            ),
+        ),
+        "menus-and-case-lists/badge-calculation-outside-typed-values": (
+            unsettled(
+                "app", badged(icon(xpath="count(x)")), "schema:CustomIcon.xpath", "/custom_icons/0/xpath", authored=True
+            ),
+            accepted("app", badged(icon(xpath="count(x)")), "schema:CustomIcon.xpath", "/custom_icons/0/xpath"),
+            # The app HQ made of a corpus document, which Nova's reader read.
+            accepted(
+                "app",
+                badged(icon(xpath="count(x)")),
+                "schema:CustomIcon.xpath",
+                "/custom_icons/0/xpath",
+                authored=True,
+                read=True,
+            ),
+        ),
+        "menus-and-case-lists/navigation-condition-outside-typed-worker-context": (
+            unsettled("app", conditioned("x = 1"), "schema:Module.module_filter", "/modules/0/module_filter", authored=True),
+            accepted("app", conditioned("x = 1"), "schema:Module.module_filter", "/modules/0/module_filter"),
+            accepted(
+                "app",
+                conditioned("x = 1"),
+                "schema:Module.module_filter",
+                "/modules/0/module_filter",
+                authored=True,
+                read=True,
+            ),
+        ),
+    }
+
+
 SHAPES = {
     **_questions(),
     **_settings_and_forms(),
@@ -6376,11 +6703,27 @@ SHAPES = {
     **_data_binds_and_itext(),
     **_localized_media(),
     **_per_rows(),
+    **_label_texts(),
     **_held_new(),
+    **_listed_forms_and_first_menu(),
+    **_menu_badges(),
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
-UNSETTLED = {}
+UNSETTLED = {
+    "menus-and-case-lists/badge-calculation-outside-typed-values": (
+        "Nova prints every badge calculation it sends from a typed value; only Nova's reader types one HQ holds"
+    ),
+    "menus-and-case-lists/navigation-condition-outside-typed-worker-context": (
+        "Nova prints every display condition it sends from a typed one; only Nova's reader types one HQ holds"
+    ),
+}
+# Classes whose refused value is HQ's default, which is no use, by why: they have no refused shape.
+DEFAULT_ONLY = {
+    "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": (
+        "version 1 is the model's default, and a key at its default is no use"
+    ),
+}
 # Classes that take every use of their keys, by why: they have no accepted shape.
 EVERY_USE_TAKEN = {
     "questions/authored-orx-pollsensor": (
@@ -6411,7 +6754,9 @@ def test_every_reader_has_a_refused_shape_and_an_accepted_one_beside_it():
     unconsulted = {entry_id for entry_id, shapes in SHAPES.items() if not all(shape.named for shape in shapes)}
     assert unconsulted == set(UNCONSULTED)
     for entry_id, shapes in SHAPES.items():
-        needed = {None if entry_id in UNSETTLED else True} | (set() if entry_id in EVERY_USE_TAKEN else {False})
+        needed = (set() if entry_id in DEFAULT_ONLY else {None if entry_id in UNSETTLED else True}) | (
+            set() if entry_id in EVERY_USE_TAKEN else {False}
+        )
         assert needed <= {shape.verdict for shape in shapes}, f"{entry_id} has no {needed} shape"
 
 
@@ -6421,7 +6766,15 @@ def _shape_uses(shape, manifest, readings=None):
     if shape.export == "form":
         manifest_usage.xform_uses(shape.source, manifest, artifact, found)
     elif shape.export == "app":
-        manifest_usage.app_json_uses(shape.source, manifest, artifact, found, configurations=shape.configurations)
+        manifest_usage.app_json_uses(
+            shape.source,
+            manifest,
+            artifact,
+            found,
+            configurations=shape.configurations,
+            authored=shape.authored,
+            read=shape.read,
+        )
     else:
         manifest_usage.runtime_xml_uses(shape.source, "SuiteParser", manifest, artifact, found)
     for document in found.documents:
@@ -6677,7 +7030,6 @@ KNOWN_GAPS = frozenset(
         "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform",
         "forms-and-case-writes/show-count-true",
         "forms-and-case-writes/unknown-form-doc-type",
-        "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding",
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
         "menus-and-case-lists/attachment-name-with-any-other-format",
         "menus-and-case-lists/callout-with-no-extras-or-no-responses",
@@ -6693,7 +7045,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/module-lazy-load-case-list-fields-true",
         "menus-and-case-lists/parent-select-relationship-null-other",
         "menus-and-case-lists/report-context-tile-true",
-        "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1",
         "questions/a-choice-bind-type-contradicting-the-control-listitem-select1-on",
         "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
         # Its keys are a Connect block's mug types and Vellum's Connect plugin, and the extraction makes a use of

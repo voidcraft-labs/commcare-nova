@@ -1,5 +1,7 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
+import { exposedEntryCaseCreations } from "./entryPointProjection";
+import type { HqApplicationTree } from "./hqJson/xpath";
 /**
  * BlueprintDoc → HqApplication expansion.
  *
@@ -55,6 +57,7 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { localizedNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
+import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
 import { EMPTY_CASE_LIST_TEXT } from "@/lib/commcare/suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
@@ -115,6 +118,7 @@ import {
 	hqXPath,
 	serializeHqApplication,
 } from "./hqJson/xpath";
+import { hqMenuBadges, projectMenuBadge } from "./menuBadge";
 import { emittedModuleKind } from "./moduleKind";
 import { buildXFormSource } from "./xform/builder";
 
@@ -332,7 +336,9 @@ export function* expandDocSteps(
 		const hasCases = caseType !== "";
 		// Every form of a menu emitted advanced is an `AdvancedForm`
 		// (`moduleKind.ts::emittedModuleKind`).
-		const advanced = emittedModuleKind(doc, moduleUuid) === "advanced";
+		const advanced =
+			mod.formsFromMenu === undefined &&
+			emittedModuleKind(doc, moduleUuid) === "advanced";
 
 		const forms = formUuids.map((formUuid) => {
 			const form = doc.forms[formUuid];
@@ -477,6 +483,28 @@ export function* expandDocSteps(
 						caseWire.loads.some((load) => !load.worker);
 			formShellObj.auto_gps_capture = form.captureLocation === true;
 			formShellObj.session_endpoint_id = form.entryPoint?.id ?? "";
+			if (form.entryCaseCreations !== undefined) {
+				const exposed = exposedEntryCaseCreations(
+					doc,
+					{ kind: "form", moduleUuid, formUuid },
+					linkContext,
+				);
+				const argumentsByOperation = new Map(
+					exposed.map((row) => [row.operationUuid, row.argumentId]),
+				);
+				// HQ saves list order and repeats. Its endpoint generator tests membership as it
+				// walks the physical frame, so a repeated source value contributes one argument.
+				formShellObj.function_datum_endpoints = form.entryCaseCreations.map(
+					(uuid) => {
+						const id = argumentsByOperation.get(uuid);
+						if (!id)
+							throw new Error(
+								"A deep link case creation has no argument on its form.",
+							);
+						return id;
+					},
+				);
+			}
 			formShellObj.respect_relevancy =
 				form.entryPoint?.ignoreDisplayConditions !== true;
 			const formFilter = emitFormDisplayConditionForHq(
@@ -491,6 +519,19 @@ export function* expandDocSteps(
 				entryDatumIdResolver(
 					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
 				),
+			);
+			formShellObj.custom_icons = hqMenuBadges(
+				projectMenuBadge(
+					authoredDoc,
+					{ kind: "form", uuid: formUuid },
+					form.badge,
+					opts.lookupNaming,
+					ownCaseDatumId,
+					entryDatumIdResolver(
+						entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+					),
+				),
+				localization,
 			);
 			formShellObj.form_filter =
 				formFilter === undefined
@@ -593,6 +634,8 @@ export function* expandDocSteps(
 					localization.languages,
 					declaresWebApps(doc),
 				);
+		if (shell.doc_type === "Module" && mod.menuLayout === "grid")
+			shell.display_style = "grid";
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
 		const rootModuleUuid = moduleParent(doc, moduleUuid);
@@ -616,6 +659,16 @@ export function* expandDocSteps(
 						expressions({ slot: "module_display_condition" }),
 						opts.lookupNaming,
 					);
+		if (synthetic === undefined)
+			shell.custom_icons = hqMenuBadges(
+				projectMenuBadge(
+					authoredDoc,
+					{ kind: "module", uuid: moduleUuid },
+					mod.badge,
+					opts.lookupNaming,
+				),
+				localization,
+			);
 		shell.module_filter =
 			moduleFilter === undefined ? null : hqXPath(moduleFilter, "no-case");
 		// A menu that shows its forms in the menu above is HQ's `put_in_root`.
@@ -641,7 +694,10 @@ export function* expandDocSteps(
 						noMatches.formUuid,
 					),
 				),
-				post_form_workflow: "case_list",
+				post_form_workflow:
+					mod.caseListRegistrationForm?.afterSubmit === "new-case"
+						? "default"
+						: "case_list",
 				relevancy_expression: hqXPath(NO_MATCHES_RELEVANCY),
 			};
 		}
@@ -656,6 +712,13 @@ export function* expandDocSteps(
 				? undefined
 				: formUniqueIdOf.get(alwaysOffered.formUuid);
 		if (alwaysOffered !== undefined && alwaysOfferedFormId !== undefined) {
+			const condition = caseListActionCondition(
+				authoredDoc,
+				moduleUuid,
+				alwaysOffered.showWhen,
+				"hq-json",
+				opts.lookupNaming,
+			);
 			const media = localizedNavMediaDicts(
 				alwaysOffered,
 				assets,
@@ -665,6 +728,9 @@ export function* expandDocSteps(
 			shell.case_list_form = {
 				doc_type: "CaseListForm",
 				form_id: alwaysOfferedFormId,
+				...(condition !== undefined && {
+					relevancy_expression: hqXPath(condition),
+				}),
 				label: localization.textMap(
 					caseListFormLabelUnit(
 						authoredDoc,
@@ -672,8 +738,14 @@ export function* expandDocSteps(
 						alwaysOffered.formUuid,
 					),
 				),
+				// A selected parent's follow-up returns to the list: HQ's menu
+				// settings page offers only "Go back to case list" for a form that
+				// registers nothing (`module_view.js::caseListFormModel`).
 				post_form_workflow:
-					alwaysOffered.afterSubmit === "case-list" ? "case_list" : "default",
+					alwaysOffered.afterSubmit === "case-list" ||
+					alwaysOffered.target?.kind === "chosen-parent"
+						? "case_list"
+						: "default",
 				media_image: media.media_image,
 				media_audio: media.media_audio,
 			};
@@ -746,6 +818,53 @@ export function* expandDocSteps(
 			};
 		}
 
+		const shared = mod.formsFromMenu;
+		if (shared !== undefined) {
+			if (shell.doc_type !== "Module")
+				throw new Error(
+					"A menu listing another menu's forms needs its own list settings.",
+				);
+			const sourceId = moduleUniqueIdOf.get(shared.menuUuid);
+			if (!sourceId)
+				throw new Error("The menu that provides these forms is missing.");
+			const formId = (uuid: Uuid) => {
+				const id = formUniqueIdOf.get(uuid);
+				if (!id)
+					throw new Error("A listed form is missing its deployment identity.");
+				return id;
+			};
+			const {
+				display_style: _style,
+				case_type: _sourceType,
+				...common
+			} = shell;
+			const mirror: HqApplicationTree["modules"][number] = {
+				...common,
+				doc_type: "ShadowModule",
+				module_type: "shadow",
+				forms: [],
+				shadow_module_version: 2,
+				source_module_id: sourceId,
+				excluded_form_ids: (shared.excludedFormUuids ?? []).map(formId),
+				form_session_endpoints: (doc.formOrder[shared.menuUuid] ?? []).flatMap(
+					(uuid) => {
+						const endpoint = shared.entryPoints?.find(
+							(row) => row.formUuid === uuid,
+						)?.entryPoint;
+						return endpoint
+							? [
+									{
+										doc_type: "ShadowFormEndpoint" as const,
+										form_id: formId(uuid),
+										session_endpoint_id: endpoint.id,
+									},
+								]
+							: [];
+					},
+				),
+			};
+			return mirror;
+		}
 		return shell;
 	};
 	const modules: ReturnType<typeof moduleShellOf>[] = [];
@@ -834,6 +953,8 @@ function appLevelValues(
 	localization: CommCareLocalization,
 	projection?: { options: ExpandOptions; plan: EmissionPlan },
 ): {
+	readonly firstMenuGrid: boolean;
+	readonly formMenuStyle: "none" | "all" | "some";
 	readonly autoGpsCapture: boolean;
 	readonly langs: string[];
 	readonly translations: Record<string, Record<string, string>>;
@@ -856,6 +977,13 @@ function appLevelValues(
 		// in from CommCare HQ that left it off, the first-publish register
 		// declares the change (`connect-app-captures-location`).
 		autoGpsCapture: capturesDeviceLocation(doc),
+		firstMenuGrid: doc.appSettings.firstMenuLayout === "grid",
+		formMenuStyle:
+			doc.appSettings.formMenuLayout === "grid"
+				? "all"
+				: doc.appSettings.formMenuLayout === "individual"
+					? "some"
+					: "none",
 		langs: [...localization.languages],
 		translations: Object.fromEntries(
 			localization.languages.map((language) => {

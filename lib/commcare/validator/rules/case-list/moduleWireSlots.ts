@@ -61,7 +61,8 @@ export type ModuleWireSlotSurface =
 	| "search-input-hidden-value"
 	| "advanced-input"
 	| "excluded-owner-ids"
-	| "search-button";
+	| "search-button"
+	| "case-list-form-button";
 
 export interface ModuleWireSlotIdentity {
 	readonly mod: Module;
@@ -299,6 +300,24 @@ export function collectModuleWireSlotFindings(
 					surface: "search-button",
 				},
 			),
+		);
+	}
+
+	const formSlot = mod.caseListRegistrationForm;
+	if (formSlot?.kind === "always" && formSlot.showWhen?.kind === "condition") {
+		collect(
+			judge.judgePredicate(formSlot.showWhen.condition, {
+				mod,
+				moduleUuid,
+				slot: "caseListRegistrationForm.showWhen.condition",
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_list_action_condition",
+				},
+				slotLabel: "the form button condition",
+				surface: "case-list-form-button",
+			}),
 		);
 	}
 

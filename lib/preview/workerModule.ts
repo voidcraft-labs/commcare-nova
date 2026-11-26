@@ -10,6 +10,7 @@ import {
 	type GeneratedWordingRole,
 	generatedWordingId,
 } from "@/lib/domain/generatedWording";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	type LanguageTag,
 	makeTranslationUnitId,
@@ -29,7 +30,11 @@ export function projectWorkerModule(
 	uuid: Uuid,
 ) {
 	const canonical = doc.modules[uuid];
-	const projected = projectLocalizedModule(doc, language, uuid);
+	const projected = menuWithInheritedCaseSettings(
+		doc,
+		uuid,
+		projectLocalizedModule(doc, language, uuid),
+	);
 	if (!canonical || !projected) return projected;
 	const units = snapshotTranslationUnits(doc);
 	const fallback = (id: string, key: RuntimeMessage) => {

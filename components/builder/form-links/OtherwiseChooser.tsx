@@ -50,6 +50,7 @@ import {
 	type FormLinkWriteReports,
 	useFormLinks,
 } from "@/lib/doc/hooks/useFormLinks";
+import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	defaultPostSubmitOf,
@@ -152,6 +153,10 @@ export function OtherwiseChooser({
 	const parentName = useModule(ownModule?.parentModuleUuid)?.name;
 	/* A built-in a menu that shows its forms above withholds stays listed,
 	 * disabled with why. */
+	const firstMenuSelectionNotes = useOwnerPlatformFeatures(
+		{ kind: "form", moduleUuid, formUuid },
+		["first-menu-previous"],
+	);
 	const menuAboveWithheld = useMenuAboveWithheldDestinations(formUuid);
 	const sentence = useLinkSentenceContext(formUuid);
 	const [openLocal, setOpenLocal] = useState(false);
@@ -470,6 +475,10 @@ export function OtherwiseChooser({
 						{/* App home and First menu open one screen in Web Apps and two
 						 *  on Android: the platform note says so where either is
 						 *  offered, for the platforms the app runs on. */}
+						<PlatformNoteRow
+							features={firstMenuSelectionNotes}
+							className="px-2 pt-1"
+						/>
 						{showsHomeNote && (
 							<PlatformNoteRow
 								features={AFTER_SUBMIT_HOME_NOTE}

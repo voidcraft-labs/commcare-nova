@@ -210,12 +210,15 @@ export function searchesAwaitingDeviceValues(
  * the module's search keyed to exactly that case (`CaseListFormWorkflow`'s
  * `case_fixture` query), so the completed search now holds it alone: one
  * match where the form created it, none where its open condition kept it
- * off the device, since the query then finds no case of that id.
+ * off the device, since the query then finds no case of that id. Where the
+ * frame ends on that search (`listed` false), its list shows no row all the
+ * same (`PreviewSearchState`'s `listsNoRow`).
  */
 export function recordRegisteredCase(
 	state: PreviewSearchState | undefined,
 	caseId: string,
 	created = true,
+	listed = true,
 ): PreviewSearchState {
 	const held = searchAttemptOf(state);
 	const base =
@@ -235,6 +238,7 @@ export function recordRegisteredCase(
 		...base,
 		matchCount: created ? 1 : 0,
 		registeredCaseId: caseId,
+		...(!listed && { listsNoRow: true as const }),
 	};
 }
 

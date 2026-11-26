@@ -91,8 +91,11 @@ interface FileRequest {
  *
  * - bytes of the path's own `contentHash`: `recorded`, and `learned` gains
  *   the path under that id;
- * - bytes of another hash, or a file over Nova's limit for the kind:
- *   `replaced`, since no file of this app's is either;
+ * - bytes of another hash: `replaced`;
+ * - a file over Nova's limit for the kind read without its size: `replaced`.
+ *   A file of this app's can be past that limit (one brought in from CommCare
+ *   HQ), so a caller settling such a file passes each published file's
+ *   `sizeBytes`, and it is hashed as it streams;
  * - CommCare HQ serving no file there: `absent`, and an upload puts the
  *   file back.
  *

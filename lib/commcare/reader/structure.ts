@@ -46,7 +46,7 @@ import { levelsFromHq } from "./worldEntities";
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
-const MENU_CLASSES = ["Module", "AdvancedModule"] as const;
+const MENU_CLASSES = ["Module", "AdvancedModule", "ShadowModule"] as const;
 type MenuClass = (typeof MENU_CLASSES)[number];
 const FORM_CLASSES = ["Form", "AdvancedForm"] as const;
 type FormClass = (typeof FORM_CLASSES)[number];
@@ -83,7 +83,15 @@ const MENU = defineClaims("structure.menu", {
 		"unique_id",
 	),
 	...perClass("name", MENU_CLASSES, take, `${M}/modulebase-name`, "name"),
-	...perClass("forms", MENU_CLASSES, take, `${M}/module-forms`, "forms"),
+	// A menu listing another menu's forms owns none; its `forms` is read
+	// as the mirror (`MENU_TYPE.mirror`), never as forms.
+	...perClass(
+		"forms",
+		["Module", "AdvancedModule"],
+		take,
+		`${M}/module-forms`,
+		"forms",
+	),
 	...perClass(
 		"comment",
 		MENU_CLASSES,
@@ -98,13 +106,19 @@ const MENU = defineClaims("structure.menu", {
 		`${M}/any-other-undeclared-key`,
 		"<undeclared>",
 	),
-	"refDetails@Module": account(
+	...perClass(
+		"refDetails",
+		["Module", "ShadowModule"],
+		account,
 		`${M}/module-ref-details`,
-		"schema:Module.ref_details",
+		"ref_details",
 	),
-	"referralList@Module": account(
+	...perClass(
+		"referralList",
+		["Module", "ShadowModule"],
+		account,
 		`${M}/module-referral-list`,
-		"schema:Module.referral_list",
+		"referral_list",
 	),
 	"displaySeparately@Module": account(
 		`${M}/module-display-separately`,
@@ -136,11 +150,7 @@ const MENU_TYPE = defineClaims("structure.menuType", {
 		`${M}/shadowmodule-with-no-source-module-id-or-one-naming-no-module`,
 		"schema:ShadowModule.source_module_id",
 	),
-	childMirror: refuse(
-		`${M}/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow`,
-		"schema:ShadowModule.root_module_id",
-	),
-	mirror: refuse(
+	mirror: take(
 		`${M}/shadowmodule-shadow-module-version-2`,
 		"schema:ShadowModule",
 	),
@@ -364,14 +374,13 @@ function textIn(map: unknown, language: string | undefined): string {
 
 /**
  * Which mirror entry a mirror menu stands under, the first that applies: a
- * version other than 2; no source, or a source naming no menu; a version 2
- * mirror under a version 2 mirror menu, mirroring a child of that menu's
- * source that is no mirror; any other version 2 mirror.
+ * version other than 2, a missing source, or a source matching a menu. The
+ * menu stage resolves that menu’s kind, children and real form identities.
  */
 function mirrorClaim(
 	menu: Readonly<Record<string, unknown>>,
 	menus: readonly Readonly<Record<string, unknown>>[],
-): Claim<"refuse"> {
+): Claim<"refuse"> | Claim<"take"> {
 	const version = menu.shadow_module_version ?? 1;
 	if (version !== 2) return MENU_TYPE.mirrorVersion1;
 	const byId = (id: unknown) =>
@@ -380,16 +389,6 @@ function mirrorClaim(
 			: undefined;
 	const source = byId(menu.source_module_id);
 	if (source === undefined) return MENU_TYPE.mirrorWithNoSource;
-	const root = byId(menu.root_module_id);
-	if (
-		root !== undefined &&
-		docTypeOf(root) === "ShadowModule" &&
-		(root.shadow_module_version ?? 1) === 2 &&
-		docTypeOf(source) !== "ShadowModule" &&
-		typeof root.source_module_id === "string" &&
-		source.root_module_id === root.source_module_id
-	)
-		return MENU_TYPE.childMirror;
 	return MENU_TYPE.mirror;
 }
 
@@ -725,11 +724,11 @@ function readMenuKeys(
 		Object.assign(draft.module, { uuid: draft.uuid, name });
 	});
 	json.account("comment", MENU[`comment@${cls}`] as Claim<"account">);
-	if (cls === "Module") {
-		json.account("ref_details", MENU["refDetails@Module"] as Claim<"account">);
+	if (cls === "Module" || cls === "ShadowModule") {
+		json.account("ref_details", MENU[`refDetails@${cls}`] as Claim<"account">);
 		json.account(
 			"referral_list",
-			MENU["referralList@Module"] as Claim<"account">,
+			MENU[`referralList@${cls}`] as Claim<"account">,
 		);
 	}
 	for (const key of json.undeclared()) {
@@ -901,10 +900,11 @@ export function readStructure(ctx: ReadContext): void {
 		switch (json.cls) {
 			case "ShadowModule": {
 				const claim = mirrorClaim(menu, menus);
-				json.refuseWhole(claim);
-				// A mirror under a mirror menu is a version 2 mirror too.
-				if (claim === MENU_TYPE.childMirror) json.alsoOfClass(MENU_TYPE.mirror);
-				return;
+				if (claim.use === "refuse") {
+					json.refuseWhole(claim);
+					return;
+				}
+				break;
 			}
 			case "ReportModule":
 				json.refuseWhole(MENU_TYPE.report);
@@ -928,26 +928,31 @@ export function readStructure(ctx: ReadContext): void {
 		const caseType = json.peek("case_type");
 		read(
 			json.takeClass(
-				cls === "AdvancedModule"
-					? MENU.advanced
-					: typeof caseType === "string" && caseType !== ""
-						? MENU.caseList
-						: MENU.survey,
+				cls === "ShadowModule"
+					? MENU_TYPE.mirror
+					: cls === "AdvancedModule"
+						? MENU.advanced
+						: typeof caseType === "string" && caseType !== ""
+							? MENU.caseList
+							: MENU.survey,
 			),
 		);
 		const forms: FormCandidate[] = [];
-		const formCursors = json.list(
-			"forms",
-			formClassOf,
-			MENU[`forms@${cls}`] as Claim<"take">,
-			(formIndex, value) =>
-				formPlace(
-					index,
-					formIndex,
-					name,
-					isJsonObject(value) ? textIn(value.name, first) : "",
-				),
-		);
+		const formCursors =
+			cls === "ShadowModule"
+				? []
+				: json.list(
+						"forms",
+						formClassOf,
+						MENU[`forms@${cls}`] as Claim<"take">,
+						(formIndex, value) =>
+							formPlace(
+								index,
+								formIndex,
+								name,
+								isJsonObject(value) ? textIn(value.name, first) : "",
+							),
+					);
 		formCursors.forEach((form, formIndex) => {
 			switch (form.cls) {
 				case "ShadowForm":

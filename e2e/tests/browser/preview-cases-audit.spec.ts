@@ -146,6 +146,12 @@ test("Several-case selection survives pagination in order and rejects a validati
 		"@/lib/preview/entryPointLaunchAction": boundary,
 		"@/lib/auth/hooks/useAuth": boundary,
 	});
+	await page.route("**/nova-icons/record_vitals.png", (route) =>
+		route.fulfill({
+			path: resolve("public/nova-icons/record_vitals.png"),
+			contentType: "image/png",
+		}),
+	);
 	const release = Promise.withResolvers<void>();
 	const validations: string[][] = [];
 	await page.route(`${peer.origin}/validate-selection`, async (route) => {
@@ -189,6 +195,19 @@ test("Several-case selection survives pagination in order and rejects a validati
 		await page.getByRole("checkbox", { name: /^Choose Patient 2,/ }).check();
 		await page.getByRole("checkbox", { name: /^Choose Patient 1,/ }).check();
 		await page.getByRole("button", { name: "Continue", exact: true }).click();
+		const icon = page
+			.locator('[data-menu-layout="grid"]')
+			.getByRole("button", { name: /^CompleteTheCommunityFollowUp/ })
+			.locator("img");
+		await expect(icon).toHaveAttribute("src", /record_vitals\.png$/);
+		expect(
+			await icon.evaluate(async (image) => {
+				if (!(image instanceof HTMLImageElement))
+					throw new Error("The form command must show an image.");
+				await image.decode();
+				return image.naturalWidth;
+			}),
+		).toBeGreaterThan(0);
 		await page
 			.getByRole("button", { name: /^CompleteTheCommunityFollowUp/ })
 			.click();

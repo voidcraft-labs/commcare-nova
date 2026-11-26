@@ -46,27 +46,27 @@ export function submenuNotOfferedReason(
 
 /** Why a built-in destination a menu that shows its forms in the menu above
  *  withholds is listed disabled: `module` in such a menu, `parentMenu` under
- *  one, `previous` for a form listed on the app's first menu, and `module` in
+ *  one, and `module` in
  *  a submenu that opens through the first menu with the case every form
  *  listed there opens. */
 export function menuAboveWithheldReason(
 	reason:
 		| "menu-forms-in-menu-above"
 		| "parent-forms-in-menu-above"
-		| "menu-forms-on-first-menu"
-		| "menu-opens-with-first-menu-case",
+		| "menu-opens-with-first-menu-case"
+		| "previous-carries-other-case-type",
 	menuName: string,
 	parentName: string,
 ): string {
 	switch (reason) {
+		case "previous-carries-other-case-type":
+			return "On Android another menu could open the chosen case as a different record type. You can choose First menu for a fresh case choice.";
 		case "menu-opens-with-first-menu-case":
 			return firstMenuSharedCaseSentence(parentName);
 		case "menu-forms-in-menu-above":
 			return `${menuName} shows its forms in the menu above, so it has no screen of its own.`;
 		case "parent-forms-in-menu-above":
 			return `${parentName} shows its forms in the menu above, so it has no screen of its own.`;
-		case "menu-forms-on-first-menu":
-			return `${menuName} shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
 	}
 }
 

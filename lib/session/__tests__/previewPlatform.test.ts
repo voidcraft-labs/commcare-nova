@@ -169,4 +169,25 @@ describe("installEntryPointLaunch", () => {
 		session.getState().installEntryPointLaunch(launch());
 		expect(session.getState().previewDeviceSyncedAt).toBeGreaterThan(1);
 	});
+
+	/* Android finishes a visit an entry point opened when its first form
+	 * ends (`SessionLaunchDelegate.kt::exitFromExternalLaunch`); Web Apps
+	 * runs the form's own after-submit. */
+	it("opens an Android visit that outlives the launch's bypass and ends at the phone's home screen", () => {
+		const { session } = stores("android");
+		session.getState().setPreviewing(true, { atHome: true });
+		session.getState().installEntryPointLaunch(launch());
+		expect(session.getState().previewEntryPointVisit).toBe(true);
+		session.getState().clearEntryPointLaunch();
+		expect(session.getState().previewEntryPointVisit).toBe(true);
+		session.getState().setPreviewAtDeviceHome(true);
+		expect(session.getState().previewEntryPointVisit).toBe(false);
+	});
+
+	it("opens no such visit in Web Apps", () => {
+		const { session } = stores("web-apps");
+		session.getState().setPreviewing(true);
+		session.getState().installEntryPointLaunch(launch());
+		expect(session.getState().previewEntryPointVisit).toBe(false);
+	});
 });

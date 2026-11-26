@@ -42,6 +42,7 @@ import {
 	removedHqFiles,
 } from "./hqSourceBaseline";
 import { hqImportApplicationSteps } from "./importApplication";
+import { observedMenuLayoutOwnership } from "./legacyMenuLayouts";
 import type { DeploymentTargetKey } from "./store";
 import type {
 	AppBaselineWrite,
@@ -463,7 +464,12 @@ export function* adoptedBaselineOwnershipSteps(
 		 * reaches one. */
 		keyedCaseIdPrefixes: new Map(),
 	});
-	return imported.ownership;
+	return observedMenuLayoutOwnership(
+		imported.ownership,
+		input.prepared.doc,
+		input.identity,
+		input.source,
+	);
 }
 
 /**

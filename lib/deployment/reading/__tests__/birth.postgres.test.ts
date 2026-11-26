@@ -80,7 +80,10 @@ import {
 	readingProjectDataWrite,
 } from "../projectData";
 import { broughtInLookupTableId } from "../projectData/lookupIds";
-import type { MediaStaging } from "../projectData/mediaStore";
+import {
+	type MediaStaging,
+	memoryMediaStaging,
+} from "../projectData/mediaStore";
 import {
 	postgresProjectSide,
 	readReadingProjectData,
@@ -107,6 +110,7 @@ import {
 
 /** A create's staging held in this test: each content is named, never written. */
 const TEST_STAGING: MediaStaging = {
+	...memoryMediaStaging(),
 	stage: async (file) => ({
 		gcsObjectKey: `pending/test/${file.contentHash}`,
 		generation: "1",

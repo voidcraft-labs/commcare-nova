@@ -53,15 +53,17 @@ export async function readLookupFixtureDataInTransaction(
 	purpose:
 		| "device"
 		| "archive"
+		| "download-archive"
 		| "project-editor"
 		| LocalWorkerScope = "device",
 	remaining = { bytes: DEVICE_FIXTURE_BYTES },
 ): Promise<LookupFixtureDataSnapshot> {
+	const archive = purpose === "archive" || purpose === "download-archive";
 	const definitions = await readLookupDefinitionsInTransaction(
 		tx,
 		projectId,
 		tableIdsInput,
-		purpose === "archive" || purpose === "project-editor",
+		archive || purpose === "project-editor",
 	);
 	let presentIds = definitions.definitions
 		.filter(
@@ -73,15 +75,23 @@ export async function readLookupFixtureDataInTransaction(
 						(typeof purpose === "object" && !purpose.remoteAssignments))),
 		)
 		.map((definition) => definition.id);
-	// A global archive may walk an authored table over many transactions.
-	// Only its metadata enters the inline snapshot. A source-managed or private
-	// table always uses its own permission and distribution boundary.
+	// A global archive may walk a table over many transactions. Only its
+	// metadata enters the inline snapshot. A private table always uses its own
+	// permission and distribution boundary, and a source-managed table whose
+	// copy is not complete here is never in `presentIds`. A downloadable app
+	// walks a complete copy of a table CommCare HQ manages as it walks Nova's
+	// own: it embeds every table the same way. The HQ carriers keep such a
+	// copy inline, because each writes it by its own rule (left alone in the
+	// project space that manages it, or in that project space's own workbook).
 	const streamedTables = new Map<LookupTableId, { rowCount: number }>();
-	if (purpose === "archive" && presentIds.length) {
+	if (archive && presentIds.length) {
+		const present = new Set(presentIds);
 		const ordinary = definitions.definitions
 			.filter(
 				(t) =>
-					t.hq?.managedBy !== "commcare-hq" &&
+					present.has(t.id) &&
+					(purpose === "download-archive" ||
+						t.hq?.managedBy !== "commcare-hq") &&
 					t.workerAccess !== "assigned" &&
 					t.hq?.source?.distribution !== "assigned",
 			)

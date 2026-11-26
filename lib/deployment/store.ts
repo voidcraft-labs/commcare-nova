@@ -47,6 +47,7 @@ import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
 import { lockLookupTablesForPublishInTransaction } from "@/lib/lookup/managed";
 import {
+	ANSWERED_FIRST_PUBLISH_CHANGES,
 	FIRST_PUBLISH_CHANGE_IDS,
 	type FirstPublishChangeId,
 	type FirstPublishView,
@@ -76,6 +77,13 @@ import {
 	movedRecordedPaths,
 } from "./hqMedia";
 import { diffHqAppSource } from "./hqSourceBaseline";
+import {
+	journalLookupJsonOperation,
+	type LookupJsonDestinationKey,
+	type LookupJsonJournalEntry,
+	type LookupJsonSettlement,
+	settleLookupJsonOperationInTransaction,
+} from "./lookupJsonLedger";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
 import {
 	applyAttemptOutcome,
@@ -1153,6 +1161,55 @@ export async function writeTargetIdentityInTransaction(
 			.execute();
 }
 
+/**
+ * The tags under which the Project's lookup tables are on a project space
+ * through a workbook, by table id: each live mapping any of the Project's
+ * apps holds there with its pushed name, and each table taken over from
+ * there under the tag CommCare HQ held it by. A direct upload keeps such a
+ * table under such a tag in its workbook
+ * (`lib/export/boundaryFindings.ts::travelsAsJson`); a table that also has
+ * a JSON destination there goes on through the JSON resources. `view`.
+ */
+export async function readWorkbookLookupTags(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const [mapped, takenOver] = await Promise.all([
+		db
+			.selectFrom("app_deployment_resources as r")
+			.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+			.select(["r.nova_resource_id", "r.pushed_identity"])
+			.where("d.project_id", "=", scope.projectId)
+			.where("d.server", "=", target.server)
+			.where("d.domain", "=", target.domain)
+			.where("r.kind", "=", "lookup-table")
+			.where("r.superseded_at", "is", null)
+			.where("r.pushed_identity", "is not", null)
+			.execute(),
+		db
+			.selectFrom("lookup_tables")
+			.select(["id", "hq_canonical"])
+			.where("project_id", "=", scope.projectId)
+			.where("hq_server", "=", target.server)
+			.where("hq_domain", "=", target.domain)
+			.where("hq_taken_over_at", "is not", null)
+			.execute(),
+	]);
+	const tags = new Map<string, Set<string>>();
+	const add = (tableId: string, tag: string | null | undefined) => {
+		if (typeof tag !== "string") return;
+		const held = tags.get(tableId) ?? new Set<string>();
+		held.add(tag);
+		tags.set(tableId, held);
+	};
+	for (const row of mapped) add(row.nova_resource_id, row.pushed_identity);
+	for (const row of takenOver)
+		add(row.id, (row.hq_canonical as { tag?: unknown } | null)?.tag as string);
+	return tags;
+}
+
 /** One live lookup-table mapping another app of the Project holds on a project space. */
 export interface SiblingLookupMapping {
 	readonly tableId: string;
@@ -1162,6 +1219,14 @@ export interface SiblingLookupMapping {
 	readonly ownership: DeploymentResourceOwnership;
 	readonly adoptedAt: string | null;
 	readonly adoptedBy: string | null;
+	/**
+	 * Present where the mapping is the table's JSON destination on that
+	 * project space (`lookup_json_destinations`, the same CommCare HQ table):
+	 * a direct publish put it there through CommCare HQ's JSON resources, not
+	 * a workbook, and keeps carrying it that way
+	 * (`lib/export/boundaryFindings.ts::travelsAsJson`).
+	 */
+	readonly jsonDestination?: true;
 }
 
 /**
@@ -1189,6 +1254,14 @@ export async function readSiblingLookupMappings(
 	const rows = await db
 		.selectFrom("app_deployment_resources as r")
 		.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+		.leftJoin("lookup_json_destinations as j", (join) =>
+			join
+				.onRef("j.project_id", "=", "d.project_id")
+				.onRef("j.server", "=", "d.server")
+				.onRef("j.domain", "=", "d.domain")
+				.onRef("j.remote_table_id", "=", "r.remote_id")
+				.on(sql<SqlBool>`j.table_id::text = r.nova_resource_id`),
+		)
 		.select([
 			"r.nova_resource_id",
 			"d.app_id",
@@ -1197,6 +1270,7 @@ export async function readSiblingLookupMappings(
 			"r.ownership",
 			"r.adopted_at",
 			"r.adopted_by",
+			"j.table_id as json_table_id",
 		])
 		.where("d.project_id", "=", scope.projectId)
 		.where("d.server", "=", target.server)
@@ -1233,6 +1307,7 @@ export async function readSiblingLookupMappings(
 			ownership: ownership.data,
 			adoptedAt: isoOrNull(row.adopted_at),
 			adoptedBy: row.adopted_by,
+			...(row.json_table_id !== null && { jsonDestination: true as const }),
 		};
 	});
 }
@@ -2598,6 +2673,8 @@ const REMOTE_WRITE_HOLD_SECONDS = {
 	media: 60 + 45 + 60 * 60,
 	/** The workbook upload's deadline, then five minutes. */
 	workbook: 60 + 5 * 60,
+	/** One JSON request for a table or a row: its minute, then five minutes. */
+	"lookup-json": 60 + 5 * 60,
 	/** One batch of places: its 30-second deadline, then five minutes. */
 	places: 30 + 5 * 60,
 	/** A worker's create and its places' update, 30 seconds each, then five minutes. */
@@ -2997,6 +3074,140 @@ export async function admitWorkbookWrite(
 			return { kind: "admitted", writeIds };
 		},
 	);
+}
+
+/**
+ * Admit one request of a table's JSON publish, immediately before it is
+ * sent (`lookupJsonExecutor.ts`): under the fence, for a live app whose
+ * caller may edit it, with the Project's lookup fence taken, the table not
+ * handed back to CommCare HQ on this project space, and the publisher's
+ * grant and the table's revisions still what preflight planned
+ * (`workbookAuthorityMatches`), it journals the operation over the
+ * destination at `expectedRevision` and records the write open for its hold.
+ * CommCare HQ checks no lookup permission on these resources, so this is
+ * the check every request passes.
+ */
+export async function admitLookupJsonWrite(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: DeploymentFence & {
+		readonly firstContentGeneration?: string;
+		readonly tableId: LookupTableId;
+		readonly authority: WorkbookAuthority;
+		readonly entry: LookupJsonJournalEntry;
+		readonly expectedRevision: string | null;
+	},
+): Promise<
+	| {
+			readonly kind: "admitted";
+			readonly operationId: string;
+			readonly writeIds: readonly string[];
+	  }
+	| { readonly kind: "stale" }
+	| { readonly kind: "busy" }
+	| { readonly kind: "refused"; readonly reason: "handed-back" | "changed" }
+> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false, expectedEndings: input.expectedEndings },
+		async (tx, row) => {
+			const tables = await lockLookupTablesForPublishInTransaction(
+				tx,
+				{ projectId: scope.projectId, actorId: scope.actorUserId },
+				[input.tableId],
+			);
+			if (
+				tables.some(
+					(table) =>
+						table.hqServer === target.server &&
+						table.hqDomain === target.domain &&
+						!table.takenOver,
+				)
+			)
+				return { kind: "refused", reason: "handed-back" };
+			if (
+				!(await workbookAuthorityMatches(
+					tx,
+					scope,
+					target,
+					input.authority,
+					[input.tableId],
+					tables,
+				))
+			)
+				return { kind: "refused", reason: "changed" };
+			const journaled = await journalLookupJsonOperation(
+				tx,
+				{
+					projectId: scope.projectId,
+					server: target.server,
+					domain: target.domain,
+					tableId: input.tableId,
+				},
+				{
+					expectedRevision: input.expectedRevision,
+					appId: scope.appId,
+					actorUserId: scope.actorUserId,
+					entry: input.entry,
+				},
+			);
+			if (journaled.kind !== "journaled") return journaled;
+			const writeIds = await admitRemoteWritesInTransaction(
+				tx,
+				[
+					{
+						deploymentId: row.id,
+						server: target.server,
+						domain: target.domain,
+						appId: scope.appId,
+						projectId: scope.projectId,
+						actorUserId: scope.actorUserId,
+						resourceKind: "lookup-table",
+						resourceId: input.tableId,
+						writeKind: "lookup-json",
+						holdSeconds: REMOTE_WRITE_HOLD_SECONDS["lookup-json"],
+					},
+				],
+				input.firstContentGeneration,
+			);
+			return {
+				kind: "admitted",
+				operationId: journaled.operationId,
+				writeIds,
+			};
+		},
+	);
+}
+
+/** How long after its admission a JSON request can no longer land. */
+export const LOOKUP_JSON_HOLD_MS =
+	REMOTE_WRITE_HOLD_SECONDS["lookup-json"] * 1000;
+
+/**
+ * Settle a table's JSON request and its remote write in one transaction:
+ * the journal and the destination ledger move together with the write's
+ * settlement, so a crash between them leaves the operation open for the
+ * next publish to read, never a ledger ahead of the journal.
+ */
+export async function settleLookupJsonWrite(
+	key: LookupJsonDestinationKey,
+	operationId: string,
+	settlement: LookupJsonSettlement,
+	writes: { readonly writeIds: readonly string[]; readonly answered: boolean },
+): Promise<string> {
+	return withAppTx(async (tx) => {
+		const revision = await settleLookupJsonOperationInTransaction(
+			tx,
+			key,
+			operationId,
+			settlement,
+		);
+		await settleRemoteWritesIn(tx, writes.writeIds, {
+			kind: writes.answered ? "settled" : "unanswered",
+		});
+		return revision;
+	});
 }
 
 /**
@@ -4391,7 +4602,7 @@ export async function markResourceBaselinesUnread(
 	await withRecordRow(
 		scope,
 		target,
-		{ admitted, writeKinds: ["workbook", "places"] },
+		{ admitted, writeKinds: ["workbook", "lookup-json", "places"] },
 		async (tx, row) => {
 			if (admitted === undefined || admitted.writeIds.length === 0)
 				holdFence(row, fence.expectedEndings);
@@ -4528,6 +4739,11 @@ function verifiedAppBaseline(
 			: {}),
 		...(list?.of === "next-publish" &&
 			needsStoredPublishReview(list) && { unverifiedNextChanges: list.ids }),
+		...(list?.ids.some((id) => ANSWERED_FIRST_PUBLISH_CHANGES.includes(id)) && {
+			answeredPublishChanges: list.ids.filter((id) =>
+				ANSWERED_FIRST_PUBLISH_CHANGES.includes(id),
+			),
+		}),
 		...(((list && needsStoredPublishReview(list)) ||
 			row.first_publish_changes?.of === "first-publish" ||
 			(row.first_publish_changes !== null && list === null)) && {
@@ -5038,7 +5254,8 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		profileFeatures === null ||
 		typeof stored.autoGpsCapture !== "boolean" ||
 		(stored.caseSharing !== undefined &&
-			typeof stored.caseSharing !== "boolean")
+			typeof stored.caseSharing !== "boolean") ||
+		(stored.menuLayouts !== undefined && stored.menuLayouts !== true)
 	)
 		return null;
 	return {
@@ -5048,6 +5265,7 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		...(profileFeatures !== undefined && { profileFeatures }),
 		autoGpsCapture: stored.autoGpsCapture,
 		...(stored.caseSharing === true && { caseSharing: true }),
+		...(stored.menuLayouts === true && { menuLayouts: true as const }),
 	};
 }
 
@@ -5358,7 +5576,10 @@ export async function recordPushedResources(
 	return withRecordRow(
 		scope,
 		target,
-		{ admitted: write.admitted, writeKinds: ["workbook", "places"] },
+		{
+			admitted: write.admitted,
+			writeKinds: ["workbook", "lookup-json", "places"],
+		},
 		async (tx, row, access) => {
 			const ended = row.endings !== write.expectedEndings;
 			if (ended && !admitted) holdFence(row, write.expectedEndings);
@@ -5786,7 +6007,14 @@ export async function finishDeploymentContentWrite(
 		target,
 		{
 			admitted,
-			writeKinds: ["create", "import", "media", "workbook", "places"],
+			writeKinds: [
+				"create",
+				"import",
+				"media",
+				"workbook",
+				"lookup-json",
+				"places",
+			],
 		},
 		async (tx, row) => {
 			if (

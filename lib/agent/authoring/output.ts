@@ -23,6 +23,7 @@ import {
 	formIconRefSchema,
 	formLinkEntries,
 	formSchema,
+	isFieldProseSlot,
 	languageTag,
 	localizedValueSchema,
 	moduleIconRefSchema,
@@ -49,6 +50,7 @@ import {
 	valueSchema,
 } from "@/lib/domain/expression/types";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
+import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { referenceNames } from "@/lib/domain/referenceNames";
 import { log } from "@/lib/logger";
 import {
@@ -223,13 +225,7 @@ export function authoringEncoders(
 		if (!uuid.success || options.doc.fields[uuid.data] === undefined)
 			return undefined;
 		const [slot] = path;
-		if (
-			path.length === 1 &&
-			(slot === "label" ||
-				slot === "hint" ||
-				slot === "help" ||
-				slot === "validate_msg")
-		)
+		if (path.length === 1 && typeof slot === "string" && isFieldProseSlot(slot))
 			return { entity: "field", uuid: uuid.data, slot };
 		if (
 			path.length === 4 &&
@@ -445,12 +441,7 @@ const readProjectors: {
 				if (!source)
 					throw new Error("The searched field is no longer in this app.");
 				const slot = item.field;
-				if (
-					slot === "label" ||
-					slot === "hint" ||
-					slot === "help" ||
-					slot === "validate_msg"
-				) {
+				if (typeof slot === "string" && isFieldProseSlot(slot)) {
 					const value = record.parse(source)[slot];
 					return {
 						...item,
@@ -540,6 +531,7 @@ const readProjectors: {
 		return {
 			...data,
 			icon: project(moduleIconRefSchema.nullable(), data.icon, options),
+			badge: project(menuBadgeSchema.nullable(), data.badge, options),
 			display_condition: project(
 				conditionSchema.nullable(),
 				data.display_condition,
@@ -570,6 +562,17 @@ const readProjectors: {
 				data.caseListRegistrationForm?.kind === "always"
 					? {
 							...data.caseListRegistrationForm,
+							...(data.caseListRegistrationForm.showWhen?.kind ===
+								"condition" && {
+								showWhen: {
+									kind: "condition",
+									condition: project(
+										conditionSchema,
+										data.caseListRegistrationForm.showWhen.condition,
+										options,
+									),
+								},
+							}),
 							icon: project(
 								formIconRefSchema.nullable(),
 								data.caseListRegistrationForm.icon,

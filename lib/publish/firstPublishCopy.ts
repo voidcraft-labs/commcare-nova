@@ -77,7 +77,7 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 	"link-held-case-guards-added":
 		"A form that opens another form with a case it carries will open it only when that case is on the device. Nova adds that check to each such link.",
 	"registration-label-fixed":
-		"A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads “Create a new Case” there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova.",
+		"A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads the words CommCare HQ showed for it there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova.",
 	"date-and-time-saved-as-hq-stores-it":
 		"A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place.",
 	"connect-app-captures-location":
@@ -120,6 +120,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"Each form's title now holds the form's name. On Android, a saved form a worker opens again shows that name at the top, where it showed no title or an older name before.",
 	"unread-fixture-declarations-dropped":
 		"A form no longer asks for data it never reads, such as a mobile report or the list of places. Where a worker's phone or Web Apps doesn't have that data, the form couldn't open before, and now it opens.",
+	"owner-rule-given-to-worker":
+		"Cases a form gave to a place in your organization now belong to the worker who fills in the form, as you chose in Nova. CommCare HQ's places held no single place for them.",
 };
 
 /** One line of a list: the id whose sentence it shows, and that sentence. */

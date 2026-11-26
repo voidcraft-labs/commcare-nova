@@ -69,3 +69,15 @@ def custom_suite_kept_unused(authoring, app_id):
 
     with authoring.step("variant:custom-suite", CUSTOM_SUITE.encode()):
         operations.held_app(authoring.state, app_id).set_custom_suite(CUSTOM_SUITE)
+
+
+def choose_grid_first_menu(authoring, app_id):
+    from proof.matrix.bases import _pages
+
+    _pages.save_settings(authoring, app_id, attributes={"use_grid_menus": True})
+
+
+def choose_grid_form_menus(authoring, app_id):
+    from proof.matrix.bases import _pages
+
+    _pages.save_settings(authoring, app_id, attributes={"grid_form_menus": "all"})

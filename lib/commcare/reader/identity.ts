@@ -79,11 +79,13 @@ export type CaseOperationPlaceKey =
 	  ];
 export type FormLinkTargetKey =
 	| readonly ["form", targetXmlns: string]
+	| readonly ["form-in-menu", routeUniqueId: string, targetXmlns: string]
 	| readonly ["module", targetModuleUniqueId: string]
 	| readonly ["this-form"];
 export type EntryPointOwnerKey =
 	| readonly ["module", moduleUniqueId: string, slot: "menu" | "case-list"]
-	| readonly ["form", xmlns: string];
+	| readonly ["form", xmlns: string]
+	| readonly ["shared-form", menuUniqueId: string, xmlns: string];
 
 /**
  * One constructor per kind. Each takes its parts in the key table's order,

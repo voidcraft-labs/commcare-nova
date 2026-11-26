@@ -346,6 +346,8 @@ export const READ_CIRCUMSTANCES = [
 	"form-data-source-conflict",
 	"unbuildable-data-source-name",
 	"media-file-unreadable",
+	"media-file-too-large",
+	"media-picture-too-many-pixels",
 	"media-not-played-where-app-runs",
 	"table-rows-unreadable",
 	"table-cell-unrepresentable",
@@ -356,7 +358,6 @@ export const READ_CIRCUMSTANCES = [
 	"place-hierarchy-inconsistent",
 	"place-field-unusable",
 	"place-value-order-unknown",
-	"owner-rule-needs-one-place",
 	"unrecognized",
 	"read-back-differs",
 ] as const;
@@ -398,6 +399,8 @@ export const CIRCUMSTANCE_STANDINGS = {
 	"unbuildable-data-source-name": { standing: "fix-in-hq", name: "body" },
 	"shadow-disagrees": { standing: "fix-in-hq", name: "line" },
 	"media-file-unreadable": { standing: "fix-in-hq", name: "body" },
+	"media-file-too-large": { standing: "fix-in-hq", name: "body" },
+	"media-picture-too-many-pixels": { standing: "fix-in-hq", name: "body" },
 	"media-not-played-where-app-runs": { standing: "fix-in-hq", name: "body" },
 	"table-rows-unreadable": { standing: "fix-in-hq", name: "body" },
 	"table-cell-unrepresentable": { standing: "fix-in-hq", name: "body" },
@@ -408,7 +411,6 @@ export const CIRCUMSTANCE_STANDINGS = {
 	"place-hierarchy-inconsistent": { standing: "fix-in-hq" },
 	"place-field-unusable": { standing: "fix-in-hq", name: "body" },
 	"place-value-order-unknown": { standing: "fix-in-hq", name: "body" },
-	"owner-rule-needs-one-place": { standing: "fix-in-hq", name: "body" },
 	unrecognized: { standing: "not-yet", name: "line" },
 	"read-back-differs": { standing: "not-yet", name: "internal" },
 } as const satisfies Record<

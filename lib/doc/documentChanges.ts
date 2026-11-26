@@ -150,6 +150,7 @@ export const MENU_KEY_PARTS = {
 	uuid: null,
 	id: "settings",
 	name: "name",
+	formsFromMenu: "settings",
 	parentModuleUuid: "settings",
 	parentCaseModuleUuid: "case-list",
 	caseType: "settings",
@@ -157,8 +158,10 @@ export const MENU_KEY_PARTS = {
 	caseListRegistrationForm: "case-list",
 	purpose: "note",
 	displayCondition: "settings",
+	badge: "settings",
 	hiddenFromMenu: "settings",
 	formsInMenuAbove: "settings",
+	menuLayout: "settings",
 	caseListConfig: "case-list",
 	caseSearchConfig: "search",
 	icon: "settings",
@@ -190,12 +193,14 @@ export const CASE_LIST_KEY_PARTS = {
  */
 export const FORM_KEY_PARTS = {
 	entryPoint: "settings",
+	entryCaseCreations: "settings",
 	uuid: null,
 	id: "settings",
 	name: "name",
 	type: "case-changes",
 	purpose: "note",
 	displayCondition: "settings",
+	badge: "settings",
 	hiddenFromMenu: "settings",
 	captureLocation: "settings",
 	plainText: "settings",
@@ -380,7 +385,7 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				location.fieldUuid,
 				location.bundleKey,
 				...language,
-				ref.slotKind,
+				ref.role ?? ref.slotKind,
 			];
 		case "option_media": {
 			const field = doc.fields[location.fieldUuid];
@@ -400,7 +405,7 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				String(at),
 				"media",
 				...language,
-				ref.slotKind,
+				ref.role ?? ref.slotKind,
 			];
 		}
 		case "image_map_mapping": {
@@ -449,7 +454,7 @@ function mediaSlotIdentity(
 			"option",
 			location.optionUuid,
 			...(location.language ? [location.language] : []),
-			ref.slotKind,
+			ref.role ?? ref.slotKind,
 		];
 	if (location.kind === "image_map_mapping")
 		return ["image-map", location.columnUuid];

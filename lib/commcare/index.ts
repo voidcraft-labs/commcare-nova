@@ -39,6 +39,7 @@ export * from "./hashtags";
 export * from "./hqShells";
 export * from "./identifierValidation";
 export {
+	homeSelectionConsumers,
 	type PreviousTaskProjection,
 	type PreviousTaskSelection,
 	previousTaskFrame,

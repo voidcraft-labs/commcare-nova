@@ -1,3 +1,4 @@
+import { getAppDb } from "@/lib/db/pg";
 import "server-only";
 
 import { gzipSync } from "node:zlib";
@@ -135,13 +136,28 @@ import {
 	hqImportApplication,
 } from "./importApplication";
 import { readLookupReceipt } from "./largeLookupReceipt";
+import { observedMenuLayoutOwnership } from "./legacyMenuLayouts";
 import type { PlannedPlacePush } from "./locationResourcePlan";
+import {
+	hqLookupJsonPort,
+	type LookupJsonPublishResult,
+	type LookupJsonStop,
+	publishLookupTableJson,
+} from "./lookupJsonExecutor";
+import {
+	type LookupJsonDestinationKey,
+	readLookupJsonDestination,
+} from "./lookupJsonLedger";
 import { prepareMediaBatch, readMediaReceipt } from "./mediaReceipt";
 import { observeDeployment } from "./observe";
 import { placementMoveOffer, placementMoveOfferView } from "./placementMoves";
 import { recordPublishPlacements } from "./placements";
 import { narrowingTo } from "./platformNarrowing";
-import type { LocationPushPlan, LookupPushPlan } from "./preflight";
+import type {
+	LocationPushPlan,
+	LookupJsonPushPlan,
+	LookupPushPlan,
+} from "./preflight";
 import {
 	buildProfileLanguageFailure,
 	CREATED_APP_IS_EMPTY,
@@ -192,6 +208,7 @@ import {
 	type AdmittedRecord,
 	admitAppCreate,
 	admitAppWrite,
+	admitLookupJsonWrite,
 	admitPlacesWrite,
 	admitWorkbookWrite,
 	applyDeploymentObservation,
@@ -207,6 +224,7 @@ import {
 	type HeldTargetFacts,
 	holdTargetFacts,
 	type LandedResource,
+	LOOKUP_JSON_HOLD_MS,
 	markResourceBaselinesUnread,
 	type RecordAnswer,
 	type RecordRemoteResourceInput,
@@ -223,6 +241,7 @@ import {
 	recordPushedResources,
 	recordRefreshedAppBaseline,
 	recordRemoteResource,
+	settleLookupJsonWrite,
 	settleReleasedClaims,
 	settleRemoteWrites,
 	targetFactsOf,
@@ -1186,6 +1205,7 @@ export async function publishAppToHq(
 			domain,
 			prepared,
 			lookupPush,
+			lookupJsonPush,
 			locationPush,
 			organization,
 			targetApp,
@@ -1523,6 +1543,27 @@ export async function publishAppToHq(
 			const files =
 				lookupPush?.files ?? (lookupPush ? [lookupPush.workbook] : []);
 			const earlierLookups: { novaResourceId: string; remoteId: string }[] = [];
+			/* The tables that travel through CommCare HQ's JSON resources go
+			 * first, each one request at a time. Each is recorded as Nova's as
+			 * soon as its table is there, so a refusal later in the push still
+			 * leaves Nova owning what it made. */
+			if (lookupJsonPush !== null) {
+				const pushed = await pushLookupTablesJson(
+					input.scope,
+					target,
+					creds,
+					domain,
+					lookupJsonPush,
+					createdApp,
+					fence,
+					contentGeneration,
+					letOut,
+				);
+				if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
+				earlierLookups.push(...pushed.mapped);
+				if (pushed.failure !== null)
+					return refused("resources", pushed.failure);
+			}
 			const pendingFiles: (typeof files)[number][] = [];
 			if (lookupPush)
 				for (const file of files) {
@@ -1552,7 +1593,10 @@ export async function publishAppToHq(
 						earlierLookups.push({ novaResourceId: tableId, remoteId });
 					}
 				}
-			if (files.length && !pendingFiles.length)
+			if (
+				(files.length > 0 || lookupJsonPush !== null) &&
+				pendingFiles.length === 0
+			)
 				deployment = goOnFrom(
 					await recordPushedResources(
 						input.scope,
@@ -1651,7 +1695,9 @@ export async function publishAppToHq(
 			 * deleted on CommCare HQ, Nova just stops claiming them and starts
 			 * naming them in the left-behind report. */
 			const droppedKinds: DeploymentResourceKind[] = [
-				...(lookupPush === null ? (["lookup-table"] as const) : []),
+				...(lookupPush === null && lookupJsonPush === null
+					? (["lookup-table"] as const)
+					: []),
 				...(locationPush === null ? (["location"] as const) : []),
 			];
 			if (
@@ -1681,9 +1727,15 @@ export async function publishAppToHq(
 			 * and the ids among them found to hold this app's bytes. */
 			let settledBetween: readonly HqMediaPath[] = [];
 			let learnedBetween: HqMediaRecord = {};
-			if (lookupPush !== null || locationPush !== null) {
+			if (
+				lookupPush !== null ||
+				lookupJsonPush !== null ||
+				locationPush !== null
+			) {
 				input.onResourcesPushed?.({
-					tables: lookupPush?.pushes.length ?? 0,
+					tables:
+						(lookupPush?.pushes.length ?? 0) +
+						(lookupJsonPush?.tables.length ?? 0),
 					places: locationPush?.placeCount ?? 0,
 				});
 
@@ -2008,7 +2060,19 @@ export async function publishAppToHq(
 				origin: extraSave ? "observed" : "push",
 				remoteAppId: result.appId,
 				read: forwardRead,
-				ownership,
+				/* The layouts are accounted for once the read after the import
+				 * shows only choices the document holds (`legacyMenuLayouts.ts`). */
+				ownership:
+					forwardRead !== null &&
+					!("success" in forwardRead) &&
+					forwardRead.kind === "source-at"
+						? observedMenuLayoutOwnership(
+								ownership,
+								prepared.doc,
+								identity,
+								forwardRead.source,
+							)
+						: ownership,
 				novaRevision: seq,
 				discard:
 					appDiscard === undefined
@@ -3258,6 +3322,217 @@ async function pushLookupTables(
 }
 
 /**
+ * Put each table that travels as JSON on the project space
+ * (`lookupJsonExecutor.ts`), one table after another, and record each
+ * table found there as Nova's.
+ *
+ * Every request is admitted on its own under the Project's lookup fence and
+ * the publisher's grant (`store.ts::admitLookupJsonWrite`), journaled before
+ * it goes and settled with its remote write (`settleLookupJsonWrite`); each
+ * admission joins `letOut`. The mapping a table gets is the deployment's
+ * ownership record of it, written on the authority of those admissions,
+ * partial so a refusal later in the publish supersedes nothing; the
+ * resources phase's complete record retains it (`mapped`).
+ */
+async function pushLookupTablesJson(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	creds: CommCareCredentials,
+	domain: string,
+	plan: LookupJsonPushPlan,
+	createdApp: boolean,
+	fence: DeploymentFence,
+	contentGeneration: string,
+	letOut: string[],
+): Promise<{
+	readonly failure: DeploymentFailure | null;
+	readonly recorded: RecordAnswer | null;
+	readonly mapped: readonly { novaResourceId: string; remoteId: string }[];
+}> {
+	const db = await getAppDb();
+	const mapped: { novaResourceId: string; remoteId: string }[] = [];
+	let recorded: RecordAnswer | null = null;
+	for (const table of plan.tables) {
+		const key: LookupJsonDestinationKey = {
+			projectId: scope.projectId,
+			server: target.server,
+			domain,
+			tableId: table.tableId,
+		};
+		const admitted: string[] = [];
+		let result: LookupJsonPublishResult;
+		try {
+			result = await publishLookupTableJson({
+				hq: hqLookupJsonPort(creds, domain, table.rows.length),
+				journal: {
+					read: () => readLookupJsonDestination(db, key),
+					admit: async (entry, expectedRevision) => {
+						const admission = await admitLookupJsonWrite(scope, target, {
+							...fence,
+							...(letOut.length === 0 && {
+								firstContentGeneration: contentGeneration,
+							}),
+							tableId: table.tableId,
+							authority: plan.authority,
+							entry,
+							expectedRevision,
+						});
+						if (admission.kind === "admitted") {
+							letOut.push(...admission.writeIds);
+							admitted.push(...admission.writeIds);
+						}
+						return admission;
+					},
+					settle: (operationId, settlement, writes) =>
+						settleLookupJsonWrite(key, operationId, settlement, writes),
+				},
+				definition: table.definition,
+				rows: table.rows,
+				holdMs: LOOKUP_JSON_HOLD_MS,
+			});
+		} catch (error) {
+			if (!(error instanceof LookupError)) throw error;
+			return {
+				failure: { code: "app_not_ready", message: error.message, details: [] },
+				recorded,
+				mapped,
+			};
+		}
+		if (result.remoteTableId !== null) {
+			recorded = await recordPushedResources(
+				scope,
+				target,
+				[
+					{
+						kind: "lookup-table",
+						novaResourceId: table.tableId,
+						remoteId: result.remoteTableId,
+						ownership: "nova-created",
+						pushedIdentity: table.tag,
+						adoptedBy: null,
+						adoptedAt: null,
+						pushedRevision: null,
+						remoteRevision: null,
+					},
+				],
+				{ status: "partial" },
+				{
+					...fence,
+					...(admitted.length > 0 && {
+						admitted: { writeIds: admitted, settle: [] },
+					}),
+				},
+			);
+			mapped.push({
+				novaResourceId: table.tableId,
+				remoteId: result.remoteTableId,
+			});
+		}
+		log.info("[deployment] lookup table JSON publish", {
+			domain,
+			appId: scope.appId,
+			tableId: table.tableId,
+			outcome: result.kind,
+			stop: result.kind === "stopped" ? result.stop.kind : null,
+			writes: result.writes,
+		});
+		if (result.kind === "stopped")
+			return {
+				failure: lookupJsonStopFailure(
+					result.stop,
+					table.name,
+					domain,
+					createdApp,
+				),
+				recorded,
+				mapped,
+			};
+	}
+	return { failure: null, recorded, mapped };
+}
+
+/** Why a table's JSON publish stopped, in Nova's voice. */
+function lookupJsonStopFailure(
+	stop: LookupJsonStop,
+	name: string,
+	domain: string,
+	createdApp: boolean,
+): DeploymentFailure {
+	const stopped = stoppedBeforeContent(createdApp, "’");
+	switch (stop.kind) {
+		case "review":
+			switch (stop.reason) {
+				case "tag-held-elsewhere":
+					return {
+						code: "hq_resource_conflict",
+						message: `“${domain}” already has a lookup table under the export tag of “${name}”, and Nova didn't make it, ${stopped} You can give the table another export tag in Project data, then publish again.`,
+						details: [name],
+					};
+				case "schema-change":
+					return {
+						code: "hq_table_content_unsupported",
+						message: `“${name}” has different columns or details than the table Nova put on “${domain}”, and CommCare HQ's table resources can't change them without dropping what CommCare HQ holds about them, ${stopped} You can give the table a new export tag in Project data, so it goes there as a new table.`,
+						details: [name],
+					};
+				case "no-rank-room":
+					return {
+						code: "hq_rejected_resource_push",
+						message: `CommCare HQ has no room left to order the rows of “${name}” as Nova holds them, ${stopped} You can give the table a new export tag in Project data, so it goes to “${domain}” as a new table.`,
+						details: [name],
+					};
+				default:
+					return {
+						code: "hq_resource_state_unknown",
+						message: `The table Nova put on “${domain}” for “${name}” changed in CommCare HQ since Nova last published it, ${stopped} Nova won't write over that change. You can look at the table in CommCare HQ, then publish again.`,
+						details: [name],
+					};
+			}
+		case "refused":
+			return {
+				code: "hq_rejected_resource_push",
+				message: `CommCare HQ refused a change to the lookup table “${name}”, ${stopped} Nothing after that change was sent, so publishing again carries on from there.`,
+				details: [name],
+			};
+		case "unknown-outcome":
+		case "read-failed":
+			return {
+				code: "hq_resource_state_unknown",
+				message: `Nova couldn't confirm a change it sent to the lookup table “${name}” on “${domain}”, ${stopped} It sends nothing more to that table until it can read what CommCare HQ holds. Publishing again in a few minutes picks up from there.`,
+				details: [name],
+			};
+		case "unexpected-outcome":
+		case "unnamed-row":
+		case "not-verified":
+			return {
+				code: "hq_resource_state_unknown",
+				message: `The lookup table “${name}” on “${domain}” doesn't hold what Nova's last change should have left there, ${stopped} Nova won't write to it again on its own. You can look at the table in CommCare HQ, then publish again.`,
+				details: [name],
+			};
+		case "busy":
+			return {
+				code: "hq_resource_state_unknown",
+				message: `Another publish is writing the lookup table “${name}” to “${domain}” right now, ${stopped} You can publish again once it finishes.`,
+				details: [name],
+			};
+		case "admission":
+			return stop.reason === "handed-back"
+				? {
+						code: "managed_table_handed_back",
+						message: createdApp
+							? MANAGED_TABLE_HANDED_BACK_AFTER_CREATE
+							: MANAGED_TABLE_HANDED_BACK,
+						details: [],
+					}
+				: {
+						code: "app_not_ready",
+						message:
+							"The lookup data or its audience changed while Nova was publishing it. You can review the table in Project data and publish again.",
+						details: [name],
+					};
+	}
+}
+
+/**
  * CommCare HQ's refusal of a workbook, in Nova's voice, with its own
  * sentence kept.
  *
@@ -3693,6 +3968,11 @@ async function uploadMediaBytes(
 			hqAppId,
 			streamZip(mediaMembers(prepared.assets)),
 			{
+				bytes: [...prepared.assets.values()].reduce(
+					(sum, asset) =>
+						sum + (asset.byteSource?.size ?? asset.bytes?.length ?? 0),
+					0,
+				),
 				onAccepted: async (processingId) => {
 					jobId = processingId;
 					await settleRemoteWrites([writeId], {

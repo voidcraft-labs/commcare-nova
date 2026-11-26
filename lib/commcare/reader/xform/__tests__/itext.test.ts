@@ -184,10 +184,12 @@ describe("the forms of a text", () => {
 					<value form="video-inline">jr://file/v.mp4</value><value form="mine">M</value></text>`,
 			}),
 		);
-		expect(codes(reading).sort()).toEqual(
-			[Q("label-video-inline"), Q("long-form")].sort(),
-		);
+		// A question label's inline video is its label media's: a path with no
+		// file is handed off to project data, as another media form's is.
+		expect(codes(reading)).toEqual([]);
 		expect(unclaimedText(reading)).toEqual([]);
+		// A label's `long` form is its extended text.
+		expect(field(reading, "q").extended_text).toEqual(proseText("L"));
 	});
 });
 
@@ -241,6 +243,32 @@ describe("blank values", () => {
 		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual(
 			blankFrenchLabel,
 		);
+		expect(unclaimedText(reading)).toEqual([]);
+	});
+
+	it("counts a label's blank extended text beside the default's as a filled translation", async () => {
+		// Core shows French workers the blank `long` form as it stands; the next publish writes
+		// the English text there, so the review lists it as the label's own blank is listed.
+		const reading = await readForm(
+			oneLabel("l", {
+				en: `<text id="l"><value>Hello</value><value form="long">Hello there</value></text>`,
+				fr: `<text id="l"><value>Bonjour</value><value form="long"/></text>`,
+			}),
+			{ langs: ["en", "fr"] },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(field(reading, "q").extended_text).toEqual(proseText("Hello there"));
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 1,
+			blankTranslationSlots: [
+				{
+					fieldPath: ["q"],
+					slot: "extended_text",
+					language: "fra",
+					choiceValue: null,
+				},
+			],
+		});
 		expect(unclaimedText(reading)).toEqual([]);
 	});
 
@@ -361,17 +389,17 @@ describe("more forms of a text", () => {
 			);
 		});
 
-	it("refuses a big image, a QR code and a spoken form on a label", async () => {
+	it("refuses a big image on a label, and holds its QR code and spoken text", async () => {
 		const reading = await readForm(
 			oneLabel("l", {
 				en: `<text id="l"><value>A</value><value form="big-image">jr://file/b.png</value>
 					<value form="qrcode">code</value><value form="tts">say</value></text>`,
 			}),
 		);
-		expect(codes(reading).sort()).toEqual(
-			[Q("label-big-image"), Q("label-qrcode"), Q("label-tts")].sort(),
-		);
+		expect(codes(reading)).toEqual([Q("label-big-image")]);
 		expect(unclaimedText(reading)).toEqual([]);
+		expect(field(reading, "q").qr_code).toEqual(proseText("code"));
+		expect(field(reading, "q").spoken_text).toEqual(proseText("say"));
 	});
 
 	it("reads a choice's and a help text's forms by their own rows", async () => {

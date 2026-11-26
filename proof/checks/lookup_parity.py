@@ -1,7 +1,17 @@
 """Independent parity for an app's HQ lookup-resource claims.
 
 The lookup tag belongs to a Project resource outside app.json. Core's parsed instance reads and the Search
-itemset supply the referenced tags. The authorized lookup table list supplies their exact definitions.
+itemset supply the referenced tags. The authorized lookup table list supplies their exact definitions, the
+fixture list each table's rows, and, for a table whose definition or rows the plain list cannot carry, the row
+detail resource each row's attributes (``proof/hq/operations.py::lookup_detail_targets``).
+
+Beside the name classes, a held table's content classes are read off those answers as HQ's restore writes
+them (``fixtures/fixturegenerators.py::ItemListsProvider.to_xml``): a field with properties or with several
+values in a row is one element a value with its properties as attributes (``FIELD_VALUES_ENTRY``, at
+``/<tag>/fields/<i>/properties``); a table's row attributes are attributes of each row's element
+(``ROW_ATTRIBUTES_ENTRY``, at ``/<tag>/item_attributes``); and a field a row does not hold is one empty
+element while a field it holds no value of is no element at all (``CELL_ABSENCE_ENTRY``, at
+``/<tag>/fields/<i>``), which a device tells apart.
 """
 
 from __future__ import annotations
@@ -13,9 +23,23 @@ from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import instance_scheme
 
 ALIAS_ENTRY = "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns"
+# The tag ``types`` in any case: HQ's workbook reader spends the sheet ``types`` on its own list of tables
+# (``fixtures/upload/workbook.py::_FixtureWorkbook.get_types_sheet``), and a workbook holds no second sheet of that
+# name in another case, so Nova carries such a table through the JSON resources instead, and a reading holds it
+# as it holds any other tag.
+TYPES_ENTRY = "expressions-and-data/tag-types"
 DOTTED_ENTRY = "expressions-and-data/tag-or-field-name-holding-a-period"
 UNICODE_ENTRY = "expressions-and-data/tag-or-field-name-with-non-ascii-letters"
-RESOURCE_ENTRIES = {ALIAS_ENTRY, DOTTED_ENTRY, UNICODE_ENTRY}
+FIELD_VALUES_ENTRY = "expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name"
+ROW_ATTRIBUTES_ENTRY = "expressions-and-data/item-attributes-and-per-row-attribute-values"
+CELL_ABSENCE_ENTRY = "expressions-and-data/absent-field-vs-zero-values-vs-empty-string"
+# Each content class's surface key: the model field whose value puts a table in it.
+CONTENT_KEYS = {
+    FIELD_VALUES_ENTRY: "lookup-model:TypeField.properties",
+    ROW_ATTRIBUTES_ENTRY: "lookup-model:LookupTable.item_attributes",
+    CELL_ABSENCE_ENTRY: "lookup-model:LookupTableRow.fields",
+}
+RESOURCE_ENTRIES = {ALIAS_ENTRY, TYPES_ENTRY, DOTTED_ENTRY, UNICODE_ENTRY, *CONTENT_KEYS}
 ARTIFACT = "lookup-tables"
 
 
@@ -25,6 +49,8 @@ def resource_entries(manifest, table):
     # HQ registers the schemes in the extracted manifest. The Search input root is another reserved name in Core.
     if tag.lower() == "input" or manifest.item(f"instance-scheme:{instance_scheme(tag.lower())}") is not None:
         yield "lookup-model:LookupTable.tag", f"/{pointer_token(tag)}/tag", ALIAS_ENTRY
+    if tag.lower() == "types":
+        yield "lookup-model:LookupTable.tag", f"/{pointer_token(tag)}/tag", TYPES_ENTRY
     names = [(tag, "lookup-model:LookupTable.tag", "tag")]
     names.extend(
         (
@@ -74,36 +100,80 @@ def _held_definition(table):
     names = [field["field_name"] for field in fields]
     return (
         _hq_name(tag, 32)
-        and tag.lower() != "types"
         and not any(word in tag for word in ("casedb", "ledgerdb"))
         and table.get("is_global") is True
-        and not table.get("item_attributes")
         and 0 < len(fields) <= 250
         and len(set(names)) == len(names)
         and all(_hq_name(name, 255) for name in names)
-        and not any(field.get("properties") for field in fields)
     )
 
 
-def _held_rows(document, table, observations_by_tag):
+def _cell_values(field):
+    """A row's values of one field as the fixture list serves them: one string where every field of the row holds
+    one value without properties, else ``{"field_list": [{"field_value", "properties"}]}``
+    (``FixtureResource.dehydrate_fields``); None where the answer is neither."""
+    if isinstance(field, str):
+        return [field]
+    if isinstance(field, dict) and isinstance(field.get("field_list"), list):
+        values = [value.get("field_value") if isinstance(value, dict) else None for value in field["field_list"]]
+        return values if all(isinstance(value, str) for value in values) else None
+    return None
+
+
+def _needs_details(table, rows):
+    """Whether the reader reads each row's detail (``operations.lookup_detail_targets``)."""
+    return bool(
+        table.get("item_attributes")
+        or any(field.get("properties") for field in table["fields"])
+        or any(not isinstance(value, str) for row in rows for value in row["fields"].values())
+    )
+
+
+def _held_rows(document, table, observations_by_tag, details):
+    """The table's rows where every value of them is one Nova holds, each row's detail where the reader reads one,
+    and every row holds every row attribute the table names (HQ's restore raises on one that does not,
+    ``to_xml``'s ``FixtureTypeCheckError``); None where they are not."""
     tag = table["tag"]
     rows = _objects(document, observations_by_tag.get(tag), f"{tag} rows")
     if rows is None or len(rows) > 5000:
-        return False
+        return None
     for row in rows:
         for field in row["fields"].values():
-            if isinstance(field, dict):
-                values = field.get("field_list", [])
-                if len(values) != 1:
-                    return False
-                field = values[0]["field_value"]
-            if not isinstance(field, str) or len(field.encode("utf-8", errors="surrogatepass")) > 65536:
-                return False
-            try:
-                etree.Element("value").text = field
-            except (ValueError, UnicodeEncodeError):
-                return False
-    return True
+            values = _cell_values(field)
+            if values is None:
+                return None
+            for value in values:
+                if len(value.encode("utf-8", errors="surrogatepass")) > 65536:
+                    return None
+                try:
+                    etree.Element("value").text = value
+                except (ValueError, UnicodeEncodeError):
+                    return None
+    if _needs_details(table, rows):
+        for row in rows:
+            answer = details.get(row["id"])
+            if not isinstance(answer, dict) or answer.get("status") != 200:
+                raise observations.RecordIncomplete(f"{document}'s authored read lacks the detail of a {tag} row.")
+            detail = observations.answer_json(answer)
+            attributes = detail.get("item_attributes") if isinstance(detail, dict) else None
+            if not isinstance(attributes, dict) or any(name not in attributes for name in table.get("item_attributes") or []):
+                return None
+    return rows
+
+
+def content_entries(table, rows):
+    """The content classes of a held table's definition and rows, each ``(key, where, entry)`` (the module's
+    docstring)."""
+    at = f"/{pointer_token(table['tag'])}"
+    for index, field in enumerate(table["fields"]):
+        held = [row["fields"].get(field["field_name"]) for row in rows]
+        values = [None if value is None else _cell_values(value) for value in held]
+        if field.get("properties") or any(value is not None and len(value) > 1 for value in values):
+            yield CONTENT_KEYS[FIELD_VALUES_ENTRY], f"{at}/fields/{index}/properties", FIELD_VALUES_ENTRY
+        if any(value is None or len(value) == 0 for value in values):
+            yield CONTENT_KEYS[CELL_ABSENCE_ENTRY], f"{at}/fields/{index}", CELL_ABSENCE_ENTRY
+    if table.get("item_attributes"):
+        yield CONTENT_KEYS[ROW_ATTRIBUTES_ENTRY], f"{at}/item_attributes", ROW_ATTRIBUTES_ENTRY
 
 
 def differences(document, manifest, tags, reads, claims):
@@ -122,12 +192,16 @@ def differences(document, manifest, tags, reads, claims):
         status = answer["status"]
         if status != 200 and (status < 500 or status in (502, 503, 504)):
             accessible = False
-    expected = {
-        (where, entry): key
-        for table in references
-        if accessible and _held_definition(table) and _held_rows(document, table, row_reads)
-        for key, where, entry in resource_entries(manifest, table)
-    }
+    details = data.get("fixtureDetails") or {}
+    expected = {}
+    for table in references:
+        if not (accessible and _held_definition(table)):
+            continue
+        rows = _held_rows(document, table, row_reads, details)
+        if rows is None:
+            continue
+        for key, where, entry in (*resource_entries(manifest, table), *content_entries(table, rows)):
+            expected[(where, entry)] = key
     actual = {
         (record.where, record.entry): record.standing
         for record in claims
@@ -140,9 +214,8 @@ def differences(document, manifest, tags, reads, claims):
             continue
         key = expected.get(
             pair,
-            "lookup-model:TypeField.name"
-            if where.endswith("/field_name")
-            else "lookup-model:LookupTable.tag",
+            CONTENT_KEYS.get(entry)
+            or ("lookup-model:TypeField.name" if where.endswith("/field_name") else "lookup-model:LookupTable.tag"),
         )
         what = (
             "unseen"

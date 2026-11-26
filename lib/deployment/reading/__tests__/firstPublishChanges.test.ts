@@ -45,6 +45,7 @@ import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWi
 import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { EMISSION_REWRITES } from "@/lib/commcare/emissionRewrites";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import {
@@ -69,6 +70,7 @@ import type {
 	ReadFacts,
 	SameStateRewrite,
 } from "@/lib/commcare/reader/types";
+import { levelsAsPublished } from "@/lib/commcare/reader/worldEntities";
 import { literalOutputText } from "@/lib/commcare/reader/xform/prose";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { imageMapEnumKey } from "@/lib/commcare/suite/case-list/columns";
@@ -82,6 +84,7 @@ import { typedInstantValue } from "@/lib/commcare/xpath/wire/instant";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
 import type { DeclarationChoice } from "@/lib/doc/platformDeclaration";
 import {
 	type BlueprintDoc,
@@ -150,6 +153,7 @@ import {
 	MEDIA_REFERENCE_PATHS,
 	pointerCovers,
 	publishChangeSubjects,
+	withAnsweredChanges,
 } from "../firstPublishChanges";
 import {
 	firstPublishPlaceKind,
@@ -170,6 +174,7 @@ import {
 	readingMediaFindings,
 	readingMediaIndex,
 } from "../projectData/media";
+import { workerOwnerMutations } from "../projectData/ownerRules";
 import {
 	type RegisterReading,
 	readExport,
@@ -2527,6 +2532,13 @@ const menuNamed = (name: Json): ExportEdits =>
 		menu.name = name;
 	});
 
+const menuBadged = (xpath: string | null): ExportEdits =>
+	onMenu((menu) => {
+		menu.custom_icons = [
+			{ doc_type: "CustomIcon", form: "badge", text: { en: "New" }, xpath },
+		];
+	});
+
 /** The Project data each pair whose document reads a table or holds a file publishes with. */
 const PAIR_PROJECT_DATA: Partial<
 	Record<FirstPublishChangeId, PairProjectData>
@@ -3001,6 +3013,12 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	},
 	// A menu's name with spaces at its end, which no device shows.
 	"names-respelled": editedPair(followUpDoc, menuNamed({ en: "Patients  " })),
+	// A text badge whose source also holds an empty calculation, which the
+	// build reads as no calculation and Nova writes as none.
+	"badge-respelled": {
+		on: async () => factsOf(await readAs(followUpDoc(), menuBadged(""), {})),
+		off: async () => factsOf(await readAs(followUpDoc(), menuBadged(null), {})),
+	},
 	// A menu's icon stored under one language and shown in every language by
 	// HQ's "use for all" switch, which Nova writes as the file under each
 	// language. A map stored under one language alone, with no switch, is
@@ -3066,7 +3084,29 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	"unread-fixture-declarations-dropped": editedPair(followUpDoc, {
 		xml: withDeclaredReports,
 	}),
+	// A transfer that gives its case to the clinic below its owner, given to the worker who
+	// fills in the form by the person's answer: no reading gives it alone.
+	"owner-rule-given-to-worker": {
+		on: async () => {
+			const facts = factsOf(await ownerRuleReading());
+			const answered = produce(facts.doc, (draft) => {
+				applyMutations(draft, workerOwnerMutations(facts.doc, ["clinic"]));
+			});
+			return { ...facts, read: facts.doc, doc: answered };
+		},
+		off: async () => factsOf(await ownerRuleReading()),
+	},
 };
+
+/** CommCare HQ's app whose transfer gives each case to the clinic below its owner, read with
+ *  the levels CommCare HQ lists for it. */
+function ownerRuleReading(): Promise<RegisterReading> {
+	const doc = locationOwnerFixture("direct");
+	const levels = levelsAsPublished(doc);
+	return readExport(doc, TARGET, {
+		organization: { levelCodes: levels.map((level) => level.code), levels },
+	});
+}
 
 /** A media map item as CommCare HQ stores one for an image. */
 function mediaMapItem(id: string): Record<string, unknown> {
@@ -3191,6 +3231,23 @@ describe("each entry", () => {
 				if (!coveredByItsEntry(record))
 					uncovered.push(`${id}: ${record.register} ${record.path}`);
 		expect(uncovered).toEqual([]);
+	});
+
+	it("adds what the person's answers made of the reading to its list, and nothing where they made nothing or no answer stands behind it", async () => {
+		const read = factsOf(await ownerRuleReading());
+		const { doc: answered } = await PAIRS["owner-rule-given-to-worker"].on();
+		const view = firstPublishChangesFor(read);
+		const asked = ["owner-rule-given-to-worker"] as const;
+		expect(view.ids).not.toContain("owner-rule-given-to-worker");
+		expect(withAnsweredChanges(view, read, read.doc, asked)).toBe(view);
+		// The same document with no answer behind it: an author's own edit of
+		// the owner in Nova makes the same difference and asked nothing.
+		expect(withAnsweredChanges(view, read, answered, [])).toBe(view);
+		expect(withAnsweredChanges(view, read, answered, asked)).toEqual({
+			...view,
+			ids: [...view.ids, "owner-rule-given-to-worker"],
+			touchesWorkers: true,
+		});
 	});
 
 	it("lists the ids that apply in registry order, touching workers where one of them does", async () => {

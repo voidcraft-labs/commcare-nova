@@ -1,10 +1,15 @@
 import { z } from "zod";
-import { type EntryPointTarget, uuidSchema } from "@/lib/domain";
+import {
+	type EntryPointTarget,
+	suppliedCaseCreationSchema,
+	uuidSchema,
+} from "@/lib/domain";
 import { deploymentTargetSchema } from "./types";
 
 export const getEntryPointLinkSchema = deploymentTargetSchema
 	.extend({
 		entryPointUuid: uuidSchema,
+		creations: z.array(suppliedCaseCreationSchema).optional(),
 		selections: z.array(
 			z.strictObject({
 				moduleUuid: uuidSchema,
@@ -19,6 +24,12 @@ export interface PublishedEntryPoint {
 	readonly uuid: string;
 	readonly id: string;
 	readonly signature: string;
+	readonly requiredCreations?: readonly {
+		readonly operationUuid: string;
+		readonly caseType: string;
+		readonly argumentId: string;
+	}[];
+	readonly argumentOrder?: readonly string[];
 	readonly requiredSelections: readonly {
 		readonly moduleUuid: string;
 		readonly caseType: string;

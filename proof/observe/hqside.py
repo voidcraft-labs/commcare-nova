@@ -59,6 +59,7 @@ or form named by its place in the app HQ holds:
   (``views/forms.py::edit_form_actions``: the actions as HQ holds them, through ``make_multi``, and each new mapping
   as the ``case_mapping_diff``);
 - ``moduleAttribute``: the menu's name posted to ``views/modules.py::edit_module_attr``;
+- ``moduleLayout``: the menu's own Menu Display (``display_style``) posted to the same view;
 - ``moduleDetail``: the Case List page's save of its columns with one added at the end
   (``views/modules.py::edit_module_detail_screens``), the list's own settings posted as HQ holds them;
 - ``formsAddedAndRemoved``: a form deleted (``views/forms.py::delete_form``), a survey added
@@ -553,6 +554,25 @@ def module_attribute(unit, app_id, value):
     ]
 
 
+def module_layout(unit, app_id, value):
+    """A menu's own display style, as the menu settings page posts it (``views/modules.py::edit_module_attr``,
+    ``display_style``), which HQ shows where the app's form menus are set per menu (``grid_form_menus`` ``some``)."""
+    app = _operations().held_app(unit, app_id)
+    module_id = app.get_module(value["module"]).unique_id
+    body, content_type = _form_body([("display_style", value["displayStyle"])])
+    return [
+        _answer(
+            unit,
+            "POST",
+            "edit_module_attr",
+            [unit.domain, app_id, module_id, "display_style"],
+            body,
+            content_type,
+            f"the display style of menu {module_id}",
+        )
+    ]
+
+
 def module_detail(unit, app_id, value):
     """A column added at the end of a menu's case list, posted as the Case List page posts its columns
     (``views/modules.py::edit_module_detail_screens``): ``type`` ``case``, every column HQ holds then the new one,
@@ -745,6 +765,7 @@ SAVES = (
     ("formAttribute", _in_operation(form_attribute)),
     ("formActions", _in_operation(form_actions)),
     ("moduleAttribute", _in_operation(module_attribute)),
+    ("moduleLayout", _in_operation(module_layout)),
     ("moduleDetail", _in_operation(module_detail)),
     ("formsAddedAndRemoved", _in_operation(forms_added_and_removed)),
     ("order", _in_operation(order)),

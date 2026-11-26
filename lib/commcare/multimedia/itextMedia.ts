@@ -24,17 +24,25 @@
 
 import type { Element } from "domhandler";
 import { el, text } from "@/lib/commcare/elementBuilders";
-import type { Media, MediaKind } from "@/lib/domain/multimedia";
+import type { MediaRole, MediaValues } from "@/lib/domain/multimedia";
 import { type AssetManifest, requireAssetRef } from "./assetWirePath";
 
 /**
- * The `Media` slot kinds in the order their `<value form="...">`
- * elements emit. CommCare keys each media value by its `form`
- * attribute, so order is not semantically load-bearing — but a fixed
- * order keeps emitted bytes deterministic (and matches the
- * image-before-audio order the CCHQ fixtures show).
+ * The `form` each `Media` role writes, in the order the values emit.
+ * CommCare keys each media value by its `form` attribute, so order is not
+ * semantically load-bearing — but a fixed order keeps emitted bytes
+ * deterministic (and matches the image-before-audio order the CCHQ
+ * fixtures show). An inline video is HQ's `video-inline` form, which
+ * `xform.py::video_references` collects beside `video`, so its file ships
+ * with the app; commcare-android plays it inside a question's label
+ * (`QuestionWidget.java`, `MediaLayout.setupInlineVideoView`).
  */
-const MEDIA_VALUE_ORDER: readonly MediaKind[] = ["image", "audio", "video"];
+const MEDIA_VALUE_FORMS: readonly (readonly [MediaRole, string])[] = [
+	["image", "image"],
+	["audio", "audio"],
+	["video", "video"],
+	["videoInline", "video-inline"],
+];
 
 /**
  * Build the media `<value form="...">` elements for one `Media` bundle,
@@ -47,20 +55,17 @@ const MEDIA_VALUE_ORDER: readonly MediaKind[] = ["image", "audio", "video"];
  * referenced asset is missing from the manifest.
  */
 export function itextMediaValues(
-	media: Media | undefined,
+	media: MediaValues | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
 ): Element[] {
 	if (!media || !manifest) return [];
 	const values: Element[] = [];
-	for (const kind of MEDIA_VALUE_ORDER) {
-		const assetId = media[kind];
+	for (const [role, form] of MEDIA_VALUE_FORMS) {
+		const assetId = media[role];
 		if (!assetId) continue;
 		const ref = requireAssetRef(assetId, manifest, where);
-		// `form="image" | "audio" | "video"` — the same tokens CommCare's
-		// `VALID_VALUE_FORMS` accepts; the `MediaKind` literal IS the wire
-		// `form` value, so no translation table is needed.
-		values.push(el("value", { form: kind }, [text(ref)]));
+		values.push(el("value", { form }, [text(ref)]));
 	}
 	return values;
 }

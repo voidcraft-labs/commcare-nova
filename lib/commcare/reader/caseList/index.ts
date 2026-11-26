@@ -6,6 +6,7 @@
  * details, sort elements, filter and tile keys must equal the stored ones
  * after the inert claims and the same-state rows.
  */
+
 import { produce } from "immer";
 import type {
 	BlueprintDoc,
@@ -32,7 +33,7 @@ import { withCandidate } from "../candidate";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
-import { dotInterpolate } from "../hqInterpolation";
+import { dotInterpolate, interpolateHqXPath } from "../hqInterpolation";
 import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
 import { handedOff, type PendingExpression } from "../pendingExpressions";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
@@ -732,7 +733,10 @@ function listDifference(
 		if (blank(storedFilter) !== blank(ourFilter)) return "schema:Detail.filter";
 		if (
 			!blank(storedFilter) &&
-			!sameXPathText(String(storedFilter), String(ourFilter))
+			!sameXPathText(
+				filterAsBuilt(String(storedFilter)),
+				filterAsBuilt(String(ourFilter)),
+			)
 		)
 			return "schema:Detail.filter";
 	}
@@ -1013,4 +1017,16 @@ function handedOffListSlots(
 		if (column.long !== undefined) long.add(column.long);
 	});
 	return { short, long, filter };
+}
+
+/** A list filter as HQ's build writes it into the list's nodeset
+ *  (`entries.py::EntriesHelper.get_filter_xpath`: `interpolate_xpath` with
+ *  `current()` as the case), so a filter stored with HQ's shortcuts, such
+ *  as `#user/district`, compares with the read Nova prints for it. */
+function filterAsBuilt(text: string): string {
+	const built = interpolateHqXPath(text, {
+		caseXPath: "current()",
+		interpolateDots: true,
+	});
+	return built.ok ? built.text : text;
 }

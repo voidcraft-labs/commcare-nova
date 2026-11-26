@@ -189,6 +189,16 @@ function basicFormRequiresCase(form: JsonObject): boolean {
 	);
 }
 
+/** The editor and suite use Form.requires_case() for case-list form choices.
+ * An advanced form requires manual choice if any load has no auto selector. */
+export function formChoosesCase(form: JsonObject): boolean {
+	if (form.doc_type !== "AdvancedForm") return basicFormRequiresCase(form);
+	const actions = isObject(form.actions) ? form.actions : NO_ENTRIES;
+	return objects(actions.load_update_cases).some(
+		(load) => !isObject(load.auto_select),
+	);
+}
+
 /**
  * Whether CommCare HQ's build walks `module`'s parent selection
  * (`suite_xml/utils.py::get_select_chain_meta`): for the menu's case list menu item

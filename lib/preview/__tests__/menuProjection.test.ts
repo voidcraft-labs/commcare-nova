@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
+	ROUTE,
+	SOURCE,
+	VISIT,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
+import {
 	type BlueprintDoc,
 	fieldSchema,
 	type Module,
@@ -10,12 +15,14 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { proseText } from "@/lib/domain/prose";
+import { parentCaseConstraint } from "../caseSelectionNavigation";
 import { previewDataRefusalOf } from "../engine/dataRefusal";
 import {
 	caseListMenuEntryOf,
 	combineNavigationVisibility,
+	dependentMenuSelectionUuids,
 	inheritedModuleVisibility,
-	previewCaseDescendantModuleUuids,
 	previewCaseListContinuation,
 	previewCaseListFormRequest,
 	previewCaseListHeldChoices,
@@ -37,6 +44,7 @@ import {
 	previewScreenEntryVisibility,
 	previewSelectionsBefore,
 	previewTargetAboveForm,
+	shownMenuBadge,
 } from "../menuProjection";
 import {
 	pinnedTileSearchReading,
@@ -53,6 +61,7 @@ const ROOT_FORM = testUuid("root-form");
 const CHILD_FORM = testUuid("child-form");
 const OTHER_ROOT_FORM = testUuid("other-root-form");
 const SURVEY_FORM = testUuid("survey-form");
+const CLINICS = testUuid("clinics-menu");
 
 function module(
 	uuid: typeof ROOT,
@@ -456,14 +465,14 @@ describe("Preview menu projection", () => {
 			...base,
 			modules: {
 				...base.modules,
-				[ROOT]: module(ROOT, "clinic"),
-				[OTHER_ROOT]: module(OTHER_ROOT, "household"),
+				[ROOT]: module(ROOT, "household"),
+				[OTHER_ROOT]: module(OTHER_ROOT, "clinic"),
 				[CHILD]: { ...base.modules[CHILD], parentCaseModuleUuid: OTHER_ROOT },
 			},
 		};
 		const selected = {
-			caseType: "household",
-			cases: [{ caseId: "h1", caseName: "Household one" }],
+			caseType: "clinic",
+			cases: [{ caseId: "h1", caseName: "North clinic" }],
 		};
 
 		assertAdmittedPreviewDoc(doc);
@@ -482,11 +491,11 @@ describe("Preview menu projection", () => {
 			parentCase: undefined,
 			parentModuleUuid: undefined,
 			requiredParentCase: {
-				caseType: "household",
+				caseType: "clinic",
 				moduleUuid: OTHER_ROOT,
 			},
 		});
-		expect(previewCaseDescendantModuleUuids(doc, "household")).toEqual([CHILD]);
+		expect(dependentMenuSelectionUuids(doc, OTHER_ROOT)).toEqual([CHILD]);
 	});
 
 	it("takes the case chosen on the parent's screen as the parent case of a submenu that shows its forms there", () => {
@@ -1401,5 +1410,113 @@ describe("what choosing a case goes on to", () => {
 		expect(
 			previewMenuSelectionsLetGo(caseFirst, selections, { moduleUuid: CHILD }),
 		).toEqual([CHILD]);
+	});
+});
+
+it("keeps the full Web Apps badge and applies Android's integer range to long labels", () => {
+	for (const [text, android] of [
+		["0", ""],
+		["0000", "999+"],
+		["+123", "999+"],
+		["-2147483648", "999+"],
+		["2147483648", "214.."],
+		["١٢٣٤", "999+"],
+		["Équipe", "Équ.."],
+	] as const) {
+		expect(shownMenuBadge(text, "web-apps")).toBe(text);
+		expect(shownMenuBadge(text, "android")).toBe(android);
+	}
+});
+
+describe("a parent selection naming a menu that lists another menu's forms", () => {
+	/** Clinics choose a patient first in Clinic, a menu listing Patients'
+	 * forms that holds no case type of its own: the device asks for a patient
+	 * in Clinic's list and then lists only clinics indexed to that patient. */
+	function clinicsUnderRoute(): BlueprintDoc {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Patient") }],
+				},
+				{
+					name: "clinic",
+					properties: [{ name: "case_name", label: proseText("Clinic") }],
+				},
+			],
+			modules: [
+				{
+					uuid: SOURCE,
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: VISIT,
+							name: "Visit",
+							type: "followup",
+							fields: [f({ id: "notes", kind: "text" })],
+						},
+					],
+				},
+				{
+					uuid: CLINICS,
+					name: "Clinics",
+					caseType: "clinic",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: "check-clinic",
+							name: "Check clinic",
+							type: "followup",
+							fields: [f({ id: "clinic_notes", kind: "text" })],
+						},
+					],
+				},
+			],
+		});
+		doc.modules[ROUTE] = {
+			uuid: ROUTE,
+			id: "clinic_visits",
+			name: "Patient visits",
+			caseListConfig: caseListConfig([
+				{ field: "case_name", header: "Patient" },
+			]),
+			formsFromMenu: { menuUuid: SOURCE },
+		};
+		doc.formOrder[ROUTE] = [];
+		doc.moduleOrder = [SOURCE, ROUTE, CLINICS];
+		doc.modules[CLINICS] = {
+			...(doc.modules[CLINICS] as Module),
+			parentCaseModuleUuid: ROUTE,
+		};
+		return doc;
+	}
+
+	it("asks for the listing menu's case first, then holds the clinics to the chosen patient", () => {
+		const built = clinicsUnderRoute();
+		assertAdmittedPreviewDoc(built);
+		const doc = { ...built, caseTypes: built.caseTypes ?? [] };
+		expect(previewMenuCaseContext(doc, CLINICS, {}).requiredParentCase).toEqual(
+			{ caseType: "patient", moduleUuid: ROUTE },
+		);
+		const chosen = {
+			caseType: "patient",
+			cases: [{ caseId: "p1", caseName: "Ada" }],
+		};
+		const context = previewMenuCaseContext(doc, CLINICS, { [ROUTE]: chosen });
+		expect(context).toMatchObject({
+			parentCase: chosen,
+			parentModuleUuid: ROUTE,
+			requiredParentCase: undefined,
+		});
+		expect(parentCaseConstraint(doc, CLINICS, context.parentCase)).toEqual({
+			caseType: "patient",
+			caseIds: ["p1"],
+		});
 	});
 });

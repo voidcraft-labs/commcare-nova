@@ -36,7 +36,8 @@ function playback(
 /**
  * The READ surface for a carrier's attached media: what the form/menu/app
  * actually shows, the way CommCare renders media alongside a question: the
- * image above the label, an audio player, a video player. `MediaSlot` is the
+ * image above the label, an audio player, a video player, and a label's
+ * inline video played in the image's place. `MediaSlot` is the
  * authoring surface (attach / replace / remove); this is its display twin.
  *
  * Edit and preview render the IDENTICAL elements: `interactive` only toggles
@@ -70,13 +71,19 @@ export function MediaDisplay({
 	imageClassName?: string;
 }) {
 	const rows = useReferencedAssetRows(
-		[media?.audio, media?.video].filter(
+		[media?.audio, media?.video, media?.videoInline].filter(
 			(id): id is NonNullable<typeof id> => id !== undefined,
 		),
 	);
-	if (!media || (!media.image && !media.audio && !media.video)) return null;
+	if (
+		!media ||
+		(!media.image && !media.audio && !media.video && !media.videoInline)
+	)
+		return null;
 	const audio = media.audio && playback("audio", rows[media.audio]);
 	const video = media.video && playback("video", rows[media.video]);
+	const inlineVideo =
+		media.videoInline && playback("video", rows[media.videoInline]);
 	return (
 		<div
 			className={cn(
@@ -85,6 +92,27 @@ export function MediaDisplay({
 				className,
 			)}
 		>
+			{/* A label's inline video plays in the image's place, inside the
+			    question rather than behind a play button. */}
+			{media.videoInline &&
+				inlineVideo &&
+				(inlineVideo.kind === "stand-in" ? (
+					<MediaStandIn kind="video" line={inlineVideo.line} />
+				) : inlineVideo.kind === "pending" ? (
+					// biome-ignore lint/a11y/useMediaCaption: a player with no source yet holds no speech to caption
+					<video
+						controls
+						className="max-h-60 max-w-full rounded-md"
+						data-label-inline-video=""
+					/>
+				) : (
+					<ProjectMediaVideo
+						assetId={media.videoInline}
+						controls
+						className="max-h-60 max-w-full rounded-md"
+						data-label-inline-video=""
+					/>
+				))}
 			{media.image && (
 				<ProjectMediaImage
 					assetId={media.image}

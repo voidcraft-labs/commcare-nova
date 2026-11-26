@@ -16,6 +16,9 @@ export interface EntryPointPreviewLaunch {
 	readonly personaUuid?: string;
 	readonly menuSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 	readonly formTarget?: PreviewCaseTarget;
+	readonly firstMenuSelections?: Readonly<
+		Record<string, PreviewMenuCaseSelection>
+	>;
 	readonly ignoreDisplayConditions: boolean;
 	/** The chosen cases the worker's phone lacks (Android), which the form
 	 *  opens without their saved values and without a persistent case tile. */

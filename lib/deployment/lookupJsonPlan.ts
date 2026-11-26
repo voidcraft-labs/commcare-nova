@@ -14,12 +14,15 @@
  * account for: a tag another table holds, a held table moved or recreated,
  * a table CommCare HQ restricts to some workers, a definition or a row
  * changed in CommCare HQ since the ledger, a row the ledger does not know,
- * and a schema change over rows that already reach workers, whose
- * intermediate states a run of separate REST commits cannot keep usable.
+ * and any change to the definition of a table already there. A definition
+ * write replaces every field (`LookupTableResource.obj_update` rebuilds each
+ * `TypeField`), which drops an index a person set in CommCare HQ, and the
+ * resource never shows whether a field is indexed, so no read can tell
+ * that it would not; and over rows that already reach workers, a run of
+ * separate REST commits cannot keep the intermediate states usable.
  *
  * A plan sends nothing for a table already as Nova holds it. Otherwise its
- * operations go in this order, one request each: the table's create or its
- * definition's update; the deletes of rows Nova removed; the full PUT of each
+ * operations go in this order, one request each: the table's create; the deletes of rows Nova removed; the full PUT of each
  * kept row whose values or rank changed; then the appends of new rows. Every
  * row gets a distinct integer rank in Nova's order, keeping the rank of the
  * longest run of kept rows already in order, and the ranks it chooses are
@@ -112,10 +115,6 @@ export type LookupJsonOperation =
 			readonly definition: HqLookupJsonDefinition;
 	  }
 	| {
-			readonly kind: "update-table";
-			readonly definition: HqLookupJsonDefinition;
-	  }
-	| {
 			readonly kind: "delete-row";
 			readonly novaRowId: string;
 			readonly remoteId: string;
@@ -145,8 +144,8 @@ export type LookupJsonReviewReason =
 	| "definition-changed"
 	/** A row was added, removed, changed or moved in CommCare HQ since the ledger. */
 	| "rows-changed"
-	/** The definition changes while rows already reach workers. */
-	| "schema-change-over-rows"
+	/** Nova's definition is no longer the one it put there. */
+	| "schema-change"
 	/** No integer rank is free where Nova's order puts a row. */
 	| "no-rank-room";
 
@@ -323,10 +322,8 @@ export function planLookupJsonPublish(input: {
 	if (!remoteMatchesLedger(ledger, remote)) return review("rows-changed");
 
 	const held = new Map(ledger.rows.map((row) => [row.novaRowId, row]));
-	if (definitionDigest !== ledger.definitionDigest) {
-		if (ledger.rows.length > 0) return review("schema-change-over-rows");
-		operations.push({ kind: "update-table", definition });
-	}
+	if (definitionDigest !== ledger.definitionDigest)
+		return review("schema-change");
 
 	const local = new Set(rows.map((row) => row.novaRowId));
 	for (const row of ledger.rows)

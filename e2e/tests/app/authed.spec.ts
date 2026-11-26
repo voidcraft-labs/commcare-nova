@@ -1298,7 +1298,7 @@ test.describe("authenticated builder", () => {
 		// which cases may appear, then how the matching rows are ordered.
 		await expect(page.locator("[data-case-list-layout] h2")).toHaveText([
 			"Case selection",
-			"Register from this list",
+			"Form button on the list",
 			"Information shown",
 			"Cases available",
 			"Default order",
@@ -3515,7 +3515,7 @@ test.describe("authenticated builder", () => {
 				await registerAction.click();
 			});
 
-			await test.step("the form opens with the search's answer and returns to Results showing the new case", async () => {
+			await test.step("the form opens with the search's answer and returns to Results showing no row", async () => {
 				// The running question is named "Question 1. Name"; the form's own
 				// title input in the trail is "Form name".
 				const formName = main.getByRole("textbox", {
@@ -3524,11 +3524,10 @@ test.describe("authenticated builder", () => {
 				await expect(formName).toBeVisible({ timeout: 20_000 });
 				await expect(formName).toHaveValue(unmatchedName);
 				await main.getByRole("button", { name: "Submit", exact: true }).click();
+				// Web Apps lands on the list with no row and no Register, the search
+				// holding the new case (proof/webapps/test_empty_search_registration.py).
 				await expect(resultsTitle).toBeVisible({ timeout: 20_000 });
-				await expect(resultRows).toHaveCount(1);
-				await expect(resultRows.first()).toContainText(
-					`Patient ${unmatchedName}`,
-				);
+				await expect(resultRows).toHaveCount(0);
 				await expect(registerAction).toHaveCount(0);
 			});
 
@@ -3541,6 +3540,51 @@ test.describe("authenticated builder", () => {
 					`Patient ${unmatchedName}`,
 				);
 				await expect(registerAction).toHaveCount(0);
+			});
+
+			await test.step("the author can continue with the new case and open its follow-up form", async () => {
+				await openBuilder(page, fixture.routes.registerForm);
+				await page
+					.getByRole("button", { name: "Form settings", exact: true })
+					.click();
+				const settings = page
+					.getByRole("dialog")
+					.filter({ hasText: "Form settings" });
+				await settings
+					.getByRole("combobox", { name: "After submit, go to" })
+					.click();
+				const save = page.waitForResponse(
+					(response) =>
+						response.request().method() === "PUT" &&
+						new URL(response.url()).pathname === `/api/apps/${fixture.appId}`,
+				);
+				await page
+					.getByRole("option", { name: "Continue with the new case" })
+					.click();
+				expect((await save).ok()).toBe(true);
+				await expect(page.getByText(/^Saved /)).toBeVisible();
+
+				await openBuilder(page, fixture.routes.searchConfig);
+				await page
+					.getByRole("button", { name: "Preview", exact: true })
+					.click();
+				await search("Qqv");
+				await registerAction.click();
+				await expect(
+					main.getByRole("textbox", {
+						name: new RegExp(`${register.nameFieldLabel}$`),
+					}),
+				).toHaveValue("Qqv");
+				await main.getByRole("button", { name: "Submit", exact: true }).click();
+				await main
+					.getByRole("button", {
+						name: FORMS_READ_SEARCH_SEED.visit.formName,
+						exact: true,
+					})
+					.click();
+				await expect(
+					main.getByRole("textbox", { name: /Visit note$/ }),
+				).toBeVisible();
 			});
 
 			await test.step("the form refuses to open without an empty search behind it", async () => {

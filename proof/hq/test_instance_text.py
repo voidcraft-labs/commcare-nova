@@ -590,3 +590,80 @@ def test_working_suite_declares_column_sources_on_each_entry_that_reaches_its_de
         creating = entries[create["xmlns"]]
         assert creating.xpath("./instance[@id='item-list:elsewhere']/@src") == ["jr://fixture/item-list:elsewhere"]
         assert not creating.xpath("./instance[@id='item-list:zones']")
+
+
+@pytest.mark.parametrize("has_search_sibling", [False, True], ids=["without-sibling", "with-sibling"])
+def test_working_suite_lookup_instances_follow_their_physical_navigation_scope(
+    hq, core_runner, has_search_sibling
+):
+    """A menu, two form commands, and a search request use the same lookup ID.
+    A scanner-visible spelling can supply its own scope; it cannot fix a different scope."""
+    from corehq.apps.app_manager.models import CaseSearch, CaseSearchProperty, DefaultCaseSearchProperty
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits, resource_overrides
+
+    configuration = Configuration(
+        domain="nova-navigation-source",
+        privileges={"API_ACCESS", "CLOUDCARE"},
+        flags={"CASE_SEARCH_ADVANCED"},
+        case_search_enabled=True,
+    )
+    lookup_id = "item-list:zones"
+    grouped = f"count(instance((('{lookup_id}')))/zones_list/zones)"
+    ordinary = f"count(instance('{lookup_id}')/zones_list/zones)"
+    canonical = f"jr://fixture/{lookup_id}"
+    alternate = "jr://fixture/item-list:other-zones"
+
+    with hq_check(configuration) as (state, _), hq_redis.shared(None):
+        app = hq_test_app()
+        menu = app["modules"][0]
+        create, follow = menu["forms"]
+        menu["module_filter"] = f"{ordinary} > 0"
+        for form in (create, follow):
+            form["form_filter"] = f"{grouped} > 0"
+        create["custom_instances"] = [{
+            "doc_type": "CustomInstance", "instance_id": lookup_id, "instance_path": alternate,
+        }]
+        for screen in ("short", "long"):
+            detail = menu["case_details"][screen]
+            detail["columns"] = [{
+                **detail["columns"][0], "field": grouped, "useXpathExpression": True,
+                "header": {"en": "Zone count"},
+            }]
+        menu["search_config"] = CaseSearch(
+            properties=[CaseSearchProperty(name="zone", label={"en": "Zone"}, default_value=grouped)],
+            default_properties=(
+                [DefaultCaseSearchProperty(property="zone_count", defaultValue=ordinary)]
+                if has_search_sibling else []
+            ),
+        ).to_json()
+        app_id, _ = operations.publish(state, [nova_shaped_upload(app, "Visits")])
+        with state.committing():
+            credential = operations.seed_api_user(state, "navigation-reader@example.com")
+        with api_rate_limits(state), resource_overrides():
+            suite = operations.api_request(
+                state, "GET", f"/a/{state.domain}/apps/download/{app_id}/suite.xml", credential=credential
+            )
+        assert suite.status == 200
+
+    def source(scope):
+        return scope.xpath("./instance[@id=$id]/@src", id=lookup_id)
+
+    root = etree.fromstring(suite.body.encode())
+    (built_menu,) = root.xpath("./menu[@id='m0']")
+    assert ordinary in built_menu.attrib["relevant"]
+    assert source(built_menu) == [canonical]
+    assert len(built_menu.xpath("./command[contains(@relevant, $grouped)]", grouped=grouped)) == 2
+    entries = {entry.findtext("form"): entry for entry in root.findall("entry")}
+    assert source(entries[create["xmlns"]]) == [alternate]
+    choosing = entries[follow["xmlns"]]
+    assert source(choosing) == []
+    assert "m0_case_short" in choosing.xpath("./session/*/@detail-select")
+    assert grouped in root.xpath("./detail[@id='m0_case_short']//@function")
+
+    (request,) = root.xpath("./remote-request[session/query/prompt[@key='zone']]")
+    assert source(request) == ([canonical] if has_search_sibling else [])
+    (prompt_default,) = request.xpath("./session/query/prompt[@key='zone']/@default")
+    assert prompt_default == grouped
+    parsed = core_runner.request("xpathParse", deadline=30, expressions=[prompt_default])["results"]
+    assert [path["instance"] for path in parsed[0]["instancePaths"]] == [lookup_id]

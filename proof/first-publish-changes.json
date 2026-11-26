@@ -186,6 +186,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/itemset/label/@ref/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/_attachments/*/data/*/:itext/hint/*/markdown"
 			},
 			{
@@ -796,6 +801,24 @@
 				"artifact": "suite.xml",
 				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/validation[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
 			},
 			{
 				"check": "proof2",
@@ -2203,6 +2226,12 @@
 			},
 			{
 				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/runs/*/screens/*/form/questions/*/media/*/src:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/events/*/image",
 				"kind": "changed"
@@ -2586,6 +2615,42 @@
 		]
 	},
 	{
+		"change": "badge-respelled",
+		"placeKinds": ["menu", "form"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/xpath"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/xpath"
+			}
+		]
+	},
+	{
 		"change": "media-maps-respelled",
 		"placeKinds": ["menu", "form"],
 		"rows": [
@@ -2780,6 +2845,16 @@
 				"artifact": "formplayer@local.ccz",
 				"path": "/runs/*/steps/*/response/commands/*/displayText:trimmed",
 				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/text"
 			}
 		]
 	},
@@ -2930,6 +3005,164 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "owner-rule-given-to-worker",
+		"placeKinds": ["form-part"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/update_case/update/owner_id"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/load_update_cases/*/case_properties/owner_id"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/open_cases/*/case_properties/owner_id"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/end/form-did-not-open/submitted/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/caseDb",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/events",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/stackAfterSubmit",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/submission",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/title",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/blocks",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/cases",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/refusal",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/submitted",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/end/form-did-not-open/submitted/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/caseDb",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/events",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/stackAfterSubmit",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/submission",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/title",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/blocks",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/cases",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/refusal",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/submitted",
+				"kind": "changed"
 			}
 		]
 	}

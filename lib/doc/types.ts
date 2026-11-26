@@ -1,4 +1,8 @@
-import { translatedMediaSchema } from "@/lib/domain/multimedia";
+import {
+	holdsLabelOnlyMedia,
+	LABEL_ONLY_MEDIA_MESSAGE,
+	translatedMediaSchema,
+} from "@/lib/domain/multimedia";
 import { navigationLanguageEntrySchema } from "@/lib/domain/navigationMedia";
 
 // lib/doc/types.ts
@@ -490,6 +494,7 @@ const userDataValuePatchSchema = z.strictObject({
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 	.omit({
+		formsFromMenu: true,
 		entryPoint: true,
 		caseListEntryPoint: true,
 		id: true,
@@ -507,6 +512,8 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		heldKind: true,
 	})
 	.extend({
+		/** Source changes never replace the route’s form links or per-form visibility. */
+		formsFromMenu: z.strictObject({ menuUuid: uuidSchema }).nullish(),
 		/** Whole config snapshots have granular owners. These null-only slots are
 		 * the direct structural teardown payloads. */
 		caseListConfig: z.null().optional(),
@@ -1066,6 +1073,13 @@ function createMutationSchema({
 				kind: z.literal("updateModule"),
 				uuid: uuidSchema,
 				patch: mutationModuleUpdatePatchSchema,
+				listedForm: z
+					.strictObject({
+						sourceUuid: uuidSchema,
+						formUuid: uuidSchema,
+						included: z.boolean(),
+					})
+					.optional(),
 				ensureCaseListConfig: z.literal(true).optional(),
 				caseSearchConfigOperation: z
 					.enum([
@@ -1080,6 +1094,18 @@ function createMutationSchema({
 				caseSearchConfigPatch: mutationCaseSearchConfigPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
+				if (
+					mutation.listedForm &&
+					(Object.keys(mutation.patch).length ||
+						mutation.ensureCaseListConfig ||
+						mutation.caseSearchConfigOperation ||
+						mutation.caseSearchConfigPatch)
+				)
+					ctx.addIssue({
+						code: "custom",
+						path: ["listedForm"],
+						message: "Changing which form is shown is a complete edit.",
+					});
 				if (
 					mutation.ensureCaseListConfig &&
 					Object.hasOwn(mutation.patch, "caseListConfig")
@@ -1767,16 +1793,25 @@ function createMutationSchema({
 		// clearable slots — `setConnectType` is the lone exception: its slot is
 		// genuinely `.nullable()` and stores `null` as a real value, so it is NOT
 		// a patch reducer and never gets the null-as-delete treatment.
-		z.object({
-			kind: z.literal("setFieldMedia"),
-			sharedOnly: z.literal(true).optional(),
-			fieldUuid: uuidSchema,
-			slot: z.enum(FIELD_MEDIA_SLOTS),
-			language: languageTagSchema.optional(),
-			optionUuid: uuidSchema.optional(),
-			languageEntry: translatedMediaSchema.nullable().optional(),
-			media: mediaSchema.nullable(),
-		}),
+		z
+			.object({
+				kind: z.literal("setFieldMedia"),
+				sharedOnly: z.literal(true).optional(),
+				fieldUuid: uuidSchema,
+				slot: z.enum(FIELD_MEDIA_SLOTS),
+				language: languageTagSchema.optional(),
+				optionUuid: uuidSchema.optional(),
+				languageEntry: translatedMediaSchema.nullable().optional(),
+				media: mediaSchema.nullable(),
+			})
+			.refine(
+				// Only a question's label plays an inline video.
+				(mut) =>
+					(mut.slot === "label" && mut.optionUuid === undefined) ||
+					(!holdsLabelOnlyMedia(mut.media ?? undefined) &&
+						mut.languageEntry?.videoInline === undefined),
+				{ message: LABEL_ONLY_MEDIA_MESSAGE },
+			),
 		z.object({
 			kind: z.literal("setModuleMedia"),
 			language: languageTagSchema.optional(),

@@ -8,6 +8,7 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import type { FormLinkTarget } from "./forms";
+import { menuWithInheritedCaseSettings } from "./listedForms";
 import { moduleShowsFormsInMenuAbove } from "./modules";
 import { moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
@@ -24,15 +25,23 @@ export type ResolvedFormLinkTarget =
 /** A link target as the frame algorithm reads it: `this-form` is the source
  *  form in its own menu. `undefined` when the source form is in no menu. */
 export function resolveFormLinkTarget(
-	doc: Pick<BlueprintDoc, "formOrder">,
+	doc: Pick<BlueprintDoc, "formOrder"> & Partial<Pick<BlueprintDoc, "modules">>,
 	sourceFormUuid: Uuid,
 	target: FormLinkTarget,
+	routeMenuUuid?: Uuid,
 ): ResolvedFormLinkTarget | undefined {
+	// A form reached through a second menu stays on that menu when it links
+	// back into the menu providing its forms. Other explicit routes are kept.
+	const sameRoute = (destination: Uuid) =>
+		routeMenuUuid !== undefined &&
+		doc.modules?.[routeMenuUuid]?.formsFromMenu?.menuUuid === destination
+			? routeMenuUuid
+			: destination;
 	switch (target.type) {
 		case "form":
 			return {
 				type: "form",
-				moduleUuid: target.moduleUuid,
+				moduleUuid: sameRoute(target.moduleUuid),
 				formUuid: target.formUuid,
 			};
 		case "module":
@@ -41,7 +50,11 @@ export function resolveFormLinkTarget(
 			const moduleUuid = moduleUuidOfForm(doc, sourceFormUuid);
 			return moduleUuid === undefined
 				? undefined
-				: { type: "form", moduleUuid, formUuid: sourceFormUuid };
+				: {
+						type: "form",
+						moduleUuid: sameRoute(moduleUuid),
+						formUuid: sourceFormUuid,
+					};
 		}
 	}
 }
@@ -103,8 +116,8 @@ export function menuTargetOffered(
 	const sourceParent = parentOf(doc, sourceModuleUuid);
 	if (sourceParent === undefined) return false;
 	return (
-		(doc.modules[sourceParent]?.caseType ?? "") ===
-		(doc.modules[targetParent]?.caseType ?? "")
+		(menuWithInheritedCaseSettings(doc, sourceParent)?.caseType ?? "") ===
+		(menuWithInheritedCaseSettings(doc, targetParent)?.caseType ?? "")
 	);
 }
 

@@ -22,6 +22,7 @@ export type PreviewPlatformFixture =
 	| "screens"
 	| "media"
 	| "search"
+	| "label-texts"
 	| "home";
 
 export interface PreviewPlatformScenario {
@@ -169,6 +170,17 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		describe:
 			"the search screen shows no title, description or field hints, and its heading is the search action's label",
 	},
+	"menu-grid-web-apps": {
+		platform: "web-apps",
+		fixture: "home",
+		describe: "a grid choice keeps its name and has no spoken label player",
+	},
+	"menu-grid-android": {
+		platform: "android",
+		fixture: "home",
+		describe:
+			"holding a grid choice plays its spoken label, and letting go opens it",
+	},
 	"logo-android": {
 		platform: "android",
 		fixture: "home",
@@ -197,6 +209,12 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		fixture: "screens",
 		describe:
 			"a form without sections pages one question or group shown on one screen per screen, such a group in a repeat once per entry and an unlabeled group's questions one by one; Next validates and the last screen reads Finish; the repeat prompt goes back, adds another entry, declines, and reads Do not add, I'm finished when nothing follows; a repeat inside a labeled group without the flag pages its entry and prompts",
+	},
+	"label-texts-android": {
+		platform: "android",
+		fixture: "label-texts",
+		describe:
+			"a plain label shows its extended text, names the QR code a scan reads, and its speaker button reads the spoken text aloud until Preview plays Web Apps, where the button and the reading stop",
 	},
 } as const satisfies Readonly<Record<string, PreviewPlatformScenario>>;
 

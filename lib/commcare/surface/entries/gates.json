@@ -665,7 +665,15 @@
 		"effects": [
 			{
 				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/action[*]"
+			},
+			{
+				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/action[*]/@relevant"
+			},
+			{
+				"artifact": "validate_app",
+				"path": "/modules/*/case list form not registration"
 			}
 		],
 		"source": {
@@ -1662,7 +1670,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (badges Module fields, Form fields)",
+		"content": "HELD (badges Module fields, Form fields)",
 		"contentEntries": [
 			"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
 			"forms-and-case-writes/custom-icons-0"
@@ -3188,7 +3196,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (badges)",
+		"content": "HELD (badges)",
 		"contentEntries": [
 			"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
 			"forms-and-case-writes/custom-icons-0"

@@ -26,6 +26,7 @@
  */
 
 import type { z } from "zod";
+import { withListedMenuHierarchy } from "@/lib/doc/sharedMenuHierarchy";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	childModuleUuids,
@@ -163,7 +164,11 @@ export const moveModuleTool = {
 					}),
 				},
 			];
-			const commit = await guardedMutate(ctx, mutations, "modules");
+			const commit = await guardedMutate(
+				ctx,
+				withListedMenuHierarchy(doc, mutations),
+				"modules",
+			);
 			if (!commit.ok) return fail(commit.error);
 
 			// The checks above ran against THIS invocation's doc; the write lands

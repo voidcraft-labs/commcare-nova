@@ -11,9 +11,9 @@
  * - `targeted-forms-in-menu-above-one-case`: two menus above of one case type
  *   hold follow-up forms alone, so every form on the first menu opens one
  *   chosen case. Its menus, its entries and the first-menu frames of their
- *   default after-submit are held; Nova's gate refuses a link or an entry
- *   point into such a form, since its frame would hold that case ahead of
- *   any command.
+ *   default after-submit are held. The Visit deep link takes a patient and
+ *   returns to the first menu on Previous. The independent Check action
+ *   distinguishes a retained patient from a fresh first-menu selection.
  *
  * Both declare both platforms. Fixed values: the ordinary menu's survey
  * question holds the text the worker enters (`./echo.ts`).
@@ -200,10 +200,15 @@ export function formsInMenuAboveOneCase() {
 	});
 	doc.modules[key("visits")].formsInMenuAbove = true;
 	doc.modules[key("checks")].formsInMenuAbove = true;
+	doc.forms[key("visit")].entryPoint = {
+		uuid: key("visit-entry"),
+		id: "patient_visit",
+	};
+	doc.forms[key("visit")].postSubmit = "previous";
 	return targetedDocument({
 		id,
 		rows: [
-			"forms in the menu above: a first menu whose every form opens one chosen case, with its default after-submit frames",
+			"forms in the menu above: a first menu whose forms open one chosen case, including a deep link and Previous",
 		],
 		doc,
 		expected: {

@@ -74,6 +74,9 @@ export interface ServerSearchRequest {
 	readonly answers?: readonly { name: string; value: string }[];
 	/** The case a no-matches form registered, which Results then show alone. */
 	readonly registeredCaseId?: string;
+	/** The return frame ended on this search: Results show no row
+	 *  (`PreviewSearchState`'s `listsNoRow`). */
+	readonly listsNoRow?: true;
 }
 
 /**
@@ -135,6 +138,7 @@ export async function serverRecordsRead(
 		},
 		{
 			identity: world.identity,
+			session: { appId: world.appId, menuSelections: world.selections },
 			device: world.device,
 			cases: world.deviceCases,
 			lookup: world.lookup,
@@ -233,7 +237,11 @@ export async function serverRecordsRead(
 					caseType,
 					reading: searchedReading(searched),
 					tileGrouping: rules.tileGrouping,
-					caseIds: registeredCaseId ? [registeredCaseId] : undefined,
+					caseIds: registeredCaseId
+						? request.listsNoRow === true
+							? []
+							: [registeredCaseId]
+						: undefined,
 					caseTypeSchemas: world.caseTypeSchemas,
 					caseListConfig: mod.caseListConfig,
 					...(mod.caseListConfig !== undefined && {
