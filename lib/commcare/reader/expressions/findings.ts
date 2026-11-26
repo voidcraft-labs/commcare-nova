@@ -1478,6 +1478,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under",
 		"xform:model/bind@relevant",
 	),
+	"savetocase-owner-id-condition": take(
+		"questions/savetocase-owner-id-condition",
+		"xform:model/bind@relevant",
+	),
 	"savetocase-open-case-condition": take(
 		"questions/savetocase-open-case-condition",
 		"mug:SaveToCase",
@@ -1846,6 +1850,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	),
 	case_operation_owner: fixed(
 		C["savetocase-owner"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
+	case_operation_owner_condition: fixed(
+		C["savetocase-owner-id-condition"].entry,
 		SAVE_TO_CASE_REFUSED,
 	),
 	case_operation_rename: fixed(SAVE_TO_CASE_ROWS, SAVE_TO_CASE_REFUSED),

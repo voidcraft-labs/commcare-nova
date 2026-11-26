@@ -782,3 +782,24 @@ it.each(["close", "update", "create"] as const)(
 		expect(read.closeAfter).toBe(action === "close" ? undefined : true);
 	},
 );
+
+it("keeps the owner condition on the create leaf of a fresh case", async () => {
+	const change = visitCreate({
+		owner: term(literal("team-01")),
+		ownerCondition: onYes,
+	});
+	const doc = produce(app("survey", [change]), (draft) => {
+		delete draft.modules[draft.moduleOrder[0]].caseType;
+	});
+	expect(gateCodes(doc)).toEqual([]);
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	expect(outcome.draft.doc.forms[FORM].caseOperations).toEqual([
+		{
+			...change,
+			placement: { kind: "save-to-case", path: ["nova_operations", "mk"] },
+		},
+	]);
+});
