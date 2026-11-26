@@ -172,8 +172,7 @@ function DeviceCountCard({
 		ctx.expressionContext?.slot.slot === "search_button_display_condition";
 	const tables = isSearchButton ? [] : (ctx.lookupTables ?? []);
 	const options = [
-		...(ctx.expressionContext &&
-		deviceCaseCountAvailable({ expressionContext: ctx.expressionContext })
+		...(isSearchButton || ctx.expressionContext?.profile.caseData
 			? [
 					{
 						id: "all",
