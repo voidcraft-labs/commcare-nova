@@ -40,6 +40,16 @@ def test_vellum_retains_a_filename_and_the_replacement_condition_after_edit_and_
     with published(corpus_document("targeted-worker-messages"), core_runner) as app:
         form = app._app().modules[0].forms[1]
         endpoint = HQAnswers(app.unit, app.unit)
+        # Author the unsupported filenames in HQ itself. Nova's admitted
+        # document keeps only the empty starting value on the photo.
+        for question, value in (("report", "'carry-forward.pdf'"), ("replacement", "'needs-file.pdf'")):
+            seeded = vellum.open_and_save(
+                editor_driver, endpoint, app.app_id, form.unique_id,
+                edit={"path": f"/data/{question}", "property": "defaultValue", "value": value, "way": "builder-model"},
+            )
+            assert seeded.saved and seeded.stored_source, (seeded.load_error, seeded.save_refusal, seeded.form_errors)
+            source = etree.fromstring(seeded.stored_source.encode())
+            assert source.xpath("//*[local-name()='setvalue' and @ref=$path]/@value", path=f"/data/{question}") == [value]
         edited = vellum.open_and_save(editor_driver, endpoint, app.app_id, form.unique_id, edit={
             "path": "/data/replacement", "label": "Report for this visit", "way": "builder-model",
         })

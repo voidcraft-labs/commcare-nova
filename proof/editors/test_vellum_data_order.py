@@ -1,6 +1,6 @@
 """HQ's form builder keeps a submitted value apart from its question, and Core submits it there.
 
-The source is one the form builder saved (``lib/commcare/reader/xform/__tests__/fixtures/vellum-in-between.xml``):
+The source is one the form builder saved (``fixtures/vellum-in-between.xml``):
 HQ builds it unmodified into a corpus document's app, and Core walks the form and submits it, the data nodes in the
 order the saved source holds them. It reads a corpus document, so it runs with the corpus in place.
 """
@@ -29,7 +29,7 @@ def test_vellum_independent_data_order_reaches_core_submission(hq, core_runner):
     from proof.editors.conftest import corpus_document
     from proof.rules.conftest import published, restore, run as run_spelling
 
-    fixture = Path(__file__).resolve().parents[2] / "lib/commcare/reader/xform/__tests__/fixtures/vellum-in-between.xml"
+    fixture = Path(__file__).with_name("fixtures") / "vellum-in-between.xml"
     source = fixture.read_text(encoding="utf-8")
     authored = etree.fromstring(source.encode()).find(f".//{{{XFORMS}}}instance")[0]
     expected_nodes = [etree.QName(node).localname for node in authored]

@@ -188,7 +188,10 @@ describe("a control whose node lies under another group than the control", () =>
 	it("keeps each value and screen from Vellum's saved in-between question", async () => {
 		// Pinned Vellum tests/static/diffDataParent/data-parent-mug-in-between.xml.
 		const source = readFileSync(
-			new URL("./fixtures/vellum-in-between.xml", import.meta.url),
+			new URL(
+				"../../../../../proof/editors/fixtures/vellum-in-between.xml",
+				import.meta.url,
+			),
 			"utf8",
 		);
 		const data = findOne(
