@@ -37,9 +37,10 @@ def _geocoder_fields(app, mode):
 
 RECEIVERS = {
     "eval": """() => {
-        const city = document.querySelector('#row-village input.query-field');
-        const district = document.querySelector('#row-district select.query-field');
-        if (!city || !district) throw Error("The address receivers are missing");
+        const city = document.querySelector('input.query-field[id="Village"]');
+        const choices = [...document.querySelectorAll('select.query-field')];
+        if (!city || choices.length !== 1) throw Error("The expected Village and District controls are missing");
+        const [district] = choices;
         return {
             city: city.value,
             district: district.selectedOptions[0]?.textContent.trim() || "",
@@ -136,5 +137,6 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
             assert filled["district"] == "Upper valley", filled
             expected["district"] = "d1"
     if cleared:
-        assert cleared["city"] == "" and cleared["district"] != "Upper valley"
+        assert cleared["city"] == ""
+        assert cleared["district"] == filled["district"]
     assert actual == [expected], actual
