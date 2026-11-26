@@ -314,6 +314,32 @@ it("keeps Search group worker wording on the route’s group when menus and grou
 	);
 });
 
+it("refuses a Search heading with a hidden-only group when a different prompt shares its displayed key", async () => {
+	const body = exportedBody(searchEmissionFixture("grouped-prompts"));
+	const menus = body.modules as ReturnType<typeof expandDoc>["modules"];
+	const rows = menus[0].search_config.properties;
+	Object.assign(rows[0], { name: "g", group_key: "g" });
+	Object.assign(rows[1], { hidden: true, group_key: "g" });
+	rows.push({
+		...rows[3],
+		name: "g",
+		label: { en: "Account code" },
+		exclude: true,
+	});
+	const result = readHqApp(
+		await inputFor(body, { appStrings: (doc) => localAppStringTable(doc, []) }),
+		{ claims: "full" },
+	);
+	if (result.kind !== "account")
+		throw Error("The displayed heading and prompt cannot share one locale key");
+	expect(result.findings).toContainEqual(
+		expect.objectContaining({
+			code: "case-search/search-group-shares-its-display-key-with-a-field",
+			detail: { name: "g" },
+		}),
+	);
+});
+
 it("keeps a menu badge override separate from its ordinary badge in the editor and the worker", async () => {
 	const source = localizationWireFixture("bilingual");
 	const uuid = source.moduleOrder[0];

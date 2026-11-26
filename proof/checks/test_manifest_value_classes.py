@@ -4007,6 +4007,28 @@ def _search_and_menus():
                 f"{config}/properties/1/group_key",
             ),
         ),
+        "case-search/search-group-shares-its-display-key-with-a-field": (
+            refused(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="g", hidden=True),
+                    _prompt("next", is_group=True, group_key="next", label={"en": "Next"}),
+                    _prompt("g", group_key="next", label={"en": "Account code"}),
+                ])),
+                "schema:CaseSearchProperty.group_key",
+                f"{config}/properties/0/group_key",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="g", hidden=True),
+                ]), _search_module(properties=[_prompt("g")])),
+                "schema:CaseSearchProperty.group_key",
+                f"{config}/properties/0/group_key",
+            ),
+        ),
         "case-search/search-group-heading-unreadable": (
             refused(
                 "app",

@@ -132,6 +132,7 @@ export const SUBJECTS = [
 	"search-default-filters",
 	"search-expressions",
 	"search-fields",
+	"search-group-display-key",
 	"search-setup",
 	"shadow-forms",
 	"supply-features",

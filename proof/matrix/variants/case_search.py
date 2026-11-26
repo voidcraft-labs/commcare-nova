@@ -404,6 +404,27 @@ def _grouped_search_rows(authoring, app_id, label, *, key="group_header_0"):
     ]
 
 
+def field_sharing_the_saved_group_display_key(authoring, app_id):
+    """HQ uses the field's label even for the earlier heading under the same locale."""
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+
+    name, label = "g", "Account code"
+    properties = _grouped_search_rows(authoring, app_id, "Client details", key=name)
+    properties.append({**_field(name, label), "group_key": name, "exclude": True})
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties", properties)
+    with authoring.step("variant:shared-search-group-display-key"):
+        app = operations.held_app(authoring.state, app_id)
+        key = f"search_property.m0.{name}"
+        assert key not in app.translations.get("en", {})
+        assert parse_app_strings(app.create_app_strings("en"))[key] == label
+        suite = etree.fromstring(app.create_suite())
+        assert suite.xpath(f".//group[@key='{name}']/display/text/locale[@id='{key}']")
+        assert suite.xpath(f".//prompt[@key='{name}']/display/text/locale[@id='{key}']")
+
+
 def fields_with_ungrouped_prompt(authoring, app_id):
     """Keep a real group's header and fields, then leave one field unassigned."""
     rows = _grouped_search_rows(authoring, app_id, "Group")
