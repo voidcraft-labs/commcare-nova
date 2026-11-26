@@ -60,7 +60,7 @@ export interface CaseSearchParameter {
 	>;
 	readonly key: string;
 	readonly readsAnswers?: boolean;
-	readonly directParentPrompt?: true;
+	readonly parentPathPrompt?: true;
 	readonly values: readonly string[];
 }
 
@@ -168,7 +168,7 @@ export function searchUnavailableMessage(
 		case "search-range-unavailable":
 			return `This search needs the indexed date range for “${reason.field}”.`;
 		case "parent-value-unavailable":
-			return `Preview needs the linked parent record to match “${reason.field}”.`;
+			return `Preview needs the records on the parent path to match “${reason.field}”.`;
 		case "parent-fuzzy-unavailable":
 			return `Only CommCare HQ can match similar words for the parent property “${reason.field}” in this search.`;
 		case "parent-lookup-limit":

@@ -51,7 +51,7 @@ import { serializeClaimLog } from "@/lib/commcare/reader/accounting";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
 import {
 	externalIdentityMap,
-	knownDirectParentSearchNamesOf,
+	knownParentPathSearchNamesOf,
 } from "@/lib/commcare/reader/identityMap";
 import { levelsAsPublished } from "@/lib/commcare/reader/worldEntities";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
@@ -1051,7 +1051,7 @@ async function readBack(
 		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		knownCaseTypes: knownCaseTypesOf(doc),
 		knownFormEntryChoices: knownFormEntryChoicesOf(doc),
-		knownDirectParentSearchNames: knownDirectParentSearchNamesOf(doc),
+		knownParentPathSearchNames: knownParentPathSearchNamesOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};
 	const discovery = sourceFactoryReads({

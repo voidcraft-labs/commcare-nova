@@ -41,10 +41,10 @@ import {
 } from "../menuForms";
 import { formRouteBeforeCase } from "../menuScreens";
 import {
-	directParentSearchRequestKey,
 	effectiveCaseSearchConfig,
 	isSearchAnswerInput,
 	moduleFormsReadSearch,
+	parentPathSearchRequestKey,
 	projectSearchOf,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
 	searchInputRuntimeValueType,
@@ -402,7 +402,7 @@ export function untypedExpressionFacts(
 					.map((input) => ({
 						uuid: input.uuid,
 						name: input.name,
-						...(directParentSearchRequestKey(input) !== undefined && {
+						...(parentPathSearchRequestKey(input) !== undefined && {
 							matchingOnly: true as const,
 						}),
 						data_type: searchInputRuntimeValueType(input),
@@ -642,7 +642,7 @@ function buildFormFacts(
 			.map((input) => ({
 				uuid: input.uuid,
 				name: input.name,
-				...(directParentSearchRequestKey(input) !== undefined && {
+				...(parentPathSearchRequestKey(input) !== undefined && {
 					matchingOnly: true as const,
 				}),
 				data_type: searchInputRuntimeValueType(input),
@@ -819,7 +819,7 @@ export function slotContext(
 		.map((input) => ({
 			uuid: input.uuid,
 			name: input.name,
-			...(directParentSearchRequestKey(input) !== undefined && {
+			...(parentPathSearchRequestKey(input) !== undefined && {
 				matchingOnly: true as const,
 			}),
 			data_type: searchInputRuntimeValueType(input),

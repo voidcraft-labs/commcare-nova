@@ -8400,24 +8400,27 @@ def test_a_reader_places_each_shape_of_its_class(entry_id, manifest):
     _holds_its_shapes(entry_id, manifest)
 
 
-@pytest.mark.parametrize(("name", "widget", "matches"), [
-    ("parent/village", None, True),
-    ("host/village", None, False),
-    ("parent/parent/village", None, False),
-    ("parent/location_id", None, False),
-    ("parent/village", "date", False),
+@pytest.mark.parametrize(("name", "widget", "held_entry"), [
+    ("parent/village", None, "case-search/prompt-key-matching-a-direct-parent-property"),
+    ("parent/parent/village", None, "case-search/prompt-key-matching-two-parent-links"),
+    ("parent/parent/parent/village", None, None),
+    ("host/parent/village", None, None),
+    ("parent/location_id", None, None),
+    ("parent/village", "date", None),
+    ("parent/parent/village", "date", None),
 ])
-def test_retained_search_matches_only_the_direct_parent_text_prompt(manifest, name, widget, matches):
+def test_retained_search_matches_only_proven_parent_text_paths(manifest, name, widget, held_entry):
     from proof.checks import parity
 
-    assert parity.DIRECT_PARENT_PROMPT not in manifest.readers
+    assert parity.PARENT_PROMPT_SHAPES.keys().isdisjoint(manifest.readers)
     source = _app([_search_module(properties=[_prompt(name=name, label={"en": "Village"}, input_=widget)])])
     key = "schema:CaseSearchProperty.name"
     pointer = "/modules/0/search_config/properties/0/name"
     shape = accepted("app", source, key, pointer)
     found = _shape_uses(shape, manifest)
     use, = (one for one in found.uses if one.key == key and one.where.endswith(pointer))
-    assert classes.direct_parent_text_prompt_key(use, manifest) is matches
+    matches = [entry for entry, classify in parity.PARENT_PROMPT_SHAPES.items() if classify(use, manifest)]
+    assert matches == ([held_entry] if held_entry else [])
 
 
 def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):

@@ -2915,8 +2915,8 @@ export function simpleSearchInputHasCoherentRangeWidget(
 	);
 }
 
-/** The ordinary dynamic properties a direct parent Search field can match. */
-export function isDirectParentSearchProperty(property: string): boolean {
+/** The ordinary dynamic properties a parent-path Search field can match. */
+export function isParentPathSearchProperty(property: string): boolean {
 	return (
 		/^[A-Za-z][A-Za-z0-9_]*$/.test(property) &&
 		authoredCasePropertyNameSchema.safeParse(property).success &&
@@ -2928,34 +2928,35 @@ export function isDirectParentSearchProperty(property: string): boolean {
 	);
 }
 
-function directParentSearchProperty(
+function parentPathSearchKey(
 	input: Pick<SimpleSearchInputDef, "property" | "via" | "type" | "mode">,
 ): string | undefined {
 	const path = input.via;
 	return input.type === "text" &&
 		(input.mode === undefined || input.mode.kind === "exact") &&
 		path?.kind === "ancestor" &&
-		path.via.length === 1 &&
-		path.via[0].identifier === "parent" &&
-		path.via[0].throughCaseType === undefined &&
-		isDirectParentSearchProperty(input.property)
-		? input.property
+		path.via.length <= 2 &&
+		path.via.every(
+			(step) =>
+				step.identifier === "parent" && step.throughCaseType === undefined,
+		) &&
+		isParentPathSearchProperty(input.property)
+		? `${path.via.length === 2 ? "parent/parent" : "parent"}/${input.property}`
 		: undefined;
 }
 
-/** The worker and project space use the typed parent path as the key.
- * The field's Nova name remains a separate authoring alias for its UUID. */
-export function directParentSearchRequestKey(
+/** The worker sends the typed parent path. Nova authors address the field by
+ * its UUID and see its own name. The two-hop arm uses the same typed edge twice. */
+export function parentPathSearchRequestKey(
 	input: SearchInputDef,
 ): string | undefined {
-	if (input.kind !== "simple" || input.matching !== "project-space")
-		return undefined;
-	const property = directParentSearchProperty(input);
-	return property === undefined ? undefined : `parent/${property}`;
+	return input.kind === "simple" && input.matching === "project-space"
+		? parentPathSearchKey(input)
+		: undefined;
 }
 
 /** Settings that would give the parent text field another runtime use. */
-export function directParentSearchSettingsFit(
+export function parentPathSearchSettingsFit(
 	input: SimpleSearchInputDef,
 ): boolean {
 	return (
@@ -2971,14 +2972,14 @@ export function directParentSearchSettingsFit(
 }
 
 export function searchInputRequestKey(input: SearchInputDef): string {
-	return directParentSearchRequestKey(input) ?? input.name;
+	return parentPathSearchRequestKey(input) ?? input.name;
 }
 
 /**
  * Whether a simple field can take the project space's own matching
  * (`matching: "project-space"`): its prompt rides the bare key CommCare HQ
  * matches by its own rule. The key names this case's own property, or an
- * ordinary property across the direct parent link for a text field. HQ then matches the answer whatever the property's type, so a field
+ * ordinary property across one or two parent links for a text field. HQ matches the answer whatever the property's type, so a field
  * whose widget doesn't fit the property's type can still search it there.
  * Shared by the commit gate and the builder so the builder offers the
  * matching, and the widgets it admits, exactly where the gate does.
@@ -2989,7 +2990,7 @@ export function projectSpaceMatchingFits(
 		"name" | "property" | "via" | "type" | "mode"
 	>,
 ): boolean {
-	if (directParentSearchProperty(input) !== undefined) return true;
+	if (parentPathSearchKey(input) !== undefined) return true;
 	return (
 		(input.via === undefined || input.via.kind === "self") &&
 		(input.name === "name" ? "case_name" : input.name) === input.property &&

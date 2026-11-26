@@ -42,7 +42,7 @@ import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
 import {
 	externalIdentityMap,
-	knownDirectParentSearchNamesOf,
+	knownParentPathSearchNamesOf,
 } from "@/lib/commcare/reader/identityMap";
 import {
 	baselineSearchBindings,
@@ -377,7 +377,7 @@ export function* makeHqChangeReadingsSteps(
 			reference.doc,
 		),
 		knownFormEntryChoices: knownFormEntryChoicesOf(reference.doc),
-		knownDirectParentSearchNames: knownDirectParentSearchNamesOf(reference.doc),
+		knownParentPathSearchNames: knownParentPathSearchNamesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
 		knownProjectSearchNames: reference.doc.appSettings.projectSearches,
 		...(input.saveOnlyEditedApplied !== undefined && {

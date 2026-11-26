@@ -34,8 +34,8 @@ import {
 	walkPropertyRefs,
 } from "@/lib/domain/expression/walk";
 import {
-	directParentSearchRequestKey,
 	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
+	parentPathSearchRequestKey,
 } from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
 import { searchesForBlank } from "./runtimeBindings";
@@ -139,7 +139,7 @@ export function completedSearchRequest(
 		const blank =
 			answers !== undefined && searchesForBlank(input, answers) ? [""] : [];
 		if ((answer === undefined || answer === "") && blank.length === 0) continue;
-		const parentKey = directParentSearchRequestKey(input);
+		const parentKey = parentPathSearchRequestKey(input);
 		const key = parentKey ?? input.name;
 		const target = readSearchFilterTarget(key);
 		if (target === undefined || target.kind === "include-related-records")
@@ -163,7 +163,7 @@ export function completedSearchRequest(
 			field: input.label || input.name,
 			target,
 			readsAnswers: true,
-			...(parentKey === undefined ? {} : { directParentPrompt: true as const }),
+			...(parentKey === undefined ? {} : { parentPathPrompt: true as const }),
 			values,
 		});
 	}

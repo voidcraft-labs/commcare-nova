@@ -30,7 +30,6 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
-	directParentSearchRequestKey,
 	effectiveDataType,
 	effectiveSimpleSearchModeKind,
 	exactMode,
@@ -38,6 +37,7 @@ import {
 	fuzzyMode,
 	hiddenSearchFieldRefusal,
 	isSearchAnswerInput,
+	parentPathSearchRequestKey,
 	phoneticMode,
 	projectSpaceMatchingFits,
 	rangeMode,
@@ -295,7 +295,7 @@ export function resolveRows(
 			const property = resolveProperty(caseTypes, row, currentCaseType);
 			if (
 				property === undefined &&
-				directParentSearchRequestKey(row) === undefined
+				parentPathSearchRequestKey(row) === undefined
 			) {
 				propertyState = {
 					kind: "dangling",
@@ -548,7 +548,7 @@ export function searchInputDecls(
 ): readonly EditorSearchInputDecl[] {
 	return rows
 		.filter(isSearchAnswerInput)
-		.filter((row) => directParentSearchRequestKey(row) === undefined)
+		.filter((row) => parentPathSearchRequestKey(row) === undefined)
 		.map(deriveSearchInputDecl);
 }
 

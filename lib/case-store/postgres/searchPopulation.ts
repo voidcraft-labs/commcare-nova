@@ -25,7 +25,7 @@ import type { Database } from "../sql/database";
 import { indexedSearchDate } from "../sql/searchIndexedDate";
 import { indexedSearchNumber } from "../sql/searchIndexedNumber";
 import {
-	checkDirectParentLookupLimit,
+	checkParentPathLookupLimit,
 	missingNativeProperty,
 	nativeRangeTruth,
 	nativeSearchPropertyText,
@@ -191,8 +191,8 @@ export async function searchPopulationIds(
 	const limit = request.maximum ?? 500;
 	const criteria = request.criteria ?? [];
 	for (const criterion of criteria)
-		if (criterion.kind === "native" && criterion.parameter.directParentPrompt)
-			await checkDirectParentLookupLimit(criterion, ctx);
+		if (criterion.kind === "native" && criterion.parameter.parentPathPrompt)
+			await checkParentPathLookupLimit(criterion, ctx);
 	const order = request.order ?? [];
 	const alias = (index: number) => sql.ref(`match_${index}`);
 	const key = (index: number) => sql.ref(`key_${index}`);
@@ -336,7 +336,7 @@ export async function searchPopulationIds(
 			});
 		if (criterion.kind === "native") {
 			const { field, target, values } = criterion.parameter;
-			if (criterion.parameter.directParentPrompt)
+			if (criterion.parameter.parentPathPrompt)
 				throw new CaseSearchUnavailableError({
 					kind: "parent-value-unavailable",
 					field,

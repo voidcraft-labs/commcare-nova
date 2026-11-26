@@ -47,7 +47,7 @@ import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
 import {
 	externalIdentityMap,
-	knownDirectParentSearchNamesOf,
+	knownParentPathSearchNamesOf,
 } from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import type {
@@ -877,7 +877,7 @@ function* fixedPointCheck(
 					knownPositionedCaseOperationIds:
 						knownPositionedCaseOperationIdsOf(doc),
 					knownFormEntryChoices: knownFormEntryChoicesOf(doc),
-					knownDirectParentSearchNames: knownDirectParentSearchNamesOf(doc),
+					knownParentPathSearchNames: knownParentPathSearchNamesOf(doc),
 					knownProjectSearchNames: doc.appSettings.projectSearches,
 					knownLanguageCodes: knownLanguageCodesOf(doc),
 				},

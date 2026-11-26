@@ -661,6 +661,7 @@
 		"hq-search/field-matching-the-owner",
 		"hq-search/field-named-by-a-nested-parent-path",
 		"hq-search/field-named-by-a-parent-path",
+		"hq-search/field-named-by-three-parent-links",
 		"hq-search/field-named-include-closed",
 		"hq-search/field-validation",
 		"hq-search/field-with-an-unknown-heading",

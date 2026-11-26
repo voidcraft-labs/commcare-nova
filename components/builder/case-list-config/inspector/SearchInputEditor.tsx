@@ -143,9 +143,9 @@ import {
 } from "@/lib/domain/expression";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 import {
-	directParentSearchRequestKey,
-	directParentSearchSettingsFit,
 	hiddenSearchFieldRefusal,
+	parentPathSearchRequestKey,
+	parentPathSearchSettingsFit,
 	projectSpaceMatchingFits,
 	searchForBlankRefusal,
 	takesMultipleSearchChoices,
@@ -568,10 +568,10 @@ function VisibleSearchInputEditor({
 	const typeTriggerRef = useRef<HTMLButtonElement>(null);
 	const matchTriggerRef = useRef<HTMLButtonElement>(null);
 	const projectProse = useProseProjection();
-	const parentKey = directParentSearchRequestKey(value);
+	const parentKey = parentPathSearchRequestKey(value);
 	const parentCandidate =
 		value.kind === "simple"
-			? directParentSearchRequestKey({ ...value, matching: "project-space" })
+			? parentPathSearchRequestKey({ ...value, matching: "project-space" })
 			: undefined;
 	const transitionFocusRef = useRef<TransitionFocus>("type");
 	const resolved: ResolvedRow = useMemo(() => {
@@ -1318,9 +1318,7 @@ function VisibleSearchInputEditor({
 					</FieldRow>
 				)}
 
-				{/* The field can use its own property key or the direct parent's
-				    property key. The project space matches either independently of
-				    the property's type. */}
+				{/* Match directly by the field’s property key or a typed parent path. */}
 				{value.kind === "simple" &&
 					projectSpaceMatchingFits(value) &&
 					(effectiveModeKind(value) === "exact" ||
@@ -1330,12 +1328,14 @@ function VisibleSearchInputEditor({
 							description={
 								parentCandidate === undefined
 									? "Send the answer to the project space using this field’s name."
-									: "Match the answer against the field on the direct parent."
+									: parentCandidate.startsWith("parent/parent/")
+										? "Match the answer against the information on the grandparent case."
+										: "Match the answer against the information on the parent case."
 							}
 							checked={value.matching === "project-space"}
 							disabledReason={
 								parentCandidate !== undefined &&
-								!directParentSearchSettingsFit(value)
+								!parentPathSearchSettingsFit(value)
 									? "Use a labeled text field with no starting value, checks or address filling."
 									: undefined
 							}
@@ -2094,7 +2094,9 @@ function BindingPicker({
 				);
 	const sourceLabel =
 		scope === "custom"
-			? "Linked case"
+			? parentPathSearchRequestKey(row)?.startsWith("parent/parent/")
+				? "Grandparent case"
+				: "Linked case"
 			: scope === "parent"
 				? "Parent case"
 				: "This case";

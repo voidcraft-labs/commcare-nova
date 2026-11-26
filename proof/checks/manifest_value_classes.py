@@ -12525,15 +12525,15 @@ def _prompt_slot(use, key):
     return at.owner
 
 
-def direct_parent_text_prompt_key(use, manifest):
-    """A native direct-parent Search key on a labeled plain text prompt."""
+def _parent_path_text_prompt_key(use, prefix):
+    """A native parent path on a labeled plain text prompt."""
     prompt = _prompt_slot(use, "name")
     if prompt is None:
         return None
     name = prompt.get("name")
-    if not isinstance(name, str) or not name.startswith("parent/"):
+    if not isinstance(name, str) or not name.startswith(prefix):
         return False
-    prop = name.removeprefix("parent/")
+    prop = name.removeprefix(prefix)
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", prop) or not _authored_property_name(prop):
         return False
     if prop in {"case_id", "case_name", "date_opened", "last_modified", "owner_id", "external_id",
@@ -12542,7 +12542,8 @@ def direct_parent_text_prompt_key(use, manifest):
     at = _json(use)
     config = at.nearest("CaseSearch")
     if config and (config.get("case_search_endpoint_id") or any(
-        item.get("is_group") or item.get("group_key") for item in config.get("properties", [])
+        item.get("is_group") or item.get("group_key")
+        for item in (config.get("properties") or ()) if isinstance(item, dict)
     )):
         return False
     label = prompt.get("label") or {}
@@ -12559,6 +12560,14 @@ def direct_parent_text_prompt_key(use, manifest):
     )
 
 
+def direct_parent_text_prompt_key(use, manifest):
+    return _parent_path_text_prompt_key(use, "parent/")
+
+
+def two_parent_links_text_prompt_key(use, manifest):
+    return _parent_path_text_prompt_key(use, "parent/parent/")
+
+
 def prompt_key_outside_nova_s_name_grammar(use, manifest):
     """``case-search/prompt-key-outside-nova-s-name-grammar``: a prompt's ``name`` outside a Search field's grammar
     (``SEARCH_INPUT_NAME``), or, on a prompt that is neither hidden nor ``exclude``, a case property Nova's grammar
@@ -12571,7 +12580,8 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     name = prompt.get("name")
     if not isinstance(name, str):
         return None
-    if name in PROMPT_REQUEST_KEYS or direct_parent_text_prompt_key(use, manifest):
+    if (name in PROMPT_REQUEST_KEYS or direct_parent_text_prompt_key(use, manifest)
+            or two_parent_links_text_prompt_key(use, manifest)):
         return False
     if SEARCH_INPUT_NAME.fullmatch(name) is None:
         return True

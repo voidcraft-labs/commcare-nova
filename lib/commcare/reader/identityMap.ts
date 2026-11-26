@@ -46,9 +46,9 @@ import { walkExpression } from "@/lib/domain/expression/walk";
 import { ownedFormSelections } from "@/lib/domain/formEntryCases";
 import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import {
-	directParentSearchRequestKey,
 	isDedicatedOwnerFilter,
 	moduleFormsReadSearch,
+	parentPathSearchRequestKey,
 	projectSearchOf,
 	searchInputRequestKey,
 } from "@/lib/domain/modules";
@@ -144,13 +144,13 @@ function canNameCalculation(
  * mapped to one of them.
  */
 /** Nova keeps the display/editor name, while HQ keeps the parent request key. */
-export function knownDirectParentSearchNamesOf(
+export function knownParentPathSearchNamesOf(
 	doc: BlueprintDoc,
 ): ReadonlyMap<Uuid, string> {
 	return new Map(
 		Object.values(doc.modules).flatMap((module) =>
 			(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
-				directParentSearchRequestKey(input) === undefined
+				parentPathSearchRequestKey(input) === undefined
 					? []
 					: [[input.uuid, input.name] as const],
 			),

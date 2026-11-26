@@ -16,11 +16,12 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import type { RelationPath } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { sameLookupRead } from "@/lib/domain/lookupRead";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
-	isDirectParentSearchProperty,
+	isParentPathSearchProperty,
 	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -105,6 +106,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	),
 	parentName: take(
 		`${S}prompt-key-matching-a-direct-parent-property`,
+		"schema:CaseSearchProperty.name",
+	),
+	nestedParentName: take(
+		`${S}prompt-key-matching-two-parent-links`,
 		"schema:CaseSearchProperty.name",
 	),
 	nameOutside: refuse(
@@ -753,13 +758,13 @@ export function readSearchPrompts(
 	);
 	const savedNames = new Map<string, string>();
 	for (const prompt of prompts) {
-		const property = directParentPromptProperty(prompt);
-		if (property === undefined) continue;
-		const key = `parent/${property}`;
+		const binding = parentPathPromptBinding(prompt);
+		if (binding === undefined) continue;
+		const key = binding.key;
 		const uuid = ctx.input.resolver.uuidOf(
 			externalKey.searchInput(module.uniqueId, key),
 		);
-		const previous = ctx.input.knownDirectParentSearchNames?.get(uuid);
+		const previous = ctx.input.knownParentPathSearchNames?.get(uuid);
 		if (previous !== undefined && !occupiedNames.has(previous)) {
 			savedNames.set(key, previous);
 			occupiedNames.add(previous);
@@ -847,16 +852,33 @@ function canReadAddressPrompt(
 	);
 }
 
-/** A visible ordinary text prompt with a native direct-parent key. Its
- * wider settings would need their own editor and worker evidence. */
-function directParentPromptProperty(prompt: JsonCursor): string | undefined {
-	const name = prompt.peek("name");
-	if (typeof name !== "string" || !name.startsWith("parent/")) return undefined;
-	const property = name.slice("parent/".length);
+/** A labeled text prompt carried by one or two native parent links. */
+function parentPathPromptBinding(prompt: JsonCursor):
+	| {
+			readonly key: string;
+			readonly property: string;
+			readonly via: Extract<RelationPath, { kind: "ancestor" }>;
+	  }
+	| undefined {
+	const key = prompt.peek("name");
+	if (typeof key !== "string") return undefined;
+	const parts = key.split("/");
+	const property = parts.pop();
+	if (
+		!property ||
+		(parts.length !== 1 && parts.length !== 2) ||
+		parts.some((part) => part !== "parent")
+	)
+		return undefined;
+	const parent = { identifier: "parent" };
+	const via: Extract<RelationPath, { kind: "ancestor" }> = {
+		kind: "ancestor",
+		via: parts.length === 2 ? [parent, { ...parent }] : [parent],
+	};
 	const required = prompt.peek("required");
 	const validations = prompt.peek("validations");
 	const itemset = prompt.peek("itemset");
-	return isDirectParentSearchProperty(property) &&
+	return isParentPathSearchProperty(property) &&
 		prompt.peek("hidden") !== true &&
 		prompt.peek("exclude") !== true &&
 		prompt.peek("allow_blank_value") !== true &&
@@ -869,15 +891,12 @@ function directParentPromptProperty(prompt: JsonCursor): string | undefined {
 		(!Array.isArray(validations) || validations.length === 0) &&
 		(!isJsonObject(itemset) ||
 			Object.keys(itemset).every((key) => key === "doc_type"))
-		? property
+		? { key, property, via }
 		: undefined;
 }
 
-function reserveParentPromptAlias(
-	property: string,
-	occupied: Set<string>,
-): string {
-	const base = `parent_${property}`;
+function reserveParentPromptAlias(key: string, occupied: Set<string>): string {
+	const base = key.replaceAll("/", "_");
 	let name = base;
 	for (let suffix = 2; occupied.has(name); suffix++) name = `${base}_${suffix}`;
 	occupied.add(name);
@@ -1010,9 +1029,9 @@ function readPrompt(
 				texts: NO_ENTRIES,
 			};
 	const label = labelRead.texts;
-	const parentProperty =
+	const parentBinding =
 		!projectService && !grouped && sourceText(ctx, label).trim()
-			? directParentPromptProperty(prompt)
+			? parentPathPromptBinding(prompt)
 			: undefined;
 	const hintMap = hintRead.texts;
 	const requiredMap = requiredRead.texts;
@@ -1024,10 +1043,7 @@ function readPrompt(
 			: isReservedSearchInputName(name)
 	)
 		refuseWith("name", P.nameReserved);
-	else if (
-		parentProperty === undefined &&
-		!SEARCH_INPUT_NAME_PATTERN.test(name)
-	)
+	else if (parentBinding === undefined && !SEARCH_INPUT_NAME_PATTERN.test(name))
 		refuseWith("name", P.nameOutside);
 	else if (defaultFilterNames.has(name)) {
 		refuseWith("name", P.nameShared);
@@ -1486,7 +1502,7 @@ function readPrompt(
 				!projectService &&
 				!exclude &&
 				!address &&
-				parentProperty === undefined &&
+				parentBinding === undefined &&
 				!ATTRIBUTE_PROMPT_NAMES.has(name) &&
 				!authoredCasePropertyNameSchema.safeParse(name).success
 			)
@@ -1506,8 +1522,10 @@ function readPrompt(
 	if (!refusedHere("name")) {
 		prompt.take(
 			"name",
-			parentProperty !== undefined
-				? P.parentName
+			parentBinding !== undefined
+				? parentBinding.via.via.length === 2
+					? P.nestedParentName
+					: P.parentName
 				: !projectService && !exclude && ATTRIBUTE_PROMPT_NAMES.has(name)
 					? P.nameAttribute
 					: P.name,
@@ -1766,10 +1784,10 @@ function readPrompt(
 	const common = {
 		uuid,
 		name:
-			parentProperty === undefined
+			parentBinding === undefined
 				? name
 				: (savedNames.get(name) ??
-					reserveParentPromptAlias(parentProperty, occupiedNames)),
+					reserveParentPromptAlias(parentBinding.key, occupiedNames)),
 		...(group !== undefined && { group }),
 		label: sourceText(ctx, label),
 		...(hint !== "" && { hint }),
@@ -1840,11 +1858,12 @@ function readPrompt(
 							...widget,
 							kind: "simple",
 							property:
-								parentProperty ?? (name === "name" ? "case_name" : name),
-							...(parentProperty !== undefined && {
-								via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+								parentBinding?.property ??
+								(name === "name" ? "case_name" : name),
+							...(parentBinding !== undefined && {
+								via: parentBinding.via,
 							}),
-							...((parentProperty !== undefined ||
+							...((parentBinding !== undefined ||
 								ATTRIBUTE_PROMPT_NAMES.has(name) ||
 								type === "date") && {
 								matching: "project-space",

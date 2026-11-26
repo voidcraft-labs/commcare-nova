@@ -64,7 +64,7 @@ describe("completedSearchRequest", () => {
 			{
 				key: "parent/village",
 				field: "Parent village",
-				directParentPrompt: true,
+				parentPathPrompt: true,
 				readsAnswers: true,
 				target: {
 					kind: "property",

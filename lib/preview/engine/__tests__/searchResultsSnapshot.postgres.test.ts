@@ -15,12 +15,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
+import { checkParentPathLookupLimit } from "@/lib/case-store/postgres/nativeSearchMatching";
 import {
 	PostgresCaseStore,
 	type PostgresCaseStoreArgs,
 } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import type { CaseSearchRequest } from "@/lib/case-store/searchRequest";
+import type {
+	CaseSearchCriterion,
+	CaseSearchRequest,
+} from "@/lib/case-store/searchRequest";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { SEARCH_RESULTS_CAP } from "@/lib/commcare/session";
@@ -588,6 +592,155 @@ describe("a completed search's snapshot", () => {
 		);
 		await expect(read("Dyer's crossing")).rejects.toMatchObject({
 			reason: { kind: "parent-value-unavailable", field: "Parent village" },
+		});
+	});
+
+	it("matches a grandparent through authorized rows and keeps either unresolved hop distinct from a miss", async () => {
+		const store = storeAs(WORKER, async () => ({
+			revision: "exact",
+			maximum: 500,
+			timeZone: "UTC",
+			projectSpace: "clinic",
+			matcherFor: (key) =>
+				key === "parent/parent/village"
+					? { fuzzy: false, ignoreLiterals: ["!"] }
+					: null,
+		}));
+		const grandparent: SearchInputDef = {
+			uuid: testUuid("grandparent-village"),
+			name: "parent_parent_village",
+			label: "Grandparent village",
+			kind: "simple",
+			type: "text",
+			property: "village",
+			matching: "project-space",
+			via: {
+				kind: "ancestor",
+				via: [{ identifier: "parent" }, { identifier: "parent" }],
+			},
+		};
+		for (const [caseId, village] of [
+			["target-house", "North"],
+			["other-house", "South"],
+			["matching-middle", "South"],
+			["other-middle", "North"],
+		] as const)
+			await storeAs(OTHER_WORKER).insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "household",
+					case_name: caseId,
+					status: "closed",
+					properties: { village },
+				},
+			});
+		const edge = (caseId: string, target: string) =>
+			sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+				values (${caseId}, ${target}, 'parent', 1, 'child', 'household')`.execute(
+				dbHandle.db,
+			);
+		await edge("matching-middle", "target-house");
+		await edge("other-middle", "other-house");
+		for (const [id, related] of [
+			["nested", "matching-middle"],
+			["direct", "target-house"],
+			["wrong-terminal", "other-middle"],
+			["unlinked", undefined],
+		] as const)
+			await store.insert(patient(id, "open", related));
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.searchInputs = [grandparent];
+		const read = (answer: string) =>
+			readSearchResultsSnapshot(store, {
+				...SEARCH,
+				searchPopulation: {
+					...SEARCH.searchPopulation,
+					request: completedSearchRequest(
+						{ caseListConfig: config },
+						new Map([[grandparent.name, answer]]),
+						undefined,
+						{ revision: "exact" },
+					),
+				},
+			});
+		const found = await read("No!rth");
+		expect(found.rows.map((row) => row.case_id)).toEqual(["nested"]);
+		expect(await read("Missing")).toEqual({ rows: [], totalMatches: 0 });
+
+		const unavailable = {
+			reason: {
+				kind: "parent-value-unavailable",
+				field: "Grandparent village",
+			},
+		};
+		await edge("unlinked", "unknown-first");
+		await expect(read("North")).rejects.toMatchObject(unavailable);
+		await sql`delete from case_indices where case_id = 'unlinked' and ancestor_id = 'unknown-first'`.execute(
+			dbHandle.db,
+		);
+		await edge("other-middle", "unknown-second");
+		await expect(read("North")).rejects.toMatchObject(unavailable);
+	});
+
+	it("refuses a truncated reverse-link lookup and counts each intermediate record once", async () => {
+		const store = storeAs(OTHER_WORKER);
+		for (const [caseId, village] of [
+			["terminal-one", "North"],
+			["terminal-two", "North"],
+			["middle-one", "South"],
+			["middle-two", "South"],
+			["unrelated", "South"],
+		]) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "household",
+					case_name: caseId,
+					status: "open",
+					properties: { village },
+				},
+			});
+		}
+		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('middle-one', 'terminal-one', 'parent', 1, 'child', 'household'),
+				('middle-one', 'terminal-two', 'parent', 1, 'child', 'household'),
+				('middle-two', 'terminal-two', 'parent', 1, 'child', 'household'),
+				('unrelated', 'terminal-one', 'other', 1, 'child', 'household')`.execute(
+			dbHandle.db,
+		);
+		const criterion: Extract<CaseSearchCriterion, { kind: "native" }> = {
+			kind: "native",
+			fuzzy: false,
+			parameter: {
+				field: "Grandparent village",
+				key: "parent/parent/village",
+				parentPathPrompt: true,
+				target: {
+					kind: "property",
+					property: "village",
+					ancestors: [{ identifier: "parent" }, { identifier: "parent" }],
+				},
+				values: ["North"],
+			},
+		};
+		const check = (terminal: number, intermediate: number) =>
+			checkParentPathLookupLimit(
+				criterion,
+				{
+					db: dbHandle.db as unknown as Kysely<Database>,
+					appId: APP_ID,
+					projectId: PROJECT,
+				},
+				{ terminal, intermediate },
+			);
+		await expect(check(2, 2)).resolves.toBeUndefined();
+		await expect(check(2, 1)).rejects.toMatchObject({
+			reason: { kind: "parent-lookup-limit", field: "Grandparent village" },
+		});
+		await expect(check(1, 2)).rejects.toMatchObject({
+			reason: { kind: "parent-lookup-limit", field: "Grandparent village" },
 		});
 	});
 

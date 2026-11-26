@@ -9,9 +9,9 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
 import { LOCATION_NOT_IN_SEARCH_MESSAGE } from "@/lib/domain/expression/typeChecker";
 import {
-	directParentSearchRequestKey,
-	directParentSearchSettingsFit,
 	isOrdinaryCaseSearchConfig,
+	parentPathSearchRequestKey,
+	parentPathSearchSettingsFit,
 	projectSpaceMatchingFits,
 	searchInputRequestKey,
 } from "@/lib/domain/modules";
@@ -99,7 +99,7 @@ export function nativeSearchFilters(
 	const keys = new Set<string>();
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
 		const key = searchInputRequestKey(input);
-		if (directParentSearchRequestKey(input) !== undefined && keys.has(key))
+		if (parentPathSearchRequestKey(input) !== undefined && keys.has(key))
 			errors.push(
 				validationError(
 					"CASE_SEARCH_FILTER_INVALID",
@@ -229,9 +229,9 @@ export function nativeSearchFilters(
 	}
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
 		if (input.kind !== "simple" || input.matching !== "project-space") continue;
-		const parent = directParentSearchRequestKey(input);
+		const parent = parentPathSearchRequestKey(input);
 		if (parent !== undefined) {
-			if (!directParentSearchSettingsFit(input))
+			if (!parentPathSearchSettingsFit(input))
 				errors.push(
 					validationError(
 						"CASE_SEARCH_FILTER_INVALID",

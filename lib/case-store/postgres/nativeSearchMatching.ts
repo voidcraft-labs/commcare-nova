@@ -60,41 +60,58 @@ export function missingNativeProperty(key: string): Truth {
 	}
 }
 
-// HQ limits each set of matching parents before it follows their reverse links.
-const MAX_RELATED_CASES = 500_000;
+// HQ bounds terminal matches before it follows reverse links.
+// The extra reverse lookup uses ESQuery.get_ids(), whose default size is SIZE_LIMIT.
+const HQ_PARENT_LOOKUP_WINDOWS = { terminal: 500_000, intermediate: 1_000_000 };
 
-export async function checkDirectParentLookupLimit(
+export async function checkParentPathLookupLimit(
 	criterion: Extract<CaseSearchCriterion, { kind: "native" }>,
-	ctx: PredicateCompileContext,
+	ctx: Pick<PredicateCompileContext, "db" | "appId" | "projectId">,
+	windows = HQ_PARENT_LOOKUP_WINDOWS,
 ): Promise<void> {
 	const { target, values, field } = criterion.parameter;
-	if (!criterion.parameter.directParentPrompt || target.kind !== "property")
+	if (!criterion.parameter.parentPathPrompt || target.kind !== "property")
 		return;
 	const terms = values.filter((value) => value !== "");
 	const groups =
 		values.includes("") && terms.length > 0 ? [terms, [""]] : [values];
+	const exceeded = () =>
+		new CaseSearchUnavailableError({ kind: "parent-lookup-limit", field });
 	for (const group of groups) {
-		const value = sql`parent.properties ->> ${target.property}`;
+		const value = sql`terminal.properties ->> ${target.property}`;
 		const match = propertyMatches(value, group, false, ctx);
-		const result = await sql<{ exceeded: boolean }>`select exists (
-			select 1 from cases as parent
-			where parent.app_id = ${ctx.appId} and parent.project_id = ${ctx.projectId} and ${match}
-			offset ${MAX_RELATED_CASES} limit 1
+		const terminal = sql`select terminal.case_id from cases as terminal
+			where terminal.app_id = ${ctx.appId} and terminal.project_id = ${ctx.projectId} and ${match}`;
+		const terminalCount = await sql<{ exceeded: boolean }>`select exists (
+			${terminal} offset ${windows.terminal} limit 1
 		) as exceeded`.execute(ctx.db);
-		if (result.rows[0]?.exceeded)
-			throw new CaseSearchUnavailableError({
-				kind: "parent-lookup-limit",
-				field,
-			});
+		if (terminalCount.rows[0]?.exceeded) throw exceeded();
+		if (target.ancestors?.length !== 2) continue;
+
+		// Count intermediate records once each, even if a retained record
+		// holds multiple indices leading to matching terminal records.
+		const intermediateCount = await sql<{ exceeded: boolean }>`select exists (
+			select 1 from cases as middle
+			where middle.app_id = ${ctx.appId} and middle.project_id = ${ctx.projectId}
+				and exists (
+					select 1 from case_indices as edge
+					join (${terminal}) as matched on matched.case_id = edge.ancestor_id
+					where edge.case_id = middle.case_id and edge.depth = 1 and edge.identifier = 'parent'
+				)
+			offset ${windows.intermediate} limit 1
+		) as exceeded`.execute(ctx.db);
+		if (intermediateCount.rows[0]?.exceeded) throw exceeded();
 	}
 }
 
-/** Look for an unresolved edge on this candidate without reading the target
- * outside the app and Project. A record without an edge is a known miss. */
-function unresolvedDirectParent(ctx: PredicateCompileContext) {
+/** A nonempty retained edge may reach data outside the authorized snapshot. */
+function missingParent(
+	ctx: PredicateCompileContext,
+	caseId: RawBuilder<unknown>,
+) {
 	return sql<boolean>`exists (
 		select 1 from case_indices as edge
-		where edge.case_id = ${sql.ref(`${ctx.anchorAlias}.case_id`)}
+		where edge.case_id = ${caseId}
 			and edge.depth = 1 and edge.identifier = 'parent'
 			and edge.ancestor_id <> ''
 			and not exists (
@@ -103,6 +120,19 @@ function unresolvedDirectParent(ctx: PredicateCompileContext) {
 					and parent.app_id = ${ctx.appId} and parent.project_id = ${ctx.projectId}
 			)
 	)`;
+}
+
+function unresolvedParentPath(ctx: PredicateCompileContext, hops: number) {
+	const candidateId = sql.ref(`${ctx.anchorAlias}.case_id`);
+	const firstMissing = missingParent(ctx, candidateId);
+	if (hops !== 2) return firstMissing;
+	return sql<boolean>`(${firstMissing} or exists (
+		select 1 from case_indices as first
+		join cases as middle on middle.case_id = first.ancestor_id
+			and middle.app_id = ${ctx.appId} and middle.project_id = ${ctx.projectId}
+		where first.case_id = ${candidateId} and first.depth = 1 and first.identifier = 'parent'
+			and ${missingParent(ctx, sql.ref("middle.case_id"))}
+	))`;
 }
 
 export function nativeSearchTruth(
@@ -206,8 +236,8 @@ export function nativeSearchTruth(
 						);
 			// The native ancestor query looks up matching parents and then follows
 			// their reverse links. A record with no such ancestor never qualifies.
-			const unresolved = criterion.parameter.directParentPrompt
-				? unresolvedDirectParent(ctx)
+			const unresolved = criterion.parameter.parentPathPrompt
+				? unresolvedParentPath(ctx, target.ancestors.length)
 				: sql`false`;
 			return sql`(select case when bool_or(accepted) then true when ${unresolved} or bool_or(accepted is null) then null else false end
 				from (select ${match} as accepted from ${path.buildLeafSubquery()}

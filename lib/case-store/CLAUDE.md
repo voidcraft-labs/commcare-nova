@@ -772,15 +772,17 @@ the guarded Blueprint transaction; ordinary additive changes ride a post-commit 
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.
 
-### Direct parent Search prompts
+### Parent-path Search prompts
 
 Preview uses the exact parent-property request key to choose the destination's
 confirmed ignore-text rule, before matching parent values in the authorized
-app and Project. A candidate without a parent edge is a known miss. An edge to
-a parent absent from the app cannot certify a miss, so the same transaction that
+app and Project. A candidate without the required parent edges is a known miss.
+An edge at either hop to a record absent from the app cannot certify a miss, so the same transaction that
 selects the matches reports it as unavailable if the other filters still allow
-that candidate. HQ's 500,000-candidate cap applies before reverse links select
-the primary hits. Preview cannot certify the parent vocabulary for fuzzy
+that candidate. HQ caps terminal matches at 500,000 and uses a 1,000,000-result
+window for an intermediate reverse lookup. Preview checks both boundaries
+before selecting primary hits and refuses to certify a truncated intermediate
+set. Preview cannot certify the parent vocabulary for fuzzy
 matching, so it keeps the app's published rules and reports that search as
 unavailable in Preview.
 

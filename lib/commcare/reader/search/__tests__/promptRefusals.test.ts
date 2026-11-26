@@ -29,7 +29,7 @@ import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { matchingResolver } from "../../identity";
 import {
 	externalIdentityMap,
-	knownDirectParentSearchNamesOf,
+	knownParentPathSearchNamesOf,
 } from "../../identityMap";
 import { readHqApp } from "../../index";
 import type { ReaderInput } from "../../types";
@@ -648,73 +648,85 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 describe("a plain native parent Search field", () => {
 	const village = { name: "parent/village", label: { en: "Village" } };
 
-	it("holds the exact parent key independently of a safe, unoccupied authoring name", async () => {
-		const { doc } = await documentOf((body) => {
-			promptsOf(body).push(village, {
-				name: "parent_village",
-				label: { en: "Code" },
+	it.each([
+		["parent/village", 1],
+		["parent/parent/village", 2],
+	] as const)(
+		"holds %s independently of a safe, unoccupied authoring name",
+		async (key, hops) => {
+			const alias = key.replaceAll("/", "_");
+			const { doc } = await documentOf((body) => {
+				promptsOf(body).push(
+					{ ...village, name: key },
+					{
+						name: alias,
+						label: { en: "Code" },
+					},
+				);
 			});
-		});
-		const mod = doc.modules[doc.moduleOrder[0]];
-		expect(mod.caseListConfig?.searchInputs.at(-2)).toMatchObject({
-			name: "parent_village_2",
-			kind: "simple",
-			type: "text",
-			matching: "project-space",
-			property: "village",
-			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
-		});
-		const renamed = produce(doc, (draft) => {
-			const field = draft.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
-			if (field === undefined) throw new Error("Expected the parent field");
-			field.name = "related_village";
-		});
-		const runtimeTarget = {
-			server: "production",
-			domain: "clinic",
-			appId: "app",
-		} as const;
-		const compiled = expandDoc(renamed, { runtimeTarget });
-		expect(
-			compiled.modules[0].search_config.properties.slice(-2),
-		).toMatchObject([
-			{ name: "parent/village", label: { en: "Village" } },
-			{ name: "parent_village", label: { en: "Code" } },
-		]);
-		const zip = new AdmZip(
-			compileCcz(compiled, renamed.appName, renamed, { runtimeTarget }),
-		);
-		expect(zip.readAsText("suite.xml")).toContain(
-			'<prompt key="parent/village"',
-		);
-		expect(zip.readAsText("suite.xml")).toContain(
-			'id="search_property.m0.parent/village"',
-		);
-		expect(zip.readAsText("default/app_strings.txt")).toContain(
-			"search_property.m0.parent/village=Village",
-		);
-		expect(requiredProjectSpaceCapabilities(renamed)).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ id: "related-case-search" }),
-			]),
-		);
-		const reread = readHqApp(
-			await inputFor(exportedBody(renamed), {
-				resolver: matchingResolver(
-					renamed.appId,
-					externalIdentityMap(renamed, DERIVED_WIRE_IDENTITY),
-				),
-				knownDirectParentSearchNames: knownDirectParentSearchNamesOf(renamed),
-			}),
-		);
-		expect(reread.kind).toBe("read");
-		if (reread.kind !== "read") return;
-		const parent =
-			renamed.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
-		expect(
-			reread.draft.doc.modules[mod.uuid].caseListConfig?.searchInputs.at(-2),
-		).toMatchObject({ uuid: parent?.uuid, name: "related_village" });
-	});
+			const mod = doc.modules[doc.moduleOrder[0]];
+			expect(mod.caseListConfig?.searchInputs.at(-2)).toMatchObject({
+				name: `${alias}_2`,
+				kind: "simple",
+				type: "text",
+				matching: "project-space",
+				property: "village",
+				via: {
+					kind: "ancestor",
+					via: Array.from({ length: hops }, () => ({ identifier: "parent" })),
+				},
+			});
+			const renamed = produce(doc, (draft) => {
+				const field =
+					draft.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
+				if (field === undefined) throw new Error("Expected the parent field");
+				field.name = "related_village";
+			});
+			const runtimeTarget = {
+				server: "production",
+				domain: "clinic",
+				appId: "app",
+			} as const;
+			const compiled = expandDoc(renamed, { runtimeTarget });
+			expect(
+				compiled.modules[0].search_config.properties.slice(-2),
+			).toMatchObject([
+				{ name: key, label: { en: "Village" } },
+				{ name: alias, label: { en: "Code" } },
+			]);
+			const zip = new AdmZip(
+				compileCcz(compiled, renamed.appName, renamed, { runtimeTarget }),
+			);
+			expect(zip.readAsText("suite.xml")).toContain(`<prompt key="${key}"`);
+			expect(zip.readAsText("suite.xml")).toContain(
+				`id="search_property.m0.${key}"`,
+			);
+			expect(zip.readAsText("default/app_strings.txt")).toContain(
+				`search_property.m0.${key}=Village`,
+			);
+			expect(requiredProjectSpaceCapabilities(renamed)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: "related-case-search" }),
+				]),
+			);
+			const reread = readHqApp(
+				await inputFor(exportedBody(renamed), {
+					resolver: matchingResolver(
+						renamed.appId,
+						externalIdentityMap(renamed, DERIVED_WIRE_IDENTITY),
+					),
+					knownParentPathSearchNames: knownParentPathSearchNamesOf(renamed),
+				}),
+			);
+			expect(reread.kind).toBe("read");
+			if (reread.kind !== "read") return;
+			const parent =
+				renamed.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
+			expect(
+				reread.draft.doc.modules[mod.uuid].caseListConfig?.searchInputs.at(-2),
+			).toMatchObject({ uuid: parent?.uuid, name: "related_village" });
+		},
+	);
 
 	it("refuses a dependent formula while retaining the parent match", async () => {
 		const { doc } = await documentOf((body) => {
@@ -738,22 +750,31 @@ describe("a plain native parent Search field", () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					message: expect.stringContaining(
-						"only available to match a property on the parent record",
+						"used only to match the related record",
 					),
 				}),
 			]),
 		);
 	});
 
-	it("keeps a parent prompt with a different widget outside the held slice", async () => {
+	it.each([
+		["parent/village", "date"],
+		["parent/parent/village", "date"],
+		["host/parent/village", undefined],
+		["parent/parent/parent/village", undefined],
+	])("refuses an unproved field %s with widget %s", async (key, widget) => {
 		expect(
 			await account((body) => {
-				promptsOf(body).push({ ...village, input_: "date" });
+				promptsOf(body).push({
+					...village,
+					name: key,
+					...(widget === undefined ? {} : { input_: widget }),
+				});
 			}),
 		).toContainEqual([
 			`${S}prompt-key-outside-nova-s-name-grammar`,
 			"search",
-			"parent/village",
+			key,
 		]);
 	});
 });
