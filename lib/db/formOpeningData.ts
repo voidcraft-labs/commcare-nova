@@ -1,5 +1,5 @@
 import "server-only";
-import { sql } from "kysely";
+import { type QueryExecutorProvider, sql } from "kysely";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import { getAppDb } from "./pg";
 
@@ -53,8 +53,9 @@ export async function putFormOpeningData(
 
 export async function getFormOpeningData(
 	key: OpeningDataKey,
+	tx?: QueryExecutorProvider,
 ): Promise<Buffer | undefined> {
-	const db = await getAppDb();
+	const db = tx ?? (await getAppDb());
 	const result = await sql<{
 		data: Buffer;
 	}>`SELECT snapshot.data FROM form_opening_data AS snapshot

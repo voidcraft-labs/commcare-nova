@@ -102,6 +102,9 @@ NAMINGS = ("auto", "generic", "xform", "data", "casedb")
 # The key of a suite query's ``<data>`` whose values HQ's case search adds as filters one by one, in no order
 # (``case_search/const.py::CASE_SEARCH_XPATH_QUERY_KEY``).
 XPATH_QUERY_KEY = "_xpath_query"
+# Values of this query key are read in order. Keep their position among
+# same-key values in the comparison, and name the key in the path.
+ORDER_QUERY_KEY = "commcare_sort"
 
 # The prefixes paths use for the namespaces CommCare documents declare, so a
 # path reads the same whichever prefix a serializer chose.
@@ -328,7 +331,11 @@ def _steps(children, naming, context, parent_written):
     for child, tail, local, shown, own, written, concrete in described:
         app = shown == names.APP
         place = APP_STEP if app else ROW_STEP if names.is_row(shown, own, parent_written) else None
-        if concrete is not None and _unordered(context, local, child):
+        if context == GENERIC and local == "data" and child.get("key") == ORDER_QUERY_KEY:
+            key = f"data[@key={ORDER_QUERY_KEY}]"
+            seen = occurrences[key] = occurrences.get(key, 0) + 1
+            step = (f"{key}[*]", f"{key}[{seen}]")
+        elif concrete is not None and _unordered(context, local, child):
             # A multiset's value sent again is its n-th, never a position among its siblings.
             seen = occurrences[local + concrete] = occurrences.get(local + concrete, 0) + 1
             step = (f"{shown}{written}", f"{local}{concrete}" + ("" if seen == 1 else f"#{seen}"))

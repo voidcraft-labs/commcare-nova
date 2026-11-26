@@ -174,14 +174,9 @@ export const FINDING_COPY: Readonly<
 	"app-settings": {
 		never: "This uses an app setting, which Nova doesn't bring in.",
 	},
-	"auto-select": {
-		"not-yet":
-			"This uses a setting that chooses a case for the worker, which Nova can't hold yet.",
-	},
+	"auto-select": {},
 	"blank-form": {},
-	"build-profiles": {
-		"not-yet": "This uses build profiles, which Nova can't hold yet.",
-	},
+	"build-profiles": {},
 	"call-center-indicators": {
 		never: "This uses call center indicators, which Nova doesn't bring in.",
 	},
@@ -324,7 +319,6 @@ export const FINDING_COPY: Readonly<
 	},
 	"question-appearance": {
 		never: "This uses a display style, which Nova doesn't bring in.",
-		"not-yet": "A question here has a display style Nova can't hold yet.",
 	},
 	"question-choices": {
 		"not-yet":
@@ -335,17 +329,9 @@ export const FINDING_COPY: Readonly<
 			"Two questions here share one place in the form's data, so Nova can't tell them apart.",
 	},
 	"question-logic": {},
-	"question-media": {
-		"not-yet":
-			"A question here carries a kind of media or label form Nova can't hold yet.",
-	},
-	"question-text": {
-		"not-yet": "This uses a kind of question text, which Nova can't hold yet.",
-	},
-	"question-types": {
-		"not-yet":
-			"A question here is of a kind, or is set up in a way, that Nova can't hold yet.",
-	},
+	"question-media": {},
+	"question-text": {},
+	"question-types": {},
 	repeats: {},
 	"save-to-case": {
 		"not-yet": "This uses a Save to Case question, which Nova can't hold yet.",
@@ -360,6 +346,8 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "This uses a search expression, which Nova can't hold yet.",
 	},
 	"search-fields": {
+		never:
+			"Nova couldn’t read this Search group or its heading. In CommCare HQ, give the group a heading and check that each field is assigned to the right group. Then bring the app in again.",
 		"not-yet": "A search field here is set up in a way Nova can't hold yet.",
 	},
 	"search-setup": {
@@ -443,6 +431,7 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"search-fields": "A search field is",
 	"search-setup": "The search is",
 	"shadow-forms": "A shadow form is",
+	"translation-overrides": "An overriding translation is",
 	"worker-record": "A use of the worker's own record is",
 };
 
@@ -471,6 +460,15 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"An answer here is kept under a group CommCare HQ's form designer can't keep it under: at the top level of the form for a question inside a group, which the designer reports as invalid each time it opens the form, or under another group for a whole group, whose answers its next save loses. Keeping the answer with its question in the form designer's Data Parent setting fixes it.",
 	},
+	"case-list-callout": {
+		"breaks-when-run":
+			"The Android case list opens before the worker chooses a case, so the lookup cannot read a field from that case. In CommCare HQ’s Case List settings, use quoted text if the lookup should send a fixed value, then check the app again.",
+	},
+	"build-profiles": {
+		"hq-refuses":
+			"An installation needs a default language. On the app’s Releases page, open Application Profiles and choose each language once from the app’s languages.",
+	},
+
 	"app-document": {
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",
@@ -571,6 +569,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"application-and-settings/translations-generated-menu-icon-without-mapping":
+		"A translation points to a missing menu icon file. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
+	"questions/video-inline-as-the-only-content-of-a-help-text":
+		"The inline video in this question’s help cannot play. Add help text and attach the file as a regular video, or move the inline video to the question label.",
 	"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks":
 		"A menu or form display condition here reads a lookup table or column whose name holds a letter outside unaccented a to z, and CommCare HQ checks those conditions with a reader that can't read it, so it won't build the app. Renaming the table or column in CommCare HQ to unaccented letters, digits, _, . and -, or changing the condition, fixes it.",
 	"expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks":
@@ -656,12 +658,15 @@ export function findingLine(finding: Finding): {
 		};
 	}
 	return {
-		sentence: manifestSentence(
-			finding.subject,
-			finding.standing,
-			finding.cause,
-			finding.code,
-		),
+		sentence:
+			finding.code === "questions/android-app-callout-that-cannot-be-recreated"
+				? "The Android app connection here needs a change in CommCare HQ. You can recreate it on the question that opens the app, choose where its results go, save the form and try again."
+				: manifestSentence(
+						finding.subject,
+						finding.standing,
+						finding.cause,
+						finding.code,
+					),
 		named: finding.detail.name ?? null,
 	};
 }
@@ -823,6 +828,11 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		title: "CommCare HQ can't summarize this menu",
 		body: "CommCare HQ returned an error where its own summary of this menu's forms should be, so Nova has nothing sure to check its reading against.",
 		next: "Opening each of the menu's forms in CommCare HQ's form builder usually shows which one is broken. Once it saves cleanly, you can check again.",
+	},
+	"installation-profile-key-unusable": {
+		title: "An installation profile needs a new ID",
+		body: "A worker following this installation link in CommCare HQ would miss the intended profile. Its ID cannot select a separate set of installation files.",
+		next: "On the app’s Releases page in CommCare HQ, open Application Profiles. Recreate the affected profile with the same languages and practice worker, remove the old entry, then check again.",
 	},
 	"app-unreadable-in-hq": {
 		title: "CommCare HQ can't summarize this app",

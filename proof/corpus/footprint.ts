@@ -337,6 +337,7 @@ function translationOwnerEntities(
 		case "select-option":
 			return [owner.fieldUuid];
 		case "case-list-column":
+		case "search-input-group":
 		case "search-input":
 			return [owner.moduleUuid];
 		case "case-property-option":

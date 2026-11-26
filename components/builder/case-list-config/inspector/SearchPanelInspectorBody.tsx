@@ -36,6 +36,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { type ReactNode, useEffect, useId, useState } from "react";
+import { SearchResultsNameSection } from "@/components/builder/detail/moduleSettings/SearchResultsNameSection";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
@@ -49,6 +50,13 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
@@ -63,7 +71,9 @@ import {
 } from "@/lib/domain";
 import { type Expression, matchAll } from "@/lib/domain/expression";
 import type { PlatformFeatureId } from "@/lib/domain/platforms";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
+import { ProjectSearchSettings } from "./ProjectSearchSettings";
 import { SearchWorkflowSetting } from "./SearchWorkflowSetting";
 import {
 	BUTTON_ONLY_SEARCH_SCREEN_LINE,
@@ -80,6 +90,7 @@ export interface SearchPanelInspectorBodyProps {
 	readonly onChange: (next: OrdinaryCaseSearchConfig) => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
+	readonly requestedTypes?: readonly string[];
 	/** Search-input declarations available while authoring the condition. */
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/** False when there are no input fields, so Search-screen copy never renders. */
@@ -109,6 +120,7 @@ export function SearchPanelInspectorBody({
 	onChange,
 	caseTypes,
 	currentCaseType,
+	requestedTypes = [currentCaseType],
 	knownInputs = [],
 	hasVisibleSearchScreen = true,
 	hasSearchAction,
@@ -165,6 +177,22 @@ export function SearchPanelInspectorBody({
 	const searchActionIsActive = hasSearchAction ?? value !== undefined;
 	const advancedIsActive = value?.searchButtonDisplayCondition !== undefined;
 
+	const relatedPolicies = {
+		auto: "Follow the displayed information",
+		details: "Only records used by details",
+		hierarchy: "The whole related hierarchy",
+	} as const;
+	const policy = value?.relatedRecords ?? "auto";
+	const property = value?.relatedRecordIdProperty;
+	const properties = [
+		...new Set([
+			...caseTypes
+				.filter((type) => requestedTypes.includes(type.name))
+				.flatMap((type) => type.properties.map((p) => p.name))
+				.filter((name) => !isDeviceOnlyCaseProperty(name)),
+			...(property ? [property] : []),
+		]),
+	];
 	return (
 		<>
 			{formsAboveSearchNote !== undefined && (
@@ -182,6 +210,15 @@ export function SearchPanelInspectorBody({
 				}
 				className="m-0 min-w-0 space-y-4 border-0 p-0"
 			>
+				{moduleUuid && (
+					<ProjectSearchSettings
+						moduleUuid={moduleUuid}
+						value={value}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={knownInputs}
+					/>
+				)}
 				{hasVisibleSearchScreen ? (
 					<>
 						<div data-search-show-title={showsTitle ? "true" : "false"}>
@@ -245,6 +282,78 @@ export function SearchPanelInspectorBody({
 					label="More settings"
 					defaultOpen={false}
 				>
+					{moduleUuid !== undefined && (
+						<SearchResultsNameSection moduleUuid={moduleUuid} />
+					)}
+					{searchActionIsActive && (
+						<>
+							<div className="space-y-1 text-sm">
+								Related records
+								<Select
+									value={policy}
+									onValueChange={(choice) => {
+										if (
+											choice === "auto" ||
+											choice === "details" ||
+											choice === "hierarchy"
+										)
+											onChange(
+												setOptionalSlot(
+													value,
+													"relatedRecords",
+													choice === "auto" ? undefined : choice,
+												),
+											);
+									}}
+								>
+									<SelectTrigger aria-label="Related records">
+										<SelectValue>{relatedPolicies[policy]}</SelectValue>
+									</SelectTrigger>
+									<SelectContent>
+										{Object.entries(relatedPolicies).map(([key, label]) => (
+											<SelectItem key={key} value={key}>
+												{label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+							{properties.length > 0 && (
+								<div className="space-y-1 text-sm">
+									Record ID to follow
+									<Select
+										value={property ?? "#none"}
+										onValueChange={(choice) => {
+											if (choice)
+												onChange(
+													setOptionalSlot(
+														value,
+														"relatedRecordIdProperty",
+														choice === "#none" ? undefined : choice,
+													),
+												);
+										}}
+									>
+										<SelectTrigger aria-label="Record ID to follow">
+											<SelectValue>
+												{property ?? "No additional record"}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="#none">
+												No additional record
+											</SelectItem>
+											{properties.map((key) => (
+												<SelectItem key={key} value={key}>
+													{key}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							)}
+						</>
+					)}
 					{formsReadSearch &&
 					value?.searchButtonDisplayCondition === undefined ? (
 						<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">

@@ -114,6 +114,55 @@ describe("userFacingError — voice", () => {
 		},
 	);
 
+	it.each([
+		["layout", "a case list with rows or a custom tile"],
+		["confidence-rows", "turn off Show match confidence"],
+		["configuration", "an action, a lookup name"],
+		["confidence-property", "match by Record ID"],
+		["unrecognized", "You can open Edit lookup to review them."],
+		[undefined, "You can open Edit lookup to review them."],
+	] as const)(
+		"renders the Android lookup notice for reason %s",
+		(reason, recovery) => {
+			const finding = validationError(
+				"CASE_LIST_DEVICE_LOOKUP_INVALID",
+				"module",
+				"INTERNAL DETAIL",
+				{},
+				reason === undefined ? undefined : { reason },
+			);
+			const line = userFacingError(finding);
+			expect(line).toContain(recovery);
+			expect(line).not.toContain(finding.message);
+		},
+	);
+
+	it.each([
+		["project-search", "add the address to a case Search screen"],
+		["receiver-type", "link one of those fields or clear the link"],
+		["single-choice", "Web Apps may choose a different answer"],
+		["source-link", "an address field from the same Search screen"],
+		[
+			"duplicate-receiver",
+			"different address parts or different address fields",
+		],
+		[undefined, "You can open the Search screen to review them."],
+	] as const)(
+		"renders the Search address notice for reason %s",
+		(reason, recovery) => {
+			const finding = validationError(
+				"CASE_LIST_SEARCH_ADDRESS_FIELD",
+				"module",
+				"INTERNAL DETAIL",
+				{},
+				reason === undefined ? undefined : { reason },
+			);
+			const line = userFacingError(finding);
+			expect(line).toContain(recovery);
+			expect(line).not.toContain(finding.message);
+		},
+	);
+
 	it("keeps internal failures generic and renders ordered lists and withheld choices through the same voice", () => {
 		const internal = validationError(
 			"XFORM_PARSE_ERROR",

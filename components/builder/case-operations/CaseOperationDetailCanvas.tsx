@@ -98,6 +98,7 @@ import {
 	type CaseOperation,
 	type CaseOperationWrite,
 	type CasePropertyDataType,
+	canSetOwnerAfterCreate,
 	levelOwnsCases,
 	operationTarget,
 } from "@/lib/domain";
@@ -185,6 +186,15 @@ export function CaseOperationDetailCanvas({
 		member: { operationUuid },
 	} as const;
 	const conditionContext = useExpressionSlotContext(conditionSlot);
+	const laterOwnerConditionSlot = {
+		entity: "form",
+		uuid: formUuid,
+		slot: "case_operation_later_owner_condition",
+		member: { operationUuid },
+	} as const;
+	const laterOwnerConditionContext = useExpressionSlotContext(
+		laterOwnerConditionSlot,
+	);
 
 	const operations = view.operations;
 	const index = operations.findIndex(
@@ -302,6 +312,7 @@ export function CaseOperationDetailCanvas({
 					caseTypes,
 					expressionCaseType || undefined,
 					formType,
+					placements.own?.placement.kind === "basic",
 				)
 			: [];
 	const writeMenu = (writeIndex: number): OwnWriteMenu | undefined =>
@@ -673,6 +684,98 @@ export function CaseOperationDetailCanvas({
 					/>
 				)}
 
+				{((operation.action === "update" &&
+					operation.owner !== undefined &&
+					operation.target.kind !== "worker-record") ||
+					(operation.action === "create" &&
+						operation.target.kind === "new" &&
+						operation.target.idFrom === undefined &&
+						operation.target.expr === undefined)) &&
+					operation.ownerOnlyIfChanged === undefined &&
+					operation.ownerAfterCreate === undefined && (
+						<OwnerConditionSection
+							slot={{
+								entity: "form",
+								uuid: formUuid,
+								slot: "case_operation_owner_condition",
+								member: { operationUuid },
+							}}
+							value={operation.ownerCondition}
+							canEdit={operationCanEdit}
+							onChange={(ownerCondition) =>
+								commit({ ...operation, ownerCondition })
+							}
+							editorScope={editorScope}
+							createsCase={operation.action === "create"}
+						/>
+					)}
+
+				{operation.action === "create" &&
+					canSetOwnerAfterCreate(
+						operation,
+						formType,
+						operations.length === 1,
+					) && (
+						<CaseOwnerSection
+							slot={{
+								entity: "form",
+								uuid: formUuid,
+								slot: "case_operation_later_owner",
+								member: { operationUuid },
+							}}
+							action="update"
+							title="Change the owner after creation"
+							value={operation.ownerAfterCreate?.value}
+							canEdit={
+								operationCanEdit && laterOwnerConditionContext !== undefined
+							}
+							onChange={(value) => {
+								if (value === undefined) {
+									commit({ ...operation, ownerAfterCreate: undefined });
+									return;
+								}
+								if (laterOwnerConditionContext === undefined) return;
+								const condition =
+									operation.ownerAfterCreate?.condition ??
+									firstComparisonDefault({
+										expressionContext: laterOwnerConditionContext,
+										...editorScope,
+										...editorAxesOf(laterOwnerConditionContext),
+										knownInputs: [],
+									});
+								commit({
+									...operation,
+									ownerAfterCreate: { value, condition },
+								});
+							}}
+							editorScope={editorScope}
+							footer={
+								operation.ownerAfterCreate !== undefined && (
+									<ConditionSlotEditor
+										slot={laterOwnerConditionSlot}
+										value={operation.ownerAfterCreate.condition}
+										onChange={(condition) => {
+											if (
+												condition === undefined ||
+												operation.ownerAfterCreate === undefined
+											)
+												return;
+											commit({
+												...operation,
+												ownerAfterCreate: {
+													...operation.ownerAfterCreate,
+													condition,
+												},
+											});
+										}}
+										rootLabel="when the initial owner changes"
+										{...editorScope}
+									/>
+								)
+							}
+						/>
+					)}
+
 				<Section
 					title="What it saves"
 					description={
@@ -829,6 +932,7 @@ function locationOwnerExpression(
 export function CaseOwnerSection({
 	slot,
 	action,
+	title = "Who owns the case",
 	value,
 	canEdit,
 	onChange,
@@ -836,6 +940,7 @@ export function CaseOwnerSection({
 	footer,
 }: {
 	readonly action: "create" | "update";
+	readonly title?: string;
 	readonly slot: ExpressionSlotRef;
 	readonly value: Expression | undefined;
 	readonly canEdit: boolean;
@@ -1017,7 +1122,7 @@ export function CaseOwnerSection({
 
 	return (
 		<Section
-			title="Who owns the case"
+			title={title}
 			description={copy.description}
 			action={
 				value !== undefined && canEdit ? (
@@ -1400,6 +1505,76 @@ function OptionalExpressionSection({
 				/>
 			)}
 			{value !== undefined && footer}
+		</Section>
+	);
+}
+
+function OwnerConditionSection({
+	slot,
+	value,
+	canEdit,
+	onChange,
+	editorScope,
+	createsCase,
+}: {
+	readonly slot: ExpressionSlotRef;
+	readonly value: Expression | undefined;
+	readonly canEdit: boolean;
+	readonly onChange: (next: Expression | undefined) => void;
+	readonly editorScope: EditorScope;
+	readonly createsCase: boolean;
+}) {
+	const expressionContext = useExpressionSlotContext(slot);
+	const { addRef, onCleared } = useClearedSlotFocus(value);
+	return (
+		<Section
+			title="When to assign the owner"
+			description={
+				createsCase
+					? "If the condition is false, the submitting worker owns the new case."
+					: "If the condition is false, the case keeps its current owner."
+			}
+			action={
+				value !== undefined && canEdit ? (
+					<ClearConditionButton
+						label="Always assign"
+						title="Always assign the owner?"
+						consequence="The owner will be assigned every time this change runs."
+						finalFocus={() => addRef.current}
+						onConfirm={() => {
+							onCleared();
+							onChange(undefined);
+						}}
+					/>
+				) : undefined
+			}
+		>
+			{value === undefined ? (
+				<AddSlotButton
+					ref={addRef}
+					label="Add an owner condition"
+					disabled={!canEdit || expressionContext === undefined}
+					onClick={() => {
+						if (expressionContext === undefined) return;
+						onChange(
+							firstComparisonDefault({
+								expressionContext,
+								...editorScope,
+								...editorAxesOf(expressionContext),
+								knownInputs: [],
+							}),
+						);
+					}}
+				/>
+			) : (
+				<ConditionSlotEditor
+					slot={slot}
+					value={value}
+					onChange={onChange}
+					rootLabel="when the owner is assigned"
+					{...editorScope}
+				/>
+			)}
 		</Section>
 	);
 }

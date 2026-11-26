@@ -815,6 +815,7 @@ export const KIND_BUILDERS: { readonly [K in Expression["kind"]]: Builder } = {
 		gives(request, "geopoint", "text")
 			? fc.constant({ kind: "here" })
 			: undefined,
+	"case-list-lookup-count": () => undefined,
 	"case-list-search-text": (request) =>
 		gives(request, "text")
 			? fc.constant({ kind: "case-list-search-text" })
@@ -917,6 +918,8 @@ export const RECORD_KIND_COVERAGE: Partial<Record<Expression["kind"], string>> =
 		call: "The record rule set has no function call.",
 		itext: "Only form logic reads a form's text.",
 		"choice-name": "Only form logic reads a choice's name.",
+		"case-list-lookup-count":
+			"Only a form opening directly from a companion lookup can read its count.",
 		"case-list-search-text": "The record dialect has no spelling for it.",
 		"case-text":
 			"Only a calculated column with translated text reads one of its pieces.",

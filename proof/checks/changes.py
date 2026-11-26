@@ -126,9 +126,10 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace, field
 from pathlib import Path
 
 from proof.checks.differences import KINDS, Difference, artifact_reader, served_artifact
@@ -150,6 +151,7 @@ OPTIONAL_ROW_KEYS = frozenset({"kind"})
 OWNED_PROFILE_SETTINGS = ("/profile/properties/cc-show-saved", "/profile/properties/cc-show-incomplete")
 CASE_SCALAR_TRIM = "".join(chr(unit) for unit in range(0x21))
 UNSHOWN_MEDIA = "unshown-form-media-removed"
+LEGACY_RELATED_CASE_TEXT = "legacy-related-case-text-rekeyed"
 # The kinds of place (``lib/deployment/reading/firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS``).
 APP_WIDE = "app-wide"
 PLACE_KINDS = frozenset({APP_WIDE, "app", "menu", "form", "form-node", "form-part", "case"})
@@ -215,6 +217,22 @@ class Change:
             and any(covers(path, difference.path) for path in OWNED_PROFILE_SETTINGS)
         ):
             return difference.at in OWNED_PROFILE_SETTINGS and difference.kind == "added" and difference.after == "no"
+        if self.change == "search-order-direction-signs-respelled":
+            return search_order_signs_respelled(difference)
+        if self.change == "search-value-guards" and difference.kind == "changed":
+            if suite_validation_test_change(difference):
+                return redundant_search_quote_guard(difference.before, difference.after) is not None
+            if (
+                difference.check == "source" and difference.artifact == "app.json"
+                and _shaped("/modules/*/search_config/properties/*/validations/*/test", difference.path)
+                and isinstance(difference.before, str)
+            ):
+                from proof.checks.xpath_tree import tree
+
+                # A generated source guard can already acquire another clause.
+                # Only the newly admitted authored lowercase test needs this certificate here.
+                if lowercase_search_answer(tree(difference.before)) is not None:
+                    return redundant_search_quote_guard(difference.before, difference.after) is not None
         # Formplayer's Java String.trim removes boundary U+0000 through U+0020 (caseScalarTextValueCalculation).
         if (
             self.change == "case-names-checked"
@@ -224,6 +242,82 @@ class Change:
         ):
             return trimmed_case_name(difference.before, difference.after)
         return True
+
+
+def search_order_signs_respelled(difference):
+    """The same ordered terms, with only redundant direction signs removed."""
+    before, after = difference.before, difference.after
+    if difference.kind != "changed" or not isinstance(before, str) or not isinstance(after, str):
+        return False
+    if difference.check in ("source", "proof2"):
+        def literal(value):
+            value = value.strip()
+            if len(value) >= 2 and value[0] in ("'", '"') and value[0] == value[-1] and value[0] not in value[1:-1]:
+                return value[1:-1]
+        before, after = literal(before), literal(after)
+        if before is None or after is None:
+            return False
+    canonical, repetitions = re.subn(r"(^|,)([+-])[+-]+", r"\1\2", before)
+    return repetitions != 0 and canonical == after
+
+
+def suite_validation_test_change(difference):
+    return (
+        difference.check == "proof2" and difference.kind == "changed"
+        and difference.artifact.rpartition("/")[2] == "suite.xml"
+        and difference.path.endswith("/validation[*]/@test")
+    )
+
+
+def lowercase_search_answer(original):
+    """The answer path and field read by the anchored plain lowercase check, from a parsed XPath tree."""
+    match original:
+        case ("call", "regex", (answer, ("str", "^[a-z]+$"))):
+            pass
+        case _:
+            return None
+    count_all = None
+    match answer:
+        case ("call", "if", (("GT", ("call", "count", (count_all,)), ("num", 0)), answer, ("str", ""))):
+            pass
+    match answer:
+        case (
+            "path", "SLASH", ("call", "instance", (("str", instance),)),
+            (
+                ("step", "child", "input", ()),
+                ("step", "child", "field", (("EQ", ("path", None, None, (("step", "attribute", "name", ()),)), ("str", field)),)),
+            ),
+        ) if instance.startswith("search-input:") and field:
+            if count_all is not None and count_all != (*answer[:3], (answer[3][0], ("step", "child", "field", ()))):
+                return None
+        case _:
+            return None
+    return answer, field
+
+
+def redundant_search_quote_guard(before, after):
+    """Only an exact same-answer conjunction that leaves the lowercase check unchanged."""
+    from proof.checks.xpath_tree import tree
+
+    if not isinstance(before, str) or not isinstance(after, str):
+        return None
+    original = tree(before)
+    checked = lowercase_search_answer(original)
+    if checked is None:
+        return None
+    answer, field = checked
+    parts = (
+        ("call", "count", (answer,)),
+        ("call", "contains", (answer, ("str", "'"))),
+        ("call", "contains", (answer, ("str", '"'))),
+    )
+    updated = tree(after)
+    for contains in (parts[1:], parts[:0:-1]):
+        condition = ("AND", (parts[0], *contains))
+        guard = ("call", "not", (condition,))
+        if updated == ("AND", (original, guard)):
+            return field
+    return None
 
 
 def trimmed_case_name(before, after):
@@ -599,6 +693,11 @@ def _suite_location(artifact: str, steps: list[str], sites: Sites) -> tuple[str,
         return (*menu, BELOW) if menu else NOWHERE
     if name == "detail":
         detail = detail_place(_identity(top))
+        if (
+            detail and detail[-1] == "short" and len(rest) == 2
+            and _without_position(rest[0]) == "lookup" and rest[1] == "@image"
+        ):
+            return (*detail, "lookup_image")
         return (*detail, BELOW) if detail else NOWHERE
     if name == "xform":
         form = _site(sites.builds, (artifact, top))
@@ -676,6 +775,113 @@ APP_NAME_KEYS = frozenset({"app.display.name", "homescreen.title"})
 APP_STRINGS = "app_strings"
 
 
+def legacy_related_case_formula(field, formula) -> bool:
+    """The calculation for one stored case relation property, using the same
+    case walk as HQ's PropertyXpathGenerator. Compare the emitted formula as a
+    whole rather than trying to recognize a path inside an arbitrary XPath."""
+    if not isinstance(field, str) or not isinstance(formula, str):
+        return False
+    steps = field.split("/")
+    if len(steps) < 2 or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", step) for step in steps):
+        return False
+    aliases = {"external-id": "external_id", "date-opened": "date_opened", "status": "@status",
+               "name": "case_name", "owner_id": "@owner_id"}
+    property_name = aliases.get(steps[-1], steps[-1])
+    if steps[0] == "user":
+        case = ("instance('casedb')/casedb/case[@case_type = 'commcare-user']"
+                "[hq_user_id = instance('commcaresession')/session/context/userid]")
+    else:
+        case = "current()"
+        for index in steps[:-1]:
+            case = f"instance('casedb')/casedb/case[@case_id = {case}/index/{index}]"
+    return formula == f"{case}/{property_name}"
+
+
+def _legacy_source_column(d) -> tuple[str, ...]:
+    if d.artifact != "app.json" or d.kind != "changed":
+        return NOWHERE
+    steps = unescaped(d.at)
+    if (len(steps) < 7 or steps[0] != "modules" or not steps[1].isdigit() or steps[2] != "case_details"
+            or steps[3] not in ("short", "long") or steps[4] != "columns" or not steps[5].isdigit()):
+        return NOWHERE
+    suffix = tuple(steps[6:])
+    if suffix == ("field",):
+        if not legacy_related_case_formula(d.before, d.after):
+            return NOWHERE
+    elif suffix == ("useXpathExpression",):
+        if d.before is not False or d.after is not True:
+            return NOWHERE
+    elif not (len(suffix) == 3 and suffix[0] == "enum" and suffix[1].isdigit() and suffix[2] == "key"
+              and isinstance(d.before, str) and re.fullmatch(r"[A-Za-z0-9_-]+", d.before)
+              and isinstance(d.after, str) and re.fullmatch(r"v*case_text_[0-9a-f]{32}", d.after)):
+        return NOWHERE
+    return ("menu", *steps[1:6])
+
+
+def _legacy_related_case_text_location(d) -> tuple[str, ...]:
+    """A stored projection, generated locale or variable key of the exact legacy column."""
+    if d.check == "source":
+        return _legacy_source_column(d)
+    if d.check != "proof2":
+        return NOWHERE
+    artifact = d.artifact.rsplit("/", 1)[-1]
+    if artifact.startswith("app_strings:"):
+        steps = unescaped(d.at)
+        if len(steps) != 1:
+            return NOWHERE
+        key = steps[0]
+        place = _app_strings_location(key)
+        if len(place) != 7 or place[4] != "columns":
+            return NOWHERE
+        field, header, role = key.partition(".header")
+        if not header:
+            field, _, role = key.partition(".enum.")
+        if d.kind == "removed" and "/" in field and "instance(" not in field:
+            return place[:6]
+        if d.kind == "added" and ("case_calculated_property_" in field or role.startswith("kcase_text_")):
+            return place[:6]
+        return NOWHERE
+    if artifact != "suite.xml" or not isinstance(d.before, str) or not isinstance(d.after, str):
+        return NOWHERE
+    steps = _xml_steps(d.at)
+    if len(steps) < 4 or steps[0] != "suite":
+        return NOWHERE
+    detail = detail_place(_identity(steps[1]))
+    name, left, position = steps[2].partition("[")
+    position = position.removesuffix("]")
+    if len(detail) != 4 or name != "field" or not left or not position.isdigit() or int(position) < 1:
+        return NOWHERE
+    if steps[-1] == "@id":
+        if "/" not in d.before or ("case_calculated_property_" not in d.after and ".enum.kcase_text_" not in d.after):
+            return NOWHERE
+    elif steps[-1] != "@name" or not d.after.startswith("kcase_text_"):
+        return NOWHERE
+    return (*detail, "columns", str(int(position) - 1))
+
+
+def _legacy_text_is_unchanged(d, owner, siblings) -> bool:
+    if d.check == "source":
+        # The source comparison emits an editable field difference for this conversion
+        # only when a translatable enum kept its exact language maps and formula.
+        return any(other.check == "source" and other.at.endswith("/field")
+                   and _legacy_source_column(other) == owner for other in siblings)
+    if not d.artifact.rsplit("/", 1)[-1].startswith("app_strings:"):
+        return True
+    before, after = [], []
+    for other in siblings:
+        if (
+            other.artifact != d.artifact
+            or other.path != d.path
+            or _legacy_related_case_text_location(other) != owner
+        ):
+            continue
+        if other.kind == "removed" and isinstance(other.before, str):
+            before.append(other.before)
+        elif other.kind == "added" and isinstance(other.after, str):
+            after.append(other.after)
+    return bool(before) and sorted(before) == sorted(after)
+
+
 def _build_location(difference, sites: Sites) -> tuple[str, ...]:
     """A proof 2 difference's location, by the ids of its build's own vocabulary its pointer carries (a menu's,
     a detail's, a command's: each holds the menu's and the form's positions), the app string key, the form's
@@ -749,9 +955,16 @@ def _unshown_media_location(d, sites):
         where = locate(d)
         if (
             len(where) >= 9
-            and where[-4] == ":itext"
-            and where[-3] in ("hint", "constraintMsg", "label")
-            and where[-1] in ("audio", "image", "video")
+            and (
+                where[-4] == ":itext" and where[-3] in ("hint", "constraintMsg", "label")
+                and where[-1] in ("audio", "image", "video")
+                or where[-1] == "video-inline" and (
+                    where[-4] == ":itext" and where[-3] in (
+                        "hint", "help", "constraintMsg", "label", "add-empty-caption", "add-caption"
+                    )
+                    or where[-5:-3] == (":itext", "item")
+                )
+            )
             and isinstance(d.before, str)
             and d.before.strip().startswith("jr://file/")
             and "<" not in d.before
@@ -928,6 +1141,11 @@ def parse(value, where="proof/first-publish-changes.json") -> tuple[Change, ...]
         rows, classes = [], set()
         for number, row_raw in enumerate(raw["rows"]):
             row = _row(row_raw, f"{at}.rows[{number}]")
+            # The serialized source rows name structural paths. The legacy
+            # rewrite also distinguishes a changed value from an added or
+            # removed field when other disclosures share a column path.
+            if change == LEGACY_RELATED_CASE_TEXT and row.check == "source":
+                row = replace(row, kind="changed")
             if row in classes:
                 raise ChangesError(
                     f"{at} names the class {row.check} {row.artifact} {row.path}"
@@ -976,8 +1194,8 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
     """The changes that apply on ``document``, each with the places it stands at: on a document made in HQ, those
     its reading says the first publish makes (``corpus.Document.first_publish_places``), each held to its entry's
     kinds; on a corpus document whose saves in CommCare HQ are brought in, the changes of the next publish Nova's
-    review of them lists (``corpus.Document.next_publish``). Unshown form media keeps the current reading's
-    exact places. The other next-publish changes stand everywhere. None applies on any other document or control."""
+    review of them lists (``corpus.Document.next_publish``). Unshown form media and legacy related case text use
+    places from the current reading. The other next-publish changes stand everywhere. None applies on any other document or control."""
     if getattr(document, "hq_authored", False):
         listed = dict(document.first_publish_places)
         by_id = {change.change: change for change in register}
@@ -1008,8 +1226,12 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
         return {change_id: tuple(places) for change_id, places in listed.items()}
     if getattr(document, "kind", "corpus") == "control":
         return {}
+    exact_places = {
+        UNSHOWN_MEDIA: "unshown_media_places",
+        LEGACY_RELATED_CASE_TEXT: "legacy_related_case_text_places",
+    }
     return {
-        change_id: tuple(document.unshown_media_places) if change_id == UNSHOWN_MEDIA else EVERYWHERE
+        change_id: tuple(getattr(document, exact_places[change_id])) if change_id in exact_places else EVERYWHERE
         for change_id in getattr(document, "next_publish", ()) or ()
     }
 
@@ -1070,6 +1292,8 @@ def holders(
     applying: Mapping[str, tuple[str, ...]],
     places: ClaimPlaces = NO_CLAIMS,
     sites: Sites = NO_SITES,
+    *,
+    siblings=(),
 ):
     """The applying changes that hold ``difference`` and stand most exactly where it is: of the changes in
     ``applying`` a row of which names its class and a place of which stands at its location, those whose most exact
@@ -1084,6 +1308,23 @@ def holders(
             owner = _unshown_media_location(difference, sites)
             # A nearby slot or an unknown location anywhere below this form cannot authorize a removal.
             score = len(owner) if owner and any(tuple(unescaped(place)) == owner for place in where) else None
+        elif change.change == "search-value-guards" and suite_validation_test_change(difference):
+            steps = _xml_steps(difference.at)
+            owner = sites.builds.get((difference.artifact, *steps[1:-2]))
+            field = redundant_search_quote_guard(difference.before, difference.after)
+            score = (
+                len(owner) - 1 if owner is not None and owner[-1] == field
+                and any(tuple(unescaped(place)) == owner[:-1] for place in where) else None
+            )
+        elif change.change == LEGACY_RELATED_CASE_TEXT:
+            owner = _legacy_related_case_text_location(difference)
+            score = (
+                len(owner)
+                if owner
+                and any(tuple(unescaped(place)) == owner for place in where)
+                and _legacy_text_is_unchanged(difference, owner, siblings)
+                else None
+            )
         else:
             score = _most_exact(where, located)
         if score is not None:
@@ -1109,7 +1350,7 @@ def declared(
     for difference in differences:
         if difference.check != check:
             continue
-        holding = holders(difference, changes, applying, places, sites)
+        holding = holders(difference, changes, applying, places, sites, siblings=differences)
         if holding:
             found.append(difference)
             ids.update(holding)
@@ -1222,7 +1463,7 @@ def judged(
         for difference in checked.get(check, ()):
             if held(difference):
                 continue
-            holding = holders(difference, changes, applying, places, sites)
+            holding = holders(difference, changes, applying, places, sites, siblings=checked.get(check, ()))
             if holding:
                 seen.update(holding)
                 continue
@@ -1350,7 +1591,9 @@ def replayed(record, register=None) -> dict:
     held_count, undeclared_count = 0, 0
     for check in ROW_CHECKS:
         for difference in found.checked.get(check, ()):
-            if not held(difference) and holders(difference, changes, found.applying, found.places, found.sites):
+            if not held(difference) and holders(
+                difference, changes, found.applying, found.places, found.sites, siblings=found.checked.get(check, ()),
+            ):
                 held_count += 1
             else:
                 undeclared_count += 1
@@ -1466,7 +1709,7 @@ def rows(output: Path, document: str, register=None) -> list[dict]:
         candidates = _evidence(output, document)
     printed, seen = [], set()
     for evidence in candidates:
-        if held(evidence) or holders(evidence, changes, applying, places, sites):
+        if held(evidence) or holders(evidence, changes, applying, places, sites, siblings=candidates):
             continue
         row = Row(
             evidence.check, evidence.artifact, evidence.path, None if evidence.check == "source" else evidence.kind

@@ -99,6 +99,7 @@ import { writesMoment } from "@/lib/domain/fieldValueType";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
 import { planFormCaseWire } from "../casePlacementPlan";
+import { XML_ELEMENT_NAME_REGEX } from "../constants";
 import { emissionPlan } from "../emissionPlan";
 import { placedBasic, readsTrimmedSibling } from "../placement";
 import { queryRepeatNodeReads } from "./builder";
@@ -523,10 +524,18 @@ function allocateGeneratedNodes(
 			)
 		)
 			return false;
-		if ((field as { validate_msg?: unknown }).validate_msg === undefined)
+		const slot =
+			"extended_validate_msg" in field &&
+			field.extended_validate_msg !== undefined
+				? "extended_validate_msg"
+				: "validate_msg";
+		if (
+			slot === "validate_msg" &&
+			(!("validate_msg" in field) || field.validate_msg === undefined)
+		)
 			return false;
 		localization ??= commCareLocalization(doc);
-		const unitId = makeTranslationUnitId("field", field.uuid, "validate_msg");
+		const unitId = makeTranslationUnitId("field", field.uuid, slot);
 		const active = localization;
 		return constraintMessageNeedsProtection(
 			active.languages.map((language) => active.prose(language, unitId)),
@@ -542,13 +551,17 @@ function allocateGeneratedNodes(
 
 	// Field namespaces: one per container's child element, in field order.
 	const fieldScopes = new Map<string, Namespace>();
+	const positioned = new Map<Uuid, { scope: Namespace; fieldId: string }>();
 	const heldContainerScopes = new Map<string, Uuid | undefined>();
 	const repeatScopes = new Map<Uuid, FormPath>();
 	const walk = (parentUuid: Uuid, parentPath: FormPath, root: boolean) => {
 		const children = (structure.fieldOrder.get(parentUuid) ?? []).flatMap(
 			(uuid) => {
 				const field = doc.fields[uuid];
-				return field === undefined ? [] : [field];
+				// Validation can plan the valid scopes while a field ID is still invalid.
+				return field !== undefined && XML_ELEMENT_NAME_REGEX.test(field.id)
+					? [field]
+					: [];
 			},
 		);
 		const scopeKey: Uuid | undefined = root ? undefined : parentUuid;
@@ -566,6 +579,8 @@ function allocateGeneratedNodes(
 		}
 		for (const field of children) {
 			const path = parentPath.child(field.id);
+			if (field.kind === "case_change")
+				positioned.set(field.operationUuid, { scope, fieldId: field.id });
 			const expression = expressionSlotValue(doc, {
 				entity: "field",
 				uuid: field.uuid,
@@ -763,13 +778,20 @@ function allocateGeneratedNodes(
 				operation.uuid,
 				allocate(generatedBaseName("condition", operation.id)),
 			);
-		for (const kind of operationGuardKinds(operation))
+		const position = positioned.get(operation.uuid);
+		for (const kind of operationGuardKinds(operation)) {
+			const base = generatedBaseName(
+				"guard",
+				position?.fieldId ?? operation.id,
+				kind,
+			);
 			record(
 				"guard",
 				operation.uuid,
-				allocate(generatedBaseName("guard", operation.id, kind)),
+				position === undefined ? allocate(base) : position.scope.allocate(base),
 				kind,
 			);
+		}
 	}
 	const root = FormPath.root(form.dataRootName).toXPath();
 	const rootOperations = operationNamespace(root);

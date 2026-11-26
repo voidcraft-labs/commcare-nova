@@ -9,6 +9,7 @@ import {
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import {
 	columnWordingRole,
+	detailTabWordingId,
 	type GeneratedWordingRole,
 	generatedWordingId,
 } from "@/lib/domain/generatedWording";
@@ -57,6 +58,15 @@ export function projectWorkerModule(
 		original;
 	const mod = structuredClone(projected);
 	mod.name = word(uuid, "menuTitle", mod.name);
+	const lookup = mod.caseListConfig?.deviceLookup;
+	if (lookup?.resultHeading !== undefined)
+		lookup.resultHeading = word(
+			uuid,
+			"lookupResultHeading",
+			lookup.resultHeading,
+		);
+	for (const group of mod.caseListConfig?.searchInputGroups ?? [])
+		group.label = word(group.uuid, "searchGroupHeading", group.label);
 	if (mod.caseListConfig)
 		for (const input of mod.caseListConfig.searchInputs) {
 			input.label = word(input.uuid, "promptLabel", input.label);
@@ -167,6 +177,16 @@ export function workerListDocument(
 	return module
 		? { ...doc, modules: { ...doc.modules, [moduleUuid]: module } }
 		: doc;
+}
+
+/** The case and Search details can give one tab independent wording. */
+export function workerDetailTabTitle(
+	tab: { readonly uuid: Uuid; readonly title: string },
+	search: boolean,
+	values: ReadonlyMap<string, unknown>,
+): string {
+	const value = values.get(detailTabWordingId(tab.uuid, search));
+	return typeof value === "string" ? value : tab.title;
 }
 
 /** A column is projected separately on each screen. Its number and its

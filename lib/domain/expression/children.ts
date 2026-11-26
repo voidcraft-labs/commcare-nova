@@ -263,6 +263,7 @@ export function expressionChildren(
 		case "itext":
 		case "here":
 		case "case-list-search-text":
+		case "case-list-lookup-count":
 		case "selected-cases":
 		case "form-case":
 		case "capture-link":
@@ -276,6 +277,7 @@ export function expressionChildren(
 		case "literal":
 		case "choice":
 		case "case-type":
+		case "search-result-field":
 		case "case-row-type":
 		case "case-index":
 		case "session-datum":

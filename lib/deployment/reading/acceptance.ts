@@ -36,6 +36,7 @@ import { publishedCaseBlocks } from "@/lib/commcare/hq/publishedCaseBlocks";
 import {
 	knownCaseTypesOf,
 	knownLanguageCodesOf,
+	knownPositionedCaseOperationIdsOf,
 	type ReadDraft,
 	type ReaderInput,
 	type ReadOutcome,
@@ -44,7 +45,10 @@ import {
 import { placementsAsRead } from "@/lib/commcare/reader/assemble";
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
-import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
+import {
+	externalIdentityMap,
+	knownParentPathSearchNamesOf,
+} from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import type {
 	ValidationError,
@@ -420,6 +424,22 @@ export function* acceptReadingSteps(
 		projectRevision: input.lookup.projectRevision,
 		definitions: input.lookup.definitions,
 	};
+
+	// An adoption keeps assigned source links where the project space already
+	// serves them. This gate checks the document and carrier shape. A later
+	// delivery must still verify its worker data.
+	const assignedSourceLinks = new Set<string>(
+		input.lookup.definitions
+			.filter(
+				({ id, hq }) =>
+					hq?.managedBy === "commcare-hq" &&
+					hq.source?.distribution === "assigned" &&
+					hq.server === input.target.server &&
+					hq.domain === input.target.domain &&
+					!input.lookup.rowsByTable.has(id),
+			)
+			.map(({ id }) => id),
+	);
 	const gated: Gated[] = [];
 	const gate: AcceptanceDifference[] = [];
 	let batch: readonly Mutation[];
@@ -512,7 +532,13 @@ export function* acceptReadingSteps(
 					fixtureData: input.lookup,
 					lookupTarget: input.target,
 				});
-				return [...found.rowFindings, ...found.selectionFindings];
+				const rows = found.rowFindings.filter(
+					({ code, details }) =>
+						code !== "LOOKUP_WORKER_SOURCE_UNAVAILABLE" ||
+						typeof details?.tableId !== "string" ||
+						!assignedSourceLinks.has(details.tableId),
+				);
+				return [...rows, ...found.selectionFindings];
 			});
 			const exportFindings = [...readiness, ...carrier];
 			for (const finding of exportFindings)
@@ -848,7 +874,11 @@ function* fixedPointCheck(
 						caseListActionsApplied: input.reader.caseListActionsApplied,
 					}),
 					knownCaseTypes: knownCaseTypesOf(doc),
+					knownPositionedCaseOperationIds:
+						knownPositionedCaseOperationIdsOf(doc),
 					knownFormEntryChoices: knownFormEntryChoicesOf(doc),
+					knownParentPathSearchNames: knownParentPathSearchNamesOf(doc),
+					knownProjectSearchNames: doc.appSettings.projectSearches,
 					knownLanguageCodes: knownLanguageCodesOf(doc),
 				},
 				input.heldExpansions === undefined

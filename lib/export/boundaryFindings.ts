@@ -20,15 +20,21 @@ import {
 import {
 	buildLookupFixtures,
 	type CompiledLookupFixtureSet,
+	type LookupFixtureBudget,
 	lookupFixtureBudgetExcess,
 	type PreparedLookupWire,
 } from "@/lib/commcare/lookup/fixtures";
 import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
+import { lookupLexicalSlots } from "@/lib/commcare/lookup/lexicalSlots";
 import {
 	type LookupTableWireNaming,
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
+import {
+	lookupRuntimeStringTooLong,
+	lookupRuntimeValueFinding,
+} from "@/lib/commcare/lookup/runtimeStrings";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import {
 	buildLookupWorkbook,
@@ -62,6 +68,7 @@ export type ExportMode = (typeof EXPORT_MODES)[number];
 export interface ExportCarrierFindingsInput {
 	readonly doc: BlueprintDoc;
 	readonly mode: ExportMode;
+	readonly manualLookupInstaller?: boolean;
 	/** One generation of the tables the document reads: definitions and rows. */
 	readonly fixtureData: LookupFixtureDataSnapshot;
 	readonly restoreTableIds?: ReadonlySet<LookupTableId>;
@@ -247,7 +254,9 @@ export function exportCarrierFindings(
 	);
 	const leftOutIds = new Set(leftOut.map((definition) => definition.id));
 	const jsonLookupTables =
-		mode === "hq-upload" && naming !== undefined
+		(mode === "hq-upload" ||
+			(mode === "hq-json" && input.manualLookupInstaller)) &&
+		naming !== undefined
 			? referenced.flatMap((definition) => {
 					if (
 						leftOutIds.has(definition.id) ||
@@ -294,7 +303,25 @@ export function exportCarrierFindings(
 							: lookupWireNaming(definitions),
 				);
 	const sentDefinitions = mode === "hq-json" ? referenced : mainDefinitions;
+	const carried = referenced.filter(
+		(table) =>
+			(mode !== "hq-upload" || !leftOutIds.has(table.id)) &&
+			!fixtureData.streamedTables?.has(table.id),
+	);
+	const runtimeFindings = carried.flatMap((table) => {
+		const rows = fixtureData.rowsByTable.get(table.id) ?? [];
+		const columns = [...lookupLexicalSlots(table)];
+		return rows.some((row) =>
+			columns.some((column) =>
+				Array.from(column.values(row)).some(lookupRuntimeStringTooLong),
+			),
+		)
+			? [lookupRuntimeValueFinding(table)]
+			: [];
+	});
+
 	const textFindings = [
+		...runtimeFindings,
 		...lookupXmlTextFindings(narrowSnapshot(fixtureData, referenced)),
 		...(mode === "ccz"
 			? []
@@ -808,11 +835,8 @@ function separableCopy(table: LookupTableDefinition): boolean {
  *
  * The limit is a whole-workbook row total across every sheet, headers
  * included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, applied in
- * `util/workbook_json/excel.py::WorkbookJSONReader.__init__`). Nova's own
- * 5,000-row per-table cap puts it about a hundred tables away, so this
- * fires only for an app referencing an unusual number of them — but when
- * it does, CommCare HQ's own refusal names a limit nobody set in Nova, so
- * Nova measures it first and says which tables are large.
+ * `util/workbook_json/excel.py::WorkbookJSONReader.__init__`). Nova checks
+ * each workbook before sending it and identifies its largest tables.
  */
 function lookupWorkbookBudgetFindings(
 	workbook: LookupWorkbook,
@@ -850,14 +874,15 @@ const BUDGET_AXIS_LABELS = {
 	bytes: "bytes of fixture data",
 } as const;
 
-function lookupFixtureBudgetFindings(
-	fixtures: CompiledLookupFixtureSet,
+export function lookupFixtureBudgetFindings(
+	fixtures: LookupFixtureBudget,
+	incomplete = false,
 ): ValidationError[] {
 	const excess = lookupFixtureBudgetExcess(fixtures);
 	if (excess === null) return [];
 	const axisSummaries = excess.map(
 		(axis) =>
-			`${axis.actual.toLocaleString("en-US")} ${BUDGET_AXIS_LABELS[axis.axis]} (the limit is ${axis.allowed.toLocaleString("en-US")})`,
+			`${incomplete ? "at least " : ""}${axis.actual.toLocaleString("en-US")} ${BUDGET_AXIS_LABELS[axis.axis]} (the limit is ${axis.allowed.toLocaleString("en-US")})`,
 	);
 	const largestTags = [
 		...new Set(

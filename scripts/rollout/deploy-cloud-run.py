@@ -533,6 +533,16 @@ def _effective_execution_args(
 
     if short_name == "commcare-nova-historical-repair":
         if (
+            len(requested) in (5, 6)
+            and requested[:2] == ("hq-round-trip-completion.cjs", "--scan-digest")
+            and re.fullmatch(r"[0-9a-f]{64}", requested[2])
+            and requested[3] == "--plan-generation"
+            and re.fullmatch(r"[1-9][0-9]{0,15}", requested[4])
+            and int(requested[4]) <= 9007199254740991
+            and requested[5:] in ((), ("--execute",))
+        ):
+            return requested
+        if (
             len(requested) == 3
             and requested[:2] == ("conversation-source-scan.cjs", "--bucket")
             and re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,221}[a-z0-9]", requested[2])

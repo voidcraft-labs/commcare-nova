@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	REGISTER,
 	ROUTE,
@@ -11,6 +12,10 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	buildReferenceIndex,
+	referencingSlotsOf,
+} from "@/lib/doc/referenceIndex";
+import {
 	caseListModuleMutations,
 	listedFormMenuMutations,
 } from "@/lib/doc/scaffolds";
@@ -20,14 +25,24 @@ import {
 	withListedMenuHierarchy,
 } from "@/lib/doc/sharedMenuHierarchy";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
+	calculatedColumn,
+	casePropertyTargetKey,
+	idMappingColumn,
 	makeTranslationUnitId,
+	projectLocalizedModule,
 	resolveTranslationUnitValue,
+	simpleSearchInputDef,
+	tileCell,
 	translationUnitsById,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/expression";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import { input, literal, term } from "@/lib/domain/expression";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
+import { proseText } from "@/lib/domain/prose";
+import { previewCaseListOrderLocale } from "@/lib/preview/engine/caseListOrder";
 
 function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 	const verdict = mutationCommitVerdict(
@@ -38,6 +53,95 @@ function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
 	return verdict.nextDoc;
 }
+
+it("indexes and rewrites a shared form route’s own Android lookup against its inherited case type", () => {
+	const source = twoMenus();
+
+	const doc = apply(source, [
+		{
+			kind: "addCaseProperty",
+			caseType: "patient",
+			property: {
+				name: "scan_id",
+				label: proseText("Scan ID"),
+				data_type: "text",
+			},
+		},
+		{
+			kind: "setCaseListMeta",
+			uuid: ROUTE,
+			patch: {
+				deviceLookup: {
+					action: "org.example.LOOKUP",
+					label: "Find patient",
+					resultHeading: "Confidence",
+					resultProperty: "scan_id",
+					extras: [{ name: "mode", value: "scan" }],
+					responses: ["match"],
+				},
+			},
+		},
+	]);
+	const readByRoute = (state: BlueprintDoc, property: string) =>
+		referencingSlotsOf(state, casePropertyTargetKey("patient", property)).get(
+			ROUTE,
+		);
+	const lookupOf = (state: BlueprintDoc, module: typeof ROUTE) =>
+		state.modules[module]?.caseListConfig?.deviceLookup;
+	expect(doc.modules[ROUTE]?.caseType).toBeUndefined();
+	expect(readByRoute(doc, "scan_id")).toEqual([
+		"case_list_lookup_result_property",
+	]);
+	expect(doc.refIndex).toEqual(buildReferenceIndex(doc));
+
+	const renamed = apply(doc, [
+		{
+			kind: "renameCaseProperties",
+			renames: [{ caseType: "patient", from: "scan_id", to: "card_id" }],
+		},
+	]);
+	expect(readByRoute(renamed, "scan_id")).toBeUndefined();
+	expect(readByRoute(renamed, "card_id")).toEqual([
+		"case_list_lookup_result_property",
+	]);
+	expect(lookupOf(renamed, ROUTE)?.resultProperty).toBe("card_id");
+	expect(lookupOf(renamed, SOURCE)).toBeUndefined();
+	expect(renamed.refIndex).toEqual(buildReferenceIndex(renamed));
+
+	const remove: Mutation = {
+		kind: "removeCaseProperty",
+		caseType: "patient",
+		property: "card_id",
+	};
+	const refused = mutationCommitVerdict(
+		renamed,
+		[remove],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (refused.ok) throw new Error("Expected removal to be refused");
+	expect(refused.findings).toMatchObject([
+		{
+			code: "CASE_LIST_DEVICE_LOOKUP_INVALID",
+			location: { moduleUuid: ROUTE },
+			details: { reason: "confidence-property" },
+		},
+	]);
+	expect(userFacingErrors(refused.findings)).toEqual([
+		"The Android lookup can match by a text property when the list shows one record type. You can choose an available text property or match by Record ID.",
+	]);
+
+	const removed = apply(renamed, [
+		{
+			kind: "setCaseListMeta",
+			uuid: ROUTE,
+			patch: { deviceLookup: null },
+		},
+		remove,
+	]);
+	expect(readByRoute(removed, "card_id")).toBeUndefined();
+	expect(lookupOf(removed, ROUTE)).toBeUndefined();
+	expect(removed.refIndex).toEqual(buildReferenceIndex(removed));
+});
 
 it("replays per-form changes to a listed menu while preserving an unrelated form link and a concurrent exclusion", () => {
 	const doc = twoMenus();
@@ -237,6 +341,184 @@ it("starts a listed child with its source child's localized navigation files", (
 			effectiveAppLocalization(after.localization),
 		),
 	).toEqual({ icon, audioLabel });
+});
+
+it("gives a listed child's detail, search and wording settings their own identities", () => {
+	const before: BlueprintDoc = {
+		...apply(twoMenus(), [{ kind: "removeModule", uuid: ROUTE }]),
+		localization: {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "fra"],
+			wireCodes: { eng: "en", fra: "fr" },
+			translations: { fra: {} },
+		},
+	};
+	const scaffold = caseListModuleMutations(before, {
+		caseType: "patient",
+		name: "Neighborhood",
+		parentModuleUuid: SOURCE,
+	});
+	const text = testUuid("appointment-word");
+	const row = {
+		uuid: testUuid("patient-name-rule"),
+		value: "Dana",
+		label: "Seen",
+	};
+	const mapping = idMappingColumn(
+		testUuid("mapping"),
+		"case_name",
+		"Status",
+		[row],
+		{ visibleInList: false },
+	);
+	const calculation = calculatedColumn(
+		testUuid("calculation"),
+		"When",
+		{
+			kind: "case-text",
+			textUuid: text,
+		},
+		{ visibleInList: false, notOnList: true },
+	);
+	calculation.texts = [{ uuid: text, label: "Morning" }];
+	const config = caseListConfig([{ field: "case_name", header: "Patient" }]);
+	config.columns.push(mapping, calculation);
+	config.listColumnOrder.push(mapping.uuid, calculation.uuid);
+	config.detailColumnOrder.push(mapping.uuid, calculation.uuid);
+	const [name] = config.columns;
+	const tab = {
+		uuid: testUuid("visits-tab"),
+		title: "Visits",
+		startColumnUuid: name.uuid,
+	};
+	const search = simpleSearchInputDef(
+		testUuid("search-name"),
+		"patient_name",
+		"Patient name",
+		"text",
+		"case_name",
+	);
+	config.detailTabs = [tab];
+	config.detailTile = {
+		cells: Object.fromEntries(
+			config.columns.map(({ uuid }, i) => [uuid, tileCell(0, i, 4, 1)]),
+		),
+	};
+	config.calculatedSorts = [
+		{
+			uuid: testUuid("arrival-order"),
+			direction: "asc",
+			priority: 0,
+			expression: term(literal(1)),
+			label: "Arrival order",
+		},
+	];
+	config.searchInputs = [search];
+	config.searchFilters = [
+		{
+			uuid: testUuid("search-filter-name"),
+			target: { kind: "record-name" },
+			value: term(input(search.uuid)),
+		},
+	];
+	const source = apply(
+		before,
+		scaffold.mutations.map((mutation) =>
+			mutation.kind === "addModule" &&
+			mutation.module.uuid === scaffold.moduleUuid
+				? {
+						...mutation,
+						module: {
+							...mutation.module,
+							caseListConfig: config,
+							caseSearchConfig: {},
+						},
+					}
+				: mutation,
+		),
+	);
+	const units = translationUnitsById(source);
+	const localizedSource = apply(
+		source,
+		[
+			[makeTranslationUnitId("detail-tab", tab.uuid, "title"), "Visites"],
+			[caseMappingTextUnit(mapping.uuid, row, "mapping"), "Vu"],
+			[
+				makeTranslationUnitId(
+					"column",
+					calculation.uuid,
+					"calculation-text",
+					text,
+				),
+				"Matin",
+			],
+			[
+				makeTranslationUnitId(
+					"case-sort",
+					config.calculatedSorts[0].uuid,
+					"label",
+				),
+				"Ordre d'arrivée",
+			],
+		].map(([unitId, value]): Mutation => {
+			const unit = units.get(unitId);
+			if (!unit) throw new Error(`Missing source unit ${unitId}`);
+			return {
+				kind: "setTranslation",
+				language: "fra",
+				unitId,
+				entry: {
+					value,
+					sourceFingerprint: unit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			};
+		}),
+	);
+	const listing = listedFormMenuMutations(localizedSource, {
+		menuUuid: SOURCE,
+	});
+	if (!listing.ok) throw new Error(listing.message);
+	const result = apply(localizedSource, listing.mutations);
+	const id = sharedChildUuid(listing.moduleUuid, scaffold.moduleUuid);
+	const child = projectLocalizedModule(result, "fra", id)?.caseListConfig;
+	if (!child) throw new Error("The listed child needs its own settings.");
+	const [childName, childMapping, childCalculation] = child.columns;
+	if (
+		childMapping.kind !== "id-mapping" ||
+		childCalculation.kind !== "calculated"
+	)
+		throw new Error("The listed child lost its columns.");
+	expect(child.listColumnOrder).toEqual(child.columns.map(({ uuid }) => uuid));
+	expect(child.detailTabs?.[0]).toMatchObject({
+		title: "Visites",
+		startColumnUuid: childName.uuid,
+	});
+	expect(child.detailTile?.cells).toEqual(
+		Object.fromEntries(
+			child.columns.map(({ uuid }, i) => [uuid, tileCell(0, i, 4, 1)]),
+		),
+	);
+	expect(childMapping.mapping[0]).toMatchObject({ label: "Vu" });
+	const word = childCalculation.texts?.[0];
+	if (!word) throw new Error("The listed child's calculation needs its word.");
+	expect(
+		previewCaseListOrderLocale(result, "patient", "fra").calculationText(
+			childCalculation,
+			word,
+		),
+	).toBe("Matin");
+	expect(childCalculation.expression).toEqual({
+		kind: "case-text",
+		textUuid: childCalculation.texts?.[0].uuid,
+	});
+	expect(child.calculatedSorts?.[0]?.label).toBe("Ordre d'arrivée");
+	expect(child.searchFilters?.[0]).toMatchObject({
+		value: term(input(child.searchInputs[0].uuid)),
+	});
 });
 
 it("keeps reviewed wording, stale drafts and active worker fallbacks distinct in a listed child", () => {
