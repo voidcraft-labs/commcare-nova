@@ -722,9 +722,7 @@ function buildRequired(
  * half keeps its own translation unit; the locale table joins them per
  * language. A check with no message of its own carries no text, as CommCare
  * HQ builds one (`remote_requests.py`: `if validation.has_text`), and the
- * worker reads CommCare's sentence. The gate keeps such a check off a field
- * the search guards (`searchCheckMessage.ts`), whose guard's sentence would
- * have nothing to follow.
+ * worker reads CommCare's sentence for the combined check.
  */
 /** The single validation message read by the worker, even where an authored
  * test and a generated check share the native prompt's one assertion. */

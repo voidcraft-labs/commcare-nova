@@ -219,6 +219,12 @@ class Change:
             return difference.at in OWNED_PROFILE_SETTINGS and difference.kind == "added" and difference.after == "no"
         if self.change == "search-order-direction-signs-respelled":
             return search_order_signs_respelled(difference)
+        if self.change == "search-value-guards" and difference.kind == "changed":
+            if suite_validation_test_change(difference) or (
+                difference.check == "source" and difference.artifact == "app.json"
+                and _shaped("/modules/*/search_config/properties/*/validations/*/test", difference.path)
+            ):
+                return redundant_search_quote_guard(difference.before, difference.after) is not None
         # Formplayer's Java String.trim removes boundary U+0000 through U+0020 (caseScalarTextValueCalculation).
         if (
             self.change == "case-names-checked"
@@ -245,6 +251,56 @@ def search_order_signs_respelled(difference):
             return False
     canonical, repetitions = re.subn(r"(^|,)([+-])[+-]+", r"\1\2", before)
     return repetitions != 0 and canonical == after
+
+
+def suite_validation_test_change(difference):
+    return (
+        difference.check == "proof2" and difference.kind == "changed"
+        and difference.artifact.rpartition("/")[2] == "suite.xml"
+        and difference.path.endswith("/validation[*]/@test")
+    )
+
+
+def redundant_search_quote_guard(before, after):
+    """Only an exact same-answer conjunction that leaves the lowercase check unchanged."""
+    from proof.checks.xpath_tree import tree
+
+    if not isinstance(before, str) or not isinstance(after, str):
+        return None
+    original = tree(before)
+    match original:
+        case ("call", "regex", (answer, ("str", "^[a-z]+$"))):
+            pass
+        case _:
+            return None
+    count_all = None
+    match answer:
+        case ("call", "if", (("GT", ("call", "count", (count_all,)), ("num", 0)), answer, ("str", ""))):
+            pass
+    match answer:
+        case (
+            "path", "SLASH", ("call", "instance", (("str", instance),)),
+            (
+                ("step", "child", "input", ()),
+                ("step", "child", "field", (("EQ", ("path", None, None, (("step", "attribute", "name", ()),)), ("str", field)),)),
+            ),
+        ) if instance.startswith("search-input:") and field:
+            if count_all is not None and count_all != (*answer[:3], (answer[3][0], ("step", "child", "field", ()))):
+                return None
+        case _:
+            return None
+    parts = (
+        ("call", "count", (answer,)),
+        ("call", "contains", (answer, ("str", "'"))),
+        ("call", "contains", (answer, ("str", '"'))),
+    )
+    updated = tree(after)
+    for contains in (parts[1:], parts[:0:-1]):
+        condition = ("AND", (parts[0], *contains))
+        guard = ("call", "not", (condition,))
+        if updated == ("AND", (original, guard)):
+            return field
+    return None
 
 
 def trimmed_case_name(before, after):
@@ -1235,6 +1291,14 @@ def holders(
             owner = _unshown_media_location(difference, sites)
             # A nearby slot or an unknown location anywhere below this form cannot authorize a removal.
             score = len(owner) if owner and any(tuple(unescaped(place)) == owner for place in where) else None
+        elif change.change == "search-value-guards" and suite_validation_test_change(difference):
+            steps = _xml_steps(difference.at)
+            owner = sites.builds.get((difference.artifact, *steps[1:-2]))
+            field = redundant_search_quote_guard(difference.before, difference.after)
+            score = (
+                len(owner) - 1 if owner is not None and owner[-1] == field
+                and any(tuple(unescaped(place)) == owner[:-1] for place in where) else None
+            )
         elif change.change == LEGACY_RELATED_CASE_TEXT:
             owner = _legacy_related_case_text_location(difference)
             score = (

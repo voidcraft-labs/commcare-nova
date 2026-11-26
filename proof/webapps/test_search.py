@@ -130,6 +130,14 @@ def test_retained_guarded_name_search_messages(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     """Keep the retained Clients assertion in pinned native Web Apps, including its worker message."""
+    from dataclasses import replace
+    from io import BytesIO
+    from types import SimpleNamespace
+    from zipfile import ZipFile
+
+    from proof.checks import changes, proof2
+    from proof.checks.compare.xml_tree import compare_xml
+    from proof.checks.xpath_tree import same
     from proof.matrix import registry
 
     variant = next(
@@ -145,6 +153,8 @@ def test_retained_guarded_name_search_messages(
         "This search can't use both single and double quotation marks. Remove one kind and try again"
     )
     observations = {}
+    suites = {}
+    stored = {}
     for label in ("authored", "merged-without-message", "guard-only"):
         publication = "A" if label == "authored" else "B"
         with webapps_hq.authored_project(document, publication) as project:
@@ -182,6 +192,9 @@ def test_retained_guarded_name_search_messages(
                     *steps.arrive(any_screen=True),
                     steps.SCREEN,
                 ])
+                with ZipFile(BytesIO(release.archive())) as archive:
+                    suites[label] = archive.read("suite.xml")
+                stored[label] = release.doc
                 requests = [search.values("_xpath_query") for search in release.hq.searches]
             observation = {
                 "requests": requests, "screens": run.screens, "queryAnswers": _query_answers(run),
@@ -208,6 +221,41 @@ def test_retained_guarded_name_search_messages(
         [request] = observed["requests"]
         assert expected_clause in request, request
         assert [row["id"] for row in results["list"]["rows"]] == ["row-client-both"], results
+
+
+    # A and B both already carry one native validation. The suite comparator
+    # sees the changed @test at that object's position rather than a new node.
+    before, after = (suites[side] for side in ("authored", "merged-without-message"))
+    exact_changes = [
+        diff for diff in compare_xml(before, after, check="proof2", document=variant.id, artifact="suite.xml")
+        if diff.kind == "changed" and diff.path.endswith("/validation[*]/@test")
+        and isinstance(diff.before, str) and same(diff.before, assertion["test"])
+    ]
+    evidence("retained-name-search-native-validation-changes", [diff.as_json() for diff in exact_changes])
+    assert exact_changes
+    sites = proof2.build_sites({"suite.xml": before}, stored["authored"])
+    document_under_change = SimpleNamespace(
+        id=variant.id, hq_authored=True,
+        first_publish_places={"search-value-guards": ("/menu/0/search_config/properties/0/validations",)},
+    )
+    allowed, named = changes.declared(document_under_change, "proof2", exact_changes, sites=sites)
+    assert allowed == exact_changes and named == {"search-value-guards"}
+
+    original = exact_changes[0]
+    unsafe_changes = [
+        replace(original, after=original.before.replace("^[a-z]+$", "^.+$")),
+        replace(original, after=original.after.replace("^[a-z]+$", "^.+$")),
+        replace(original, after=original.after.replace("client_name", "village")),
+        replace(original, after=f"({original.after}) and true()"),
+    ]
+    allowed, _ = changes.declared(document_under_change, "proof2", unsafe_changes, sites=sites)
+    assert allowed == []
+    neighboring_field = SimpleNamespace(
+        id=variant.id, hq_authored=True,
+        first_publish_places={"search-value-guards": ("/menu/0/search_config/properties/1/validations",)},
+    )
+    assert changes.declared(neighboring_field, "proof2", exact_changes, sites=sites)[0] == []
+
 
 
 def _describe(doc):
