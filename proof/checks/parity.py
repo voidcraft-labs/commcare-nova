@@ -687,8 +687,6 @@ def _advanced_own_label_write(use):
     ]
     if not choices or choices[-1] is not load or actions.get("open_cases"):
         return
-    if (load.get("close_condition") or {}).get("type") in {"if", "always"}:
-        return
     prop = next((key for key, value in (load.get("case_properties") or {}).items() if value is at.owner), None)
     if (prop is None or "/" in prop or prop in HQ_CASE_RESERVED_WORDS
             or prop in {"name", "owner_id", "case_name", "external_id", "location_id", "hq_user_id"}):
@@ -710,6 +708,8 @@ def _advanced_own_label_write(use):
         for element in form_source.model.iter()
     ):
         return
+    if (load.get("close_condition") or {}).get("type") in {"if", "always"}:
+        return OTHER_ADVANCED_LABEL
     if any(
         source is form_source.node(path)
         for row in actions.get("load_update_cases") or ()

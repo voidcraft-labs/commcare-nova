@@ -551,6 +551,21 @@ function ownerExpressible(
 	return readsQuestion(f, owner, repeat);
 }
 
+/** An aliased close can land on the same slot as the form's own update,
+ * even when its target was authored as a separate record choice. */
+function sharesClosingLoad(f: CaseSlotFacts, index: number): boolean {
+	return f.operations.some((operation) => {
+		if (
+			operation.action !== "close" ||
+			operation.forEach !== undefined ||
+			!stateable(f, operation.condition, undefined)
+		)
+			return false;
+		const target = advancedLoadOf(f, operation);
+		return target?.kind === "chain" && target.index === index;
+	});
+}
+
 /** The first clause that keeps `operation` from `load`, in the table order
  *  of `lib/commcare/advancedPlacement.ts`. `worker-property-name` waits on
  *  the proof lane's gated run and is not tried; no load meets
@@ -584,7 +599,11 @@ export function loadClause(
 		writes.some(
 			(write) =>
 				!readsQuestion(f, write.value, undefined) &&
-				!(ownFollowup && readsOwnPassiveLabel(f, write)),
+				!(
+					ownFollowup &&
+					readsOwnPassiveLabel(f, write) &&
+					!sharesClosingLoad(f, load.index)
+				),
 		)
 	)
 		return "value-not-a-question";

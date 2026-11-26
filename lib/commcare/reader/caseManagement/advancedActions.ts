@@ -945,8 +945,9 @@ function readProperties(
 	options: {
 		/** An open action may name Nova's generated owner node. */
 		readonly opens?: boolean;
-		/** The ordinary follow-up can use a passive label with no starting record value. */
-		readonly ownFollowup?: {
+		/** The selected record carries a passive label only on its ordinary update. */
+		readonly ownLoad?: {
+			readonly closes: boolean;
 			readonly preloadedLabels: ReadonlySet<DraftField>;
 		};
 	} = {},
@@ -1087,7 +1088,7 @@ function readProperties(
 		}
 		const storedPath = cursor.peek("question_path");
 		const source =
-			options.ownFollowup &&
+			options.ownLoad &&
 			via === undefined &&
 			cursor.peek("update_mode") === "always" &&
 			isAdvancedOwnLabelProperty(property) &&
@@ -1100,7 +1101,8 @@ function readProperties(
 			source.dataParent === null &&
 			source.field.askForConfirmation !== true &&
 			source.field.banner === undefined &&
-			!options.ownFollowup?.preloadedLabels.has(source) &&
+			!options.ownLoad?.closes &&
+			!options.ownLoad?.preloadedLabels.has(source) &&
 			!source.expressions.some(
 				(expression) => expression.slot === "default_value",
 			)
@@ -2130,8 +2132,9 @@ function readOrdinaryAdvancedActions(
 			{
 				...(last &&
 					!automatic &&
-					!closes &&
-					caseType !== "commcare-user" && { ownFollowup: { preloadedLabels } }),
+					caseType !== "commcare-user" && {
+						ownLoad: { closes, preloadedLabels },
+					}),
 			},
 		);
 		// A `form-case` read walks from the form's own case the indices the document

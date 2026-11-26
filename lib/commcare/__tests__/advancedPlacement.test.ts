@@ -575,6 +575,50 @@ describe("the advanced procedure", () => {
 		expect(placed(openingValue(label.uuid))?.kind).toBe("save-to-case");
 	});
 
+	it("keeps a separate Advanced close beside its own passive label write", () => {
+		const followupWithClose = (menu: Uuid, caseType: string) =>
+			advancedFixture({
+				menu: "members",
+				formType: "followup",
+				operations: () => [
+					own({ writes: [{ property: "seen", value: read("note") }] }),
+					close(
+						"finish_record",
+						{ kind: "expression", expr: chosen(menu) },
+						{ caseType },
+					),
+				],
+			});
+		for (const [menu, caseType] of [
+			[MEMBERS, "member"],
+			[HOUSEHOLDS, "household"],
+		] as const) {
+			const { doc, formUuid } = followupWithClose(menu, caseType);
+			expect(
+				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((f) => f.code),
+			).toEqual([]);
+			const placements = planPlacements(doc, formUuid).placements;
+			expect(placements.get(OWN)?.placement.kind).toBe(
+				menu === MEMBERS ? "save-to-case" : "advanced",
+			);
+			expect(placements.get(OP("finish_record"))?.placement).toEqual({
+				kind: "advanced",
+				tag: menu === MEMBERS ? "load_member1" : "load_household0",
+			});
+			const form = expandDoc(doc).modules[1].forms[0];
+			if (form.doc_type !== "AdvancedForm")
+				throw new Error("Expected the Advanced form");
+			const member = form.actions.load_update_cases[1];
+			if (menu === MEMBERS) {
+				expect(member.close_condition.type).toBe("always");
+				expect(member.case_properties).not.toHaveProperty("seen");
+			} else {
+				expect(member.close_condition.type).toBe("never");
+				expect(member.case_properties.seen?.question_path).toBe("/data/note");
+			}
+		}
+	});
+
 	it("tags the chain's loads root first, the own load last, and the worker's after them", () => {
 		const { doc, formUuid } = advancedFixture(
 			followup(
