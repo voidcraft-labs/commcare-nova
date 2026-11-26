@@ -4,7 +4,7 @@ import pytest
 from lxml import etree
 
 from proof.editors import vellum
-from proof.editors.conftest import corpus_document
+from proof.editors.conftest import corpus_document, write_evidence
 from proof.editors.test_plan_features import XFORMS, _form, _published
 from proof.observe.hqside import _patched
 
@@ -112,12 +112,17 @@ def test_period_in_save_to_case_link_cannot_keep_its_calculation(
 
 @pytest.mark.parametrize("name", ["parént", "亲属"])
 def test_unicode_save_to_case_link_cannot_keep_its_calculation(
-    hq, core_runner, editor_driver, name, evidence,
+    hq, core_runner, editor_driver, name,
 ):
-    run, path = _save_with_link(editor_driver, name)
+    run, path = _save_with_link(editor_driver, name, expect_load=False)
+    label = f"save-to-case-unicode-index-{name}"
+    if not run.loaded:
+        assert run.load_error, run
+        write_evidence(label, {"name": name, "loaded": False, "refusal": run.load_error})
+        return
     if not run.saved:
         assert run.save_refusal, run
-        evidence("unicode-index", {"name": name, "saved": False, "refusal": str(run.save_refusal)})
+        write_evidence(label, {"name": name, "saved": False, "refusal": str(run.save_refusal)})
         return
     root = etree.fromstring(run.stored_source.encode())
     bindings = [
@@ -126,7 +131,7 @@ def test_unicode_save_to_case_link_cannot_keep_its_calculation(
         if bind.get("nodeset") == path
     ]
     assert "'household-123'" not in bindings
-    evidence("unicode-index", {"name": name, "saved": True, "exactLinks": len(list(root.iter(f"{{{CASE}}}{name}"))), "bindings": bindings})
+    write_evidence(label, {"name": name, "saved": True, "exactLinks": len(list(root.iter(f"{{{CASE}}}{name}"))), "bindings": bindings})
 
 
 @pytest.mark.parametrize("name", ["instance", "parsererror"])
