@@ -3187,8 +3187,8 @@ def _search_and_menus():
             accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[1]/@relevant"),
             # another action of the list (a registration form's) is no Search button
             accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[2]/@relevant"),
-            # the app JSON alone does not say what HQ's build declares beside the condition
-            unsettled(
+            # an app Nova sends never holds the class (its gate admits only what the list declares)
+            accepted(
                 "app",
                 search(
                     _search_module(

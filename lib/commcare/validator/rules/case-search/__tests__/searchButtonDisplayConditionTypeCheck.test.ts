@@ -1,3 +1,4 @@
+import { castDraft, produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -19,6 +20,7 @@ import {
 	sessionContext,
 	subcasePath,
 } from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression/types";
 import {
 	admittedCaseListDoc,
 	findings,
@@ -35,25 +37,13 @@ function candidate(
 		],
 	});
 	const id = base.moduleOrder[0];
-	const doc = {
-		...base,
-		modules: {
-			...base.modules,
-			[id]: {
-				...base.modules[id],
-				caseSearchConfig: config,
-				...(filter !== undefined && {
-					caseListConfig: {
-						...(base.modules[id]?.caseListConfig ?? {
-							columns: [],
-							searchInputs: [],
-						}),
-						filter,
-					},
-				}),
-			},
-		},
-	};
+	const doc = produce(base, (draft) => {
+		const mod = draft.modules[id];
+		if (mod === undefined) return;
+		mod.caseSearchConfig = castDraft(config);
+		if (filter !== undefined && mod.caseListConfig !== undefined)
+			mod.caseListConfig.filter = castDraft(filter);
+	});
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	return doc;
 }
@@ -139,7 +129,7 @@ describe("Search action condition admission", () => {
 		expect(refused.map((error) => error.code)).toEqual([notOnTheList]);
 		expect(refused[0]?.details).toMatchObject({
 			reason: "instance-not-on-the-list",
-			instances: ["commcaresession"],
+			instances: "commcaresession",
 		});
 		expect(refused[0]?.message).toContain("instance('commcaresession')");
 		expect(
@@ -167,10 +157,7 @@ describe("Search action condition admission", () => {
 
 /** A menu of patients whose one form follows a patient up, so it opens on its
  *  case list, beside the menu that registers them. */
-function caseFirst(
-	condition: NonNullable<CaseSearchConfig["searchButtonDisplayCondition"]>,
-	postSubmit: Form["postSubmit"],
-) {
+function caseFirst(condition: Expression, postSubmit: Form["postSubmit"]) {
 	const columns = (key: string) => ({
 		columns: [plainColumn(testUuid(key), "case_name", "Name")],
 		searchInputs: [],

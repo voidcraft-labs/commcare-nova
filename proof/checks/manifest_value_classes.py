@@ -4533,8 +4533,15 @@ def search_button_reads_what_the_list_does_not_load(use, manifest):
     (``post_process/instances.py::_get_all_xpaths_for_entry``, ``xml_models.py::Detail.get_all_xpaths``), and Core
     evaluates the condition in the entry's scope (``Detail.getCustomActions``,
     ``CommCareSession.getEvaluationContext``), where an undeclared instance throws. Decided on a suite, the build
-    that declares the entry's instances; an app JSON's ``search_button_display_condition`` alone does not say what
-    HQ's build will declare beside it (None)."""
+    that declares the entry's instances. An app JSON's ``search_button_display_condition`` alone does not say what
+    HQ's build will declare beside it: on an app HQ made it is None, and an app Nova sends never holds the class,
+    since Nova's gate admits only a condition every entry showing the list declares
+    (``lib/commcare/suite/case-search/buttonCondition.ts``), so False."""
+    json_at = _json(use)
+    if json_at is not None:
+        if json_at.key != "search_button_display_condition":
+            return None
+        return None if json_at.app is None or json_at.app.authored else False
     at = _xml(use, "runtime")
     if at is None or at.attribute != "relevant" or _local(at.element) != "action":
         return None

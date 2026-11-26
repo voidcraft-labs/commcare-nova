@@ -40,19 +40,23 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
+	dateLiteral,
 	eq,
+	gte,
 	input,
 	literal,
 	prop,
-	sessionUser,
 	term,
+	today,
 	whenInput,
 } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 /** A Search action setting that, unlike the screen's title and subtitle,
- * survives the module's last Search input. */
-const PEER_BUTTON_CONDITION = eq(sessionUser("user_type"), literal("peer"));
+ * survives the module's last Search input. It reads the device's day, which
+ * every entry showing the list can evaluate (a worker read needs the list to
+ * load the session, `suite/case-search/buttonCondition.ts`). */
+const PEER_BUTTON_CONDITION = gte(today(), dateLiteral("2026-01-01"));
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

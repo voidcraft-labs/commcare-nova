@@ -95,6 +95,9 @@ export function searchButtonDisplayConditionTypeCheck(
 			error.code !== "search-answer-unavailable",
 	);
 	if (errors.length === 0) {
+		// A condition with a finding of its own (an answer read where Search
+		// has none) is not printed: the finding names it.
+		if (allErrors.length > 0) return [];
 		// HQ's build declares the instances an entry's datums, details and
 		// frames read, never the Search action's `relevant`
 		// (`buttonCondition.ts`), so a condition reading what the list does
@@ -109,7 +112,7 @@ export function searchButtonDisplayConditionTypeCheck(
 				{ moduleUuid, moduleName: mod.name },
 				{
 					reason: "instance-not-on-the-list",
-					instances: undeclared,
+					instances: undeclared.join(","),
 					slot: "caseSearchConfig.searchButtonDisplayCondition",
 					surface: "search-button",
 				},
