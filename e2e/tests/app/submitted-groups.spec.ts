@@ -25,16 +25,18 @@ test("a submitted answer can move to another group while its question stays on t
 	await page
 		.getByRole("option", { name: yourVisit.title, exact: true })
 		.click();
-	const saved = page.waitForResponse(
-		(response) =>
-			new URL(response.url()).pathname === `/api/apps/${formSections.appId}` &&
-			response.request().method() === "PUT" &&
-			response.request().postData()?.includes('"where":"submission"') === true,
-	);
-	await dialog
-		.getByRole("button", { name: "Save position", exact: true })
-		.click();
-	expect((await saved).ok()).toBe(true);
+	const [saved] = await Promise.all([
+		page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname ===
+					`/api/apps/${formSections.appId}` &&
+				response.request().method() === "PUT" &&
+				response.request().postData()?.includes('"where":"submission"') ===
+					true,
+		),
+		dialog.getByRole("button", { name: "Save group", exact: true }).click(),
+	]);
+	expect(saved.ok()).toBe(true);
 	const snapshot = await request.get(`/api/apps/${formSections.appId}`);
 	expect(snapshot.ok()).toBe(true);
 	const { blueprint } = await snapshot.json();

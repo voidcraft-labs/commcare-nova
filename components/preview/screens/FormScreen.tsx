@@ -3313,7 +3313,7 @@ export function FormScreen({
 						ariaLabel="Form name"
 					/>
 				)}
-				{canEdit && (
+				{mode === "edit" && isReady && (
 					<FormSettingsButton moduleUuid={moduleUuid} formUuid={formUuid} />
 				)}
 			</div>
