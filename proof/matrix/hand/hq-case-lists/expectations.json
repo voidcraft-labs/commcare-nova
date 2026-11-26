@@ -681,5 +681,234 @@
 			}
 		],
 		"exports": ["local"]
+	},
+	{
+		"id": "patient-blank-and-multiword-village-labels",
+		"entry": "menus-and-case-lists/5pp-enum-key-that-is-empty-or-holds-whitespace",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore-details.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "patient-five"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/3",
+				"value": " Unspecified "
+			},
+			{
+				"pointer": "/caseList/rows/0/sortFields/3",
+				"value": "2"
+			},
+			{
+				"pointer": "/caseList/rows/2/caseId",
+				"value": "patient-four"
+			},
+			{
+				"pointer": "/caseList/rows/2/fields/3",
+				"value": " East Bank"
+			},
+			{
+				"pointer": "/caseList/rows/2/sortFields/3",
+				"value": "3"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-instructions-shown-as-markdown",
+		"entry": "menus-and-case-lists/10-markdown-outside-the-link-shape",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore-details.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {
+				"detailCaseId": "patient-two"
+			},
+			"clock": "2001-03-18T12:00:00.000Z"
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/headers/5",
+				"value": "Visit instructions"
+			},
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/templateForms/5",
+				"value": "markdown"
+			},
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/values/5",
+				"value": "**Asthma**"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-age-shown-in-weeks",
+		"entry": "menus-and-case-lists/3-time-ago-time-ago-interval-the-7-menu-values-years-months",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore-details.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {
+				"detailCaseId": "patient-two"
+			},
+			"clock": "2001-03-18T12:00:00.000Z"
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/headers/6",
+				"value": "Weeks since birth"
+			},
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/values/6",
+				"value": "2"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-not-yet-late-at-one-day",
+		"entry": "menus-and-case-lists/6-late-flag-late-flag-1",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore-details.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {
+				"detailCaseId": "patient-two"
+			},
+			"clock": "2001-03-05T12:00:00.000Z"
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/headers",
+				"value": [
+					"Name",
+					"Born",
+					"Phone",
+					"Village",
+					"Notes",
+					"Visit instructions",
+					"Weeks since birth",
+					"Upcoming"
+				]
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-late-after-one-day",
+		"entry": "menus-and-case-lists/6-late-flag-late-flag-1",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore-details.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {
+				"detailCaseId": "patient-two"
+			},
+			"clock": "2001-03-06T12:00:00.000Z"
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/headers/7",
+				"value": "Due"
+			},
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/values/7",
+				"value": "*"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-not-yet-upcoming-at-minus-two-days",
+		"entry": "menus-and-case-lists/6p-late-flag-late-flag-0",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore-details.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {
+				"detailCaseId": "patient-two"
+			},
+			"clock": "2001-03-02T12:00:00.000Z"
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/headers",
+				"value": [
+					"Name",
+					"Born",
+					"Phone",
+					"Village",
+					"Notes",
+					"Visit instructions",
+					"Weeks since birth"
+				]
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-upcoming-after-minus-two-days",
+		"entry": "menus-and-case-lists/6p-late-flag-late-flag-0",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore-details.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {
+				"detailCaseId": "patient-two"
+			},
+			"clock": "2001-03-03T12:00:00.000Z"
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/headers/7",
+				"value": "Upcoming"
+			},
+			{
+				"pointer": "/caseList/caseDetail/tabs/0/values/7",
+				"value": "*"
+			}
+		],
+		"exports": ["local"]
 	}
 ]
