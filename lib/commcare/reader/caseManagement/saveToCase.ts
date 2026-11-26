@@ -878,7 +878,21 @@ function localName(element: Element): string {
 /** The scope a block stands in: the form root, or its repeat's node or row. */
 function scopeOk(xform: ReadXForm, block: ReadSaveToCaseBlock): boolean {
 	const first = block.wrappers[0];
-	if (first === undefined) return false;
+	if (first === undefined) {
+		const parent = xform.nodes.get(block.path.join("/"))?.parent;
+		const role =
+			parent === null || parent === undefined
+				? undefined
+				: xform.roles.get(parent);
+		return (
+			parent === null ||
+			role?.kind === "query-row" ||
+			(role?.kind === "field" &&
+				(role.field.kind === "group" ||
+					role.field.kind === "section" ||
+					role.field.kind === "repeat"))
+		);
+	}
 	const parent = first.parent;
 	if (parent === null) return block.repeat === null;
 	const role = xform.roles.get(parent);
@@ -1501,6 +1515,11 @@ function readBlock(
 	const casePath = [...block.path, "case"];
 	const idPath = [...casePath, "@case_id"];
 	const creates = parts.has("create");
+	if (
+		block.authoredScopeLength !== undefined &&
+		(creates || caseType === "commcare-user")
+	)
+		return { ok: false };
 	const segments: SaveToCaseBlockSegment[] = [];
 	for (const wrapper of block.wrappers) {
 		const role = xform.roles.get(wrapper);
@@ -2664,7 +2683,9 @@ export function readSaveToCaseBlocks(
 		takenIds.add(id);
 		const repeatPath =
 			read.block.repeat === null ? [] : fieldIdsOf(read.block.repeat);
-		const scopeLength = read.block.path.length - read.segments.length;
+		const scopeLength =
+			read.block.authoredScopeLength ??
+			read.block.path.length - read.segments.length;
 		const path = read.block.path.slice(scopeLength);
 		const key = JSON.stringify([repeatPath, path, action]);
 		const n = counts.get(key) ?? 0;
@@ -2724,6 +2745,10 @@ export function readSaveToCaseBlocks(
 			continue;
 		}
 		reading.proposals.push({ ...read, writes, uuid, id, action });
+		if (read.block.authoredScopeLength !== undefined) {
+			const node = xform.nodes.get(read.block.path.join("/"));
+			if (node !== undefined) xform.attachCaseChange(node, uuid);
+		}
 	}
 	// The own close in a block of its own: a close-only block of the own case
 	// in a condition group, its condition the group's, under the root
@@ -3568,7 +3593,9 @@ function operationOf(
 	ownerChoice: "absent" | "acting-user",
 ): CaseOperation | undefined {
 	const repeat = one.block.repeat?.uuid;
-	const scopeLength = one.block.path.length - one.segments.length;
+	const scopeLength =
+		one.block.authoredScopeLength ??
+		one.block.path.length - one.segments.length;
 	const path = one.block.path.slice(scopeLength) as unknown as [
 		string,
 		...string[],
@@ -4034,10 +4061,13 @@ function blocksHold(
 	for (const one of reading.proposals) {
 		let shape: readonly SaveToCaseBlockSegment[] | undefined;
 		try {
-			shape = saveToCaseBlockShape(doc, form.uuid, {
-				kind: "operation",
-				operationUuid: one.uuid,
-			});
+			shape =
+				one.block.authoredScopeLength !== undefined
+					? ["block"]
+					: saveToCaseBlockShape(doc, form.uuid, {
+							kind: "operation",
+							operationUuid: one.uuid,
+						});
 		} catch (error) {
 			rethrowWorkStop(error);
 			shape = undefined;

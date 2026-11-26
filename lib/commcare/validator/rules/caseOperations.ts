@@ -17,6 +17,7 @@ import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/validator/onDeviceCompatibility";
+import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
@@ -55,6 +56,7 @@ import {
 	type Module,
 	operationCanReadFormField,
 	operationCaseType,
+	operationSavesOnlyChanged,
 	operationTarget,
 	orderedCaseOperations,
 	placementIneligibilitySentence,
@@ -68,6 +70,7 @@ import {
 	userPropertiesOf,
 } from "@/lib/domain";
 import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
+import { isWorkerRecordUpdate } from "@/lib/domain/basicCaseSlots";
 import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
 	activeRowScope,
@@ -287,6 +290,42 @@ export function validateCaseOperations(
 		moduleName: module.name,
 		caseType: module.caseType,
 	});
+	const positions = new Set<Uuid>();
+	const byUuid = new Map(
+		operations.map((operation) => [operation.uuid, operation]),
+	);
+	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
+		const field = doc.fields[uuid];
+		if (field.kind !== "case_change") continue;
+		const operation = byUuid.get(field.operationUuid);
+		const invalid =
+			operation === undefined
+				? "Choose a case change from this form."
+				: positions.has(field.operationUuid)
+					? "Keep just one position for this case change."
+					: operation.forEach?.repeat !== location.repeat
+						? "Place this case change in the section it repeats over."
+						: operation.action === "own" ||
+								operation.action === "create" ||
+								operation.condition !== undefined ||
+								isWorkerRecordUpdate(operation) ||
+								operationSavesOnlyChanged(operation) ||
+								operation.writes?.some((write) => write.via !== undefined)
+							? "Choose a direct update or close for this position."
+							: undefined;
+		positions.add(field.operationUuid);
+		if (invalid !== undefined)
+			ownFindings.push(
+				validationError("CASE_CHANGE_POSITION_INVALID", "field", invalid, {
+					moduleUuid,
+					moduleName: module.name,
+					formUuid,
+					formName: form.name,
+					fieldUuid: uuid,
+					fieldId: field.id,
+				}),
+			);
+	}
 	if (operations.length === 0) return ownFindings;
 
 	const ctx = operationRuleContext(

@@ -229,6 +229,7 @@ export function FieldRenderer({
 		case "group":
 		case "repeat":
 		case "section":
+		case "case_change":
 		case "connect_activity":
 		case "hidden":
 			return null;

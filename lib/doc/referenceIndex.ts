@@ -817,10 +817,12 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 					);
 				}
 				break;
-			// No field slot names a case property: what a field saves to is
-			// its form's case operations, indexed on the form.
-			case "case-property-ref":
 			case "entity-uuid":
+				if (field.kind === "case_change")
+					sink.edge(entityTargetKey(field.operationUuid), slot.slot);
+				break;
+			// What a field saves to is indexed on its form's case operations.
+			case "case-property-ref":
 			case "relation-path":
 			case "datum-ref":
 			case "worker-property-ref":

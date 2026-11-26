@@ -17,7 +17,7 @@
  * control. No block has a control.
  */
 
-import type { Element } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import { findOne } from "domutils";
 import {
 	planFormCaseWire,
@@ -110,7 +110,7 @@ import {
 	countPlacementRowPieces,
 } from "./countPlacementRow";
 import { datetimeCaseValue, datetimeCaseValuePath } from "./datetimeCaseValue";
-import { appendChildren, prependChildren } from "./domSplice";
+import { appendChildren, prependChildren, relinkSiblings } from "./domSplice";
 import { formCasePropertyRead } from "./formCaseRead";
 import type { FormExpressionEmission } from "./formExpressions";
 import { FormPath, originalContextWirePath } from "./formPath";
@@ -208,7 +208,7 @@ interface GeneratedGroup {
 export interface CaseOperationDataChild {
 	readonly parentPath: FormPath;
 	readonly element: Element;
-	readonly placement?: "prepend" | "append";
+	readonly placement?: "prepend" | "append" | "replace";
 }
 
 export interface CaseOperationBodyChild {
@@ -870,8 +870,20 @@ export function buildCaseOperations(
 		readonly keyed?: string;
 		readonly condition?: string;
 		readonly name: string;
+		readonly authoredPath?: FormPath;
 	}
 	const siteOf = (block: SaveToCaseBlock): BlockSite => {
+		if (block.authoredPath !== undefined) {
+			const group = operationsGroupAt(
+				block.scope,
+				generatedNodes.operations(block.scope),
+			);
+			return {
+				group,
+				name: block.authoredPath.segments().at(-1)?.name ?? "",
+				authoredPath: block.authoredPath,
+			};
+		}
 		const names = blockNames(doc, formUuid, block);
 		const selectedName = names.get("selected-cases");
 		const selected =
@@ -904,6 +916,7 @@ export function buildCaseOperations(
 
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
+	const authoredBlocks: CaseOperationDataChild[] = [];
 	const priorCreates = new Map<Uuid, OperationLocation>();
 	// A create HQ's build writes (the own case of a registration, a basic
 	// subcase outside a repeat) has the session datum its entry mints the id
@@ -1169,9 +1182,11 @@ export function buildCaseOperations(
 					? group.path.child(generatedNodes.condition(operation.uuid))
 					: undefined;
 		const casePath =
-			conditionPath !== undefined && !create
-				? conditionPath.child(site.name).child("case")
-				: blockParentPath.child(site.name).child("case");
+			site.authoredPath !== undefined
+				? site.authoredPath.child("case")
+				: conditionPath !== undefined && !create
+					? conditionPath.child(site.name).child("case")
+					: blockParentPath.child(site.name).child("case");
 		const location: OperationLocation = {
 			operation,
 			repeat,
@@ -1808,6 +1823,22 @@ export function buildCaseOperations(
 		// Condition and no condition on an update's or close's block, and a
 		// guard that ran while its operation did not would fail the submission.
 		const caseBlock = saveToCaseBlock(site.name, caseType, caseChildren);
+		if (site.authoredPath !== undefined) {
+			const root = form.dataRootName ?? "data";
+			const parent = site.authoredPath
+				.segments()
+				.slice(0, -1)
+				.map((segment) => segment.name);
+			authoredBlocks.push({
+				parentPath: FormPath.parse(`/${parent.join("/")}`, root),
+				placement: "replace",
+				element: caseBlock,
+			});
+			binds.push(...blockBinds, ...guardBinds);
+			group.children.push(...guards);
+			if (create) priorCreates.set(operation.uuid, location);
+			continue;
+		}
 		if (site.keyed !== undefined) {
 			const countName = generatedNodes.keyedCount(operation.uuid);
 			const countPath = group.path.child(countName);
@@ -2350,7 +2381,7 @@ export function buildCaseOperations(
 	// control stands where its data stands among its parent's: the root
 	// `nova_operations` group first, a repeat's after the repeat's authored
 	// controls and before its `nova_subcases` and `nova_selected_cases`.
-	const dataChildren: CaseOperationDataChild[] = [];
+	const dataChildren: CaseOperationDataChild[] = [...authoredBlocks];
 	const bodyChildren: CaseOperationBodyChild[] = [];
 	const selectedItemKeys = new Set(
 		[...selectedScopes.values()].map((scope) => scope.itemPath.toXPath()),
@@ -2364,6 +2395,7 @@ export function buildCaseOperations(
 			group.controls,
 		);
 	for (const group of operationGroups.values()) {
+		if (group.children.length === 0) continue;
 		if (selectedItemKeys.has(group.parentPath.toXPath())) continue;
 		const root = atRoot(group.parentPath);
 		dataChildren.push({
@@ -2683,7 +2715,18 @@ export function attachCaseOperationData(
 			}
 			parent = next;
 		}
-		if (child.placement === "append") {
+		if (child.placement === "replace") {
+			const index = parent.children.findIndex(
+				(node) => isTag(node) && node.name === child.element.name,
+			);
+			if (index === -1)
+				throw new Error(
+					"The authored case change is missing from the submitted form.",
+				);
+			child.element.parent = parent;
+			parent.children[index] = child.element;
+			relinkSiblings(parent.children);
+		} else if (child.placement === "append") {
 			appendChildren(parent, [child.element]);
 		} else if (segments.length === 1) {
 			// Root-scoped operations are the first submission effects. Keeping the
@@ -2742,6 +2785,31 @@ export function caseOperationPlaceKey(slot: FormExpressionSlotRef): string {
 		member.via ?? null,
 		member.identifier ?? null,
 	]);
+}
+
+const authoredChangePathsByDoc = new WeakMap<
+	BlueprintDoc,
+	Map<Uuid, ReadonlyMap<Uuid, FieldLocation>>
+>();
+
+export function authoredCaseChangePaths(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ReadonlyMap<Uuid, FieldLocation> {
+	let forms = authoredChangePathsByDoc.get(doc);
+	if (forms === undefined) {
+		forms = new Map();
+		authoredChangePathsByDoc.set(doc, forms);
+	}
+	const cached = forms.get(formUuid);
+	if (cached !== undefined) return cached;
+	const paths = new Map<Uuid, FieldLocation>();
+	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
+		const field = doc.fields[uuid];
+		if (field?.kind === "case_change") paths.set(field.operationUuid, location);
+	}
+	forms.set(formUuid, paths);
+	return paths;
 }
 
 export function collectFieldLocations(

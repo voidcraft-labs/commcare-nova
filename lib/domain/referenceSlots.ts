@@ -269,6 +269,13 @@ const LABEL_TEXT_KINDS = INPUT_KINDS;
 // ── Field slots ───────────────────────────────────────────────────
 
 export const FIELD_REFERENCE_SLOTS = [
+	{
+		entity: "field",
+		slot: "case_change_operation",
+		path: "operationUuid",
+		kind: "entity-uuid",
+		appliesTo: ["case_change"],
+	},
 	// Entry order is observable: consumers that walk a field's slots in
 	// registry order (the rename rewriters, the deep validator's scan —
 	// whose error order user-facing surfaces preserve) see slots in this
