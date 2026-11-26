@@ -146,7 +146,7 @@ def test_case_list_lookup_uses_the_saved_result_field(hq, editor_driver, heading
     variant = "absent-heading-map" if heading is None else "alternate-result-key"
     write_evidence(f"android-case-list-lookup-{variant}", {"header": header_xml, "android": installed})
     if heading is None:
-        assert installed == {"install": "MissingResourcesWithMessage"}, installed
+        assert installed == {"install": "InvalidResource"}, installed
         return
 
     assert installed["install"] == "Installed", installed
