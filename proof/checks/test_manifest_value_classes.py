@@ -3526,6 +3526,7 @@ def _search_and_menus():
                 "schema:CaseSearchCustomSortProperty.property_name",
                 f"{config}/custom_sort_properties/0/property_name",
             ),
+        ),
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": (
             refused("app", search(_search_module(instance_name="Mycasedb2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
             accepted("app", search(_search_module(instance_name="MyCaseDB2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
