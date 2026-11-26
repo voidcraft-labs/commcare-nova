@@ -1184,27 +1184,6 @@ export async function writeTargetIdentityInTransaction(
 	if (!sameTargetIdentity(stored, write.read))
 		throw new TargetIdentityMovedError(deploymentId);
 	const next = canonicalTargetIdentity(write.next);
-	if (!sameTargetIdentity(stored, next)) {
-		const sending = await tx
-			.selectFrom("hq_remote_writes")
-			.select("id")
-			.where("deployment_id", "=", deploymentId)
-			.where("write_kind", "in", ["import", "media"])
-			.where(openRemoteWrite)
-			.executeTakeFirst();
-		if (sending) throw new HqReviewWriteInFlightError();
-		// A link checked against the previous addressing of a form is no longer evidence.
-		await tx
-			.updateTable("app_deployments")
-			.set({
-				content_generation: crypto.randomUUID(),
-				entry_point_manifest: null,
-				entry_point_observation: null,
-			})
-			.where("id", "=", deploymentId)
-			.where("content_generation", "is not", null)
-			.execute();
-	}
 	const entityKey = (row: DeploymentIdentityOverride) =>
 		JSON.stringify([
 			row.entityKind,
@@ -1233,16 +1212,31 @@ export async function writeTargetIdentityInTransaction(
 	const nextSearches = next.projectSearches ?? [];
 	const goneSearches = without(oldSearches, nextSearches, searchKey);
 	const newSearches = without(nextSearches, oldSearches, searchKey);
-	if (goneSearches.length || newSearches.length) {
-		const pending = await tx
+	const changesSearch = goneSearches.length > 0 || newSearches.length > 0;
+	if (!sameTargetIdentity(stored, next)) {
+		let sending = tx
 			.selectFrom("hq_remote_writes")
 			.select("id")
 			.where("deployment_id", "=", deploymentId)
-			.where(openRemoteWrite)
-			.executeTakeFirst();
-		// A refresh can return "superseded" from this transaction. Check
-		// before changing even an unrelated part of the identity record.
-		if (pending) throw new SearchConnectionInUseError(deploymentId);
+			.where(openRemoteWrite);
+		if (!changesSearch)
+			sending = sending.where("write_kind", "in", ["import", "media"]);
+		if (await sending.executeTakeFirst()) {
+			// Search bindings also gate creation and dependencies. A passive
+			// refresh returns superseded before mutating any identity rows.
+			if (changesSearch) throw new SearchConnectionInUseError(deploymentId);
+			throw new HqReviewWriteInFlightError();
+		}
+		await tx
+			.updateTable("app_deployments")
+			.set({
+				content_generation: crypto.randomUUID(),
+				entry_point_manifest: null,
+				entry_point_observation: null,
+			})
+			.where("id", "=", deploymentId)
+			.where("content_generation", "is not", null)
+			.execute();
 	}
 
 	/* Every stored row, read whole: a media row the read rule refused is no
