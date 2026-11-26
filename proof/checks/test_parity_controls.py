@@ -523,6 +523,14 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
             "session-path:session/data/*", "form:1.0",
             "/h:html/h:head[1]/model[1]/bind[3]/@relevant", HELD, None,
         ),
+        (
+            parity.PARENT_FOLLOW_UP, "hq-case-management/registration-by-a-parent-follow-up",
+            "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
+        (
+            parity.CHILD_REGISTRATION, "hq-case-management/registration-of-a-child-case",
+            "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
     ],
 )
 def test_retained_forms_decide_the_specific_source_fact(
