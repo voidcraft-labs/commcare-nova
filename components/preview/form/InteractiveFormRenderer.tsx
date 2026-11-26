@@ -539,6 +539,7 @@ const InteractiveField = memo(function InteractiveField({
 					);
 				}}
 				onChange={async (value) => {
+					if (controller.entryKey !== entryKey) return false;
 					const applied = await controller.setValueAtAsync(path, value);
 					if (
 						applied &&
@@ -556,9 +557,10 @@ const InteractiveField = memo(function InteractiveField({
 					return applied;
 				}}
 				onBlur={() => controller.touchAtAsync(path)}
-				onDisplayMessage={(message) =>
-					controller.applyDisplayMessage(path, message)
-				}
+				onDisplayMessage={async (message) => {
+					if (controller.entryKey === entryKey)
+						await controller.applyDisplayMessage(path, message);
+				}}
 				onChangeAt={(targetPath, value) =>
 					controller.setValueAtAsync(targetPath, value)
 				}
