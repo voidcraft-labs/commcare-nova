@@ -20,7 +20,7 @@ describe("selectOptionValueSchema", () => {
 		['a"b', true],
 		["a`b", true],
 		["it's", true],
-		[`a'b"c`, false],
+		[`a'b"c`, true],
 		["ok", true],
 		["sí", true],
 		["a-b.c", true],
@@ -39,19 +39,6 @@ describe("selectOptionValueSchema", () => {
 			expect(isValidSelectOptionValue(value)).toBe(accepted);
 		},
 	);
-
-	it("states in its pattern everything but the both-quotes refusal", () => {
-		// The served pattern carries what every provider's engine reads; a
-		// value holding both quote marks passes it and is refused beside it.
-		expect(SELECT_OPTION_VALUE_PATTERN.test(`a'b"c`)).toBe(true);
-		const refused = selectOptionValueSchema.safeParse(`a'b"c`);
-		expect(refused.success).toBe(false);
-		expect(refused.error?.issues.map((issue) => issue.message)).toEqual([
-			"Nova can't yet write a rule that names a choice holding both an apostrophe and a double quote. Keeping one kind of quote mark, or neither, works.",
-		]);
-		expect(SELECT_OPTION_VALUE_PATTERN.test("a b")).toBe(false);
-		expect(SELECT_OPTION_VALUE_PATTERN.test("")).toBe(false);
-	});
 
 	it("refuses beside its pattern a value CommCare HQ's build reads as a data source", () => {
 		expect(SELECT_OPTION_VALUE_PATTERN.test("instance('abc')")).toBe(true);
@@ -79,14 +66,13 @@ describe("selectOptionValueProblem", () => {
 		}
 	});
 
-	it("names an empty value, whitespace, or both quote marks in one value", () => {
+	it("names an empty value, whitespace and a value HQ reads as a data source", () => {
 		expect(selectOptionValueProblem("")).toBe("empty");
 		expect(selectOptionValueProblem("Prefer not to say")).toBe("whitespace");
 		expect(selectOptionValueProblem("tab\there")).toBe("whitespace");
 		expect(selectOptionValueProblem("line\nbreak")).toBe("whitespace");
 		expect(selectOptionValueProblem('say "hi"')).toBe("whitespace");
 		expect(selectOptionValueProblem(" ")).toBe("whitespace");
-		expect(selectOptionValueProblem(`a'b"c`)).toBe("both-quotes");
 		expect(selectOptionValueProblem("instance('casedb')")).toBe(
 			"instance-read",
 		);

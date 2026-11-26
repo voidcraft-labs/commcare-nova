@@ -53,7 +53,7 @@ interface AppCardProps {
 		AppSummary,
 		| "id"
 		| "app_name"
-		| "connect_type"
+		| "connect_roles"
 		| "module_count"
 		| "form_count"
 		| "status"
@@ -252,7 +252,9 @@ export function AppCard({
 								{" · "}
 								{app.form_count} form{app.form_count !== 1 ? "s" : ""}
 							</span>
-							{app.connect_type && <ConnectBadge type={app.connect_type} />}
+							{app.connect_roles.map((role) => (
+								<ConnectBadge key={role} type={role} />
+							))}
 						</>
 					)}
 				</p>

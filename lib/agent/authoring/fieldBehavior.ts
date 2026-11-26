@@ -94,12 +94,7 @@ export function effectiveFieldBehavior(doc: BlueprintDoc, field: Field) {
 					...(queryRepeatRowsKept(field) && { rowsKept: true as const }),
 				};
 	}
-	if (
-		field.kind === "group" ||
-		field.kind === "section" ||
-		field.kind === "label"
-	)
-		return undefined;
+	if (field.kind === "group" || field.kind === "section") return undefined;
 	const caseWrites = fieldCaseWrites(doc, field);
 	const preload = fieldPreload(field);
 	const calculated = field.kind === "hidden" && field.calculate !== undefined;

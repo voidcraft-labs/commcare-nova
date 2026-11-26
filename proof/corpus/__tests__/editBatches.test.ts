@@ -469,7 +469,7 @@ describe("proof corpus edit batches", () => {
 describe("turning Connect on", () => {
 	const proposals = (input: EditCorpusDocument) => {
 		const doc = hydrateAdmittedDocument(input);
-		return EDIT_KIND_GENERATORS.setConnectType({
+		return EDIT_KIND_GENERATORS.setConnectRoles({
 			doc,
 			known: uuidTokensOf(input.doc),
 			rng: new Rng(`connect\u0000${input.id}`),
@@ -482,7 +482,7 @@ describe("turning Connect on", () => {
 		return candidate.mutations;
 	};
 
-	it("turns Connect on as the builder commits it, narrowing the app to Android in the same batch, and is refused where the content cannot run on Android", () => {
+	it("adds a Connect role as the builder commits it, narrowing the app to Android in the same batch, and is refused where the content cannot run on Android", () => {
 		const both = stored("arithmetic", arithmeticFixture().doc);
 		const [first] = proposals(both);
 		const mutations = mutationsOf(first);
@@ -491,7 +491,7 @@ describe("turning Connect on", () => {
 			settings: { runsOnlyOn: "android" },
 		});
 		expect(
-			mutations.some((mutation) => mutation.kind === "setConnectType"),
+			mutations.some((mutation) => mutation.kind === "setConnectRoles"),
 		).toBe(true);
 		const admitted = admitEditBatch(both, mutations);
 		expect(admitted.ok).toBe(true);

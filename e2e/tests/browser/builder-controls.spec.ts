@@ -1962,6 +1962,30 @@ test("creating a case property focuses its name and Cancel returns to the choose
 	await expect(chooser).toBeFocused();
 });
 
+test("a hidden answer can keep a chosen type and return to automatic", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=preload`);
+	await page
+		.getByRole("button", { name: "Select scratch", exact: true })
+		.click();
+	const saved = page.getByLabel("Saved field");
+	const pick = page.getByRole("combobox", { name: "Answer type", exact: true });
+	await expect(pick).toHaveText("Automatic");
+	await pick.click();
+	await page
+		.getByRole("option", { name: "Large whole number", exact: true })
+		.click();
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).answerType)
+		.toBe("long");
+	await pick.click();
+	await page.getByRole("option", { name: "Automatic", exact: true }).click();
+	await expect(saved).not.toContainText('"answerType"');
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	await expect(pick).toHaveText("Large whole number");
+});
+
 test("the inspector says what a case-bound field does when a one-case form opens", async ({
 	page,
 }) => {
@@ -2053,141 +2077,28 @@ test("the inspector says what a case-bound field does when a one-case form opens
 	await expect(defaultPill).toBeVisible();
 	await expect(defaultRow).toHaveCount(0);
 
-	// A hidden calculated writer: the single Value control opens in keep in
-	// step, and switching to set once moves the expression across as one
-	// write, an ordinary editable starting value; one Undo restores both
-	// slots.
+	// A hidden question can open with one answer and calculate another.
+	// Changing or undoing its seed preserves the existing calculation.
 	await page
 		.getByRole("button", { name: "Select last seen", exact: true })
 		.click();
-	const modeRow = inspector.locator('[data-field-id="value_mode"]');
-	const keepInStep = modeRow.getByRole("button", {
-		name: "Keep in step",
-		exact: true,
-	});
-	const setOnce = modeRow.getByRole("button", {
-		name: "Set once",
-		exact: true,
-	});
-	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
-	await expect(
-		inspector.locator('[data-field-id="calculate"] .cm-content'),
-	).toContainText("today()");
-	await setOnce.click();
-	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
-	await expect(saved).toContainText('"default_value"');
-	await expect(saved).not.toContainText('"calculate"');
-	await expect(defaultRow.locator(".cm-content")).toContainText("today()");
+	const calculation = inspector.locator('[data-field-id="calculate"]');
+	await expect(calculation.locator(".cm-content")).toContainText("today()");
+	await expect(defaultRow).toBeVisible();
+	await defaultRow.getByRole("button").first().click();
+	const seed = defaultRow.locator('.cm-content[contenteditable="true"]');
+	await seed.press("ControlOrMeta+A");
+	await seed.pressSequentially("today()");
+	await seed.press("ControlOrMeta+Enter");
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()))
+		.toMatchObject({
+			calculate: { kind: "today" },
+			default_value: { kind: "today" },
+		});
 	await page.getByRole("button", { name: "Undo", exact: true }).click();
-	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
-	await expect(saved).toContainText('"calculate"');
 	await expect(saved).not.toContainText('"default_value"');
-	await expect(
-		inspector.locator('[data-field-id="calculate"] .cm-content'),
-	).toContainText("today()");
-
-	// A hidden field that saves nowhere, born as every hidden field is:
-	// holding neither slot, shown as keep in step at rest because that is the
-	// mode a typed calculation lands in. Saving
-	// one is the write that moves the field into keep in step; after that the
-	// expression rides along on every mode switch, each switch is one undo
-	// step, and the body's data-field-id follows the active slot.
-	await page
-		.getByRole("button", { name: "Select scratch", exact: true })
-		.click();
-	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
-	await expect(saved).not.toContainText('"default_value"');
-	await expect(saved).not.toContainText('"calculate"');
-	await inspector
-		.locator('[data-field-id="calculate"]')
-		.getByRole("button")
-		.first()
-		.click();
-	const code = inspector.locator('.cm-content[contenteditable="true"]');
-	await code.press("ControlOrMeta+A");
-	await code.press("Backspace");
-	await expect(code).toHaveText("");
-	await code.pressSequentially("1 + 1");
-	await code.press("ControlOrMeta+Enter");
-	const sum = {
-		kind: "arith",
-		op: "+",
-		left: { kind: "term", term: { kind: "literal", value: 1 } },
-		right: { kind: "term", term: { kind: "literal", value: 1 } },
-	};
-	await expect
-		.poll(async () => JSON.parse(await saved.innerText()).calculate)
-		.toEqual(sum);
-	await expect(saved).not.toContainText('"default_value"');
-	await setOnce.click();
-	await expect
-		.poll(async () => JSON.parse(await saved.innerText()).default_value)
-		.toEqual(sum);
-	await expect(saved).not.toContainText('"calculate"');
-	await expect(
-		inspector.locator('[data-field-id="default_value"] .cm-content'),
-	).toContainText("1 + 1");
-	await expect(inspector.locator('[data-field-id="calculate"]')).toHaveCount(0);
-	await keepInStep.click();
-	await expect
-		.poll(async () => JSON.parse(await saved.innerText()).calculate)
-		.toEqual(sum);
-	await expect(saved).not.toContainText('"default_value"');
-	await expect(
-		inspector.locator('[data-field-id="default_value"]'),
-	).toHaveCount(0);
-	await page.getByRole("button", { name: "Undo", exact: true }).click();
-	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
-	await expect
-		.poll(async () => JSON.parse(await saved.innerText()).default_value)
-		.toEqual(sum);
-	await page.getByRole("button", { name: "Undo", exact: true }).click();
-	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
-	await expect
-		.poll(async () => JSON.parse(await saved.innerText()).calculate)
-		.toEqual(sum);
-	await expect(saved).not.toContainText('"default_value"');
-
-	// Emptying a calculation has one honest spelling in the document: neither
-	// slot, never an empty calculation. The control keeps resting on keep in
-	// step for a field that saves nowhere. Choosing keep in step with nothing
-	// to carry writes nothing: the editor opens for the calculation, and
-	// leaving it empty leaves the document alone; choosing set once shows the
-	// an empty starting value, since the document holds none.
-	await inspector
-		.locator('[data-field-id="calculate"]')
-		.getByRole("button")
-		.first()
-		.click();
-	await code.press("ControlOrMeta+A");
-	await code.press("Backspace");
-	await code.press("ControlOrMeta+Enter");
-	await expect(saved).not.toContainText('"default_value"');
-	await expect(saved).not.toContainText('"calculate"');
-	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
-	await expect(
-		inspector.locator('.cm-content[contenteditable="true"]'),
-	).toHaveCount(0);
-	await keepInStep.click();
-	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
-	await expect(
-		inspector.locator(
-			'[data-field-id="calculate"] .cm-content[contenteditable="true"]',
-		),
-	).toBeVisible();
-	await expect(saved).not.toContainText('"calculate"');
-	await code.press("Escape");
-	await expect(
-		inspector.locator('.cm-content[contenteditable="true"]'),
-	).toHaveCount(0);
-	await expect(saved).not.toContainText('"calculate"');
-	await setOnce.click();
-	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
-	await expect(
-		inspector.locator('[data-field-id="default_value"] .cm-content'),
-	).toHaveText("");
-	await expect(saved).not.toContainText('"default_value"');
-	await expect(saved).not.toContainText('"calculate"');
+	await expect(calculation.locator(".cm-content")).toContainText("today()");
 });
 
 test("worker information preserves refused drafts across disclosure and guards shared edits and references", async ({
@@ -3125,6 +3036,37 @@ test("a group holding a repeat workers grow can't show on one screen, and anothe
 	await oneScreen.click();
 	await expect(oneScreen).not.toBeChecked();
 	await expect(saved).not.toContainText('"fieldList"');
+});
+
+test("the Rows editor can keep the cases found at opening or follow later answers", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=rows`);
+	await page
+		.getByRole("button", { name: "Select visits", exact: true })
+		.click();
+	const inspector = page.getByRole("region", {
+		name: "Field inspector",
+		exact: true,
+	});
+	await inspector.locator('[data-repeat-rows-mode="query_bound"]').click();
+	const choose = inspector.getByRole("combobox", { name: "Choose the rows" });
+	for (const [option, stored] of [
+		["As answers change", "as-answers-change"],
+		["When the form opens", "on-open"],
+		["Automatic", undefined],
+	] as const) {
+		await choose.click();
+		await page.getByRole("option", { name: option, exact: true }).click();
+		await expect(choose).toHaveText(option);
+		await expect
+			.poll(
+				async () =>
+					JSON.parse(await page.getByLabel("Saved field").innerText())
+						.rowTiming,
+			)
+			.toBe(stored);
+	}
 });
 
 test("the Rows editor refuses a count that isn't whole and Use a whole number stores it inside int()", async ({

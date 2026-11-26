@@ -29,7 +29,7 @@ function makeDoc(caseTypes: CaseType[] | null): BlueprintDoc {
 	return {
 		appId: "test-app",
 		appName: "Test",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes,
 		modules: {},

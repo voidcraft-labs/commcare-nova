@@ -1,8 +1,10 @@
 import { namedEntrySupplies } from "@/lib/domain/advancedEntryDatums";
 import { expressionChildren } from "@/lib/domain/expression/children";
+import { fixedChoiceText } from "@/lib/domain/expression/choiceValue";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { printFormExpression } from "@/lib/domain/expression/print";
 import { type ExpressionSpans, spanKey } from "@/lib/domain/expression/spans";
+import { xpathLiteralParts } from "@/lib/domain/expression/stringLiteral";
 import {
 	CALL_FUNCTIONS,
 	type CallFunction,
@@ -193,35 +195,34 @@ export function bindFormSyntax(
 		opposite: Expression,
 		ctx: ExpressionContext,
 	): Expression {
-		if (
-			value.kind !== "term" ||
-			value.term.kind !== "literal" ||
-			typeof value.term.value !== "string"
-		)
-			return value;
 		const other = expressionTerm(opposite);
 		const bounds = positions.get(value) ?? rootNode;
-		if (other?.kind === "case-row-type")
-			return term({ kind: "case-type", caseType: value.term.value }, bounds);
-		if (other?.kind === "location-field" && other.field === "type") {
-			const code = value.term.value;
-			const levels = Object.values(organizationLevelsOf(scope.doc)).filter(
-				(level) => level.code === code,
-			);
-			if (levels.length !== 1)
-				refuse(
-					"unknown-level",
-					bounds,
-					`There's no organization level with the code ${value.term.value}. You can check the level codes in App setup, Organization.`,
+		const scalar = expressionTerm(value);
+		if (scalar?.kind === "literal" && typeof scalar.value === "string") {
+			if (other?.kind === "case-row-type")
+				return term({ kind: "case-type", caseType: scalar.value }, bounds);
+			if (other?.kind === "location-field" && other.field === "type") {
+				const code = scalar.value;
+				const levels = Object.values(organizationLevelsOf(scope.doc)).filter(
+					(level) => level.code === code,
 				);
-			return term(
-				{ kind: "location-level", levelUuid: levels[0].uuid },
-				bounds,
-			);
+				if (levels.length !== 1)
+					refuse(
+						"unknown-level",
+						bounds,
+						`There's no organization level with the code ${code}. You can check the level codes in App setup, Organization.`,
+					);
+				return term(
+					{ kind: "location-level", levelUuid: levels[0].uuid },
+					bounds,
+				);
+			}
 		}
 		if (other?.kind !== "field" || other.role !== undefined) return value;
 		const field = ctx.form?.fields.get(other.uuid);
 		if (field?.choices?.kind !== "inline") return value;
+		const text = fixedChoiceText(value);
+		if (text === undefined) return value;
 		const prior = hints.get(bounds);
 		const priorTerm = prior?.kind === "term" ? prior.term : prior;
 		if (
@@ -234,10 +235,7 @@ export function bindFormSyntax(
 			)
 		)
 			return term(priorTerm, bounds);
-		const values =
-			field.kind === "multi_select"
-				? value.term.value.split(/\s+/u).filter(Boolean)
-				: [value.term.value];
+		const values = field.kind === "multi_select" ? text.split(" ") : [text];
 		const options = values.map((selected) =>
 			field.choices?.kind === "inline"
 				? field.choices.options.find((option) => option.value === selected)
@@ -470,13 +468,26 @@ export function bindFormSyntax(
 				return remember({ kind: "not", clause: args[0] }, node);
 			case "is-blank":
 				return remember({ kind: "is-blank", left: args[0] }, node);
-			case "concat":
-				return args.length === 0
-					? literal("", node)
-					: remember(
-							{ kind: "concat", parts: args as [Expression, ...Expression[]] },
-							node,
-						);
+			case "concat": {
+				if (args.length === 0) return literal("", node);
+				// Reopening a formula keeps a text literal whose only XPath spelling
+				// uses both delimiters. Other concatenations remain authored calls.
+				if (node.args.every((part) => part.kind === "string")) {
+					const pieces = node.args.map((part) => part.value);
+					const value = pieces.join("");
+					const encoded = xpathLiteralParts(value);
+					if (
+						encoded.length > 1 &&
+						encoded.length === pieces.length &&
+						encoded.every((piece, i) => piece === pieces[i])
+					)
+						return literal(value, node);
+				}
+				return remember(
+					{ kind: "concat", parts: args as [Expression, ...Expression[]] },
+					node,
+				);
+			}
 			case "coalesce":
 				return remember(
 					{ kind: "coalesce", values: args as [Expression, ...Expression[]] },

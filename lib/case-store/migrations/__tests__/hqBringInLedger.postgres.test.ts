@@ -27,6 +27,7 @@ import { asUuid } from "@/lib/domain/uuid";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import { caseStoreMigrations } from "..";
 import { up } from "../20261201000000_hq_bring_in_ledger";
+import { up as connectActivityRolesUp } from "../20261208000000_connect_activity_roles";
 import { checkConstraintVerdicts } from "./checkConstraint";
 import { MEDIA_PATH_FLOOR_CASES } from "./mediaPathFloor";
 
@@ -846,7 +847,10 @@ describe(MIGRATION, () => {
 				domain: "clinic",
 			},
 		]);
-		// A settle of the app's released claims finds none left to settle.
+		// A settle of the app's released claims finds none left to settle. The
+		// settle is today's code, which reads the app row as the later
+		// migrations leave it: with the Connect roles column.
+		await db.transaction().execute((tx) => connectActivityRolesUp(tx));
 		const locks = await (db as unknown as Kysely<AppDatabase>)
 			.transaction()
 			.execute((tx) => lockReleasedClaimsInTransaction(tx, "app-c"));

@@ -60,7 +60,8 @@ function holdsQuestions(doc: BlueprintDoc): void {
 		const emptyContainers: string[] = [];
 		for (const [uuid, location] of collectFieldLocations(doc, form.uuid)) {
 			const field = doc.fields[uuid];
-			if (field === undefined) continue;
+			// A Connect activity is its region, compared apart.
+			if (field === undefined || field.kind === "connect_activity") continue;
 			if (!isContainer(field)) {
 				questions.set(location.path.toXPath(), uuid);
 				continue;

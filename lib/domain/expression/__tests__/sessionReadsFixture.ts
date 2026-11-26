@@ -27,6 +27,7 @@ export const OTHER_MODULE = testUuid("reads-ordinary-module");
 export const OTHER_FORM = testUuid("reads-ordinary-form");
 export const OTHER_HIDDEN = testUuid("reads-ordinary-hidden");
 export const OTHER_INPUT = testUuid("reads-ordinary-input");
+const READS_DELIVERY = testUuid("reads-delivery");
 export const CHILD_MODULE = testUuid("reads-child-module");
 export const CHILD_FORM = testUuid("reads-child-form");
 export const CHILD_HIDDEN = testUuid("reads-child-hidden");
@@ -48,7 +49,7 @@ export const readsDoc = (
 	buildDoc(
 		{
 			appName: "Reads",
-			connectType: "deliver",
+			connectRoles: ["deliver"],
 			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn },
 			caseTypes: [
 				{
@@ -76,7 +77,6 @@ export const readsDoc = (
 							uuid: READS_VISIT,
 							name: "Visit",
 							type: "followup",
-							connect: { deliver_unit: { id: "visit", name: "Visit" } },
 							formLinks: [
 								{
 									uuid: READS_LINK,
@@ -85,6 +85,12 @@ export const readsDoc = (
 								},
 							],
 							fields: [
+								f({
+									uuid: READS_DELIVERY,
+									id: "visit",
+									kind: "connect_activity",
+									activity: { kind: "delivery", name: "Visit" },
+								}),
 								f({ kind: "text", id: "note", label: proseText("Note") }),
 								f({
 									kind: "hidden",
@@ -197,8 +203,8 @@ export const calculateOf = (uuid: Uuid): ExpressionSlotRef => ({
 	slot: "calculate",
 });
 export const connectSlot: ExpressionSlotRef = {
-	entity: "form",
-	uuid: READS_VISIT,
+	entity: "field",
+	uuid: READS_DELIVERY,
 	slot: "deliver_entity_id",
 };
 export const linkSlot: ExpressionSlotRef = {

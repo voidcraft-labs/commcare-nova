@@ -335,16 +335,15 @@ describe("a case owner moved to a place, for a worker assigned nowhere", () => {
 			}
 			return undefined;
 		};
-		// A repeat the worker adds rows to opens with its first row.
+		// A repeat the worker adds rows to opens with none, as Core opens a
+		// repeat written as a template, and stops at the first row added.
+		const added = open(
+			locationOwnerFixture("direct", { inRepeat: "user_controlled" }),
+			[],
+		)();
 		expect(
-			previewDataRefusalOf(
-				refusalOf(
-					open(
-						locationOwnerFixture("direct", { inRepeat: "user_controlled" }),
-						[],
-					),
-				),
-			)?.reason,
+			previewDataRefusalOf(refusalOf(() => added.addRepeat("/data/moves")))
+				?.reason,
 		).toEqual({ kind: "owner-without-place" });
 		// A counted repeat opens with no rows, and stops at its first.
 		const engine = open(
