@@ -1,5 +1,6 @@
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
+import { quoteXPathLiteral } from "@/lib/domain/expression/stringLiteral";
 import { AuthoringInputError } from "./errors";
 
 /** A transient parse tree, never stored or executed. Uses the existing grammar. */
@@ -127,12 +128,7 @@ export function parseAuthoringExpression(
 	return visit(roots[0]);
 }
 
-/** XPath string literals do not have backslash escapes. */
+/** Preserve argument boundaries in the authoring language's literal constructor. */
 export function quoteAuthoringLiteral(value: string): string {
-	if (!value.includes("'")) return `'${value}'`;
-	if (!value.includes('"')) return `"${value}"`;
-	return `concat(${value
-		.split("'")
-		.map((part) => `'${part}'`)
-		.join(', "\'", ')})`;
+	return quoteXPathLiteral(value, true);
 }

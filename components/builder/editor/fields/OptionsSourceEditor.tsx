@@ -69,6 +69,7 @@ export function OptionsSourceEditor<
 	const modeId = useId();
 	const valueColumnSelectId = useId();
 	const labelColumnSelectId = useId();
+	const sortColumnSelectId = useId();
 	const canEdit = useCanEdit();
 	const catalog = useBuilderLookupCatalog();
 	const platforms = useDeclaredPlatforms();
@@ -164,6 +165,9 @@ export function OptionsSourceEditor<
 			valueColumnId: next.valueColumnId,
 			labelColumnId: next.labelColumnId,
 			...(next.filter === undefined ? {} : { filter: next.filter }),
+			...(next.sortColumnId === undefined
+				? {}
+				: { sortColumnId: next.sortColumnId }),
 		});
 	};
 
@@ -355,6 +359,24 @@ export function OptionsSourceEditor<
 						names={{ slot: "lookup_options_source", platforms }}
 						onChange={(read) => writeLookup({ ...active, labelColumnId: read })}
 					/>
+					<LookupValuePicker
+						questionChoice
+						id={sortColumnSelectId}
+						table={table}
+						value={active.sortColumnId}
+						label="Order of the choices"
+						disabled={!canEdit}
+						names={{ slot: "lookup_options_source", platforms }}
+						defaultChoice={{
+							label: "The table's row order",
+							select: () => {
+								const { sortColumnId: _sort, ...rest } = active;
+								writeLookup(rest);
+							},
+						}}
+						onChange={(read) => writeLookup({ ...active, sortColumnId: read })}
+					/>
+
 					<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
 						<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">
 							<Icon

@@ -1,5 +1,6 @@
 import type { CaseType } from "@/lib/domain/blueprint";
 import type { Field, FieldKind } from "@/lib/domain/fields";
+import type { HiddenAnswerType } from "@/lib/domain/fields/hidden";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 
 /**
@@ -59,14 +60,53 @@ const BIND_TYPE_BY_KIND = {
 	secret: "xsd:string",
 	single_select: "xsd:string",
 	multi_select: "xsd:string",
+	connect_activity: null,
 	label: null,
 	group: null,
 	repeat: null,
 	section: null,
 } as const satisfies Record<FieldKind, string | null>;
 
+/** Vellum preserves a hidden value's own type as a raw bind attribute. */
+const HIDDEN_BIND_TYPES = {
+	text: "xsd:string",
+	untyped: null,
+	int: "xsd:int",
+	long: "xsd:long",
+	decimal: "xsd:double",
+	date: "xsd:date",
+	time: "xsd:time",
+	datetime: "xsd:dateTime",
+	boolean: "xsd:boolean",
+	single_select: "xsd:listItem",
+	multi_select: "xsd:listItems",
+	geopoint: "geopoint",
+	barcode: "barcode",
+	file: "binary",
+} as const satisfies Record<HiddenAnswerType, string | null>;
+
+/** XFormParser.initTypeMappings gives these lexical spellings the same answer data class. */
+const hiddenTypeByName = new Map<string, HiddenAnswerType>();
+for (const [type, name] of Object.entries(HIDDEN_BIND_TYPES)) {
+	if (name !== null)
+		hiddenTypeByName.set(name.replace(/^xsd:/, ""), type as HiddenAnswerType);
+}
+hiddenTypeByName.set("integer", "int");
+hiddenTypeByName.set("decimal", "decimal");
+hiddenTypeByName.set("float", "decimal");
+hiddenTypeByName.set("select1", "single_select");
+hiddenTypeByName.set("select", "multi_select");
+
+export function hiddenAnswerTypeOf(name: string | undefined): HiddenAnswerType {
+	if (name === undefined) return "untyped";
+	// XFormParser.getDataType resolves the local part after the first colon.
+	return hiddenTypeByName.get(name.slice(name.indexOf(":") + 1)) ?? "untyped";
+}
+
 /** Every `type` a field's bind can carry. */
-export type FieldBindType = NonNullable<(typeof BIND_TYPE_BY_KIND)[FieldKind]>;
+export type FieldBindType =
+	| NonNullable<(typeof BIND_TYPE_BY_KIND)[FieldKind]>
+	| NonNullable<(typeof HIDDEN_BIND_TYPES)[HiddenAnswerType]>;
 
 /**
  * The `type` attribute of a field's `<bind>`, or `null` for a field with
@@ -86,6 +126,8 @@ export function fieldBindType(
 	caseTypes: readonly CaseType[],
 	writes: Parameters<typeof fieldValueType>[2],
 ): FieldBindType | null {
+	if (field.kind === "hidden" && field.answerType !== undefined)
+		return HIDDEN_BIND_TYPES[field.answerType];
 	return fieldValueType(field, caseTypes, writes) === "datetime"
 		? "xsd:dateTime"
 		: BIND_TYPE_BY_KIND[field.kind];

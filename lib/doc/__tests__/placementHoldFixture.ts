@@ -47,14 +47,13 @@ export const OPEN_PATIENTS: Expression = {
 	value: prop("patient", "case_id"),
 };
 
-/** Patients named by the form's `name` answer: a query over an answer, which
- *  model iteration cannot run. */
-export const PATIENTS_NAMED: Expression = {
+/** A case ID must exist. The worker supplies it only after the repeat captures its rows. */
+export const PATIENTS_BY_ENTERED_ID: Expression = {
 	kind: "project",
 	of: {
 		kind: "cases",
 		source: "casedb",
-		where: [eq(prop("patient", "case_name"), term(formField(U("name"))))],
+		where: [eq(prop("patient", "case_id"), term(formField(U("name"))))],
 	},
 	value: prop("patient", "case_id"),
 };

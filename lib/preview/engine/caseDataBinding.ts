@@ -2067,6 +2067,23 @@ export async function submitFormAction(
 		}
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
+		const journalScope = (
+			project: string,
+			identity: ResolvedPreviewIdentity,
+			device: PreviewDevice | undefined,
+		) =>
+			previewRun === undefined || !device
+				? undefined
+				: openingCarryScope({
+						app: appId,
+						project,
+						actor: identity.actorUserId,
+						session: session.session.id,
+						worker: identity.ownerId,
+						persona: identity.personaUuid ?? null,
+						device,
+						run: previewRun,
+					});
 		const authorized = await loadAuthorizedFormSubmissionSnapshot({
 			appId,
 			actorUserId: session.user.id,
@@ -2108,6 +2125,7 @@ export async function submitFormAction(
 						normalizedMutation,
 						verdict.result,
 						expectedBlueprintDigest,
+						journalScope(authorized.projectId, replayIdentity, suppliedDevice),
 					);
 				}
 			}
@@ -2299,6 +2317,7 @@ export async function submitFormAction(
 			normalizedMutation,
 			result,
 			expectedBlueprintDigest,
+			journalScope(authorized.projectId, identity, admitted.device),
 		);
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
@@ -2321,6 +2340,7 @@ function submissionResultFromEnvelope(
 	mutation: SubmissionMutation,
 	result: Awaited<ReturnType<CaseStore["applySubmission"]>>,
 	expectedBlueprintDigest: string,
+	requestedCarryScope?: string,
 ): SubmissionResult {
 	if (result.blueprintDigest !== expectedBlueprintDigest) {
 		return {
@@ -2334,16 +2354,25 @@ function submissionResultFromEnvelope(
 	 * rather than reading today's rows and pretending they were submission-time
 	 * state. */
 	const caseDatabasePatch = result.caseDatabasePatch;
+	const journal =
+		requestedCarryScope !== undefined &&
+		requestedCarryScope !== result.openingCarryScope
+			? { receiptOutsideRun: true as const }
+			: {};
 	const childCaseIds =
 		result.legacyChildCaseIds ??
 		result.createdChildren.map((createdChild) => createdChild.caseId);
 	if (mutation.kind === "survey") {
 		return {
 			kind: "survey",
+			...journal,
 			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
 			...(result.submissionLocation !== undefined && {
 				submissionLocation: result.submissionLocation,
 			}),
+			...(result.activities === undefined
+				? {}
+				: { activities: result.activities }),
 		};
 	}
 	if (result.primaryCaseIds.length === 0) {
@@ -2364,6 +2393,7 @@ function submissionResultFromEnvelope(
 		}
 		return {
 			kind: "registration",
+			...journal,
 			caseId: result.primaryCaseIds[0] as string,
 			childCaseIds,
 			...(result.legacyChildCaseIds === undefined
@@ -2373,10 +2403,14 @@ function submissionResultFromEnvelope(
 			...(result.submissionLocation !== undefined && {
 				submissionLocation: result.submissionLocation,
 			}),
+			...(result.activities === undefined
+				? {}
+				: { activities: result.activities }),
 		};
 	}
 	return {
 		kind: mutation.kind,
+		...journal,
 		caseIds: result.primaryCaseIds,
 		...(result.primaryCaseIds.length === 1
 			? { caseId: result.primaryCaseIds[0] as string }
@@ -2389,6 +2423,9 @@ function submissionResultFromEnvelope(
 		...(result.submissionLocation !== undefined && {
 			submissionLocation: result.submissionLocation,
 		}),
+		...(result.activities === undefined
+			? {}
+			: { activities: result.activities }),
 	};
 }
 

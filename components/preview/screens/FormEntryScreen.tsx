@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/shadcn/button";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import type { ActivityFact } from "@/lib/domain/connectSubmissionFacts";
 import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { parentCaseConstraint } from "@/lib/preview/caseSelectionNavigation";
 import { blueprintRevisionDigest } from "@/lib/preview/engine/caseDataBindingClient";
@@ -47,6 +48,10 @@ import { FormScreen } from "./FormScreen";
 import { FORM_PRIMARY_ACTION_CLS } from "./formActionButtonStyles";
 
 type Screen = Extract<PreviewScreen, { type: "form" }>;
+interface FormEntryScreenProps {
+	screen: Screen;
+	onSubmittedActivities?: (facts: readonly ActivityFact[]) => void;
+}
 type OpeningResult = Awaited<ReturnType<typeof readFormOpeningAction>>;
 type RequestResult =
 	| { kind: "loading" }
@@ -58,7 +63,10 @@ type RequestResult =
  * because a datum opens its single match automatically
  * (`entryWalksChoices`), unless the running session already bound its
  * cases (a case-first menu or a link), which the form opens on as usual. */
-export function FormEntryScreen({ screen }: { screen: Screen }) {
+export function FormEntryScreen({
+	screen,
+	onSubmittedActivities,
+}: FormEntryScreenProps) {
 	const { doc } = usePreviewMenuSource();
 	const mode = useEditMode();
 	const run = usePreviewSessionId();
@@ -71,17 +79,27 @@ export function FormEntryScreen({ screen }: { screen: Screen }) {
 		mode !== "preview" ||
 		!(walks || formNeedsOpeningEvidence(doc, screen.formUuid))
 	)
-		return <FormScreen screen={screen} />;
+		return (
+			<FormScreen
+				screen={screen}
+				onSubmittedActivities={onSubmittedActivities}
+			/>
+		);
 	return (
 		<ConfiguredFormEntry
 			key={`${screen.moduleUuid}/${screen.formUuid}/${run}`}
 			screen={screen}
 			run={run}
+			onSubmittedActivities={onSubmittedActivities}
 		/>
 	);
 }
 
-function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
+function ConfiguredFormEntry({
+	screen,
+	run,
+	onSubmittedActivities,
+}: FormEntryScreenProps & { run: string }) {
 	const menuSource = usePreviewMenuSource();
 	const { doc } = menuSource;
 	const collab = useReconcilerContext();
@@ -475,6 +493,7 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 			opening={opening}
 			projection={projection}
 			onReopen={restart}
+			onSubmittedActivities={onSubmittedActivities}
 		/>
 	);
 }

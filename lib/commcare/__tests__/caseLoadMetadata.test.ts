@@ -5,6 +5,7 @@ import { asUuid } from "@/lib/domain/uuid";
 import { expandDoc } from "../expander";
 import { buildCaseReferencesLoad } from "../formActions";
 import { hqLoadReference } from "../hashtags";
+import { DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION } from "./releasedConnectDefaults";
 
 describe("hqLoadReference", () => {
 	const depths = new Map<string, readonly string[]>([
@@ -142,9 +143,7 @@ describe("case types named for a reference word", () => {
 				"/data/parent": ["#case/parent/code"],
 				"/data/worker": ["#user/region"],
 			};
-			expect(
-				buildCaseReferencesLoad(doc, formUuid, undefined, ownType),
-			).toEqual(load);
+			expect(buildCaseReferencesLoad(doc, formUuid, ownType)).toEqual(load);
 			/* The HQ JSON form carries the same map, built over the menu's own
 			 * case type. */
 			const admitted = followupReading(ownType, parentType, true).doc;
@@ -191,6 +190,7 @@ it("derives HQ load metadata from typed case and worker-record reads only", () =
 		],
 	};
 	const original = buildDoc({
+		connectRoles: ["deliver"],
 		caseTypes: [
 			{
 				name: "patient",
@@ -225,6 +225,16 @@ it("derives HQ load metadata from typed case and worker-record reads only", () =
 									f({ kind: "hidden", id: "code", calculate: expression }),
 								],
 							}),
+							f({
+								kind: "connect_activity",
+								id: "visit",
+								activity: {
+									kind: "delivery",
+									name: "Visit",
+									entityId: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+									entityName: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+								},
+							}),
 						],
 					},
 				],
@@ -243,14 +253,7 @@ it("derives HQ load metadata from typed case and worker-record reads only", () =
 		userPropertyOrder: [workerProperty],
 	};
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	expect(
-		buildCaseReferencesLoad(
-			doc,
-			formUuid,
-			{ deliver_unit: { id: "visit", name: "Visit" } },
-			"patient",
-		),
-	).toEqual({
+	expect(buildCaseReferencesLoad(doc, formUuid, "patient")).toEqual({
 		"/data/page/code": [
 			"#case/code",
 			"#case/parent/code",
@@ -299,7 +302,5 @@ it("omits a registration's allocated case id from database-load metadata", () =>
 		],
 	});
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	expect(buildCaseReferencesLoad(doc, formUuid, undefined, "patient")).toEqual(
-		{},
-	);
+	expect(buildCaseReferencesLoad(doc, formUuid, "patient")).toEqual({});
 });

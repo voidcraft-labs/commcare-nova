@@ -1,7 +1,11 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	addFixtureField,
+	buildDoc,
+	caseListConfig,
+} from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { createBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { withChoicePreservation } from "@/lib/doc/kindConversionCascade";
@@ -333,17 +337,19 @@ describe("choice preservation during field edits", () => {
 				writes: [{ property: "note", value: term(choice), condition }],
 			},
 		];
-		doc.connectType = "deliver";
-		// A Connect app runs on Android alone.
+		doc.connectRoles = ["deliver"];
 		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
-		doc.forms[FORM].connect = {
-			deliver_unit: {
-				id: "visit",
+		addFixtureField(doc, FORM, {
+			kind: "connect_activity",
+			uuid: testUuid("choice-preservation-activity"),
+			id: "visit",
+			activity: {
+				kind: "delivery",
 				name: "Visit",
-				entity_id: term(choice),
-				entity_name: term(choice),
+				entityId: term(choice),
+				entityName: term(choice),
 			},
-		};
+		});
 		doc.refIndex = buildReferenceIndex(doc);
 		assertAdmittedDoc(doc);
 		const before = choices(doc);

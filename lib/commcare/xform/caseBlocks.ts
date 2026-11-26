@@ -249,11 +249,19 @@ function buildCaseBlocks(
 	// `/data/case/...` path the primary-case branches emit is built off this
 	// one anchor, so a typo in the segment chain is a compile error rather
 	// than a silent string-template divergence.
-	const primaryCasePath = FormPath.root().child("case");
+	const primaryCasePath = FormPath.root(context.mode.formRootName).child(
+		"case",
+	);
 	// Meta-block paths the case-attribute calculates read out of. The values
 	// reference the always-on meta block populated by `xform/metaBlock.ts`.
-	const metaTimeEnd = FormPath.root().child("meta").child("timeEnd").toWire();
-	const metaUserID = FormPath.root().child("meta").child("userID").toWire();
+	const metaTimeEnd = FormPath.root(context.mode.formRootName)
+		.child("meta")
+		.child("timeEnd")
+		.toWire();
+	const metaUserID = FormPath.root(context.mode.formRootName)
+		.child("meta")
+		.child("userID")
+		.toWire();
 
 	// Lazy, because a form whose only write is to the worker's record has no
 	// case type of its own and never reaches a branch that needs one. Eager
@@ -303,8 +311,11 @@ function buildCaseBlocks(
 		);
 		const namePath =
 			openCase.name_update?.question_path ||
-			FormPath.root().child("name").toXPath();
-		const validatedNamePath = validateXFormPath(namePath);
+			FormPath.root(context.mode.formRootName).child("name").toXPath();
+		const validatedNamePath = validateXFormPath(
+			namePath,
+			context.mode.formRootName,
+		);
 		// The action names the question's trimmed sibling, so the leaf binds
 		// it as it stands, as HQ's build does.
 		binds.push(
@@ -313,7 +324,10 @@ function buildCaseBlocks(
 				{
 					xpath: {
 						nodeset: primaryCreatePath.child("case_name").toWire(),
-						calculate: FormPath.parse(validatedNamePath).toWire(),
+						calculate: FormPath.parse(
+							validatedNamePath,
+							context.mode.formRootName,
+						).toWire(),
 					},
 				},
 				context,
@@ -362,7 +376,10 @@ function buildCaseBlocks(
 					{
 						xpath: {
 							nodeset: primaryCasePath.toWire(),
-							relevant: conditionToRelevantXPath(openCase.condition),
+							relevant: conditionToRelevantXPath(
+								openCase.condition,
+								context.mode.formRootName,
+							),
 						},
 					},
 					context,
@@ -418,7 +435,9 @@ function buildCaseBlocks(
 		// of its index path, as `XForm._add_case_updates` writes them. HQ
 		// builds each chain afresh, so two paths that share a first index
 		// stand in two elements of that name.
-		const parentsPath = FormPath.root().child("parents");
+		const parentsPath = FormPath.root(context.mode.formRootName).child(
+			"parents",
+		);
 		const chains: Element[] = [];
 		for (const [ancestor, updates] of [...updatesByAncestor].sort(([a], [b]) =>
 			a < b ? -1 : a > b ? 1 : 0,
@@ -481,7 +500,10 @@ function buildCaseBlocks(
 					{
 						xpath: {
 							nodeset: primaryCasePath.child("close").toWire(),
-							relevant: conditionToRelevantXPath(closeCase.condition),
+							relevant: conditionToRelevantXPath(
+								closeCase.condition,
+								context.mode.formRootName,
+							),
 						},
 					},
 					context,
@@ -499,7 +521,7 @@ function buildCaseBlocks(
 	const dataChildren: CaseBlockChild[] = [];
 	if (parentsElement !== undefined)
 		dataChildren.push({
-			parentPath: FormPath.root(),
+			parentPath: FormPath.root(context.mode.formRootName),
 			element: parentsElement,
 			position: "last",
 		});
@@ -572,7 +594,7 @@ function buildCaseBlocks(
 		// query_bound). Empty string means "no repeat scope" — splice the
 		// wrapper under <data>.
 		const repeatCtxPath = sc.repeat_context
-			? FormPath.parse(sc.repeat_context)
+			? FormPath.parse(sc.repeat_context, context.mode.formRootName)
 			: null;
 		// `nest` decision: mirrors CCHQ's
 		// `nest = repeat_context_count[subcase.repeat_context] > 1` in
@@ -591,7 +613,9 @@ function buildCaseBlocks(
 		// (nest=false), binds anchor at the repeat element itself
 		// (`<repeatCtx>`).
 		const basePath = nest
-			? (repeatCtxPath ?? FormPath.root()).child(elName)
+			? (repeatCtxPath ?? FormPath.root(context.mode.formRootName)).child(
+					elName,
+				)
 			: // nest=false implies repeatCtxPath is non-null (the only way
 				// nest comes out false is when subcasesPerRepeatCtx counts a
 				// single subcase under a real repeat_context).
@@ -634,6 +658,7 @@ function buildCaseBlocks(
 		);
 		const namePath = validateXFormPath(
 			sc.name_update?.question_path || basePath.child("name").toXPath(),
+			context.mode.formRootName,
 		);
 		binds.push(
 			xel(
@@ -641,7 +666,10 @@ function buildCaseBlocks(
 				{
 					xpath: {
 						nodeset: subcaseCreatePath.child("case_name").toWire(),
-						calculate: FormPath.parse(namePath).toWire(),
+						calculate: FormPath.parse(
+							namePath,
+							context.mode.formRootName,
+						).toWire(),
 					},
 				},
 				context,
@@ -731,7 +759,10 @@ function buildCaseBlocks(
 					{
 						xpath: {
 							nodeset: subcaseCasePath.toWire(),
-							relevant: conditionToRelevantXPath(sc.condition),
+							relevant: conditionToRelevantXPath(
+								sc.condition,
+								context.mode.formRootName,
+							),
 						},
 					},
 					context,
@@ -780,7 +811,10 @@ function buildCaseBlocks(
 						{
 							xpath: {
 								nodeset: subcaseCasePath.child("close").toWire(),
-								relevant: conditionToRelevantXPath(sc.close_condition),
+								relevant: conditionToRelevantXPath(
+									sc.close_condition,
+									context.mode.formRootName,
+								),
 							},
 						},
 						context,
@@ -836,7 +870,8 @@ function buildCaseBlocks(
 		//     single-subcase-per-repeat case.
 		const caseElement = buildCaseElement(scChildren);
 		if (nest) {
-			const parentPath = repeatCtxPath ?? FormPath.root();
+			const parentPath =
+				repeatCtxPath ?? FormPath.root(context.mode.formRootName);
 			dataChildren.push({
 				parentPath,
 				element: el(elName, {}, [caseElement]),
@@ -856,7 +891,7 @@ function buildCaseBlocks(
 
 	if (hasPrimaryBlock) {
 		dataChildren.push({
-			parentPath: FormPath.root(),
+			parentPath: FormPath.root(context.mode.formRootName),
 			element: buildCaseElement(caseChildren),
 			position: "last",
 		});
@@ -872,7 +907,7 @@ function buildCaseBlocks(
 	// existing element: nothing in the authored form produces a
 	// `commcare_usercase` node, so there is no parent to resolve.
 	if (hasUsercaseUpdate) {
-		const usercaseCasePath = FormPath.root()
+		const usercaseCasePath = FormPath.root(context.mode.formRootName)
 			.child("commcare_usercase")
 			.child("case");
 		// `_add_usercase_bind`: a bind with a calculate, not a setvalue. The
@@ -900,7 +935,7 @@ function buildCaseBlocks(
 		);
 		dataChildren.push({
 			position: "last",
-			parentPath: FormPath.root(),
+			parentPath: FormPath.root(context.mode.formRootName),
 			element: el("commcare_usercase", {}, [buildCaseElement([update])]),
 		});
 	}
@@ -932,7 +967,10 @@ function caseMetaBinds(
 				attributes: { type: "xsd:dateTime" },
 				xpath: {
 					nodeset: casePath.attr("date_modified").toWire(),
-					calculate: FormPath.root().child("meta").child("timeEnd").toWire(),
+					calculate: FormPath.root(context.mode.formRootName)
+						.child("meta")
+						.child("timeEnd")
+						.toWire(),
 				},
 			},
 			context,
@@ -942,7 +980,10 @@ function caseMetaBinds(
 			{
 				xpath: {
 					nodeset: casePath.attr("user_id").toWire(),
-					calculate: FormPath.root().child("meta").child("userID").toWire(),
+					calculate: FormPath.root(context.mode.formRootName)
+						.child("meta")
+						.child("userID")
+						.toWire(),
 				},
 			},
 			context,
@@ -971,14 +1012,19 @@ function updateBlock(
 		.map(([property, mapping]) => ({
 			validProp: validatePropertyName(formActionsPropertyToWire(property)),
 			resolvedQPath: validateXFormPath(
-				mapping.question_path || FormPath.root().child(property).toXPath(),
+				mapping.question_path ||
+					FormPath.root(context.mode.formRootName).child(property).toXPath(),
+				context.mode.formRootName,
 			),
 			edit: mapping.update_mode === "edit",
 		}))
 		.sort(byWireName);
 	const updatePath = casePath.child("update");
 	for (const { validProp, resolvedQPath, edit } of rows) {
-		const source = FormPath.parse(resolvedQPath).toWire();
+		const source = FormPath.parse(
+			resolvedQPath,
+			context.mode.formRootName,
+		).toWire();
 		const present = w.gt(w.call("count", [source]), w.num(0));
 		binds.push(
 			xel(
@@ -1050,9 +1096,13 @@ function buildCaseElement(children: Element[]): Element {
  * The schema declares `answer` as `z.string()` — free-form by design — so the
  * emitter must be total against every printable character.
  */
-function conditionToRelevantXPath(condition: FormActionCondition): WireExpr {
+function conditionToRelevantXPath(
+	condition: FormActionCondition,
+	rootName: string | undefined,
+): WireExpr {
 	const qPath = FormPath.parse(
-		validateXFormPath(condition.question ?? ""),
+		validateXFormPath(condition.question ?? "", rootName),
+		rootName,
 	).toWire();
 	if (condition.operator === "boolean_true") return qPath;
 	const answer = w.str(condition.answer ?? "");
@@ -1122,9 +1172,11 @@ export function addCaseBlocks(
 					},
 					subcases: [],
 				};
+	const doc = parseXForm(xform);
+	const dataEl = findDataElement(doc, "addCaseBlocks");
 	const instances = new InstanceSink();
 	const context: WireElementContext = {
-		mode: { target: "xform", constraint: false },
+		mode: { target: "xform", constraint: false, formRootName: dataEl.name },
 		instances,
 	};
 	const emission = buildCaseBlocks(
@@ -1135,9 +1187,6 @@ export function addCaseBlocks(
 		caseSharing,
 	);
 	if (emission === null) return xform;
-
-	const doc = parseXForm(xform);
-	const dataEl = findDataElement(doc, "addCaseBlocks");
 
 	// Group dataChildren by their splice parent's serialized XPath and walk
 	// each parent once, prepending the children that stand first and
@@ -1281,7 +1330,7 @@ function mergeRequiredOntoBind(
 			"bind",
 			{
 				xpath: {
-					nodeset: FormPath.parse(namePath).toWire(),
+					nodeset: FormPath.parse(namePath, context.mode.formRootName).toWire(),
 					required: w.call("true"),
 				},
 			},

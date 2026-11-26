@@ -63,6 +63,7 @@ import { type CaseOperation, NEW_APP_SETTINGS, proseText } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import type { Expectation } from "../expected";
+import { restoreXml } from "../restore";
 
 export function repeatCountCopy() {
 	const id = "targeted-repeat-count-copy";
@@ -539,5 +540,132 @@ export function repeatCountWhole() {
 		rows: ["30 (a whole-number count, direct or carried)"],
 		doc,
 		expected: { intent: [expectation("local"), expectation("A")] },
+	});
+}
+
+/** A captured membership is available to subsequent opening assignments and
+ * remains the same when the worker changes the answer that selected it. */
+export function openingQueryChoices() {
+	const id = "targeted-opening-query-choices";
+	const form = targetedUuid(id, "form");
+	const query = "if(#form/site = 'east', 'east_1 east_2', 'west_1')";
+	const doc = buildDoc({
+		appId: id,
+		appName: "Visit list",
+		modules: [
+			{
+				uuid: targetedUuid(id, "module"),
+				name: "Visits",
+				forms: [
+					{
+						uuid: form,
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								uuid: targetedUuid(id, "site"),
+								kind: "text",
+								id: "site",
+								label: "Site",
+								// The worker's login name, which the restore's
+								// registration gives (`#user/` reads the worker's
+								// own record, which these restores hold none of).
+								default_value:
+									"if(contains(instance('commcaresession')/session/context/username, 'east'), 'east', 'west')",
+							}),
+							f({
+								uuid: targetedUuid(id, "before"),
+								kind: "hidden",
+								id: "before",
+								default_value: "string(current()/../visits/@ids)",
+							}),
+							f({
+								uuid: targetedUuid(id, "visits"),
+								kind: "repeat",
+								id: "visits",
+								rowTiming: "on-open",
+								repeat_mode: "query_bound",
+								data_source: { ids_query: query },
+								children: [
+									f({
+										uuid: targetedUuid(id, "record"),
+										kind: "hidden",
+										id: "record",
+										calculate: "current()/../@id",
+									}),
+									f({
+										uuid: targetedUuid(id, "note"),
+										kind: "text",
+										id: "note",
+										label: "Visit note",
+									}),
+								],
+							}),
+							f({
+								uuid: targetedUuid(id, "after"),
+								kind: "hidden",
+								id: "after",
+								default_value:
+									"concat(current()/../visits/@count, ':', current()/../visits/@ids)",
+							}),
+							f({
+								uuid: targetedUuid(id, "finish"),
+								kind: "text",
+								id: "finish",
+								label: "Finish",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const intent = (
+		exportName: "local" | "A",
+		site: "east" | "west",
+	): Expectation => ({
+		id: `captured-choices-${site}-${exportName}`,
+		restore: `${site}.xml`,
+		export: exportName,
+		form,
+		request: {
+			answers: [
+				{ path: "/data/site", value: site === "east" ? "west" : "east" },
+			],
+			expressions: [
+				"string(/data/before)",
+				"string(/data/after)",
+				"string(/data/visits/@count)",
+				"string(/data/visits/item[1]/record)",
+				"string(/data/visits/item[2]/record)",
+			],
+		},
+		expect: [
+			{ pointer: "/answers/0/result", value: "ok" },
+			...(site === "east"
+				? ["", "2:east_1 east_2", "2", "east_1", "east_2"]
+				: ["", "1:west_1", "1", "west_1", ""]
+			).map((value, i) => ({
+				pointer: `/values/${i}/value`,
+				value,
+			})),
+		],
+	});
+	return targetedDocument({
+		id,
+		doc,
+		rows: ["A repeat keeps the records chosen at form open"],
+		files: {
+			"east.xml": restoreXml({ username: "east-worker" }),
+			"west.xml": restoreXml({ username: "west-worker" }),
+		},
+		expected: {
+			intent: [
+				intent("local", "east"),
+				intent("local", "west"),
+				intent("A", "east"),
+				intent("A", "west"),
+			],
+		},
 	});
 }

@@ -70,7 +70,7 @@ function setup() {
 	const doc: BlueprintDoc = {
 		appId: "app-1",
 		appName: "Hooks Test",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
