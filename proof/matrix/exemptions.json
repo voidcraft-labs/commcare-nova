@@ -69,7 +69,7 @@
 	},
 	"expressions-and-data/fields-is-indexed": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; no API-key read shows whether a field is indexed, and lib/commcare/__tests__/hqLookupRestore.test.ts reads the indexed fields from a verified global restore's schema."
+		"note": "Every key belongs to the lookup family outside an app's source. The API-key read leaves the flag unobserved. proof/hq/test_indexed_lookup.py checks the native workbook, storage, restore, and installed search, and lib/lookup/__tests__/generations.postgres.test.ts checks the flag learned in a verified ownership transfer."
 	},
 	"expressions-and-data/image-svg": {
 		"reason": "hq-never-serves-the-value",

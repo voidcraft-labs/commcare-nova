@@ -5383,10 +5383,9 @@
 			"lookup-code:corehq/apps/fixtures/fixturegenerators.py::ItemListsProvider._get_schema_element"
 		],
 		"valueClass": "field-indexed",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: held per column as indexed, not indexed, or not shown to Nova (`LookupColumn.index`: an API-key read never shows it; a verified global restore's schema or a selected-table workbook does), written to the workbook's `is_indexed?` column, and a publish that would have to guess it stops for a prepared destination table or a separate table; it moves once an HQ-authored base with an indexed field passes proofs 1 to 6 and a native walk",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova keeps each column as indexed, known unindexed, or unobserved (`LookupColumn.index`). A verified global restore schema or selected-table workbook establishes the flag. Nova writes known flags to the workbook and a publish that would have to guess stops for a prepared destination table or a separate table. The HQ-authored `hq-lookups` base keeps its indexed village filter, table, and row identities through republish and serves district-specific choices to the worker. Local archives carry unindexed fixtures.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
