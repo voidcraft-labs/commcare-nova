@@ -368,6 +368,7 @@ export const AUDIT_SELECT_PUBLIC_TABLES = [
 ] as const;
 
 const MIGRATION_TABLES = [
+	"hq_round_trip_completion_receipt",
 	"kysely_migration",
 	"kysely_migration_lock",
 	"auth_app_kysely_migration",

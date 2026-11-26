@@ -51,7 +51,7 @@ async function installCandidate() {
 	const result = await new Migrator({
 		db: h.db(),
 		provider: caseStoreMigrationProvider,
-	}).migrateToLatest();
+	}).migrateTo("20261208050000_preview_search_settings");
 	if (result.error !== undefined) throw result.error;
 }
 
