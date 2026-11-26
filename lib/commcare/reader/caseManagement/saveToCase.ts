@@ -36,6 +36,7 @@ import {
 	prepareCaseScalarTextValue,
 	type Uuid,
 } from "@/lib/domain";
+import { planCaseRetype } from "@/lib/domain/caseRetype";
 import {
 	actingUser,
 	and,
@@ -268,6 +269,7 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches`,
 		MUG,
 	),
+	dateRetype: take(`${Q}/a-savetocase-retype-that-keeps-a-date-as-text`, MUG),
 	/** A `case_type` row that gives a case a type holding one of the earlier
 	 *  type's properties as another type (`index.ts::settleCaseChanges`). */
 	retypeConverts: refuse(
@@ -2839,23 +2841,24 @@ export function readSaveToCaseBlocks(
 	// Mint, register and record each proposal.
 	// Free among the form's ids: its root questions' and the operations its
 	// actions already gave.
-	const takenIds = new Set<string>(questionIds);
-	for (const one of basicCaseReading(form)?.operations ?? [])
-		takenIds.add(one.id);
-	for (const one of advancedCaseReading(form)?.operations ?? [])
-		takenIds.add(one.id);
+	const knownIds = ctx.input.knownPositionedCaseOperationIds?.get(form.uuid);
+	const operationIds = new Set(
+		[
+			...(basicCaseReading(form)?.operations ?? []),
+			...(advancedCaseReading(form)?.operations ?? []),
+		].map((operation) => operation.id),
+	);
+	const takenIds = new Set([
+		...questionIds,
+		...operationIds,
+		...(knownIds?.values() ?? []),
+	]);
 	const counts = new Map<string, number>();
 	for (const { read } of proposed) {
 		const shared = read === sharedCandidate?.read;
 		const own =
 			read === ownCandidate?.read || shared || read === registrationCandidate;
 		const action: ProposedBlock["action"] = own ? "own" : read.kind;
-		const name = carriedName(xform, read, guards, shared);
-		const id =
-			name !== undefined && !takenIds.has(name)
-				? name
-				: ownCaseOperationId(read.caseType, takenIds);
-		takenIds.add(id);
 		const repeatPath =
 			read.block.repeat === null ? [] : fieldIdsOf(read.block.repeat);
 		const scopeLength =
@@ -2879,6 +2882,19 @@ export function readSaveToCaseBlocks(
 			MUG,
 		);
 		if (uuid === undefined) continue;
+		const knownId =
+			read.block.authoredScopeLength === undefined
+				? undefined
+				: knownIds?.get(uuid);
+		const wireName = carriedName(xform, read, guards, shared);
+		const id =
+			knownId !== undefined && !operationIds.has(knownId)
+				? knownId
+				: wireName !== undefined && !takenIds.has(wireName)
+					? wireName
+					: ownCaseOperationId(read.caseType, takenIds);
+		operationIds.add(id);
+		takenIds.add(id);
 		// The own arm's rows of an answer as it is lead with its presence.
 		const writes = own
 			? read.writes.map(({ answerAsIs, condition, ...row }) =>
@@ -4660,6 +4676,30 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 			place: refused === undefined ? ownClose.place : form.place,
 			claim: refused ?? SAVE_TO_CASE_CLAIMS.outsideShape,
 		});
+	}
+	const xform = form.xform;
+	const settled = ctx.doc ?? doc;
+	if (xform !== null) {
+		for (const operation of settled.forms[form.uuid]?.caseOperations ?? []) {
+			if (operation.action !== "update" || operation.retype === undefined)
+				continue;
+			const block = reading.proposals.find(
+				(one) => one.uuid === operation.uuid,
+			)?.block;
+			if (block === undefined || failed.some((one) => one.block === block))
+				continue;
+			const plan = planCaseRetype(
+				settled,
+				operation.caseType,
+				operation.retype,
+			);
+			if (plan.wirePortable && plan.datesKeptAsText.length > 0)
+				xform.cursor.within(
+					{ element: block.element },
+					SAVE_TO_CASE_CLAIMS.dateRetype,
+					[MUG],
+				);
+		}
 	}
 	REFUSED_BLOCKS.set(
 		form,

@@ -141,6 +141,38 @@ def _open(tag, case_type, name_path, indices, repeat_context=""):
     }
 
 
+def write_through_typed_user_index(authoring, app_id):
+    """A declared user edge links an ordinary member to an ordinary household."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    from proof.matrix.bases.hq_advanced import new_advanced_module
+
+    def registration(name):
+        form = XFormBuilder(name)
+        form.new_question("member_name", "Member name", "string")
+        return form.tostring(xml_declaration=True).decode("utf-8")
+
+    new_advanced_module(authoring, app_id, "Register linked members")
+    ops.upload_form_source(authoring, app_id, 2, 0, registration, "typed-user-index-registration")
+    ops.set_json(authoring, app_id, "/modules/2/case_type", "household")
+    ops.set_json(authoring, app_id, "/modules/2/forms/0/actions/load_update_cases", [
+        {
+            "case_type": "household",
+            "case_tag": "load_household0",
+            "details_module": {"$menu": 0},
+            "doc_type": "LoadUpdateAction",
+        },
+    ])
+    ops.set_json(authoring, app_id, "/modules/2/forms/0/actions/open_cases", [
+        _open("open_member_0", "member", "/data/member_name",
+              [{**_index("load_household0"), "reference_id": "user"}]),
+    ])
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/update_case/update/user~1status_note",
+        _update("/data/status_note"),
+    )
+
+
 # hq-advanced's Member visits form: its loads and open actions.
 _VISIT_LOADS = "/modules/1/forms/0/actions/load_update_cases"
 _VISIT_OPENS = "/modules/1/forms/0/actions/open_cases"

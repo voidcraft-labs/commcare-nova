@@ -1,4 +1,5 @@
 import {
+	type AvailableCasesOptionsSource,
 	type CaseOptionsSource,
 	type DeviceCaseOptionsSource,
 	type Field,
@@ -14,14 +15,23 @@ import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
 import { caseDbInstance } from "./xpath/wire/instances";
 import type { WireExpr } from "./xpath/wire/tree";
 
-/** The local device case path, with type and filter predicates for a typed source. */
-export function availableCasesNodeset(
-	predicates: readonly WireExpr[] = [],
-): WireExpr {
+/** The local device case path, with the predicates of the chosen source. */
+function deviceCasesNodeset(predicates: readonly WireExpr[] = []): WireExpr {
 	return w.instance(caseDbInstance(), [
 		w.step("casedb"),
 		w.step("case", predicates),
 	]);
+}
+
+/** Every restored case, or open cases across all restored types. */
+export function availableCasesNodeset(
+	status?: AvailableCasesOptionsSource["status"],
+): WireExpr {
+	return deviceCasesNodeset(
+		status === undefined
+			? []
+			: [w.eq(w.context([w.attr("status")]), w.str(status))],
+	);
 }
 
 /** Standard device itemsets, evaluated against the worker's local case database.
@@ -49,7 +59,7 @@ export function caseOptionsNodeset(
 				...(rewrites === undefined ? {} : { rewrites }),
 			}),
 		);
-	return availableCasesNodeset(predicates);
+	return deviceCasesNodeset(predicates);
 }
 
 /**

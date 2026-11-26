@@ -709,7 +709,7 @@ function validateOperation(
 					ctx,
 					operation,
 					"CASE_OPERATION_RETYPE_UNSAFE",
-					`Retyping ${operation.caseType} to ${operation.retype} is not portable: ${consequences.join(" and ")}. CommCare's case wire changes only case_type, so Nova admits authored retypes only when every existing JSON property is retained with the exact same type.`,
+					`Retyping ${operation.caseType} to ${operation.retype} is not portable: ${consequences.join(" and ")}. CommCare's case wire changes only case_type, so Nova admits authored retypes only when each existing JSON value can be kept unchanged.`,
 				),
 			);
 		}
@@ -1351,7 +1351,8 @@ function ownSlotRefusal(
 
 /**
  * A save to the case above (`via`): only the own arm of a follow-up or close
- * form holds one, through `parent` and `host` steps the catalog resolves,
+ * form holds one. Basic Case Management also holds a direct user index
+ * with one ordinary declared case type at each end. Other writes walk `parent` and `host` steps the catalog resolves,
  * and only while Case Management saves that arm (HQ's update keys
  * `parent/p` and `host/parent/p`, `xform.py::get_case_parent_id_xpath`;
  * Vellum's Save to Case block saves one case, `saveToCase.js`). Returns the
@@ -1392,9 +1393,12 @@ function validateVia(
 			"target",
 			"Only this form's own case can save to the case above it. You can add a case change that updates that case instead.",
 		);
+	const directUserIndex = via.length === 1 && via[0].identifier === "user";
 	const step = via.find(
 		(candidate) =>
-			candidate.identifier !== "parent" && candidate.identifier !== "host",
+			candidate.identifier !== "parent" &&
+			candidate.identifier !== "host" &&
+			!directUserIndex,
 	);
 	if (step !== undefined)
 		return refuse(
@@ -1403,15 +1407,35 @@ function validateVia(
 			{ identifier: step.identifier },
 		);
 	const reached = resolveRelationDestination(
-		{ kind: "ancestor", via },
+		{ kind: "ancestor", via: directUserIndex ? [{ identifier: "user" }] : via },
 		origin,
 		ctx.caseTypes,
 	);
-	if (!reached.ok)
+	if (
+		!reached.ok ||
+		(directUserIndex &&
+			via[0].throughCaseType !== undefined &&
+			via[0].throughCaseType !== reached.caseType)
+	)
 		return refuse(
 			"unresolved",
 			`${write.property} is saved through a link that doesn't lead to a case type. You can choose the case above it again.`,
 		);
+	if (directUserIndex) {
+		const planned = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+			operation.uuid,
+		)?.placement;
+		if (
+			planned?.kind !== "basic" ||
+			RESERVED_CASE_OPERATION_TYPES.has(origin) ||
+			RESERVED_CASE_OPERATION_TYPES.has(reached.caseType)
+		)
+			return refuse(
+				"step",
+				"Saving through a user link needs an ordinary case at both ends and a form whose case changes use basic Case Management.",
+				{ identifier: "user" },
+			);
+	}
 	const placement = ownSlotRefusal(ctx, operation);
 	if (placement !== undefined)
 		refuse(

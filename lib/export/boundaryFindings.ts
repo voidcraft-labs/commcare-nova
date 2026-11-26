@@ -25,11 +25,16 @@ import {
 	type PreparedLookupWire,
 } from "@/lib/commcare/lookup/fixtures";
 import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
+import { lookupLexicalSlots } from "@/lib/commcare/lookup/lexicalSlots";
 import {
 	type LookupTableWireNaming,
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
+import {
+	lookupRuntimeStringTooLong,
+	lookupRuntimeValueFinding,
+} from "@/lib/commcare/lookup/runtimeStrings";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import {
 	buildLookupWorkbook,
@@ -63,6 +68,7 @@ export type ExportMode = (typeof EXPORT_MODES)[number];
 export interface ExportCarrierFindingsInput {
 	readonly doc: BlueprintDoc;
 	readonly mode: ExportMode;
+	readonly manualLookupInstaller?: boolean;
 	/** One generation of the tables the document reads: definitions and rows. */
 	readonly fixtureData: LookupFixtureDataSnapshot;
 	readonly restoreTableIds?: ReadonlySet<LookupTableId>;
@@ -248,7 +254,9 @@ export function exportCarrierFindings(
 	);
 	const leftOutIds = new Set(leftOut.map((definition) => definition.id));
 	const jsonLookupTables =
-		mode === "hq-upload" && naming !== undefined
+		(mode === "hq-upload" ||
+			(mode === "hq-json" && input.manualLookupInstaller)) &&
+		naming !== undefined
 			? referenced.flatMap((definition) => {
 					if (
 						leftOutIds.has(definition.id) ||
@@ -295,7 +303,25 @@ export function exportCarrierFindings(
 							: lookupWireNaming(definitions),
 				);
 	const sentDefinitions = mode === "hq-json" ? referenced : mainDefinitions;
+	const carried = referenced.filter(
+		(table) =>
+			(mode !== "hq-upload" || !leftOutIds.has(table.id)) &&
+			!fixtureData.streamedTables?.has(table.id),
+	);
+	const runtimeFindings = carried.flatMap((table) => {
+		const rows = fixtureData.rowsByTable.get(table.id) ?? [];
+		const columns = [...lookupLexicalSlots(table)];
+		return rows.some((row) =>
+			columns.some((column) =>
+				Array.from(column.values(row)).some(lookupRuntimeStringTooLong),
+			),
+		)
+			? [lookupRuntimeValueFinding(table)]
+			: [];
+	});
+
 	const textFindings = [
+		...runtimeFindings,
 		...lookupXmlTextFindings(narrowSnapshot(fixtureData, referenced)),
 		...(mode === "ccz"
 			? []

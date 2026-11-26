@@ -126,6 +126,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -677,8 +678,53 @@ APP_NAME_KEYS = frozenset({"app.display.name", "homescreen.title"})
 APP_STRINGS = "app_strings"
 
 
+def legacy_related_case_formula(field, formula) -> bool:
+    """The calculation for one stored case relation property, using the same
+    case walk as HQ's PropertyXpathGenerator. Compare the emitted formula as a
+    whole rather than trying to recognize a path inside an arbitrary XPath."""
+    if not isinstance(field, str) or not isinstance(formula, str):
+        return False
+    steps = field.split("/")
+    if len(steps) < 2 or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", step) for step in steps):
+        return False
+    aliases = {"external-id": "external_id", "date-opened": "date_opened", "status": "@status",
+               "name": "case_name", "owner_id": "@owner_id"}
+    property_name = aliases.get(steps[-1], steps[-1])
+    if steps[0] == "user":
+        case = ("instance('casedb')/casedb/case[@case_type = 'commcare-user']"
+                "[hq_user_id = instance('commcaresession')/session/context/userid]")
+    else:
+        case = "current()"
+        for index in steps[:-1]:
+            case = f"instance('casedb')/casedb/case[@case_id = {case}/index/{index}]"
+    return formula == f"{case}/{property_name}"
+
+
+def _legacy_source_column(d) -> tuple[str, ...]:
+    if d.artifact != "app.json" or d.kind != "changed":
+        return NOWHERE
+    steps = unescaped(d.at)
+    if (len(steps) < 7 or steps[0] != "modules" or not steps[1].isdigit() or steps[2] != "case_details"
+            or steps[3] not in ("short", "long") or steps[4] != "columns" or not steps[5].isdigit()):
+        return NOWHERE
+    suffix = tuple(steps[6:])
+    if suffix == ("field",):
+        if not legacy_related_case_formula(d.before, d.after):
+            return NOWHERE
+    elif suffix == ("useXpathExpression",):
+        if d.before is not False or d.after is not True:
+            return NOWHERE
+    elif not (len(suffix) == 3 and suffix[0] == "enum" and suffix[1].isdigit() and suffix[2] == "key"
+              and isinstance(d.before, str) and re.fullmatch(r"[A-Za-z0-9_-]+", d.before)
+              and isinstance(d.after, str) and re.fullmatch(r"v*case_text_[0-9a-f]{32}", d.after)):
+        return NOWHERE
+    return ("menu", *steps[1:6])
+
+
 def _legacy_related_case_text_location(d) -> tuple[str, ...]:
-    """A generated locale or variable key of the recorded legacy Case List column."""
+    """A stored projection, generated locale or variable key of the exact legacy column."""
+    if d.check == "source":
+        return _legacy_source_column(d)
     if d.check != "proof2":
         return NOWHERE
     artifact = d.artifact.rsplit("/", 1)[-1]
@@ -717,6 +763,11 @@ def _legacy_related_case_text_location(d) -> tuple[str, ...]:
 
 
 def _legacy_text_is_unchanged(d, owner, siblings) -> bool:
+    if d.check == "source":
+        # The source comparison emits an editable field difference for this conversion
+        # only when a translatable enum kept its exact language maps and formula.
+        return any(other.check == "source" and other.at.endswith("/field")
+                   and _legacy_source_column(other) == owner for other in siblings)
     if not d.artifact.rsplit("/", 1)[-1].startswith("app_strings:"):
         return True
     before, after = [], []

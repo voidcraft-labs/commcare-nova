@@ -18,7 +18,9 @@ pytestmark = pytest.mark.reader("android")
 
 
 def _visible_views(view, suffix):
-    if view.get("class", "").endswith(suffix) and not view.get("visibility"):
+    if view.get("visibility"):
+        return
+    if view.get("class", "").endswith(suffix):
         yield view
     for child in view.get("children", ()):
         yield from _visible_views(child, suffix)
@@ -49,27 +51,37 @@ def test_android_uses_long_recipients_and_only_one_inline_video(android_document
         with zipfile.ZipFile(io.BytesIO(archive)) as zip_file:
             entries = {name: zip_file.read(name) for name in zip_file.namelist()}
         path, = (name for name in entries if name.endswith("modules-0/forms-0.xml"))
-        basename = VIDEO.rsplit("/", 1)[-1]
-        media = next(name for name in entries if name.endswith(basename))
-        entries[media.replace(basename, "inline-proof.mp4")] = entries[media]
-        entries[path] = _blank_help_and_control(
-            entries[path], "jr://file/commcare/inline-proof.mp4"
-        )
+        entries[path] = _blank_help_and_control(entries[path], VIDEO)
+        patched = archive_bytes(entries.items())
         answer, sent = _app(
-            served, archive_bytes(entries.items()), "itext-recipients", commands=[FORM], views=True,
-            questions={"/data/household/address": ["refused", "proof"]}, type_refused=True,
-            repeat_additions=1,
+            served, patched, "itext-recipients", commands=[FORM], views=True,
+            questions={"/data/household/address": ["proof"]}, repeat_additions=1,
+        )
+        refused, refusal_submissions = _app(
+            served, patched, "itext-validation-refusal", commands=[FORM], views=True,
+            questions={"/data/household/address": ["refused"]}, type_refused=True,
         )
     walk = answer["walks"][FORM]
-    android_walk_evidence(walk)
-    assert "raised" not in walk, walk
+    refusal_walk = refused["walks"][FORM]
+    android_walk_evidence({"accepted": walk, "refused": refusal_walk})
+    assert "raised" not in walk and "raised" not in refusal_walk, (walk, refusal_walk)
     form, = _forms(walk)
     screens = form["screens"]
     views = [screen.get("view") or {} for screen in screens]
     text = " ".join(label for view in views for label in _texts(view))
-    for expected in ("The address label", "The address hint", "The address help", "The household title", "The chosen option", "The entries title"):
+    for expected in ("The address label", "The address hint", "The address help", "The chosen option"):
         assert expected in text, (expected, text)
-    assert "The address violation" in json.dumps(screens), screens
+    headings = [
+        heading["text"].strip()
+        for screen in screens
+        for heading in _visible_views(screen.get("groupHeading") or {}, "TextView")
+    ]
+    assert "The household title" in headings, headings
+    assert "The entries title (1)" in headings, headings
+    assert any(screen.get("chose") == "Add a new The entries title?" for screen in screens)
+    rejected, = _forms(refusal_walk)
+    assert "The address violation" in json.dumps(rejected["screens"]), rejected["screens"]
+    assert rejected["saved"]["finishing"] is False and not refusal_submissions
     shown_video_counts = [len(list(_visible_views(view, "VideoView"))) for view in views]
     assert max(shown_video_counts) == 1, shown_video_counts
     for view in views:

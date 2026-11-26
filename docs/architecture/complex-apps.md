@@ -892,7 +892,12 @@ writable standard scalar like `external_id`
 and 255 characters, and no standard property every case carries: a case type
 holds it where the app saves or declares it. HQ's case search indexes no
 location (`corehq/pillows/case_search.py::_get_case_properties`), so a
-search's read of it is refused (`typeChecker.ts`, `location-not-in-search`).
+search expression's read of it is refused (`typeChecker.ts`,
+`location-not-in-search`). Both the dedicated request order and a saved
+`commcare_sort` default filter also refuse it. Both ways of
+asking Search to follow a record ID also refuse it because HQ follows
+the ID from the match’s dynamic properties. An order or a related record
+request can use `hq_user_id` where the requested case type carries it.
 A written `hq_user_id` is an ordinary property whose value the case store
 also copies into the case's external id, applied after the block's own
 `external_id` as HQ applies its known keys first; the submitting device keeps
@@ -3714,7 +3719,9 @@ and existing case relationships; no filter expands restore scope. Preview uses
 its existing captured device snapshot.
 
 A single-select question over all available cases emits the bare casedb case
-nodeset with `case_name` and `@case_id`. It can offer retained cases outside the
+nodeset with `case_name` and `@case_id`. The optional `status: open` adds
+`[@status = 'open']` over that same snapshot before choices are displayed. It
+can offer retained cases outside the
 current Blueprint catalog because Preview's existing snapshot already covers
 the authorized worker restore closure for the app and Project. The form
 treats the answer as an opaque ID. A case operation checks the live target

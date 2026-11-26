@@ -1,3 +1,4 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FormSpec, f } from "@/lib/__tests__/docHelpers";
@@ -13,6 +14,11 @@ import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { proseText } from "@/lib/domain/prose";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
+import { planFormCaseWire } from "../../../casePlacementPlan";
+import {
+	formsUsingWorkerRecord,
+	requiredPlanPrivileges,
+} from "../../../planPrivileges";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { entriesAt } from "../../__tests__/readerInput";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
@@ -722,6 +728,65 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					(one.place as { menu?: number }).menu === 0,
 			);
 			expect(visitFindings.map((one) => one.code)).toEqual([]);
+		});
+
+		it("holds a basic save through a declared user index and retains its editor privilege", async () => {
+			const base = app([visit], [household]);
+			const doc = produce(base, (draft) => {
+				draft.caseTypes = [
+					{
+						name: "patient",
+						properties: [],
+						relations: [
+							{
+								identifier: "user",
+								targetType: "household",
+								relationship: "child",
+							},
+						],
+					},
+					{ name: "household", properties: [] },
+				];
+			});
+			const addUserWrite = (json: AppJson) => {
+				const update = actionsOf(json).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update["user/size"] = { question_path: "/data/other" };
+			};
+			const reading = await readCases(doc, { edit: addUserWrite });
+			expect(codes(reading)).toEqual([]);
+			expect(
+				ownWrites(reading).find((write) => write.property === "size")?.via,
+			).toEqual([{ identifier: "user", throughCaseType: "household" }]);
+			const outcome = await reading.whole;
+			if (outcome?.kind !== "read")
+				throw new Error("Expected a complete reading.");
+			const held = outcome.draft.doc;
+			const form = Object.values(held.forms).find(
+				(candidate) => candidate.name === visit.name,
+			);
+			if (form === undefined) throw new Error("Expected the visiting form.");
+			const plan = planFormCaseWire(held, form.uuid);
+			if (plan.kind !== "basic")
+				throw new Error("Expected basic Case Management.");
+			expect(plan.actions.update_case.update["user/size"]).toMatchObject({
+				question_path: "/data/other",
+			});
+			expect(formsUsingWorkerRecord(held)).toEqual([]);
+			expect(
+				requiredPlanPrivileges(
+					held,
+					{ lookupTables: false, places: false },
+					null,
+				),
+			).toContainEqual(expect.objectContaining({ id: "user_case" }));
+
+			const untyped = await readCases(base, { edit: addUserWrite });
+			expect(codes(untyped)).toContain(
+				`${F}/update-key-whose-index-segments-include-user-each-parent-host-or`,
+			);
 		});
 
 		it("refuses a write through an index no link fixes", async () => {

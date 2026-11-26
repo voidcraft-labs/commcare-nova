@@ -3565,22 +3565,34 @@ export function menuOffersRecordType(
 
 /** A case list can open a companion on Android and use its returned text to search. */
 const deviceLookupName = z.string().trim().min(1);
+const deviceLookupExtraName = deviceLookupName.refine(
+	(name) => name !== "force_xpath_parsing",
+);
+export const CASE_LIST_LOOKUP_WORKER_FIELDS = ["username", "userid"] as const;
+export type CaseListLookupWorkerField =
+	(typeof CASE_LIST_LOOKUP_WORKER_FIELDS)[number];
+const deviceLookupExtraSchema = z.union([
+	z.strictObject({ name: deviceLookupExtraName, value: z.string() }),
+	z.strictObject({
+		name: deviceLookupExtraName,
+		expression: z.strictObject({
+			kind: z.literal("term"),
+			term: z.strictObject({
+				kind: z.literal("session-context"),
+				field: z.enum(CASE_LIST_LOOKUP_WORKER_FIELDS),
+			}),
+		}),
+	}),
+]);
+export type DeviceLookupExtra = z.infer<typeof deviceLookupExtraSchema>;
 export const caseListDeviceLookupSchema = z
 	.strictObject({
 		action: deviceLookupName,
 		label: deviceLookupName,
 		icon: mediaAssetIdSchema.optional(),
+		resultHeading: caseListWordingSchema.optional(),
 		automatic: z.literal(true).optional(),
-		extras: z
-			.array(
-				z.strictObject({
-					name: deviceLookupName.refine(
-						(name) => name !== "force_xpath_parsing",
-					),
-					value: z.string(),
-				}),
-			)
-			.min(1),
+		extras: z.array(deviceLookupExtraSchema).min(1),
 		responses: z.array(deviceLookupName).min(1),
 	})
 	.superRefine(({ extras, responses }, ctx) => {
@@ -3756,6 +3768,15 @@ export const caseListConfigSchema = z
 				lastGroup = position;
 			}
 		}
+		if (
+			config.deviceLookup?.resultHeading !== undefined &&
+			config.tile !== undefined
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup", "resultHeading"],
+				message: "Show lookup confidence in a case list with rows.",
+			});
 		if (config.deviceLookup && config.tile?.namedSlots)
 			ctx.addIssue({
 				code: "custom",

@@ -17,6 +17,10 @@ import {
 	lookupJsonRowContent,
 } from "./jsonRows";
 import type { LookupTableWireNaming } from "./naming";
+import {
+	LOOKUP_RUNTIME_STRING_LIMIT_LINE,
+	lookupRuntimeStringTooLong,
+} from "./runtimeStrings";
 
 export interface PagedLookupJsonRow {
 	readonly novaRowId: string;
@@ -90,7 +94,11 @@ export async function stagePagedLookupJson(
 	budget: { readonly rows: number; readonly bytes: number },
 ): Promise<
 	| { readonly rows: readonly PagedLookupJsonRow[]; readonly bytes: number }
-	| { readonly issue: string; readonly excess?: "workspace" | "definition" }
+	| {
+			readonly issue: string;
+			readonly excess?: "workspace" | "definition";
+			problem?: "runtime-value-length";
+	  }
 > {
 	if (table.count > budget.rows)
 		return { issue: OVER_BUDGET, excess: "workspace" };
@@ -124,6 +132,12 @@ export async function stagePagedLookupJson(
 				issue:
 					"A lookup value contains a character that cannot be installed on a worker’s phone.",
 			};
+		if (values.some(lookupRuntimeStringTooLong))
+			return {
+				issue: LOOKUP_RUNTIME_STRING_LIMIT_LINE,
+				problem: "runtime-value-length",
+			};
+
 		const rowBytes = Buffer.byteLength(
 			JSON.stringify(
 				lookupRowJsonBody("0".repeat(32), {

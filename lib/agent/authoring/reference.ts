@@ -146,7 +146,7 @@ Use a cases choice source to choose existing records: {kind: 'cases', caseType: 
 
 In a form question's case or table choice filter, position() reads the candidate's one-based position in its source. For example, position() < 3 keeps the first two candidates. In that filter, position(field('field-uuid')) preserves a position read of a form question outside a repeat and returns 0 even when its answer is blank. Filtering happens before the choice order is applied.
 
-Use {kind: 'available-cases'} when a single-select form question offers every case restored for the worker. It shows the saved case name and stores its exact ID, with no one case type, filter or sort setting. A restored closed case or the worker’s own case can appear.
+Use {kind: 'available-cases'} when a single-select form question offers every case restored for the worker. It shows the saved case name and stores its exact ID, across all case types. To offer only open cases, add status: 'open'. A restored closed case can appear when status is omitted.
 
 Filters narrow the worker's restored cases; they do not fetch more or expand access. An all-clinics selector still offers only clinics present for that worker. Test with a representative worker and location assignment. For a checklist that updates existing members, use explicit update operations. Iterate a stable roster captured at entry, retain each row ID in a hidden answer, leave that automatic repeat unlabeled when it has no worker-facing content, and condition each operation on that ID's membership in the FINAL checklist. A repeat driven by the changing selection retains rows after deselection and is not a safe attendance program.
 

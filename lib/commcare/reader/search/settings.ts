@@ -23,6 +23,7 @@ import {
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
 	type SearchRuntimeValidationMessage,
 } from "@/lib/domain/searchRuntimeValidationMessages";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
@@ -36,7 +37,7 @@ import { emitExcludedOwnerFilterExpression } from "../../suite/case-list/nodeset
 import { searchGuardedFieldNames } from "../../suite/case-search/moduleXPathQuery";
 import { includeSearchHierarchy } from "../../suite/case-search/relatedCaseProjection";
 import {
-	dedicatedOrderNamesReserved,
+	dedicatedOrderRefusal,
 	readDedicatedOrder,
 } from "../../suite/case-search/requestOrder";
 import { normalizeSpace } from "../../suite/wire";
@@ -116,7 +117,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}search-button-display-condition-reading-what-the-case-list-does-not-load`,
 		"schema:CaseSearch.search_button_display_condition",
 	),
-	/** A check with no message on a field Nova's search guards (`settleSearchSettings`). */
+	/** A check whose native test cannot keep the guard and its runtime message together. */
 	checkWithoutMessageGuarded: refuse(
 		`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
 		"schema:Assertion.text",
@@ -193,6 +194,10 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}additional-case-types-naming-only-the-menu-s-own-type`,
 		"schema:CaseSearch.additional_case_types",
 	),
+	relatedPropertyDeviceOnly: refuse(
+		`${S}a-related-record-property-only-devices-hold`,
+		"schema:CaseSearch.custom_related_case_property",
+	),
 	relatedProperty: take(
 		`${S}custom-related-case-property`,
 		"schema:CaseSearch.custom_related_case_property",
@@ -219,6 +224,10 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 	),
 	customSortReserved: refuse(
 		`${S}a-server-order-naming-a-property-nova-reserves`,
+		"schema:CaseSearch.custom_sort_properties",
+	),
+	customSortDeviceOnly: refuse(
+		`${S}a-server-order-naming-a-property-only-devices-hold`,
 		"schema:CaseSearch.custom_sort_properties",
 	),
 	searchOnClear: take(
@@ -1169,8 +1178,12 @@ export function readSearchSettings(
 	if (cursor.used("custom_sort_properties")) {
 		const stored = cursor.peek("custom_sort_properties");
 		const order = readDedicatedOrder(stored);
-		if (order === undefined && dedicatedOrderNamesReserved(stored)) {
-			cursor.refuse("custom_sort_properties", T.customSortReserved);
+		const refusal = dedicatedOrderRefusal(stored);
+		if (order === undefined && refusal !== undefined) {
+			cursor.refuse(
+				"custom_sort_properties",
+				refusal === "reserved" ? T.customSortReserved : T.customSortDeviceOnly,
+			);
 			ok = false;
 		} else if (order === undefined) {
 			const detail = { name: "schema:CaseSearch.custom_sort_properties" };
@@ -1207,6 +1220,15 @@ export function readSearchSettings(
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:CaseSearch.custom_related_case_property",
 			});
+			ok = false;
+		} else if (isDeviceOnlyCaseProperty(property.data)) {
+			cursor.refuse(
+				"custom_related_case_property",
+				T.relatedPropertyDeviceOnly,
+				{
+					name: property.data,
+				},
+			);
 			ok = false;
 		} else {
 			cursor.take(
@@ -2139,12 +2161,9 @@ export function settleSearchSettings(
 }
 
 /**
- * The fields of `prompts` read as a check with no message of its own whose answers Nova's search
- * guards (`moduleXPathQuery.ts::searchGuardedFieldNames`): the guard shares the field's one check
- * and its sentence follows the field's message, so Nova's gate holds no such check
- * (`validator/rules/case-list/searchCheckMessage.ts`), and the projection prints the guard's
- * sentence where HQ's build printed none. A stored test that ends with Nova's guard is settled as
- * an untold check (`index.ts::settleUntoldChecks`).
+ * A native check with no message can share the runtime sentence when its
+ * authored rule and existing guard project to the same native test. This
+ * names the remaining checked shapes whose projected test cannot match.
  */
 function checksWithoutMessageTheSearchGuards(
 	doc: BlueprintDoc,

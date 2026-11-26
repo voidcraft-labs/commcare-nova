@@ -1,3 +1,4 @@
+import { availableCasesNodeset } from "../../caseOptions";
 import {
 	bindLookupRead,
 	lookupReadNames,
@@ -45,6 +46,7 @@ export interface CaseChoicesProposal {
 	readonly sort?: Element;
 	readonly select: "select1" | "select";
 	readonly caseType?: string;
+	readonly status?: "open";
 	readonly labelProperty: string;
 	/** Whether the nodeset holds a filter, registered for the expression stage, which claims
 	 *  the nodeset with it. */
@@ -463,20 +465,28 @@ function readItemset(
 		chain.predicates.length <= 2 &&
 		singleAttribute(valueRef) === "case_id"
 	) {
-		if (chain.predicates.length === 0) {
+		const allOpen =
+			chain.predicates.length === 1 &&
+			sameTree(nodeset, availableCasesNodeset("open"));
+		if (chain.predicates.length === 0 || allOpen) {
 			if (
 				select !== "select1" ||
 				sort !== undefined ||
 				singleName(labelRef) !== "case_name"
 			)
 				return other();
-			field.field.optionsSource = { kind: "available-cases" };
+			const status = allOpen ? ("open" as const) : undefined;
+			field.field.optionsSource = {
+				kind: "available-cases",
+				...(status !== undefined && { status }),
+			};
 			return {
 				itemset,
 				label,
 				value,
 				select,
 				labelProperty: "case_name",
+				status,
 				filtered: false,
 			};
 		}

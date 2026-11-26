@@ -919,6 +919,42 @@
 		"placeKinds": ["menu"],
 		"rows": [
 			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/field",
+				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/enum/*/key",
+				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/useXpathExpression",
+				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/field",
+				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/enum/*/key",
+				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/useXpathExpression",
+				"kind": "changed"
+			},
+			{
 				"check": "proof2",
 				"artifact": "*app_strings:*",
 				"path": "/m*.*.*_*_*.header",

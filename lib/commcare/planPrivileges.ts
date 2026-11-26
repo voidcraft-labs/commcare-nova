@@ -191,6 +191,19 @@ function formsInOrder(
 	);
 }
 
+/** Basic Case Management offers the literal user index under USERCASE. */
+export function formsWritingThroughUserIndex(doc: BlueprintDoc): Uuid[] {
+	return formsInOrder(doc).flatMap(({ formUuid }) =>
+		doc.forms[formUuid].caseOperations?.some((operation) =>
+			operation.writes?.some((write) =>
+				write.via?.some((step) => step.identifier === "user"),
+			),
+		)
+			? [formUuid]
+			: [],
+	);
+}
+
 /**
  * The forms that use the worker's own record, in the document's form order:
  * a positioned delivery counts when its recipient expressions read a
@@ -365,6 +378,10 @@ export function requiredPlanPrivileges(
 	 * (`callcenter/sync_usercase.py::_iter_sync_usercase_helpers`), so every
 	 * value a form reads from it is blank. */
 	add("user_case", [
+		...formsWritingThroughUserIndex(doc).map(
+			(formUuid) =>
+				`${formName(doc, formUuid)} saves to a case linked through its user index.`,
+		),
 		...doc.moduleOrder.flatMap((uuid) =>
 			doc.modules[uuid]?.caseType === "commcare-user"
 				? [`${doc.modules[uuid].name} lists worker records.`]

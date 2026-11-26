@@ -23,7 +23,10 @@ import type {
 	SearchFilter,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
-import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import {
@@ -35,7 +38,7 @@ import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import {
 	readDedicatedOrder,
 	readRequestOrderText,
-	requestOrderTextNamesReserved,
+	requestOrderTextRefusal,
 } from "../../suite/case-search/requestOrder";
 import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
 import { rethrowWorkStop } from "../../workMeter";
@@ -177,6 +180,10 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}a-server-order-naming-a-property-nova-reserves`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
+	sortDeviceOnly: refuse(
+		`${S}a-server-order-naming-a-property-only-devices-hold`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
 	sortKey: refuse(
 		`${S}default-properties-entry-keyed-commcare-sort-x-commcare-custom`,
 		"schema:DefaultCaseSearchProperty.property",
@@ -187,6 +194,10 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	),
 	relatedTwice: refuse(
 		`${S}an-x-commcare-custom-related-case-property-entry-together-with`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	requestRelatedPropertyDeviceOnly: refuse(
+		`${S}a-related-record-property-only-devices-hold`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
 	requestRelatedProperty: take(
@@ -439,7 +450,7 @@ function readDefaultFilters(
 		if (property !== "_xpath_query") {
 			// A literal order is held among the filters, where it arrived; one
 			// naming a property Nova reserves is refused under its own entry.
-			let sortReserved = false;
+			let sortRefusal: ReturnType<typeof requestOrderTextRefusal>;
 			if (property === "commcare_sort") {
 				const syntax = readFormSyntax(value);
 				const text =
@@ -448,8 +459,8 @@ function readDefaultFilters(
 						: undefined;
 				const order =
 					text === undefined ? undefined : readRequestOrderText(text);
-				sortReserved =
-					text !== undefined && requestOrderTextNamesReserved(text);
+				sortRefusal =
+					text === undefined ? undefined : requestOrderTextRefusal(text);
 				if (order !== undefined) {
 					const occurrence = names.get(property)?.length ?? 0;
 					addName(property, row);
@@ -472,9 +483,12 @@ function readDefaultFilters(
 				}
 			}
 			// The row's value is the filter the refusal names, and stands under its finding.
-			const claim = sortReserved
-				? C.sortReserved
-				: keyFinding(property, value, ownersExpression, relatedPropertySet);
+			const claim =
+				sortRefusal === "reserved"
+					? C.sortReserved
+					: sortRefusal === "device-only"
+						? C.sortDeviceOnly
+						: keyFinding(property, value, ownersExpression, relatedPropertySet);
 			if (claim === undefined) {
 				if (
 					property === "case_type" ||
@@ -485,6 +499,21 @@ function readDefaultFilters(
 						parsed.ok && parsed.node?.kind === "string"
 							? parsed.node.value
 							: undefined;
+					if (
+						property === "x_commcare_custom_related_case_property" &&
+						name !== undefined &&
+						isDeviceOnlyCaseProperty(name)
+					) {
+						const claim = C.requestRelatedPropertyDeviceOnly;
+						const detail = { name };
+						row.refuse("property", claim, detail);
+						accounting.cover(
+							{ json: row, key: "defaultValue" },
+							manifestFindingOf(claim, row.place, detail),
+						);
+						ok = false;
+						return;
+					}
 					const match =
 						property === "case_type" ? C.caseTypeKey : C.requestRelatedProperty;
 					const valid =
@@ -977,7 +1006,8 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 					]);
 					if (
 						typeof propertySource === "string" &&
-						authoredCasePropertyNameSchema.safeParse(propertySource).success
+						authoredCasePropertyNameSchema.safeParse(propertySource).success &&
+						!isDeviceOnlyCaseProperty(propertySource)
 					) {
 						if (
 							!draft.some(
@@ -1601,19 +1631,23 @@ function settleUntoldChecks(
 		const sentence = group[0].ending.message.message;
 		const texts = recordFromEntries(
 			codes.flatMap((code) => {
-				const alone = group.find((field) => field.ending.whole)?.texts[code];
-				const joined = group
-					.filter((field) => !field.ending.whole)
-					.map((field) => field.texts[code] ?? "");
+				const alone = group.find(
+					(field) => field.ending.whole && field.texts[code],
+				)?.texts[code];
+				const joined = group.flatMap((field) =>
+					!field.ending.whole && field.texts[code] ? [field.texts[code]] : [],
+				);
+				if (alone === undefined && joined.length === 0) return [];
 				const text = readGuardText(sentence, alone, joined);
 				return text ? [[code, text] as const] : [];
 			}),
 		);
-		ctx.translations.set(
-			makeTranslationUnitId("system", "search-validation", key),
-			"text",
-			translatedTexts(ctx, texts, true),
-		);
+		if (Object.keys(texts).length > 0)
+			ctx.translations.set(
+				makeTranslationUnitId("system", "search-validation", key),
+				"text",
+				translatedTexts(ctx, texts, true),
+			);
 		for (const { prompt, index, ending, module, texts: stored } of group) {
 			const point = ctx.pending.site(index).at;
 			const held = ctx.doc;
@@ -1628,9 +1662,15 @@ function settleUntoldChecks(
 						: [];
 				}),
 			);
-			let kept = ending.whole
-				? codes.every((code) => stored[code] === texts[code])
-				: !!rule && codes.every((code) => ownMessages[code]?.trim());
+			const usesNativeMessage =
+				rule !== undefined && codes.every((code) => stored[code] === "");
+			let kept =
+				usesNativeMessage ||
+				(ending.whole
+					? codes.every(
+							(code) => stored[code] !== "" && stored[code] === texts[code],
+						)
+					: !!rule && codes.every((code) => ownMessages[code]?.trim()));
 			if (kept && rule) {
 				const registration = ctx.pending.list()[index];
 				const { deferRefusal: _defer, ...own } = registration;
@@ -1680,10 +1720,12 @@ function settleUntoldChecks(
 				]?.caseListConfig?.searchInputs.find((one) => one.uuid === prompt.uuid);
 				if (!input || input.kind === "hidden") return;
 				if (ending.whole) delete input.validation;
-				else if (input.validation)
-					input.validation.message = ownMessages[source];
+				else if (input.validation) {
+					if (usesNativeMessage) delete input.validation.message;
+					else input.validation.message = ownMessages[source];
+				}
 			});
-			if (!ending.whole)
+			if (!ending.whole && !usesNativeMessage)
 				ctx.translations.set(
 					makeTranslationUnitId(
 						"search-input",

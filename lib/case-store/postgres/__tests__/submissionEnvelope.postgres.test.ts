@@ -130,13 +130,16 @@ const PATIENT: CaseType = {
 		{ name: "hq_user_id", label: proseText("Worker ID"), data_type: "text" },
 	],
 };
-// A superset of `patient` — every shared property keeps its exact
-// type (the wirePortable retype destination), plus a destination-only
-// `severity` slot a retyping operation's write may populate.
+// Every patient value has the same JSON representation here, including the
+// date widened to text. The promoted case can also hold a severity.
 const PATIENT_V2: CaseType = {
 	name: "patient_v2",
 	properties: [
-		...PATIENT.properties,
+		...PATIENT.properties.map((property) =>
+			property.name === "seen_on"
+				? { ...property, data_type: "text" as const }
+				: property,
+		),
 		{ name: "severity", label: proseText("Severity"), data_type: "text" },
 	],
 };
@@ -3301,9 +3304,10 @@ describe("owner stamping", () => {
 // ---------------------------------------------------------------
 
 describe("retype", () => {
-	it("executes the wirePortable subset: type flips, properties retained verbatim", async () => {
+	it("retypes the case and keeps its original date string in the text property", async () => {
 		const store = makeStore();
-		await seedSessionPatient(store, { notes: "kept", age: 30 });
+		const properties = { notes: "kept", age: 30, seen_on: "2026-04-17" };
+		await seedSessionPatient(store, properties);
 
 		await submit(store, {
 			appId: APP_ID,
@@ -3328,7 +3332,7 @@ describe("retype", () => {
 		});
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.case_id).toBe(SESSION_CASE_ID);
-		expect(rows[0]?.properties).toMatchObject({ notes: "kept", age: 30 });
+		expect(rows[0]?.properties).toEqual(properties);
 	});
 
 	it("applies destination-typed writes and the type change as one unit", async () => {
@@ -4165,104 +4169,121 @@ describe("the form's own case", () => {
 		expect((await patientRow(store, SESSION_CASE_ID))?.status).toBe("closed");
 	});
 
-	it("saves a write through its index to the case the index reaches, and nothing where none is indexed", async () => {
-		const store = makeStore();
-		const HOUSEHOLD_ID = "00000000-0000-7000-8000-00000000dddd";
-		await seedPatient(store, HOUSEHOLD_ID, "The household", {
-			notes: "household",
-		});
-		await seedSessionPatient(store);
-		await submit(store, {
-			appId: APP_ID,
-			ordinary: { kind: "none" },
-			operations: rootProgram([
-				envOp(
-					operation({
-						uuid: OP_A,
-						id: "index_household",
-						action: "update",
-						caseType: "patient",
-						target: { kind: "session" },
-						links: [
-							{
-								identifier: "parent",
-								targetType: "patient",
-								target: {
-									kind: "expression",
-									expr: term(literal(HOUSEHOLD_ID)),
-								},
-								relationship: "child",
-							},
-						],
-					}),
-					{
-						expressionSnapshotTypes: {
-							links: new Map([[0, "patient"]]),
-						},
-					},
-				),
-			]),
-		});
-
-		const viaParent = (value: string): EnvelopeCaseOperation =>
-			ownOp({
-				writes: [
-					{
-						property: "notes",
-						value: term(literal(value)),
-						via: [{ identifier: "parent" }],
-					},
-					{ property: "copy", value: term(literal(value)) },
-				],
+	it.each(["parent", "user"] as const)(
+		"saves through the %s index to the linked case",
+		async (identifier) => {
+			const store = makeStore();
+			const HOUSEHOLD_ID = "00000000-0000-7000-8000-00000000dddd";
+			await seedPatient(store, HOUSEHOLD_ID, "The household", {
+				notes: "household",
 			});
-		const withVia = (program: CaseOperationProgram) => ({
-			...program,
-			operations: program.operations.map((entry) =>
-				entry.operation.uuid === OWN_UUID
-					? { ...entry, viaCaseTypes: new Map([[0, "patient"]]) }
-					: entry,
-			),
-		});
-		const request = {
-			appId: APP_ID,
-			ordinary: followupOrdinary(),
-			operations: withVia(ownProgram("followup", [viaParent("from child")])),
-		};
-		const claim = { ...request, submissionReceipt: receiptFor(request) };
-		const saved = await store.applySubmission(claim);
-		expect(saved.caseDatabasePatch?.rows).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					case_id: HOUSEHOLD_ID,
-					properties: expect.objectContaining({ notes: "from child" }),
-				}),
-			]),
-		);
-		expect((await store.applySubmission(claim)).caseDatabasePatch).toEqual(
-			saved.caseDatabasePatch,
-		);
-		expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject({
-			notes: "from child",
-		});
-		expect(
-			(await patientRow(store, SESSION_CASE_ID))?.properties,
-		).toMatchObject({ notes: "original", copy: "from child" });
+			await seedSessionPatient(store);
+			await submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram([
+					envOp(
+						operation({
+							uuid: OP_A,
+							id: "index_household",
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							links: [
+								{
+									identifier,
+									targetType: "patient",
+									target: {
+										kind: "expression",
+										expr: term(literal(HOUSEHOLD_ID)),
+									},
+									relationship: "child",
+								},
+							],
+						}),
+						{
+							expressionSnapshotTypes: {
+								links: new Map([[0, "patient"]]),
+							},
+						},
+					),
+				]),
+			});
 
-		// The household itself has no parent index: its write through one
-		// saves nothing, and its own write still lands.
-		await submit(store, {
-			appId: APP_ID,
-			ordinary: { ...followupOrdinary(), caseIds: [HOUSEHOLD_ID] },
-			operations: {
-				...withVia(ownProgram("followup", [viaParent("nowhere")])),
-				sessionCaseIds: [HOUSEHOLD_ID],
-			},
-		});
-		expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject({
-			notes: "from child",
-			copy: "nowhere",
-		});
-	});
+			const viaIndex = (value: string): EnvelopeCaseOperation =>
+				ownOp({
+					writes: [
+						{
+							property: "notes",
+							value: term(literal(value)),
+							via: [{ identifier }],
+						},
+						{ property: "copy", value: term(literal(value)) },
+					],
+				});
+			const withVia = (program: CaseOperationProgram) => ({
+				...program,
+				operations: program.operations.map((entry) =>
+					entry.operation.uuid === OWN_UUID
+						? { ...entry, viaCaseTypes: new Map([[0, "patient"]]) }
+						: entry,
+				),
+			});
+			const request = {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: withVia(ownProgram("followup", [viaIndex("from child")])),
+			};
+			const claim = { ...request, submissionReceipt: receiptFor(request) };
+			const saved = await store.applySubmission(claim);
+			expect(saved.caseDatabasePatch?.rows).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						case_id: HOUSEHOLD_ID,
+						properties: expect.objectContaining({ notes: "from child" }),
+					}),
+				]),
+			);
+			expect((await store.applySubmission(claim)).caseDatabasePatch).toEqual(
+				saved.caseDatabasePatch,
+			);
+			expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject(
+				{
+					notes: "from child",
+				},
+			);
+			expect(
+				(await patientRow(store, SESSION_CASE_ID))?.properties,
+			).toMatchObject({ notes: "original", copy: "from child" });
+
+			const missing = submit(store, {
+				appId: APP_ID,
+				ordinary: { ...followupOrdinary(), caseIds: [HOUSEHOLD_ID] },
+				operations: {
+					...withVia(ownProgram("followup", [viaIndex("nowhere")])),
+					sessionCaseIds: [HOUSEHOLD_ID],
+				},
+			});
+			if (identifier === "user") {
+				expect((await rejection(missing)).rejection).toMatchObject({
+					kind: "target",
+					reason: "missing-connection",
+				});
+				expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toEqual({
+					notes: "from child",
+				});
+			} else {
+				// Preserve the legacy envelope behavior when no signed opening is supplied.
+				await missing;
+				expect(
+					(await patientRow(store, HOUSEHOLD_ID))?.properties,
+				).toMatchObject({
+					notes: "from child",
+					copy: "nowhere",
+				});
+			}
+		},
+	);
 
 	it("saves the name and the owner of the case its index reaches as that case's, and refuses a blank name", async () => {
 		// HQ's build writes `parent/name` and `parent/owner_id` into the parent's

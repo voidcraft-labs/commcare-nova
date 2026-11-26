@@ -26,6 +26,8 @@ would be no witness of the defect).
 
 from __future__ import annotations
 
+import pytest
+
 from proof.formplayer import apps
 from proof.formplayer.walk import screen_kind
 
@@ -120,22 +122,28 @@ def test_formplayer_does_not_open_the_form_over_the_controls_tags(
 
 
 
-def test_formplayer_unfiltered_case_itemset_lists_the_workers_mixed_restore(
-    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+@pytest.mark.parametrize("open_only", [False, True], ids=["all", "open"])
+def test_formplayer_case_itemset_keeps_its_lifecycle_scope(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence, open_only
 ):
     from lxml import etree
 
     from proof.observe import visible_case_choice as visible
 
+    expected = dict(visible.EXPECTED)
+    if open_only:
+        del expected["closed-host"]
+    selected = "former-service" if open_only else "closed-host"
+
     with apps.published(formplayer_documents[visible.DOCUMENT], core_runner) as published:
         with apps.served(published, formplayer_runner, database=visible.database(),
-                         change=visible.release_unfiltered(published)) as served, served.run("all-visible-cases"):
+                         change=visible.release_with_lifecycle(published, open_only)) as served, served.run("all-visible-cases"):
             web = apps.web(formplayer_runner, served)
             form = _opened(web)
             assert screen_kind(form) == "form", form
             (choice,) = [node for node in _questions(form["tree"]) if node.get("binding") == "/data/clinic"]
-            assert sorted(choice["choices"]) == sorted(visible.EXPECTED.values())
-            index = choice["choices"].index(visible.EXPECTED["former-service"]) + 1
+            assert sorted(choice["choices"]) == sorted(expected.values())
+            index = choice["choices"].index(expected[selected]) + 1
             answers = {choice["ix"]: index}
             accepted = web.answer(form["session_id"], choice["ix"], index)
             assert accepted["status"] == "accepted", accepted
@@ -145,4 +153,4 @@ def test_formplayer_unfiltered_case_itemset_lists_the_workers_mixed_restore(
             (submission,) = served.hq.submissions[start:]
     case_id = etree.fromstring(submission.instance).findtext("{*}clinic")
     evidence("all-visible-cases", {"choices": choice["choices"], "submitted": case_id})
-    assert case_id == "former-service"
+    assert case_id == selected

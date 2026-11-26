@@ -211,17 +211,19 @@
 		"item": "session `data/fingerprintquery`",
 		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"dispositionCell": "**HELD-NEW**: a typed count needs one resolvable lookup supplier",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
-			"cell": "UNAVAILABLE / RUNS",
+			"cell": "UNAVAILABLE (no companion lookup) / RUNS (distinct response keys per session step, in frame order)",
 			"webApps": {
-				"reading": "unavailable"
+				"reading": "unavailable",
+				"note": "no companion lookup"
 			},
 			"android": {
-				"reading": "runs"
+				"reading": "runs",
+				"note": "Core adds a count for each step with an identification response. Counts include unmatched keys and a defined empty result contributes zero. The nodes have no case-list identity."
 			}
 		},
 		"emission": {
@@ -5515,7 +5517,7 @@
 			"lookup-code:corehq/apps/fixtures/upload/const.py::MAX_FIXTURE_ROWS"
 		],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: these Nova limits apply to one inline request or stored value. Larger complete tables and cells can be read in pages. The downloadable app budgets its unindexed embedded fixtures across inline and streamed tables at 10,000 rows, 100,000 cells and 16 MiB of exact fixture XML. CommCare HQ accepts at most 500,000 rows per workbook including both sheet headers and the types-sheet declarations, so one table fits up to 499,997 data rows. Nova can split workbooks between complete tables. Direct JSON can send complete global unindexed paged tables whose values the workbook cannot preserve. It verifies exact row bodies before writes, saves progress at settled operations and limits one publish to 10,000 paged JSON rows and 16 MiB of request bodies. Larger tables that cannot travel in workbooks and an authenticated resumable manual installer still need a carrier",
+		"dispositionCell": "**HELD-NEW**: these Nova limits apply to one inline request or stored value. Larger complete tables and cells can be read in pages. The downloadable app budgets its unindexed embedded fixtures across inline and streamed tables at 10,000 rows, 100,000 cells and 16 MiB of exact fixture XML. CommCare HQ accepts at most 500,000 rows per workbook including both sheet headers and the types-sheet declarations, so one table fits up to 499,997 data rows. Nova can split workbooks between complete tables. Direct JSON can send complete global unindexed paged tables whose values the workbook cannot preserve. It verifies exact row bodies before writes, saves progress at settled operations and limits one publish to 10,000 paged JSON rows and 16 MiB of request bodies. The authenticated manual installer carries the same bounded JSON data and resumes through the same verified row journal before the separate app import. CommCare worker storage caps a value at 65,535 modified UTF-8 bytes. Larger tables beyond both carriers remain held",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {

@@ -10,6 +10,8 @@ import {
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	projectSpaceCompatibilityForDownload,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import { textMember } from "@/lib/commcare/streamZip";
+import { manualLookupManifest } from "@/lib/deployment/manualLookupInstall";
 import { compileDownloadResponse } from "@/lib/export/artifacts/response";
 import {
 	EXPORT_ADVISORY_HEADER,
@@ -21,6 +23,7 @@ import {
 	MANUAL_IMPORT_GUIDE_HEADER,
 	renderManualImportGuide,
 } from "@/lib/publish/manualImportGuide";
+import { MANUAL_LOOKUP_MANIFEST } from "@/lib/publish/manualLookupManifest";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "../prepareCompileRequest";
 
@@ -94,6 +97,10 @@ export async function POST(req: NextRequest) {
 		// The RAW name goes to the builder and the guide: the archive's
 		// Unicode-safe member sanitizer keeps non-Latin and accented names
 		// intact inside the ZIP, and the README names that same member.
+		const install =
+			(prepared.jsonLookupTables?.length ?? 0) > 0
+				? manualLookupManifest(prepared.appId, prepared)
+				: undefined;
 		const guide = hqImportFileGuide({
 			appName: doc.appName,
 			doc,
@@ -101,6 +108,7 @@ export async function POST(req: NextRequest) {
 			lookupWorkbook,
 			managedLookupWorkbooks,
 			extraWorkbooks: prepared.streamedWorkbooks,
+			manualLookupTables: prepared.jsonLookupTables?.map(({ tag }) => tag),
 			managedLookupTables,
 			attachmentTarget,
 			lookupNaming,
@@ -113,7 +121,17 @@ export async function POST(req: NextRequest) {
 			lookupWorkbook,
 			managedLookupWorkbooks,
 			renderManualImportGuide(guide),
-			prepared.streamedWorkbooks,
+			[
+				...(prepared.streamedWorkbooks ?? []),
+				...(install
+					? [
+							textMember(
+								MANUAL_LOOKUP_MANIFEST,
+								JSON.stringify(install, null, 2),
+							),
+						]
+					: []),
+			],
 		);
 		// The archive is the artifact the person hands to HQ, and HQ's importer
 		// owns its version slots. The blueprint's `mutation_seq` rides

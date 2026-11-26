@@ -33,6 +33,12 @@ z.globalRegistry.add(caseOptionsSourceSchema, { id: "CaseOptionsSource" });
 /** Names and opaque IDs from the worker's whole restored case database. */
 export const availableCasesOptionsSourceSchema = z.strictObject({
 	kind: z.literal("available-cases"),
+	status: z
+		.literal("open")
+		.optional()
+		.describe(
+			"Use open to offer only open records. Omit to include restored closed records.",
+		),
 });
 export type AvailableCasesOptionsSource = z.infer<
 	typeof availableCasesOptionsSourceSchema

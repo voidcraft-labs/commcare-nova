@@ -2291,6 +2291,11 @@ def itemset_over_open_cases(authoring, app_id):
     _case_itemset(authoring, app_id, "itemset-over-open-cases", "[@status = &apos;open&apos;]")
 
 
+def itemset_over_closed_cases(authoring, app_id):
+    """A closed-only all-type itemset lies outside the admitted open selector."""
+    _case_itemset(authoring, app_id, "itemset-over-closed-cases", "[@status = &apos;closed&apos;]")
+
+
 def _case_itemset(authoring, app_id, name, predicate):
     _change(
         authoring,
@@ -2930,14 +2935,30 @@ def save_to_case_retype_keyed(authoring, app_id):
     )
 
 
+def save_to_case_date_as_text(authoring, app_id):
+    """A patient date and a visit text write share one property across a literal retype."""
+    _edit(
+        authoring,
+        app_id,
+        "save-to-case-date-as-text",
+        lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, RETYPE_CONVERTS_MODEL, RETYPE_CONVERTS_BODY),
+    )
+
+
 def save_to_case_retype_converts(authoring, app_id):
-    """A ``patient`` created with ``kept`` the date ``visit_date``, then given the type ``visit`` with ``kept`` the
-    text ``full_name``."""
+    """Reverse the two question sources. The retained property would have to become a date."""
+    model = RETYPE_CONVERTS_MODEL.replace(
+        'mk/case/update/kept" calculate="/data/visit_date"',
+        'mk/case/update/kept" calculate="/data/full_name"',
+    ).replace(
+        'again/case/update/kept" calculate="/data/full_name"',
+        'again/case/update/kept" calculate="/data/visit_date"',
+    )
     _edit(
         authoring,
         app_id,
         "save-to-case-retype-converts",
-        lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, RETYPE_CONVERTS_MODEL, RETYPE_CONVERTS_BODY),
+        lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, model, RETYPE_CONVERTS_BODY),
     )
 
 

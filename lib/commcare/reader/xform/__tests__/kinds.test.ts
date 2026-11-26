@@ -16,8 +16,10 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
+	blueprintDocSchema,
 	type LookupColumnId,
 	type LookupTableId,
 	proseText,
@@ -25,6 +27,7 @@ import {
 import { type FieldKind, fieldKinds } from "@/lib/domain/fields";
 import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
 import type { LookupRead } from "@/lib/domain/lookupRead";
+import { positionedCaseCreate } from "@/proof/targeted/documents/positionedCaseCreate";
 import { lookupWireNaming } from "../../../lookup/naming";
 import { buildXForm } from "../../../xform/builder";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
@@ -985,6 +988,7 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 		filter: string | undefined,
 		options: {
 			readonly allCases?: true;
+			readonly openOnly?: true;
 			readonly labelProperty?: string;
 			readonly sortProperty?: string;
 			readonly xml?: (xml: string) => string;
@@ -1016,7 +1020,10 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 									kind: "single_select",
 									id: "clinic",
 									optionsSource: options.allCases
-										? { kind: "available-cases" }
+										? {
+												kind: "available-cases",
+												...(options.openOnly && { status: "open" }),
+											}
 										: {
 												kind: "cases",
 												caseType: "clinic",
@@ -1078,6 +1085,44 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 			(one) => one.id === "clinic",
 		);
 		expect(field).toMatchObject({ optionsSource: { kind: "available-cases" } });
+	});
+
+	it("keeps the exact open filter over all restored case types", async () => {
+		const { atQuestion, outcome } = await questionFindings(undefined, {
+			allCases: true,
+			openOnly: true,
+			xml: (xml) => {
+				expect(xml).toContain(
+					`nodeset="instance(&apos;casedb&apos;)/casedb/case[@status = &apos;open&apos;]"`,
+				);
+				return xml;
+			},
+		});
+		expect(atQuestion).toEqual([]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") throw new Error("Expected a read form.");
+		expect(
+			Object.values(outcome.draft.doc.fields).find(
+				(field) => field.id === "clinic",
+			),
+		).toMatchObject({
+			optionsSource: { kind: "available-cases", status: "open" },
+		});
+	});
+
+	it("retains the placed finding for a closed-only filter", async () => {
+		const { atQuestion } = await questionFindings(undefined, {
+			allCases: true,
+			openOnly: true,
+			xml: (xml) =>
+				xml.replace(
+					"@status = &apos;open&apos;",
+					"@status = &apos;closed&apos;",
+				),
+		});
+		expect(atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
 	});
 
 	it("refuses a custom label over untyped cases", async () => {
@@ -1199,7 +1244,10 @@ const option = (key: string) => ({
  * the count and query modes of a repeat and both placements of a query repeat. A section is a
  * form's root of sections, so it is read from a form of its own.
  */
-const EMITTED: { readonly [K in FieldKind]: readonly KindFixture[] } = {
+const formReaderKinds = fieldKinds.filter((kind) => kind !== "case_change");
+const EMITTED: {
+	readonly [K in Exclude<FieldKind, "case_change">]: readonly KindFixture[];
+} = {
 	text: [
 		{
 			fields: [f({ kind: "text", id: "text" })],
@@ -1435,7 +1483,6 @@ const EMITTED: { readonly [K in FieldKind]: readonly KindFixture[] } = {
 			],
 		},
 	],
-	case_change: [], // Read with the case-change block, outside scalar kind selection.
 	connect_activity: [
 		{
 			fields: [
@@ -1515,8 +1562,8 @@ async function emittedAndRead(
 }
 
 describe("every kind Nova writes, emitted and read back", () => {
-	it("has a document for every kind of fieldKinds, each read as that kind", () => {
-		for (const kind of fieldKinds) {
+	it("exhibits every kind the form reader binds before case management", () => {
+		for (const kind of formReaderKinds) {
 			const fixtures = (
 				EMITTED as Partial<Record<string, readonly KindFixture[]>>
 			)[kind];
@@ -1530,7 +1577,7 @@ describe("every kind Nova writes, emitted and read back", () => {
 	});
 
 	it("reads each field's kind, id, keypad, container shape, repeat mode and placement", async () => {
-		const together = fieldKinds
+		const together = formReaderKinds
 			.filter((kind) => kind !== "section")
 			.flatMap((kind) => EMITTED[kind]);
 		const { shapes, standIns } = await emittedAndRead(
@@ -1538,6 +1585,28 @@ describe("every kind Nova writes, emitted and read back", () => {
 		);
 		expect(shapes).toEqual(together.flatMap((fixture) => fixture.read));
 		expect(standIns).toEqual([]);
+	});
+
+	it("attaches the positioned case-change field to its own case operation", async () => {
+		const doc = hydratePersistedBlueprint(
+			blueprintDocSchema.parse(positionedCaseCreate().doc),
+		);
+		const read = readHqApp(await inputFor(exportedBody(doc)));
+		expect(read.defects).toEqual([]);
+		if (read.kind !== "read") throw new Error(JSON.stringify(read.findings));
+		const { forms, fields, fieldOrder } = read.draft.doc;
+		const [form] = Object.values(forms);
+		const ordered = fieldOrder[form.uuid].map((uuid) => fields[uuid]);
+		expect(ordered.map((field) => field.id)).toEqual([
+			"visit_name",
+			"save_visit",
+			"notes",
+		]);
+		expect(ordered[1]).toMatchObject({
+			kind: "case_change",
+			operationUuid: form.caseOperations?.[0].uuid,
+		});
+		expect(form.caseOperations?.[0].action).toBe("create");
 	});
 
 	it("reads a form of root Question Lists as sections", async () => {

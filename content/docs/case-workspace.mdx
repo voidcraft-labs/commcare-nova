@@ -54,12 +54,16 @@ show the person chosen for this visit.
 
 In **Results**, **Add lookup** connects a case list to a companion app on the
 worker’s Android device. Set its Android action, lookup name, the text it
-receives, and the response names it can return. The Android toolbar calls
-the action **Scan Barcode**. You can attach a Project image to identify it.
-When a companion sends the primary text answer, CommCare searches the
-current list. When it returns a
-blank primary marker, CommCare uses the first named response it receives in
-your configured order.
+receives, and the response names it can return. Each named value can be
+fixed text, the worker’s username, or the worker’s ID. The Android toolbar
+calls the action **Scan Barcode**. You can attach a Project image to identify
+it. When a companion sends the primary text answer, CommCare searches the
+current list. If it declares a text response without a primary value,
+CommCare uses the first returned value in your response-name order.
+
+In a list with rows, **Show match confidence** adds a confidence column. Use this for a
+companion that returns case IDs with confidence levels. Android shows the
+matches it finds in the worker’s cases, with the confidence beside each one.
 
 You can open the companion when the list first appears or let workers open
 it when they need it. The worker’s device needs the companion installed,
@@ -542,9 +546,9 @@ says what to type or why it matters. A field can also be **Required**, always
 or only while a condition holds, with a message of your own or Nova's default.
 A **Check on the answer** is one rule a filled-in answer must pass, with the
 message shown when it does not. Leave the check's message blank and people see
-CommCare's own "Sorry, this response is invalid!". A field whose answer the
-search already checks for you, such as a number it compares, needs a message of
-its own for its check. A field brought in from CommCare HQ can also be required
+CommCare's own "Sorry, this response is invalid!". People see that same
+message if Search checks the answer before using it. A field brought in
+from CommCare HQ can also be required
 with no message at all: in Web Apps its search then waits until the field is
 answered, and the field shows as needing attention without saying why.
 **Show a message** gives it Nova's default.
@@ -947,7 +951,7 @@ switch stays on until the menu has a form.
 
 ## Choose which matches Search sends
 
-A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** sets which records the server sends. Pick a property, how to compare its values and a direction. Comparing a priority as a number puts 2 before 10 in ascending order; compared as text, 10 comes first. You can choose a property from any record type this search requests. Add a tie-breaker to decide between records that share a priority. Your list can still show the records it receives in its own order.
+A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** sets which records the server sends. Pick a property, how to compare its values and a direction. Comparing a priority as a number puts 2 before 10 in ascending order; compared as text, 10 comes first. You can choose a property that Search indexes from any record type this search requests. Search does not index the record’s location. Add a tie-breaker to decide between records that share a priority. Your list can still show the records it receives in its own order.
 
 This order uses advanced case search in your CommCare HQ project space. If your project space doesn't have it, **Add order as a search filter** sets the same kind of order among the search filters instead. When a search has both, the server applies the filters' orders first, then the one above. An app you bring in from CommCare HQ keeps each order where it was.
 
@@ -958,7 +962,7 @@ To keep particular owners' records out of the online results, add a search filte
 
 Choose additional record types for the menu when workers should be able to open them from its list. Each type needs a menu in your app. Under **Search filters**, **Include another record type in the request** adds matches to the search without changing the types a worker can open. A form that reads that search can use the extra matches.
 
-Use **Related records** in Search's settings to include the related hierarchy or the records used by Details. **Record ID to follow** includes the case whose ID a matched record holds in the selected property. Related records can supply case details without appearing as selectable matches.
+Use **Related records** in Search's settings to include the related hierarchy or the records used by Details. **Record ID to follow** includes the case whose ID a matched record holds in a property that Search can read. Related records can supply case details without appearing as selectable matches.
 
 ## Choose which cases appear first
 

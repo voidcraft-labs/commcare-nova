@@ -4957,41 +4957,52 @@ def native_filter_unbound_value(use, manifest):
 # The keys of HQ's search index Nova reads as a record's own information
 # (``lib/commcare/suite/case-search/requestOrder.ts::RECORD_KEYS``), and the names Nova reserves for a case's own facts
 # or as CommCare HQ's reserved words (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``:
-# the SaveToCase set with the block's own rows and the two location keys).
+# the SaveToCase set with the block's own rows).
 SERVER_ORDER_RECORD_KEYS = frozenset(
     {"@case_id", "@owner_id", "@case_type", "@status", "name", "case_name", "external_id", "date_opened", "last_modified"}
 )
-CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id", "location_id", "hq_user_id"})
+CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id"})
+# SQL keeps this value apart from case_json, so the Search index lacks it.
+SERVER_SEARCH_DEVICE_ONLY_KEYS = frozenset({"location_id"})
 
 
 def _order_key_reserved(key):
     return key not in SERVER_ORDER_RECORD_KEYS and (key in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or key in CASE_OPERATION_OWN_ROWS)
 
 
-def server_order_reserved_property(use, manifest):
-    """``case-search/a-server-order-naming-a-property-nova-reserves``: a literal ``commcare_sort`` default filter, or a
-    search's ``custom_sort_properties`` on a search its menu offers (the only one Nova reads them on), one of whose
-    keys names a property Nova reserves (``status`` is a saved property; the record's state is ``@status``,
-    ``es/case_search.py::sort_by_case_property``). A ``commcare_sort`` that is no one literal is
-    ``a-commcare-sort-x-commcare-custom-related-case-property-or-case``'s."""
+def _server_order_keys(use):
+    """The keys of a literal or dedicated server order at the source site of a use."""
     at, config = _search(use)
     if config is None:
         return None
     if not use.key.startswith(("schema:CaseSearch.custom_sort_properties", "schema:CaseSearchCustomSortProperty")):
+        keys = []
         for entry in _default_entries(at, config):
             if entry.get("property") != "commcare_sort":
                 continue
             text = _literal_text(entry.get("defaultValue"))
-            if text is not None and any(
-                _order_key_reserved(part.lstrip("+-").split(":")[0]) for part in text.split(",")
-            ):
-                return True
-        return False
+            if text is not None:
+                keys.extend(part.lstrip("+-").split(":")[0] for part in text.split(","))
+        return keys
     if not (config.get("properties") or config.get("default_properties")):
-        return False
+        return []
     row = at.nearest("CaseSearchCustomSortProperty")
     rows = [row] if row is not None else [each for each in config.get("custom_sort_properties") or [] if isinstance(each, dict)]
-    return any(isinstance(each.get("property_name"), str) and _order_key_reserved(each["property_name"]) for each in rows)
+    return [row["property_name"] for row in rows if isinstance(row.get("property_name"), str)]
+
+
+def server_order_reserved_property(use, manifest):
+    """An order of a stored property Nova reserves, apart from the indexed record's own attribute keys."""
+    keys = _server_order_keys(use)
+    return None if keys is None else any(_order_key_reserved(key) for key in keys)
+
+
+def server_order_device_only_property(use, manifest):
+    """An order of a case location kept outside Search's indexed case_json and metadata."""
+    keys = _server_order_keys(use)
+    if keys is None:
+        return None
+    return not any(_order_key_reserved(key) for key in keys) and bool(SERVER_SEARCH_DEVICE_ONLY_KEYS.intersection(keys))
 
 
 def request_config_key_runtime_value(use, manifest):
@@ -5024,6 +5035,23 @@ def related_case_property_twice(use, manifest):
         each.get("property") == "x_commcare_custom_related_case_property" for each in _default_entries(at, config)
     )
     return keyed and bool(config.get("custom_related_case_property"))
+
+
+def related_case_device_only_property(use, manifest):
+    """HQ follows a case ID from case_json, which omits the case's location column."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    if related_case_property_twice(use, manifest):
+        return False
+    if use.key == "schema:CaseSearch.custom_related_case_property":
+        value = config.get("custom_related_case_property")
+        return isinstance(value, str) and value in SERVER_SEARCH_DEVICE_ONLY_KEYS
+    return any(
+        row.get("property") == "x_commcare_custom_related_case_property"
+        and _literal_text(row.get("defaultValue")) in SERVER_SEARCH_DEVICE_ONLY_KEYS
+        for row in _default_entries(at, config)
+    )
 
 
 def data_registry_key(use, manifest):
@@ -5125,6 +5153,82 @@ def _prompt_reader(test):
         return test(prompt)
 
     return reader
+
+
+def additional_record_type_without_menu(use, manifest):
+    """HQ's Module Settings only offers types in the app's menus (views/modules.py)."""
+    at = _json(use)
+    if at is None:
+        return None
+    app = at.nearest("Application", "LinkedApplication")
+    menu = at.nearest(*MODULES)
+    requested = at.value
+    if app is None or menu is None or not isinstance(requested, list):
+        return None
+    if any(not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9_-]+", name) is None for name in requested):
+        return None
+    available = {
+        row["case_type"] for row in app.get("modules") or []
+        if isinstance(row, dict) and isinstance(row.get("case_type"), str) and row["case_type"]
+    }
+    return any(name != menu.get("case_type") and name not in available for name in requested)
+
+
+def search_group_layout_unreadable(use, manifest):
+    """A group's header and member runs must let the Case List editor name an ordered section."""
+    at = _json(use)
+    if at is None:
+        return None
+    search = at.nearest("CaseSearch")
+    prompt = at.nearest("CaseSearchProperty")
+    if search is None or prompt is None:
+        return None
+    properties = [row for row in search.get("properties") or [] if isinstance(row, dict)]
+    has_fields = any(row.get("is_group") is not True for row in properties)
+    seen = set()
+    heading = None
+    for row in properties:
+        key = row.get("group_key")
+        if row.get("is_group") is True:
+            valid = isinstance(key, str) and bool(key) and row.get("name") == key and key not in seen and has_fields
+            if row is prompt:
+                return not valid
+            heading = key if valid else None
+            if valid:
+                seen.add(key)
+        elif row is prompt:
+            return bool(key) and key != heading
+    return None
+
+
+def search_group_heading_unreadable(use, manifest):
+    """An otherwise valid header must give the app's worker languages a visible label."""
+    at = _json(use)
+    if at is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if prompt is None or prompt.get("is_group") is not True:
+        return False
+    if search_group_layout_unreadable(use, manifest):
+        return False
+    labels = prompt.get("label")
+    if not isinstance(labels, dict):
+        return True
+    app = at.nearest("Application", "LinkedApplication") or {}
+    languages = app.get("langs") or ["en"]
+    # HQ picks each requested language before the first build language with
+    # a stored value. With neither, _trans takes the first stored language.
+    fallback = next(
+        (labels[code] for code in languages if labels.get(code) is not None),
+        labels[min(labels)] if labels else "",
+    )
+    chosen = [fallback if labels.get(code) is None else labels[code] for code in languages]
+    if any(word is not None and not isinstance(word, (str, bool)) for word in chosen):
+        return True
+    texts = [str(word) for word in chosen]
+    # An empty locale entry falls back to the merged default table.
+    source = texts[0] or next((text for text in texts if text.strip()), "")
+    return not source.strip()
 
 
 # The input types HQ's Case List page shows over an address appearance (``case_claim.js::_getAppearance`` tests them
@@ -6304,6 +6408,20 @@ def _literal_lookup_text(tree):
     return tree[:2] == ["call", "concat"] and all(_literal_lookup_text(argument) for argument in tree[2])
 
 
+def _worker_lookup_value(tree):
+    return bool(
+        tree and tree[:2] == ["path", "instance:commcaresession"]
+        and tree[3] == [["text", "commcaresession"]]
+        and tree[4][:2] == [["child", "session", 0], ["child", "context", 0]]
+        and tree[4][2:] in ([["child", "username", 0]], [["child", "userid", 0]])
+    )
+
+
+def _supported_lookup_value(text):
+    tree = expression_tree(text)
+    return _literal_lookup_text(tree) or _worker_lookup_value(tree)
+
+
 def lookup_with_nonliteral_arguments(use, manifest):
     """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
     detail = _short_lookup(use)
@@ -6312,14 +6430,25 @@ def lookup_with_nonliteral_arguments(use, manifest):
     return any(
         isinstance(extra, dict)
         and isinstance(value := extra.get("value"), str)
-        and not _literal_lookup_text(expression_tree(value))
+        and not _supported_lookup_value(value)
         for extra in detail["lookup_extras"]
     )
 
 
 def lookup_with_result_column(use, manifest):
+    """The active result columns outside the plain-list case-ID carrier."""
     detail = _short_lookup(use)
-    return detail is not None and detail.get("lookup_display_results") is True
+    if detail is None or detail.get("lookup_display_results") is not True:
+        return False
+    template, headings = detail.get("lookup_field_template"), detail.get("lookup_field_header")
+    parsed = expression_tree(template) if isinstance(template, str) else None
+    return bool(
+        detail.get("case_tile_template") or not parsed
+        or parsed[:2] != ["path", "relative"] or parsed[3] != []
+        or parsed[4] != [["attribute", "case_id", 0]]
+        or not isinstance(headings, dict)
+        or not any(isinstance(value, str) and value.strip() for value in headings.values())
+    )
 
 
 def _lookup_names(entries, keys):
@@ -10687,6 +10816,72 @@ def reserved_save_to_case_type(use, manifest):
     return any(case.find(f".//{{{CASE}}}{action}") is not None for action in ("create", "close", "index"))
 
 
+def _one_save_to_case_write(form, block, case):
+    update = case.find(f"{{{CASE}}}update")
+    names = [_local(node) for node in _children(update) if _local(node) != "case_type"] if update is not None else []
+    if len(names) != 1:
+        return None
+    name, = names
+    writer = form.bind(f"{form.paths[block]}/case/update/{name}")
+    text = writer.get("calculate") if writer is not None else None
+    path = expression_tree(text) if text else None
+    if not path or path[:2] != ["path", "absolute"] or len(path[4]) != 2:
+        return None
+    if not all(step[0] == "child" and step[2] == 0 for step in path[4]):
+        return None
+    if not form.controls.get(text):
+        return None
+    source_bind = form.bind(text)
+    return name, _data_type(source_bind.get("type", "string") if source_bind is not None else "string")
+
+
+def save_to_case_retype_property_types(use):
+    """The original and destination bind types for one same-property pair of
+    direct question writes across a literal retype of its earlier sibling's
+    freshly created case. Wider graphs need the typed reader's verdict."""
+    form, block = _form_element(use)
+    if form is None or block.get(f"{{{VELLUM}}}role") != "SaveToCase" or block not in form.paths:
+        return None
+    case = block.find(f"{{{CASE}}}case")
+    if case is None or case.find(f"{{{CASE}}}create") is not None:
+        return None
+    location = form.paths[block]
+    destination = form.bind(f"{location}/case/update/case_type")
+    target = form.bind(f"{location}/case/@case_id")
+    destination_type = _quoted(destination.get("calculate") or "") if destination is not None else None
+    if not destination_type or target is None or not target.get("calculate"):
+        return None
+    path = expression_tree(target.get("calculate"))
+    if not path or path[:2] != ["path", "call:current"] or len(path[4]) != 6:
+        return None
+    before, selected, after = path[4][:3], path[4][3], path[4][4:]
+    if (before != [["parent", "node()", 0]] * 3 or selected[0] != "child" or selected[2] != 0
+            or after != [["child", "case", 0], ["attribute", "case_id", 0]]):
+        return None
+    candidates = [node for node in block.itersiblings(preceding=True) if _local(node) == selected[1]]
+    if len(candidates) != 1:
+        return None
+    earlier, = candidates
+    if earlier.get(f"{{{VELLUM}}}role") != "SaveToCase" or earlier not in form.paths:
+        return None
+    prior = earlier.find(f"{{{CASE}}}case")
+    source_type_bind = form.bind(f"{form.paths[earlier]}/case/create/case_type")
+    source_type = _quoted(source_type_bind.get("calculate") or "") if source_type_bind is not None else None
+    if prior is None or not source_type or source_type == destination_type or block.get(f"{{{VELLUM}}}case_type") != source_type:
+        return None
+    case_id = f"{form.paths[earlier]}/case/@case_id"
+    if not any(
+        node.get("ref") == case_id and node.get("event") == "xforms-ready"
+        and expression_tree(node.get("value") or "") == ["call", "uuid", []]
+        for node in _children(form.model) if _local(node) == "setvalue"
+    ):
+        return None
+    source = _one_save_to_case_write(form, earlier, prior)
+    final = _one_save_to_case_write(form, block, case)
+    if source is not None and final is not None and source[0] == final[0]:
+        return source[1], final[1]
+
+
 # Binds -------------------------------------------------------------------------------
 
 
@@ -12000,31 +12195,6 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     return not _authored_property_name(name)
 
 
-def _offered_search_config(use):
-    """A use's ``CaseSearch`` object and whether its menu offers that search: ``util.py::module_offers_search``,
-    a search property or a default filter, read from the object itself; (None, None) outside one."""
-    at = _json(use)
-    config = None if at is None else at.nearest("CaseSearch")
-    if config is None:
-        return None, None
-    return config, bool(config.get("properties") or config.get("default_properties"))
-
-
-def endpoint_on_an_offered_search(use, manifest):
-    """``case-search/case-search-endpoint-id``: ``case_search_endpoint_id`` on a search the menu offers, the one
-    place HQ's build reads it (``util.py::module_uses_case_search_endpoint``, beside ``CASE_SEARCH_ENDPOINTS``),
-    and each default filter of such a search, which HQ's build sends the endpoint as a parameter of its key
-    (``remote_requests.py``, ``_remote_request_query_datums``). On a menu that offers none the id is part of the
-    search configuration HQ stores and builds nothing of, the round trip's class, and a default filter of a
-    search with no id is its own key's."""
-    config, offered = _offered_search_config(use)
-    if config is None:
-        return None
-    if use.key == "schema:CaseSearch.case_search_endpoint_id":
-        return offered
-    return offered and bool(config.get("case_search_endpoint_id"))
-
-
 def max_select_value_above_100(use, manifest):
     """``menus-and-case-lists/detail-max-select-value-above-100``: a ``max_select_value`` above 100 on the case list
     of a basic menu with a case type whose list selects several cases (``lib/commcare/reader/caseList/details.ts::
@@ -12778,6 +12948,8 @@ VALUE_CLASSES = {
     "forms-and-case-writes/any-other-undeclared-key": undeclared_key_no_row_names,
     # Case search
     "case-search/a-server-order-naming-a-property-nova-reserves": server_order_reserved_property,
+    "case-search/a-server-order-naming-a-property-only-devices-hold": server_order_device_only_property,
+    "case-search/a-related-record-property-only-devices-hold": related_case_device_only_property,
     "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": request_config_key_runtime_value,
     "case-search/an-x-commcare-custom-related-case-property-entry-together-with": related_case_property_twice,
     "case-search/default-properties-entry-keyed-x-commcare-data-registry": data_registry_key,
@@ -12792,6 +12964,9 @@ VALUE_CLASSES = {
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
+    "case-search/additional-record-type-without-menu": additional_record_type_without_menu,
+    "case-search/search-group-layout-unreadable": search_group_layout_unreadable,
+    "case-search/search-group-heading-unreadable": search_group_heading_unreadable,
     "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
     "case-search/allow-blank-value-on-a-prompt-named-owner-id": allow_blank_beside_the_owner,
     "case-search/validations-1": later_validations,
@@ -12969,7 +13144,6 @@ VALUE_CLASSES = {
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
-    "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
     "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,

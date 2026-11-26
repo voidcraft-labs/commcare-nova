@@ -8620,6 +8620,27 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/fixed-text-callout-confidence",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-case-id-confidence",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_confidence"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/resultHeading",
+				"value": "Confidence"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/fixed-text-callout-extras",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-extras-fixed-text",
@@ -8709,6 +8730,36 @@
 				],
 				"pointer": "/caseListConfig/deviceLookup/responses",
 				"value": ["patient_id", "fallback"]
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/callout-with-worker-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-worker-context",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_worker_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/extras/1",
+				"value": {
+					"name": "worker",
+					"expression": {
+						"kind": "term",
+						"term": {
+							"kind": "session-context",
+							"field": "username"
+						}
+					}
+				}
 			}
 		]
 	},
@@ -19396,6 +19447,22 @@
 		}
 	},
 	{
+		"id": "hq-case-management/write-through-a-typed-user-index",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/update-key-through-a-typed-user-index",
+		"change": {
+			"op": "named",
+			"name": "write_through_typed_user_index"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/via",
+				"value": [{ "identifier": "user", "throughCaseType": "household" }]
+			}
+		]
+	},
+	{
 		"id": "hq-case-management/write-through-a-user-index",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
@@ -23248,7 +23315,7 @@
 		]
 	},
 	{
-		"id": "hq-lookups/itemset-over-open-cases",
+		"id": "hq-lookups/itemset-over-closed-cases",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
 		"standing": "not-yet",
@@ -23262,8 +23329,24 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_over_open_cases"
+			"name": "itemset_over_closed_cases"
 		}
+	},
+	{
+		"id": "hq-lookups/itemset-over-open-cases",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
+		"change": {
+			"op": "named",
+			"name": "itemset_over_open_cases"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["district"]],
+				"pointer": "/optionsSource",
+				"value": { "kind": "available-cases", "status": "open" }
+			}
+		]
 	},
 	{
 		"id": "hq-lookups/itemset-sort",
@@ -35628,8 +35711,8 @@
 	{
 		"id": "hq-questions/save-to-case-link-stops-form-designer",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
-		"standing": "not-yet",
+		"entry": "questions/question-id-failing-the-grammar-or-meta-in-any-case",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -35863,6 +35946,27 @@
 			"op": "named",
 			"name": "save_to_case_reserved_key"
 		}
+	},
+	{
+		"id": "hq-questions/save-to-case-date-as-text",
+		"base": "hq-questions",
+		"entry": "questions/a-savetocase-retype-that-keeps-a-date-as-text",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_date_as_text"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/1/retype",
+				"value": "visit"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/1/writes/0/property",
+				"value": "kept"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-retype-converts",
@@ -38581,6 +38685,42 @@
 		]
 	},
 	{
+		"id": "hq-search/default-filter-following-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-related-record-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_custom_related_case_property",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'location_id'"
+			}
+		}
+	},
+	{
+		"id": "hq-search/dedicated-setting-following-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-related-record-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/custom_related_case_property",
+			"value": "location_id"
+		}
+	},
+	{
 		"id": "hq-search/default-filter-sorting-by-a-saved-status",
 		"base": "hq-search",
 		"entry": "case-search/a-server-order-naming-a-property-nova-reserves",
@@ -38597,6 +38737,26 @@
 				"property": "commcare_sort",
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'-status:exact'"
+			}
+		}
+	},
+	{
+		"id": "hq-search/default-filter-sorting-by-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'+location_id:exact'"
 			}
 		}
 	},
@@ -39093,6 +39253,36 @@
 		"change": {
 			"op": "named",
 			"name": "fields_with_ungrouped_prompt"
+		}
+	},
+	{
+		"id": "hq-search/field-with-an-unknown-heading",
+		"base": "hq-search",
+		"entry": "case-search/search-group-layout-unreadable",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "fields_with_unknown_search_heading"
+		}
+	},
+	{
+		"id": "hq-search/fields-with-a-blank-heading",
+		"base": "hq-search",
+		"entry": "case-search/search-group-heading-unreadable",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "fields_with_blank_search_heading"
 		}
 	},
 	{
@@ -41223,6 +41413,29 @@
 			"value": [
 				{
 					"property_name": "owner_id",
+					"sort_type": "exact",
+					"direction": "ascending",
+					"doc_type": "CaseSearchCustomSortProperty"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-search/results-sorted-by-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/custom_sort_properties",
+			"value": [
+				{
+					"property_name": "location_id",
 					"sort_type": "exact",
 					"direction": "ascending",
 					"doc_type": "CaseSearchCustomSortProperty"

@@ -1783,7 +1783,7 @@ function buildFieldParts(
 	if (caseSource) {
 		const nodeset =
 			caseSource.kind === "available-cases"
-				? availableCasesNodeset()
+				? availableCasesNodeset(caseSource.status)
 				: caseOptionsNodeset(
 						caseSource,
 						expressions.context({

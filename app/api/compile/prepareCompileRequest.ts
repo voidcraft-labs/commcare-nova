@@ -102,10 +102,14 @@ export async function prepareCompileRequest<
 	// `AppAccessError` (absent / non-member) maps to 404: the IDOR-safe
 	// not-found posture.
 	const privateData = (body as { privateData?: unknown })?.privateData === true;
+	const manualLookupInstaller =
+		mode === "hq-json" &&
+		(body as { manualLookupInstaller?: unknown })?.manualLookupInstaller ===
+			true;
 	const access = await resolveAppAccess(
 		appId,
 		session.user.id,
-		privateData ? "edit" : "view",
+		privateData || manualLookupInstaller ? "edit" : "view",
 	);
 	const { app } = access;
 
@@ -227,6 +231,7 @@ export async function prepareCompileRequest<
 		streamMedia: true,
 		archiveActor: () => ({ appId, grant: grant() }),
 		assignmentAccess,
+		manualLookupInstaller,
 		mode,
 		access: {
 			projectId: access.projectId,

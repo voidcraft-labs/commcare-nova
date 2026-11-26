@@ -363,6 +363,15 @@ final class Lists {
                 settle(adapter);
             }
             sample.put("after", firstCells(adapter, listView));
+            if (command.optBoolean("inspectScores")) {
+                View header = (View)Screens.field(activity, "header");
+                sample.put("scoreHeader", Views.describe(header));
+                JSONArray rows = new JSONArray();
+                for (int row = 0; row < adapter.getCurrentCount(); row++) {
+                    rows.put(Views.describe(adapter.getView(row, null, listView)));
+                }
+                sample.put("scoreRows", rows);
+            }
             sample.put("searchText", adapter.getSearchQuery());
             sample.put("isIdentification", adapter.isFilteringByCalloutResult());
             sample.put("toast", Screens.orNull(ShadowToast.getTextOfLatestToast()));

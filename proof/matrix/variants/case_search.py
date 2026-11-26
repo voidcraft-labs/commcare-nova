@@ -394,17 +394,34 @@ def related_record_id_sent_twice(authoring, app_id):
 # Search fields ------------------------------------------------------------------------------------------------------
 
 
-def fields_with_ungrouped_prompt(authoring, app_id):
-    """Keep a real group's header and fields, then place a field outside it."""
+def _grouped_search_rows(authoring, app_id, label):
     from proof.hq import operations
 
     module = operations.held_app(authoring.state, app_id).get_module(0)
     key = "group_header_0"
-    rows = [
-        {**_field(key, "Group"), "is_group": True, "group_key": key},
+    return [
+        {**_field(key, label), "is_group": True, "group_key": key},
         *({**field.to_json(), "group_key": key} for field in module.search_config.properties),
-        _field("region", "Region"),
     ]
+
+
+def fields_with_ungrouped_prompt(authoring, app_id):
+    """Keep a real group's header and fields, then leave one field unassigned."""
+    rows = _grouped_search_rows(authoring, app_id, "Group")
+    rows.append(_field("region", "Region"))
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
+
+
+def fields_with_unknown_search_heading(authoring, app_id):
+    """HQ serves a prompt naming a heading the search did not declare."""
+    rows = _grouped_search_rows(authoring, app_id, "Group")
+    rows.append({**_field("region", "Region"), "group_key": "unknown_heading"})
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
+
+
+def fields_with_blank_search_heading(authoring, app_id):
+    """HQ serves a complete group whose header has no text."""
+    rows = _grouped_search_rows(authoring, app_id, "")
     _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
 
 

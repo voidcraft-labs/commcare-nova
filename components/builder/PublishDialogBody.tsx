@@ -168,6 +168,7 @@ import {
 	type ManualImportStep,
 	manualImportStepKey,
 } from "@/lib/publish/manualImportGuide";
+import { MANUAL_LOOKUP_INSTALL_PATH } from "@/lib/publish/manualLookupManifest";
 import {
 	ACCEPT_PLACEMENT_MOVES_LABEL,
 	type AcceptPlacementMoves,
@@ -2696,7 +2697,18 @@ function ManualImportGuide({ steps }: { steps: readonly ManualImportStep[] }) {
 						key={manualImportStepKey(step)}
 						className="text-xs leading-relaxed"
 					>
-						<p className="font-medium text-nova-text">{step.title}</p>
+						{step.kind === "install-lookup-data" ? (
+							<Link
+								href={MANUAL_LOOKUP_INSTALL_PATH}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="font-medium text-nova-text underline underline-offset-2"
+							>
+								{step.title}
+							</Link>
+						) : (
+							<p className="font-medium text-nova-text">{step.title}</p>
+						)}
 						<p className="mt-1 whitespace-pre-wrap break-words text-nova-text-secondary">
 							{step.lines.join("\n")}
 						</p>

@@ -577,6 +577,7 @@ function readSearchGroups(
 	const groups: SearchInputGroup[] = [];
 	const hasFields = prompts.some((row) => row.peek("is_group") !== true);
 	const memberships = new Map<JsonCursor, Uuid>();
+	const headingRefusals = new Map<JsonCursor, Finding>();
 	const keys = new Set<string>();
 	let refused = false;
 	for (const [index, row] of prompts.entries()) {
@@ -594,19 +595,6 @@ function readSearchGroups(
 			continue;
 		}
 		keys.add(key);
-		const codes = appCodes(ctx);
-		const copy = promptText(
-			ctx,
-			row.peek("label"),
-			codes,
-			"search-input-group-label",
-		);
-		const label = sourceText(ctx, copy.texts);
-		if (copy.held === undefined || !label) {
-			row.refuseWhole(P.groupHeading, { name: key });
-			refused = true;
-			continue;
-		}
 		const members: JsonCursor[] = [];
 		for (let next = index + 1; next < prompts.length; next++) {
 			const member = prompts[next];
@@ -616,6 +604,22 @@ function readSearchGroups(
 				continue;
 			}
 			members.push(member);
+		}
+		const codes = appCodes(ctx);
+		const copy = promptText(
+			ctx,
+			row.peek("label"),
+			codes,
+			"search-input-group-label",
+		);
+		const label = sourceText(ctx, copy.texts);
+		if (copy.held === undefined || !label) {
+			const detail = { name: key };
+			row.refuseWhole(P.groupHeading, detail);
+			const finding = manifestFindingOf(P.groupHeading, place, detail);
+			for (const member of members) headingRefusals.set(member, finding);
+			refused = true;
+			continue;
 		}
 		const names = members.flatMap((member) => {
 			const name = member.peek("name");
@@ -666,6 +670,7 @@ function readSearchGroups(
 	return {
 		groups,
 		memberships,
+		headingRefusals,
 		refused:
 			refused ||
 			(grouped &&
@@ -736,13 +741,16 @@ export function readSearchPrompts(
 	const out: PromptReading[] = [];
 	for (const prompt of prompts) {
 		if (prompt.peek("is_group") === true) continue;
+		const headingRefusal = groupReading.headingRefusals.get(prompt);
+		if (headingRefusal !== undefined)
+			ctx.accounting.cover({ json: prompt, key: "group_key" }, headingRefusal);
 		const reading = readPrompt(
 			ctx,
 			module,
 			prompt,
 			place,
 			defaultFilterNames,
-			groupReading.grouped,
+			groupReading.grouped && headingRefusal === undefined,
 			groupReading.memberships.get(prompt),
 			suiteSources,
 			projectService,

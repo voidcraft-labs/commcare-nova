@@ -345,6 +345,26 @@ def fixed_text_callout(authoring, app_id):
     )
 
 
+def fixed_text_callout_with_worker_name(authoring, app_id):
+    """Patients' lookup passes the signed-in worker's username beside a fixed argument."""
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_extras", [
+        {"key": "mode", "value": "'scan'"},
+        {"key": "worker", "value": "instance('commcaresession')/session/context/username"},
+    ])
+
+
+def fixed_text_callout_with_confidence(authoring, app_id):
+    """Patients' lookup matches the returned IDs to the cases and has a visible confidence heading."""
+    fixed_text_callout(authoring, app_id)
+    _set_each(
+        authoring, app_id,
+        ("/modules/0/case_details/short/lookup_display_results", True),
+        ("/modules/0/case_details/short/lookup_field_template", "@case_id"),
+        ("/modules/0/case_details/short/lookup_field_header", {"en": "Confidence"}),
+    )
+
+
 def fixed_text_callout_with_icon(authoring, app_id):
     """Patients' lookup button uses a picture the HQ picker uploaded."""
     fixed_text_callout(authoring, app_id)

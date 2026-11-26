@@ -36,6 +36,7 @@ import { publishedCaseBlocks } from "@/lib/commcare/hq/publishedCaseBlocks";
 import {
 	knownCaseTypesOf,
 	knownLanguageCodesOf,
+	knownPositionedCaseOperationIdsOf,
 	type ReadDraft,
 	type ReaderInput,
 	type ReadOutcome,
@@ -870,6 +871,8 @@ function* fixedPointCheck(
 						caseListActionsApplied: input.reader.caseListActionsApplied,
 					}),
 					knownCaseTypes: knownCaseTypesOf(doc),
+					knownPositionedCaseOperationIds:
+						knownPositionedCaseOperationIdsOf(doc),
 					knownFormEntryChoices: knownFormEntryChoicesOf(doc),
 					knownProjectSearchNames: doc.appSettings.projectSearches,
 					knownLanguageCodes: knownLanguageCodesOf(doc),

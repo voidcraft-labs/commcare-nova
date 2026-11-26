@@ -3527,6 +3527,72 @@ def _search_and_menus():
                 f"{config}/custom_sort_properties/0/property_name",
             ),
         ),
+        "case-search/a-related-record-property-only-devices-hold": (
+            refused(
+                "app",
+                search(_search_module(custom_related_case_property="location_id")),
+                "schema:CaseSearch.custom_related_case_property",
+                f"{config}/custom_related_case_property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(custom_related_case_property="hq_user_id")),
+                "schema:CaseSearch.custom_related_case_property",
+                f"{config}/custom_related_case_property",
+            ),
+            refused(
+                "app",
+                search(_search_module(default_properties=[
+                    _default("x_commcare_custom_related_case_property", "'location_id'")
+                ])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[
+                    _default("x_commcare_custom_related_case_property", "'hq_user_id'")
+                ])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+        ),
+        "case-search/a-server-order-naming-a-property-only-devices-hold": (
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'+location_id:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'+hq_user_id:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            refused(
+                "app",
+                search(_search_module(
+                    default_properties=[_default("dob", "'x'")],
+                    custom_sort_properties=[
+                        {"doc_type": "CaseSearchCustomSortProperty", "property_name": "location_id", "sort_type": "exact"}
+                    ],
+                )),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+            accepted(
+                "app",
+                search(_search_module(
+                    default_properties=[_default("dob", "'x'")],
+                    custom_sort_properties=[
+                        {"doc_type": "CaseSearchCustomSortProperty", "property_name": "hq_user_id", "sort_type": "exact"}
+                    ],
+                )),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+        ),
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": (
             refused("app", search(_search_module(instance_name="Mycasedb2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
             accepted("app", search(_search_module(instance_name="MyCaseDB2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
@@ -3824,6 +3890,78 @@ def _search_and_menus():
                 search(_search_module(properties=[_prompt("dob", hidden=True)])),
                 "schema:CaseSearchProperty.hidden",
                 f"{prompts}/hidden",
+            ),
+        ),
+        "case-search/additional-record-type-without-menu": (
+            refused(
+                "app",
+                search(_search_module(additional_case_types=["patient", "household"])),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(additional_case_types=["patient", "household"]),
+                    _module(case_type="household"),
+                ),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+            accepted(
+                "app",
+                search(_search_module(additional_case_types=["patient"])),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+        ),
+        "case-search/search-group-layout-unreadable": (
+            refused(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="unknown"),
+                ])),
+                "schema:CaseSearchProperty.group_key",
+                f"{config}/properties/1/group_key",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.group_key",
+                f"{config}/properties/1/group_key",
+            ),
+        ),
+        "case-search/search-group-heading-unreadable": (
+            refused(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": ""}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"fr": "Groupe"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
             ),
         ),
         "case-search/allow-blank-value-on-a-hidden-prompt": (
@@ -7989,9 +8127,19 @@ def _case_list_lookup_shapes():
         "menus-and-case-lists/lookup-extras-key-value": (
             use(refused, "lookup_extras", lookup_extras=dynamic),
             use(accepted, "lookup_extras"),
+            use(accepted, "lookup_extras", lookup_extras=[
+                {"key": "worker", "value": "instance('commcaresession')/session/context/username"},
+            ]),
+            use(refused, "lookup_extras", lookup_extras=[
+                {"key": "worker", "value": "instance('commcaresession')/session/context/@username"},
+            ]),
         ),
         "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
+            use(refused, "lookup_field_template", lookup_field_template="external_id",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
             use(refused, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=True),
+            use(accepted, "lookup_field_template", lookup_field_template="@case_id",
+                lookup_field_header={"en": "Confidence"}, lookup_display_results=True),
             use(accepted, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=False),
         ),
     }

@@ -27,6 +27,8 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/lookup-image-jr",
 		"menus-and-case-lists/lookup-autolaunch",
 		"menus-and-case-lists/lookup-extras-fixed-text",
+		"menus-and-case-lists/lookup-extras-worker-context",
+		"menus-and-case-lists/lookup-case-id-confidence",
 		"menus-and-case-lists/lookup-responses-key",
 	],
 	"case-list-icon-actions": [

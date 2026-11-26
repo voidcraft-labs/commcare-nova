@@ -226,8 +226,16 @@ first, so once the row is gone or put back in CommCare HQ, publishing again
 picks up from there. Changing a table's columns after it's there isn't
 something these resources can do safely, so Nova asks you to give the table a
 new export tag instead: the next publish puts it there as a new table and
-leaves the old one as it is. The CommCare HQ app file can't carry these
-tables, since it uploads a workbook: publish from Nova to put them there.
+leaves the old one as it is.
+
+When a CommCare HQ app download includes `lookup-install.json`, open **Install
+lookup data** from the included guide before importing the app. Choose your
+connected project space and review the tables there. If Nova saves its
+progress, choose **Continue installing**. Nova reads the current Project data
+again before continuing. If the app or its lookup data changed, download a
+fresh file. Your CommCare HQ connection needs permission to edit data in
+that project space. The same download can also include lookup workbooks. The guide
+lists the steps to complete before you import the app in CommCare HQ.
 
 A table that's already on the project space from a workbook stays in one
 there, since Nova can't tell its rows apart in those resources. If it now holds

@@ -29,6 +29,11 @@ the owner** is available after you choose the new owner. If the condition is
 false, the case keeps its current owner, and the change's other values still
 save.
 
+An update can change a case’s type when the new type can keep its saved
+values. A date can become text and keeps the original date string, such as
+`2026-04-17`. Other changes that need to convert existing values still
+require compatible property types.
+
 ## Choose the records a form opens with
 
 Open the form’s settings, select **Edit case changes**, and expand **Cases this form uses**. A form can ask for more than one record. To transfer a member between households, add the household list twice and name the choices **Current household** and **Receiving household**. Each choice keeps its own identity when you rename it or change its position.
@@ -262,6 +267,11 @@ An imported create can also choose between two types already in the app using
 a condition, when both types accept the same saved values and the create
 has no case connections. Preview creates the case with the type selected by
 the condition. Choosing a different case type replaces an imported calculation.
+
+A basic case update brought in from CommCare HQ can keep a write through a
+case connection named **user** when the connection leads to one declared
+ordinary case type. The form saves the value on the connected case. If the
+connection is missing at submission, the form saves none of its changes.
 
 Values can come from a **form answer**, from information already on a case, from
 fixed values, from information about the person using the app, from Project data,

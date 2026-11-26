@@ -159,6 +159,7 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"case-list-interval-text": "Case list interval text",
 	"case-list-empty-text": "Empty case list text",
 	"case-list-select-text": "Case list Continue button",
+	"case-list-lookup-result-heading": "Case lookup confidence heading",
 	"search-input-label": "Search field label",
 	"search-input-group-label": "Search heading",
 	"search-input-hint": "Search field hint",

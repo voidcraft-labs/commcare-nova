@@ -32,6 +32,14 @@ def _case(key, name):
     )
 
 
+def _view_texts(value):
+    if isinstance(value, list):
+        return [text for child in value for text in _view_texts(child)]
+    if not isinstance(value, dict) or value.get("visibility") in ("gone", "invisible"):
+        return []
+    return ([value["text"]] if value.get("text") else []) + _view_texts(value.get("children", []))
+
+
 def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
     """HQ's Case List save sets up the action; only Android's own result branches may filter the list."""
     database = casedata.CaseDatabase(
@@ -48,7 +56,7 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
         {"primary": None, "named": {"second": "Cedar", "first": "Juniper"}},
         {"primary": None, "named": {"first": None, "second": "Cedar"}},
         {"primary": "unmatchable"},
-        {"identify": "lookup-juniper"},
+        {"identify": "lookup-juniper", "inspectScores": True},
         {"identify": "not-in-restore"},
     ]
     with hq_check(CONFIGURATION) as (state, _):
@@ -86,11 +94,13 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
     assert (no_match["after"], no_match["searchText"]) == ([], "unmatchable")
     assert all(not reply["isIdentification"] for reply in observed[:7])
     assert identity["isIdentification"] and identity["after"] == ["Juniper"]
+    assert "Match" in _view_texts(identity["scoreHeader"])
+    assert _view_texts(identity["scoreRows"]) == ["Juniper", "★★★★★"]
     assert unknown_identity["isIdentification"] and unknown_identity["after"] == []
 
 
 
-def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, android_documents):
+def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_documents):
     from proof.android.test_form_reads import _served
     from proof.observe.served import local_archive
 
@@ -105,6 +115,7 @@ def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, andro
         {"automatic": True, "primary": " Cedar ", "inspectIcon": True},
         {"primary": None, "named": {"first": "Juniper", "second": "Cedar"}},
         {"primary": "none-matches"},
+        {"identify": "lookup-juniper", "inspectScores": True},
     ]
     with _served(document, database=database) as (served, released):
         blobs = Blobs()
@@ -126,8 +137,14 @@ def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, andro
             assert results[0]["iconCenterARGB"] == "ff49a274"  # The uploaded PNG’s one pixel.
             assert results[0]["lookupName"] == "Find a visit"
             assert results[0]["toolbarTitle"] == "Scan Barcode"
-            assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], []]
-            assert [result["searchText"] for result in results] == ["Cedar", "Juniper", "none-matches"]
+            assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], [], ["Juniper"]]
+            assert [result["searchText"] for result in results[:3]] == ["Cedar", "Juniper", "none-matches"]
+            assert results[3]["isIdentification"]
+            assert "Confidence" in _view_texts(results[3]["scoreHeader"])
+            assert _view_texts(results[3]["scoreRows"]) == ["Juniper", "★★★★★"]
             assert all(result["action"] == ACTION for result in results)
-            assert all(result["sent"] == {"visit_mode": "followup", "visit_limit": "3"} for result in results)
+            assert all(result["sent"] == {
+                "visit_mode": "followup", "visit_limit": "3",
+                "worker_name": database.username, "worker_id": database.user_id,
+            } for result in results)
             write_evidence(f"nova-case-list-lookup-{label}", results)

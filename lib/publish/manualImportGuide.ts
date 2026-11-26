@@ -1,4 +1,9 @@
 import { NATIVE_INSTALLATION_CHOICES } from "@/lib/domain/installationProfiles";
+import { AS_ORIGIN } from "@/lib/hostnames";
+import {
+	MANUAL_LOOKUP_INSTALL_PATH,
+	MANUAL_LOOKUP_MANIFEST,
+} from "./manualLookupManifest";
 /**
  * The steps a person takes to bring the HQ import file into CommCare HQ by
  * hand, derived from what the file carries and what the app needs.
@@ -31,6 +36,7 @@ import {
 } from "./projectSpaceCompatibility";
 
 export type ManualImportStepKind =
+	| "install-lookup-data"
 	| "lookup-tables"
 	| "managed-lookup-tables"
 	| "bind-project-data"
@@ -51,6 +57,7 @@ export type ManualImportStepKind =
 
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"lookup-tables",
+	"install-lookup-data",
 	"managed-lookup-tables",
 	"bind-project-data",
 	"practice-installations",
@@ -95,6 +102,7 @@ export interface ManualImportGuideInput {
 	}[];
 	/** The tag of each lookup table the workbook carries; empty for none. */
 	readonly lookupTags: readonly string[];
+	readonly manualLookupTables?: readonly string[];
 	readonly additionalLookupFiles?: readonly {
 		path: string;
 		tags: readonly string[];
@@ -459,6 +467,19 @@ export function manualImportGuide(
 	input: ManualImportGuideInput,
 ): readonly ManualImportStep[] {
 	return [
+		...(input.manualLookupTables?.length
+			? [
+					{
+						kind: "install-lookup-data" as const,
+						title: "Install lookup data in Nova",
+						lines: [
+							`Open ${AS_ORIGIN}${MANUAL_LOOKUP_INSTALL_PATH} and choose "${MANUAL_LOOKUP_MANIFEST}" from this ZIP.`,
+							"Choose the same connected project space where you’ll import the app. Complete the lookup install before importing the app JSON.",
+							`Tables: ${input.manualLookupTables.join(", ")}.`,
+						],
+					},
+				]
+			: []),
 		...(input.lookupTags.length > 0
 			? [lookupTablesStep(input.lookupTags)]
 			: []),

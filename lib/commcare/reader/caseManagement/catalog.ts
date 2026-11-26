@@ -1155,6 +1155,18 @@ export function catalogAsRead(
 					draft.push({ name: one.caseType, properties: [] });
 				noteProperty(draft, one.caseType, one.property);
 			}
+			for (const type of module.caseListConfig?.additionalCaseTypes ?? [])
+				noteType(draft, type);
+			for (const filter of module.caseListConfig?.searchFilters ?? [])
+				if ("kind" in filter && filter.kind === "request-record-type")
+					noteType(draft, filter.caseType);
+			const search = module.caseSearchConfig;
+			if (
+				search &&
+				"relatedRecordIdProperty" in search &&
+				search.relatedRecordIdProperty
+			)
+				noteProperty(draft, module.caseType, search.relatedRecordIdProperty);
 			// A Details tab's child type, and the related type a search requests
 			// beside a tab's own rows, are types the list reader declares
 			// (`caseList/details.ts`).

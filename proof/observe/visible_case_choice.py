@@ -1,4 +1,4 @@
-"""One worker's mixed case restore, read by the retained untyped case itemset on both clients."""
+"""One worker's mixed case restore, read by the all-type case itemsets on both clients."""
 
 from xml.etree import ElementTree
 
@@ -9,6 +9,10 @@ from proof.observe import casedata
 
 DOCUMENT = "targeted-case-choice-reopen"
 NODESET = "instance('casedb')/casedb/case"
+
+
+def nodeset(open_only):
+    return NODESET + ("[@status = 'open']" if open_only else "")
 STAMP = "2025-12-01T08:00:00.000Z"
 EXPECTED = {
     "known-clinic": "Known clinic",
@@ -35,22 +39,22 @@ def database():
     ))
 
 
-def unfiltered_source(source):
+def source_with_lifecycle(source, open_only):
     form = etree.fromstring(source.encode() if isinstance(source, str) else source)
     (itemset,) = form.xpath("//*[local-name()='select1' and @ref='/data/clinic']/*[local-name()='itemset']")
     assert itemset.get("nodeset").startswith(NODESET + "[@case_type")
     assert itemset.xpath("./*[local-name()='label']/@ref") == ["case_name"]
     assert itemset.xpath("./*[local-name()='value']/@ref") == ["@case_id"]
-    itemset.set("nodeset", NODESET)
+    itemset.set("nodeset", nodeset(open_only))
     return etree.tostring(form, encoding="unicode")
 
 
-def release_unfiltered(holder):
+def release_with_lifecycle(holder, open_only):
     """Write the exact retained itemset expression and close the host and unreferenced record in HQ."""
     from casexml.apps.case.mock import CaseBlock
     from corehq.apps.hqcase.utils import submit_case_blocks
 
-    write = apps.form_written(holder, {"0.0": unfiltered_source})
+    write = apps.form_written(holder, {"0.0": lambda source: source_with_lifecycle(source, open_only)})
 
     def change(stored):
         blocks = [

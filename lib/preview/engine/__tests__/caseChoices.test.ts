@@ -62,9 +62,14 @@ function workerFor(engine: FormEngine) {
 }
 
 describe("case choices in the captured device world", () => {
-	it.each([false, true])(
-		"offers the full authorized snapshot without treating those IDs as a named type (worker=%s)",
-		async (stagedAsync) => {
+	it.each([
+		{ stagedAsync: false, openOnly: false },
+		{ stagedAsync: true, openOnly: false },
+		{ stagedAsync: false, openOnly: true },
+		{ stagedAsync: true, openOnly: true },
+	])(
+		"filters the restored choices where asked and keeps opaque IDs (worker=$stagedAsync open=$openOnly)",
+		async ({ stagedAsync, openOnly }) => {
 			const form = choiceUuid("all-visible");
 			const question = choiceUuid("all-cases-question");
 			const copy = choiceUuid("copy-unrefined-id");
@@ -84,7 +89,10 @@ describe("case choices in the captured device world", () => {
 											kind: "single_select",
 											id: "case_choice",
 											label: "Case",
-											optionsSource: { kind: "available-cases" },
+											optionsSource: {
+												kind: "available-cases",
+												...(openOnly && { status: "open" }),
+											},
 										}),
 										f({
 											uuid: copy,
@@ -131,11 +139,13 @@ describe("case choices in the captured device world", () => {
 			try {
 				if (stagedAsync) await engine.initializeAsync(evaluateAsync);
 				expect(engine.getState("/data/case_choice").choices).toEqual(
-					rows.map((row) => ({
-						key: row.case_id,
-						value: row.case_id,
-						label: row.case_name,
-					})),
+					rows
+						.filter((row) => !openOnly || row.status !== "closed")
+						.map((row) => ({
+							key: row.case_id,
+							value: row.case_id,
+							label: row.case_name,
+						})),
 				);
 				if (stagedAsync)
 					await engine.setValueAsync(

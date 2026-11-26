@@ -1545,6 +1545,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/*/columns/*/enum/*/value",
 			"/modules/*/case_details/*/no_items_text",
 			"/modules/*/case_details/*/select_text",
+			"/modules/*/case_details/short/lookup_field_header",
 			"/modules/*/search_config/search_button_label",
 			"/modules/*/case_details/*/columns/*/enum/*/alt_text",
 		],

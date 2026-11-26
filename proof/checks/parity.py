@@ -66,6 +66,7 @@ from dataclasses import dataclass
 
 from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
+from proof.checks.manifest_value_classes import save_to_case_retype_property_types
 from proof.observe.manifest import expression_tree
 
 CHECK = "parity"
@@ -260,6 +261,9 @@ CHILD_REGISTRATION = (
     "menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case"
 )
 ADVANCED_REGISTRATION = "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form"
+DATE_TO_TEXT = "questions/a-savetocase-retype-that-keeps-a-date-as-text"
+RETYPE_CONVERTS = "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type"
+RETYPE_ENTRIES = {DATE_TO_TEXT, RETYPE_CONVERTS}
 REGISTRATION_ENTRIES = {PARENT_FOLLOW_UP, CHILD_REGISTRATION, ADVANCED_REGISTRATION}
 REGISTRATION_KEYS = {"schema:Module.case_list_form", "schema:AdvancedModule.case_list_form"}
 ADVANCED_TAG_KEYS = frozenset({"schema:AdvancedOpenCaseAction.case_tag", "schema:LoadUpdateAction.case_tag"})
@@ -381,7 +385,7 @@ def _automatic_multiple_case_selection(use):
 
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
-    wanted = {AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, *REGISTRATION_ENTRIES}.intersection(entries)
+    wanted = {AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES}.intersection(entries)
     if not wanted:
         return
     by_id = _entries_by_id(held)
@@ -391,6 +395,13 @@ def _forms_variant_uses(found, held, entries):
         if (AUTOMATIC_MULTI in wanted and use.key == "schema:Detail.auto_select"
                 and _automatic_multiple_case_selection(use)):
             yield Decided(use, manifest_usage.HELD, (by_id[AUTOMATIC_MULTI],))
+        if wanted.intersection(RETYPE_ENTRIES) and use.key == "vellum-markup:model/instance//*@vellum:role":
+            types = save_to_case_retype_property_types(use)
+            block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
+            if types == ("date", "string") and DATE_TO_TEXT in wanted:
+                yield Decided(block, manifest_usage.HELD, (by_id[DATE_TO_TEXT],))
+            elif types == ("string", "date") and RETYPE_CONVERTS in wanted:
+                yield Decided(block, manifest_usage.HELD_NEW, (by_id[RETYPE_CONVERTS],))
         if LOCATION_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
             yield from _location_write_uses(use, by_id[LOCATION_WRITE])
         if HYPHEN_TAG in wanted and use.key in ADVANCED_TAG_KEYS:

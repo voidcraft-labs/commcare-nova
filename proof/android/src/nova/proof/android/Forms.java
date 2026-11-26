@@ -490,8 +490,9 @@ final class Forms {
             if (banners != null) found.put("banners", Views.describe(banners));
         }
         if (views && activity.getODKView() != null) {
-            // The whole screen as Android built it: each question's widget with its label, hint and media, and
-            // a group's header above them.
+            // Android mounts the group heading separately from the question widgets and action banners.
+            View groupHeading = activity.findViewById(R.id.form_entry_group_label);
+            if (groupHeading != null) found.put("groupHeading", Views.describe(groupHeading));
             found.put("view", Views.describe(activity.getODKView()));
         }
         found.put("alert", Screens.orNull(Views.alert(activity)));
