@@ -2707,6 +2707,18 @@ is open (a unique index over `admitted`, `uncertain`, `review`), so a
 second publisher of the table, from any app of the Project, stops `busy`
 rather than sending over the first.
 
+CommCare HQ's row resource takes a full PUT or a DELETE with no precondition
+of its own, so the row an update or delete names is read again by its id once
+the request is admitted and just before it goes; a row no longer at the
+ledger's rank and content (a person edited or removed it in CommCare HQ since
+the plan's read) settles the request `not-applied` unsent and stops the table
+`rows-changed`. Every request the production publish sends over a table's
+lifecycle, with the peer's answers, is held to HQ's own resources by
+`proof/hq/test_lookup_json_publish.py` over the requests
+`publishSequence.postgres.test.ts` keeps (`proof/hq/fixtures/lookup-json-publish.json`);
+a change to what the executor sends or reads moves that fixture
+(`WRITE_LOOKUP_JSON_PUBLISH_FIXTURE=1`) and is run again there.
+
 An operation whose outcome is unknown is settled by reading what it named
 before anything else goes to that table: an update or delete by its row id,
 a table create by its tag (unique in a project space; the 201 names no

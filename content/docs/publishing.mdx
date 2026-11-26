@@ -187,7 +187,9 @@ If a change's answer gets lost on the way back, Nova reads that row in CommCare
 HQ before it sends anything else to the table, and waits a few minutes where
 the change could still arrive. If a row someone else added or changed is there,
 or a new row appeared that Nova can't name, the publish stops and names the
-table so nothing is written over it. Each later publish reads the table again
+table so nothing is written over it. Nova also reads each row again just before
+it changes or removes it, so an edit someone makes in CommCare HQ while Nova is
+publishing stops the publish instead of being replaced. Each later publish reads the table again
 first, so once the row is gone or put back in CommCare HQ, publishing again
 picks up from there. Changing a table's columns after it's there isn't
 something these resources can do safely, so Nova asks you to give the table a
