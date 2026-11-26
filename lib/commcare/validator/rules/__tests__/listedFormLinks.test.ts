@@ -1,8 +1,9 @@
 /**
  * A menu listing another menu's forms holds deep links to single forms only
- * where the menu it lists tracks cases: CommCare HQ's menu settings page
- * cannot save them on a menu listing a survey menu's forms
- * (`basicCaseSlots.ts::listedFormLinksSavable`).
+ * where the menu it lists has a case type: CommCare HQ's menu settings page
+ * cannot save them on a menu listing the forms of a menu with none
+ * (`basicCaseSlots.ts::listedFormLinksSavable`). A typed menu whose forms are
+ * all surveys uploads its case type, so its listing keeps them.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -13,6 +14,7 @@ import {
 } from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
+import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../runner";
 
@@ -21,12 +23,16 @@ const LISTING = testUuid("listed-surveys-route");
 const NOTES = testUuid("listed-surveys-notes");
 
 /** Surveys, and Clinic listing its one form, with or without its own link. */
-function surveysListed(withLink: boolean) {
+function surveysListed(withLink: boolean, caseType?: string) {
 	const doc = buildDoc({
+		...(caseType !== undefined && {
+			caseTypes: [{ name: caseType, properties: [] }],
+		}),
 		modules: [
 			{
 				uuid: SURVEYS,
 				name: "Surveys",
+				...(caseType !== undefined && { caseType }),
 				forms: [
 					{
 						uuid: NOTES,
@@ -89,5 +95,11 @@ describe("a listing menu's deep links to single forms", () => {
 			undefined,
 		);
 		expect(linkFindings(listed)).toEqual([]);
+	});
+
+	it("are held where the menu it lists has a case type though its forms are all surveys", () => {
+		const doc = surveysListed(true, "site");
+		expect(moduleCaseTypeForActions(doc, SURVEYS)).toBe("");
+		expect(linkFindings(doc)).toEqual([]);
 	});
 });

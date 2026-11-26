@@ -841,8 +841,8 @@ export function moduleCaseTypeForActions(
  * with a save but shows the deep link field its save reads beside them only
  * on a menu that tracks cases (`views/modules.py`, `show_advanced_settings`
  * is false for `is_surveys`; `edit_module_attr` then reads the absent
- * `session_endpoint_id` and fails), so on a menu listing a survey menu's
- * forms no save of its settings in CommCare HQ would succeed.
+ * `session_endpoint_id` and fails), so on a menu listing the forms of a menu
+ * with no case type no save of its settings in CommCare HQ would succeed.
  */
 export function listedFormLinksSavable(
 	doc: BlueprintDoc,
@@ -850,9 +850,11 @@ export function listedFormLinksSavable(
 ): boolean {
 	const route = doc.modules[routeUuid];
 	if (!route?.formsFromMenu) return true;
-	// The case type HQ holds for the listed menu, which Nova writes
-	// (`moduleCaseTypeForActions`): none where its forms are all surveys.
-	return moduleCaseTypeForActions(doc, route.formsFromMenu.menuUuid) !== "";
+	// HQ's `is_surveys` reads the stored `case_type` of the menu listed
+	// (`ShadowModule.case_type` is its source's), and a menu uploads its own
+	// case type, a survey-only menu's included (`expander.ts`), so a typed
+	// menu whose forms are all surveys still takes these links.
+	return Boolean(doc.modules[route.formsFromMenu.menuUuid]?.caseType);
 }
 
 const slotPlans = new WeakMap<BlueprintDoc, Map<string, BasicCaseSlots>>();
