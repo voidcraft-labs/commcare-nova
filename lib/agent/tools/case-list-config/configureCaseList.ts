@@ -137,7 +137,7 @@ export const configureCaseListInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Open a companion Android app to search the case list. Give its action and lookup name, fixed text extras, and ordered fallback response names. icon is an optional Project image asset id. null removes it; omission leaves it unchanged.",
+				"Open a companion Android app to search the case list. Give its action and lookup name, text or worker-account values to send, and ordered fallback response names. icon is an optional Project image asset id. null removes it; omission leaves it unchanged.",
 			),
 		emptyText: caseListWordingSchema
 			.nullable()

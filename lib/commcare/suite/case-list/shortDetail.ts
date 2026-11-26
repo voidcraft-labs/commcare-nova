@@ -144,6 +144,7 @@ import {
 	SELECT_TEXT,
 	selectTextLocaleId,
 } from "./detailTexts";
+import { deviceLookupExtraWire } from "./deviceLookup";
 import { buildNamedTileFields } from "./namedTile";
 import { withDetailLoadBehavior } from "./optimizations";
 import { moduleCaseListOrderPlan } from "./orderPlanOptions";
@@ -681,10 +682,13 @@ function buildDetailShell(
 					auto_launch: String(deviceLookup.automatic === true),
 				},
 				[
-					...deviceLookup.extras.map(({ name, value }) =>
+					...deviceLookup.extras.map((extra) =>
 						xel(
 							"extra",
-							{ attributes: { key: name }, xpath: { value: w.str(value) } },
+							{
+								attributes: { key: extra.name },
+								xpath: { value: deviceLookupExtraWire(extra) },
+							},
 							wire,
 						),
 					),

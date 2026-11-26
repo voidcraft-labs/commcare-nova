@@ -42,6 +42,20 @@ export function caseListDeviceLookup() {
 							extras: [
 								{ name: "visit_mode", value: "followup" },
 								{ name: "visit_limit", value: "3" },
+								{
+									name: "worker_name",
+									expression: {
+										kind: "term",
+										term: { kind: "session-context", field: "username" },
+									},
+								},
+								{
+									name: "worker_id",
+									expression: {
+										kind: "term",
+										term: { kind: "session-context", field: "userid" },
+									},
+								},
 							],
 							responses: ["first", "second"],
 						},

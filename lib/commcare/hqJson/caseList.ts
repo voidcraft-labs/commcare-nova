@@ -3,6 +3,7 @@ import {
 	caseTextWireKey,
 } from "../suite/case-list/calculationText";
 import { detailBindings } from "../suite/case-list/detailBindings";
+import { deviceLookupExtraWire } from "../suite/case-list/deviceLookup";
 
 // lib/commcare/hqJson/caseList.ts
 //
@@ -1691,9 +1692,9 @@ export function projectCaseListForHq(
 				"case-list lookup icon",
 			);
 		pair.short.lookup_autolaunch = deviceLookup.automatic === true;
-		pair.short.lookup_extras = deviceLookup.extras.map(({ name, value }) => ({
-			key: name,
-			value: hqXPath(w.str(value)),
+		pair.short.lookup_extras = deviceLookup.extras.map((extra) => ({
+			key: extra.name,
+			value: hqXPath(deviceLookupExtraWire(extra)),
 		}));
 		pair.short.lookup_responses = deviceLookup.responses.map((key) => ({
 			key,

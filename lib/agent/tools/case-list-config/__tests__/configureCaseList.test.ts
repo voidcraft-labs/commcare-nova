@@ -23,7 +23,16 @@ describe("configureCaseList", () => {
 		const deviceLookup = {
 			action: "org.nova.proof.CASE_LOOKUP",
 			label: "Find a visit",
-			extras: [{ name: "mode", value: "followup" }],
+			extras: [
+				{ name: "mode", value: "followup" },
+				{
+					name: "worker",
+					expression: {
+						kind: "term",
+						term: { kind: "session-context", field: "username" },
+					},
+				},
+			],
 			responses: ["primary", "backup"],
 		};
 		const before = h.currentDoc().modules[MOD_A].caseListConfig;
@@ -41,6 +50,23 @@ describe("configureCaseList", () => {
 			configureCaseListInputSchema.safeParse({
 				moduleUuid: MOD_A,
 				deviceLookup: { ...deviceLookup, responses: [] },
+			}).success,
+		).toBe(false);
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				deviceLookup: {
+					...deviceLookup,
+					extras: [
+						{
+							name: "unsupported",
+							expression: {
+								kind: "term",
+								term: { kind: "session-context", field: "deviceid" },
+							},
+						},
+					],
+				},
 			}).success,
 		).toBe(false);
 		await h.runTool(configureCaseListTool, {

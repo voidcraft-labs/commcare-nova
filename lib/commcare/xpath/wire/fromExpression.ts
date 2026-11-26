@@ -47,6 +47,7 @@ import {
 	isRelationPath,
 	type PropertyRef,
 	type RelationPath,
+	type SessionContextField,
 	type Term,
 } from "@/lib/domain/expression/types";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
@@ -181,6 +182,14 @@ const comparison: Record<
 	"eq" | "neq" | "lt" | "lte" | "gt" | "gte",
 	WireComparison
 > = { eq: "=", neq: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=" };
+export function sessionContextPath(field: SessionContextField): WireExpr {
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("context"),
+		w.step(field),
+	]);
+}
+
 /** Lower admitted domain expressions once. Serializers own every lexical choice. */
 export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const { normalized, context } = prepareWire(expr, ctx);
@@ -682,11 +691,7 @@ function term(input: Term, ctx: Context): WireExpr {
 			]);
 		}
 		case "session-context": {
-			const read = w.instance(sessionInstance(), [
-				w.step("session"),
-				w.step("context"),
-				w.step(input.field),
-			]);
+			const read = sessionContextPath(input.field);
 			return (
 				ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS as readonly string[]
 			).includes(input.field) &&
