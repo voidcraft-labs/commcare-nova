@@ -40,7 +40,7 @@ RECEIVERS = {
 }
 TYPE_ADDRESS = {
     "eval": """() => {
-        const input = document.querySelector('.query-field input.mapboxgl-ctrl-geocoder--input');
+        const input = document.querySelector('[id$=_mapbox] input.mapboxgl-ctrl-geocoder--input');
         if (!input) throw Error("Search does not offer an address input");
         input.focus();
         input.value = "Visit Road";
@@ -49,7 +49,7 @@ TYPE_ADDRESS = {
 }
 CLEAR_ADDRESS = {
     "eval": """() => {
-        const geocoder = document.querySelector('.query-field .mapboxgl-ctrl-geocoder');
+        const geocoder = document.querySelector('[id$=_mapbox] .mapboxgl-ctrl-geocoder');
         geocoder.dispatchEvent(new MouseEvent("mouseenter"));
         const clear = geocoder.querySelector(".mapboxgl-ctrl-geocoder--button");
         if (!clear.getClientRects().length) throw Error("The selected address has no visible clear control");
@@ -62,7 +62,7 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     document = webapps_documents["hq-search"]
-    opening = [*steps.open_app("Client search"), *steps.choose("Clients"), steps.SCREEN]
+    opening = [*steps.open_app("Client search"), *steps.choose("Clients"), *steps.choose("Followup Form"), steps.SCREEN]
     select = [TYPE_ADDRESS, {"until": "webapps/choose_address", "arg": PLACE["place_name"]}, steps.SETTLE]
 
     def enable(config):
