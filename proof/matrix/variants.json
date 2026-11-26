@@ -8713,6 +8713,36 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/callout-with-worker-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-worker-context",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_worker_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/extras/1",
+				"value": {
+					"name": "worker",
+					"expression": {
+						"kind": "term",
+						"term": {
+							"kind": "session-context",
+							"field": "username"
+						}
+					}
+				}
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/follow-ups-shown-above-offering-registration",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-list-form-on-a-top-level-put-in-root-module-whose-case-list",

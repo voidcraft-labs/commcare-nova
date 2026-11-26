@@ -9152,20 +9152,53 @@
 		"slotChanges": []
 	},
 	{
-		"id": "menus-and-case-lists/lookup-extras-key-value",
+		"id": "menus-and-case-lists/lookup-extras-worker-context",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "`lookup_extras[] {key, value}` with expressions beyond fixed text",
+		"item": "Lookup extras with worker account values",
 		"surfaceKeys": [
 			"parser:CalloutParser/extra",
 			"parser:CalloutParser/extra@key",
 			"parser:CalloutParser/extra@value",
 			"schema:Detail.lookup_extras"
 		],
-		"valueClass": "nonliteral-extra-on-the-case-list",
+		"valueClass": "fixed-text-and-worker-account-extras-on-the-case-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android companion receives the configured worker username or ID from the installed app’s active session",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`deviceLookup.extras` → `lookup_extras` with fixed text and typed worker username or ID reads",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+
+	{
+		"id": "menus-and-case-lists/lookup-extras-key-value",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "`lookup_extras[] {key, value}` beyond fixed text and worker account values",
+		"surfaceKeys": [
+			"parser:CalloutParser/extra",
+			"parser:CalloutParser/extra@key",
+			"parser:CalloutParser/extra@value",
+			"schema:Detail.lookup_extras"
+		],
+		"valueClass": "extra-outside-fixed-text-and-worker-context-on-case-list",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed lookup extras beyond fixed text",
+		"dispositionCell": "**HELD-NEW**: typed lookup extras outside the supported preselection scope",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {

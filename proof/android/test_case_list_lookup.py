@@ -90,7 +90,7 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
 
 
 
-def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, android_documents):
+def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_documents):
     from proof.android.test_form_reads import _served
     from proof.observe.served import local_archive
 
@@ -129,5 +129,8 @@ def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, andro
             assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], []]
             assert [result["searchText"] for result in results] == ["Cedar", "Juniper", "none-matches"]
             assert all(result["action"] == ACTION for result in results)
-            assert all(result["sent"] == {"visit_mode": "followup", "visit_limit": "3"} for result in results)
+            assert all(result["sent"] == {
+                "visit_mode": "followup", "visit_limit": "3",
+                "worker_name": database.username, "worker_id": database.user_id,
+            } for result in results)
             write_evidence(f"nova-case-list-lookup-{label}", results)

@@ -6,14 +6,22 @@ import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import {
 	type CaseListDeviceLookup,
+	type CaseListLookupWorkerField,
 	type CommitOutcome,
 	caseListDeviceLookupSchema,
 	type Uuid,
 } from "@/lib/domain";
 
-function row(name = "", value = "") {
-	return { id: v4(), name, value };
+function row(name = "", value = "", field?: CaseListLookupWorkerField) {
+	return { id: v4(), name, value, field };
 }
 
 function edit(value?: CaseListDeviceLookup) {
@@ -23,7 +31,11 @@ function edit(value?: CaseListDeviceLookup) {
 		label: value?.label ?? "",
 		icon: value?.icon,
 		automatic: value?.automatic,
-		extras: value?.extras.map(({ name, value }) => row(name, value)) ?? [row()],
+		extras: value?.extras.map((extra) =>
+			"value" in extra
+				? row(extra.name, extra.value)
+				: row(extra.name, "", extra.expression.term.field),
+		) ?? [row()],
 		responses: value?.responses.map((name) => row(name)) ?? [row()],
 	};
 }
@@ -104,7 +116,17 @@ export function CaseListDeviceLookupSetting({
 							...(draft.automatic !== undefined && {
 								automatic: draft.automatic,
 							}),
-							extras: draft.extras.map(({ name, value }) => ({ name, value })),
+							extras: draft.extras.map(({ name, value, field }) =>
+								field === undefined
+									? { name, value }
+									: {
+											name,
+											expression: {
+												kind: "term",
+												term: { kind: "session-context", field },
+											},
+										},
+							),
 							responses: draft.responses.map(({ name }) => name),
 						});
 						if (!parsed.success) {
@@ -204,14 +226,17 @@ function LookupRows({
 }) {
 	const sending = kind === "extras";
 	const noun = sending ? "value" : "response";
-	const update = (id: string, patch: { name?: string; value?: string }) =>
+	const update = (
+		id: string,
+		patch: Partial<Omit<ReturnType<typeof row>, "id">>,
+	) =>
 		onChange(rows.map((one) => (one.id === id ? { ...one, ...patch } : one)));
 	return (
 		<fieldset className="space-y-2">
 			<legend className="text-sm font-medium text-nova-text">
 				{sending ? "Values to send" : "Response names, in order"}
 			</legend>
-			{rows.map(({ id, name, value }) => (
+			{rows.map(({ id, name, value, field }) => (
 				<div className="flex items-end gap-2" key={id}>
 					<LookupInput
 						label="Name"
@@ -219,6 +244,28 @@ function LookupRows({
 						onChange={(name) => update(id, { name })}
 					/>
 					{sending && (
+						<Select
+							value={field ?? "text"}
+							onValueChange={(source) =>
+								update(id, {
+									field:
+										source === "username" || source === "userid"
+											? source
+											: undefined,
+								})
+							}
+						>
+							<SelectTrigger aria-label="Value source">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="text">Fixed text</SelectItem>
+								<SelectItem value="username">Worker username</SelectItem>
+								<SelectItem value="userid">Worker ID</SelectItem>
+							</SelectContent>
+						</Select>
+					)}
+					{sending && field === undefined && (
 						<LookupInput
 							label="Text"
 							value={value}

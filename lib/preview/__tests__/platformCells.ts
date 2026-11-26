@@ -234,6 +234,9 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/lookup-image-jr@web-apps": stated(
 		"case-list-android-lookup",
 	),
+	"menus-and-case-lists/lookup-extras-worker-context@web-apps": stated(
+		"case-list-android-lookup",
+	),
 	"menus-and-case-lists/lookup-name@web-apps": stated(
 		"case-list-android-lookup",
 	),

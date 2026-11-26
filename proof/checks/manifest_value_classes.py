@@ -6224,6 +6224,21 @@ def _literal_lookup_text(tree):
     return tree[:2] == ["call", "concat"] and all(_literal_lookup_text(argument) for argument in tree[2])
 
 
+def _worker_lookup_value(tree):
+    return bool(
+        tree and tree[:2] == ["path", "instance:commcaresession"] and tree[3] == []
+        and tree[4] in [
+            [["child", "session", 0], ["child", "context", 0], ["child", field, 0]]
+            for field in ("username", "userid")
+        ]
+    )
+
+
+def _supported_lookup_value(text):
+    tree = expression_tree(text)
+    return _literal_lookup_text(tree) or _worker_lookup_value(tree)
+
+
 def lookup_with_nonliteral_arguments(use, manifest):
     """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
     detail = _short_lookup(use)
@@ -6232,7 +6247,7 @@ def lookup_with_nonliteral_arguments(use, manifest):
     return any(
         isinstance(extra, dict)
         and isinstance(value := extra.get("value"), str)
-        and not _literal_lookup_text(expression_tree(value))
+        and not _supported_lookup_value(value)
         for extra in detail["lookup_extras"]
     )
 

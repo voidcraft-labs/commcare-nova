@@ -68,6 +68,7 @@
 		"hq-case-lists/call-link-on-the-detail",
 		"hq-case-lists/callout-name-with-the-callout-off",
 		"hq-case-lists/callout-on-case-detail",
+		"hq-case-lists/callout-with-worker-name",
 		"hq-case-lists/case-detail-custom-tile",
 		"hq-case-lists/case-detail-template-tile",
 		"hq-case-lists/case-detail-texts",

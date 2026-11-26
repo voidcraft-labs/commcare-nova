@@ -45,8 +45,10 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
+	CASE_LIST_LOOKUP_WORKER_FIELDS,
 	caseListColumnTextShows,
 	columnSortLabelShows,
+	type DeviceLookupExtra,
 } from "@/lib/domain/modules";
 import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
@@ -55,8 +57,10 @@ import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties"
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { sharedSources } from "../../hq/suiteDetailSources";
 import { emptyShortListColumns } from "../../hqJson/caseList";
+import { hqXPath, hqXPathText } from "../../hqJson/xpath";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { scannedInstances } from "../../xpath/instanceSources";
+import { sessionContextPath } from "../../xpath/wire/fromExpression";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import { indexTarget } from "../caseManagement/basicActions";
@@ -468,7 +472,19 @@ const TEXT_LOOKUP_KEYS = defineClaims(
 	) as Record<string, Claim<"take">>,
 );
 
-/** The Android text-search branch, with fixed text extras and ordered fallback responses. */
+const LOOKUP_WITH_WORKER_EXTRA = defineClaims("caseList.details.workerLookup", {
+	extras: take(
+		`${A}lookup-extras-worker-context`,
+		"schema:Detail.lookup_extras",
+	),
+});
+
+const workerExtraText = CASE_LIST_LOOKUP_WORKER_FIELDS.map((field) => ({
+	field,
+	text: hqXPathText(hqXPath(sessionContextPath(field))),
+}));
+
+/** The Android text-search branch, with preselection values and ordered fallback responses. */
 function textDeviceLookup(
 	detail: JsonCursor,
 ): CaseListDeviceLookup | undefined {
@@ -493,7 +509,7 @@ function textDeviceLookup(
 		!Array.isArray(rawResponses)
 	)
 		return undefined;
-	const extras = [];
+	const extras: DeviceLookupExtra[] = [];
 	for (const entry of rawExtras) {
 		if (
 			!isJsonObject(entry) ||
@@ -504,10 +520,21 @@ function textDeviceLookup(
 			typeof entry.value !== "string"
 		)
 			return undefined;
-		const parsed = sharedFormSyntax(entry.value);
+		const source = entry.value;
+		const parsed = sharedFormSyntax(source);
 		const value = parsed.ok ? literalText(parsed.node) : undefined;
-		if (value === undefined) return undefined;
-		extras.push({ name: entry.key, value });
+		if (value !== undefined) {
+			extras.push({ name: entry.key, value });
+			continue;
+		}
+		const field = workerExtraText.find(({ text }) =>
+			sameXPathText(source, text),
+		)?.field;
+		if (field === undefined) return undefined;
+		extras.push({
+			name: entry.key,
+			expression: { kind: "term", term: { kind: "session-context", field } },
+		});
 	}
 	const responses = [];
 	for (const entry of rawResponses) {
@@ -1424,7 +1451,11 @@ function readDetailKeys(
 				}
 			}
 			for (const key of CALLOUT_KEYS) {
-				const claim = TEXT_LOOKUP_KEYS[key];
+				const claim =
+					key === "lookup_extras" &&
+					lookup.extras.some((extra) => "expression" in extra)
+						? LOOKUP_WITH_WORKER_EXTRA.extras
+						: TEXT_LOOKUP_KEYS[key];
 				if (
 					claim !== undefined &&
 					detail.used(key) &&

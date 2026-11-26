@@ -2751,6 +2751,14 @@ status use attributes; external ID remains Core's copied child property.
 `StandardCaseReadsRuntimeTest` executes all supported metadata reads in the exact
 CCZ against native Case instances, including a closed parent.
 
+## Android case-list companion request values
+
+A case-list lookup sends fixed text and the typed active worker username or ID
+before any case is chosen. Local suites and HQ JSON lower those reads through
+the same session-context path as other typed expressions. The reader accepts
+these two preselection fields from native source and retains its unsupported
+finding for other calculations. Browser Preview has no companion return channel.
+
 ## Case-backed question choices
 
 `caseOptions.ts::caseOptionsNodeset` lowers the typed cases source to a standard
