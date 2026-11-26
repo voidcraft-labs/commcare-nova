@@ -62,20 +62,25 @@ import {
 } from "../heldText";
 import type { JsonCursor } from "../jsonCursor";
 import { isJsonObject, objectMembers } from "../jsonCursor";
+import { placeKey } from "../place";
 import { readNavMedia } from "./navMedia";
 
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
 type MenuClass = DraftModule["docType"];
-type FormClass = "Form" | "AdvancedForm";
+type FormClass = DraftForm["docType"];
 const MENU_CLASSES: readonly MenuClass[] = [
 	"Module",
 	"AdvancedModule",
 	"ShadowModule",
 ];
 const OWN_CASE_TYPE_CLASSES = ["Module", "AdvancedModule"] as const;
-const FORM_CLASSES: readonly FormClass[] = ["Form", "AdvancedForm"];
+const FORM_CLASSES: readonly FormClass[] = [
+	"Form",
+	"AdvancedForm",
+	"ShadowForm",
+];
 
 /** One claim per class, its key the class's own spelling of the field. */
 function perClass<C extends string, U extends Claim["use"]>(
@@ -112,7 +117,7 @@ const MENU = {
 		`${M}/case-type-commcare-user-or-user-owner-mapping-case-on-a-basic`,
 		"schema:Module.case_type",
 	),
-	caseTypeWorkerAdvanced: refuse(
+	caseTypeWorkerAdvanced: take(
 		`${M}/case-type-commcare-user-on-an-advancedmodule`,
 		"schema:AdvancedModule.case_type",
 	),
@@ -770,7 +775,6 @@ function menuClass(module: DraftModule): MenuClass {
 const KEPT_REFUSED_CASE_TYPES: ReadonlySet<string> = new Set([
 	...Object.values(MENU.caseTypeGrammar).map((claim) => claim.entry),
 	MENU.caseTypeReservedBasic.entry,
-	MENU.caseTypeWorkerAdvanced.entry,
 ]);
 
 /**
@@ -782,6 +786,22 @@ export function keepsRefusedCaseType(ctx: ReadContext): boolean {
 	return ctx.accounting
 		.findings()
 		.some((finding) => KEPT_REFUSED_CASE_TYPES.has(finding.code));
+}
+
+/** Whether the menu at `place` keeps a refused case type (`keepsRefusedCaseType`):
+ *  its forms are read as written, and Nova's writer cannot plan them again. */
+export function menuKeepsRefusedCaseType(
+	ctx: ReadContext,
+	place: HqPlace,
+): boolean {
+	const key = placeKey(place);
+	return ctx.accounting
+		.findings()
+		.some(
+			(finding) =>
+				KEPT_REFUSED_CASE_TYPES.has(finding.code) &&
+				placeKey(finding.place) === key,
+		);
 }
 
 function readCaseType(ctx: ReadContext, module: DraftModule): void {
@@ -798,9 +818,7 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 					(caseType === "commcare-user" ||
 						caseType === "user-owner-mapping-case")
 				? MENU.caseTypeReservedBasic
-				: module.docType === "AdvancedModule" && caseType === "commcare-user"
-					? MENU.caseTypeWorkerAdvanced
-					: undefined;
+				: undefined;
 		if (refused !== undefined) {
 			json.refuse("case_type", refused);
 			ctx.writeDraft(() => {
@@ -810,7 +828,9 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 		}
 		const value = json.take(
 			"case_type",
-			MENU.caseType[module.docType],
+			module.docType === "AdvancedModule" && caseType === "commcare-user"
+				? MENU.caseTypeWorkerAdvanced
+				: MENU.caseType[module.docType],
 			textOf,
 		).value;
 		ctx.writeDraft(() => {

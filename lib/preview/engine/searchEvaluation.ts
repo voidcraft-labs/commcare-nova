@@ -11,7 +11,12 @@ import type { LanguageTag } from "@/lib/domain/localization";
 import { resolveAppLanguage } from "@/lib/domain/localization";
 import { caseListStep } from "../caseListPhase";
 import { previewPlatformRules } from "../platform";
-import { projectWorkerModule } from "../workerModule";
+import {
+	projectWorkerModule,
+	type WorkerListPurpose,
+	workerListExcludedOwners,
+	workerListFor,
+} from "../workerModule";
 import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -55,6 +60,9 @@ import { readingSurfaceNow, surfacedRefusal } from "./surfacedDataRefusal";
 export interface SearchEvaluationInput {
 	/** Complete the preceding Search when a form reads its Results. */
 	completeForForm?: boolean;
+	readonly listPurpose?: WorkerListPurpose;
+	/** A registration return runs a remote query keyed to the new case. */
+	readonly registeredResult?: boolean;
 	language?: LanguageTag;
 	moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
@@ -97,7 +105,8 @@ async function searchSnapshot(
 	context: FormEvaluationContext,
 ) {
 	const language = resolveAppLanguage(doc.localization, input.language);
-	const mod = projectWorkerModule(doc, language, input.moduleUuid);
+	const menu = projectWorkerModule(doc, language, input.moduleUuid);
+	const mod = workerListFor(menu, input.listPurpose);
 	if (!mod) throw new FormEvaluationInputError("Menu not found.");
 	const config = mod.caseListConfig;
 	const inputs = config?.searchInputs ?? [];
@@ -359,12 +368,17 @@ async function searchSnapshot(
 		? withHiddenValues(run.submitted, run.submittedHidden)
 		: new Map<string, string>();
 	const expressionValues = withSearchInputExpressionValues(inputs, values);
+	const excludedOwners = workerListExcludedOwners(
+		mod,
+		input.listPurpose,
+		(relevant && run.hasSubmitted) || input.registeredResult === true,
+	);
 	const excluded = (answers: ReadonlyMap<string, string>) =>
-		mod.caseSearchConfig?.excludedOwnerIds === undefined
+		excludedOwners === undefined
 			? undefined
 			: parseExcludedOwnerIds(
 					evaluatePreviewSearchExpression(
-						mod.caseSearchConfig.excludedOwnerIds,
+						excludedOwners,
 						expressions({ slot: "excluded_owner_ids" }),
 						session,
 						answers,

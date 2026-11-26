@@ -78,14 +78,19 @@ export async function findUsercaseRow(
 	return rows[0];
 }
 
-/** A stored row's properties as text, the values `casedb` hands a device. */
+/** A stored row's properties as text, the values `casedb` hands a device:
+ *  the JSONB document and, where it holds text, the row's location column,
+ *  which a restore writes as the case's `location_id` element. */
 function heldProperties(row: {
 	readonly properties?: Record<string, unknown> | null;
+	readonly location_id?: string | null;
 }): Record<string, string> {
 	const held: Record<string, string> = {};
 	for (const [key, value] of Object.entries(row.properties ?? {})) {
 		if (value !== null && value !== undefined) held[key] = String(value);
 	}
+	if (typeof row.location_id === "string" && row.location_id !== "")
+		held.location_id = row.location_id;
 	return held;
 }
 
@@ -110,14 +115,25 @@ export async function storedUsercaseProperties(
  *  their own columns, everything else to the JSONB document. */
 function splitRecord(record: Record<string, string>): {
 	readonly caseName: string;
+	readonly locationId?: string;
 	readonly properties: JsonObject;
 } {
 	const properties: Record<string, string> = {};
 	for (const [key, value] of Object.entries(record)) {
-		if (isStandardCaseListProperty(key)) continue;
+		if (isStandardCaseListProperty(key) || key === "location_id") continue;
 		properties[key] = value;
 	}
-	return { caseName: record.case_name ?? "", properties };
+	// A worker detail named `location_id` is the record's own location, as
+	// CommCare HQ's user-case sync leaves it: the sync writes it as a case
+	// block key, which HQ keeps in the case's location column
+	// (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`).
+	return {
+		caseName: record.case_name ?? "",
+		...(record.location_id === undefined
+			? {}
+			: { locationId: record.location_id }),
+		properties,
+	};
 }
 
 export interface SyncUsercaseRowArgs {
@@ -184,7 +200,7 @@ export async function syncUsercaseRow(
 	const { appId, worker, authored, doc, projectSpace } = args;
 	const caseId = usercaseIdFor(appId, worker);
 	const record = usercaseRecord(worker, authored, doc, projectSpace);
-	const { caseName, properties } = splitRecord(record);
+	const { caseName, locationId, properties } = splitRecord(record);
 	const lookup = { appId, workerId: worker.id, doc };
 	let current = await findUsercaseRow(store, lookup);
 	if (current === undefined) {
@@ -195,14 +211,19 @@ export async function syncUsercaseRow(
 					case_id: caseId,
 					case_type: USERCASE_CASE_TYPE,
 					case_name: caseName,
+					...(locationId === undefined ? {} : { location_id: locationId }),
 					status: "open",
 					properties,
 				},
 			});
 			return {
 				created: true,
-				changed: Object.keys(properties).length,
-				stored: properties as Record<string, string>,
+				changed:
+					Object.keys(properties).length + (locationId === undefined ? 0 : 1),
+				stored: heldProperties({
+					properties,
+					...(locationId === undefined ? {} : { location_id: locationId }),
+				}),
 			};
 		} catch (error) {
 			// insert owns its transaction, which has rolled back before rejecting.
@@ -237,13 +258,21 @@ export async function syncUsercaseRow(
 	// the changed keys over the top. A MERGE, matching what `update` does —
 	// keys outside the desired record stay, which is exactly why the row and
 	// the projection can differ and why the row is the one to believe.
-	const stored: Record<string, string> = {};
-	for (const [key, value] of Object.entries(storedBefore)) {
-		if (value !== null && value !== undefined) stored[key] = String(value);
-	}
+	const stored: Record<string, string> = heldProperties({
+		properties: storedBefore,
+		...(current.location_id === undefined
+			? {}
+			: { location_id: current.location_id }),
+	});
 	Object.assign(stored, changed);
+	const relocated =
+		locationId !== undefined && (current.location_id ?? null) !== locationId;
+	if (relocated) {
+		if (locationId === "") delete stored.location_id;
+		else stored.location_id = locationId;
+	}
 	const renamed = current.case_name !== caseName;
-	if (Object.keys(changed).length === 0 && !renamed) {
+	if (Object.keys(changed).length === 0 && !renamed && !relocated) {
 		return { created: false, changed: 0, stored };
 	}
 	await store.update({
@@ -251,10 +280,15 @@ export async function syncUsercaseRow(
 		caseId: current.case_id,
 		patch: {
 			...(renamed && { case_name: caseName }),
+			...(relocated && { location_id: locationId }),
 			...(Object.keys(changed).length > 0 && { properties: changed }),
 		},
 	});
-	return { created: false, changed: Object.keys(changed).length, stored };
+	return {
+		created: false,
+		changed: Object.keys(changed).length + (relocated ? 1 : 0),
+		stored,
+	};
 }
 
 /**

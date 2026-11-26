@@ -39,6 +39,7 @@ DOCUMENTS = (
     "targeted-forms-in-menu-above-one-case",
     "targeted-hidden-from-menu",
     "targeted-listed-forms",
+    "targeted-independent-form-choices",
     "targeted-invalid-question-ids",
     "targeted-lookup-reserved-tags",
     "targeted-label-content",
@@ -48,6 +49,7 @@ DOCUMENTS = (
     "targeted-search-hq-compile",
     "targeted-search-workflow",
     "targeted-several-case-close",
+    "targeted-shared-visit-entries",
     "targeted-validated-barcode-secret",
     "xpath-context",
 )

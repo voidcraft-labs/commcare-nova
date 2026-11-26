@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain/columnRelation";
 import { mapCasePropertiesInExpression } from "@/lib/domain/expression/rewrite";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { openingAssignmentPropertyType } from "@/lib/domain/formOpeningAssignments";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import {
@@ -295,6 +296,11 @@ export function rewriteCasePropertyCarriers(
 		for (const formUuid of formUuids) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
+			for (const assignment of form.openingAssignments ?? []) {
+				const type = openingAssignmentPropertyType(doc, form.uuid, assignment);
+				const renamed = type && resolve(type, assignment.property);
+				if (renamed) assignment.property = renamed;
+			}
 			rewriteFormReferenceSlots(form, {
 				resolveCaseProperty: resolve,
 				caseTypes: relationTypes,

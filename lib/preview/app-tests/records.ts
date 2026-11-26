@@ -6,6 +6,7 @@ import {
 	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
+import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
 import { caseListRegistrationAdmission } from "../caseListRegistration";
 import { readCases } from "../engine/caseDataBindingHelpers";
 import { searchOutcomeFromLoad } from "../engine/searchPhase";
@@ -16,6 +17,7 @@ import {
 import type { AppTestContext } from "./context";
 import { readingSurface } from "./dataRefusal";
 import { AppTestActionError } from "./errors";
+import { isCaseListMenuItemList } from "./navigation";
 import type { AppTestSessionState } from "./types";
 
 /** The session an App Test's server-side search reads. */
@@ -68,6 +70,16 @@ export async function prepareAppTestRecords(
 			appTestSearchWorld(context, scope, state),
 			{
 				moduleUuid: screen.moduleUuid,
+				advancedListItem:
+					isCaseListMenuItemList(context, screen) &&
+					menuEmittedAdvanced(context.doc, screen.moduleUuid),
+				...(screen.formEntry && {
+					formEntry: {
+						sessionData: screen.formEntry.sessionData,
+						chosenCaseIds: screen.formEntry.next.chosenCaseIds,
+						under: screen.formEntry.next.under,
+					},
+				}),
 				submitted: screen.searchAnswers,
 				entry: screen.searchEntry,
 				answers,

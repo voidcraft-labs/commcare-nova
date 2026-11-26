@@ -62,6 +62,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import { declaredPlatforms, PLATFORMS } from "@/lib/domain/platforms";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import type { QuestionMessage } from "../displayMessages";
@@ -113,6 +114,7 @@ import {
 	formLogicLookupsCovered,
 	type PreviewLookupData,
 } from "./lookupEvaluation";
+import { openingCaseAssignments } from "./openingCaseAssignments";
 import {
 	defaultPreviewDevice,
 	type PreviewDevice,
@@ -557,7 +559,10 @@ function activeFormTopologyChanged(
 	formUuid: Uuid,
 	trackedUuids: ReadonlySet<string>,
 ): boolean {
-	if (current.fieldOrder[formUuid] !== previous.fieldOrder[formUuid]) {
+	if (
+		current.fieldOrder[formContentUuid(current, formUuid)] !==
+		previous.fieldOrder[formContentUuid(previous, formUuid)]
+	) {
 		return true;
 	}
 	for (const uuid of trackedUuids) {
@@ -619,6 +624,11 @@ function activeFormRuntimeChanged(
 	if (
 		activeFormTopologyChanged(current, previous, formUuid, trackedUuids) ||
 		formRuntimeChanged(current.forms[formUuid], previous.forms[formUuid]) ||
+		(formContentUuid(current, formUuid) !== formUuid &&
+			formRuntimeChanged(
+				current.forms[formContentUuid(current, formUuid)],
+				previous.forms[formContentUuid(previous, formUuid)],
+			)) ||
 		current.caseTypes !== previous.caseTypes ||
 		current.userProperties !== previous.userProperties ||
 		(presentationLanguage !== null &&
@@ -919,6 +929,7 @@ export class EngineController {
 				? undefined
 				: entrySessionData(state, formUuid, {
 						...input,
+						lookupData: input.openingLookup ?? this.lookupData,
 						entryKey,
 						caseDatabase: caseDatabase ?? null,
 						session: previewSessionValues(
@@ -963,7 +974,13 @@ export class EngineController {
 		resume?: LookupWaitResume,
 	): boolean {
 		if (
-			formLogicLookupsCovered(state, formUuid, this.lookupData ?? undefined)
+			formLogicLookupsCovered(
+				state,
+				formUuid,
+				this.sessionFor(formUuid)?.openingLookup ??
+					this.lookupData ??
+					undefined,
+			)
 		) {
 			if (this.lookupWait?.formUuid === formUuid) this.clearLookupWait();
 			return false;
@@ -2064,7 +2081,12 @@ export class EngineController {
 			return;
 		}
 		this.contain("activate", formUuid, undefined, () => {
-			this.mountForm(formUuid, caseData, uuidv4(), caseDatabase);
+			this.mountForm(
+				formUuid,
+				caseData,
+				this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
+				caseDatabase,
+			);
 		});
 	}
 
@@ -2117,7 +2139,7 @@ export class EngineController {
 		return this.mountFormAsync(
 			formUuid,
 			caseData,
-			uuidv4(),
+			this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
 			undefined,
 			caseDatabase,
 		);
@@ -2286,11 +2308,21 @@ export class EngineController {
 			caseDatabase,
 		);
 		const engine = new FormEngine(
-			input,
-			state.modules[moduleUuid]?.caseType,
+			caseDatabase && session
+				? {
+						...input,
+						openingAssignments: openingCaseAssignments(
+							state,
+							formUuid,
+							session.reachedCaseIds,
+							caseDatabase,
+						),
+					}
+				: input,
+			input.entryRecordType,
 			caseData,
 			this.previewIdentity,
-			this.lookupData,
+			this.sessionFor(formUuid)?.openingLookup ?? this.lookupData,
 			caseDatabase,
 			{
 				stagedAsync: true,
@@ -2343,7 +2375,10 @@ export class EngineController {
 			this.publishEntryState();
 			return false;
 		}
-		const uuids = collectFormUuids(formUuid, state.fieldOrder);
+		const uuids = collectFormUuids(
+			formContentUuid(state, formUuid),
+			state.fieldOrder,
+		);
 		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
@@ -2359,8 +2394,14 @@ export class EngineController {
 		) {
 			const current = docStore.getState();
 			this.reconcileAuthoredTopology(formUuid, current, state);
-			const previousUuids = collectFormUuids(formUuid, state.fieldOrder);
-			const currentUuids = collectFormUuids(formUuid, current.fieldOrder);
+			const previousUuids = collectFormUuids(
+				formContentUuid(state, formUuid),
+				state.fieldOrder,
+			);
+			const currentUuids = collectFormUuids(
+				formContentUuid(current, formUuid),
+				current.fieldOrder,
+			);
 			for (const uuid of previousUuids) {
 				this.reconcileField(uuid, current.fields[uuid], state.fields[uuid]);
 			}
@@ -2551,16 +2592,25 @@ export class EngineController {
 		// `crypto.getRandomValues`, which every browsing context holds.
 		this.currentEntryKey = entryKey;
 
-		const mod = s.modules[moduleUuid];
 		const caseDatabase = caseDatabaseOverride ?? this.caseDatabaseSnapshot;
 		const searchAnswers = this.searchAnswersFor(formUuid);
 		const session = this.mountEntrySession(s, formUuid, entryKey, caseDatabase);
 		this.engine = new FormEngine(
-			input,
-			mod?.caseType,
+			caseDatabase && session
+				? {
+						...input,
+						openingAssignments: openingCaseAssignments(
+							s,
+							formUuid,
+							session.reachedCaseIds,
+							caseDatabase,
+						),
+					}
+				: input,
+			input.entryRecordType,
 			caseData,
 			this.previewIdentity,
-			this.lookupData,
+			this.sessionFor(formUuid)?.openingLookup ?? this.lookupData,
 			caseDatabase,
 			{
 				restoredEntry,
@@ -2580,7 +2630,7 @@ export class EngineController {
 		this.syncAllToStore();
 
 		/* Set up subscriptions */
-		const uuids = collectFormUuids(formUuid, s.fieldOrder);
+		const uuids = collectFormUuids(formContentUuid(s, formUuid), s.fieldOrder);
 		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
@@ -2874,9 +2924,10 @@ export class EngineController {
 			engine === undefined ||
 			formUuid === undefined ||
 			document?.fields[target.fieldUuid]?.kind !== target.kind ||
-			!collectFormUuids(formUuid, document.fieldOrder).includes(
-				target.fieldUuid,
-			)
+			!collectFormUuids(
+				formContentUuid(document, formUuid),
+				document.fieldOrder,
+			).includes(target.fieldUuid)
 		)
 			return undefined;
 		const keys = engine.getRepeatInstanceKeySnapshot();
@@ -4098,7 +4149,7 @@ export class EngineController {
 		const store = this.docStore;
 
 		const unsub = store.subscribe(
-			(s) => collectFormUuids(formUuid, s.fieldOrder),
+			(s) => collectFormUuids(formContentUuid(s, formUuid), s.fieldOrder),
 			(currentUuids, previousUuids) => {
 				this.contain("document-update", formUuid, undefined, () => {
 					const currentSet = new Set(currentUuids);
@@ -4727,16 +4778,10 @@ export class EngineController {
 		const input = this.currentEngineInput();
 		if (!input) return;
 
-		const s = this.docStore.getState();
-		const moduleUuid = this.activeFormUuid
-			? findModuleForForm(s, this.activeFormUuid)
-			: undefined;
-		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
-
 		this.engine.refreshCaseContext(
 			input,
 			this.activeCaseData ?? new Map(),
-			mod?.caseType,
+			input.entryRecordType,
 		);
 
 		/* Sync any paths that changed from the case data refresh */
@@ -4750,13 +4795,8 @@ export class EngineController {
 		if (!this.engine || !this.docStore) return;
 		const input = this.currentEngineInput();
 		if (!input) return;
-		const state = this.docStore.getState();
-		const moduleUuid = this.activeFormUuid
-			? findModuleForForm(state, this.activeFormUuid)
-			: undefined;
-		const mod = moduleUuid ? state.modules[moduleUuid] : undefined;
 
-		this.engine.updateSchema(input, mod?.caseType, this.activeCaseData);
+		this.engine.updateSchema(input, input.entryRecordType, this.activeCaseData);
 		this.syncAllPathsSelectively();
 	}
 

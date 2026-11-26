@@ -3,7 +3,7 @@ import { caseWorkspaceCaseRows } from "../../lib/caseWorkspaceSeed";
 import { openBuilder } from "../../lib/pageLoads";
 import { removableRoutes } from "../../lib/routes";
 
-test("Preview opened from Edit waits for its raw preload before showing defaults", {
+test("Preview opened from Edit waits for its signed opening before showing defaults", {
 	tag: "@seed:workspace",
 }, async ({ page, scenario }) => {
 	page.setDefaultTimeout(15_000);
@@ -29,21 +29,24 @@ test("Preview opened from Edit waits for its raw preload before showing defaults
 	const release = Promise.withResolvers<void>();
 	let arrived = false;
 	let delivered = false;
-	// Hold the real raw-row Server Action result. The case tile's separate read
-	// includes its column configuration; the form requests only raw preloads.
+	// Hold the real signed-opening Server Action result: a form that reads its
+	// case opens on the signed snapshot of the records it reads, which carries
+	// the preloaded values (`formOpeningAction.ts`). Its first argument is the
+	// opening request, the only action argument naming a blueprint digest.
 	const actionRoutes = removableRoutes(page);
 	await actionRoutes.route("**/build/**", async (route) => {
 		const request = route.request();
 		if (request.method() !== "POST" || !request.headers()["next-action"])
 			return route.continue();
 		const args: unknown = request.postDataJSON();
+		const opening: unknown = Array.isArray(args) ? args[0] : undefined;
 		if (
-			!Array.isArray(args) ||
-			args[0] !== seed.caseWorkspace.appId ||
-			args[1] !== seed.caseWorkspace.caseType ||
-			typeof args[2] !== "string" ||
-			args[4] !== "$undefined" ||
-			args[9] !== true
+			typeof opening !== "object" ||
+			opening === null ||
+			(opening as { app?: unknown }).app !== seed.caseWorkspace.appId ||
+			typeof (opening as { blueprintDigest?: unknown }).blueprintDigest !==
+				"string" ||
+			(opening as { previous?: unknown }).previous !== undefined
 		)
 			return route.continue();
 		const response = await route.fetch();
@@ -57,10 +60,11 @@ test("Preview opened from Edit waits for its raw preload before showing defaults
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		const date = page.locator('button[data-slot="date-picker"]');
 		await expect.poll(() => arrived).toBe(true);
+		// The form waits for its opening: no question and no Submit yet.
 		await expect(date).toHaveCount(0);
 		await expect(
 			page.getByRole("button", { name: "Submit", exact: true }),
-		).toBeDisabled();
+		).toHaveCount(0);
 		release.resolve();
 		await expect.poll(() => delivered).toBe(true);
 		await expect(date).toContainText(preloadedDate);

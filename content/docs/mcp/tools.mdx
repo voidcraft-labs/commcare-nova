@@ -118,6 +118,31 @@ that you can refine with the case-list tools. After adding questions, use `updat
 or expression, such as `#form/name` or `concat(#form/borrower, ' - ', #form/tool)`.
 Nova creates the underlying writer and preserves other saved answers. Advanced
 create operations use their `name` expression for the same purpose.
+Use `edit_form_entry` to add, rename, reorder or remove a record or value
+supplied when a form opens. Each record has its own UUID, even when two come
+from the same list. `get_form` shows the current supplies. A calculation can
+read an earlier record with `opening-record('Receiving household')` or an
+earlier value with `opening-value('visit_day')`. Its `add-assignment` operation
+fills a question from a record property once the form's ordinary starting
+answers have run, from the form's record, the worker's record or a named
+opening record, through any named connections. When a change would leave a
+reference without its source, the result names the dependent setting.
+
+`create_form` with `shared_form_uuid` gives an ordinary form another entry in
+a menu: the entry opens that form's questions and runs its record changes, and
+owns its name, opening choices, finish button and destination after
+submission. Both menus need advanced form settings, and the entry takes the
+form's type. On a shared entry, `edit_form_entry` chooses a different list or
+source for one of the form's records, adds an extra record of the entry's own
+or removes one the questions and record changes do not use;
+`restore-shared-choice` brings back a record the entry left out, and
+`change-shared-form` points the entry at another form. A shared record keeps
+the name the form gives it, so rename it on that form. Whether an entry asks
+for the device location follows the form it opens: set `capture_location` on
+that form, since `create_form` with `shared_form_uuid` and `update_form` on an
+entry refuse it. `get_form` on an entry reports
+`openingChoicesFrom: "shared-entry"` and the form it opens.
+
 `get_form` returns the current naming rule, navigation, and `recordContext` for
 reading the selected record and its ancestors. In form expressions,
 `#household/region` reads the selected record’s household ancestor;
@@ -264,7 +289,10 @@ saving records. By default, records and lookup data come from the authorized wor
 current data. An optional `scenario` supplies test `records` for a new app or a
 particular situation. Each record has an `id`, `caseType`, optional `properties`
 and optional `parentId` referring to another test record. Use those IDs in
-`caseIds`. Test records replace stored records for that evaluation and are never
+`caseIds`. A form that chooses its own opening records (`openingChoicesFrom: "form"`
+in `get_form`) takes `openingRecords` instead: one record for each opening record
+the worker chooses from a list, by its name, and it says which one still needs a record.
+Test records replace stored records for that evaluation and are never
 saved; lookup data remains real. The result is labeled `scenario`. Repeat rows, a selected
 worker, language and Search answers can be supplied when relevant. A form reads
 the selected worker's places, and a form that reads what its module's search found
@@ -1157,8 +1185,8 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 | Tool | What it does |
 |---|---|
-| `create_form` | Add one empty form to `moduleUuid` and return its identity. Add questions with `add_fields`, then set its naming rule and its open and close conditions with `update_form`. `case_list_registration: { label?, after_submit? }` makes a registration form its menu's registration from the case list: the results offer it after a search finds nothing, and it is on no menu. It turns on `formsReadSearch` for the menu, so the form's fields can read `#search/<name>`; set `after_submit` to `new-case` to open the menu with the registered case selected, or `case-list` to return to Results, which then list no record (Web Apps shows the list empty, without Register, though the search holds the registered case). The form’s `post_submit: firstMenu` takes precedence, and a menu choosing several cases requires it. It takes no after-submit destinations, otherwise, display condition, menu badge or `hiddenFromMenu`. A label left out or `null` uses the form name. `plain_text: true` turns text formatting off for the whole form. |
-| `update_form` | Edit a form's name, purpose, `recordName` (after its questions exist), open and close conditions, CommCare Connect settings (one participant's block, after a mode exists), after-submit navigation, `displayCondition` and `hiddenFromMenu` (`true` takes the form off the menu, `null` puts it back), `badge` (the label beside the form on the worker's menu, text or a calculation, `null` removes it), or whether it is its menu's registration from the case list, addressed by `moduleUuid` and `formUuid`. `open_condition` is for a registration: the case is created only when it holds, and `null` creates it on every submission. `close_condition` is for a registration or a close form: on a registration the case it creates also closes when it holds, `true()` closes it on every submission and `null` keeps it open; on a close form the case closes only when it holds, and `null` closes it on every submission. Both are form logic that reads answers as any form expression does, such as `#form/outcome = 'complete'`, and leaving one out keeps it. `case_list_registration` takes the same shape as on `create_form`; `null` makes the form a menu form again, turns `formsReadSearch` off and removes Search-based starting values. `plain_text: true` turns text formatting off for the whole form: every label shows as typed, and every choice and help text does on Android; `false` or `null` turns it back on. |
+| `create_form` | Add one empty form to `moduleUuid` and return its identity, or, with `shared_form_uuid`, another entry that opens an existing ordinary form's questions and record changes (see above). Add questions with `add_fields`, then set its naming rule and its open and close conditions with `update_form`. `case_list_registration: { label? }` makes a registration form its menu's registration from the case list: the results offer it after a search finds nothing, and it is on no menu. It turns on `formsReadSearch` for the menu, so the form's fields can read `#search/<name>`; after submit it returns to the results, or to the first menu when `post_submit` is `firstMenu`, which a menu choosing several cases requires. It takes no after-submit destinations, otherwise, display condition or `hiddenFromMenu`. A label left out or `null` uses the form name. `plain_text: true` turns text formatting off for the whole form. |
+| `update_form` | Edit a form's name, purpose, `recordName` (after its questions exist), open and close conditions, CommCare Connect settings (one participant's block, after a mode exists), after-submit navigation, `displayCondition` and `hiddenFromMenu` (`true` takes the form off the menu, `null` puts it back), or whether it is its menu's registration from the case list, addressed by `moduleUuid` and `formUuid`. `open_condition` is for a registration: the case is created only when it holds, and `null` creates it on every submission. `close_condition` is for a registration or a close form: on a registration the case it creates also closes when it holds, `true()` closes it on every submission and `null` keeps it open; on a close form the case closes only when it holds, and `null` closes it on every submission. Both are form logic that reads answers as any form expression does, such as `#form/outcome = 'complete'`, and leaving one out keeps it. `case_list_registration` takes the same shape as on `create_form`; `null` makes the form a menu form again, turns `formsReadSearch` off and removes Search-based starting values. `plain_text: true` turns text formatting off for the whole form: every label shows as typed, and every choice and help text does on Android; `false` or `null` turns it back on. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
 | `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, its `badge` when it has one (text or a calculation), case operations with authored conditions and values, its `openCondition` and `closeCondition` as authored text, its after-submit `destinations` in the order they run (each one's `uuid` is the `linkUuid` the link tools take), and its `otherwise`: `{ kind: "destination", destination }` or `{ kind: "link", linkUuid, target, datums? }`. It also lists `offeredOnCaseListsOf`, the modules whose case lists always offer the form. |
 
@@ -1344,7 +1372,7 @@ Reads return the same editable expressions; subsequent calls keep targeting the
 operation by `operationUuid`.
 
 Operation `writes` may save custom case properties or the standard
-`external_id` scalar. They may not write `case_name`; create, rename, and
+`external_id` and `location_id` scalars. They may not write `case_name`; create, rename, and
 retype operations expose their dedicated naming fields instead. Commcare Nova keeps
 standard scalars out of custom case-property data.
 
@@ -1364,7 +1392,7 @@ registration plus a second create.
 
 | Tool | What it does |
 |---|---|
-The `own` arm, which only `update_case_operation` takes, is `{ action: "own", name?, owner?, writes?, links? }`. Its case type is the menu's, its open and close conditions are `update_form`'s, and `name` is required on a registration. On a follow-up or close form, each of its `writes` can carry `via`, one link identifier per step such as `[{ "identifier": "parent" }]`, to save to a case above this form's case instead, and `onlyIfChanged: true`, to save only when the worker changed the answer from the case's value. `onlyIfChanged` is refused where CommCare HQ keeps this form's case change in a Save to Case block. The other arms take neither. An update can target the worker's own record with `target: { kind: "worker-record" }`, for an update of `commcare-user` only; it takes no condition, links, owner, rename, retype or `forEach`.
+The `own` arm, which only `update_case_operation` takes, is `{ action: "own", name?, nameOnlyIfChanged?, owner?, ownerOnlyIfChanged?, writes?, links? }`. Its case type is the menu's, its open and close conditions are `update_form`'s, and `name` is required on a registration. On a follow-up or close form, each of its `writes` can carry `via`, one link identifier per step such as `[{ "identifier": "parent" }]`, to save to a case above this form's case instead (with `property` `case_name` or `owner_id`, that case's name or owner); the other arms' writes take no `via`. Every arm's writes take `onlyIfChanged: true`, to save only when the answer differs from the case's value (on a case the change creates, only an answer the worker gives). `nameOnlyIfChanged` (the own arm on a follow-up or close form) and `renameOnlyIfChanged` (an update) save a new name only when it differs from the case's name; `ownerOnlyIfChanged` (the own arm, a create or an update) saves the owner only when the answer is not blank, since a case keeps its owner apart from the values it compares, so a blank answer leaves the owner as it is, or a new case with no owner, and it is refused on an owner that is the worker or `unowned`. Each is refused where CommCare HQ keeps the change in a Save to Case block. An update can target the worker's own record with `target: { kind: "worker-record" }`, for an update of `commcare-user` only; it takes no condition, links, owner, rename, retype or `forEach`.
 
 `get_case_operations` gives each change its `placement`, where CommCare HQ keeps it: `case management` (the form's Case Management settings), `case actions` (an advanced menu's case actions) or `save to case` (a Save to Case block in the form), with `placementKept: true` where a published app keeps it there. A form whose own close has a block of its own also carries `ownClose`, in the same shape.
 
@@ -1428,9 +1456,14 @@ type saves it to a new child case, which needs a question saving its
 `case_name`; `commcare-user` saves it to the worker's own record. On a
 follow-up or close form, `via` saves to a case above this form's case instead,
 one link identifier per step such as `[{ "identifier": "parent" }]`, and
-`caseType` is then the type it reaches; `onlyIfChanged: true` saves only when the
-worker changed the answer from the case's value, and is refused where CommCare
-HQ keeps that change in a Save to Case block. On a follow-up or close form that
+`caseType` is then the type it reaches, where `case_name` and `owner_id` save
+that case's name and owner; `onlyIfChanged: true` saves only when the
+worker changed the answer from the case's value, on any destination (on a case
+the form creates, which has no earlier value, it saves only an answer the
+worker gives; on a case's `owner_id`, only an answer the worker gives, which
+leaves a new case with no owner when blank; never on a new case's
+`case_name`), and is refused where CommCare HQ keeps that change in a Save to
+Case block. On a follow-up or close form that
 opens one case, a question saving to this form's case is given a `default_value`
 reading that case's value, which you can replace or remove.
 
@@ -1447,8 +1480,8 @@ to its file, with the same `caseWrite` as any other field. In a case change,
 the value `capture-link(#form/<question>)` saves a capture's file as a link.
 The link is built from the CommCare project space the app is published to; an
 artifact compiled before the app reaches one omits the property and
-`compile_app` says so in its advisories. A capture may not write `case_name` or
-`external_id`.
+`compile_app` says so in its advisories. A capture may not write `case_name`,
+`external_id` or `location_id`.
 
 A field can also save to **the worker's own record** instead of a case, by
 passing `caseType: "commcare-user"` and a `property` that is one of the app's
@@ -1471,13 +1504,22 @@ Commcare Nova keeps in step with the worker's profile, and any field inside a
 repeat, since one form writes one worker record. Adding a worker property is
 `add_user_properties`.
 
-Custom property names remain open. The two standard scalar destinations a
-field may use are `case_name` and `external_id`; other reserved system names
-are refused. These scalars store text: use a text field for an entered answer
+Custom property names remain open. The three standard scalar destinations a
+field may use are `case_name`, `external_id` and `location_id`; other reserved
+system names are refused. These scalars store text: use a text field for an entered answer
 or a hidden calculated field for a computed value. Commcare Nova trims only boundary
 characters U+0000 through U+0020 and limits the result to 255 UTF-16 units. A
 blank case name is invalid. An active blank external ID clears it, while an
 omitted or irrelevant writer leaves the existing external ID unchanged.
+
+`location_id` is the case's own location ID: text another system gives the
+case. It is not one of the Project's places and grants no access. Forms, case
+lists and details read it, while CommCare HQ's case search doesn't hold it: a
+Search field, a Search field's condition, and the filter of a list that offers
+Search can't read it. A value saved to `hq_user_id` is kept as that property
+and also becomes the case's external ID once the device next syncs, so it is
+held to the same text and 255-unit bound; the worker's own record keeps its
+`hq_user_id` in step with the worker, so a form can't save it there.
 
 ### Renaming case properties
 

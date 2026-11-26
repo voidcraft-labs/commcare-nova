@@ -121,8 +121,10 @@ describe("an advanced open action's parent index against a menu's parent selecti
 		]);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 
-		const emitted = expandDoc(doc).modules[1]?.forms[0]
-			?.actions as unknown as Json;
+		const form = expandDoc(doc).modules[1]?.forms[0];
+		if (form?.doc_type !== "AdvancedForm")
+			throw new Error("Expected an advanced form");
+		const emitted = form.actions as unknown as Json;
 		const indexOf = (index: Json) => ({
 			tag: index.tag,
 			reference_id: index.reference_id,

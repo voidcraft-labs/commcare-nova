@@ -2409,10 +2409,13 @@ describe("readCaseData", () => {
 		let calls = 0;
 		const flaky: CaseStore = {
 			query: (a) => store.query(a),
+			holdsDeviceCases: (a) => store.holdsDeviceCases(a),
 			readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 			readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
 			readSearchResultInstance: (a) => store.readSearchResultInstance(a),
 			querySearchResults: (a, g) => store.querySearchResults(a, g),
+			readSubmittedCaseDatabasePatch: (a) =>
+				store.readSubmittedCaseDatabasePatch(a),
 			queryGrouped: (a) => store.queryGrouped(a),
 			count: (a) => store.count(a),
 			insert: (a) => store.insert(a),

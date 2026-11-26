@@ -217,6 +217,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// layer without its location, or two of one kind, is no map a worker sees.
 	CASE_MAP_SOURCE_INVALID: "soundness",
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: "soundness",
+	CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY: "soundness",
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR: "soundness",
@@ -346,6 +347,10 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_OTHERWISE_NOT_OFFERED: "soundness",
 	FORM_OTHERWISE_UNREACHABLE: "soundness",
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
+	FORM_ENTRY_SETUP: "soundness",
+	// A worker-record or automatic-selection list on a menu something keeps
+	// basic (`rules/module.ts::listEntryNeedsAdvancedMenu`).
+	MENU_LIST_ENTRY_NEEDS_ADVANCED: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
 	FORM_LINK_DATUM_TARGET_COLLISION: "soundness",
 	// A link hands its target a new case that no session value carries

@@ -419,9 +419,12 @@ describe("readHqAppSource", () => {
 		},
 	);
 
-	it.each(["hq-built/app-source", "reading/source-shadow"])(
-		"refuses %s under the default and reads it with its mirror menus and shadow form under admit any",
-		async (file) => {
+	it.each([
+		["hq-built/app-source", "reads"],
+		["reading/source-shadow", "refuses"],
+	] as const)(
+		"%s: the default %s it (a shadow form's absent namespace is read alone, a mirror menu's missing case type refused), and admit any reads its mirror menus and shadow form",
+		async (file, byDefault) => {
 			const answer =
 				file === "reading/source-shadow"
 					? retainedReadingRead("source-shadow")
@@ -431,7 +434,13 @@ describe("readHqAppSource", () => {
 				unknown
 			>[];
 			const { plain, any } = await readUnderBoth(answer);
-			expect(plain).toEqual(MALFORMED);
+			if (byDefault === "refuses") expect(plain).toEqual(MALFORMED);
+			else
+				expect(
+					sourceOf(plain)
+						.modules.flatMap((module) => module.forms)
+						.find((form) => form.docType === "ShadowForm")?.xmlns,
+				).toBeNull();
 			const source = sourceOf(any);
 			expect(source.modules.map((module) => module.docType)).toEqual(
 				sent.map((module) => module.doc_type),

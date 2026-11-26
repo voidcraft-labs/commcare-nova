@@ -53,8 +53,10 @@ is explanatory and never substitutes for the rename transaction's locked recheck
 read. It applies the bound worker's restore closure across every retained case
 type, including types no longer present in the active Blueprint, and returns
 the visible rows plus their direct parent/custom index edges under one
-repeatable-read transaction. Both endpoints of every edge are re-fenced by app
-and bound Project in SQL.
+repeatable-read transaction. The same snapshot supplies the authorized source IDs for its direct edges.
+Each actual edge looks up the target by its case ID, app and bound Project.
+Resuming a working entry rechecks its held case IDs against the same worker
+closure and parking conditions without reading their property values again.
 Each edge persists `target_case_type`, matching Core's
 `CaseIndex.mTargetCaseType`: the type is captured when the relationship is
 written and never re-derived from the target row on read, so a later target

@@ -4109,6 +4109,8 @@ export const moduleSchema = z.strictObject({
 	/** A second route to the source menu's actual forms. The menu owns its appearance,
 	 * case views and links. Its source owns each form and its XForm namespace. */
 	formsFromMenu: menuFormSourceSchema.optional(),
+	/** A manual choice from this list continues automatically when exactly one row is available. */
+	autoSelectSingle: z.literal(true).optional(),
 	entryPoint: entryPointSchema.optional(),
 	caseListEntryPoint: entryPointSchema.optional(),
 	uuid: uuidSchema,

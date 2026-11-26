@@ -1247,6 +1247,14 @@ def _pollsensor_form(ref=None):
     )
 
 
+# A question and a Hidden Value its bind calculates.
+HIDDEN_CALCULATED = _form(
+    data="<q/><h/>",
+    model='<bind nodeset="/data/h" calculate="/data/q"/>',
+    body='<input ref="/data/q"><label>Q</label></input>',
+)
+
+
 def _question_app(form, **fields):
     """An app whose one module holds ``form`` (unique_id ``f``), its XForm being QUESTIONS."""
     return _with_forms(_app([_module([form])], **fields), f=QUESTIONS)
@@ -1266,6 +1274,28 @@ def _linked(link, target_requires="case", **target_module):
     source = {**_form_json("none"), "form_links": [link]}
     target = {**_form_json(target_requires), "unique_id": "f2"}
     return _app([_module([source]), _module([target], unique_id="m2", **target_module)])
+
+
+def _advanced_linked(link):
+    """A form linking to the advanced form ``f2`` of an advanced menu (``m2``) holding a load of a person chosen
+    from the list (``case_id_person``) and a load of the worker's record (``case_id_worker``), which selects
+    itself."""
+    source = {**_form_json("none"), "form_links": [link]}
+    target = {
+        "doc_type": "AdvancedForm",
+        "unique_id": "f2",
+        "actions": {
+            "doc_type": "AdvancedFormActions",
+            "load_update_cases": [
+                {"doc_type": "LoadUpdateAction", "case_tag": "worker", "case_type": "commcare-user",
+                 "auto_select": {"doc_type": "AutoSelectCase", "mode": "usercase", "value_key": ""}},
+                {"doc_type": "LoadUpdateAction", "case_tag": "person", "case_type": "patient"},
+            ],
+            "open_cases": [],
+        },
+    }
+    advanced = {"doc_type": "AdvancedModule", "unique_id": "m2", "case_type": "patient", "forms": [target]}
+    return _app([_module([source]), advanced])
 
 
 def _root_linked(link, *, root_case_type, target_case_type="visit"):
@@ -2051,6 +2081,67 @@ def _settings_and_forms():
                 f"{actions}/usercase_preload",
             ),
         ),
+        "forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value": (
+            # A worker load the row above holds, into a Hidden Value its bind calculates: no assignment holds a
+            # worker value on a basic form, and the question takes no default to hold it as.
+            refused(
+                "app",
+                _with_forms(_app([_module([_usercase_form({"/data/h": "name"})])]), f=HIDDEN_CALCULATED),
+                "schema:PreloadAction.preload",
+                f"{actions}/usercase_preload/preload",
+            ),
+            accepted(
+                "app",
+                _with_forms(_app([_module([_usercase_form({"/data/q": "name"})])]), f=HIDDEN_CALCULATED),
+                "schema:PreloadAction.preload",
+                f"{actions}/usercase_preload/preload",
+            ),
+            # A case child spelled only with its trailing newline: held as the question's default, but into a
+            # calculated Hidden Value, or through an index other than parent, it has no equivalent.
+            refused(
+                "app",
+                _with_forms(
+                    _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/h": "date_opened\n"}})])]),
+                    f=HIDDEN_CALCULATED,
+                ),
+                "schema:PreloadAction.preload",
+                f"{actions}/case_preload/preload",
+            ),
+            refused(
+                "app",
+                _with_forms(
+                    _app(
+                        [
+                            _module(
+                                [_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/q": "host/date_opened\n"}})]
+                            )
+                        ]
+                    ),
+                    f=HIDDEN_CALCULATED,
+                ),
+                "schema:PreloadAction.preload",
+                f"{actions}/case_preload/preload",
+            ),
+            accepted(
+                "app",
+                _with_forms(
+                    _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/q": "date_opened\n"}})])]),
+                    f=HIDDEN_CALCULATED,
+                ),
+                "schema:PreloadAction.preload",
+                f"{actions}/case_preload/preload",
+            ),
+            # An ordinary property into the same Hidden Value is an ordered opening assignment.
+            accepted(
+                "app",
+                _with_forms(
+                    _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/h": "dob"}})])]),
+                    f=HIDDEN_CALCULATED,
+                ),
+                "schema:PreloadAction.preload",
+                f"{actions}/case_preload/preload",
+            ),
+        ),
         "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module": (
             refused(
                 "app",
@@ -2359,6 +2450,19 @@ def _settings_and_forms():
                 "schema:Form.form_links",
                 "/modules/0/forms/0/form_links",
             ),
+            # An advanced target needs each load that asks for a selection: the person, never the worker's record.
+            refused(
+                "app",
+                _advanced_linked(links(datums=[{"name": "case_id_person", "xpath": ""}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            accepted(
+                "app",
+                _advanced_linked(links(datums=[{"name": "case_id_person", "xpath": case_id}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
             accepted(
                 "app",
                 _linked(links(datums=[{"name": "case_id", "xpath": case_id}])),
@@ -2399,6 +2503,21 @@ def _settings_and_forms():
             refused(
                 "app",
                 _linked(links(datums=[{"name": "other_id", "xpath": case_id}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            # An advanced target offers each load that asks for a selection, and no load that selects itself.
+            accepted(
+                "app",
+                _advanced_linked(links(datums=[{"name": "case_id_person", "xpath": case_id}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            refused(
+                "app",
+                _advanced_linked(
+                    links(datums=[{"name": "case_id_person", "xpath": case_id}, {"name": "case_id_worker", "xpath": case_id}])
+                ),
                 "schema:Form.form_links",
                 "/modules/0/forms/0/form_links",
             ),
@@ -2608,6 +2727,24 @@ def _shadow_app(source_loads, extra_loads):
     return app
 
 
+def _shadow_of_shadow():
+    """``_shadow_app`` with a second mirror form ``t`` whose parent is the mirror ``s``."""
+    app = _shadow_app([_load("load_patient_0")], [])
+    app["modules"][0]["forms"].append(
+        {
+            "doc_type": "ShadowForm",
+            "unique_id": "t",
+            "shadow_parent_form_id": "s",
+            "extra_actions": {"doc_type": "AdvancedFormActions", "load_update_cases": [], "open_cases": []},
+        }
+    )
+    return app
+
+
+def parent_id_of(index):
+    return f"/modules/0/forms/{index}/shadow_parent_form_id"
+
+
 def _advanced_actions():
     """The classes of an advanced form's loads and open actions, each read in the action a use sits in."""
     loads = "/modules/0/forms/0/actions/load_update_cases"
@@ -2624,6 +2761,7 @@ def _advanced_actions():
     renamed_index = "/modules/1/forms/0/actions/open_cases/0/case_indices/0/tag"
     question = {"relationship": "question", "relationship_question": "/data/q"}
     by_case = {"doc_type": "AutoSelectCase", "mode": "case", "value_key": "parent"}
+    from_table = {"doc_type": "AutoSelectCase", "mode": "fixture", "value_source": "regions", "value_key": "region_id"}
     extra = "/modules/0/forms/1/extra_actions/load_update_cases"
     return {
         "forms-and-case-writes/an-auto-select-load-with-a-blank-mode-or-a-blank-case-type": (
@@ -2730,6 +2868,11 @@ def _advanced_actions():
                 f"{loads}/0/show_product_stock",
             ),
         ),
+        "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform": (
+            # A shadow of a shadow: the editor offers advanced forms alone.
+            refused("app", _shadow_of_shadow(), "schema:ShadowForm.shadow_parent_form_id", parent_id_of(2)),
+            accepted("app", _shadow_app([_load("load_patient_0")], []), "schema:ShadowForm.shadow_parent_form_id", parent_id_of(1)),
+        ),
         "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": (
             refused(
                 "app",
@@ -2760,6 +2903,100 @@ def _advanced_actions():
             refused("app", _advanced_app([_load("load/patient")]), load_tag, f"{loads}/0/case_tag"),
             refused("app", _advanced_app(opens=[_open("open/visit")]), open_tag, f"{opens}/0/case_tag"),
             accepted("app", _advanced_app([_load("load_patient_0")]), load_tag, f"{loads}/0/case_tag"),
+        ),
+        "forms-and-case-writes/case-actions-using-the-same-tag": (
+            refused("app", _advanced_app([_load("load_patient_0"), _load("load_patient_0")]), load_tag, f"{loads}/1/case_tag"),
+            refused("app", _advanced_app([household], [_open("load_household_0")]), open_tag, f"{opens}/0/case_tag"),
+            accepted("app", _advanced_app([household, linked]), load_tag, f"{loads}/1/case_tag"),
+        ),
+        "forms-and-case-writes/worker-record-selection-with-another-case-type": (
+            # ``_load`` gives the worker's load the patient type, which the editor would have replaced.
+            refused("app", _advanced_app([worker]), "schema:LoadUpdateAction.case_type", f"{loads}/0/case_type"),
+            accepted(
+                "app",
+                _advanced_app([{**worker, "case_type": "commcare-user"}]),
+                "schema:LoadUpdateAction.case_type",
+                f"{loads}/0/case_type",
+            ),
+        ),
+        "forms-and-case-writes/automatic-choice-with-an-unknown-mode": (
+            refused(
+                "app",
+                _advanced_app([{**worker, "auto_select": {**worker["auto_select"], "mode": "location"}}]),
+                "schema:AutoSelectCase.mode",
+                f"{loads}/0/auto_select/mode",
+            ),
+            accepted("app", _advanced_app([worker]), "schema:AutoSelectCase.mode", f"{loads}/0/auto_select/mode"),
+        ),
+        "forms-and-case-writes/automatic-table-choice-without-its-table-or-column": (
+            refused(
+                "app",
+                _advanced_app([_load("region", auto_select={**from_table, "value_key": ""})]),
+                "schema:AutoSelectCase.value_source",
+                f"{loads}/0/auto_select/value_source",
+            ),
+            accepted(
+                "app",
+                _advanced_app([household, _load("region", auto_select={**by_case, "value_source": "load_household_0"})]),
+                "schema:AutoSelectCase.value_source",
+                f"{loads}/1/auto_select/value_source",
+            ),
+            unsettled(
+                "app",
+                _advanced_app([_load("region", auto_select=from_table)]),
+                "schema:AutoSelectCase.value_source",
+                f"{loads}/0/auto_select/value_source",
+            ),
+        ),
+        "forms-and-case-writes/opening-values-sharing-a-physical-session-name": (
+            # Two loads of one tag both write ``case_id_load_patient_0``.
+            refused("app", _advanced_app([_load("load_patient_0"), _load("load_patient_0")]), load_tag, f"{loads}/0/case_tag"),
+            accepted("app", _advanced_app([household, linked]), load_tag, f"{loads}/0/case_tag"),
+            # Under another menu the ids are HQ's once aligned: the root's household selection takes no load of
+            # this form's, whose own ids stay distinct.
+            accepted(
+                "app",
+                _advanced_app([household, linked], modules_before=[root], **child_menu),
+                load_tag,
+                "/modules/1/forms/0/actions/load_update_cases/0/case_tag",
+            ),
+            # A root whose first form opens a visit joins its new case id to the entry, which this form's own
+            # open action of a visit takes too (``add_parent_datums``, then ``get_new_case_id_datums_meta``).
+            refused(
+                "app",
+                _advanced_app(
+                    [household],
+                    [_open("open_visit_0")],
+                    modules_before=[
+                        _module(
+                            [_form_json("none", open_case={"condition": {"type": "always"}})],
+                            unique_id="r",
+                            case_type="visit",
+                        )
+                    ],
+                    **child_menu,
+                ),
+                load_tag,
+                "/modules/1/forms/0/actions/load_update_cases/0/case_tag",
+            ),
+        ),
+        "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent": (
+            accepted(
+                "app",
+                _advanced_app([household, _load("load_patient_1", auto_select={**by_case, "value_source": "load_household_0"})]),
+                "schema:LoadUpdateAction.auto_select",
+                f"{loads}/1/auto_select",
+            ),
+            unsettled(
+                "app",
+                _advanced_app(
+                    [household, _load("load_patient_1", auto_select={**by_case, "value_source": "load_household_0"})],
+                    modules_before=[root],
+                    **child_menu,
+                ),
+                "schema:LoadUpdateAction.auto_select",
+                "/modules/1/forms/0/actions/load_update_cases/1/auto_select",
+            ),
         ),
         "forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action": (
             refused("app", _advanced_app([_load("")]), load_tag, f"{loads}/0/case_tag"),
@@ -6471,13 +6708,6 @@ def _data_binds_and_itext():
             accepted("app", supplied_slots, "session-path:session/data/*", "/form_links/0/xpath", readings=True),
             accepted("app", supplied_slots, "session-path:session/data/*", "/modules/1/module_filter", readings=True),
         ),
-        "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed": (
-            accepted("app", supplied, "session-path:session/data/*", "bind[1]/@calculate", readings=True),
-            refused("app", supplied, "session-path:session/data/*", "bind[2]/@calculate", readings=True),
-            accepted("app", supplied_slots, "session-path:session/data/*", "/modules/0/module_filter", readings=True),
-            refused("app", supplied_slots, "session-path:session/data/*", "/form_links/0/xpath", readings=True),
-            accepted("app", supplied_slots, "session-path:session/data/*", "/modules/1/module_filter", readings=True),
-        ),
         "expressions-and-data/session-data-datum-the-entry-does-not-supply": (
             refused("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[1]/@nodeset", readings=True),
             accepted("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[2]/@nodeset", readings=True),
@@ -6688,12 +6918,6 @@ def _held_new():
         subcase = _subcase(case_properties={key: _update("/data/q")})
         return _with_forms(_app([_module([_form_json("none", subcases=[subcase])])]), f=QUESTIONS)
 
-    # A SaveToCase block of a patient whose own update rows are `location_id` and `size`.
-    block = _form(
-        data=f"""<op vellum:role="SaveToCase" vellum:case_type="patient">{case}<update><location_id/>
-      <size/></update></case></op>"""
-    )
-    row = f"{data}op[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}"
     household = _load("load_household_0", case_type="household")
     worker = _load("usercase", auto_select={"doc_type": "AutoSelectCase", "mode": "usercase", "value_key": ""})
 
@@ -6818,37 +7042,12 @@ def _held_new():
             refused("form", count_rows, hidden_type, hidden("s", "item", "nova_query_id_s"), readings=True),
             accepted("form", case_attribute, hidden_type, case_id, readings=True),
         ),
-        "forms-and-case-writes/update-keys-location-id-hq-user-id": (
-            refused("app", own_update("location_id"), update_map, updates),
-            accepted("app", own_update("district"), update_map, updates),
-            # Under the condition never, HQ's build writes no key of the map, the inert class beside it.
-            accepted("app", own_update("location_id", NEVER), update_map, updates),
-            refused("app", child_update("hq_user_id"), child_map, children),
-            # A child case's key with an index step is refused before its property is read.
-            accepted("app", child_update("parent/location_id"), child_map, children),
-            refused("form", block, "xform:model/instance//*", f"{row}location_id[1]"),
-            accepted("form", block, "xform:model/instance//*", f"{row}size[1]"),
-        ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             refused("app", own_update("größe"), update_map, updates),
             refused("app", child_update("größe"), child_map, children),
             accepted("app", own_update("size"), update_map, updates),
             # ``ª`` is a letter to HQ's grammar and no name character to Core: HQ's build refuses it (the bar's).
             accepted("app", own_update("aª"), update_map, updates),
-        ),
-        "forms-and-case-writes/case-tag-holding-a-hyphen": (
-            refused("app", _advanced_app([_load("load-patient")]), load_tag, f"{loads}/0/case_tag"),
-            refused("app", _advanced_app([household], [_open("open-visit")]), open_tag, f"{opens}/0/case_tag"),
-            accepted("app", _advanced_app([_load("load_patient")]), load_tag, f"{loads}/0/case_tag"),
-            # An auto-selected load's tag is read by no tag check.
-            accepted("app", _advanced_app([{**worker, "case_tag": "user-case"}]), load_tag, f"{loads}/0/case_tag"),
-            # Nor is a shadow form's, which Nova's reader refuses whole.
-            accepted(
-                "app",
-                _shadow_app([_load("load_patient")], [_load("load-patient")]),
-                load_tag,
-                "/modules/0/forms/1/extra_actions/load_update_cases/0/case_tag",
-            ),
         ),
         "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
             refused("app", opened("my-parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
@@ -7275,6 +7474,11 @@ DEFAULT_ONLY = {
     "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": (
         "version 1 is the model's default, and a key at its default is no use"
     ),
+
+    "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent": (
+        "whether the earlier load keeps its own id is the alignment HQ's build makes under the parent menu, which the"
+        " app's JSON does not settle"
+    ),
 }
 # Classes that take every use of their keys, by why: they have no accepted shape.
 EVERY_USE_TAKEN = {
@@ -7446,7 +7650,8 @@ def test_a_held_new_reader_of_a_use_the_readings_make_reads_its_own_form_alone(m
         for shape in SHAPES[entry.id]
         if _made_by_readings(shape)
     ]
-    assert {shape.key.split(":", 1)[0] for _, shape in shapes} == {"mug", "session-path"}
+    # The one HELD-NEW class of a session path a reading makes (a computed supply point) is held now.
+    assert {shape.key.split(":", 1)[0] for _, shape in shapes} == {"mug"}
     for entry_id, shape in shapes:
         found = _shape_uses(shape, manifest, observed)
         uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
@@ -7579,7 +7784,6 @@ KNOWN_GAPS = frozenset(
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
         "forms-and-case-writes/custom-assertions-form-non-empty",
         "forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes",
-        "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform",
         "forms-and-case-writes/show-count-true",
         "forms-and-case-writes/unknown-form-doc-type",
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
