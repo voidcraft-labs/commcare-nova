@@ -605,8 +605,7 @@ it("writes a search with no title blank in every language on both paths", () => 
 	expect(Object.values(config.title_label).every((text) => text === "")).toBe(
 		true,
 	);
-	// The suite still names the title's locale, and every language's table
-	// writes it as the blank HQ's locale writer writes, a non-breaking space.
+	// A language without an override reads the default title's blank value.
 	const remote = xmlChildren(suite, "remote-request");
 	const queryHost =
 		remote.length > 0
@@ -620,14 +619,17 @@ it("writes a search with no title blank in every language on both paths", () => 
 		.getEntries()
 		.filter((file) => file.entryName.endsWith("app_strings.txt"));
 	expect(tables).not.toHaveLength(0);
+	const title = (file: string) =>
+		zip
+			.readAsText(file)
+			.split("\n")
+			.find((line) => line.startsWith("case_search.m0.inputs="));
+	const defaultTitle = title("default/app_strings.txt");
+	expect(defaultTitle).toBe("case_search.m0.inputs=\u00a0");
 	for (const table of tables)
-		expect(
-			zip
-				.readAsText(table)
-				.split("\n")
-				.find((line) => line.startsWith("case_search.m0.inputs=")),
-			table.entryName,
-		).toBe("case_search.m0.inputs=\u00a0");
+		expect(title(table.entryName) ?? defaultTitle, table.entryName).toBe(
+			defaultTitle,
+		);
 });
 
 // HQ's build sends a menu's default filters in order, then

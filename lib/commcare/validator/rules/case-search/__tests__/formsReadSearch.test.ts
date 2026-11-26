@@ -201,11 +201,11 @@ describe("formsReadSearchUniqueInstance", () => {
 		expect(hits.map((hit) => [hit.location.moduleUuid, hit.message])).toEqual([
 			[
 				FOLLOWUP,
-				`Module "Followup" has its forms read the search and has submenus. CommCare gives a submenu the same search results as its parent and can't tell them apart. You can move the submenus to the top level, or turn off Forms read the search.`,
+				`Module "Followup" has its forms read the search and has submenus. CommCare gives a submenu the same search results as its parent and can't tell them apart. Give the matching menus different search results names in Module settings.`,
 			],
 			[
 				OTHER,
-				`Module "Child" is a submenu under "Followup", whose forms read the search. CommCare gives both menus the same search results and can't tell them apart. You can move "Child" to the top level, or turn off Forms read the search on "Followup".`,
+				`Module "Child" is a submenu under "Followup", whose forms read the search. CommCare gives both menus the same search results and can't tell them apart. Give one menu a different search results name in Module settings.`,
 			],
 		]);
 	});
@@ -233,7 +233,7 @@ describe("formsReadSearchUniqueInstance", () => {
 		expect(hits.map((hit) => [hit.location.moduleUuid, hit.message])).toEqual([
 			[
 				OTHER,
-				`Module "Children" chooses a parent case from "Followup" first, and "Followup"'s forms read the search. CommCare gives both choices the same search results and can't tell them apart. You can turn off Forms read the search on "Followup", or choose the parent case from another menu or a flat list.`,
+				`Module "Children" chooses a parent case from "Followup" first, and "Followup"'s forms read the search. CommCare gives both choices the same search results and can't tell them apart. Give either menu a different search results name in Module settings.`,
 			],
 		]);
 	});
