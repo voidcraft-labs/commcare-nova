@@ -24,6 +24,8 @@ export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 			return "repeat count";
 		case "ids_query":
 			return "case query";
+		case "android_app_input":
+			return "value sent to the Android app";
 		case "lookup_options_source":
 			return "choice filter";
 		case "form_selection_source":

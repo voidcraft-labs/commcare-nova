@@ -1156,6 +1156,8 @@ const USER_MESSAGE_BY_CODE: Record<
 			? formBehaviorTextSentence(issue)
 			: `A form setting in ${q(formName(e))} names a question text that no longer works for it. Choose another text or remove the setting.`;
 	},
+	ANDROID_APP_ANSWER_INVALID: (error) =>
+		det(error, "problem", "Review the Android app and its result questions."),
 	ENTRY_POINT_INVALID: (e) => {
 		switch (e.details?.reason) {
 			case "duplicate-id":

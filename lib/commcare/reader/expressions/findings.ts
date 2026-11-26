@@ -1759,6 +1759,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 					: C["bind-required-expr"].entry,
 		refused: () => "form-default",
 	},
+	android_app_input: formSlot(undefined),
 	calculate: formSlot(C["bind-calculate-on-a-hidden-value"].entry),
 	default_value: {
 		held(doc, ref, bound) {

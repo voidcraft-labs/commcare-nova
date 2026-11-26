@@ -18,6 +18,8 @@ import type { Platform } from "@/lib/domain/platforms";
 export type PreviewPlatformFixture =
 	| "face-photo"
 	| "question-display"
+	| "android-app"
+	| "android-app-required"
 	| "questions"
 	| "sections"
 	| "screens"
@@ -56,6 +58,18 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		fixture: "question-display",
 		describe:
 			"a worker searches and clears a route, sees a paired status banner, keeps a masked code and uses the keyboard action",
+	},
+	"android-app-answers": {
+		platform: "android",
+		fixture: "android-app",
+		describe:
+			"two questions open the same Android app and accept a typed result in the current repeat row",
+	},
+	"android-app-required": {
+		platform: "android",
+		fixture: "android-app-required",
+		describe:
+			"a primary-only Android result can supply, retain, and clear a required answer",
 	},
 	"location-map-web-apps": {
 		platform: "web-apps",

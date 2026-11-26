@@ -163,6 +163,8 @@ export function classifyIdentity(
 		if (property === "table") return "lookup-table";
 		if (property === "column") return "lookup-column";
 	}
+	if (property === "question" && pointer.includes("/androidApp/"))
+		return "field";
 	if (property === "tableId") return "lookup-table";
 	if (tool.includes("lookup")) {
 		if (

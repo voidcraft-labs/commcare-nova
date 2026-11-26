@@ -204,6 +204,7 @@ def app(
     type_refused: bool = False,
     keys: bool = False,
     controls: bool = False,
+    callouts=None,
     questions=None,
     repeat_additions=None,
     save_incomplete: str | None = None,
@@ -262,6 +263,8 @@ def app(
         options["typeRefused"] = True
     if controls:
         options["controls"] = True
+    if callouts is not None:
+        options["callouts"] = callouts
     if keys:
         options["keys"] = True
     if save_incomplete is not None:

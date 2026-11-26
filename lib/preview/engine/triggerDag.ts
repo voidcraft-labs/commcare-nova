@@ -902,7 +902,7 @@ export class TriggerDag {
 			throw new Error("The form dependency graph has no expression runtime.");
 		const expressions: DagNode["expressions"] = [];
 		const add = (
-			slot: FieldExpressionSlotRef["slot"],
+			slot: Exclude<FieldExpressionSlotRef["slot"], "android_app_input">,
 			type: ExpressionType,
 			edge: "trigger" | "settle-free" | "metadata",
 		): void => {

@@ -3,9 +3,13 @@ import { type Field, isCaptureField } from "@/lib/domain";
 import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { usePreviewPlatformRules } from "@/lib/session/hooks";
+import {
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
 import { assertNever } from "@/lib/utils/assertNever";
 import { AddressEntryField } from "./fields/AddressEntryField";
+import { AndroidAppField } from "./fields/AndroidAppField";
 import { AttachmentField } from "./fields/attachment/AttachmentField";
 import { BarcodeField } from "./fields/BarcodeField";
 import { DateField } from "./fields/DateField";
@@ -85,6 +89,23 @@ export function FieldRenderer({
 	onDisplayMessage,
 }: FieldRendererProps) {
 	const rules = usePreviewPlatformRules();
+	const platform = usePreviewPlatform();
+	if ("androidApp" in field && field.androidApp && platform === "android") {
+		if (path && appId && entryKey)
+			return (
+				<AndroidAppField
+					path={path}
+					appId={appId}
+					entryKey={entryKey}
+					value={state.value}
+					label={questionLabel ?? field.id}
+				/>
+			);
+		return (
+			<span className="text-sm text-muted-foreground">Open Android app</span>
+		);
+	}
+
 	// Capture kinds route to the real attachment control. Narrowed through
 	// the domain predicate rather than a case list so the two cannot drift:
 	// a new capture kind is a capture here the moment it is one there.

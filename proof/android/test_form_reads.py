@@ -78,7 +78,9 @@ sign out of place, a second period or a space, which Preview's Android rule woul
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from contextlib import contextmanager
 
 import pytest
@@ -631,3 +633,143 @@ def test_selected_language_uses_its_own_installed_menu_form_help_and_choice_imag
                 assert form["saved"]["finishing"] is True, (name, form)
     assert seen_drawn == {(lang, label) for lang, rows in expected_drawn.items() for label in rows}, seen_drawn
     assert seen == {(language, title) for language, items in expected.items() for title in items}, seen
+
+
+def _app_samples(walk):
+    return [
+        sample
+        for command in walk["walks"].values()
+        for form in _forms(command)
+        for screen in form["screens"]
+        for question in screen.get("answered", [])
+        for sample in question.get("appReturns", [])
+    ]
+
+
+def _result_rows(sample, when):
+    form = etree.fromstring(sample[when].encode())
+    return [
+        {etree.QName(node).localname: node.text or "" for node in row}
+        for row in form.xpath("./*[local-name()='visits' and not(@*[local-name()='template'])]")
+    ]
+
+
+def test_android_app_returns_update_only_the_invoking_row(android_documents, hq):
+    """The same installed activity opens from a text and an integer question.
+    Keep, clear and cast returned answers before moving the worker onward."""
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        walk, sent = _app(served, archive, "app-answers", commands=[FORM], questions={"/data/unit": ["litres"]}, callouts={
+            "meter": [[
+                {"primary": "one", "named": {"correction": "calibrated", "measurement": "007", "photo": {"file": "from meter"}}},
+                {"cancel": True, "primary": "ignored"},
+                {"bundle": True, "named": {"measurement": None}},
+                {"primary": ""},
+                {"simprints": "simulated", "primary": "ignored"},
+                {"register": "registered", "simprints": "overridden", "primary": "ignored"},
+                {"verify": "verified", "primary": "ignored"},
+                {"identify": "best", "primary": "ignored"},
+            ], [{"missingHandler": True}]],
+            "verify": [[{"primary": "012", "named": {"measurement": "08"}}], [{"invalid": True}]],
+        })
+        samples = _app_samples(walk)
+        assert len(samples) == 11, samples
+        first, cancelled, cleared, empty, simprints, registration, verification, identification, auxiliary, sibling, invalid = samples
+        assert first["action"] == "org.example.MEASURE"
+        assert first["sent"] == {"odk_intent_data": "previous", "unit": "litres"}
+        first_rows = _result_rows(first, "after")
+        assert len(first_rows) == 2
+        assert first_rows[0]["meter"] == "one"
+        assert (first_rows[0]["description"], first_rows[0]["reading"]) == ("calibrated", "7")
+        assert first_rows[0]["attachment"] == "synthetic-meter-reading.txt" and first["copied"] == "from meter"
+        assert first_rows[1] == _result_rows(first, "before")[1]
+        assert cancelled["sent"]["odk_intent_data"] == "one"
+        assert _result_rows(cancelled, "after") == _result_rows(cancelled, "before")
+        after_clear = _result_rows(cleared, "after")[0]
+        assert (after_clear["meter"], after_clear["reading"], after_clear["description"]) == ("", "", "")
+        assert after_clear["attachment"] == "synthetic-meter-reading.txt"
+        assert _result_rows(empty, "after")[0]["meter"] == ""
+        fingerprints = _result_rows(simprints, "after")[0]
+        assert (fingerprints["guid"], fingerprints["thumb"], fingerprints["other_thumb"]) == ("simulated", "AQ==\n", "")
+        assert fingerprints["meter"] == "Fingerprints scanned: 1"
+        registered = _result_rows(registration, "after")[0]
+        assert (registered["guid"], registered["face_template"], registered["meter"]) == (
+            "registered", "c3ludGhldGlj\n", "All data stored successfully"
+        )
+        verified = _result_rows(verification, "after")[0]
+        assert (verified["match_guid"], verified["match_confidence"], verified["match_strength"], verified["meter"]) == (
+            "verified", "80", "four_stars", "★★★★"
+        )
+        matched = _result_rows(identification, "after")[0]
+        assert (matched["match_guid"], matched["guid"], matched["meter"]) == ("best", "", "★★★★")
+        assert auxiliary["sent"]["odk_intent_data"] == "9"
+        altered = _result_rows(auxiliary, "after")[0]
+        assert (altered["verify"], altered["meter"], altered["reading"], altered["description"]) == ("12", "★★★★", "8", "08")
+        assert sibling["missingHandler"]
+        assert _result_rows(sibling, "after") == _result_rows(sibling, "before")
+        assert _result_rows(invalid, "after") == _result_rows(invalid, "before")
+
+
+def test_android_app_raw_result_flag_distinguishes_bundled_updates(android_documents, hq):
+    """The raw handler flag does not describe whether a mapped question changed."""
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        walk, _ = _app(served, archive, "app-result-flag", commands=[FORM], callouts={
+            "meter": [[{"bundle": True, "named": {"measurement": "2"}, "raw": True},
+                       {"named": {"measurement": "3"}, "raw": True}, {"primary": "", "raw": True}]]
+        })
+        first, second, empty = _app_samples(walk)
+        assert [s["reportedSuccess"] for s in (first, second, empty)] == [False, True, True]
+        assert [_result_rows(s, "after")[0]["reading"] for s in (first, second)] == ["2", "3"]
+
+
+def test_required_android_app_primary_only(android_documents, hq):
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        for label, second, expected in [
+            ("cancel", {"cancel": True}, "confirmed"),
+            ("absent", {"bundle": True}, ""),
+        ]:
+            walk, sent = _app(served, archive, f"app-primary-{label}", commands=["m0-f1"], callouts={
+                "confirmed": [[{"primary": "confirmed"}, second]]
+            })
+            first, next_return = _app_samples(walk)
+            assert first["action"] == "org.commcare.respiratory.BREATHCOUNT"
+            assert next_return["sent"]["odk_intent_data"] == "confirmed"
+            assert etree.fromstring(next_return["after"].encode()).xpath("string(./*[local-name()='confirmed'])") == expected
+            assert bool(sent) == bool(expected), walk
+
+def test_android_app_answer_survives_incomplete_form_resume(android_documents, hq):
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        walk, sent = _app(served, archive, "app-resume", commands=[], save_incomplete="m0-f1", reopen=True,
+            callouts={"confirmed": [[{"primary": "ready"}], [{"cancel": True}]]})
+        reopened = walk["savedIncomplete"]["reopened"]
+        assert reopened["screen"] == FORM_ENTRY, reopened
+        (cancelled,) = [result for screen in reopened["form"]["screens"] for entry in screen.get("answered", [])
+                        for result in entry.get("appReturns", [])]
+        assert cancelled["sent"]["odk_intent_data"] == "ready"
+        (instance,) = sent
+        assert _child(etree.fromstring(instance), "confirmed").text == "ready"
+
+def test_quick_app_refusal_control_uses_result_flag_for_navigation(android_documents, hq):
+    """This independent device input is the quick appearance Nova refuses:
+    a bundle-only write refreshes; a direct write advances."""
+    with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
+        output = io.BytesIO()
+        changed = 0
+        with zipfile.ZipFile(io.BytesIO(archive)) as source, zipfile.ZipFile(output, "w") as amended:
+            for info in source.infolist():
+                data = source.read(info)
+                if info.filename.endswith(".xml") and b"org.example.MEASURE" in data:
+                    xml = etree.fromstring(data)
+                    for node in xml.xpath("//*[local-name()='intent' and @class='org.example.MEASURE']"):
+                        node.set("appearance", "quick")
+                        changed += 1
+                    data = etree.tostring(xml)
+                amended.writestr(info, data)
+        assert changed == 1
+        walk, _ = _app(served, output.getvalue(), "quick-refusal-control", commands=[FORM], callouts={
+            "meter": [[{"bundle": True, "named": {"measurement": "5"}}, {"named": {"measurement": "6"}}]]
+        })
+        first, second = _app_samples(walk)
+        assert first["indexBefore"] == first["indexAfter"]
+        assert _result_rows(first, "after")[0]["reading"] == "5"
+        assert second["indexBefore"] != second["indexAfter"]
+        assert _result_rows(second, "after")[0]["reading"] == "6"

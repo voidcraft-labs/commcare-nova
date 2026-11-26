@@ -2929,7 +2929,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types callouts)",
+		"content": "HELD (Android app questions, with the action’s built-in or custom privilege)",
 		"contentEntries": [
 			"questions/android-app-callout-input-appearance-intent-id-bind-type-intent"
 		],

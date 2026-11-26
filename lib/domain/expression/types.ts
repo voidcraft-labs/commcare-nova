@@ -1129,23 +1129,30 @@ export const valueArmSchema: z.ZodType<ValueArm> = z.union(valueSchemas);
 export const instanceArmSchema: z.ZodType<InstanceArm> =
 	z.union(instanceSchemas);
 
-export type FieldExpressionSlotRef = {
-	readonly entity: "field";
-	readonly uuid: Uuid;
-	readonly slot:
-		| "relevant"
-		| "validate"
-		| "calculate"
-		| "default_value"
-		| "required"
-		| "repeat_count"
-		| "ids_query"
-		| "lookup_options_source"
-		| "assessment_user_score"
-		| "deliver_entity_id"
-		| "deliver_entity_name"
-		| "deliver_work_area_id";
-};
+export type FieldExpressionSlotRef =
+	| {
+			readonly entity: "field";
+			readonly uuid: Uuid;
+			readonly slot:
+				| "relevant"
+				| "validate"
+				| "calculate"
+				| "default_value"
+				| "required"
+				| "repeat_count"
+				| "ids_query"
+				| "lookup_options_source"
+				| "assessment_user_score"
+				| "deliver_entity_id"
+				| "deliver_entity_name"
+				| "deliver_work_area_id";
+	  }
+	| {
+			readonly entity: "field";
+			readonly uuid: Uuid;
+			readonly slot: "android_app_input";
+			readonly member: { readonly name: string; readonly occurrence: number };
+	  };
 export type FormExpressionSlotRef =
 	| {
 			readonly entity: "form";

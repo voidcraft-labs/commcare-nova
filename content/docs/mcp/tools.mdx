@@ -1788,3 +1788,12 @@ to enter a storage format. These checks do not exercise maps or device GPS.
 ## System reminders
 
 A few read results (`get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent, for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.
+
+For an Android-only app, you can ask your agent to open a meter or another
+installed app for a question. Tell it which action opens the app, which values
+to send, and which questions should receive the answers. For example, “Open
+our meter from Take a reading. Send the unit, store its quantity in Number
+measured, and save its receipt in Reading file.” Your agent can also make
+another question use the same action. [Getting an answer from another Android
+app](/docs/where-workers-use-your-app#getting-an-answer-from-another-android-app)
+explains how to try the return in Preview.

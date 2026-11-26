@@ -579,6 +579,22 @@ def callout(authoring, app_id):
     _edit(authoring, app_id, "callout", _callout)
 
 
+def android_app_question(authoring, app_id):
+    """The action and its input have the same ID, as Vellum's AndroidIntent writes;
+    the device calls it with a unit and writes the quantity into an integer answer."""
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+    _edit(authoring, app_id, "android-app-question", lambda text: _callout(
+        text, inner='<extra key="unit" ref="&apos;litres&apos;" /><response key="measurement" ref="/data/household_size" />'
+    ).replace('id="scanner"', 'id="tag_code"').replace('appearance="intent:scanner"', 'appearance="intent:tag_code"'))
+
+
+def android_app_answer(authoring, app_id):
+    """A second ordinary input uses the same action, retaining its text datatype."""
+    android_app_question(authoring, app_id)
+    _change(authoring, app_id, "android-app-answer",
+            (FULL_NAME_INPUT, FULL_NAME_INPUT[:-1] + ' appearance="intent:tag_code">', 1))
+
+
 def callout_quick(authoring, app_id):
     """The callout ``tag_code``'s ``odkx:intent`` with the appearance ``quick``."""
     _edit(authoring, app_id, "callout-quick", lambda text: _callout(text, intent_attributes=' appearance="quick"'))

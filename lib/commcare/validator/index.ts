@@ -82,6 +82,7 @@ interface DeepLocation {
 export type DeepValidationError =
 	| (DeepLocation & {
 			kind: "field-xpath";
+			ref: import("@/lib/domain/expression/types").FieldExpressionSlotRef;
 			fieldUuid: Uuid;
 			fieldId: string;
 			surface: XPathSurface;
@@ -169,6 +170,7 @@ export function validateBlueprintDeep(
 								: {
 										...loc,
 										kind: "field-xpath",
+										ref,
 										fieldUuid,
 										fieldId: field.id,
 										surface: ref.slot,

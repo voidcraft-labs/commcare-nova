@@ -79,6 +79,7 @@ DOCUMENTS = (
     "targeted-label-sort",
     "prompt-checkboxes",
     "targeted-named-answer-root",
+    "targeted-android-app-answers",
     "prompt-widgets",
     "prompt-periods",
     "case-capture-query",

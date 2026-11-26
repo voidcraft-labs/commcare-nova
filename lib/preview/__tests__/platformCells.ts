@@ -164,6 +164,10 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of@web-apps":
 		statedInDocs,
 
+	"questions/android-app-callout-input-appearance-intent-id-bind-type-intent@web-apps":
+		structural("android-app-question"),
+	"questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id@web-apps":
+		stated("android-app-answer"),
 	// ── Refused, structural ────────────────────────────────────────────
 	"questions/date-and-time-xsd-datetime@web-apps":
 		structural("datetime-question"),

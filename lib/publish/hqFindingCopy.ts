@@ -660,12 +660,15 @@ export function findingLine(finding: Finding): {
 		};
 	}
 	return {
-		sentence: manifestSentence(
-			finding.subject,
-			finding.standing,
-			finding.cause,
-			finding.code,
-		),
+		sentence:
+			finding.code === "questions/android-app-callout-that-cannot-be-recreated"
+				? "The Android app connection here needs a change in CommCare HQ. You can recreate it on the question that opens the app, choose where its results go, save the form and try again."
+				: manifestSentence(
+						finding.subject,
+						finding.standing,
+						finding.cause,
+						finding.code,
+					),
 		named: finding.detail.name ?? null,
 	};
 }

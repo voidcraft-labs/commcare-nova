@@ -19,6 +19,8 @@
 import type { DeploymentConfirmationKind } from "@/lib/deployment/types";
 
 export type PlanFeatureId =
+	| "built-in-android-apps"
+	| "external-android-apps"
 	| "web-apps"
 	| "menu-badges"
 	| "worker-records"
@@ -60,6 +62,20 @@ export const PLAN_FEATURES: Readonly<
 		plans: "Advanced and Enterprise",
 		consequence:
 			"Without it, people editing the app in CommCare HQ can't add, change or remove its badges.",
+	},
+	"built-in-android-apps": {
+		id: "built-in-android-apps",
+		label: "Built-in Integration",
+		plans: "Pro, Advanced and Enterprise",
+		consequence:
+			"CommCare HQ needs built-in or external integrations to build forms that open a supported Android app.",
+	},
+	"external-android-apps": {
+		id: "external-android-apps",
+		label: "External Integration Framework",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"CommCare HQ needs external integrations to build a form that opens a custom Android app.",
 	},
 	"worker-records": {
 		id: "worker-records",

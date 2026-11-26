@@ -958,6 +958,13 @@ function fieldUses(
 		uses.push(slotUse("image-size", owner, "maxDimension"));
 	// Every display setting whose value a platform reads differently, found
 	// through the one registry, so a new setting needs no detector here.
+	if ("androidApp" in field && field.androidApp !== undefined) {
+		const feature =
+			field.androidApp.kind === "use-question"
+				? "android-app-answer"
+				: "android-app-question";
+		if (wanted(feature)) uses.push(slotUse(feature, owner, "androidApp"));
+	}
 	const settings = fieldDisplayValues(field);
 	for (const { key, row } of settings) {
 		if (row.feature !== undefined && wanted(row.feature))

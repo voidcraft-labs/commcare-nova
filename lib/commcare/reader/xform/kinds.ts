@@ -239,8 +239,9 @@ export const FIELD_KIND_ROWS: readonly FieldKindRow[] = [
 		X.refusedKind.long,
 		(facts) => input(facts) && typed("long")(facts),
 	),
-	refuseRow(
-		X.refusedKind.intent,
+	takeRow(
+		X.kind.androidApp,
+		"text",
 		(facts) => input(facts) && typed("intent")(facts),
 	),
 	refuseRow(

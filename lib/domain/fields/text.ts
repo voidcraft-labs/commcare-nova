@@ -11,6 +11,7 @@ import tablerForms from "@iconify-icons/tabler/forms";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { displaySchemas } from "../questionDisplaySchemas";
+import { androidAppAnswerSchema } from "./androidApp";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -26,6 +27,7 @@ export const textFieldSchema = inputFieldBaseSchema.extend({
 	addressLookup: displaySchemas.addressLookup.optional(),
 	sendTopics: displaySchemas.sendTopics.optional(),
 	receiveFrom: displaySchemas.receiveFrom.optional(),
+	androidApp: androidAppAnswerSchema.optional(),
 	/** The worker types on a number keypad; the answer stays text. Absent: the full keyboard. */
 	keypad: z.enum(TEXT_KEYPADS).optional(),
 	validate: formLogicSchema.optional(),

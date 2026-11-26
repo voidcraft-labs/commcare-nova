@@ -147,6 +147,12 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"answer-name-requires-android": [
 		"questions/submitted-answer-name-only-android-stores",
 	],
+	"android-app-question": [
+		"questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
+	],
+	"android-app-answer": [
+		"questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id",
+	],
 	"number-keypad": ["questions/phone-number-xsd-string-appearance-numeric"],
 	"row-starting-value": [
 		"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression",

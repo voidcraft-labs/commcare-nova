@@ -106,7 +106,8 @@ export function hiddenAnswerTypeOf(name: string | undefined): HiddenAnswerType {
 /** Every `type` a field's bind can carry. */
 export type FieldBindType =
 	| NonNullable<(typeof BIND_TYPE_BY_KIND)[FieldKind]>
-	| NonNullable<(typeof HIDDEN_BIND_TYPES)[HiddenAnswerType]>;
+	| NonNullable<(typeof HIDDEN_BIND_TYPES)[HiddenAnswerType]>
+	| "intent";
 
 /**
  * The `type` attribute of a field's `<bind>`, or `null` for a field with
@@ -128,6 +129,8 @@ export function fieldBindType(
 ): FieldBindType | null {
 	if (field.kind === "hidden" && field.answerType !== undefined)
 		return HIDDEN_BIND_TYPES[field.answerType];
+	if (field.kind === "text" && field.androidApp?.kind === "open-app")
+		return "intent";
 	return fieldValueType(field, caseTypes, writes) === "datetime"
 		? "xsd:dateTime"
 		: BIND_TYPE_BY_KIND[field.kind];

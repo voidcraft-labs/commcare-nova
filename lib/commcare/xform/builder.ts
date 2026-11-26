@@ -145,6 +145,7 @@ import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
+import { androidAppHeadElements } from "./androidApp";
 import { fieldBindType } from "./bindType";
 import {
 	bindCarriesConstraint,
@@ -994,6 +995,7 @@ export function buildXFormSource(
 
 	// Assemble the model: primary instance (the data tree), then the
 	// accumulated secondary instances, binds, setvalues, and the itext block.
+	const androidAppActions = androidAppHeadElements(doc, expressions, context);
 	// Element ORDER within the model is significant to JavaRosa's parse, so it
 	// mirrors the prior emitter's sequence exactly: instance → secondary
 	// instances → binds → setvalues → itext.
@@ -1082,6 +1084,7 @@ export function buildXFormSource(
 	const headChildren: ChildNode[] = [
 		el("h:title", {}, [text(wireName)]),
 		el("model", {}, modelChildren),
+		...androidAppActions,
 	];
 	const body = el("h:body", {}, bodyElements);
 	if (caseOperations !== null) {
@@ -1760,6 +1763,7 @@ function buildFieldParts(
 			hasValidationMessage &&
 				validationMessage.protectedConstraint === undefined,
 			context,
+			fieldAppearance(field, doc.fields),
 			itemset,
 		),
 	);
@@ -1950,6 +1954,7 @@ function buildLeafControl(
 	hasHelp: boolean,
 	hasValidationMessage: boolean,
 	context: WireElementContext,
+	appearance: string | undefined,
 	itemset?: Element,
 ): Element {
 	// The shared head of every control: the label reference, then the optional
@@ -1999,7 +2004,6 @@ function buildLeafControl(
 		);
 	}
 	const ref = nodePath.toWire();
-	const appearance = fieldAppearance(field);
 	const attributes: Record<string, string> =
 		appearance === undefined ? {} : { appearance };
 

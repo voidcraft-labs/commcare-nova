@@ -1,4 +1,5 @@
 import { singleChoiceLayoutSchema } from "@/lib/domain/choicePresentation";
+import { androidAppAnswerSchema } from "@/lib/domain/fields/androidApp";
 import { connectActivitySchema } from "@/lib/domain/fields/connectActivity";
 import { caseOptionsSourceSchema as storedCaseOptionsSourceSchema } from "@/lib/domain/fields/selectOptionsSource";
 import { displaySchemas } from "@/lib/domain/questionDisplaySchemas";
@@ -273,6 +274,13 @@ const confirmationField = () =>
 		.describe(
 			"On a label, show a confirmation checkbox on Android. Web Apps confirms the message when the worker submits.",
 		);
+const androidAppField = () =>
+	androidAppAnswerSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Open an Android app to answer a text question, or use another question's app on a text, integer, decimal, date, time, date-and-time, barcode or location question. With open-app, action is the external action ID, send maps names to form expressions, and receive maps returned names to questions in this form. A result can fill more than one question. With use-question, question names the text question that opens the app. The app must run on Android. null removes the interaction.",
+		);
 const keypadField = () =>
 	z.enum(TEXT_KEYPADS).nullable().optional().describe(FIELD_DOCS.keypad);
 /**
@@ -523,6 +531,7 @@ const ADD_GATED_KEYS = [
 	"askForConfirmation",
 	"maxDimension",
 	"activity",
+	"androidApp",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -744,6 +753,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 				.optional()
 				.describe(FIELD_DOCS.maxDimension),
 			activity: connectActivitySchema.optional().describe(CONNECT_ACTIVITY_DOC),
+			androidApp: androidAppField(),
 			hint: hintField(),
 			help: helpField(),
 			addFirstLabel: proseTemplateSchema
@@ -886,6 +896,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				.optional()
 				.describe(FIELD_DOCS.maxDimension),
 			activity: connectActivitySchema.optional().describe(CONNECT_ACTIVITY_DOC),
+			androidApp: androidAppField(),
 			hint: hintField(),
 			help: helpField(),
 			addFirstLabel: proseTemplateSchema
