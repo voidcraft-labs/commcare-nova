@@ -15,6 +15,7 @@ import {
 	moduleIsCaseFirst,
 	moduleUuidOfForm,
 } from "@/lib/domain";
+import { implicitFormSelectionId } from "@/lib/domain/advancedEntryDatums";
 import { eq, literal, prop } from "@/lib/domain/expression";
 import { menuScreenEntries } from "@/lib/domain/menuScreens";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
@@ -506,6 +507,10 @@ describe("a form listed in a second menu", () => {
 	it("uses the route menu in the command and detail, the original form ordinal, and the source selection read by the form", () => {
 		const doc = twoMenus();
 		const ctx = formLinkProjectionContext(doc);
+		const formSelection = {
+			kind: "form-selection" as const,
+			selection: implicitFormSelectionId(VISIT, ROUTE),
+		};
 		expect(owningModuleOf(ctx, VISIT)).toBe(SOURCE);
 		expect(formCommandId(ctx, ROUTE, VISIT)).toBe(
 			`m${moduleIndexOf(ctx, ROUTE)}-f1`,
@@ -517,11 +522,13 @@ describe("a form listed in a second menu", () => {
 		).toEqual([
 			{ ref: { kind: "selected-case", module: ROUTE }, scalar: true },
 			{ ref: { kind: "selected-case", module: SOURCE }, scalar: true },
+			{ ref: formSelection, scalar: true },
 		]);
 		const original = entrySessionDatums(doc, ctx, SOURCE, VISIT);
 		const route = entrySessionDatums(doc, ctx, ROUTE, VISIT);
 		const originalChoice = original.find((d) => d.id === "case_id");
 		const routeChoice = route.find((d) => d.id === "case_id");
+		expect(route.filter((datum) => datum.id === "case_id")).toHaveLength(1);
 		expect(originalChoice?.detailSelect).toBe(
 			`m${moduleIndexOf(ctx, SOURCE)}_case_short`,
 		);
@@ -534,6 +541,7 @@ describe("a form listed in a second menu", () => {
 		).toEqual([
 			{ kind: "selected-case", module: ROUTE },
 			{ kind: "selected-case", module: SOURCE },
+			formSelection,
 		]);
 	});
 });
