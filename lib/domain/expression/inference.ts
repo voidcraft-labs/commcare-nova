@@ -45,6 +45,8 @@
  *
  * Memoised per document reference; never persisted.
  */
+
+import { entryOperationCaseType } from "../advancedEntryDatums";
 import { caseTypesWithRelations } from "../appCaseRelations";
 import type {
 	BlueprintDoc,
@@ -61,14 +63,17 @@ import { caseDataTypeForFieldKind } from "../caseTypes";
 import { formOfField } from "../fieldForm";
 import type { Field, HiddenField } from "../fields";
 import { fieldValueType } from "../fieldValueType";
+import { openingAssignmentPropertyType } from "../formOpeningAssignments";
 import { orderedCaseOperations } from "../forms";
 import { moduleUuidOfForm } from "../postSubmit";
 import { proseText } from "../prose";
 import {
+	CASE_LOCATION_PROPERTY,
 	isStandardCaseListProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
 } from "../standardCaseProperties";
+import { USERCASE_CASE_TYPE, usercaseCaseType } from "../usercase";
 import type { Uuid } from "../uuid";
 import {
 	type ExpressionFacts,
@@ -79,7 +84,12 @@ import {
 } from "./context";
 import { isIsoDateText } from "./datePattern";
 import { resolveRelationDestination } from "./relationDestination";
-import { agreedStorageType, isWriteAssignable, joinsAsText } from "./ruleSets";
+import {
+	agreedStorageType,
+	isAnswerWriteAssignable,
+	isWriteAssignable,
+	joinsAsText,
+} from "./ruleSets";
 import {
 	ANY_TYPE,
 	type CheckPath,
@@ -601,6 +611,7 @@ const propertyKey = (caseType: string, property: string): string =>
 
 class Inference {
 	private readonly relationTypes: readonly CaseType[];
+	private readonly declaredTypes: readonly CaseType[];
 	private readonly untyped: ReturnType<typeof untypedExpressionFacts>;
 	private readonly fieldWriters: readonly FieldWriter[];
 	private readonly hiddenSites: readonly HiddenWriterSite[];
@@ -648,13 +659,31 @@ class Inference {
 	constructor(private readonly doc: BlueprintDoc) {
 		this.relationTypes = caseTypesWithRelations(doc);
 		this.untyped = untypedExpressionFacts(doc);
+		const declared = this.relationTypes;
+		this.declaredTypes = Object.values(doc.modules).some(
+			(menu) => menu.caseType === USERCASE_CASE_TYPE,
+		)
+			? [
+					...declared.filter((type) => type.name !== USERCASE_CASE_TYPE),
+					usercaseCaseType(doc),
+				]
+			: declared;
 		const fieldWriters: FieldWriter[] = [];
 		const hiddenWrites = new Map<
 			Uuid,
 			{ readonly caseType: string; readonly property: string }
 		>();
 		const operationWrites: OperationWrite[] = [];
-		for (const [formUuid, form] of Object.entries(doc.forms)) {
+		// Process ordinary content first so a replacement writer cannot change the
+		// question's bind on the one XForm all of its entries share.
+		const forms = Object.values(doc.forms);
+		for (const entry of [
+			...forms.filter((form) => !form.shadowOf),
+			...forms.filter((form) => form.shadowOf),
+		]) {
+			const form = entry.shadowOf ? doc.forms[entry.shadowOf.form] : entry;
+			if (!form || form.shadowOf) continue;
+			const formUuid = form.uuid;
 			const moduleUuid = moduleUuidOfForm(doc, formUuid as Uuid);
 			const currentCaseType =
 				moduleUuid === undefined
@@ -664,8 +693,16 @@ class Inference {
 			for (const operation of orderedCaseOperations(form)) {
 				// The form's own change has no stored case type: it changes the
 				// case of the form's module.
-				const operationType =
+				const originalType =
 					operation.retype ?? operation.caseType ?? currentCaseType;
+				const operationType = entry.shadowOf
+					? (operation.retype ??
+						entryOperationCaseType(doc, entry.uuid, operation))
+					: originalType;
+				if (entry.shadowOf && operationType === originalType) {
+					if (operation.action === "create") operationIds.add(operation.uuid);
+					continue;
+				}
 				if (operationType === undefined) continue;
 				const writes: {
 					readonly property: string;
@@ -694,11 +731,16 @@ class Inference {
 									this.relationTypes,
 								);
 					if (!destination.ok) continue;
+					// The owner of a case above is its owner, as the operation's
+					// own owner facet is, never a property of its type; its name
+					// is the name the case's type holds as text.
+					if (write.via !== undefined && write.property === "owner_id")
+						continue;
 					writes.push({
 						property: write.property,
 						value: write.value,
 						caseType: destination.caseType,
-						name: false,
+						name: write.via !== undefined && write.property === "case_name",
 					});
 				}
 				for (const write of writes) {
@@ -744,6 +786,24 @@ class Inference {
 			const readers = this.preloadReaders.get(key) ?? [];
 			readers.push(field);
 			this.preloadReaders.set(key, readers);
+		}
+		// A form's opening assignment fills its field from a case's property as
+		// a preload does (`casePreload.ts::fieldPreload`), through the same
+		// answer class, so its field reads that property too.
+		for (const form of Object.values(doc.forms)) {
+			for (const assignment of form.openingAssignments ?? []) {
+				const field = doc.fields[assignment.field];
+				const caseType = openingAssignmentPropertyType(
+					doc,
+					form.uuid as Uuid,
+					assignment,
+				);
+				if (field === undefined || caseType === undefined) continue;
+				const key = propertyKey(caseType, assignment.property);
+				const readers = this.preloadReaders.get(key) ?? [];
+				if (!readers.includes(field)) readers.push(field);
+				this.preloadReaders.set(key, readers);
+			}
 		}
 		this.hiddenWrites = hiddenWrites;
 		this.fieldWriters = fieldWriters;
@@ -1307,6 +1367,12 @@ class Inference {
 		const resolve = (caseType: string, property: string): void => {
 			const key = propertyKey(caseType, property);
 			if (result.has(key)) return;
+			// The case's own location is a text column whatever writes it
+			// (`standardCaseProperties.ts::WRITABLE_STANDARD_CASE_PROPERTIES`).
+			if (property === CASE_LOCATION_PROPERTY) {
+				result.set(key, { type: "text", origin: { kind: "standard" } });
+				return;
+			}
 			const declared = this.declared(caseType, property);
 			if (declared?.data_type !== undefined) {
 				result.set(key, {
@@ -1404,7 +1470,7 @@ class Inference {
 		};
 		for (const { caseType, property } of this.written.values())
 			resolve(caseType, property);
-		for (const caseType of this.doc.caseTypes ?? [])
+		for (const caseType of this.declaredTypes)
 			for (const property of caseType.properties)
 				resolve(caseType.name, property.name);
 		return result;
@@ -1445,7 +1511,7 @@ class Inference {
 		caseType: string,
 		property: string,
 	): CaseProperty | undefined {
-		return (this.doc.caseTypes ?? [])
+		return this.declaredTypes
 			.find((type) => type.name === caseType)
 			?.properties.find((candidate) => candidate.name === property);
 	}
@@ -1473,11 +1539,13 @@ class Inference {
 		properties: ReadonlyMap<string, PropertyAgreement>,
 	): readonly CaseType[] {
 		const result: CaseType[] = [];
-		for (const caseType of this.relationTypes) {
+		for (const caseType of this.declaredTypes) {
 			const declaredNames = new Set(
 				caseType.properties.map((property) => property.name),
 			);
 			const entries: CaseProperty[] = caseType.properties.map((property) => {
+				if (property.name === CASE_LOCATION_PROPERTY)
+					return { ...property, data_type: "text" };
 				if (property.data_type !== undefined) return property;
 				const derived = properties.get(
 					propertyKey(caseType.name, property.name),
@@ -1558,7 +1626,7 @@ class Inference {
 					writer.property,
 					kindType !== undefined &&
 						destination !== undefined &&
-						isWriteAssignable(kindType, destination, false)
+						isAnswerWriteAssignable(kindType, destination)
 						? destination
 						: kindType,
 				);
@@ -1610,7 +1678,7 @@ class Inference {
 		const named = new Map<string, { caseType: string; property: string }>(
 			this.written,
 		);
-		for (const caseType of this.doc.caseTypes ?? [])
+		for (const caseType of this.declaredTypes)
 			for (const property of caseType.properties)
 				named.set(propertyKey(caseType.name, property.name), {
 					caseType: caseType.name,

@@ -873,18 +873,13 @@ A change that holds one removes its line.
   `questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads` and records the form
   under `hidden-value-defaults-dropped`; any doubt (a slot the expression stage did not hold,
   another setvalue on the node, a later setvalue no bound tree gives the reads of) is the refusal.
-- **An index on the first chosen load of an advanced form naming the worker's record loaded
-  before it**: one finding at the form under
-  `forms-and-case-writes/an-index-on-the-first-chosen-load-naming-the-worker-s-record-loaded-before-it`
-  (`caseManagement/advancedActions.ts`). HQ's editor offers every load stored after the first that
-  does not auto-select "a subcase of the previous case", the worker's record's load among the
-  previous ones, and Nova holds no chosen case narrowed to the worker's record's children.
-- **The worker's record's auto-selected load stored before a chosen load**: one finding at the
-  form under
-  `forms-and-case-writes/the-worker-s-record-s-auto-selected-load-stored-before-a-chosen-load`
-  (`caseManagement/index.ts::compareEntryFacts`, where the entry's loads differ only in where that
-  load stands). HQ's entry gives each load's datum in stored order, and Nova writes the worker's
-  load after every chosen load.
+- **Advanced loads and computed datums**. `caseManagement/advancedActions.ts`
+  reads each load by the entry and its tag. Stored worker-first loads, manual
+  loads from another list, independent loads from the same list, and earlier
+  direct-index sources retain separate identities. A manual choice can narrow
+  to a worker record loaded earlier. An entry expression binds against the
+  completed prefix. A missing earlier datum, missing table or column, and an
+  invalid earlier-load reference have their own recovery findings.
 - **An after-submit link's condition or carried value that prints as the source only with a
   rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
   `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with
@@ -1039,3 +1034,7 @@ these unprinted values. Reading HQ over the published reference can replace a lo
 worker-visible edit in the reviewed change list. When the original language
 changes, that same review preserves the head's dormant checks and the saved
 review metadata for generated wording that the resulting app still shows.
+
+### Reading a shared form
+
+Ordinary forms are identified by their namespace. A shadow's external identity uses its real aligned form id because every command sharing the parent's questions has the same effective namespace. Match `shadow_parent_form_id` within this source's scrubbed ids before resolving its ordinary parent. Only the parent supplies an XForm, question identities, case blocks and writes. Read a shadow's `extra_actions.load_update_cases` in its stored sequence and resolve each repeated tag against the parent. On publish, derive or look up the target parent id independently from the entry's own id. On read-back, align both real ids even after names or menu positions change.

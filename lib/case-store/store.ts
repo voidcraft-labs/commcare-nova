@@ -101,7 +101,15 @@ export type PrivateCaseColumn =
 	| "project_id"
 	| "index_history_complete"
 	| "cleared_index_identifiers";
-export type CaseRow = Omit<Selectable<CasesTable>, PrivateCaseColumn>;
+/**
+ * One case row as a reader receives it. `location_id` is optional because a
+ * durable submission receipt's `caseDatabasePatch` written before the column
+ * existed holds rows without it; such a row holds no location, as `null` says.
+ */
+export type CaseRow = Omit<
+	Selectable<CasesTable>,
+	PrivateCaseColumn | "location_id"
+> & { readonly location_id?: string | null };
 
 /** One direct case-index edge whose source and ancestor both belong to the
  * bound app and Project. The target type is persisted on the edge because
@@ -156,6 +164,8 @@ export interface CaseUpdate {
 	readonly case_name?: string;
 	/** External-system identity. Routed to `external_id`, never JSONB; `""` is an explicit write. */
 	readonly external_id?: string;
+	/** The case's own location, as CommCare HQ keeps a form's `location_id` write. Routed to `location_id`, never JSONB; `""` is an explicit write. */
+	readonly location_id?: string;
 	/**
 	 * Open/closed lifecycle status. Normal app closure goes through
 	 * `close()`, which owns the canonical `closed` value. This slot remains
@@ -1136,6 +1146,13 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
  * authorizes, and the worker stamped as each new row's `owner_id`.
  */
 export interface CaseStore extends SchemaCaseStore {
+	/** Reauthorize a previously opened device projection without exposing values.
+	 * Every supplied case must still belong to this worker's unparked restore. */
+	holdsDeviceCases(args: {
+		readonly appId: string;
+		readonly restoreScope: RestoreScope;
+		readonly caseIds: readonly string[];
+	}): Promise<boolean>;
 	/** Read the complete bound worker restore without partitioning through the
 	 * active Blueprint catalog. The restore closure and tenant predicates live
 	 * in SQL. A worker's search claims are case rows the closure reaches as it
@@ -1161,6 +1178,17 @@ export interface CaseStore extends SchemaCaseStore {
 		grouping?: string,
 	): Promise<SearchResultsPage>;
 	readSearchResultInstance(args: QueryArgs): Promise<SearchResultInstance>;
+
+	/** The patch a committed submission of this actor's form entry left on the
+	 * device (`SubmissionEnvelopeResult.caseDatabasePatch`), read from its
+	 * durable receipt, or `undefined` unless this device run committed the
+	 * entry. The next form a submission opens reads the device it left, which
+	 * keeps a case the entry just closed until sync. */
+	readSubmittedCaseDatabasePatch(args: {
+		readonly appId: string;
+		readonly entryKey: string;
+		readonly openingCarryScope: string;
+	}): Promise<DeviceCaseDatabase | undefined>;
 
 	/**
 	 * DomainExpression-driven SELECT with optional inline calculated-column

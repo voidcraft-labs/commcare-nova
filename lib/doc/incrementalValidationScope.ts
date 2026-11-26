@@ -253,6 +253,11 @@ export function incrementalValidationScope(
 		return undefined;
 	addScreenContributors(doc, nextDoc, scope);
 	addSearchButtonConditions(nextDoc, scope);
+	// A parent edit changes every entry that opens its questions or runs its writes.
+	for (const entry of Object.values(nextDoc.forms)) {
+		if (entry.shadowOf && scope.formUuids.has(entry.shadowOf.form))
+			scope.formUuids.add(entry.uuid);
+	}
 	return {
 		...(scope.moduleUuids.size > 0 && { moduleUuids: scope.moduleUuids }),
 		...(scope.formUuids.size > 0 && { formUuids: scope.formUuids }),
@@ -446,6 +451,9 @@ function mutationFootprint(
 				scope.formUuids.add(mutation.uuid);
 				break;
 			case "updateForm": {
+				// A form's first or last explicit supply can change the whole menu's emitted kind
+				// and the aligned entries of child menus, links and display conditions.
+				if (mutation.entryChange) return undefined;
 				/* A type change moves the form between the case-loading and the
 				 * other forms, which decides whether its module lands on its case
 				 * list (`isCaseFirstModule`), what a child menu selecting through it
@@ -529,6 +537,9 @@ function mutationFootprint(
 					/* A menu's held kind decides its kind, which moves every form
 					 * of it and every link into it. */
 					if (hold.target === "module-kind") return undefined;
+					/* Where a basic form keeps its starting values decides
+					 * whether its menu emits advanced, as a held kind does. */
+					if (hold.target === "basic-opening") return undefined;
 					const formUuid =
 						hold.target === "query-repeat"
 							? findContainingForm(doc, hold.fieldUuid)

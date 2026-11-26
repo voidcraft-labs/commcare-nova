@@ -80,9 +80,24 @@ final class SuiteFormRun {
         this(family, name, hq, formFile, xmlns, record -> { });
     }
 
+    @FunctionalInterface
+    interface EntryWalk {
+        void choose(CommCareSession session, TestInstanceInitializer runtime, Entry entry) throws Exception;
+    }
+
     /** As the plain run, each seeded case first handed to {@code adjust} (a property the run opens on). */
     SuiteFormRun(String family, String name, boolean hq, String formFile, String xmlns,
             java.util.function.Consumer<Case> adjust) throws Exception {
+        this(family, name, hq, formFile, xmlns, adjust, null);
+    }
+
+    SuiteFormRun(String family, String name, boolean hq, String formFile, String xmlns,
+            java.util.function.Consumer<Case> adjust, EntryWalk walk) throws Exception {
+        this(family, name, hq, formFile, xmlns, null, adjust, walk);
+    }
+
+    SuiteFormRun(String family, String name, boolean hq, String formFile, String xmlns, String requiredCommand,
+            java.util.function.Consumer<Case> adjust, EntryWalk walk) throws Exception {
         seed("/" + family + "/" + name + ".cases.json", adjust);
         Suite suite;
         try (InputStream in = SuiteFormRun.class.getResourceAsStream("/" + family + "/" + name + (hq ? ".hq-suite.xml" : ".suite.xml"))) {
@@ -92,7 +107,12 @@ final class SuiteFormRun {
         Entry entry = null;
         String command = null;
         for (Map.Entry<String, Entry> each : suite.getEntries().entrySet()) {
-            if (xmlns.equals(each.getValue().getXFormNamespace())) { entry = each.getValue(); command = each.getKey(); }
+            if (xmlns.equals(each.getValue().getXFormNamespace()) &&
+                    (requiredCommand == null || requiredCommand.equals(each.getKey()))) {
+                assertNull("More than one command opens " + xmlns + "; choose the command for this journey.", entry);
+                entry = each.getValue();
+                command = each.getKey();
+            }
         }
         assertNotNull("The suite of " + name + " has no entry for the form " + xmlns + " (hq=" + hq + ")", entry);
         CommCarePlatform platform = new CommCarePlatform(2, 53, 0);
@@ -113,6 +133,14 @@ final class SuiteFormRun {
                 return new ConcreteInstanceRoot(root);
             }
         };
+        if (walk == null) chooseFirstEntities(xmlns, hq);
+        else walk.choose(session, runtime, entry);
+        parsed = new FormParseInit("/" + family + "/" + formFile);
+        form = parsed.getFormDef();
+        form.initialize(true, runtime);
+    }
+
+    private void chooseFirstEntities(String xmlns, boolean hq) throws Exception {
         int steps = 0;
         for (SessionDatum datum = session.getNeededDatum(); datum != null; datum = session.getNeededDatum()) {
             if (++steps > 20) throw new AssertionError("The entry of " + xmlns + " kept asking for datums");
@@ -132,9 +160,6 @@ final class SuiteFormRun {
                     + " " + datum.getDataId() + ", which a worker's own choice does not give");
             }
         }
-        parsed = new FormParseInit("/" + family + "/" + formFile);
-        form = parsed.getFormDef();
-        form.initialize(true, runtime);
     }
 
     private void seed(String resource, java.util.function.Consumer<Case> adjust) throws Exception {

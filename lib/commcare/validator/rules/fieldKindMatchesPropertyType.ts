@@ -51,8 +51,8 @@ import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
+	entryCaseWriteViews,
 	type FieldKind,
-	formCaseWriteViews,
 	isWritableStandardCaseProperty,
 	type Uuid,
 } from "@/lib/domain";
@@ -64,7 +64,8 @@ import { type ValidationError, validationError } from "../errors";
 
 /** Whether a property declared `declared` holds the values a question of
  *  a kind giving `given` saves: its own type, an integer as a decimal, a
- *  choice as text. */
+ *  choice as text, and a date and time as its day
+ *  (`ruleSets.ts::isAnswerWriteAssignable`). */
 export function declaredTypeHolds(
 	given: CasePropertyDataType,
 	declared: CasePropertyDataType,
@@ -72,7 +73,9 @@ export function declaredTypeHolds(
 	return (
 		given === declared ||
 		(given === "int" && declared === "decimal") ||
-		(given === "single_select" && declared === "text")
+		(given === "single_select" && declared === "text") ||
+		(given === "single_select" && declared === "multi_select") ||
+		(given === "datetime" && declared === "date")
 	);
 }
 
@@ -116,7 +119,7 @@ export function fieldKindMatchesPropertyType(
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
-			for (const [fieldUuid, views] of formCaseWriteViews(doc, formUuid)) {
+			for (const [fieldUuid, views] of entryCaseWriteViews(doc, formUuid)) {
 				const field = doc.fields[fieldUuid];
 				if (field === undefined) continue;
 				for (const view of views) {

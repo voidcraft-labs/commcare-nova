@@ -100,6 +100,13 @@ export function sourceSlotWriter(
 						if (registration !== undefined) registration.label = text(value);
 					}
 				: undefined;
+		case "form-submit-label":
+			return owner.kind === "form"
+				? (draft, value) => {
+						const form = draft.forms[owner.formUuid];
+						if (form !== undefined) form.submitLabel = { text: text(value) };
+					}
+				: undefined;
 		case "form-name":
 			return owner.kind === "form"
 				? (draft, value) => {
@@ -298,7 +305,10 @@ export function sourceSlotWriter(
 						module.caseSearchConfig = {
 							...module.caseSearchConfig,
 							...(unit.role === "search-screen-title"
-								? { searchScreenTitle: text(value) === "" ? NO_SEARCH_SCREEN_TITLE : text(value) }
+								? {
+										searchScreenTitle:
+											text(value) === "" ? NO_SEARCH_SCREEN_TITLE : text(value),
+									}
 								: { searchScreenSubtitle: text(value) }),
 						};
 					}
