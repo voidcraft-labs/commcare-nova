@@ -61,7 +61,7 @@ import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
 import { compileCcz } from "@/lib/commcare/compiler";
-import { decrypt } from "@/lib/commcare/encryption";
+import { decrypt, encrypt } from "@/lib/commcare/encryption";
 import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
 import { parseHqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
@@ -81,6 +81,7 @@ import {
 	removeKid,
 } from "@/lib/db/__tests__/heldPlacementApp";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
+import { saveCommCareSettings } from "@/lib/db/settings";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import type { Mutation } from "@/lib/doc/types";
@@ -148,7 +149,10 @@ import { servePublishedImage, storeProjectImages } from "./publishedImage";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 import { stopHere } from "./stopHere";
 
-vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
+vi.mock("@/lib/commcare/encryption", () => ({
+	decrypt: vi.fn(),
+	encrypt: vi.fn(),
+}));
 vi.mock("@/lib/storage/media", () => ({
 	streamAsset: vi.fn(),
 	getStoredObjectMetadata: vi.fn(),
@@ -4859,21 +4863,23 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 				after: async (method, path) => {
 					if (method !== "POST" || path !== rowsPath || rekeyed) return;
 					rekeyed = true;
-					await h
-						.db()
-						.updateTable("user_settings")
-						.set({
-							commcare_api_key: "another-ciphertext",
-							connection_epoch: crypto.randomUUID(),
-						})
-						.where("user_id", "=", ACTOR)
-						.execute();
+					vi.mocked(encrypt).mockResolvedValueOnce("another-ciphertext");
+					await saveCommCareSettings(ACTOR, {
+						username: "account",
+						apiKey: "different-key",
+						server: TARGET.server,
+						approvedDomains: [{ name: TARGET.domain, displayName: "Clinic" }],
+					});
 				},
 			});
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
-			await publish(doc).catch((error: unknown) => error);
+			const outcome = await publish(doc);
 			expect(rekeyed).toBe(true);
+			expect(outcome).toMatchObject({
+				landed: false,
+				refusal: { phase: "resources", failure: { code: "app_not_ready" } },
+			});
 			expect(hq.writes).toEqual([
 				"POST /a/clinic/api/lookup_table/v1/",
 				`POST ${rowsPath}`,
