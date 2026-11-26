@@ -357,7 +357,11 @@ tile assigns one distinct field to each fixed position in `NAMED_TILE_SLOTS`.
 `resolveCaseFormContext` chooses the effective display and optional inline detail
 for one selected case. Existing documents with `tile.persistOnForms` retain
 their own Results tile. A new `contextAboveForm` can select another menu or a
-typed line. A fallback line belongs to the selecting menu.
+typed line. A fallback line belongs to the selecting menu. Another menu's tile
+expanded above the forms keeps the selecting menu's own tile persisting with no
+stored switch (the wire switches it on there, and HQ's build falls back to that
+tile and its Details), so `formContextPatch` stores none beside it and the
+reader returns none (`own-tile-persistence-beside-an-expanded-menu-tile-is-absent`).
 
 ## Property types are derived facts — the effective case-type view
 

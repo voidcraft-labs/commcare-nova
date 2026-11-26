@@ -45,7 +45,16 @@ export function resolveCaseFormContext(
 		requested?.caseListConfig?.tile && requested.caseType === local.caseType
 			? requested
 			: undefined;
-	const own = config.tile?.persistOnForms === true ? local : undefined;
+	// Another menu's tile expanded above the forms keeps this menu's own tile persisting too:
+	// the wire switches its persistence on there (`hqJson/caseList.ts`), and HQ's build falls
+	// back to it for the tile and the inline detail (`entries.py::get_detail_persistent_attr`,
+	// `get_detail_inline_attr`), so the document means that with the switch stored or not.
+	const own =
+		config.tile !== undefined &&
+		(config.tile.persistOnForms === true ||
+			(context?.kind === "menu-tile" && context.expandDetails === true))
+			? local
+			: undefined;
 	const source = external ?? own;
 	if (!source)
 		return caseContextLine(context)
@@ -89,7 +98,8 @@ export function presentFormContext(
 
 /** Switch the tile and the independent context together so the old setting
  * cannot shadow a newly authored line. An external tile keeps a previous
- * local tile as a fallback unless the author supplies a fallback line. */
+ * local tile as a fallback unless the author supplies a fallback line; an
+ * expanded one keeps it with no stored switch (`resolveCaseFormContext`). */
 export function formContextPatch(
 	config: NonNullable<Module["caseListConfig"]>,
 	choice: CaseFormContextChoice | null,
@@ -104,6 +114,7 @@ export function formContextPatch(
 		own ||
 		(choice?.kind === "menu-tile" &&
 			!choice.expression &&
+			!choice.expandDetails &&
 			config.tile?.persistOnForms === true);
 	const contextAboveForm =
 		choice?.kind === "own-tile"

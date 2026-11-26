@@ -25,10 +25,18 @@ export function retireCaseFormContextTile(
 			source.kind === "menu-tile" &&
 			source.moduleUuid === moduleUuid
 		) {
-			if (config?.tile?.persistOnForms) {
+			// This menu's own tile persists beside the source's: stored, or kept by the source's
+			// tile expanded above the forms with no fallback line (`resolveCaseFormContext`,
+			// `formContextPatch`), which it now stores.
+			const tile = config?.tile;
+			if (
+				tile !== undefined &&
+				(tile.persistOnForms === true ||
+					(source.expandDetails === true && !source.expression))
+			) {
 				const expands =
 					source.expandDetails &&
-					config.columns.some((column) => column.visibleInDetail !== false);
+					config?.columns.some((column) => column.visibleInDetail !== false);
 				updates.push({
 					kind: "setCaseListMeta",
 					uuid: menu.uuid,
@@ -36,6 +44,9 @@ export function retireCaseFormContextTile(
 						contextAboveForm: expands
 							? { kind: "own-tile", expandDetails: true }
 							: null,
+						...(tile.persistOnForms !== true && {
+							tile: { ...tile, persistOnForms: true },
+						}),
 					},
 				});
 			} else if (source.expression) {

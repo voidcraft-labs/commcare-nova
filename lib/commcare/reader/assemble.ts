@@ -24,6 +24,7 @@ import {
 	type LanguageTag,
 	type LocalizedValue,
 	type Media,
+	type Module,
 	makeTranslationUnitId,
 	operationCaseType,
 	ownCaseOperationId,
@@ -825,6 +826,41 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 					for (const column of config.columns) clear(column.tile);
 					for (const cell of Object.values(config.detailTile?.cells ?? {}))
 						clear(cell);
+				}
+			});
+		},
+	},
+	{
+		/** A menu's own tile kept above forms beside another menu's tile expanded there, and the
+		 *  same with no switch stored: the wire switches this menu's persistence on beside every
+		 *  such tile (`hqJson/caseList.ts`), so both print one export, and the document means the
+		 *  same either way (`caseFormContext.ts::resolveCaseFormContext`); the reader reads the
+		 *  switch as the source's setting and returns none (`caseList/details.ts::
+		 *  persistHeldByExternalPullDown`). */
+		id: "own-tile-persistence-beside-an-expanded-menu-tile-is-absent",
+		kind: "one-wire",
+		apply: (doc) => {
+			const held = (module: Module | undefined) => {
+				const config = module?.caseListConfig;
+				const context = config?.contextAboveForm;
+				if (
+					config?.tile?.persistOnForms !== true ||
+					context?.kind !== "menu-tile" ||
+					context.expandDetails !== true
+				)
+					return false;
+				const source = doc.modules[context.moduleUuid];
+				return (
+					source?.caseListConfig?.tile !== undefined &&
+					source.caseType === module?.caseType
+				);
+			};
+			const menus = Object.values(doc.modules).filter(held);
+			if (menus.length === 0) return doc;
+			return withCandidate(doc, (draft) => {
+				for (const { uuid } of menus) {
+					const tile = draft.modules[uuid]?.caseListConfig?.tile;
+					if (tile !== undefined) delete tile.persistOnForms;
 				}
 			});
 		},
