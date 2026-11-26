@@ -60,7 +60,7 @@ or form named by its place in the app HQ holds:
   as the ``case_mapping_diff``);
 - ``moduleAttribute``: the menu's name posted to ``views/modules.py::edit_module_attr``;
 - ``moduleLayout``: the menu's own Menu Display (``display_style``) posted to the same view;
-- ``moduleDetail``: the Case List page's save of its columns with new columns added at the end
+- ``moduleDetail``: the Case List page's save of appended columns or the Case Detail page's save of tabs
   (``views/modules.py::edit_module_detail_screens``), the list's own settings posted as HQ holds them;
 - ``formsAddedAndRemoved``: a form deleted (``views/forms.py::delete_form``), a survey added
   (``views/forms.py::new_form``) and its questions saved through ``patch_xform``;
@@ -574,23 +574,27 @@ def module_layout(unit, app_id, value):
 
 
 def module_detail(unit, app_id, value):
-    """Columns added at the end of a menu's case list, posted as the Case List page posts its columns
-    (``views/modules.py::edit_module_detail_screens``): ``type`` ``case``, every column HQ holds then the new one,
-    and the list's own settings as HQ holds them, which ``_update_short_details`` sets from every post that names
-    columns."""
+    """Post the Case List page's existing and appended columns or the Case Detail page's columns and tabs,
+    as ``views/modules.py::edit_module_detail_screens`` reads them. A list's settings are passed as HQ holds them
+    because ``_update_short_details`` sets them whenever the POST names the short columns."""
     app = _operations().held_app(unit, app_id)
     module = app.get_module(value["module"])
-    short = module.case_details.short
-    columns = [column.to_json() for column in short.columns] + value["columns"]
-    body, content_type = _form_body(
-        [
-            ("type", json.dumps("case")),
+    fields = [("type", json.dumps("case"))]
+    if "tabs" in value:
+        fields.extend([
+            ("long", json.dumps([column.to_json() for column in module.case_details.long.columns])),
+            ("tabs", json.dumps(value["tabs"])),
+        ])
+    else:
+        short = module.case_details.short
+        columns = [column.to_json() for column in short.columns] + value["columns"]
+        fields.extend([
             ("short", json.dumps(columns)),
             ("multi_select", json.dumps(short.multi_select)),
             ("auto_select", json.dumps(short.auto_select)),
             ("max_select_value", json.dumps(short.max_select_value)),
-        ]
-    )
+        ])
+    body, content_type = _form_body(fields)
     return [
         _answer(
             unit,
@@ -599,7 +603,7 @@ def module_detail(unit, app_id, value):
             [unit.domain, app_id, module.unique_id],
             body,
             content_type,
-            f"the case list columns of menu {module.unique_id}",
+            f"the case details of menu {module.unique_id}",
         )
     ]
 
