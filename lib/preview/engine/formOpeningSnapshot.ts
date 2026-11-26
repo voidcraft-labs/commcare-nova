@@ -1,6 +1,11 @@
 import { z } from "zod";
 import type { CaseRow } from "@/lib/case-store/store";
-import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	operationSavesOnlyChanged,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
@@ -146,7 +151,8 @@ export function formNeedsOpeningEvidence(
 	if (
 		operations.some(
 			(operation) =>
-				operation.writes?.some((write) => write.via || write.onlyIfChanged) ||
+				operation.writes?.some((write) => write.via) ||
+				operationSavesOnlyChanged(operation) ||
 				(operation.action !== "own" &&
 					(operation.target.kind === "expression" ||
 						operation.target.kind === "worker-record")),

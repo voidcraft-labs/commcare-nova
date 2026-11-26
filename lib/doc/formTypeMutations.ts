@@ -52,7 +52,7 @@ export const CHOOSE_NAME_QUESTION_MESSAGE =
 /** The refusal for a registration whose own case keeps a write a new case
  *  cannot hold. */
 export const NEW_CASE_WRITE_FACETS_MESSAGE =
-	"A new case has no earlier value or case above it. Remove Save only if changed and any save to a case above it first.";
+	"A new case has no earlier name or case above it. Turn off Save only if changed under the new name, and remove any save to a case above it, first.";
 
 const FORM_GONE_MESSAGE = "This form is no longer part of the app.";
 
@@ -211,11 +211,14 @@ export function planFormTypeChange(
 	return { ok: true, mutations };
 }
 
-/** Whether one of the own case's writes reads the case as the form loaded
- *  it: a save through the indices above it, or a save only if changed. */
+/** Whether the own case reads the case as the form loaded it in a way a
+ *  new case can't: a save through the indices above it, or a rename saved
+ *  only when it differs from the case's name. A write or an owner saved only
+ *  when changed stays: on a new case it saves only a given answer. */
 function ownWritesNeedLoadedCase(own: OwnCaseOperation): boolean {
-	return (own.writes ?? []).some(
-		(write) => write.via !== undefined || write.onlyIfChanged !== undefined,
+	return (
+		own.nameOnlyIfChanged === true ||
+		(own.writes ?? []).some((write) => write.via !== undefined)
 	);
 }
 

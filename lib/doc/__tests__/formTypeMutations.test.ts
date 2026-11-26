@@ -337,23 +337,41 @@ describe("planFormTypeChange", () => {
 
 	it.each([
 		["a save to the case above it", { via: [{ identifier: "parent" }] }],
-		["a save only if changed", { onlyIfChanged: true }],
+		["a new name saved only when changed", { nameOnlyIfChanged: true }],
 	] as const)(
 		"follow-up → registration refuses an own case with %s",
 		(_label, facet) => {
 			const doc = fixture((draft) => {
 				const own = draft.forms[FUP].caseOperations?.[0];
-				if (own?.writes?.[0] !== undefined)
-					Object.assign(own.writes[0], structuredClone(facet));
+				if ("via" in facet) {
+					if (own?.writes?.[0] !== undefined)
+						Object.assign(own.writes[0], structuredClone(facet));
+				} else if (own !== undefined)
+					Object.assign(own, { name: answerOf(FUP_NOTE), ...facet });
 			});
 			expect(
 				planFormTypeChange(doc, FUP, "registration", { nameField: FUP_NOTE }),
 			).toEqual({ ok: false, message: NEW_CASE_WRITE_FACETS_MESSAGE });
 			expect(NEW_CASE_WRITE_FACETS_MESSAGE).toBe(
-				"A new case has no earlier value or case above it. Remove Save only if changed and any save to a case above it first.",
+				"A new case has no earlier name or case above it. Turn off Save only if changed under the new name, and remove any save to a case above it, first.",
 			);
 		},
 	);
+
+	it("follow-up → registration keeps a write saved only when changed, which on a new case saves a given answer", () => {
+		const doc = fixture((draft) => {
+			const own = draft.forms[FUP].caseOperations?.[0];
+			if (own?.writes?.[0] !== undefined) own.writes[0].onlyIfChanged = true;
+		});
+		const plan = planFormTypeChange(doc, FUP, "registration", {
+			nameField: FUP_NOTE,
+		});
+		expect(plan.ok).toBe(true);
+		const next = land(doc, plan);
+		expect(next.forms[FUP]?.caseOperations?.[0]?.writes?.[0]).toMatchObject({
+			onlyIfChanged: true,
+		});
+	});
 
 	it("close → registration drops the close condition", () => {
 		const doc = fixture((draft) => {
