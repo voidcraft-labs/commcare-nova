@@ -43,6 +43,7 @@ it("shows a submission only to a worker with an earlier restore and keeps receip
 	const module = testUuid("activity-module");
 	const key = testUuid("activity-key-field");
 	const title = testUuid("activity-title-field");
+	const record = testUuid("activity-record-field");
 	const window = testUuid("activity-window-field");
 	const doc = buildDoc({
 		modules: [
@@ -55,12 +56,28 @@ it("shows a submission only to a worker with an earlier restore and keeps receip
 						name: "Visit",
 						type: "survey",
 						fields: [
-							{ uuid: key, kind: "text", id: "key", label: "Clinic A" },
+							{
+								uuid: record,
+								kind: "hidden",
+								id: "record",
+								calculate: "'Northern clinic'",
+							},
+							{
+								uuid: key,
+								kind: "text",
+								id: "key",
+								label: {
+									parts: [
+										{ kind: "text", text: "Visit " },
+										{ kind: "field-ref", uuid: record },
+									],
+								},
+							},
 							{
 								uuid: title,
 								kind: "text",
 								id: "title",
-								label: "Northern clinic",
+								label: { parts: [{ kind: "field-ref", uuid: record }] },
 							},
 							{ uuid: window, kind: "text", id: "window", label: "90" },
 						],
@@ -92,7 +109,10 @@ it("shows a submission only to a worker with an earlier restore and keeps receip
 	const entry = testUuid("activity-first-open");
 	const left = await open(first, entry);
 	expect(left.activityNotice).toBeUndefined();
-	expect(left.projection.webActivity).toMatchObject({ windowSeconds: 90 });
+	expect(left.projection.webActivity).toMatchObject({
+		title: "Northern clinic",
+		windowSeconds: 90,
+	});
 	expect(
 		(await open(second, testUuid("activity-android"), android)).activityNotice,
 	).toBeUndefined();
@@ -124,6 +144,9 @@ it("shows a submission only to a worker with an earlier restore and keeps receip
 			undefined,
 			web,
 		);
+	member.id = second;
+	expect((await submit()).kind).toBe("error");
+	member.id = first;
 	expect((await submit()).kind).toBe("survey");
 	const event = () =>
 		h
