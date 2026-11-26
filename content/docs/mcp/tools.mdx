@@ -1373,6 +1373,12 @@ Operation `writes` may save custom case properties or the standard
 retype operations expose their dedicated naming fields instead. Commcare Nova keeps
 standard scalars out of custom case-property data.
 
+A `close` change can save properties and close a case in one submission.
+Use `closeAfter: true` on a create, or on an update that also renames, retypes,
+assigns an owner, or links the case. An optional `closeCondition` applies
+only to the close. The case's property writes still run when that condition
+is false.
+
 Record expressions can read the stable, read-only `#case/case_id`. To update the
 selected record's parent, an expression target can use
 `via(ancestor('parent'), #case/case_id)` with that parent's case type. The saved
