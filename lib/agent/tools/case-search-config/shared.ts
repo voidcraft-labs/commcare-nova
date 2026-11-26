@@ -253,7 +253,7 @@ const globallyResolvedDisplayConditionSchema = predicateInputSchema.superRefine(
 		ctx.addIssue({
 			code: "custom",
 			message:
-				"The search-button display condition is evaluated before a case is selected, so it cannot read case properties or relationships. Compose it from fixed values and current-user/session values; to filter which cases appear, use the case list filter or a search input instead.",
+				"The search-button display condition is evaluated before a case is selected, so it cannot read case properties or relationships. Compose it from fixed values and today's date, or from current-user, session or lookup-table values the case list already reads (its filter or owner rule reads them, or every form that shows the list returns to it after submit); to filter which cases appear, use the case list filter or a search input instead.",
 		});
 	},
 );
@@ -339,7 +339,7 @@ export const setCaseSearchDisplayBodySchema = z.strictObject({
 	searchButtonDisplayCondition: globallyResolvedDisplayConditionSchema
 		.nullable()
 		.describe(
-			"Condition controlling whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it may use fixed values and current-user/session values but cannot read case properties or relationships. When absent, the button is always shown.",
+			"Condition controlling whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it cannot read case properties or relationships. It may use fixed values and today's date anywhere; a current-user, session or lookup-table value only where the case list already reads that information: its filter or owner rule reads it, or every form that shows the list returns to it after submit. When absent, the button is always shown.",
 		),
 });
 

@@ -1415,7 +1415,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		) ??
 		`The condition that controls whether ${q(modName(e))}'s Search button appears has an error. Fix it or clear the condition to always show the button.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
-		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. Use fixed values or current-user information, or clear the condition to always show the button.`,
+		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. You can base it on fixed values or on information the case list already reads, or clear the condition to always show the button.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST: (e) =>
 		`The condition that controls whether ${q(modName(e))}'s Search button appears reads information its case list doesn't load, so the list wouldn't open once the app is on CommCare HQ. You can base the condition on what the list itself reads, such as its filter, have each form that shows the list return to it after submit, or clear the condition to always show the button.`,
 	FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE: (e) =>
