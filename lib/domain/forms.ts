@@ -543,6 +543,10 @@ const caseOperationCommonShape = {
 	id: z.string(),
 	caseType: z.string(),
 	condition: conditionSchema.optional(),
+	/** The close leaf's relevance, separate from the block. */
+	closeCondition: conditionSchema.optional(),
+	/** A physical update element even when it carries no property leaves. */
+	emptyUpdate: z.literal(true).optional(),
 	forEach: z.strictObject({ repeat: uuidSchema }).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 	placement: casePlacementSchema.optional(),
@@ -560,6 +564,9 @@ export const ownCaseOperationSchema = z.strictObject({
 	uuid: uuidSchema,
 	id: z.string(),
 	action: z.literal("own"),
+	closeCondition: z.never().optional(),
+	closeAfter: z.never().optional(),
+	emptyUpdate: z.never().optional(),
 	/** Registration: the new case's name. Follow-up and close: a rename of
 	 *  the case the form loaded. */
 	name: valueSchema.optional(),
@@ -587,6 +594,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("create"),
+		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
 		name: valueSchema,
 		nameOnlyIfChanged: z.never().optional(),
@@ -600,6 +608,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("update"),
+		closeAfter: z.literal(true).optional(),
 		target: updateCaseTargetSchema,
 		name: z.never().optional(),
 		nameOnlyIfChanged: z.never().optional(),
@@ -613,6 +622,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("close"),
+		closeAfter: z.never().optional(),
 		target: existingCaseTargetSchema,
 		name: z.never().optional(),
 		nameOnlyIfChanged: z.never().optional(),
@@ -690,6 +700,9 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	caseType?: undefined;
 	target?: undefined;
 	condition?: undefined;
+	closeCondition?: undefined;
+	closeAfter?: undefined;
+	emptyUpdate?: undefined;
 	forEach?: undefined;
 	rename?: undefined;
 	renameOnlyIfChanged?: undefined;
@@ -702,6 +715,9 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	caseType: string;
 	target: CaseTarget;
 	condition?: Expression;
+	closeCondition?: Expression;
+	closeAfter?: true;
+	emptyUpdate?: true;
 	forEach?: { repeat: Uuid };
 	rename?: Expression;
 	renameOnlyIfChanged?: true;

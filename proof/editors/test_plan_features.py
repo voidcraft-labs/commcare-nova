@@ -245,6 +245,49 @@ def test_without_save_to_case_vellums_save_drops_each_blocks_case_binds(hq, core
     assert found[False][1] == [], found
 
 
+
+def test_vellum_cannot_keep_an_empty_case_update(hq, core_runner, editor_driver):
+    """The Save to Case parser sees the update, but the designer writes that container only with properties."""
+    document = corpus_document("case-operation-query")
+    case_ns = "{http://commcarehq.org/case/transaction/v2}"
+    role = "{http://commcarehq.org/xforms/vellum}role"
+    with _published(document, "VELLUM_SAVE_TO_CASE", True) as opened:
+        app = operations.held_app(opened.state, opened.app_id)
+        form = next(form for form in app.get_forms() if 'vellum:role="SaveToCase"' in (form.source or ""))
+        tree = etree.fromstring(form.source.encode("utf-8"))
+        wrapper, case = next(
+            (wrapper, case)
+            for wrapper in tree.iter()
+            if wrapper.get(role) == "SaveToCase"
+            for case in wrapper.findall(f"{case_ns}case")
+            if case.find(f"{case_ns}update") is not None and case.find(f"{case_ns}create") is None
+        )
+        wrapper_name = etree.QName(wrapper).localname
+        update = case.find(f"{case_ns}update")
+        for child in list(update):
+            update.remove(child)
+        if case.find(f"{case_ns}close") is None:
+            etree.SubElement(case, f"{case_ns}close")
+
+        block_suffix = f"/{wrapper_name}/case/update/"
+        for bind in list(tree.iter(f"{{{XFORMS}}}bind")):
+            if block_suffix in (bind.get("nodeset") or ""):
+                bind.getparent().remove(bind)
+        form.source = etree.tostring(tree, encoding="unicode")
+        app.save()
+        run = vellum.fresh_open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id)
+
+    assert run.loaded and run.saved, (run.load_error, run.save_refusal, run.question_errors())
+    stored = etree.fromstring(run.stored_source.encode("utf-8"))
+    saved_case = next(
+        block
+        for element in stored.iter()
+        if etree.QName(element).localname == wrapper_name and element.get(role) == "SaveToCase"
+        for block in element.findall(f"{case_ns}case")
+    )
+    assert saved_case.find(f"{case_ns}close") is not None
+    assert saved_case.find(f"{case_ns}update") is None
+
 def _itemsets(source):
     return len(list(etree.fromstring(source.encode("utf-8")).iter(f"{{{XFORMS}}}itemset")))
 

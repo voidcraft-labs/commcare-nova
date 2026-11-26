@@ -344,9 +344,11 @@ export interface OperationEffectRecord {
 	readonly selection: number;
 	readonly action: CaseOperation["action"];
 	readonly caseId: string;
-	/** False when the instance's conditions evaluated false — no effect
-	 * applied, recorded so tests can pin skip semantics. */
+	/** Whether the device applied an action from this case block. */
 	readonly executed: boolean;
+	/** A submitted block without a recognized action. HQ records the form
+	 * against the case, while the device leaves its case state alone. */
+	readonly childlessBlock?: true;
 }
 
 /** One concrete child a receipt written before child cases were operations

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data xmlns="http://example.com/proof/empty-case-action" name="Case action">
+  <!--case-block-->
+  <meta xmlns="http://openrosa.org/jr/xforms">
+    <instanceID>form-effect</instanceID><userID>u-1</userID>
+    <timeStart>2026-09-30T10:00:00Z</timeStart><timeEnd>2026-09-30T10:00:01Z</timeEnd>
+  </meta>
+</data>

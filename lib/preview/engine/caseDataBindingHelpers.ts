@@ -2375,6 +2375,7 @@ function operationFormFieldRefs(
 		}
 		for (const predicate of [
 			operation.condition,
+			operation.closeCondition,
 			...(operation.writes ?? []).flatMap((write) =>
 				write.condition === undefined ? [] : [write.condition],
 			),

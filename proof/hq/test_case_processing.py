@@ -158,3 +158,36 @@ def test_hq_create_first_changes_an_existing_alias_and_keeps_independent_effects
         fresh: "Fresh independent",
     }
     assert result.touched[commuting].case.case_json["visits"] == "2"
+
+
+def test_hq_records_childless_and_empty_update_blocks_as_form_history(hq, core_runner):
+    from corehq.form_processor.models import CaseTransaction
+
+    template = Path(__file__).resolve().parents[1] / "native/core/resources/case-order/optional-case-action.xml"
+    source = template.read_text()
+    with hq_check(CONFIGURATION) as (state, _):
+        for label, body in (("close", "<close/>"), ("childless", ""), ("update", "<update/>"), ("absent", None)):
+            base = operations.process_case_blocks(
+                state, _submission(_person("c-known", date_modified="2025-09-30T10:00:00.000000Z"))
+            )
+            assert base.refusal is None
+            known = base.touched["c-known"].case
+            prior_modified_on = known.modified_on
+            form_id = f"form-effect-{label}"
+            content = source.replace("<!--case-block-->", _case("c-known", body) if body is not None else "")
+            content = content.replace("form-effect", form_id)
+            observed = operations.process_case_blocks(state, content.encode(), cases=[known])
+
+            assert observed.refusal is None
+            if body is None:
+                assert not observed.case_blocks and not observed.touched
+                continue
+            assert [block["@case_id"] for block in observed.case_blocks] == ["c-known"]
+            current = observed.touched["c-known"].case
+            assert current.modified_on > prior_modified_on
+            assert current.closed is (label == "close")
+            transactions = [
+                tx for tx in current.get_tracked_models_to_create(CaseTransaction) if tx.form_id == form_id
+            ]
+            assert len(transactions) == 1
+            assert transactions[0].client_date == current.modified_on

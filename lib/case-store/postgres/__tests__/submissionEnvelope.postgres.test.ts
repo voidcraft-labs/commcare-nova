@@ -1183,6 +1183,125 @@ describe("ordered selected-case batches", () => {
 		}
 	});
 
+	it("separates a childless close's server history from an empty update and an absent block", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const older = new Date("2025-01-01T00:00:00Z");
+		await (dbHandle.db as Kysely<Database>)
+			.updateTable("cases")
+			.set({ modified_on: older })
+			.where("case_id", "=", SESSION_CASE_ID)
+			.execute();
+		const existingTarget = {
+			kind: "expression",
+			expr: term(literal(SESSION_CASE_ID)),
+		} as const;
+		const predicate = (matches: boolean) =>
+			eq(literal(matches ? "yes" : "no"), literal("yes"));
+		const close: TargetedCaseOperation = {
+			uuid: OP_A,
+			id: "close_patient",
+			action: "close",
+			caseType: "patient",
+			target: existingTarget,
+			closeCondition: predicate(false),
+		};
+		const request = (
+			targeted: TargetedCaseOperation,
+			opening?: OpeningReadSet,
+		): TestSubmissionArgs => ({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...rootProgram([envOp(targeted)], { sessionCaseId: null }),
+				...(opening && { openingReads: opening }),
+			},
+		});
+		const absent = await submit(
+			store,
+			request({ ...close, condition: predicate(false) }),
+		);
+		expect(absent.operations).toEqual([
+			expect.objectContaining({ caseId: "", executed: false }),
+		]);
+		expect(absent.operations[0]).not.toHaveProperty("childlessBlock");
+		expect((await patientRow(store, SESSION_CASE_ID))?.modified_on).toEqual(
+			older,
+		);
+
+		const opening: OpeningReadSet = {
+			cases: { rows: [], indices: [], propertyTypes: {} },
+			currentOwnerIds: [ACTOR],
+			lookupRows: [],
+		};
+		const childlessRequest = request(close, opening);
+		const childlessClaim = {
+			...childlessRequest,
+			submissionReceipt: receiptFor(childlessRequest),
+		};
+		const childless = await store.applySubmission(childlessClaim);
+		expect(childless.operations).toEqual([
+			expect.objectContaining({
+				caseId: SESSION_CASE_ID,
+				executed: false,
+				childlessBlock: true,
+			}),
+		]);
+		expect(childless.caseDatabasePatch?.rows).toEqual([]);
+		const afterChildless = await patientRow(store, SESSION_CASE_ID);
+		expect(afterChildless?.status).toBe("open");
+		expect(afterChildless?.modified_on.getTime()).toBeGreaterThan(
+			older.getTime(),
+		);
+		expect(await store.applySubmission(childlessClaim)).toEqual(childless);
+
+		const emptyRequest = request({ ...close, emptyUpdate: true }, opening);
+		const emptyClaim = {
+			...emptyRequest,
+			submissionReceipt: receiptFor(emptyRequest),
+		};
+		await expect(store.applySubmission(emptyClaim)).rejects.toMatchObject({
+			rejection: { kind: "target", reason: "not-found-or-out-of-scope" },
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.modified_on).toEqual(
+			afterChildless?.modified_on,
+		);
+		if (!emptyClaim.operations || !afterChildless)
+			throw new Error("Expected case and program");
+		const recovered = await store.applySubmission({
+			...emptyClaim,
+			operations: {
+				...emptyClaim.operations,
+				openingReads: {
+					...opening,
+					cases: { ...opening.cases, rows: [afterChildless] },
+				},
+			},
+		});
+		expect(recovered.operations).toEqual([
+			expect.objectContaining({ caseId: SESSION_CASE_ID, executed: true }),
+		]);
+		expect(recovered.operations[0]).not.toHaveProperty("childlessBlock");
+		expect(
+			recovered.caseDatabasePatch?.rows[0]?.modified_on.getTime(),
+		).toBeGreaterThan(afterChildless.modified_on.getTime());
+
+		const writtenAndClosed = await submit(
+			store,
+			request({
+				...close,
+				action: "update",
+				closeAfter: true,
+				closeCondition: predicate(true),
+				writes: literalWrites({ notes: "saved before closing" }),
+			}),
+		);
+		expect(writtenAndClosed.caseDatabasePatch?.rows[0]).toMatchObject({
+			status: "closed",
+			properties: { notes: "saved before closing" },
+		});
+	});
+
 	it("applies nested repeat case effects within each enclosing row and replays that state", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);

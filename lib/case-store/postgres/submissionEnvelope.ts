@@ -66,6 +66,7 @@ import {
 	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
+import { MAX_AUTHORED_CASE_ID_LENGTH } from "@/lib/domain/caseOperationIdentity";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	compilerBugMessage,
@@ -193,7 +194,7 @@ interface ProgramStep extends Omit<EnvelopeCaseOperation, "operation"> {
 	 * the form has a close condition, on a close form always. `condition`
 	 * absent closes on every submission.
 	 */
-	readonly ownClose?: { readonly condition?: DomainExpression };
+	readonly closeLeaf?: { readonly condition?: DomainExpression };
 	/**
 	 * A several-case form's own arm saves one shared answer to every
 	 * selected case, so a blank answer saves nothing rather than clearing
@@ -210,11 +211,13 @@ function programSteps(
 	return program.operations.map((entry): ProgramStep => {
 		const stored = entry.operation;
 		if (stored.action !== "own") {
+			const closes = stored.action === "close" || stored.closeAfter === true;
 			return {
 				...entry,
 				operation: stored,
 				recordAction: stored.action,
 				own: false,
+				...(closes && { closeLeaf: { condition: stored.closeCondition } }),
 				blankSavesNothing: false,
 			};
 		}
@@ -256,7 +259,7 @@ function programSteps(
 				own: true,
 				...(own.closeCondition === undefined
 					? {}
-					: { ownClose: { condition: own.closeCondition } }),
+					: { closeLeaf: { condition: own.closeCondition } }),
 				blankSavesNothing: false,
 			};
 		}
@@ -275,7 +278,7 @@ function programSteps(
 			own: true,
 			...(own.formType === "close"
 				? {
-						ownClose:
+						closeLeaf:
 							own.closeCondition === undefined
 								? {}
 								: { condition: own.closeCondition },
@@ -961,6 +964,8 @@ interface ResolvedInstance {
 	/** Pre-submission type of an existing target row, absent for a
 	 * fresh create. */
 	readonly snapshotCaseType?: string;
+	/** Holds the submitted id for HQ history without changing device state. */
+	readonly childlessBlock?: true;
 	/** True when an authored-key create resolved to an existing row —
 	 * the create-of-existing merge arm. */
 	readonly mergesExisting: boolean;
@@ -1225,6 +1230,7 @@ export async function executeSubmissionEnvelope(
 				action: entry.instance.envelope.recordAction,
 				caseId: entry.caseId,
 				executed: entry.executed,
+				...(entry.childlessBlock && { childlessBlock: true }),
 			});
 		}
 		await applyOperationEffects(
@@ -1549,9 +1555,7 @@ async function resolveOperationProgram(
 				request(index, { link: linkIndex }, { expression: link.target.expr });
 			}
 		}
-		// The own close's condition reads the same pre-submission snapshot
-		// and answers as every other value, before any effect.
-		const closeCondition = instance.envelope.ownClose?.condition;
+		const closeCondition = instance.envelope.closeLeaf?.condition;
 		if (closeCondition !== undefined) {
 			request(index, "close", { predicate: closeCondition });
 		}
@@ -1636,6 +1640,8 @@ async function resolveOperationProgram(
 	);
 
 	// Resolve every executing instance's target + links.
+	const openingCaseIds =
+		opening && new Set(opening.cases.rows.map((row) => row.case_id));
 	const resolvedInstances: ResolvedInstance[] = [];
 	for (const [index, instance] of instances.entries()) {
 		const operation = instance.envelope.operation;
@@ -1654,6 +1660,15 @@ async function resolveOperationProgram(
 			continue;
 		}
 		const bag = valuesByInstance.get(index);
+		const closeLeaf = instance.envelope.closeLeaf;
+		const closes =
+			closeLeaf !== undefined &&
+			(closeLeaf.condition === undefined || bag?.close === true);
+		const childlessClose =
+			operation.action === "close" &&
+			!closes &&
+			operation.emptyUpdate !== true &&
+			(operation.writes?.length ?? 0) === 0;
 		const resolveTargetId = (): {
 			caseId: string;
 			snapshotCaseType?: string;
@@ -1746,6 +1761,26 @@ async function resolveOperationProgram(
 						instance.envelope.expressionSnapshotTypes.target ??
 						operation.caseType;
 					const row = evaluated === "" ? undefined : knownRows.get(evaluated);
+					if (childlessClose) {
+						if (
+							evaluated === "" ||
+							evaluated.length > MAX_AUTHORED_CASE_ID_LENGTH
+						)
+							throw new SubmissionRejectedError({
+								kind: "target",
+								operationUuid: operation.uuid,
+								slot: "target",
+								reason: "not-found-or-out-of-scope",
+							});
+						// A childless block needs the submitted id but Core does
+						// not load it. Only a row we separately authorized can
+						// receive the server-side timestamp.
+						return {
+							caseId: evaluated,
+							snapshotCaseType: row?.caseType,
+							mergesExisting: false,
+						};
+					}
 					const verdict = validateCaseOperationTargetDescriptor(
 						{ caseId: evaluated },
 						row === undefined
@@ -1794,11 +1829,6 @@ async function resolveOperationProgram(
 			}
 		};
 		const target = resolveTargetId();
-		const ownClose = instance.envelope.ownClose;
-		const closes =
-			operation.action === "close" ||
-			(ownClose !== undefined &&
-				(ownClose.condition === undefined || bag?.close === true));
 		if (
 			target.snapshotCaseType === USERCASE_CASE_TYPE &&
 			(operation.action !== "update" ||
@@ -1813,6 +1843,37 @@ async function resolveOperationProgram(
 				operationUuid: operation.uuid,
 				slot: "target",
 				reason: "managed-worker-record",
+			});
+		}
+
+		if (childlessClose) {
+			resolvedInstances.push({
+				...target,
+				instance,
+				index,
+				executed: false,
+				childlessBlock: true,
+				writes: [],
+				links: [],
+				viaWrites: [],
+				closes: false,
+			});
+			continue;
+		}
+		if (
+			openingCaseIds &&
+			operation.action !== "create" &&
+			operation.target.kind === "expression" &&
+			(operation.emptyUpdate ||
+				operation.closeCondition ||
+				operation.closeAfter) &&
+			!openingCaseIds.has(target.caseId)
+		) {
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "not-found-or-out-of-scope",
 			});
 		}
 
@@ -2428,7 +2489,11 @@ async function applyOperationEffects(
 		(ordinary.kind === "followup" || ordinary.kind === "close") &&
 		ordinary.selection.kind === "single";
 	for (const entry of resolved) {
-		if (!entry.executed) continue;
+		if (!entry.executed) {
+			if (entry.childlessBlock && entry.snapshotCaseType !== undefined)
+				await stampModified(trx, host, appId, entry.caseId);
+			continue;
+		}
 		const operation = entry.instance.envelope.operation;
 
 		if (operation.action === "create") {
@@ -2468,10 +2533,13 @@ async function applyOperationEffects(
 			(operation.retype === undefined ||
 				operation.retype === operation.caseType);
 		if (
-			operation.action === "update" &&
-			writesNothing &&
-			!entry.closes &&
-			(entry.links.length > 0 || (entry.instance.envelope.own && oneCaseForm))
+			operation.emptyUpdate ||
+			(entry.closes && (operation.closeAfter || operation.closeCondition)) ||
+			(operation.action === "update" &&
+				writesNothing &&
+				!entry.closes &&
+				(entry.links.length > 0 ||
+					(entry.instance.envelope.own && oneCaseForm)))
 		) {
 			await stampModified(trx, host, appId, entry.caseId);
 		}
