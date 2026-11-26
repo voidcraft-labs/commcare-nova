@@ -32,6 +32,7 @@ import {
 } from "@/lib/commcare/__tests__/placementFixture";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type {
 	BlueprintDoc,
@@ -116,8 +117,15 @@ describe("a date-and-time question saved straight to a case", () => {
 		expect(source(body)).not.toContain("nova_datetime_");
 	});
 
-	it("is exported to a date-and-time property through its sibling", () => {
-		const body = exportedBody(visits("datetime"));
+	it("is exported to a date-and-time property through its sibling and can still split", () => {
+		const doc = visits("datetime");
+		const question = Object.values(doc.fields).find(
+			(field) => field.id === "seen",
+		);
+		if (question === undefined)
+			throw new Error("The form asks when the visit started");
+		expect(planDatetimeSplit(doc, question.uuid)).toMatchObject({ ok: true });
+		const body = exportedBody(doc);
 		expect(update(body.modules).seen_on?.question_path).toBe(
 			"/data/nova_datetime_seen",
 		);
@@ -308,6 +316,25 @@ describe("a date-and-time answer copied through a single parent index", () => {
 		if (result.kind !== "read")
 			throw new Error(JSON.stringify(result.findings));
 		const doc = result.draft.doc;
+		const declaration = result.draft.declaration;
+		expect(declaration.kind).toBe("choices");
+		if (declaration.kind !== "choices")
+			throw new Error("The source can still run on Android");
+		expect(
+			declaration.choices.map(({ runsOnlyOn, split }) => ({
+				runsOnlyOn,
+				split,
+			})),
+		).toEqual([{ runsOnlyOn: "android", split: false }]);
+		const question = Object.values(doc.fields).find(
+			(field) => field.id === "status_note",
+		);
+		if (question === undefined)
+			throw new Error("The reader keeps the question");
+		expect(planDatetimeSplit(doc, question.uuid)).toMatchObject({
+			ok: false,
+			reason: "saves-straight-to-date",
+		});
 		const property = (type: string, name: string) =>
 			doc.caseTypes
 				?.find((entry) => entry.name === type)
