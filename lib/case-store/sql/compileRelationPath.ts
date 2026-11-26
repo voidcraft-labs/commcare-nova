@@ -48,7 +48,13 @@
 // would duplicate the relation-walk traversal and invite a leak.
 // The filter applies once per hop, every time.
 
-import type { AliasedExpression, Kysely, Selectable } from "kysely";
+import {
+	type AliasedExpression,
+	type Kysely,
+	type RawBuilder,
+	type Selectable,
+	sql,
+} from "kysely";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import type { RelationPath, RelationStep } from "@/lib/domain/expression/types";
 import type { Database } from "./database";
@@ -283,39 +289,20 @@ function whereVisible<QB>(
 	qb: QB,
 	casesAlias: string,
 ): QB {
-	const notHeld = (
-		qb as {
-			where: (
-				cb: (eb: {
-					not: (e: unknown) => unknown;
-					exists: (e: unknown) => unknown;
-					selectFrom: (t: string) => {
-						select: (c: string) => {
-							whereRef: (
-								a: string,
-								op: string,
-								b: string,
-							) => {
-								where: (a: string, op: string, b: null) => unknown;
-							};
-						};
-					};
-				}) => unknown,
-			) => QB;
-		}
-	).where(({ not, exists, selectFrom }) =>
-		not(
-			exists(
-				selectFrom("parked_case_values as held")
-					.select("held.id")
-					.whereRef("held.case_id", "=", `${casesAlias}.case_id`)
-					.where("held.dismissed_at", "is", null),
-			),
-		),
+	const notHeld = (qb as { where: (filter: RawBuilder<boolean>) => QB }).where(
+		caseHasNoUndismissedParkedValues(sql.ref(`${casesAlias}.case_id`)),
 	);
 	return ctx.restrictToRestoreScope === undefined
 		? notHeld
 		: ctx.restrictToRestoreScope(notHeld, casesAlias);
+}
+
+/** Unresolved kept values make the whole case invisible to the worker. */
+export function caseHasNoUndismissedParkedValues(caseId: RawBuilder<unknown>) {
+	return sql<boolean>`not exists (
+		select 1 from parked_case_values as held
+		where held.case_id = ${caseId} and held.dismissed_at is null
+	)`;
 }
 
 /**

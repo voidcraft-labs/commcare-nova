@@ -9,7 +9,7 @@
  */
 
 import type { Element } from "domhandler";
-import type { PendingExpression } from "../pendingExpressions";
+import type { PendingExpression, PendingRegistry } from "../pendingExpressions";
 import type { DraftExpression, DraftField, ReadXForm } from "./index";
 
 export interface LoadStep {
@@ -57,8 +57,12 @@ function expressionsBySetvalue(
 }
 
 /** A's order of the form's own setvalues: the source's, in document order. */
-export function effectiveLoadOrder(form: ReadXForm): readonly LoadStep[] {
+export function effectiveLoadOrder(
+	form: ReadXForm,
+	registry?: PendingRegistry,
+): readonly LoadStep[] {
 	const expressions = expressionsBySetvalue(form);
+	const registered = registry?.list();
 	const steps: LoadStep[] = [];
 	for (const setvalue of form.setvalues) {
 		if (setvalue.event !== "xforms-ready" && setvalue.event !== "jr-insert")
@@ -66,9 +70,12 @@ export function effectiveLoadOrder(form: ReadXForm): readonly LoadStep[] {
 		if (setvalue.target === undefined) continue;
 		const read = expressions.get(setvalue.element);
 		const uuid = read?.field.uuid;
+		const index = registry?.firstAt(setvalue.element, "value");
 		const pending: PendingExpression | undefined =
 			read === undefined || uuid === undefined
-				? undefined
+				? index === undefined
+					? undefined
+					: registered?.[index]
 				: {
 						ref: {
 							entity: "field",

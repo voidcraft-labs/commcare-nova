@@ -52,7 +52,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
-import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
+import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
 import {
 	ancestorPath,
 	anyRelationPath,
@@ -190,7 +190,7 @@ export function RelationPathBuilder({
 	});
 	const customIdentifier = pendingCustomKindChange?.identifier.trim() ?? "";
 	const customIdentifierIsValid =
-		CASE_INDEX_NAME_PATTERN.test(customIdentifier) &&
+		isAdvancedCaseIndexIdentifier(customIdentifier) &&
 		customIdentifier !== DEFAULT_IDENTIFIER;
 	const customCandidate =
 		pendingCustomKindChange !== null &&
@@ -571,7 +571,7 @@ function AncestorSteps({
 			(context) =>
 				context.parentCaseType !== undefined && context.qualifierIsValid,
 		) &&
-		value.via.every((step) => CASE_INDEX_NAME_PATTERN.test(step.identifier));
+		value.via.every((step) => isAdvancedCaseIndexIdentifier(step.identifier));
 	const finalCaseType = contexts.at(-1)?.parentCaseType;
 	const nextParent =
 		pathIsValid && finalCaseType !== undefined
@@ -710,7 +710,7 @@ function AncestorSteps({
 						) : null}
 
 						<RelationshipSettings
-							needsRepair={!CASE_INDEX_NAME_PATTERN.test(step.identifier)}
+							needsRepair={!isAdvancedCaseIndexIdentifier(step.identifier)}
 						>
 							<RelationshipNameField
 								key={step.identifier}
@@ -934,7 +934,7 @@ function SingleRelationship({
 			) : null}
 
 			<RelationshipSettings
-				needsRepair={!CASE_INDEX_NAME_PATTERN.test(value.identifier)}
+				needsRepair={!isAdvancedCaseIndexIdentifier(value.identifier)}
 			>
 				<RelationshipNameField
 					key={value.identifier}
@@ -1138,7 +1138,7 @@ function RelationshipNameField({
 	const [draft, setDraft] = useState(value);
 	const skipNextBlurCommit = useRef(false);
 	const normalizedDraft = draft.trim();
-	const isValid = CASE_INDEX_NAME_PATTERN.test(normalizedDraft);
+	const isValid = isAdvancedCaseIndexIdentifier(normalizedDraft);
 	const admission =
 		!isValid || normalizedDraft === value
 			? ({ admitted: true } as const)

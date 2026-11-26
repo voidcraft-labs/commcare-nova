@@ -206,6 +206,9 @@ function editPatchToFieldPatch(
 		"id",
 		"label",
 		"extended_text",
+		"extended_hint",
+		"extended_help",
+		"extended_validate_msg",
 		"qr_code",
 		"spoken_text",
 		"hint",
@@ -273,6 +276,7 @@ function editPatchToFieldPatch(
 	if (updates.answerType !== undefined) patch.answerType = updates.answerType;
 	if (updates.maxDimension !== undefined)
 		patch.maxDimension = updates.maxDimension;
+	if (updates.androidApp !== undefined) patch.androidApp = updates.androidApp;
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).

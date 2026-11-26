@@ -1,6 +1,7 @@
 """The web client supplies OK for messages when the worker submits, including a message with a starting value; an
 attachment question starts blank, and a starting file name is cleared as the form opens."""
 
+import pytest
 from lxml import etree
 
 from proof.formplayer import apps
@@ -61,13 +62,13 @@ def test_web_worker_attaches_the_required_file_and_sends_only_that_file(hq, core
     evidence("chosen-capture", {"errors": errors, "instance": submission.instance.decode(), "file": part[0]})
 
 
-# A file name as the report question's starting value, which Nova's gate refuses
-# (``questions/default-other-than-blank-on-a-capture-question``), written into the published form by hand.
-STARTING_FILE = apps.with_a_starting_value("/data/report", "'carry-forward.pdf'")
-
-
+@pytest.mark.parametrize("starting_file", [
+    pytest.param(apps.with_a_starting_value("/data/report", "'carry-forward.pdf'"), id="ready-action"),
+    pytest.param(apps.with_initial_instance_text("/data/report", "carry-forward.pdf"), id="instance-text"),
+])
 def test_web_client_clears_a_starting_file_and_submits_nothing_for_it(hq, core_runner, formplayer_runner,
-                                                                      editor_driver, webapps_documents, evidence):
+                                                                      editor_driver, webapps_documents, evidence,
+                                                                      starting_file):
     """The refusal's Web Apps half: the client holds no file for a starting file name, so it clears the answer as the
     form opens (``clear_answer``) and the submission carries nothing for the question."""
     from proof.formplayer.walk import CAPTURES_DIR
@@ -75,7 +76,7 @@ def test_web_client_clears_a_starting_file_and_submits_nothing_for_it(hq, core_r
     file = "proof-file.pdf"
     content = (CAPTURES_DIR / file).read_bytes()
     with webapps_hq.project(webapps_documents["targeted-worker-messages"]) as project:
-        change = apps.form_written(project, {"0.1": STARTING_FILE})
+        change = apps.form_written(project, {"0.1": starting_file})
         with project.released(formplayer_runner, change=change) as release:
             session = Session(release, editor_driver)
             run = session.run([

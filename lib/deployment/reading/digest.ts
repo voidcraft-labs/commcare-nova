@@ -9,10 +9,9 @@
  * between the two requests: the document and the target-identity record come
  * keyed by each file's content (`mediaIds.ts::reviewMediaId`).
  *
- * When a declaration would remove physical HQ file references, the receipt
- * includes their paths and file IDs, the normalized source and its working
- * save counter. Otherwise a save that changes none of the reviewed values
- * can proceed. Birth records the current file IDs at retained paths.
+ * The receipt includes the normalized source and working save counter when
+ * the review lists connected searches or physical HQ file removals. For file
+ * removals it also includes the paths and file IDs. Birth records the current file IDs at retained paths.
  */
 
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -29,6 +28,13 @@ export interface ReviewDigestInput {
 	readonly source?: { readonly revision: number; readonly digest: string };
 	/** Each declaration’s source inputs to the registered publish changes, when present. */
 	readonly publishInputs?: string;
+	/** Exact source and authority for adopting the management of named installations. */
+	readonly installationSource?: ReadingKey & {
+		readonly appId: string;
+		readonly actorUserId: string | null;
+		readonly version: number;
+		readonly digest: string;
+	};
 	/** The review without `readAt`. */
 	readonly review: Omit<ReadingReview, "readAt">;
 	/** `canonicalJsonDigest` of the persistable document with every media asset id replaced. */
@@ -54,6 +60,9 @@ export function reviewDigestOf(input: ReviewDigestInput): string {
 		authority: input.authority,
 		...(input.source && { source: input.source }),
 		...(input.publishInputs && { publishInputs: input.publishInputs }),
+		...(input.installationSource && {
+			installationSource: input.installationSource,
+		}),
 		review,
 		document: input.document,
 		targetIdentity: input.targetIdentity,

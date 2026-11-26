@@ -4,8 +4,8 @@ import { expect, test } from "../../lib/fixtures";
 /**
  * Android's home screen, as Preview running as Android plays it: Start and
  * Sync with server work; Saved and Incomplete show as the app's settings
- * show them on a phone, and Log out of CommCare always shows, each disabled
- * with its reason, which a screen reader reads as the button's description.
+ * show them on a phone and open their form lists. The reason Log out of
+ * CommCare is disabled is exposed to the screen reader.
  */
 
 let peer: Awaited<ReturnType<typeof componentPeer>>;
@@ -39,7 +39,7 @@ test("the home screen shows Start, Sync with server and a disabled Log out, and 
 	await expect(page.getByText("The app's module list")).toBeVisible();
 });
 
-test("Saved and Incomplete show disabled with their reasons where the app's settings turn them on", async ({
+test("Saved and Incomplete open their lists where the app’s settings turn them on", async ({
 	page,
 }) => {
 	await page.goto(`${peer.origin}/?saved&incomplete`);
@@ -55,14 +55,15 @@ test("Saved and Incomplete show disabled with their reasons where the app's sett
 		name: "Incomplete",
 		exact: true,
 	});
-	await expect(saved).toBeDisabled();
-	await expect(saved).toHaveAccessibleDescription(
-		"Preview doesn't keep sent forms. On a phone, this lists them.",
-	);
-	await expect(incomplete).toBeDisabled();
-	await expect(incomplete).toHaveAccessibleDescription(
-		"Preview doesn't keep unfinished forms. On a phone, this lists them.",
-	);
+	await saved.click();
+	await expect(page.getByRole("heading", { name: "Saved" })).toBeVisible();
+	await expect(page.getByText("No saved forms", { exact: true })).toBeVisible();
+	await page.getByRole("button", { name: "Back", exact: true }).click();
+	await incomplete.click();
+	await expect(page.getByRole("heading", { name: "Incomplete" })).toBeVisible();
+	await expect(
+		page.getByText("No incomplete forms", { exact: true }),
+	).toBeVisible();
 });
 
 test("Sync with server re-reads the worker's cases and states when it ran", async ({

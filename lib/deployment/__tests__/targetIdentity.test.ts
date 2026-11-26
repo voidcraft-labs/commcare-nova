@@ -552,3 +552,51 @@ describe("resolveTargetIdentity: case list column words", () => {
 		).toEqual([]);
 	});
 });
+
+describe("the service this destination will use", () => {
+	const search = testUuid("service in use");
+	const dormant = testUuid("service kept in app setup");
+	const connection = (searchUuid: Uuid, endpointId: number) => ({
+		searchUuid,
+		endpointId,
+	});
+
+	it("preserves a contributor's changed or disconnected service when taking an unrelated HQ edit", () => {
+		const fromHq = [connection(search, 17)];
+		for (const pending of [[], [connection(search, 91)]]) {
+			const saved = resolveTargetIdentity(
+				stored({ projectSearches: pending }),
+				observed({ projectSearches: fromHq }),
+				APP,
+				fromHq,
+			);
+			expect(saved.projectSearches ?? []).toEqual(pending);
+		}
+	});
+
+	it("discloses the saved connection being displaced even for a dormant search", () => {
+		const before = stored({
+			projectSearches: [connection(search, 91), connection(dormant, 27)],
+		});
+		const next = resolveTargetIdentity(
+			before,
+			observed({ projectSearches: [connection(search, 27)] }),
+			APP,
+			[connection(search, 17)],
+		);
+		const doc = buildDoc();
+		doc.appSettings.projectSearches = {
+			[search]: { name: "Outreach" },
+			[dormant]: { name: "Visits" },
+		};
+		expect(next.projectSearches).toEqual([connection(search, 27)]);
+		expect(
+			targetIdentityChanges(before, next, doc, doc).searchConnections,
+		).toEqual(
+			expect.arrayContaining([
+				{ searchUuid: search, name: "Outreach", before: 91, after: 27 },
+				{ searchUuid: dormant, name: "Visits", before: 27, after: null },
+			]),
+		);
+	});
+});

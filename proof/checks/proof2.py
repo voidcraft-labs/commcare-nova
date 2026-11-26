@@ -164,11 +164,11 @@ def document_build_equivalence(document, records):
 # Where the build elements a difference names only by position stand ---------------------------------------------
 
 
-def build_sites(files):
+def build_sites(files, source=None, *, profile=None):
     """What one build's files say of where its elements stand that a difference's pointer names only by position
     (``changes.Sites``): each suite's ``entry``, ``remote-request`` and ``xform`` by the menu or form it is of
     (an entry's and a request's command, ``id_strings.form_command`` and ``search_command``; an XForm resource's
-    local path, ``./modules-<m>/forms-<f>.xml``, ``sections/resources.py::FormResourceContributor``), and each
+    local path, ``./modules-<m>/forms-<f>.xml``, ``sections/resources.py::FormResourceContributor``), each Search prompt's key and stored property index where its source is given, and each
     media resource by the media path it installs (``generator.py::media_resources``: its ``media`` element's path
     under ``jr://file/`` and the file's name, the last step of its remote location)."""
     from urllib.parse import unquote, urlsplit
@@ -192,7 +192,7 @@ def build_sites(files):
             root = parse_xml(content)
         except XmlNotWellFormed:
             continue
-        if name == "media_suite.xml":
+        if name == "media_suite.xml" and profile is None:
             for element in children(root, "media"):
                 install = (element.get("path") or "").removeprefix("../../")
                 for resource in children(element, "resource"):
@@ -207,12 +207,25 @@ def build_sites(files):
                             part for part in (install, file_name) if part
                         )
             continue
-        artifact = artifact_for(path).rpartition("/")[2]
+        artifact = artifact_for(path, profile) if profile is not None else artifact_for(path).rpartition("/")[2]
         for element_name in ("entry", "remote-request"):
             for position, element in enumerate(children(root, element_name), start=1):
                 commands = children(element, "command")
                 place = changes.command_place(commands[0].get("id") if commands else None)
-                built[(artifact, f"{element_name}[{position}]")] = place or None
+                top = f"{element_name}[{position}]"
+                if profile is None:
+                    built[(artifact, top)] = place or None
+                if place and source is not None:
+                    menu = place[1].split(".")[0]
+                    modules = source.get("modules") or []
+                    if int(menu) < len(modules):
+                        properties = (modules[int(menu)].get("search_config") or {}).get("properties") or []
+                        for key, field, field_index in search_prompt_sites(element, properties, children):
+                            built[(artifact, top, *key)] = (
+                                "menu", menu, "search_config", "properties", str(field_index), "validations", field,
+                            )
+        if profile is not None:
+            continue
         for position, element in enumerate(children(root, "xform"), start=1):
             place = None
             for resource in children(element, "resource"):
@@ -229,6 +242,23 @@ def build_sites(files):
 
 # A sort element's field CommCare HQ reads as the column it names (``const.py::CALCULATED_SORT_FIELD_RX``).
 CALCULATED_SORT_FIELD = "_cc_calculated_"
+
+
+def search_prompt_sites(element, properties, children):
+    """Locate each suite prompt through the exact field key HQ read from the stored menu."""
+    positions = {}
+    for index, field in enumerate(properties):
+        name = field.get("name")
+        positions[name] = index if name not in positions else None
+    for index, session in enumerate(children(element, "session"), 1):
+        for query_index, query in enumerate(children(session, "query"), 1):
+            for prompt_index, prompt in enumerate(children(query, "prompt"), 1):
+                field = prompt.get("key")
+                field_index = positions.get(field)
+                if field and field_index is not None:
+                    yield (
+                        f"session[{index}]", f"query[{query_index}]", f"prompt[{prompt_index}]",
+                    ), field, field_index
 
 
 def header_sites(doc):
@@ -281,7 +311,11 @@ def document_sites(document, records):
     for name in sorted(document.exports):
         observed = observations.republish_view(records, name)
         if observed.a is not None and observed.a.build is not None:
-            found.append(build_sites(observed.a.build.files))
+            found.append(build_sites(observed.a.build.files, observed.a.doc))
+            found.extend(
+                build_sites(files, observed.a.doc, profile=profile)
+                for profile, files in observed.a.build.profile_files.items()
+            )
             found.append(header_sites(observed.a.doc))
             # Only the brought-in saves judge form XML. Tie the removed itext value in A's build to
             # its own control or bind, including its language, media kind and original file.
@@ -293,7 +327,12 @@ def document_sites(document, records):
                         if form_artifact(artifact):
                             found.append(changes.Sites(builds=xform_parts.unshown_media_sites(xml, artifact)))
         if observed.b_aligned is not None:
-            found.append(build_sites(observed.b_aligned.files))
+            aligned_source = observed.b.doc if observed.b is not None else None
+            found.append(build_sites(observed.b_aligned.files, aligned_source))
+            found.extend(
+                build_sites(files, aligned_source, profile=profile)
+                for profile, files in observed.b_aligned.profile_files.items()
+            )
         if observed.b is not None:
             found.append(header_sites(observed.b.doc))
     return changes.merged_sites(*found)

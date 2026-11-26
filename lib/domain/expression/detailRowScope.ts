@@ -1,6 +1,6 @@
 import type { BlueprintDoc } from "../blueprint";
 import { detailTabForColumn } from "../detailTabs";
-import type { Column, Module } from "../modules";
+import { type Column, type Module, menuRecordTypes } from "../modules";
 import { type LookupTypeIndex, type RowScope, slotContext } from "./context";
 import { expressionRowScope } from "./typeChecker";
 
@@ -45,14 +45,19 @@ export function columnCaseScopes(
 	column: Column,
 ) {
 	const row = detailColumnRowScope(doc, mod, column);
-	const detailType =
-		row?.kind === "case" ? row.caseType : row ? undefined : mod.caseType;
+	const resultTypes = mod.caseType
+		? menuRecordTypes(mod.caseType, mod.caseListConfig)
+		: [];
+	const detailTypes =
+		row?.kind === "case" && row.caseType !== undefined
+			? [row.caseType]
+			: row
+				? []
+				: resultTypes;
 	return [
-		...new Set(
-			[
-				detailType,
-				...(columnRunsOnResults(mod, column) ? [mod.caseType] : []),
-			].filter((type): type is string => type !== undefined),
-		),
+		...new Set([
+			...(column.visibleInDetail !== false ? detailTypes : []),
+			...(columnRunsOnResults(mod, column) ? resultTypes : []),
+		]),
 	];
 }

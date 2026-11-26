@@ -466,6 +466,7 @@ function DestinationRow({
 	);
 	const moduleCaseType = context?.module.caseType;
 	const formType = context?.form.type;
+	const offersUserConnection = placement?.own?.placement.kind === "basic";
 	const writableTypes = useMemo<readonly CaseType[]>(
 		() =>
 			getModuleCaseTypes(moduleCaseType, [...effectiveCaseTypes]).flatMap(
@@ -488,13 +489,14 @@ function DestinationRow({
 						effectiveCaseTypes,
 						moduleCaseType,
 						formType,
+						offersUserConnection,
 					).flatMap((choice) => {
 						const caseType = effectiveCaseTypes.find(
 							(candidate) => candidate.name === choice.caseType,
 						);
 						return caseType === undefined ? [] : [{ choice, caseType }];
 					}),
-		[effectiveCaseTypes, moduleCaseType, formType],
+		[effectiveCaseTypes, moduleCaseType, formType, offersUserConnection],
 	);
 	/* The destination the row's switch commits, on a row that has one. */
 	const switchDestination = useMemo(

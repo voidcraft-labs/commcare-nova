@@ -28,11 +28,7 @@ import {
 } from "@/components/builder/DeploymentTargetProvider";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { usePortaledContentDirection } from "@/components/shadcn/portaled-content-direction";
-import type {
-	BarcodeField,
-	SecretField,
-	TextField as TextFieldEntity,
-} from "@/lib/domain";
+import type { Field as FieldEntity } from "@/lib/domain";
 import { targetConditionOf } from "@/lib/domain";
 import {
 	addressAnswerLine,
@@ -62,11 +58,12 @@ interface Suggestion {
 }
 
 interface AddressEntryFieldProps {
-	field: TextFieldEntity | SecretField | BarcodeField;
-	state: FieldState;
+	field: Pick<FieldEntity, "uuid">;
+	state: Pick<FieldState, "value" | "touched" | "valid" | "errorMessage">;
 	labelledBy?: string;
 	onCommit: (value: string, message?: QuestionMessage) => Promise<boolean>;
-	onBlur: () => void;
+	onBlur?: () => void;
+	context?: "form" | "search";
 }
 
 /** The line Preview shows the author about what Web Apps needs of the project space. */
@@ -87,6 +84,7 @@ export function AddressEntryField({
 	labelledBy,
 	onCommit,
 	onBlur,
+	context = "form",
 }: AddressEntryFieldProps) {
 	const { language } = useBuilderLanguage();
 	const direction = usePortaledContentDirection();
@@ -356,9 +354,9 @@ export function AddressEntryField({
 			)}
 			{!searches && (
 				<p className="mt-1 text-xs text-nova-text-muted">
-					Preview can't search for addresses here because no map provider is set
-					up, so this question stays unanswered. In Web Apps the worker searches
-					and chooses an address.
+					{context === "search"
+						? "Preview can search for addresses once a map provider is set up."
+						: "Preview can search for addresses once a map provider is set up. In Web Apps the worker searches and chooses an address."}
 				</p>
 			)}
 			{note !== null && (

@@ -102,3 +102,35 @@ date-and-time question keeps an app from running in Web Apps, the list Nova
 shows in **App settings** offers the same choice beside it.
 [Asking for a date and a time separately](./building-with-nova.mdx#asking-for-a-date-and-a-time-separately)
 says what changes for your workers and your data.
+
+## Getting an answer from another Android app
+
+An Android worker can open another app from a question and bring the answer
+back to the form. For example, a meter can return a reading and a file with
+the measurement. In **App settings**, choose Android as the place workers use
+the app. The meter app also needs to be installed on each worker’s device.
+
+In a text question’s **Data** settings, **Answer from an Android app** lets you
+choose Area Mapper, Breath Counter, Simprints Enrolment, or enter the action
+ID the other app supplies. **Values sent to the app** gives each input a name
+and an expression, such as the unit from an earlier question. **Answers
+returned to the form** lets a named result fill one or several questions. An
+integer question stores a number and a file question stores a copy of the
+returned file. In a repeat, the results belong to the worker’s current row.
+
+A second question can use the first question’s Android app. The app receives
+the current answer of the question the worker opened. When the worker returns,
+that question gets the main answer. A completed return with no main answer
+clears it. A named result the other app leaves out keeps its previous answer.
+Cancelling keeps all previous answers.
+
+When you bring an app in from HQ, Nova keeps repeated input names and Android sends the last value for each name. If Nova cannot connect a returned value to a question, you can open the app question in HQ, choose its result question, save the form and read the changes again. A standalone action needs the question ID that HQ's form editor uses for it.
+
+In Android Preview, **Open Android app** shows the values the other app would
+receive. You can enter its answer, choose a local file for a file result, or
+try an identity or Simprints result. **Return to form** applies those values.
+**Cancel** lets you return to the form with the answers you already had.
+
+If two different result names fill one question and both come back, the value
+that stays can depend on the Android version or on whether the phone loaded
+a cached form. Preview uses a freshly loaded form on Android 15. Giving each result its own question keeps both answers.

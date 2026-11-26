@@ -1234,6 +1234,28 @@ describe("prepareExportBoundary", () => {
 			)?.details,
 		).toMatchObject({ rowsActual: "10001", rowsAllowed: "10000" });
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
+
+		// A paged table contributes to the same budget as inline fixtures.
+		const paged = definitions[0];
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...CARRIER_SNAPSHOT,
+			definitions,
+			rowsByTable: new Map(
+				[...rowsByTable].filter(([tableId]) => tableId !== paged.id),
+			),
+			streamedTables: new Map([[paged.id, { rowCount: 5_001 }]]),
+		});
+		const withPagedTable = await prepareExportBoundary(input);
+		expect(withPagedTable).toMatchObject({
+			ok: false,
+			violations: [
+				{
+					code: "LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
+					details: { rowsActual: "10002", rowsAllowed: "10000" },
+				},
+			],
+		});
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
 });
 

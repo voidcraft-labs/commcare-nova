@@ -32,6 +32,7 @@ export type FormStructureChoices =
 			}[];
 	  }
 	| { readonly kind: "cases"; readonly caseType: string }
+	| { readonly kind: "available-cases" }
 	| { readonly kind: "lookup"; readonly tableId: LookupTableId };
 
 /** The declarations a form expression can bind, without expression text or a
@@ -172,7 +173,9 @@ export function formStructure(
 									? { kind: "inline" as const, options: choices.options }
 									: choices.kind === "cases"
 										? { kind: "cases" as const, caseType: choices.caseType }
-										: { kind: "lookup" as const, tableId: choices.tableId },
+										: choices.kind === "lookup"
+											? { kind: "lookup" as const, tableId: choices.tableId }
+											: { kind: "available-cases" as const },
 						}),
 			});
 			if (["group", "section", "repeat"].includes(field.kind)) visit(uuid);

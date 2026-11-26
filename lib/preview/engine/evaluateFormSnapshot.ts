@@ -18,6 +18,7 @@ import {
 	formEntryRecord,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
+import { menuOffersRecordType } from "@/lib/domain/modules";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import type { PreviewEntryChoice } from "@/lib/session/types";
 import { previewPlatformRules } from "../platform";
@@ -26,6 +27,7 @@ import {
 	refusalCopy,
 	runtimeMessage,
 } from "../runtimeMessages";
+import { workerChoiceProse } from "../workerProse";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -60,7 +62,7 @@ import { previewLookupData } from "./lookupEvaluation";
 import { openingCaseAssignments } from "./openingCaseAssignments";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
-import { formReadsSearchResults } from "./xpathInstances";
+import { formSearchReads } from "./xpathInstances";
 
 /** Let FormEngine apply its narrowly scoped wording policy before an uncaught
  * XPath failure becomes the public authoring-input fault. */
@@ -145,12 +147,52 @@ function dataRefusalSentence(
 	return `${copy.title}. ${copy.body}`;
 }
 
+interface AuthorizedOpening {
+	readonly includeActivity: boolean;
+	readonly entryKey: string;
+	readonly session: import("./entrySessionData").EntrySessionData;
+}
+
+type ActivityText = {
+	key: string;
+	title: string | null;
+	window: string | null;
+};
+
 /** Observe a form against one captured runtime context. No stores are reachable
  * here. The submission is a proposal; it has not passed a storage transaction. */
 export async function evaluateFormSnapshot(
 	doc: BlueprintDoc,
 	input: FormEvaluationInput,
 	context: FormEvaluationContext,
+) {
+	const result = await runFormSnapshot(doc, input, context);
+	if ("opening" in result)
+		throw new Error("The snapshot returned an activity opening.");
+	return result;
+}
+
+/** Finish the one authorized opening world before a worker can answer. */
+export async function evaluateAuthorizedFormOpeningSnapshot(
+	doc: BlueprintDoc,
+	input: FormEvaluationInput,
+	context: FormEvaluationContext,
+	authorized: AuthorizedOpening,
+): Promise<{
+	readonly activity?: ActivityText;
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
+}> {
+	const result = await runFormSnapshot(doc, input, context, authorized);
+	if (!("opening" in result) || result.opening === undefined)
+		throw new Error("The form did not return its opening.");
+	return result.opening;
+}
+
+async function runFormSnapshot(
+	doc: BlueprintDoc,
+	input: FormEvaluationInput,
+	context: FormEvaluationContext,
+	authorized?: AuthorizedOpening,
 ) {
 	const moduleUuid = moduleUuidOfForm(doc, input.formUuid);
 	const module = moduleUuid ? doc.modules[moduleUuid] : undefined;
@@ -169,7 +211,7 @@ export async function evaluateFormSnapshot(
 	 * and its own record is the case the form opens on. A continued App Test
 	 * entry carries its choices already. */
 	const opening =
-		context.session?.entryChoices === undefined
+		authorized === undefined && context.session?.entryChoices === undefined
 			? openingRecordChoices(doc, input, context)
 			: undefined;
 	const ids = opening?.ownCaseIds ?? input.caseIds ?? [];
@@ -189,17 +231,28 @@ export async function evaluateFormSnapshot(
 		);
 	for (const id of ids) {
 		const row = context.cases.rows.find((row) => row.case_id === id);
-		if (!row || row.case_type !== record.caseType)
+		if (!row || !menuOffersRecordType(module, row.case_type))
 			throw new FormEvaluationInputError(
 				"A selected record is unavailable to this worker or has a different type.",
 			);
 	}
 	/* A device reaches a form that reads what its search found only through
 	 * that search, so without the search's snapshot the form cannot open. */
+	const needed = formSearchReads(doc, input.formUuid, module.uuid);
+	for (const [supplier, reads] of needed) {
+		if (supplier === module.uuid) continue;
+		const supplied = context.searches?.find(
+			(search) => search.menu === supplier,
+		);
+		if (!supplied || (reads.readsResults && !supplied.results))
+			throw new FormEvaluationInputError(
+				`This form reads the search in "${doc.modules[supplier].name}". Start an app test and choose a record through that search first.`,
+			);
+	}
 	if (
 		context.searchResults === undefined &&
 		moduleFormsReadSearch(module) &&
-		formReadsSearchResults(doc, input.formUuid)
+		needed.get(module.uuid)?.readsResults === true
 	)
 		throw new FormEvaluationInputError(
 			`${runtimeMessage(language, "searchResultsRefusalTitle")}. ${runtimeMessage(language, "searchResultsRefusalBody")}`,
@@ -214,26 +267,30 @@ export async function evaluateFormSnapshot(
 			: undefined;
 	/* The entry key comes first: the entry's session mints its created cases'
 	 * ids from it, and the engine reads them as `session/data`. */
-	const entryKey = context.entry?.entryKey ?? randomUUID();
-	const session = entrySessionData(doc, input.formUuid, {
-		appId: context.session?.appId,
-		entryChoices: opening?.entryChoices ?? context.session?.entryChoices,
-		heldEntryValues: context.session?.heldEntryValues,
-		lookupData: previewLookupData(context.lookup),
-		entryKey,
-		boundCases: ids.map((caseId) => {
-			const caseName = context.cases.rows.find(
-				(row) => row.case_id === caseId,
-			)?.case_name;
-			return caseName === undefined ? { caseId } : { caseId, caseName };
-		}),
-		menuSelections: context.session?.menuSelections ?? {},
-		...(context.searchResults === undefined
-			? {}
-			: { searchResults: context.searchResults }),
-		caseDatabase: context.cases,
-		session: previewSessionValues(context.identity, context.device),
-	});
+	const entryKey =
+		authorized?.entryKey ?? context.entry?.entryKey ?? randomUUID();
+	const session =
+		authorized?.session ??
+		entrySessionData(doc, input.formUuid, {
+			appId: context.session?.appId,
+			entryChoices: opening?.entryChoices ?? context.session?.entryChoices,
+			heldEntryValues: context.session?.heldEntryValues,
+			lookupData: previewLookupData(context.lookup),
+			entryKey,
+			boundCases: ids.map((caseId) => {
+				const caseName = context.cases.rows.find(
+					(row) => row.case_id === caseId,
+				)?.case_name;
+				return caseName === undefined ? { caseId } : { caseId, caseName };
+			}),
+			menuSelections: context.session?.menuSelections ?? {},
+			searches: context.searches,
+			...(context.searchResults === undefined
+				? {}
+				: { searchResults: context.searchResults }),
+			caseDatabase: context.cases,
+			session: previewSessionValues(context.identity, context.device),
+		});
 	/* A choice no record was named for stops the entry where a worker would
 	 * pick from its list, so the form would open with none of its records. */
 	if (session.nextSelection !== undefined)
@@ -270,9 +327,13 @@ export async function evaluateFormSnapshot(
 			context.cases,
 			{
 				stagedAsync: true,
+				captureOpeningCaseIds: authorized !== undefined || context.captureEntry,
 				device: context.device,
 				sessionData: session.data,
 				selectedCases: session.selectedCases,
+				...(session.searches === undefined
+					? {}
+					: { searches: session.searches }),
 				...(session.searchResults === undefined
 					? {}
 					: { searchResults: session.searchResults }),
@@ -360,6 +421,31 @@ export async function evaluateFormSnapshot(
 		if (context.entry && context.entry.language === engineInput.language)
 			engine.restoreEntryCheckpoint(context.entry.checkpoint);
 		else await engine.initializeAsync(evaluate);
+
+		if (authorized !== undefined) {
+			const key = authorized.includeActivity
+				? await engine.readBehaviorText("activityKeyText", evaluate)
+				: null;
+			return {
+				opening: {
+					caseCreateIds: engine.initialCreateIds(),
+					activity:
+						key === null
+							? undefined
+							: {
+									key,
+									title: await engine.readBehaviorText(
+										"activityTitleText",
+										evaluate,
+									),
+									window: await engine.readBehaviorText(
+										"activityWindowText",
+										evaluate,
+									),
+								},
+				},
+			};
+		}
 		checkChoiceAnswers();
 		/* The form's pages are the platform's screens (`formScreens`): the
 		 * whole form on Web Apps, a section or a group or question on
@@ -584,6 +670,8 @@ export async function evaluateFormSnapshot(
 			{ stateAt: (_field, path) => engine.getState(path), workerRelevant },
 			{
 				language: engineInput.language,
+				platform: context.device.platform,
+				textForm: engineInput.form,
 				containsControl: engine.containsControl,
 				rootPath: engine.rootPath,
 				/* A sectioned form on Android pages by section; every other
@@ -633,7 +721,15 @@ export async function evaluateFormSnapshot(
 								value: option.value,
 								label:
 									state.resolvedOptionLabels?.[option.uuid] ??
-									projectProseTemplate(option.label, doc).text,
+									projectProseTemplate(
+										workerChoiceProse(
+											field,
+											option,
+											engineInput.form,
+											context.device.platform,
+										).template,
+										doc,
+									).text,
 							}))
 						: undefined);
 				const observedAnswer: {

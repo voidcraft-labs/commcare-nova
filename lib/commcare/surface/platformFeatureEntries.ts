@@ -14,8 +14,26 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
 	"worker-distance": ["menus-and-case-lists/9-distance"],
 	"sort-by-distance": ["menus-and-case-lists/type-distance"],
+	"saved-form-descriptor": [
+		"questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where",
+	],
 	"web-apps-form-behavior": [
+		"questions/a-question-text-label-hint-help-validation-message-repeat-add",
 		"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
+	],
+	"case-list-android-lookup": [
+		"menus-and-case-lists/lookup-with-text-extras",
+		"menus-and-case-lists/lookup-name",
+		"menus-and-case-lists/lookup-image-jr",
+		"menus-and-case-lists/lookup-autolaunch",
+		"menus-and-case-lists/lookup-extras-fixed-text",
+		"menus-and-case-lists/lookup-extras-worker-context",
+		"menus-and-case-lists/lookup-case-id-confidence",
+		"menus-and-case-lists/lookup-case-property-confidence",
+		"menus-and-case-lists/lookup-responses-key",
+	],
+	"case-list-icon-actions": [
+		"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
 	],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
@@ -28,6 +46,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/inline-search-in-a-parent-select-module-hq-adds-xpath-query",
 		"menus-and-case-lists/case-list-form-on-a-search-first-host-pointing-at-a-registration",
 		"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
+		"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
 		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 	],
 	"search-on-clear": ["case-search/search-on-clear"],
@@ -41,6 +60,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
+		"menus-and-case-lists/detail-auto-select-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
 		"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr",
 	],
@@ -51,6 +71,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"connect-app": [
 		"application-and-settings/connect-app-opened-in-the-connect-app",
 	],
+	"case-list-lookup-count": ["expressions-and-data/companion-lookup-count"],
 	"case-list-search-text": ["expressions-and-data/session-data-stringquery"],
 	"window-width": [
 		"expressions-and-data/session-context-window-width",
@@ -111,6 +132,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"android-map": ["questions/geopoint-maps"],
 	"edit-scan": ["questions/barcode-editable"],
 	"camera-only": ["questions/image-acquire", "questions/video-acquire"],
+	"face-camera": ["questions/face-capture-image-face"],
 	"photo-overlay": ["questions/image-overlay-small"],
 	"classic-recorder": ["questions/audio-legacy"],
 	"record-or-choose": ["questions/audio-acquire-or-upload"],
@@ -138,6 +160,12 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"answer-name-requires-android": [
 		"questions/submitted-answer-name-only-android-stores",
+	],
+	"android-app-question": [
+		"questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
+	],
+	"android-app-answer": [
+		"questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id",
 	],
 	"number-keypad": ["questions/phone-number-xsd-string-appearance-numeric"],
 	"row-starting-value": [
@@ -269,6 +297,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"link-column": [
 		"menus-and-case-lists/10-markdown-any-property-or-expression",
 	],
+	"search-address-picker": [
+		"case-search/address-picker-on-a-search-screen",
+		"case-search/address-picker-receiver-on-a-search-screen",
+	],
 	"search-screen-text": [
 		"case-search/title-label-lang-non-empty",
 		"case-search/title-label-blank-in-some-languages",
@@ -282,6 +314,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"search-starting-dates": ["case-search/default-value-on-a-date-range-input"],
 	"barcode-search-field": ["case-search/appearance-barcode-scan"],
+	"search-field-groups": ["case-search/is-group-group-key"],
 	"search-for-blank": ["case-search/allow-blank-value"],
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",

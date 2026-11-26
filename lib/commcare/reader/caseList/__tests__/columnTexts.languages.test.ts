@@ -555,3 +555,32 @@ describe("a detail's two texts and a sort element's label", () => {
 		expect(closedCodes(reading)).toEqual([]);
 	});
 });
+
+it.each([
+	{ stored: { en: "Confidence" }, frenchText: "Confidence", rewrites: true },
+	{
+		stored: { en: "Confidence", fr: "Confiance" },
+		frenchText: "Confiance",
+		rewrites: false,
+	},
+])(
+	"holds the confidence heading with French text $frenchText",
+	async ({ stored, frenchText, rewrites }) => {
+		const reading = await readBilingual(village(), (app) => {
+			Object.assign(shortOf(app), {
+				lookup_enabled: true,
+				lookup_action: "org.example.MATCH",
+				lookup_name: "Find a match",
+				lookup_extras: [{ key: "mode", value: "'scan'" }],
+				lookup_responses: [{ key: "first" }],
+				lookup_display_results: true,
+				lookup_field_template: "@case_id",
+				lookup_field_header: stored,
+			});
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const heading = shortOf(await readingExport(reading)).lookup_field_header;
+		expect(heading).toEqual({ en: "Confidence", fr: frenchText });
+		expect(respelled(reading).includes("/lookup_field_header")).toBe(rewrites);
+	},
+);

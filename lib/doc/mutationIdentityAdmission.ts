@@ -11,6 +11,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import { ownedFormSelections } from "@/lib/domain/formEntryCases";
+import { projectSearchOf } from "@/lib/domain/modules";
 import { assertNever } from "@/lib/utils/assertNever";
 
 export interface MutationIdentityAdmissionIssue {
@@ -21,11 +22,26 @@ export interface MutationIdentityAdmissionIssue {
 	readonly incomingKind: BlueprintAuthoredIdentityKind;
 }
 
+function projectSearchParameterClaims(
+	moduleUuid: Uuid,
+	parameters: readonly { uuid: Uuid }[],
+) {
+	return parameters.map(({ uuid }) => ({
+		uuid,
+		kind: "projectSearchParameter" as const,
+		ownerUuid: moduleUuid,
+	}));
+}
+
 function nestedModuleIdentities(
 	module: Extract<Mutation, { kind: "addModule" }>["module"],
 ): BlueprintAuthoredIdentity[] {
 	return [
 		{ uuid: module.uuid, kind: "module" },
+		...projectSearchParameterClaims(
+			module.uuid,
+			projectSearchOf(module)?.defaults ?? [],
+		),
 		...[
 			module.entryPoint,
 			module.caseListEntryPoint,
@@ -49,6 +65,11 @@ function nestedModuleIdentities(
 		...(module.caseListConfig?.detailTabs ?? []).map((tab) => ({
 			uuid: tab.uuid,
 			kind: "caseDetailTab" as const,
+			ownerUuid: module.uuid,
+		})),
+		...(module.caseListConfig?.searchInputGroups ?? []).map((group) => ({
+			uuid: group.uuid,
+			kind: "searchInputGroup" as const,
 			ownerUuid: module.uuid,
 		})),
 		...(module.caseListConfig?.columns ?? []).map((column) => ({
@@ -299,6 +320,22 @@ function ownedIdentityReplacementBy(
 				),
 			};
 		}
+		case "updateModule": {
+			if (
+				!mutation.caseSearchConfigPatch ||
+				!Object.hasOwn(mutation.caseSearchConfigPatch, "projectSearch")
+			)
+				return undefined;
+			return {
+				kind: "projectSearchParameter",
+				ownerUuid: mutation.uuid,
+				retainedUuids: new Set(
+					mutation.caseSearchConfigPatch.projectSearch?.after?.defaults.map(
+						(p) => p.uuid,
+					),
+				),
+			};
+		}
 		case "setAutomationSchedule":
 			return {
 				kind: "automationEvent",
@@ -350,6 +387,28 @@ function createClaims(
 
 function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 	switch (mutation.kind) {
+		case "setAppSettings": {
+			const search = mutation.settings.projectSearch;
+			const profile = mutation.settings.installationProfile;
+			return createClaims([
+				...(search?.operation === "add"
+					? [{ uuid: search.uuid, kind: "projectSearch" as const }]
+					: []),
+				...(profile?.operation === "add"
+					? [
+							{
+								uuid: profile.profile.uuid,
+								kind: "installationProfile" as const,
+							},
+						]
+					: []),
+			]);
+		}
+		case "updateModule":
+			return projectSearchParameterClaims(
+				mutation.uuid,
+				mutation.caseSearchConfigPatch?.projectSearch?.after?.defaults ?? [],
+			).map((identity) => ({ identity, preserveIfOwnedBy: mutation.uuid }));
 		case "addEntryPoint":
 			return createClaims([
 				{
@@ -411,6 +470,14 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setCaseListMeta": {
 			const edit = mutation.patch.searchFilterEdit;
 			return [
+				...(mutation.patch.searchInputGroups ?? []).map((group) => ({
+					identity: {
+						uuid: group.uuid,
+						kind: "searchInputGroup" as const,
+						ownerUuid: mutation.uuid,
+					},
+					preserveIfOwnedBy: mutation.uuid,
+				})),
 				...(mutation.patch.detailTabs ?? []).map((tab) => ({
 					identity: {
 						uuid: tab.uuid,
@@ -537,7 +604,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "removeModule":
 		case "moveModule":
 		case "renameModule":
-		case "updateModule":
 		case "setModuleMedia":
 		case "setCaseListMenuItem":
 		case "removeForm":
@@ -575,7 +641,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setAppName":
 		case "setConnectRoles":
 		case "setAppLogo":
-		case "setAppSettings":
 		case "relabelSourceLanguage":
 		case "addLanguage":
 		case "removeLanguage":
@@ -679,8 +744,20 @@ export function mutationIdentityAdmissionIssue(
 		// Duplicate claims inside one payload are collisions. A later atomic
 		// replacement may still preserve identities continuously owned here.
 		const claimedInMutation = new Set<Uuid>();
-		const replacement = ownedIdentityReplacementBy(mutation);
-		if (replacement !== undefined) {
+		const replacements = [ownedIdentityReplacementBy(mutation)];
+		if (
+			mutation.kind === "setCaseListMeta" &&
+			mutation.patch.searchInputGroups !== undefined
+		)
+			replacements.push({
+				kind: "searchInputGroup",
+				ownerUuid: mutation.uuid,
+				retainedUuids: new Set(
+					(mutation.patch.searchInputGroups ?? []).map((group) => group.uuid),
+				),
+			});
+		for (const replacement of replacements) {
+			if (replacement === undefined) continue;
 			for (const identity of live.values()) {
 				if (
 					identity.kind === replacement.kind &&

@@ -22,6 +22,10 @@ the type, including closed records still held on the device.
 Changing the choice source opens a staged configuration. Applying it saves the
 whole source together; **Cancel** keeps the question's current source.
 
+**Order of the choices** lets you pick a record property. Choices follow the
+property’s saved text, so “10” comes before “2”. Choices with the same value
+keep their device order.
+
 ## Narrow the list
 
 Filters can use the candidate record's properties and relationships, worker
@@ -39,6 +43,17 @@ language; they are data rather than translated question text.
 
 ## Which records are available
 
+A filter can also use **Source row position** to ask for the candidate’s place
+in the source, starting at 1. For example, `position() < 3` keeps the first two
+available cases of the chosen type. The choice order you select applies after
+the filter. Use a property condition when the same records must qualify
+regardless of which order the worker’s case data arrives in.
+
+In a case or Project data table choice filter, **Position source** can also
+refer to a question outside a repeat. The question has position 0 even when
+its answer is blank. This keeps imported filters that refer to that question's
+position.
+
 Choices use the cases already available to the worker. A filter narrows that
 set; it does not fetch additional cases or change access. If location-based
 sharing delivers one clinic, an all-clinics question still offers only that
@@ -47,6 +62,13 @@ clinic.
 Preview uses its captured worker case snapshot, and exported forms read the
 device's case database. Testing with a representative worker and location
 assignment shows what that worker can actually choose.
+
+Choose **All available cases** on a single-select question to let the worker
+pick from their whole restored case database. Choices show case names and save
+exact case IDs. Choose **Open cases only** or **Closed cases only** to filter by status.
+**All available cases** can include a retained closed case or the worker’s own
+case. A later case change checks the case against the type the change
+declares.
 
 CommCare HQ's form designer also needs the **Lookup Tables** privilege to edit
 these dynamic choices, even though the choices come from cases rather than a
