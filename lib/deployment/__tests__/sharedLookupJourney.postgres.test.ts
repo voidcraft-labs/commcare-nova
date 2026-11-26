@@ -397,27 +397,58 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 		file.getEntries().some(({ entryName }) => entryName.endsWith(".xlsx")),
 	).toBe(false);
 
-	await withTargetPeer(
-		targetPeer(overseas.domain, "unbound-destination"),
-		async (peer) => {
-			const upload = vi.fn();
-			const refused = await publish(appId, overseas, upload);
-			expect(refused).toMatchObject({
-				landed: false,
-				refusal: { phase: "preflight" },
-			});
-			if (refused.landed)
-				throw new Error("An incomplete destination accepted a direct publish.");
-			expect(refused.refusal.failure.code).toBe("app_not_ready");
-			expect(JSON.stringify(refused.refusal.failure)).toContain("visit_sites");
-			expect(upload).not.toHaveBeenCalled();
-			expect(peer.requests.filter(({ method }) => method !== "GET")).toEqual(
-				[],
-			);
-			expect(peer.snapshot()).toMatchObject({ source: undefined, tables: [] });
-			expect(peer.unexpected).toEqual([]);
-		},
-	);
+	await withHttpPeer(async (peer) => {
+		// Both spaces are readable. Only the second space lacks the
+		// destination table binding, so a broken origin read can't pass this check.
+		serveReading(peer, key, retained, true);
+		peer
+			.get(COMMCARE_SERVERS[origin.server].baseUrl)
+			.intercept({
+				method: "GET",
+				path: (path) => path.startsWith("/api/user_domains/v1/"),
+			})
+			.reply((request) => {
+				const scopes = new URL(
+					request.path,
+					COMMCARE_SERVERS[origin.server].baseUrl,
+				).searchParams.has("feature_flag")
+					? []
+					: [origin, overseas];
+				return {
+					statusCode: 200,
+					data: JSON.stringify({
+						meta: { next: null, total_count: scopes.length },
+						objects: scopes.map(({ domain }) => ({
+							domain_name: domain,
+							project_name: domain,
+						})),
+					}),
+					responseOptions: { headers: { "Content-Type": "application/json" } },
+				};
+			})
+			.persist();
+		const destinationTables = `/a/${overseas.domain}/api/lookup_table/v1/?limit=1000`;
+		peer
+			.get(COMMCARE_SERVERS[origin.server].baseUrl)
+			.intercept({ method: "GET", path: destinationTables })
+			.reply(200, { meta: { next: null, total_count: 0 }, objects: [] })
+			.persist();
+		const upload = vi.fn();
+		const refused = await publish(appId, overseas, upload);
+		if (refused.landed)
+			throw new Error("An incomplete destination accepted a direct publish.");
+		expect(refused.refusal).toMatchObject({
+			phase: "preflight",
+			failure: { code: "app_not_ready" },
+		});
+		expect(JSON.stringify(refused.refusal.failure)).toContain("visit_sites");
+		expect(upload).not.toHaveBeenCalled();
+		const calls = peer.getCallHistory()?.calls() ?? [];
+		expect(calls.every(({ method }) => method === "GET")).toBe(true);
+		expect(calls.map(({ fullUrl }) => fullUrl)).toContain(
+			`${COMMCARE_SERVERS[origin.server].baseUrl}/a/${origin.domain}/api/fixture/v1/?fixture_type_id=${nativeTable.id}`,
+		);
+	});
 	await expect(
 		updateLookupTableTag(projectScope, {
 			tableId,
