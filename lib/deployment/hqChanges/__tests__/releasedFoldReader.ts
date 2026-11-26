@@ -56,30 +56,8 @@ export async function withReleasedFoldReader(
 			},
 			settings: {},
 		});
-		// These rehearsals write their apps with today's code, in the roles
-		// representation. An app with no Connect role is the same app the
-		// released code stored with no Connect type, so the released decoder
-		// reads it back in that spelling.
-		await run({
-			...migration,
-			readHead: (text) => migration.readHead(releasedSpelling(text)),
-			readReference: (head, evidence) =>
-				migration.readReference(releasedSpelling(head), evidence),
-		});
+		await run(migration);
 	} finally {
 		await rm(folder, { recursive: true, force: true });
 	}
-}
-
-/** A snapshot of an app with no Connect role, as the released code spelled it. */
-function releasedSpelling(text: string): string {
-	const doc = JSON.parse(text) as Record<string, unknown>;
-	const roles = doc.connectRoles;
-	if (!Array.isArray(roles)) return text;
-	if (roles.length > 0)
-		throw new Error(
-			"A rehearsal app with a Connect role has no released spelling here.",
-		);
-	const { connectRoles: _roles, ...rest } = doc;
-	return JSON.stringify({ ...rest, connectType: null });
 }

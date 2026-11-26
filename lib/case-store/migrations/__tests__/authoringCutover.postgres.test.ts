@@ -178,7 +178,7 @@ async function save(doc: PersistableDoc, schema: "earlier" | "latest") {
 			tx,
 		);
 		if (schema === "latest") {
-			await sql`UPDATE apps SET app_settings = ${JSON.stringify(doc.appSettings)}::jsonb WHERE id = ${doc.appId}`.execute(
+			await sql`UPDATE apps SET app_settings = ${JSON.stringify(doc.appSettings)}::jsonb, connect_roles = ${doc.connectRoles}::text[] WHERE id = ${doc.appId}`.execute(
 				tx,
 			);
 		}
