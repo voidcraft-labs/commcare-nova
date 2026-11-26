@@ -169,9 +169,9 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/savetocase-block-outside-nova-s-own-block-shape`,
 		MUG,
 	),
-	linkName: refuse(
+	linkUnicodeName: refuse(
 		`${Q}/savetocase-link-name-outside-nova-s-identifier-grammar`,
-		MUG,
+		ROLE,
 	),
 	linkActionOnSave: refuse(
 		`${Q}/savetocase-link-name-changes-actions-on-save`,
@@ -2041,21 +2041,27 @@ function readBlock(
 	if (index !== undefined)
 		for (const link of children(index)) {
 			const identifier = link.name;
+			const key = `case/index/${identifier}`;
 			const nameProblem = caseOperationLinkNameProblem(identifier, (action) =>
 				parts.has(action),
 			);
 			if (nameProblem === "reads_as_case_action")
 				return fail(SAVE_TO_CASE_CLAIMS.linkActionOnSave, { name: identifier });
+			if (identifier.includes("."))
+				return fail(SAVE_TO_CASE_CLAIMS.linkBindLost, { name: identifier });
+			// Vellum only recognizes ASCII case index bind names. The Unicode
+			// XML element is valid on the wire and is already a key of case data.
+			if (
+				!identifier.includes(":") &&
+				/[^ -~]/u.test(identifier) &&
+				calc(key)?.trim()
+			)
+				return fail(SAVE_TO_CASE_CLAIMS.linkUnicodeName, { name: identifier });
 			if (
 				!isCaseOperationLinkIdentifier(identifier) ||
 				nameProblem !== undefined
 			)
-				return fail(
-					identifier.includes(".")
-						? SAVE_TO_CASE_CLAIMS.linkBindLost
-						: SAVE_TO_CASE_CLAIMS.linkName,
-					{ name: identifier },
-				);
+				return { ok: false };
 			// A name longer than CommCare HQ's index column holds
 			// (`CommCareCaseIndex.identifier`, 255 characters), which the gate refuses
 			// (`CASE_OPERATION_LINK_INVALID`, reason `too-long`).
@@ -2072,7 +2078,6 @@ function readBlock(
 				return fail(SAVE_TO_CASE_CLAIMS.reservedType, { name: targetType });
 			if (caseOperationCaseTypeNameProblem(targetType) !== undefined)
 				return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
-			const key = `case/index/${identifier}`;
 			const text = calc(key);
 			const linkPath = [...casePath, "index", identifier];
 			let linkTarget: ProposedLink["target"] = null;

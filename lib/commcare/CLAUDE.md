@@ -973,6 +973,14 @@ the matching direct action. The reader checks the raw block's direct children.
 The validator uses the planned Save to Case placement and the same action
 shape as the emitter, including whether the form's own close shares the
 block. The basic and advanced Case Management name rules are unchanged.
+Save to Case link identifiers keep the exact key used by existing case
+data. Raw submissions can carry non-ASCII XML index names, but Vellum's
+`parseBindElement` only recognizes ASCII calculation paths under
+`case/index`. The reader refuses a calculated Unicode link at its block
+and never rewrites the key. Dotted bind loss, source names Vellum cannot
+open, action names it changes on save, and the HQ column limit have their
+own findings.
+
 A Save to Case write may not use the property name `close`. HQ's build
 adds the basic Case Management block outside the form's authored source.
 
