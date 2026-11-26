@@ -1,0 +1,12 @@
+name: S7 retained question text proof
+on:
+  push:
+    branches: ['s7/ci/codex-question-text-proof-1']
+permissions:
+  contents: read
+jobs:
+  retained:
+    uses: ./.github/workflows/proof-slice.yml
+    with:
+      readers: '0'
+      selectors: proof/matrix/test_retained.py proof/checks/test_manifest_value_classes.py -k "hq-questions or long-form or test_a_held_new_reader_decides"
