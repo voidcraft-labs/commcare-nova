@@ -34,7 +34,7 @@ import {
 } from "./store";
 import type { WorkbookTableIntent } from "./workbookAuthority";
 
-function changes(
+function tablesToInstall(
 	prepared: PreparedExportBoundary,
 ): LookupJsonPushPlan["tables"] {
 	return (prepared.jsonLookupTables ?? []).map((naming) => {
@@ -70,7 +70,7 @@ export function manualLookupManifest(
 		appId,
 		documentRevision: prepared.compiledAtSeq,
 		dataRevision: prepared.lookupSnapshot.projectRevision,
-		digest: canonicalJsonDigest(changes(prepared)),
+		digest: canonicalJsonDigest(tablesToInstall(prepared)),
 	};
 }
 
@@ -113,7 +113,7 @@ export async function installManualLookupData(input: {
 			connection.connectionDigest,
 		),
 	);
-	const requireOperation = async (tx: Transaction<AppDatabase>) => {
+	const checkRevision = async (tx: Transaction<AppDatabase>) => {
 		const current = await resolveAppScopeInTransaction(
 			tx,
 			scope.appId,
@@ -132,6 +132,9 @@ export async function installManualLookupData(input: {
 		)
 			return changed();
 	};
+	const requireOperation = (tx?: Transaction<AppDatabase>) =>
+		tx ? checkRevision(tx) : withAppTx(checkRevision);
+	await requireOperation();
 	const prepared = await prepareExportBoundary({
 		mode: "hq-json",
 		manualLookupInstaller: true,
@@ -153,7 +156,7 @@ export async function installManualLookupData(input: {
 		expected.digest !== manifest.digest
 	)
 		return changed();
-	const tables = changes(prepared.prepared);
+	const tables = tablesToInstall(prepared.prepared);
 	if (!tables.length) return changed();
 	const current = await readDeployment(scope, target);
 	const expectedEndings = current?.deployment.endings ?? 0;
@@ -249,5 +252,19 @@ export async function installManualLookupData(input: {
 					: ("stopped" as const),
 			message: result.failure.message,
 		};
+	await withAppTx(async (tx) => {
+		await checkRevision(tx);
+		if (
+			(await authorizeAssignmentExport(
+				tx,
+				scope,
+				grant,
+				target,
+				"publish",
+				connection.connectionDigest,
+			)) !== grantBinding
+		)
+			return changed();
+	});
 	return { status: "complete" as const, tables: result.mapped.length };
 }

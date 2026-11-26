@@ -3,12 +3,20 @@ import { installationCredential } from "@/__tests__/helpers/installationCredenti
 import { withInstallationRuntimeRole } from "@/__tests__/helpers/installationRuntimeRole";
 import { serveWorkingInstallationInventory } from "@/__tests__/helpers/workingInstallationInventory";
 import { withAppTx } from "@/lib/db/pg";
-import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
+import {
+	publishFromSession as publishAppToHq,
+	publishSession,
+} from "@/lib/deployment/__tests__/publishWithGrant";
+import {
+	installManualLookupData,
+	manualLookupManifest,
+} from "@/lib/deployment/manualLookupInstall";
 import {
 	type LookupColumnId,
 	type LookupRowId,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { applyLookupValueEditInTransaction } from "@/lib/lookup/largeValues/service";
 import { getLookupTable } from "@/lib/lookup/service";
@@ -4555,6 +4563,47 @@ async function typesDocument(extraRows = 0): Promise<BlueprintDoc> {
 	});
 }
 
+async function stageTypesLabel() {
+	const { tableId, tableRevision, columns, rowIds } = await typesTable();
+	const value = ` ${"🌱".repeat(17_000)} "`;
+	const bytes = Buffer.from(value);
+	const operationId = v7();
+	const edit = async (
+		change: Parameters<typeof applyLookupValueEditInTransaction>[2],
+	) =>
+		withAppTx(async (tx) =>
+			applyLookupValueEditInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, editorScope, "edit"),
+				change,
+				"paged-json-fixture",
+			),
+		);
+	await edit({
+		kind: "begin",
+		tableId,
+		rowId: rowIds[0] ?? fail(),
+		slot: { kind: "cell", columnId: columns.name },
+		expectedTableRevision: tableRevision,
+		operationId,
+		baseDigest: createHash("sha256").update(" Clinic ").digest("hex"),
+		startByte: 0,
+		endByte: Buffer.byteLength(" Clinic "),
+		replacementBytes: bytes.length,
+		replacementDigest: createHash("sha256").update(bytes).digest("hex"),
+	});
+	for (let offset = 0; offset < bytes.length; offset += 16_001)
+		await edit({
+			kind: "append",
+			tableId,
+			operationId,
+			offset,
+			base64: bytes.subarray(offset, offset + 16_001).toString("base64"),
+		});
+	await edit({ kind: "finish", tableId, operationId });
+	return value;
+}
+
 describe("a table only CommCare HQ's JSON resources can carry", () => {
 	it("puts a table tagged types there row by row with its exact values, records it as Nova's, and writes nothing to it on the next publish", async () => {
 		const doc = await seed(await typesDocument());
@@ -4647,43 +4696,7 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 
 	it("resumes the ordinary publish of a paged lookup without sending the settled rows again", async () => {
 		const doc = await seed(await typesDocument(201));
-		const { tableId, tableRevision, columns, rowIds } = await typesTable();
-		const value = ` ${"🌱".repeat(17_000)} "`;
-		const bytes = Buffer.from(value);
-		const operationId = v7();
-		const edit = async (
-			change: Parameters<typeof applyLookupValueEditInTransaction>[2],
-		) =>
-			withAppTx(async (tx) =>
-				applyLookupValueEditInTransaction(
-					tx,
-					await authorizeLookupWriteInTransaction(tx, editorScope, "edit"),
-					change,
-					"paged-json-fixture",
-				),
-			);
-		await edit({
-			kind: "begin",
-			tableId,
-			rowId: rowIds[0] ?? fail(),
-			slot: { kind: "cell", columnId: columns.name },
-			expectedTableRevision: tableRevision,
-			operationId,
-			baseDigest: createHash("sha256").update(" Clinic ").digest("hex"),
-			startByte: 0,
-			endByte: Buffer.byteLength(" Clinic "),
-			replacementBytes: bytes.length,
-			replacementDigest: createHash("sha256").update(bytes).digest("hex"),
-		});
-		for (let offset = 0; offset < bytes.length; offset += 16_001)
-			await edit({
-				kind: "append",
-				tableId,
-				operationId,
-				offset,
-				base64: bytes.subarray(offset, offset + 16_001).toString("base64"),
-			});
-		await edit({ kind: "finish", tableId, operationId });
+		const value = await stageTypesLabel();
 
 		await withPeer(async (peer) => {
 			const hq = jsonLookupPeer(peer);
@@ -4719,6 +4732,76 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 			expect(requests(peer).some((line) => line.includes("fixapi"))).toBe(
 				false,
 			);
+		});
+	});
+
+	it("installs a paged manual package through reviewed data-only waves and checks current authority", async () => {
+		const doc = await seed(await typesDocument(201));
+		const value = await stageTypesLabel();
+		const grant = await publishSession(ACTOR);
+		const boundary = await prepareExportBoundary({
+			mode: "hq-json",
+			manualLookupInstaller: true,
+			access: SCOPE,
+			doc,
+			compiledAtSeq: 0,
+			attachmentTarget: null,
+			archiveActor: () => ({ appId: APP, grant }),
+		});
+		if (!boundary.ok) throw new Error(JSON.stringify(boundary.violations));
+		expect(boundary.prepared.lookupWorkbook).toBeUndefined();
+		expect(boundary.prepared.pagedJsonRows?.size).toBe(1);
+		const manifest = manualLookupManifest(APP, boundary.prepared);
+		const request = { actorUserId: ACTOR, grant, target: TARGET, manifest };
+
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			const reviewed = await installManualLookupData(request);
+			if (reviewed.status !== "review") return fail();
+			expect(reviewed.tables).toEqual([
+				{ name: "Kinds", tag: "types", rows: 203 },
+			]);
+			expect(hq.writes).toEqual([]);
+			expect(await state()).toBeNull();
+			await expect(
+				installManualLookupData({ ...request, confirm: "0".repeat(64) }),
+			).rejects.toMatchObject({ status: 409 });
+			expect(hq.writes).toEqual([]);
+
+			const confirmed = { ...request, confirm: reviewed.confirmation };
+			const first = await installManualLookupData(confirmed);
+			expect(first.status).toBe("checkpoint");
+			expect(hq.rows.size).toBe(199);
+			const firstId = [...hq.rows.keys()][0] ?? fail();
+			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);
+
+			await sql`UPDATE auth_session SET "expiresAt"=now() WHERE "userId"=${ACTOR}`.execute(
+				h.db(),
+			);
+			hq.writes.length = 0;
+			await expect(installManualLookupData(confirmed)).rejects.toMatchObject({
+				code: "not_found",
+			});
+			expect(hq.writes).toEqual([]);
+			await sql`UPDATE auth_session SET "expiresAt"=now()+interval '1 hour' WHERE "userId"=${ACTOR}`.execute(
+				h.db(),
+			);
+
+			expect(await installManualLookupData(confirmed)).toEqual({
+				status: "complete",
+				tables: 1,
+			});
+			expect(hq.rows.size).toBe(203);
+			expect(hq.writes).toEqual(
+				Array(4).fill("POST /a/clinic/api/lookup_table_item/v2/"),
+			);
+			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);
+			expect(
+				requests(peer).filter((line) => line === `POST ${IMPORT}`),
+			).toEqual([]);
+			expect((await state())?.active.map(({ kind }) => kind)).toEqual([
+				"lookup-table",
+			]);
 		});
 	});
 

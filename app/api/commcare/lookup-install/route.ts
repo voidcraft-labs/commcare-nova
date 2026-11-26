@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth-utils";
 import { isValidDomainSlug } from "@/lib/commcare/hq/http";
 import { isCommCareServer } from "@/lib/commcare/servers";
 import { installManualLookupData } from "@/lib/deployment/manualLookupInstall";
+import { LookupError } from "@/lib/lookup/errors";
 import { manualLookupManifestSchema } from "@/lib/publish/manualLookupManifest";
 
 const schema = z.strictObject({
@@ -37,6 +38,10 @@ export async function POST(req: Request) {
 			headers: { "Cache-Control": "private, no-store" },
 		});
 	} catch (error) {
+		if (error instanceof LookupError)
+			return handleApiError(
+				new ApiError(error.message, error.code === "not_found" ? 404 : 409),
+			);
 		return handleApiError(
 			error instanceof Error ? error : new Error("Lookup installation failed."),
 		);
