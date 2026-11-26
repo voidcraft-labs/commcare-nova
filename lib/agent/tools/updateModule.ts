@@ -49,18 +49,30 @@ import {
 	setModuleHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { moduleCaseTypeChangeMutations } from "@/lib/doc/formTypeMutations";
-import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
+import {
+	caseTypeCatalogMutations,
+	listedFormVisibilityMutation,
+} from "@/lib/doc/scaffolds";
+import { offerSearchNameMutations } from "@/lib/doc/searchResultsNaming";
+import {
+	changeListedMenuSource,
+	withListedMenuHierarchy,
+} from "@/lib/doc/sharedMenuHierarchy";
 import {
 	alwaysOfferedRegistrationOf,
 	asUuid,
 	findAuthoredBlueprintIdentity,
 	menuFormUuidsOf,
+	menuScreenLayout,
+	menuScreenOf,
 	moduleHasCaseListMenuItem,
 	moduleShowsFormsInMenuAbove,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
+import { menuBadgeSchema } from "@/lib/domain/menuBadge";
+import { searchResultsNameSchema } from "@/lib/domain/modules";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -95,6 +107,28 @@ import type {
 
 export const updateModuleInputSchema = moduleAddressSchema
 	.extend({
+		forms_from_menu: z
+			.strictObject({ previousMenuUuid: uuidSchema, menuUuid: uuidSchema })
+			.optional()
+			.describe(
+				"Change which source supplies forms for this menu. The previous menu identifies the choice you inspected.",
+			),
+		listed_form: z
+			.strictObject({
+				sourceMenuUuid: uuidSchema,
+				formUuid: uuidSchema,
+				included: z.boolean(),
+			})
+			.optional()
+			.describe(
+				"Show or hide one form in a menu listing another menu’s forms. Edits to the form are shared. Its deep link pauses while it is hidden.",
+			),
+		searchResultsName: searchResultsNameSchema
+			.nullable()
+			.optional()
+			.describe(
+				"The name used to keep this menu’s search answers and results distinct from a parent search. Omit to keep its name, or use null for the default. Naming the search does not turn it on.",
+			),
 		parentCaseModuleUuid: uuidSchema
 			.nullable()
 			.optional()
@@ -111,13 +145,25 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.min(1)
 			.optional()
 			.describe(
-				'The case type this module manages (e.g. "patient"). A module needs one before it can hold registration/followup/close forms. Leave it out to keep it.',
+				'The record type this menu lists (for example, "patient"). Use commcare-user for the worker’s own record. A follow-up can save answers there. Leave it out to keep the current type.',
+			),
+		auto_select_single: z
+			.boolean()
+			.optional()
+			.describe(
+				"Choose the only available record automatically when a form asks the worker to choose from this list.",
 			),
 		case_list_columns: z
 			.array(columnInputSchema)
 			.optional()
 			.describe(
 				`Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools. ${CASE_LIST_ORDER_GUIDANCE}`,
+			),
+		badge: menuBadgeSchema
+			.nullable()
+			.optional()
+			.describe(
+				"A short label beside this item on the worker’s menu. Give it text or a calculation. A null value removes the badge.",
 			),
 		displayCondition: conditionSchema
 			.nullable()
@@ -132,6 +178,12 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.describe(
 				"true takes the module and every form in it off the menu, null puts it back, omission keeps it. Off the menu, its forms open on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions. A module that is off the menu can be no after-submit link's target and takes no entry point or case list entry point.",
 			),
+		menu_layout: z
+			.enum(["list", "grid"])
+			.optional()
+			.describe(
+				"The layout this menu contributes when the app uses individual form menu layouts. A grid in a menu that lists its forms in its parent makes that parent a grid. The first menu always uses its own app setting.",
+			),
 		forms_in_menu_above: z
 			.literal(true)
 			.nullable()
@@ -140,8 +192,9 @@ export const updateModuleInputSchema = moduleAddressSchema
 				"true shows this module's forms, and its case list item, in the menu above with no entry for the " +
 					"module itself: on the app's first menu for a top-level module, in its parent for a submenu. null " +
 					"gives the module its own screen again, omission keeps it. A module that shows its forms above has " +
-					"no screen of its own: it takes no search and no registration from its case list, no entry point " +
-					"or case list entry point, and can be no after-submit link's target and no form's module " +
+					"no screen of its own: it keeps an ordinary search, but its case list shows no Search or Register " +
+					"button, its forms can't read the search, it takes no registration from its case list, no entry " +
+					"point or case list entry point, and can be no after-submit link's target and no form's module " +
 					"destination. A form listed on the app's first menu can't go to the previous screen after " +
 					"submit. Its submenus show on the app's first menu. Its name and icon are kept and not shown.",
 			),
@@ -166,6 +219,8 @@ export type UpdateModuleResult =
 			columns: Array<{ uuid: Uuid }>;
 			retiredCaseType?: string;
 			hiddenFromMenu?: boolean;
+			menuLayout?: "list" | "grid";
+			formsMenuLayout?: "list" | "grid";
 			formsInMenuAbove?: boolean;
 			caseListMenuItem?: boolean;
 			registerFromCaseList?: boolean;
@@ -174,7 +229,7 @@ export type UpdateModuleResult =
 
 export const updateModuleTool = {
 	description:
-		"Update a module's name, case type, parent-record selection, visibility, where its forms show, whether its menu shows the case list as its own item, or the registration its case list offers.",
+		"Update a module's name, case type, parent-record selection, visibility, menu badge, where its forms show, whether its menu shows the case list as its own item, or the registration its case list offers.",
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
@@ -186,9 +241,13 @@ export const updateModuleTool = {
 			name,
 			case_type,
 			case_list_columns,
+			badge,
 			displayCondition,
 			hiddenFromMenu,
 			parentCaseModuleUuid,
+			menu_layout,
+			auto_select_single,
+			searchResultsName,
 			forms_in_menu_above,
 			case_list_menu_item,
 			register_from_case_list,
@@ -196,10 +255,16 @@ export const updateModuleTool = {
 		try {
 			if (
 				name == null &&
+				input.listed_form === undefined &&
+				input.forms_from_menu === undefined &&
 				case_type == null &&
+				badge === undefined &&
 				displayCondition === undefined &&
 				hiddenFromMenu === undefined &&
 				parentCaseModuleUuid === undefined &&
+				menu_layout === undefined &&
+				auto_select_single === undefined &&
+				searchResultsName === undefined &&
 				forms_in_menu_above === undefined &&
 				case_list_menu_item === undefined &&
 				register_from_case_list === undefined
@@ -224,6 +289,46 @@ export const updateModuleTool = {
 			}
 			const { moduleUuid, module: mod } = address;
 
+			const sourceChange =
+				input.forms_from_menu &&
+				changeListedMenuSource(
+					doc,
+					moduleUuid,
+					input.forms_from_menu.previousMenuUuid,
+					input.forms_from_menu.menuUuid,
+				);
+			if (sourceChange && !sourceChange.ok)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: sourceChange.message },
+				};
+
+			const visibility =
+				input.listed_form &&
+				listedFormVisibilityMutation(
+					doc,
+					moduleUuid,
+					input.listed_form.sourceMenuUuid,
+					input.listed_form.formUuid,
+					input.listed_form.included,
+				);
+			if (input.listed_form && !visibility)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: "Choose a form from this menu's current source." },
+				};
+			/* A menu listing another menu's forms holds no layout of its own:
+			 * CommCare HQ keeps that choice only on an ordinary menu. */
+			if (menu_layout !== undefined && mod.formsFromMenu !== undefined)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: {
+						error: `Module "${mod.name}" lists the forms of another menu, which takes its layout from form_menu_layout on update_app, so it has no layout of its own to choose.`,
+					},
+				};
 			/* The case list menu item lists the module's cases, so it needs the
 			 * case type this call leaves; and a menu with no forms is its case
 			 * list, so the item is how it opens. */
@@ -321,6 +426,7 @@ export const updateModuleTool = {
 								column.columnUuid === undefined
 									? newUuid()
 									: asUuid(column.columnUuid),
+								doc,
 							),
 						)
 					: undefined;
@@ -348,6 +454,18 @@ export const updateModuleTool = {
 			 * chokepoint. Catalog writes lead so the type is present when the
 			 * column resolves. */
 			const mutations = [
+				...(sourceChange?.mutations ?? []),
+				...(visibility ? [visibility] : []),
+				...(badge === undefined
+					? []
+					: [updateModuleMutation(moduleUuid, { badge })]),
+				...(searchResultsName === undefined &&
+				parentCaseModuleUuid !== undefined
+					? offerSearchNameMutations(doc, moduleUuid, { parentCaseModuleUuid })
+					: []),
+				...(searchResultsName === undefined
+					? []
+					: [updateModuleMutation(moduleUuid, { searchResultsName })]),
 				...(parentCaseModuleUuid === undefined
 					? []
 					: [updateModuleMutation(moduleUuid, { parentCaseModuleUuid })]),
@@ -359,6 +477,13 @@ export const updateModuleTool = {
 							case_type,
 						)
 					: caseTypeCatalogMutations(doc, retirement, undefined)),
+				...(menu_layout === undefined
+					? []
+					: [
+							updateModuleMutation(moduleUuid, {
+								menuLayout: menu_layout === "grid" ? "grid" : null,
+							}),
+						]),
 				...updateModuleMutations(mod, {
 					...(name != null && { name }),
 					...(case_type != null && { caseType: case_type }),
@@ -378,6 +503,13 @@ export const updateModuleTool = {
 				/* Omission keeps the flag; true takes the module off the menu and
 				 * null puts it back. The reducer moves the after-submit
 				 * destinations its forms and its child modules' forms lose. */
+				...(auto_select_single === undefined
+					? []
+					: [
+							updateModuleMutation(moduleUuid, {
+								autoSelectSingle: auto_select_single ? true : null,
+							}),
+						]),
 				...(hiddenFromMenu === undefined
 					? []
 					: [
@@ -427,7 +559,7 @@ export const updateModuleTool = {
 			];
 			const commit = await guardedMutate(
 				ctx,
-				mutations,
+				withListedMenuHierarchy(doc, mutations),
 				`module:${moduleUuid}`,
 			);
 			if (!commit.ok) {
@@ -460,6 +592,13 @@ export const updateModuleTool = {
 					}),
 					...(hiddenFromMenu !== undefined && {
 						hiddenFromMenu: newMod.hiddenFromMenu === true,
+					}),
+					...(menu_layout !== undefined && {
+						menuLayout: newMod.menuLayout ?? ("list" as const),
+						formsMenuLayout: menuScreenLayout(
+							newDoc,
+							menuScreenOf(newDoc, moduleUuid),
+						),
 					}),
 					...(forms_in_menu_above !== undefined && {
 						formsInMenuAbove: moduleShowsFormsInMenuAbove(newMod),

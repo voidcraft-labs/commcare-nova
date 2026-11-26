@@ -1,4 +1,5 @@
 import AdmZip from "adm-zip";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
@@ -10,16 +11,27 @@ import {
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { workerWording } from "@/lib/commcare/workerWording";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	blueprintDocSchema,
+	calculatedColumn,
+	makeTranslationUnitId,
+} from "@/lib/domain";
 import {
 	and,
 	eq,
 	literal,
 	matchNone,
+	prop,
 	sessionUser,
+	term,
 } from "@/lib/domain/expression";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
+import { inSpanish } from "../reader/menus/__tests__/menuReading";
 import {
 	compilerNavigationFixture,
 	temporalSearchFixture,
@@ -507,6 +519,71 @@ describe("the texts HQ's build writes for a list and a form", () => {
 		onlyXml(xmlChildren(onlyXml(xmlChildren(block, "text")), "locale"))
 			.attributes.id;
 
+	it("writes configured form buttons, omits a blank locale key, and builds its fallback", () => {
+		const doc = temporalSearchFixture("legacy");
+		const menu = doc.moduleOrder[0];
+		const formUuid = menu && doc.formOrder[menu]?.[0];
+		const form = formUuid && doc.forms[formUuid];
+		if (!form || !formUuid)
+			throw new Error("Expected a form in the first menu");
+		const localized = inSpanish(
+			{
+				...doc,
+				forms: {
+					...doc.forms,
+					[formUuid]: { ...form, submitLabel: { text: "Send visit" } },
+				},
+			},
+			new Map([[makeTranslationUnitId("form", formUuid, "submit-label"), ""]]),
+		);
+		const { zip } = exported(localized);
+		const key = "forms.m0f0.submit_label";
+		expect(appStrings(zip, "en").get(key)).toBe("Send visit");
+		expect(appStrings(zip, "es").has(key)).toBe(false);
+		expect(appStrings(zip, "default").get(key)).toBe("Send visit");
+	});
+
+	it("puts a form's worker wording over its own submit wording, as HQ's translations go over submit_label", () => {
+		const doc = temporalSearchFixture("legacy");
+		const menu = doc.moduleOrder[0];
+		const formUuid = menu && doc.formOrder[menu]?.[0];
+		const form = formUuid && doc.forms[formUuid];
+		if (!form || !formUuid)
+			throw new Error("Expected a form in the first menu");
+		const button = generatedWordingId(formUuid, "submitButton");
+		const labelled = {
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: { ...form, submitLabel: { text: "Send visit" } },
+			},
+		};
+		// The form's own wording is the default its worker wording starts from.
+		const plain = inSpanish(
+			labelled,
+			new Map([
+				[makeTranslationUnitId("form", formUuid, "submit-label"), "Enviar"],
+			]),
+		);
+		expect(workerWording(plain, "eng", button)).toBe("Send visit");
+		expect(workerWording(plain, "spa", button)).toBe("Enviar");
+		expect(workerWording(plain, "spa", button, true)).toBe(undefined);
+		// An override of the button in one language wins there alone.
+		const overridden = inSpanish(
+			labelled,
+			new Map([
+				[makeTranslationUnitId("form", formUuid, "submit-label"), "Enviar"],
+				[button, "Mandar visita"],
+			]),
+		);
+		const { zip } = exported(overridden);
+		const key = "forms.m0f0.submit_label";
+		expect(appStrings(zip, "en").get(key)).toBe("Send visit");
+		expect(appStrings(zip, "es").get(key)).toBe("Mandar visita");
+		expect(appStrings(zip, "default").get(key)).toBe("Send visit");
+		expect(workerWording(overridden, "spa", button)).toBe("Mandar visita");
+	});
+
 	it("gives every short detail its select text, and every language the text and each form's submit label", () => {
 		const doc = temporalSearchFixture("legacy");
 		const { zip, suite } = exported(doc);
@@ -554,6 +631,64 @@ describe("the texts HQ's build writes for a list and a form", () => {
 			expect(appStrings(zip, dir).get("m0_no_items_text")).toBe(
 				"List is empty.",
 			);
+	});
+});
+
+describe("a case list's own words on the local path", () => {
+	it("writes the list's own select and empty-list text where HQ's build writes each", () => {
+		const doc = produce(temporalSearchFixture("legacy"), (draft) => {
+			const list = draft.modules[draft.moduleOrder[0]]?.caseListConfig;
+			if (list === undefined)
+				throw new Error("The fixture holds no case list.");
+			list.emptyText = "No patients yet";
+			list.selectButtonText = "Visit these patients";
+		});
+		for (const flag of [false, true]) {
+			const { zip } = exported(doc, { emptyCaseListText: flag });
+			for (const dir of ["default", ...commCareLocalization(doc).languages]) {
+				const table = appStrings(zip, dir);
+				expect(table.get("m0_select_text")).toBe("Visit these patients");
+				// Without the flag HQ's build writes no empty-list text, the list's own included.
+				expect(table.get("m0_no_items_text")).toBe(
+					flag ? "No patients yet" : undefined,
+				);
+			}
+		}
+	});
+});
+
+describe("faster loading on the local path", () => {
+	it("writes a calculation's load behavior on its field and on each detail that shows it", () => {
+		const doc = produce(temporalSearchFixture("legacy"), (draft) => {
+			const list = draft.modules[draft.moduleOrder[0]]?.caseListConfig;
+			if (list === undefined)
+				throw new Error("The fixture holds no case list.");
+			const visits = {
+				...calculatedColumn(
+					asUuid("00000000-0000-4000-8000-0000000c5b02"),
+					"Visits",
+					term(prop("patient", "case_name")),
+				),
+				loadBehavior: "defer" as const,
+			};
+			list.columns.push(visits);
+			list.listColumnOrder.push(visits.uuid);
+			list.detailColumnOrder.push(visits.uuid);
+			list.optimizations = true;
+		});
+		const { suite } = exported(doc);
+		const details = xmlChildren(suite, "detail").filter((detail) =>
+			["m0_case_short", "m0_case_long"].includes(detail.attributes.id ?? ""),
+		);
+		expect(details).toHaveLength(2);
+		for (const detail of details) {
+			expect(detail.attributes.lazy_loading).toBe("true");
+			expect(detail.attributes.cache_enabled).toBeUndefined();
+			const deferred = xmlChildren(detail, "field").filter(
+				(field) => field.attributes.lazy_loading === "true",
+			);
+			expect(deferred).toHaveLength(1);
+		}
 	});
 });
 

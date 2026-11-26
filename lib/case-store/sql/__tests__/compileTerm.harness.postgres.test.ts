@@ -13,6 +13,7 @@ import {
 	timeLiteral,
 } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
+import { compileIntervalText } from "../compileIntervalText";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
 import { expect, makeCaseRow, test } from "./setup";
 
@@ -482,4 +483,130 @@ test("a worker-record read answers from the derived record only where the worker
 		name: "Stored name",
 		undeclared: "",
 	});
+});
+
+test("native property columns read the actual linked case across mixed and historical types", async ({
+	db,
+}) => {
+	const column = "x".repeat(256);
+	const types: CaseType[] = [
+		{
+			name: "visit",
+			relations: [
+				{ identifier: "site", targetType: "clinic", relationship: "child" },
+				{ identifier: "site", targetType: "home", relationship: "extension" },
+			],
+			properties: [],
+		},
+		{
+			name: "clinic",
+			properties: [
+				{ name: "checked", label: proseText("Last check"), data_type: "date" },
+				{
+					name: column,
+					label: proseText("Notes"),
+					data_type: "multi_select",
+				},
+			],
+		},
+		{
+			name: "home",
+			properties: [
+				{ name: "checked", label: proseText("Last check"), data_type: "date" },
+				{ name: column, label: proseText("Notes"), data_type: "text" },
+			],
+		},
+	];
+	const rows = [
+		["visit-1", "visit", {}],
+		["visit-2", "visit", {}],
+		["visit-3", "visit", {}],
+		["visit-4", "visit", {}],
+		[
+			"clinic-a",
+			"clinic",
+			{ [column]: ["cold", "dry"], checked: "2000-01-01" },
+		],
+		["home-b", "home", { [column]: "next week", checked: "written on paper" }],
+		["older-c", "former_site", { [column]: "archived", checked: "1999-04-12" }],
+	] as const;
+	await db
+		.insertInto("cases")
+		.values(
+			rows.map(([case_id, case_type, properties]) =>
+				makeCaseRow({
+					case_id,
+					case_type,
+					properties: JSON.stringify(properties),
+					app_id: APP_ID,
+					project_id: PROJECT_ID,
+				}),
+			),
+		)
+		.execute();
+	await db
+		.insertInto("case_indices")
+		.values(
+			[
+				{
+					case_id: "visit-1",
+					ancestor_id: "clinic-a",
+					target_case_type: "clinic",
+					relationship: "child" as const,
+				},
+				{
+					case_id: "visit-2",
+					ancestor_id: "home-b",
+					target_case_type: "home",
+					relationship: "extension" as const,
+				},
+				{
+					case_id: "visit-3",
+					ancestor_id: "older-c",
+					target_case_type: "former_site",
+					relationship: "child" as const,
+				},
+			].map((link) => ({ ...link, identifier: "site", depth: 1 })),
+		)
+		.execute();
+	const read = {
+		kind: "prop" as const,
+		caseType: "visit",
+		property: column,
+		readReached: true as const,
+		via: ancestorPath(relationStep("site")),
+	};
+	const ctx = makeCtx(db, {
+		currentCaseType: "visit",
+		caseTypeSchemas: new Map(types.map((type) => [type.name, type])),
+	});
+	const answer = await db
+		.selectFrom("cases as c")
+		.select([
+			"c.case_id",
+			compileTerm(read, ctx).as("answer"),
+			compileIntervalText(
+				{
+					caseType: "visit",
+					property: "checked",
+					via: [{ identifier: "site" }],
+					display: "always",
+					thresholdDays: 7,
+					divisorDays: 1,
+					text: "Due",
+				},
+				ctx,
+			).as("interval"),
+		])
+		.where("c.app_id", "=", APP_ID)
+		.where("c.project_id", "=", PROJECT_ID)
+		.where("c.case_type", "=", "visit")
+		.orderBy("c.case_id")
+		.execute();
+	expect(answer).toEqual([
+		{ case_id: "visit-1", answer: "cold dry", interval: "Due" },
+		{ case_id: "visit-2", answer: "next week", interval: "written on paper" },
+		{ case_id: "visit-3", answer: "archived", interval: "Due" },
+		{ case_id: "visit-4", answer: null, interval: "" },
+	]);
 });

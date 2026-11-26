@@ -13,7 +13,7 @@
 
 "use client";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
-import type { CaseProperty } from "@/lib/domain";
+import { type CaseProperty, tileCellOnlyOnAndroid } from "@/lib/domain";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import type { TileGridProjection } from "@/lib/preview/caseTileLayout";
 import {
@@ -22,6 +22,7 @@ import {
 	tileGridStyle,
 } from "@/lib/preview/caseTileRendering";
 import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
+import { columnRawText } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 
@@ -36,7 +37,7 @@ import { usePreviewPlatformRules } from "@/lib/session/hooks";
  *   - `persistent`: the tile is the context above a form. Nothing in it
  *     chooses anything, so its cells stay ordinary content.
  */
-export type CaseTileSurface = "results" | "persistent";
+export type CaseTileSurface = "results" | "persistent" | "detail";
 
 interface CaseTileProps {
 	readonly projection: TileGridProjection;
@@ -112,12 +113,38 @@ export function CaseTile({
 					>
 						{/* A hidden column that still orders the list holds its square
 						 *  and shows nothing: the device's zero-width sort carrier. */}
-						{!entry.valueHidden && (
-							<>
-								<span className="sr-only">{label}: </span>
-								{renderColumnCell(entry.column, row, displayContext)}
-							</>
-						)}
+						{!entry.valueHidden &&
+							(!tileCellOnlyOnAndroid(entry.column, entry.column.tile) ||
+								platformRules.searchOnlyTileCell === "drawn") && (
+								<>
+									{entry.prefixLabel ? (
+										<span>
+											{label}
+											{"\u2005"}
+										</span>
+									) : (
+										<span className="sr-only">{label}: </span>
+									)}
+									{tileCellOnlyOnAndroid(entry.column, entry.column.tile) ||
+									entry.rawValue
+										? String(
+												entry.column.kind === "calculated"
+													? (row.calculated[entry.column.uuid] ?? "")
+													: (columnRawText(
+															entry.column,
+															row,
+															displayContext.reading,
+														) ?? ""),
+											)
+										: renderColumnCell(
+												entry.column,
+												row,
+												platformRules.linkColumnInList === "raw-text"
+													? { ...displayContext, tileText: "html" }
+													: displayContext,
+											)}
+								</>
+							)}
 					</div>
 				);
 			})}

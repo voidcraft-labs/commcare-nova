@@ -3,11 +3,10 @@
  * generated node beside one: the case region (each authored scope's
  * `nova_operations`, `nova_subcases` and `nova_selected_cases` containers,
  * whose blocks, condition groups, keyed repeats and clock nodes are compared
- * as the case blocks they hold) and the Connect blocks at the data root. Each
+ * as the case blocks they hold) and the submitted Connect activities where they occur. Each
  * is an absolute data path whose subtree the region covers.
  */
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { formConnectIds } from "@/lib/domain/connectIds";
 import { collectFieldLocations } from "../caseOps";
 import { descendFormPathIntoField, FormPath } from "../formPath";
 import { planGeneratedNodes } from "../generatedNodes";
@@ -18,8 +17,11 @@ export function regionRoots(
 ): readonly string[] {
 	const plan = planGeneratedNodes(doc, formUuid);
 	const scopes = [FormPath.root()];
+	const activities: string[] = [];
 	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
 		const field = doc.fields[uuid];
+		if (field?.kind === "connect_activity")
+			activities.push(location.path.toXPath());
 		if (field?.kind === "repeat")
 			scopes.push(descendFormPathIntoField(field, location.path));
 	}
@@ -29,9 +31,7 @@ export function regionRoots(
 			scope.child(plan.subcases(scope)).toXPath(),
 			scope.child(plan.selectedCases(scope)).toXPath(),
 		]),
-		...[...formConnectIds(doc, formUuid)].map((id) =>
-			FormPath.root().child(id).toXPath(),
-		),
+		...activities,
 	];
 }
 

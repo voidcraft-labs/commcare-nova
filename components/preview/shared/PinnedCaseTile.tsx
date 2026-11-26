@@ -10,7 +10,10 @@
 
 "use client";
 import { useMemo } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useWorkerModule } from "@/lib/doc/hooks/useWorkerModule";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { usePreviewStandingSearchState } from "@/lib/preview/hooks/usePreviewStandingSearch";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
@@ -62,16 +65,31 @@ export function PinnedCaseTile({
 	const appId = useAppId();
 	const caseTypes = useMaterializableCaseTypes();
 	const restoreScopeKey = useRestoreScopeKey(usePreviewPersonaUuid());
-	const mod = menuSource.doc.modules[pinned.moduleUuid];
+	const chosen = menuSource.doc.modules[pinned.moduleUuid];
+	const context = resolveCaseFormContext(
+		menuSource.doc.modules,
+		pinned.moduleUuid,
+	);
+	const language = useBuilderLanguage();
+	const mod = useWorkerModule(
+		language.language,
+		context?.sourceModuleUuid ?? pinned.moduleUuid,
+	);
+	const inline = useWorkerModule(language.language, context?.inlineModuleUuid);
 	const searchReading = pinnedTileSearchReading(
-		mod,
+		chosen,
 		usePreviewStandingSearchState(pinned.moduleUuid),
 	);
 	if (mod?.caseListConfig === undefined) return null;
 	return (
 		<PersistentCaseTile
 			blueprint={menuSource.doc}
-			moduleUuid={pinned.moduleUuid}
+			moduleUuid={mod.uuid}
+			key={pinned.moduleUuid + pinned.caseId + mod.uuid}
+			inlineModuleUuid={context?.inlineModuleUuid}
+			inlineConfig={inline?.caseListConfig}
+			selectionMenuUuid={pinned.moduleUuid}
+			mode={context?.kind ?? "tile"}
 			appId={appId}
 			caseType={mod.caseType}
 			caseId={pinned.caseId}

@@ -17,6 +17,7 @@ import type { CaseSearchConfig } from "@/lib/domain/modules";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { expandDoc } from "../../../expander";
 import type { LookupWireNaming } from "../../../lookup/naming";
+import type { WireIdentity } from "../../../wireIdentity";
 import {
 	readContext,
 	readerInput,
@@ -50,6 +51,7 @@ export interface ListReadingOptions {
 	/** Emit with a manifest of every asset the document names, and read each file back as its
 	 *  asset, as a bring-in's media index answers. */
 	readonly media?: boolean;
+	readonly identity?: WireIdentity;
 	/** The names Nova's emission prints each table read under, where the document reads one. */
 	readonly lookupNaming?: LookupWireNaming;
 	/** Run once every expression is bound, before the settles: a test that plants a difference
@@ -75,8 +77,10 @@ export async function emittedApp(
 	doc: BlueprintDoc,
 	media = false,
 	lookupNaming?: LookupWireNaming,
+	identity?: WireIdentity,
 ): Promise<AppJson> {
 	const emitted = expandDoc(doc, {
+		identity,
 		...(media && { assets: manifestFor(doc) }),
 		...(lookupNaming !== undefined && { lookupNaming }),
 	});
@@ -97,6 +101,7 @@ export async function readLists(
 		doc,
 		options.media === true,
 		options.lookupNaming,
+		options.identity,
 	);
 	options.edit?.(app);
 	const paths = options.media === true ? imagePaths(doc) : new Map();
@@ -186,7 +191,15 @@ export function searchOf(
  *  the detail order, and the Search fields without their uuids. */
 export function comparableList(config: CaseListConfig): unknown {
 	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
-	const strip = ({ uuid: _uuid, ...rest }: Column) => rest;
+	/* A fresh reading mints each column's identity and each display rule's,
+	 * which the document it was emitted from does not hold. */
+	const strip = ({ uuid: _uuid, ...rest }: Column) =>
+		"mapping" in rest
+			? {
+					...rest,
+					mapping: rest.mapping.map(({ uuid: _row, ...row }) => row),
+				}
+			: rest;
 	return {
 		list: config.listColumnOrder.map((uuid) =>
 			strip(byUuid.get(uuid) as Column),

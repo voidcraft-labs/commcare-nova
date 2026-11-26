@@ -111,7 +111,7 @@ export type CaseReading = "casedb" | "results" | "search";
  * (`search`).
  */
 export interface CaseFilterReading {
-	readonly filter: Extract<CaseReading, "casedb" | "search">;
+	readonly filter: CaseReading;
 }
 
 /**

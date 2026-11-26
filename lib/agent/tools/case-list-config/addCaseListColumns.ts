@@ -122,7 +122,7 @@ export const addCaseListColumnsTool = {
 					},
 				};
 			}
-			const stamped = columns.map((c, i) => stampColumnUuid(c, uuids[i]));
+			const stamped = columns.map((c, i) => stampColumnUuid(c, uuids[i], doc));
 			// `addColumnsMutation` can't fail on a resolved module — it returns
 			// `CaseListMutationOk` (no error arm), so there's no error branch here.
 			const result = addColumnsMutation(mod, stamped);

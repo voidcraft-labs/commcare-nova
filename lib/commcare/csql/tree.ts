@@ -36,6 +36,7 @@ export type CsqlQueryFunction =
 /** HQ's value functions (`xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`)
  * Nova writes. */
 export type CsqlValueFunction =
+	| "today"
 	| "now"
 	| "date"
 	| "datetime"

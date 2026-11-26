@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/shadcn/field";
+import { Input } from "@/components/shadcn/input";
 import {
 	Select,
 	SelectContent,
@@ -37,13 +38,14 @@ export function EntryPointPreviewLaunch({
 }: {
 	entryPointUuid: Uuid;
 }) {
-	const { item, personas, requirements } =
+	const { item, personas, requirements, creations } =
 		useEntryPointPreviewSetup(entryPointUuid);
 	const currentPersona = usePreviewPersonaUuid();
 	const [persona, setPersona] = useState(currentPersona ?? "me");
 	const [selections, setSelections] = useState<
 		Record<string, readonly string[]>
 	>({});
+	const [newIds, setNewIds] = useState<Record<string, string>>({});
 	const [pending, setPending] = useState(false);
 	const [message, setMessage] = useState<string>();
 	const launch = useEntryPointLaunch();
@@ -60,6 +62,7 @@ export function EntryPointPreviewLaunch({
 						if (value) {
 							setPersona(value);
 							setSelections({});
+							setNewIds({});
 							setMessage(undefined);
 						}
 					}}
@@ -82,6 +85,24 @@ export function EntryPointPreviewLaunch({
 					search.
 				</FieldDescription>
 			</Field>
+			{creations.map((creation) => (
+				<Field key={creation.operationUuid}>
+					<FieldLabel htmlFor={`${id}-${creation.operationUuid}`}>
+						New {creation.caseType} case ID
+					</FieldLabel>
+					<Input
+						id={`${id}-${creation.operationUuid}`}
+						disabled={pending}
+						value={newIds[creation.operationUuid] ?? ""}
+						onChange={(event) =>
+							setNewIds({
+								...newIds,
+								[creation.operationUuid]: event.target.value,
+							})
+						}
+					/>
+				</Field>
+			))}
 			{requirements.map((requirement) => {
 				const parentType = requirement.parentCaseType;
 				const parentIds = requirement.parentModuleUuid
@@ -119,6 +140,7 @@ export function EntryPointPreviewLaunch({
 			<Button
 				disabled={
 					pending ||
+					creations.some((row) => !newIds[row.operationUuid]?.trim()) ||
 					requirements.some(
 						(requirement) => !selections[requirement.moduleUuid]?.length,
 					)
@@ -134,6 +156,10 @@ export function EntryPointPreviewLaunch({
 								caseIds: selections[requirement.moduleUuid] ?? [],
 							})),
 							persona === "me" ? undefined : persona,
+							creations.map((row) => ({
+								operationUuid: row.operationUuid,
+								caseId: newIds[row.operationUuid] ?? "",
+							})),
 						);
 						if (result.kind === "refused") setMessage(result.message);
 					} catch {

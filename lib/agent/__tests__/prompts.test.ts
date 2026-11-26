@@ -42,7 +42,7 @@ function fixtureEmptyDoc(): BlueprintDoc {
 	return {
 		appId: "a-empty",
 		appName: "Untitled",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},

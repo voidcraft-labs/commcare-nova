@@ -1,11 +1,14 @@
 // lib/domain/expression/slotLabels.ts
-import type { SlotContextRef } from "./types";
+import type { ProseSlotRef, SlotContextRef } from "./types";
 
 /** How an expression slot reads inside a sentence about the thing that
  *  owns it, in the builder's words. The validator's findings and the move
  *  refusals name a slot through this one table. */
 export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 	switch (slot) {
+		case "form_badge":
+		case "module_badge":
+			return "badge";
 		case "calculate":
 			return "calculated value";
 		case "default_value":
@@ -21,8 +24,14 @@ export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 			return "repeat count";
 		case "ids_query":
 			return "case query";
+		case "android_app_input":
+			return "value sent to the Android app";
 		case "lookup_options_source":
 			return "choice filter";
+		case "form_selection_source":
+			return "case to open with";
+		case "form_entry_value":
+			return "value calculated at form entry";
 		case "form_open_condition":
 			return "condition for creating the case";
 		case "form_close_condition":
@@ -34,20 +43,31 @@ export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 		case "assessment_user_score":
 			return "assessment score";
 		case "deliver_entity_id":
-			return "delivery identifier";
+			return "person or place ID";
 		case "deliver_entity_name":
-			return "delivery name";
-		case "label":
-			return "label";
-		case "hint":
-			return "hint";
-		case "help":
-			return "help text";
-		case "validate_msg":
-			return "validation message";
-		case "option_label":
-			return "choice label";
+			return "person or place name";
 		default:
-			return "formula";
+			return Object.hasOwn(PROSE_SLOT_LABELS, slot)
+				? PROSE_SLOT_LABELS[slot as ProseSlotRef["slot"]]
+				: "formula";
 	}
 }
+
+/** Each text slot's name, total over the prose slots so a new one is named
+ *  here before it can compile, rather than read as a "formula". */
+const PROSE_SLOT_LABELS: Readonly<Record<ProseSlotRef["slot"], string>> = {
+	label: "label",
+	hint: "hint",
+	help: "help text",
+	validate_msg: "validation message",
+	addFirstLabel: "first entry button",
+	addLabel: "add entry button",
+	extended_text: "extended text",
+	extended_hint: "extended hint",
+	extended_help: "extended help",
+	extended_validate_msg: "extended validation message",
+	option_extended_text: "extended choice text",
+	qr_code: "QR code",
+	spoken_text: "spoken text",
+	option_label: "choice label",
+};

@@ -6,6 +6,13 @@
  * `syntaxCompare.ts`. Nothing here matches text: the print proves every
  * recognition.
  */
+
+import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
+import {
+	extractAstLookupReferences,
+	readReferences,
+} from "@/lib/doc/lookupReferences";
+
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -28,13 +35,18 @@ import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
 import type { SelectOptionsSource } from "@/lib/domain/fields/selectOptionsSource";
 import { CASE_LOADING_FORM_TYPES, operationCaseType } from "@/lib/domain/forms";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { afterEmptySearchRegistrationFormOf } from "@/lib/domain/menuForms";
-import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import {
+	effectiveCaseSearchConfig,
+	moduleFormsReadSearch,
+} from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { userPropertySlugsByUuid } from "@/lib/domain/users";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
+import { entryValueWire } from "../../advancedEntryValues";
 import { caseOptionsNodeset } from "../../caseOptions";
 import { caseTypeHopMap } from "../../caseTypeDepths";
 import { searchAnswersOf } from "../../emissionPlan";
@@ -57,18 +69,37 @@ import {
 import {
 	type HqInterpolation,
 	type HqXPath,
+	hqXPath,
 	hqXPathText,
 } from "../../hqJson/xpath";
-import { type LookupWireNaming, lookupWireNaming } from "../../lookup/naming";
+import {
+	type LookupWireNaming,
+	lookupWireNaming,
+	lookupXformInstanceId,
+} from "../../lookup/naming";
 import { lookupOptionsNodeset } from "../../lookupOptions";
+import {
+	caseTextKeyVariants,
+	caseTextWireKey,
+} from "../../suite/case-list/calculationText";
+import { detailBindings } from "../../suite/case-list/detailBindings";
+import { detailTabConditionWire } from "../../suite/case-list/detailTabCondition";
+import { detailRowExpressionWire } from "../../suite/case-list/detailTabRows";
+import { mappingCondition } from "../../suite/case-list/mappingCondition";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../../suite/case-list/nodesetFilter";
-import { hqExpressionField } from "../../suite/case-list/orderPlanOptions";
+import {
+	hqCalculatedSortExpression,
+	hqExpressionField,
+} from "../../suite/case-list/orderPlanOptions";
+import { emitSearchFilterValue } from "../../suite/case-search/nativeFilters";
+import { projectSearchValue } from "../../suite/case-search/projectSearch";
 import { searchPromptWire } from "../../suite/case-search/searchPrompts";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
 import {
 	emitFormDisplayConditionForHq,
 	emitModuleDisplayCondition,
+	menuBadgeExpression,
 } from "../../suite/displayConditions";
 import { rethrowWorkStop } from "../../workMeter";
 import { fieldBindType } from "../../xform/bindType";
@@ -89,7 +120,7 @@ import {
 import { FormPath } from "../../xform/formPath";
 import { planGeneratedNodes } from "../../xform/generatedNodes";
 import { itextIdFor } from "../../xform/itextIds";
-import { parseFormExpression } from "../../xpath/expressionAst";
+import { bindFormSyntax } from "../../xpath/expressionAst";
 import {
 	type FormNodeProjection,
 	formNodeProjection,
@@ -103,20 +134,31 @@ import type {
 	FormParseScope,
 	FormReadingHooks,
 } from "../../xpath/formParseScope";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
-import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
+import {
+	type FormSyntax,
+	formSyntaxKey,
+	literalInstanceId,
+	needsInstanceDeclaration,
+} from "../../xpath/formSyntax";
 import { JAVAROSA_NATIVE_FUNCTIONS } from "../../xpath/functionCapabilities";
+import {
+	instanceForRead,
+	instanceSourcesAfterScan,
+} from "../../xpath/instanceSources";
 import { w } from "../../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../../xpath/wire/fromExpression";
 import { InstanceSink } from "../../xpath/wire/instances";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
+import { bindCalculationText } from "../caseList/calculationText";
 import {
+	expandHqShortcuts,
 	type HqInterpolationSlot,
 	hqInterpolationSlot,
 	interpolateHqXPath,
 	syntaxOf,
 } from "../hqInterpolation";
+import { lookupNameRefusal, undiscoveredLookupName } from "../lookupNames";
 import type { PendingExpression, ReadMode } from "../pendingExpressions";
 import {
 	type CompareOptions,
@@ -124,9 +166,14 @@ import {
 	sameSyntax,
 	sameXPathText,
 } from "../syntaxCompare";
-import { readFormSyntax } from "../syntaxRead";
+import {
+	readFormSyntax,
+	readStoredNameSyntax,
+	sharedFormSyntax,
+} from "../syntaxRead";
 import type { ReadSourceNames, SourceNodeRef } from "../xform";
 import type { SlotPrint } from "./canonical";
+import { visitSyntax } from "./findings";
 import {
 	core,
 	EXPRESSION_FOLDS,
@@ -135,6 +182,7 @@ import {
 	recordOnlyArm,
 } from "./folds";
 import type { ExpressionReadEnv } from "./index";
+import { nativeInstancePaths } from "./nativeInstancePaths";
 import {
 	holdsUntypedTemporalLiteral,
 	typedWhereRequired,
@@ -171,6 +219,9 @@ export function slotReadMode(
 							: "no-case",
 				};
 			}
+			case "form_badge":
+			case "form_entry_value":
+			case "form_selection_source":
 			case "form_link_condition":
 			case "form_link_datum_xpath":
 				return { target: "hq-json", interpolation: "none" };
@@ -214,6 +265,7 @@ function moduleSlotMode(
 	switch (slot) {
 		case "module_display_condition":
 		case "search_input_required_when":
+		case "case_detail_tab_filter":
 			return { interpolation: "no-case" };
 		case "case_list_filter":
 			return { interpolation: "case" };
@@ -341,7 +393,7 @@ export function sourceNodeProjection(
 			// A form path is rooted at `data`, the root every source Nova reads
 			// holds; a source rooted elsewhere prints otherwise and reads as
 			// unrecognized.
-			let path = FormPath.root();
+			let path = FormPath.root(structure.dataRootName);
 			for (const coordinate of coordinates.slice(1)) {
 				const projected = step(coordinate);
 				if (projected === undefined) return undefined;
@@ -362,6 +414,120 @@ interface FoldSites {
 	readonly plain: Set<FormSyntax>;
 	/** Set where the bind read the listed case inside another query of cases. */
 	listedCaseInQuery?: true;
+}
+
+interface SuiteReadSources {
+	readonly sources: ReadonlyMap<string, string>;
+	readonly missingTable?: string;
+}
+
+const requiredIds = new WeakMap<PendingExpression, ReadonlySet<string>>();
+export function requiredInstanceIds(
+	pending: PendingExpression,
+): ReadonlySet<string> {
+	const known = requiredIds.get(pending);
+	if (known !== undefined) return known;
+	const ids = new Set<string>();
+	const wire = sharedFormSyntax(pending.text);
+	const parsed =
+		!wire.ok && pending.text.includes(".")
+			? readStoredNameSyntax(pending.text)
+			: wire;
+	if (parsed.ok && parsed.node !== undefined)
+		visitSyntax(parsed.node, (node) => {
+			const id = literalInstanceId(node);
+			if (
+				id &&
+				(id.value.includes(".") || needsInstanceDeclaration(node, pending.text))
+			)
+				ids.add(id.value);
+		});
+	requiredIds.set(pending, ids);
+	return ids;
+}
+
+/** Core accepts a grouped literal ID. HQ adds a factory instance from a
+ * scanner-visible spelling in one of the generated entry's actual texts. */
+export function suiteReadSources(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+	invalidPreset?: (id: string) => void,
+): SuiteReadSources | undefined {
+	const mode = pending.mode;
+	const text = pending.slotText ?? pending.text;
+	if (
+		mode.target !== "hq-json" ||
+		(!text.includes("instance") && !text.includes("&"))
+	)
+		return undefined;
+	const ids = requiredInstanceIds(pending);
+	if (
+		ids.size === 0 &&
+		pending.navigationSources === undefined &&
+		env.factories === undefined &&
+		invalidPreset === undefined
+	)
+		return undefined;
+	const slot =
+		mode.interpolation !== "none" && mode.interpolation !== "enum-key"
+			? hqInterpolationSlot(doc, pending.ref, mode.interpolation)
+			: undefined;
+	const runtime =
+		slot === undefined
+			? { ok: true as const, text }
+			: interpolateHqXPath(text, slot);
+	const scanned = instanceSourcesAfterScan(
+		pending.suiteSources ?? new Map(),
+		{
+			rendered: runtime.ok ? runtime.text : "",
+		},
+		undefined,
+		env.factories,
+		invalidPreset,
+	);
+	// An actual declaration is stronger than guessing from this slot's
+	// spelling, including a declaration HQ did not put on this entry.
+	let sources = scanned;
+	if (pending.navigationSources) {
+		const resolved = new Map(scanned);
+		for (const [id, source] of pending.navigationSources) {
+			if (source === null) resolved.delete(id);
+			else resolved.set(id, source);
+		}
+		sources = resolved;
+	}
+	const missing = [...ids].find(
+		(id) => id.startsWith("item-list:") && !sources.has(id),
+	);
+	return {
+		sources,
+		...(missing !== undefined && {
+			missingTable: missing.slice("item-list:".length),
+		}),
+	};
+}
+
+/** Only an expression evaluated inside the XForm shares its local declarations.
+ * A form's menu condition and return links run under the suite entry. */
+export function instanceSourcesOf(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+): ReadonlyMap<string, string> | undefined {
+	if (pending.mode.target !== "xform")
+		return suiteReadSources(doc, pending, env)?.sources;
+	const form = slotForm(doc, pending.ref);
+	const sources =
+		form === undefined ? undefined : env.formReadSources?.get(form);
+	if (sources !== undefined) return sources;
+	return instanceSourcesAfterScan(
+		(form === undefined ? undefined : env.instanceSources.get(form)) ??
+			new Map(),
+		{ xmlValue: pending.text },
+		undefined,
+		env.factories,
+	);
 }
 
 /** The scope a registration's text binds in: the slot of the real
@@ -388,12 +554,12 @@ function scopeWith(
 	withdrawn: ReadonlySet<string>,
 	sites: FoldSites,
 	root?: FormSyntax,
+	localIds?: ReadonlyMap<number, string>,
 ): FormParseScope {
 	const form = slotForm(doc, pending.ref);
 	const names = form === undefined ? undefined : env.sourceNames.get(form);
 	const itextUnits = form === undefined ? undefined : env.itextUnits.get(form);
-	const instanceSources =
-		form === undefined ? undefined : env.instanceSources.get(form);
+	const instanceSources = instanceSourcesOf(doc, pending, env);
 	const generated =
 		form === undefined ? undefined : env.generatedValues.get(form);
 	const operationIdPaths =
@@ -410,7 +576,10 @@ function scopeWith(
 	const reading: FormReadingHooks = {
 		functions: READ_FUNCTIONS,
 		itextUnit: (id) => itextUnits?.get(id),
-		instanceSource: (id) => instanceSources?.get(id),
+		instanceSource: (id, at) => {
+			const localId = localIds?.get(at) ?? id;
+			return { localId, source: instanceForRead(localId, instanceSources) };
+		},
 		generatedValue: (path) => generated?.get(path)?.calculate,
 		fold: (node, context, api) =>
 			proposeFold(node, context, api, {
@@ -418,6 +587,9 @@ function scopeWith(
 				operationIdPaths,
 				withdrawn,
 				sites,
+				...(readsReached(doc, pending.ref) && {
+					readsReached: true as const,
+				}),
 				...(place === undefined ? {} : { place }),
 				...(root === undefined ? {} : { root }),
 			}),
@@ -436,6 +608,19 @@ function scopeWith(
 		...(sourceProjection === undefined ? {} : { sourceProjection }),
 		reading,
 	};
+}
+
+/** Whether the slot reads an untyped index walk as the reached read: a case
+ *  list column's calculation, in a menu that offers no Search, whose Results
+ *  hold no case such a walk reaches (`searchRelatedCalculationCompatibility`
+ *  refuses it there). */
+function readsReached(doc: BlueprintDoc, ref: SlotContextRef): boolean {
+	if (ref.entity !== "module" || ref.slot !== "case_list_column_expression")
+		return false;
+	const module = doc.modules[ref.uuid];
+	return (
+		module !== undefined && effectiveCaseSearchConfig(module) === undefined
+	);
 }
 
 /** The site key of one fold over one span of the source. */
@@ -458,6 +643,7 @@ function proposeFold(
 		readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 		readonly withdrawn: ReadonlySet<string>;
 		readonly sites: FoldSites;
+		readonly readsReached?: true;
 		readonly place?: OperationPlaceReads;
 		readonly root?: FormSyntax;
 	},
@@ -473,6 +659,7 @@ function proposeFold(
 			doc: options.doc,
 			operationIdPaths: options.operationIdPaths,
 			withdrawn: options.withdrawn,
+			...(options.readsReached && { readsReached: true }),
 			...(options.place === undefined ? {} : { place: options.place }),
 			...(options.root === undefined ? {} : { root: options.root }),
 			bindPlain(at, context) {
@@ -586,11 +773,13 @@ function formEmission(
 	const mod = doc.modules[moduleUuid];
 	const links = linkContextOf(doc, naming);
 	const own = selectedCaseSessionDatum(doc, links, moduleUuid, formUuid);
-	const searchAnswers =
-		moduleFormsReadSearch(mod) ||
+	const searchAnswers = searchAnswersOf(
+		doc,
+		moduleUuid,
 		afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid
-			? searchAnswersOf(doc, moduleUuid)
-			: undefined;
+			? undefined
+			: formUuid,
+	);
 	let datumId: WireTermBindings["datumId"];
 	const bindings: WireTermBindings = {
 		formCaseProperty: formCasePropertyRead({
@@ -608,6 +797,9 @@ function formEmission(
 			? {}
 			: {
 					searchInputInstanceId: searchAnswers.instanceId,
+					searchAnswerInstances: searchAnswers.answers,
+					searchResultInstances: searchAnswers.instances,
+					searchResultInstance: searchAnswers.resultsInstanceId,
 					searchInputNames: searchAnswers.names,
 				}),
 		datumId: (ref) => {
@@ -997,6 +1189,12 @@ function relocatedOperationIds(
 	return relocated;
 }
 
+interface SlotPrintOptions {
+	readonly projection?: FormNodeProjection;
+	readonly rewrites?: RewriteControl;
+	readonly bindCalculationText?: true;
+}
+
 /** The text the production emitter writes for `expression` in `ref`'s
  *  slot, in `slotReadMode(doc, ref)`, with `rewrites` withheld or reported.
  *  Throws where the emitter refuses the tree, which the checker refuses. */
@@ -1005,10 +1203,7 @@ export function printSlot(
 	ref: SlotContextRef,
 	expression: Expression,
 	env: ExpressionReadEnv,
-	print: {
-		readonly projection?: FormNodeProjection;
-		readonly rewrites?: RewriteControl;
-	} = {},
+	print: SlotPrintOptions = {},
 ): string {
 	return printSlotWith(
 		doc,
@@ -1047,10 +1242,7 @@ function printSlotWith(
 	expression: Expression,
 	naming: LookupWireNaming,
 	operationIdPaths: ExpressionReadEnv["operationIdPaths"],
-	print: {
-		readonly projection?: FormNodeProjection;
-		readonly rewrites?: RewriteControl;
-	},
+	print: SlotPrintOptions,
 ): string {
 	const mode = slotReadMode(doc, ref);
 	const text = (wire: WireExpr | undefined): string => {
@@ -1066,6 +1258,14 @@ function printSlotWith(
 		const expressions = moduleExpressionContexts(doc, ref.uuid, naming);
 		const rewrites = print.rewrites;
 		switch (ref.slot) {
+			case "module_badge":
+				return text(
+					menuBadgeExpression(
+						expression,
+						expressions({ slot: ref.slot }),
+						naming,
+					),
+				);
 			case "module_display_condition":
 				return text(
 					emitModuleDisplayCondition(
@@ -1073,6 +1273,16 @@ function printSlotWith(
 						expressions({ slot: ref.slot }),
 						naming,
 						rewrites,
+					),
+				);
+			case "case_list_action_condition":
+				return text(
+					caseListActionCondition(
+						doc,
+						ref.uuid,
+						{ kind: "condition", condition: expression },
+						"hq-json",
+						naming,
 					),
 				);
 			case "case_list_filter":
@@ -1084,6 +1294,18 @@ function printSlotWith(
 						undefined,
 						expressions,
 						naming,
+						caseListStepDatumId(doc, ref.uuid, "chainId"),
+						rewrites,
+					),
+				);
+			case "project_search_parameter":
+				return text(
+					projectSearchValue(
+						expression,
+						ref.member.parameterUuid,
+						expressions,
+						naming,
+						searchInstanceOf(mod),
 						caseListStepDatumId(doc, ref.uuid, "chainId"),
 						rewrites,
 					),
@@ -1112,6 +1334,90 @@ function printSlotWith(
 						),
 					),
 				);
+			case "case_list_mapping_condition":
+				return text(
+					mappingCondition(
+						ref.member.columnUuid,
+						{ uuid: ref.member.rowUuid, when: expression },
+						w.context([w.self()]),
+						{
+							expressions,
+							lookupNaming: naming,
+							inline: moduleFormsReadSearch(mod),
+						},
+						"hq-json",
+						undefined,
+						rewrites,
+					),
+				);
+			case "case_list_sort_expression":
+				return text(
+					hqCalculatedSortExpression(
+						{ uuid: ref.member.sortUuid, expression },
+						mod,
+						doc,
+						expressions,
+						naming,
+						rewrites,
+					),
+				);
+			case "case_form_context_line":
+				return hq(
+					hqXPath(
+						toWire(expression, {
+							target: "hq-json",
+							root: "casedb",
+							types: expressions({ slot: "case_form_context_line" }),
+							bindings: {
+								...detailBindings(doc, mod),
+								...(naming && {
+									lookup: { naming: naming, instanceScope: "suite" },
+								}),
+							},
+						}),
+					),
+				);
+			case "case_detail_tab_rows":
+			case "case_detail_tab_filter":
+				return hq(
+					hqXPath(
+						detailRowExpressionWire(
+							expression,
+							ref.member.tabUuid,
+							ref.slot,
+							"hq-json",
+							"casedb",
+							expressions,
+							naming,
+							detailBindings(doc, mod),
+						),
+					),
+				);
+			case "case_detail_tab_condition":
+				return hq(
+					hqXPath(
+						detailTabConditionWire(
+							expression,
+							ref.member.tabUuid,
+							expressions,
+							"hq-json",
+							"casedb",
+							naming,
+							detailBindings(doc, mod),
+						),
+					),
+				);
+			case "search_filter_value":
+				return text(
+					emitSearchFilterValue(
+						expression,
+						ref.member.filterUuid,
+						expressions,
+						searchInstanceOf(mod),
+						naming,
+						caseListStepDatumId(doc, ref.uuid),
+					),
+				);
 			case "case_list_column_expression": {
 				const column = mod.caseListConfig?.columns.find(
 					(candidate) => candidate.uuid === ref.member.columnUuid,
@@ -1120,18 +1426,26 @@ function printSlotWith(
 					throw new Error(
 						`The column ${ref.member.columnUuid} is no calculated column of its menu.`,
 					);
-				return text(
-					hqExpressionField(
-						{ ...column, expression },
-						mod,
-						doc,
-						"details",
-						naming,
-						expressions,
-						rewrites,
-					),
+				const wire = hqExpressionField(
+					{ ...column, expression },
+					mod,
+					doc,
+					"details",
+					naming,
+					expressions,
+					rewrites,
 				);
+				const field = text(wire);
+				if (!print.bindCalculationText || !column.texts) return field;
+				// Project the emitted field with the enum keys HQ sees. The
+				// parser recognizes the translated pieces this column owns.
+				const variants = caseTextKeyVariants(wire, column.texts);
+				const keys = column.texts.map(({ uuid }) =>
+					caseTextWireKey(uuid, variants.get(uuid)),
+				);
+				return bindCalculationText(field, keys, column.texts);
 			}
+			case "case_search_filter":
 			case "search_input_predicate":
 				throw new Error("A search filter row prints as CSQL, never here.");
 			default: {
@@ -1176,12 +1490,24 @@ function printSlotWith(
 		throw new Error(`The slot ${ref.slot} of ${ref.uuid} has no form.`);
 	const { emission, bindings } = formEmission(doc, formUuid, naming, print);
 	if (ref.entity === "form") {
-		if (ref.slot === "form_display_condition") {
+		if (ref.slot === "form_display_condition" || ref.slot === "form_badge") {
 			const moduleUuid = moduleUuidOfForm(doc, formUuid);
 			if (moduleUuid === undefined)
 				throw new Error(`The form ${formUuid} has no menu.`);
 			const links = linkContextOf(doc, naming);
 			const own = selectedCaseSessionDatum(doc, links, moduleUuid, formUuid);
+			if (ref.slot === "form_badge")
+				return text(
+					menuBadgeExpression(
+						expression,
+						emission.context(ref),
+						naming,
+						own?.id,
+						entryDatumIdResolver(
+							entryDatumIds(doc, links, moduleUuid, formUuid),
+						),
+					),
+				);
 			return text(
 				emitFormDisplayConditionForHq(
 					{ displayCondition: expression },
@@ -1190,6 +1516,27 @@ function printSlotWith(
 					own?.id,
 					entryDatumIdResolver(entryDatumIds(doc, links, moduleUuid, formUuid)),
 					print.rewrites,
+				),
+			);
+		}
+		if (
+			ref.slot === "form_selection_source" ||
+			ref.slot === "form_entry_value"
+		) {
+			const menu = moduleUuidOfForm(doc, formUuid);
+			if (!menu) throw new Error(`The form ${formUuid} has no menu.`);
+			const datumId = entryDatumIdResolver(
+				entryDatumIds(doc, linkContextOf(doc, naming), menu, formUuid),
+			);
+			return text(
+				entryValueWire(
+					doc,
+					formUuid,
+					ref.member.supplyUuid,
+					ref.slot,
+					expression,
+					datumId,
+					naming,
 				),
 			);
 		}
@@ -1290,7 +1637,7 @@ function printSlotWith(
 					? (field.optionsSource as SelectOptionsSource | undefined)
 					: undefined;
 			const path = projection.path({ kind: "field", uuid: ref.uuid });
-			if (choices === undefined || choices.kind === "inline" || !path)
+			if ((choices?.kind !== "cases" && choices?.kind !== "lookup") || !path)
 				throw new Error(
 					`The question ${ref.uuid} takes no choices from a table or from cases.`,
 				);
@@ -1351,7 +1698,7 @@ function searchInstanceOf(
 ): `search-input:${string}` | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
-	const wire = searchWireShape(config);
+	const wire = searchWireShape(config, mod?.searchResultsName);
 	return wire === undefined ? undefined : searchInputInstanceId(wire);
 }
 
@@ -1393,6 +1740,12 @@ function withSearchSlot<
  *  syntax did not parse, the binder refused it, or the slot is a `case` slot
  *  of a form whose entry Nova's projection gives no case-selecting datum. */
 export type SlotRefusal =
+	| {
+			readonly kind: "lookup-name";
+			readonly entryId: string;
+			readonly name: string;
+			readonly key: string;
+	  }
 	| {
 			readonly kind: "interpolation";
 			readonly code: "case-reference" | "fixture-value";
@@ -1468,19 +1821,23 @@ export function compareOptionsFor(
 	const form = slotForm(doc, pending.ref);
 	const xform = slotReadMode(doc, pending.ref).target === "xform";
 	if (form === undefined || !xform) return { ruleSet };
-	const sources = env.instanceSources.get(form);
+	const sources = instanceSourcesOf(doc, pending, env);
 	const units = env.itextUnits.get(form);
 	const structure = formStructure(doc, form);
 	return {
 		ruleSet,
 		instanceId: (id) => {
-			const source = sources?.get(id);
-			if (source === undefined) return id;
-			const canonical = canonicalInstanceId(source);
-			if (canonical === undefined) return id;
-			return canonical.startsWith("item-list:")
-				? canonical.slice("item-list:".length)
-				: canonical;
+			const bound = instanceForRead(id, sources);
+			switch (bound?.kind) {
+				case "table":
+					return lookupXformInstanceId(bound.tag);
+				case "selected":
+					return bound.datum;
+				case "native":
+					return bound.id;
+				default:
+					return id;
+			}
 		},
 		itextId: (id) => {
 			const unit = units?.get(id);
@@ -1505,6 +1862,7 @@ export function printedSyntax(
 	let text: string;
 	try {
 		text = printSlot(doc, pending.ref, candidate, env, {
+			bindCalculationText: true,
 			...(form !== undefined && names !== undefined
 				? { projection: sourceNodeProjection(doc, form, names) }
 				: {}),
@@ -1550,6 +1908,69 @@ export interface BoundSlot {
 	readonly listedCaseInQuery?: true;
 }
 
+/** A refusal refers only to an actual table or column in this source's
+ * catalog and slot. A literal or a different table's same-named column
+ * cannot stand behind it. */
+function boundNameRefusal(
+	candidate: Expression,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+): SlotRefusal | undefined {
+	for (const ref of extractAstLookupReferences({
+		ast: candidate,
+		carrierUuid: pending.ref.uuid,
+		location: { scope: pending.ref.entity },
+	}).flatMap(readReferences)) {
+		const table = env.lookup.get(ref.tableId);
+		if (table === undefined) continue;
+		const column = table.columns.find((one) => one.id === ref.columnId);
+		const member =
+			ref.memberId === undefined
+				? undefined
+				: (column === undefined ? table.attributes : column.properties)?.find(
+						(one) => one.id === ref.memberId,
+					);
+		const slot = pending.ref.slot;
+		const found =
+			lookupNameRefusal(table.tag, slot, "tag") ??
+			(column === undefined
+				? undefined
+				: lookupNameRefusal(column.wireName, slot, "column")) ??
+			(member === undefined
+				? undefined
+				: lookupNameRefusal(member.wireName, slot, "column"));
+		if (found !== undefined)
+			return {
+				kind: "lookup-name",
+				entryId: found.claim.entry,
+				name: found.name,
+				key: found.claim.key ?? "",
+			};
+	}
+}
+
+const diagnosticCatalogs = new WeakMap<ExpressionReadEnv["lookup"], boolean>();
+
+function catalogNeedsNameDiagnostics(env: ExpressionReadEnv): boolean {
+	let needed = diagnosticCatalogs.get(env.lookup);
+	if (needed === undefined) {
+		// The case list filter takes every suite restriction, a display
+		// condition HQ's own XPath check, and a form's read of a tag HQ's form
+		// builder's.
+		const refused = (name: string, part: "tag" | "column") =>
+			lookupNameRefusal(name, "case_list_filter", part) !== undefined ||
+			lookupNameRefusal(name, "form_display_condition", part) !== undefined ||
+			lookupNameRefusal(name, "calculate", part) !== undefined;
+		needed = [...env.lookup.values()].some(
+			(table) =>
+				refused(table.tag, "tag") ||
+				table.columns.some((column) => refused(column.wireName, "column")),
+		);
+		diagnosticCatalogs.set(env.lookup, needed);
+	}
+	return needed;
+}
+
 /** Bind `pending.text` against `doc` with every fold on but the `withdrawn`
  *  sites. */
 export function bindSlot(
@@ -1560,6 +1981,64 @@ export function bindSlot(
 ):
 	| { readonly kind: "refused"; readonly cause: SlotRefusal }
 	| { readonly kind: "bound"; readonly bound: BoundSlot } {
+	const missingTable = suiteReadSources(doc, pending, env)?.missingTable;
+	if (missingTable !== undefined) {
+		const { name, claim } = undiscoveredLookupName(missingTable);
+		return {
+			kind: "refused",
+			cause: {
+				kind: "lookup-name",
+				entryId: claim.entry,
+				key: claim.key ?? "",
+				name,
+			},
+		};
+	}
+	// The source spells identity-bearing names before HQ performs case
+	// interpolation. If HQ would replace a dot, or Core cannot tokenize a
+	// stored XML name, bind that original spelling solely to name the refusal.
+	// Never install a candidate derived from this diagnostic grammar.
+	if (
+		env.lookup.size > 0 &&
+		/[^ -~]|\./u.test(pending.text) &&
+		catalogNeedsNameDiagnostics(env)
+	) {
+		const mode = pending.mode;
+		const site =
+			mode.target === "hq-json" &&
+			mode.interpolation !== "none" &&
+			mode.interpolation !== "enum-key"
+				? hqInterpolationSlot(doc, pending.ref, mode.interpolation)
+				: undefined;
+		const spelling =
+			site === undefined
+				? pending.text
+				: expandHqShortcuts(pending.text, site.caseXPath);
+		const original = readStoredNameSyntax(spelling);
+		if (original.ok && original.node !== undefined) {
+			const raw = bindFormSyntax(
+				spelling,
+				readingScope(
+					doc,
+					mode.target === "hq-json"
+						? {
+								...pending,
+								text: spelling,
+								slotText: spelling,
+								mode: { target: "hq-json", interpolation: "none" },
+							}
+						: pending,
+					env,
+					withdrawn,
+				),
+				original.node,
+			);
+			if (raw.ok && raw.expression !== undefined) {
+				const refusal = boundNameRefusal(raw.expression, pending, env);
+				if (refusal !== undefined) return { kind: "refused", cause: refusal };
+			}
+		}
+	}
 	const prepared = preparedSource(doc, pending);
 	if (!prepared.ok) return { kind: "refused", cause: prepared.cause };
 	const sites: FoldSites = {
@@ -1567,6 +2046,10 @@ export function bindSlot(
 		spans: new Map(),
 		plain: new Set(),
 	};
+	const native = nativeInstancePaths(
+		prepared.syntax,
+		instanceSourcesOf(doc, pending, env),
+	);
 	// A value a device works out inside a search row is no slot's whole source.
 	const scope = scopeWith(
 		doc,
@@ -1574,9 +2057,10 @@ export function bindSlot(
 		env,
 		withdrawn,
 		sites,
-		env.rowValues === true ? undefined : prepared.syntax,
+		env.rowValues === true ? undefined : native.syntax,
+		native.localIds,
 	);
-	const parsed = parseFormExpression(prepared.text, scope);
+	const parsed = bindFormSyntax(prepared.text, scope, native.syntax);
 	if (!parsed.ok)
 		return { kind: "refused", cause: { kind: "parse", issues: parsed.issues } };
 	if (parsed.expression === undefined)
@@ -1590,6 +2074,12 @@ export function bindSlot(
 		context === undefined
 			? parsed.expression
 			: typedWhereRequired(parsed.expression, context);
+	// A name of plain ASCII letters can still be one a slot refuses (a form's
+	// read of a table tagged __proto__, which HQ's form builder drops).
+	if (env.lookup.size > 0 && catalogNeedsNameDiagnostics(env)) {
+		const refusal = boundNameRefusal(candidate, pending, env);
+		if (refusal !== undefined) return { kind: "refused", cause: refusal };
+	}
 	const foldSites = [...sites.used].sort((a, b) => {
 		const left = sites.spans.get(a);
 		const right = sites.spans.get(b);
@@ -1700,7 +2190,7 @@ export function lookupTypes(env: ExpressionReadEnv): LookupTypeIndex {
 		types = new Map(
 			[...env.lookup.values()].map((table) => [
 				table.id,
-				new Map(table.columns.map((column) => [column.id, column.dataType])),
+				lookupReadTypes(table),
 			]),
 		);
 		typeIndexes.set(env.lookup, types);

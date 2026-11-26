@@ -52,7 +52,9 @@ import type {
 	PreviewCaseChoice,
 	PreviewMenuCaseSelection,
 } from "@/lib/session/types";
+import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
+import { carriedFormChoices } from "../../afterSubmitRouting";
 import { evaluate } from "../../xpath/evaluator";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
@@ -71,6 +73,7 @@ import {
 	type FormLinkEvaluationInput,
 	formLinkEvalContext,
 	formLinkWorkerInstances,
+	projectTargetCaseSelectionsAsync,
 	projectTargetCaseSelections as projectTargetCaseSelectionsProduction,
 } from "../formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "../identity";
@@ -1078,6 +1081,58 @@ describe("projectTargetCaseSelections", () => {
 		]);
 	});
 
+	it("opens a linked destination with independent, ordered choices from the same list on both execution paths", async () => {
+		const doc = independentChoicesBlueprint("paired-visits");
+		const source = Object.values(doc.forms).find(
+			(form) => form.name === "Open the assigned pair",
+		);
+		const target = Object.values(doc.forms).find(
+			(form) => form.name === "Visit two people",
+		);
+		const link = source?.formLinks?.[0];
+		if (!source || !target?.caseSelections || !link)
+			throw new Error("Missing paired visit");
+		const input = inputFor(doc, { formUuid: source.uuid });
+		const pair = target.caseSelections.filter(
+			(choice) => choice.source.kind === "choose",
+		);
+		const expected = pair.map((row, i) => ({
+			selectionUuid: row.uuid,
+			caseId: `paired-visits-person-${i + 1}`,
+		}));
+		const projected = projectTargetCaseSelectionsProduction(
+			input,
+			source.uuid,
+			destination(link),
+		);
+		expect(carriedFormChoices(projected).entryChoices).toEqual(expected);
+		expect(
+			carriedCaseForProduction(input, source.uuid, destination(link)),
+		).toEqual({ kind: "carried", caseId: expected[1].caseId });
+		const runtime = ownedRuntime();
+		try {
+			const asyncProjection = await projectTargetCaseSelectionsAsync(
+				input,
+				source.uuid,
+				destination(link),
+				async (source, instances) => {
+					const result = await runtime.request({
+						dayNumberEpoch: "device-zone",
+						entryKey: "linked-pair",
+						revision: 1,
+						profile: "form-link",
+						source,
+						instances,
+					});
+					if (!result.ok) throw new Error(result.error.code);
+					return deserializeXPathWorkerValue(result.value);
+				},
+			);
+			expect(asyncProjection).toEqual(projected);
+		} finally {
+			runtime.dispose();
+		}
+	});
 	it("maps every manual nested target datum, including its parent", () => {
 		const doc = nestedPatientDoc();
 		const input = inputFor(doc);

@@ -1,9 +1,55 @@
 import { z } from "zod";
 import type { BlueprintDoc } from "./blueprint";
 import { type FreeNameOffer, freeNameClause, uniqueSlug } from "./idSlug";
+import { listedMenuIsEmpty, menuFormUuidsOf } from "./listedForms";
 import { ownRecordValue } from "./records";
 import { uuidSchema } from "./uuid";
 
+export const suppliedCaseCreationSchema = z.strictObject({
+	operationUuid: uuidSchema,
+	caseId: z.string().min(1).max(255),
+});
+export type SuppliedCaseCreation = z.infer<typeof suppliedCaseCreationSchema>;
+export const creationLaunchSchema = z.strictObject({
+	entryPointUuid: uuidSchema,
+	creations: z.array(suppliedCaseCreationSchema).min(1),
+});
+export type CaseCreationLaunch = {
+	readonly entryPointUuid: EntryPoint["uuid"];
+	readonly creations: readonly SuppliedCaseCreation[];
+};
+/** A caller supplies one new ID for each exposed creation. A case ID is
+ * opaque. Control characters and commas cannot survive both launch readers. */
+export function suppliedCreationIssue(
+	required: readonly { readonly operationUuid: string }[],
+	supplied: readonly {
+		readonly operationUuid: string;
+		readonly caseId: string;
+	}[],
+): string | undefined {
+	if (
+		supplied.length !== required.length ||
+		new Set(supplied.map((row) => row.operationUuid)).size !==
+			supplied.length ||
+		supplied.some(
+			(row) =>
+				!required.some((item) => item.operationUuid === row.operationUuid),
+		)
+	)
+		return "Provide one new case ID for each case this link creates.";
+	if (
+		new Set(supplied.map((row) => row.caseId)).size !== supplied.length ||
+		supplied.some(
+			({ caseId }) =>
+				caseId.trim().length === 0 ||
+				caseId.length > 255 ||
+				[...caseId].some(
+					(c) => c === "," || c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127,
+				),
+		)
+	)
+		return "Each new case needs a different ID of up to 255 characters, without commas or control characters.";
+}
 export const entryPointIdSchema = z
 	.string()
 	.regex(
@@ -95,6 +141,10 @@ export function entryPointAt(
 ): FormEntryPoint | undefined {
 	const module = ownRecordValue(doc.modules, target.moduleUuid);
 	if (!module) return;
+	if (target.kind === "form" && module.formsFromMenu)
+		return module.formsFromMenu.entryPoints?.find(
+			(row) => row.formUuid === target.formUuid,
+		)?.entryPoint;
 	if (target.kind === "form")
 		return doc.formOrder[target.moduleUuid]?.includes(target.formUuid)
 			? ownRecordValue(doc.forms, target.formUuid)?.entryPoint
@@ -103,6 +153,25 @@ export function entryPointAt(
 		? module.entryPoint
 		: module.caseListEntryPoint;
 }
+/** A route can keep its deep links while the worker temporarily cannot open
+ * them. A route that shows none of its source's forms has no menu on the
+ * device, so its own link waits too. */
+export function listedFormLinkPause(
+	doc: BlueprintDoc,
+	target: EntryPointTarget,
+): string | undefined {
+	const route = doc.modules[target.moduleUuid];
+	if (!route?.formsFromMenu) return;
+	if (target.kind !== "form")
+		return listedMenuIsEmpty(doc, route.uuid)
+			? `Show a form in “${route.name}” to turn on its deep link.`
+			: undefined;
+	if (!route.entryPoint)
+		return `Add a deep link for “${route.name}” to turn on its form links.`;
+	if (!menuFormUuidsOf(doc, route.uuid).includes(target.formUuid))
+		return `Show “${doc.forms[target.formUuid]?.name ?? "this form"}” in “${route.name}” to turn on its link.`;
+}
+
 export function entryPointInventory(
 	doc: BlueprintDoc,
 ): EntryPointInventoryItem[] {
@@ -120,8 +189,15 @@ export function entryPointInventory(
 				target: { kind: "case-list", moduleUuid },
 				entryPoint: module.caseListEntryPoint,
 			});
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const entryPoint = ownRecordValue(doc.forms, formUuid)?.entryPoint;
+		const forms = module.formsFromMenu
+			? (doc.formOrder[module.formsFromMenu.menuUuid] ?? [])
+			: (doc.formOrder[moduleUuid] ?? []);
+		for (const formUuid of forms) {
+			const entryPoint = module.formsFromMenu
+				? module.formsFromMenu.entryPoints?.find(
+						(row) => row.formUuid === formUuid,
+					)?.entryPoint
+				: ownRecordValue(doc.forms, formUuid)?.entryPoint;
 			if (entryPoint)
 				items.push({
 					target: { kind: "form", moduleUuid, formUuid },

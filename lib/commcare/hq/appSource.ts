@@ -25,38 +25,42 @@ import "server-only";
 import type { HqApplicationProfile } from "@/lib/commcare";
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
 import {
-	baseUrl,
+	type HqBuildProfile,
+	readBuildProfiles,
+	unusableBuildProfileKey,
+} from "./buildProfiles";
+import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
+	hqDomainPath,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 } from "./http";
+import {
+	type HqMediaMapItem,
+	readMultimediaMap,
+	unreadableMediaIdentity,
+} from "./mediaMap";
 import { readHqJson } from "./readJson";
 
 export { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
-
-/** The four document kinds `hqmedia/models.py::CommCareMultimedia.get_doc_class` names. */
-export const HQ_MEDIA_TYPES = [
-	"CommCareImage",
-	"CommCareAudio",
-	"CommCareVideo",
-	"CommCareMultimedia",
-] as const;
-export type HqMediaType = (typeof HQ_MEDIA_TYPES)[number];
-
-/** One entry of `multimedia_map`. */
-export interface HqMediaMapItem {
-	/** The map's key: the path the app's content names, `jr://file/...`. */
-	readonly path: string;
-	/** HQ's id of the file, or null where the entry names none Nova can ask for. */
-	readonly multimediaId: string | null;
-	readonly mediaType: HqMediaType | null;
-	/** True where the entry names a file by an id or a type Nova cannot read. Both are then null. */
-	readonly unreadable: boolean;
-}
+export {
+	type HqBuildProfile,
+	readBuildProfiles,
+	unusableBuildProfileKey,
+} from "./buildProfiles";
+export {
+	HQ_MEDIA_TYPES,
+	type HqMediaMapItem,
+	type HqMediaType,
+	readMultimediaMap,
+	UNREADABLE_MEDIA_ENTRY_POSITIONS,
+	unreadableMediaIdentity,
+} from "./mediaMap";
 
 export interface HqAppSourceForm {
 	/** `doc_type`: `Form`, `AdvancedForm` or `ShadowForm` (`models/forms.py::FormBase.wrap`). */
@@ -72,16 +76,6 @@ export interface HqAppSourceForm {
 	readonly shadowParentReadId: string | null;
 	/** The XForm under this read's `<form id>.xml`, or null when absent. */
 	readonly attachment: string | null;
-}
-
-/** One entry of `build_profiles`. */
-export interface HqBuildProfile {
-	/** The profile's key in `build_profiles`. */
-	readonly id: string;
-	/** `name`; `""` where HQ holds no string. */
-	readonly name: string;
-	/** `langs`: the profile's language codes, its default first. */
-	readonly langs: readonly string[];
 }
 
 export interface HqAppSourceModule {
@@ -175,7 +169,8 @@ export interface ReadHqAppSourceOptions {
 	readonly cancel?: AbortSignal;
 	/**
 	 * `plain`, the default: every menu holds a string `unique_id` and a string `case_type` and
-	 * every form a string `xmlns`, and anything else is `malformed`. This is a publish's check.
+	 * every form but a shadow form a string `xmlns`, and anything else is `malformed`. This is a
+	 * publish's check.
 	 * `any`: a null `case_type` and a null `xmlns` are read as null, and a menu's absent, null or
 	 * `""` `unique_id` is read as null. This is a bring-in's.
 	 */
@@ -184,6 +179,39 @@ export interface ReadHqAppSourceOptions {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Advanced entries store a table tag directly. Its generated fixture URI
+ * appears only in the built suite. A shadow stores its replacement and
+ * additional choices in its own action list. */
+export function entryLookupTableTags(source: HqAppSource): ReadonlySet<string> {
+	const tags = new Set<string>();
+	const modules = source.raw.modules;
+	if (!Array.isArray(modules)) return tags;
+	for (const menu of modules) {
+		if (!isRecord(menu) || !Array.isArray(menu.forms)) continue;
+		for (const form of menu.forms) {
+			if (!isRecord(form)) continue;
+			const actions =
+				form.doc_type === "ShadowForm"
+					? form.extra_actions
+					: form.doc_type === "AdvancedForm"
+						? form.actions
+						: undefined;
+			if (!isRecord(actions) || !Array.isArray(actions.load_update_cases))
+				continue;
+			for (const load of actions.load_update_cases) {
+				const auto = isRecord(load) && load.auto_select;
+				if (
+					isRecord(auto) &&
+					auto.mode === "fixture" &&
+					typeof auto.value_source === "string"
+				)
+					tags.add(auto.value_source);
+			}
+		}
+	}
+	return tags;
 }
 
 /** An object of language entries, each an object of strings. */
@@ -200,8 +228,6 @@ function isStringBagByLanguage(
 	);
 }
 
-const MEDIA_TYPES: ReadonlySet<string> = new Set(HQ_MEDIA_TYPES);
-
 /**
  * Read the app's source and say what CommCare HQ holds there.
  *
@@ -215,9 +241,7 @@ const MEDIA_TYPES: ReadonlySet<string> = new Set(HQ_MEDIA_TYPES);
  * Anything short of the expected shape is a refusal, never an empty
  * default: an empty profile, `translations`, `add_ons` or `build_profiles`
  * would make the next import erase configuration HQ owns or pass a state a
- * publish must stop on, and a menu with no id cannot be paired. `name`,
- * `last_modified` and `multimedia_map` are read where HQ sent them and null
- * where it did not, so none of them refuses a read.
+ * publish must stop on, and a menu with no id cannot be paired. Every live app source must carry its media map. Its name and save time may be absent.
  */
 export async function readHqAppSource(
 	creds: CommCareCredentials,
@@ -227,7 +251,7 @@ export async function readHqAppSource(
 ): Promise<HqAppSourceRead> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId))
 		return INVALID_DOMAIN_SLUG;
-	const url = `${baseUrl(creds)}/a/${domain}/apps/source/${encodeURIComponent(appId)}/`;
+	const url = `${hqDomainPath(domain)}/apps/source/${encodeURIComponent(appId)}/`;
 	const result = await readHqJson(creds, url, "app source", {
 		maxBytes: options.maxBytes ?? HQ_APP_SOURCE_MAX_BYTES,
 		deadlineMs: options.deadlineMs,
@@ -255,23 +279,26 @@ export async function readHqAppSource(
 	const parsed = parseHqAppSource(body, {
 		admit: options.admit,
 		onNote: (note) => {
-			if (note.kind === "media-map-malformed")
-				log.error("[commcare] media map is malformed", undefined, {
-					domain,
-					request: "app-source",
-					appId,
-				});
-			else
-				log.warn("[commcare] media map entries are unreadable", {
-					domain,
-					request: "app-source",
-					appId,
-					count: note.count,
-					firstIndexes: note.firstIndexes,
-				});
+			if (note.kind === "media-map-malformed") return; // The caller logs the malformed required key below.
+			log.warn("[commcare] media map entries are unreadable", {
+				domain,
+				request: "app-source",
+				appId,
+				count: note.count,
+				firstIndexes: note.firstIndexes,
+			});
 		},
 	});
-	if (parsed.kind === "source") return parsed;
+	if (parsed.kind === "source") {
+		// An update can prune mappings even when the app sends no files.
+		// A live reading must account for the map before it may be adopted,
+		// refreshed or used for an import. Older stored sources still decode.
+		return parsed.source.multimediaMap === null
+			? malformed(domain, appId, "multimedia_map")
+			: parsed;
+	}
+	if (parsed.key === "build_profiles.unusable-key")
+		return { ...HQ_MALFORMED_ANSWER, installationProfileKeyUnusable: true };
 	if (parsed.key === "build_profiles") {
 		log.error("[commcare] build profiles are malformed", undefined, {
 			domain,
@@ -282,9 +309,6 @@ export async function readHqAppSource(
 	}
 	return malformed(domain, appId, parsed.key);
 }
-
-/** The most positions of unreadable media map entries one note names. */
-export const UNREADABLE_MEDIA_ENTRY_POSITIONS = 5;
 
 /** What a parse of a source met that its caller may log: a media map that is no object, or the
  *  entries of it Nova cannot ask for, as one note for the whole map with their count and the
@@ -356,8 +380,22 @@ export function parseHqAppSource(
 	if (logoRefs !== undefined && !isRecord(logoRefs)) {
 		return refuse("logo_refs");
 	}
-	const buildProfiles = readBuildProfiles(body.build_profiles);
-	if (buildProfiles === null) return refuse("build_profiles");
+	const ordinaryLanguages = new Set(langs);
+	const buildProfiles = readBuildProfiles(
+		body.build_profiles,
+		ordinaryLanguages,
+		modules.length,
+	);
+	if (buildProfiles === null)
+		return refuse(
+			unusableBuildProfileKey(
+				body.build_profiles,
+				ordinaryLanguages,
+				modules.length,
+			)
+				? "build_profiles.unusable-key"
+				: "build_profiles",
+		);
 
 	const parsedModules: HqAppSourceModule[] = [];
 	for (const module of modules) {
@@ -365,8 +403,13 @@ export function parseHqAppSource(
 			return refuse("modules[]");
 		}
 		const uniqueId = moduleUniqueId(module.unique_id, admitAny);
-		const caseType = textOrNull(module.case_type, admitAny);
 		const docType = docTypeOf(module.doc_type, admitAny);
+		// HQ derives a second menu's case type from its source. A Nova upload omits
+		// the inert stored property; HQ's source of that upload serializes it as null.
+		const caseType =
+			docType === "ShadowModule" && module.case_type == null
+				? null
+				: textOrNull(module.case_type, admitAny);
 		if (uniqueId === undefined || caseType === undefined || docType === null) {
 			return refuse("modules[]");
 		}
@@ -375,8 +418,14 @@ export function parseHqAppSource(
 			if (!isRecord(form) || typeof form.unique_id !== "string") {
 				return refuse("modules[].forms[]");
 			}
-			const xmlns = textOrNull(form.xmlns, admitAny);
 			const formDocType = docTypeOf(form.doc_type, admitAny);
+			/* A shadow form stores no namespace and takes its parent's
+			 * (`ShadowForm.xmlns`); every reading reads it as none. */
+			const xmlns =
+				formDocType === "ShadowForm" &&
+				(form.xmlns === null || form.xmlns === undefined)
+					? null
+					: textOrNull(form.xmlns, admitAny);
 			if (xmlns === undefined || formDocType === null) {
 				return refuse("modules[].forms[]");
 			}
@@ -458,89 +507,49 @@ function docTypeOf(value: unknown, admitAny: boolean): string | null {
 }
 
 /**
- * `build_profiles`, `models/applications.py::ApplicationBase.build_profiles`,
- * a `SchemaDictProperty(BuildProfile)` HQ serializes on every app: an object
- * whose every value holds a `langs` list of strings. Null where it is not.
+ * App-shell inputs the changes reader uses beyond the part Nova overwrites.
+ * HQ prunes map keys unreferenced by both content and the retained logos.
+ * A file outside the settled manifest may also be one the earlier reading
+ * left out, or one HQ now serves. Map item versions and upload metadata
+ * describe neither a path nor a file. Web Apps also affects how the reader
+ * interprets an absent Incomplete Forms setting.
+ *
+ * The maps compare entry by entry. A path that left the map is a move. A
+ * `settledPaths` path is Nova's own file there, so a new entry or another id
+ * at it is not one: HQ's bulk upload adds Nova's file to the map after the
+ * publish read the app back.
  */
-function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
-	if (!isRecord(value)) return null;
-	const profiles: HqBuildProfile[] = [];
-	for (const [id, profile] of Object.entries(value)) {
-		if (
-			!isRecord(profile) ||
-			!Array.isArray(profile.langs) ||
-			!profile.langs.every((lang) => typeof lang === "string")
-		)
-			return null;
-		profiles.push({
-			id,
-			name: typeof profile.name === "string" ? profile.name : "",
-			langs: profile.langs as string[],
-		});
-	}
-	return profiles;
-}
-
-/**
- * `multimedia_map`, `hqmedia/models.py::ApplicationMediaMixin.multimedia_map`:
- * path to `HQMediaMapItem`. An entry with no id names no file
- * (`HQMediaMapItem.url` is empty for it); an entry whose id or type Nova
- * cannot ask for is kept as unreadable, so one entry never refuses the read.
- */
-function readMultimediaMap(
-	value: unknown,
-	onNote: ((note: HqAppSourceParseNote) => void) | undefined,
-): readonly HqMediaMapItem[] | null {
-	if (value === undefined) return null;
-	if (!isRecord(value)) {
-		onNote?.({ kind: "media-map-malformed" });
-		return null;
-	}
-	const items: HqMediaMapItem[] = [];
-	/* One note for the map, after the loop: the map is an app author's, and
-	 * its length is bounded only by the source's. */
-	let unreadable = 0;
-	const firstIndexes: number[] = [];
-	for (const [index, [path, entry]] of Object.entries(value).entries()) {
-		if (isRecord(entry)) {
-			const id = entry.multimedia_id;
-			if (id === undefined || id === null || id === "") {
-				items.push({
-					path,
-					multimediaId: null,
-					mediaType: null,
-					unreadable: false,
-				});
-				continue;
-			}
-			const type = entry.media_type;
-			if (
-				typeof id === "string" &&
-				/^[\w-]+$/.test(id) &&
-				typeof type === "string" &&
-				MEDIA_TYPES.has(type)
-			) {
-				items.push({
-					path,
-					multimediaId: id,
-					mediaType: type as HqMediaType,
-					unreadable: false,
-				});
-				continue;
-			}
-		}
-		unreadable += 1;
-		if (firstIndexes.length < UNREADABLE_MEDIA_ENTRY_POSITIONS)
-			firstIndexes.push(index);
-		items.push({ path, multimediaId: null, mediaType: null, unreadable: true });
-	}
-	if (unreadable > 0)
-		onNote?.({
-			kind: "media-entries-unreadable",
-			count: unreadable,
-			firstIndexes,
-		});
-	return items;
+export function publishReadingFactsMoved(
+	previous: unknown,
+	current: HqAppSource,
+	settledPaths: ReadonlySet<string>,
+): boolean {
+	if (!isRecord(previous)) return true;
+	if ((previous.cloudcare_enabled === true) !== current.cloudcareEnabled)
+		return true;
+	if (
+		canonicalJsonText(previous.logo_refs ?? NO_ENTRIES) !==
+		canonicalJsonText(current.logoRefs)
+	)
+		return true;
+	const earlier = readMultimediaMap(previous.multimedia_map, undefined) ?? [];
+	const now = current.multimediaMap ?? [];
+	const nowPaths = new Set(now.map((item) => item.path));
+	if (earlier.some((item) => !nowPaths.has(item.path))) return true;
+	const byPath = new Map(earlier.map((item) => [item.path, item]));
+	return now.some((item) => {
+		const before = byPath.get(item.path);
+		if (before === undefined) return !settledPaths.has(item.path);
+		return (
+			before.mediaType !== item.mediaType ||
+			before.unreadable !== item.unreadable ||
+			(item.unreadable &&
+				unreadableMediaIdentity(previous, item.path) !==
+					unreadableMediaIdentity(current.raw, item.path)) ||
+			(before.multimediaId !== item.multimediaId &&
+				!settledPaths.has(item.path))
+		);
+	});
 }
 
 function malformed(

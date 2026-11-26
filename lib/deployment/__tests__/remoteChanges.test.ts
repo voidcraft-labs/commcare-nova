@@ -22,6 +22,13 @@ import {
 	type WebAppsChange,
 	webAppsChangeMessage,
 } from "@/lib/publish/webApps";
+import * as appRemoteChangeModule from "../appRemoteChange";
+import { appRemoteChange } from "../appRemoteChange";
+import {
+	hqDiscardDigest,
+	normalizeHqAppSource,
+	removedHqFiles,
+} from "../hqSourceBaseline";
 import * as remoteChangesModule from "../remoteChanges";
 import {
 	BASELINE_UNKNOWN_SENTENCE,
@@ -512,6 +519,9 @@ const SAMPLED_FUNCTIONS: Readonly<Record<string, () => readonly string[]>> = {
 	],
 	describePlaceChange: () => [describePlaceChange({ kind: "missing" })],
 	boundedParts: () => boundedParts(["a", "b"]),
+	/* A boolean, never read by a person. */
+	fileDisclosureTruncated: () => [],
+	appRemoteChange: () => sampleAppRemoteChange(),
 	decideRemoteChanges: () => [],
 	driftReferenceOf: () => [],
 	driftDate: () => [driftReferenceModule.driftDate(BROUGHT_IN_AT)],
@@ -556,15 +566,217 @@ const SAMPLED_FUNCTIONS: Readonly<Record<string, () => readonly string[]>> = {
 	],
 };
 
+function remoteAppInput(fileCount: number) {
+	const current = normalizeHqAppSource({
+		doc_type: "Application",
+		modules: [],
+		_attachments: {},
+		multimedia_map: Object.fromEntries(
+			Array.from({ length: fileCount }, (_, i) => [
+				`jr://file/commcare/image/photo-${i}.png`,
+				i === 0
+					? { media_type: "CommCareImage" }
+					: { media_type: "CommCareImage", multimedia_id: `file${i}` },
+			]),
+		),
+	});
+	if ("malformed" in current) throw new Error(current.malformed);
+	return {
+		authority: {
+			actor: "editor",
+			role: "editor",
+			project: "project",
+			app: "app",
+			server: "production" as const,
+			domain: "acme",
+			remoteApp: "remote",
+			deployment: "deployment",
+			claim: "claim",
+			reviewGeneration: null,
+			headSeq: 1,
+			remoteRevision: 2,
+			baseline: null,
+		},
+		appName: "Care",
+		novaAppId: "app",
+		remoteAppId: "remote",
+		since: PUBLISHED,
+		languageNames: "target" as const,
+		mediaChanged: 0,
+		published: [],
+		current,
+	};
+}
+
+/**
+ * Every line and note `appRemoteChange` builds: a removed file with and
+ * without its CommCare HQ file id, a list too long to show whole with and
+ * without a usable pair, and a first and a next publish's required review.
+ */
+function sampleAppRemoteChange(): readonly string[] {
+	const changes = [
+		appRemoteChange({
+			...remoteAppInput(2),
+			baseline: null,
+			canBringIn: true,
+		}),
+		...[true, false].map((canBringIn) =>
+			appRemoteChange({
+				...remoteAppInput(21),
+				baseline: null,
+				canBringIn,
+			}),
+		),
+		...[true, false].flatMap((canBringIn) =>
+			[undefined, []].map((unverifiedNextChanges) =>
+				appRemoteChange({
+					...remoteAppInput(0),
+					baseline: {
+						origin: "unread",
+						mediaFiles: null,
+						firstPublishReview: "required",
+						...(unverifiedNextChanges && { unverifiedNextChanges }),
+					},
+					canBringIn,
+				}),
+			),
+		),
+	];
+	return changes.flatMap((change) => {
+		if (!change) throw new Error("Each sampled input is a change.");
+		return [...change.parts, ...(change.note === null ? [] : [change.note])];
+	});
+}
+
 function sampleArms(
 	say: (since: DriftReference, options?: DriftDateOptions) => string,
 ): readonly string[] {
 	return [PUBLISHED, BROUGHT_IN, CHANGES_BROUGHT_IN].map((since) => say(since));
 }
 
+describe("a removed-file change", () => {
+	it("names each file by its path, invites the review a long list needs, and asks for the first publish's review", () => {
+		const lines = sampleAppRemoteChange();
+		expect(lines).toContain(
+			"Publishing removes the reference to “commcare/image/photo-0.png” from the app in CommCare HQ. This app doesn't use it.",
+		);
+		expect(lines).toContain(
+			"Publishing removes the file “commcare/image/photo-1.png” from the app in CommCare HQ. This app doesn't use it.",
+		);
+		for (const line of [
+			"You can review the complete list of files before publishing here.",
+			"You can review what the first publish would change in this project space.",
+			"You can review what the next publish would change in this project space.",
+			"You can review changes from CommCare HQ before publishing here.",
+		])
+			expect(lines).toContain(line);
+		expect(lines.join(" ")).not.toMatch(/jr:\/\/|file1”/);
+	});
+	it.each([
+		{ files: 19, location: false, media: 0, hidden: false, overflow: false },
+		{ files: 18, location: true, media: 1, hidden: false, overflow: true },
+		{ files: 19, location: true, media: 0, hidden: true, overflow: true },
+		{ files: 20, location: false, media: 0, hidden: true, overflow: true },
+		{
+			files: 18,
+			location: true,
+			media: 0,
+			layouts: ["The first menu would change from a grid to a list."],
+			hidden: true,
+			overflow: true,
+		},
+	])(
+		"requires full review when the summary hides a file ($files files, location $location, media $media, layouts $layouts)",
+		({ files, location, media, layouts = [], hidden, overflow }) => {
+			const legacyLanguageRemoval =
+				"Publishing would remove Ganda (lug) from this app in CommCare HQ.";
+			const fixture = remoteAppInput(files);
+			const input = {
+				...fixture,
+				baseline: {
+					origin: "cutover" as const,
+					source: fixture.current.normalized,
+					ownership: {
+						addOns: [],
+						profileProperties: [],
+						profileCustomProperties: [],
+						autoGpsCapture: false,
+					},
+					mediaFiles: null,
+				},
+				canBringIn: true,
+				locationChange: location
+					? "Automatic location for every form will change from on to off"
+					: undefined,
+				mediaChanged: media,
+				legacyLanguageRemoval,
+				layoutReplacements: layouts,
+			};
+			const shown = appRemoteChange(input);
+			if (!shown) throw new Error("Expected the app's change");
+			expect(shown.parts.slice(0, 1 + layouts.length)).toEqual([
+				legacyLanguageRemoval,
+				...layouts,
+			]);
+			expect(
+				shown.parts.filter((line) => line.startsWith("Publishing removes ")),
+			).toHaveLength(hidden ? 18 - layouts.length : files);
+			if (overflow) expect(shown.parts.at(-1)).toBe("and 2 more");
+			expect(shown.requiresReview).toBe(hidden ? true : undefined);
+			const discard = {
+				kind: shown.kind,
+				novaResourceId: shown.novaResourceId,
+				observedDigest: shown.observedDigest,
+			};
+			expect(
+				decideRemoteChanges({ observed: [shown], discards: [discard] }).proceed,
+			).toBe(!hidden);
+			if (hidden) {
+				const removed = removedHqFiles(input.current.normalized, {
+					published: input.published,
+					recorded: null,
+				});
+				const complete = {
+					...discard,
+					observedDigest: hqDiscardDigest(
+						input.authority,
+						input.current.digest,
+						removed,
+						"complete",
+						layouts,
+					),
+				};
+				if (layouts.length > 0) {
+					const different = appRemoteChange({
+						...input,
+						discards: [complete],
+						layoutReplacements: [
+							"A different menu would change from a grid to a list.",
+						],
+					});
+					if (!different) throw new Error("Expected the revised disclosure");
+					expect(
+						decideRemoteChanges({ observed: [different], discards: [complete] })
+							.proceed,
+					).toBe(false);
+				}
+				const reviewed = appRemoteChange({ ...input, discards: [complete] });
+				if (!reviewed) throw new Error("Expected the reviewed change");
+				expect(reviewed.parts).toEqual(shown.parts);
+				expect(reviewed.observedDigest).toBe(complete.observedDigest);
+				expect(
+					decideRemoteChanges({ observed: [reviewed], discards: [complete] })
+						.proceed,
+				).toBe(true);
+			}
+		},
+	);
+});
+
 describe("the copy", () => {
 	const modules = {
 		remoteChanges: remoteChangesModule,
+		appRemoteChange: appRemoteChangeModule,
 		driftReference: driftReferenceModule,
 		stopPublishing: stopPublishingModule,
 		hqAppClaims: hqAppClaimsModule,

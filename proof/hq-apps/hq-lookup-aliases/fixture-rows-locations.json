@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"id\": \"school\", \"name\": \"School yard\"}, \"fixture_type\": \"locations\", \"id\": \"2ac525ece2e148a3b13115946c761d5e\", \"resource_uri\": \"\"}, {\"fields\": {\"id\": \"clinic\", \"name\": \"Health center\"}, \"fixture_type\": \"locations\", \"id\": \"414db8fa537e40e6a5c58cc7032879fe\", \"resource_uri\": \"\"}]}"
+}

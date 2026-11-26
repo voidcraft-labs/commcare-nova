@@ -155,6 +155,94 @@ describe("entry points", () => {
 			"visit",
 		);
 	});
+	it("opens a first-menu form's endpoint as HQ's endpoint builder does: no root prefix once any form selects a case", () => {
+		// HQ's EndpointsHelper builds its WorkflowHelper over the
+		// `app.get_modules()` generator, which the entry pass's detail lookup
+		// reads to its end before `_root_module_datums` reads it.
+		const doc = endpointWireFixture("first-menu");
+		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
+		expect(normalized(serializeXml(result.endpoints[0]))).toEqual(
+			normalized(
+				`<endpoint id="visit"><argument id="case_id"/><stack><push><datum id="case_id" value="$case_id"/><command value="'claim_command.visit.case_id'"/></push><push><command value="'m0-f0'"/><datum id="case_id" value="$case_id"/></push></stack></endpoint>`,
+			),
+		);
+		const projection = projectEntryPoint(doc, {
+			kind: "form",
+			moduleUuid: M,
+			formUuid: F,
+		});
+		// Android keeps the claimed case on Home after Back, the case the
+		// workflow frame opens with.
+		expect(projection.opensWithFirstMenuCase).toBe(true);
+		expect(projection.homeFrame[0]).toMatchObject({
+			type: "datum",
+			datum: { id: "case_id" },
+		});
+		expect(projection.requiredSelections[0]?.firstMenuConsumers).toEqual([
+			M,
+			testUuid("endpoint-second-patient-menu"),
+		]);
+		// With no form selecting a case, the generator is still whole: the
+		// root prefix stays ahead of the form's command.
+		const supplied = endpointWireFixture("registration-supplied");
+		supplied.modules[M].formsInMenuAbove = true;
+		admitted(supplied);
+		const wire = buildEntryPointSuite(
+			supplied,
+			formLinkProjectionContext(supplied),
+		);
+		expect(normalized(serializeXml(wire.endpoints[0]))).toEqual(
+			normalized(
+				`<endpoint id="visit" respect-relevancy="false"><argument id="case_id_new_patient_0"/><stack><push><datum id="case_id_new_patient_0" value="$case_id_new_patient_0"/><command value="'m0-f0'"/></push></stack></endpoint>`,
+			),
+		);
+	});
+	it("holds an ordinary menu's claimed case on Home, and keeps the first-menu rules to the workflow frame", () => {
+		const doc = endpointWireFixture("first-menu");
+		delete doc.modules[M].formsInMenuAbove;
+		admitted(doc);
+		const projection = projectEntryPoint(doc, {
+			kind: "form",
+			moduleUuid: M,
+			formUuid: F,
+		});
+		// HQ claims the case in a push ahead of the menu's command, so Back
+		// stops on Home with it still chosen and every menu selecting a
+		// patient under the same id skips its list.
+		expect(projection.frame[0]).toMatchObject({ type: "command" });
+		expect(projection.homeFrame[0]).toMatchObject({
+			type: "datum",
+			datum: { id: "case_id" },
+		});
+		expect(projection.requiredSelections[0]?.firstMenuConsumers).toEqual([
+			M,
+			testUuid("endpoint-second-patient-menu"),
+		]);
+		// No menu shows its forms on the first menu: the destination does not
+		// open with a shared first-menu case.
+		expect(projection.firstMenuFrame[0]).toMatchObject({ type: "command" });
+		expect(projection.opensWithFirstMenuCase).toBe(false);
+		// With two claims, Back pops the second with its posted claim and
+		// keeps only the first.
+		const child = endpointWireFixture("child");
+		const nested = projectEntryPoint(child, {
+			kind: "form",
+			moduleUuid: M,
+			formUuid: F,
+		});
+		expect(
+			nested.orderedArguments.map((argument) => argument.argumentId),
+		).toEqual(["parent_id", "case_id"]);
+		expect(
+			nested.requiredSelections.map((row) => [
+				row.argumentId,
+				row.firstMenuConsumers,
+			]),
+		).toEqual([
+			["parent_id", [testUuid("endpoint-parent")]],
+			["case_id", undefined],
+		]);
+	});
 	it("preserves multiple selection cardinality and maximum", () => {
 		const p = projectEntryPoint(fixture(true), {
 			kind: "form",
@@ -168,6 +256,8 @@ describe("entry points", () => {
 				cardinality: "multiple",
 				maximum: 5,
 				argumentId: "selected_cases",
+				// HQ claims chosen cases too; only this menu reads them.
+				firstMenuConsumers: [M],
 			},
 		]);
 	});
@@ -287,6 +377,56 @@ describe("entry points", () => {
 			}),
 		).readAsText("suite.xml");
 		expect(endpointSuiteSignature(suite, "visit")).toBeDefined();
+	});
+	it("writes a registration's supplied operation ID on the source form and the native endpoint without a claim", () => {
+		const doc = endpointWireFixture("registration-supplied");
+		const own = doc.forms[F].caseOperations?.find(
+			(operation) => operation.action === "own",
+		);
+		const target = { kind: "form" as const, moduleUuid: M, formUuid: F };
+		const projection = projectEntryPoint(doc, target);
+		expect(projection.requiredSelections).toEqual([]);
+		expect(projection.requiredCreations).toEqual([
+			{
+				caseType: "patient",
+				operationUuid: own?.uuid,
+				argumentId: "case_id_new_patient_0",
+				cardinality: "one",
+			},
+		]);
+		const wire = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
+		expect(wire.remoteRequests).toHaveLength(0);
+		expect(serializeXml(wire.endpoints[0])).toContain(
+			'value="$case_id_new_patient_0"',
+		);
+		expect(expandDoc(doc).modules[0].forms[0].function_datum_endpoints).toEqual(
+			["case_id_new_patient_0"],
+		);
+		if (!own) throw new Error("The fixture needs an own-case operation.");
+		doc.forms[F].entryCaseCreations = [own.uuid, own.uuid];
+		admitted(doc);
+		const repeatedWire = buildEntryPointSuite(
+			doc,
+			formLinkProjectionContext(doc),
+		);
+		expect(serializeXml(repeatedWire.endpoints[0])).toEqual(
+			serializeXml(wire.endpoints[0]),
+		);
+		expect(expandDoc(doc).modules[0].forms[0].function_datum_endpoints).toEqual(
+			["case_id_new_patient_0", "case_id_new_patient_0"],
+		);
+		doc.forms[F].entryCaseCreations = [own.uuid];
+		delete doc.forms[F].entryPoint;
+		admitted(doc);
+		expect(expandDoc(doc).modules[0].forms[0].function_datum_endpoints).toEqual(
+			["case_id_new_patient_0"],
+		);
+		doc.forms[F].entryCaseCreations = [testUuid("absent-creation")];
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ code: "ENTRY_POINT_INVALID" }),
+			]),
+		);
 	});
 	it("keeps registration computed datums runtime owned and form bypass explicit", () => {
 		const doc = endpointWireFixture("registration");

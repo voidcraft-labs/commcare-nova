@@ -69,7 +69,7 @@ function platformFeatureError(
 				"app",
 				message("This app"),
 				{},
-				{ ...base, connectType: doc.connectType ?? "" },
+				{ ...base, connectRoles: doc.connectRoles.join(",") },
 			);
 		case "module": {
 			const moduleName = doc.modules[owner.moduleUuid]?.name ?? "";
@@ -79,6 +79,22 @@ function platformFeatureError(
 				message(`Module "${moduleName}"`),
 				{ moduleUuid: owner.moduleUuid, moduleName },
 				base,
+			);
+		}
+		case "form": {
+			const moduleName = doc.modules[owner.moduleUuid]?.name ?? "";
+			const formName = doc.forms[owner.formUuid]?.name ?? "";
+			return validationError(
+				"PLATFORM_FEATURE_UNAVAILABLE",
+				"form",
+				message(`Form "${formName}"`),
+				{
+					moduleUuid: owner.moduleUuid,
+					moduleName,
+					formUuid: owner.formUuid,
+					formName,
+				},
+				{ ...base, ...(use.site.kind === "slot" && { slot: use.site.slot }) },
 			);
 		}
 		case "field": {
@@ -98,6 +114,25 @@ function platformFeatureError(
 					fieldId,
 				},
 				base,
+			);
+		}
+		case "column": {
+			const module = doc.modules[owner.moduleUuid];
+			const moduleName = module?.name ?? "";
+			const column = module?.caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === owner.columnUuid,
+			);
+			return validationError(
+				"PLATFORM_FEATURE_UNAVAILABLE",
+				"module",
+				message(`Column "${column?.header ?? ""}" in module "${moduleName}"`),
+				{ moduleUuid: owner.moduleUuid, moduleName },
+				{
+					...base,
+					columnUuid: owner.columnUuid,
+					columnHeader: column?.header ?? "",
+					...(use.site.kind === "slot" && { slot: use.site.slot }),
+				},
 			);
 		}
 		case "search-input": {

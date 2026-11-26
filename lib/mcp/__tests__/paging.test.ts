@@ -15,9 +15,12 @@ import {
 	arrayItemChars,
 	cutPage,
 	fitPiece,
+	fitsReviewResult,
+	lineParts,
 	PAGE_LIMIT_CHARS,
 	PIECE_MAX_CHARS,
 	SHELL_MAX_CHARS,
+	toolResultChars,
 	toolText,
 } from "../paging";
 
@@ -112,6 +115,39 @@ describe("a page", () => {
 });
 
 describe("the text a tool sends", () => {
+	it("measures escaped text in the SDK result and preserves every code point across fragments", () => {
+		const value = { finding: '"'.repeat(22_500) };
+		for (const isError of [false, true]) {
+			const result = {
+				...(isError && { isError }),
+				content: [{ type: "text", text: JSON.stringify(value) }],
+			};
+			expect(toolResultChars(value, isError)).toBe(
+				JSON.stringify(result).length,
+			);
+			expect(fitsReviewResult(value, isError)).toBe(false);
+		}
+		expect(JSON.stringify(value).length).toBeLessThan(PAGE_LIMIT_CHARS);
+		const empty = { value: "" };
+		const shell = JSON.stringify({
+			content: [{ type: "text", text: JSON.stringify(empty) }],
+		}).length;
+		const exact = { value: "v".repeat(PAGE_LIMIT_CHARS - shell) };
+		expect(fitsReviewResult(exact)).toBe(true);
+		expect(fitsReviewResult(exact, true)).toBe(false);
+		expect(toolText(exact)).toBe(JSON.stringify(exact));
+		const costs = [
+			String.fromCharCode(0, 8, 9, 10, 12, 13, 31, 34, 92, 0xd800),
+			"😀",
+			"é",
+		].join("");
+		const parts = lineParts(costs.repeat(4000), 1000);
+		expect(parts.join("")).toBe(costs.repeat(4000));
+		for (const part of parts)
+			expect(
+				JSON.stringify(JSON.stringify(part)).length - 2,
+			).toBeLessThanOrEqual(1000);
+	});
 	it("is the body's JSON where it fits, and an error where it does not", () => {
 		expect(toolText({ a: 1 })).toBe('{"a":1}');
 		expect(() => toolText({ a: "x".repeat(PAGE_LIMIT_CHARS) })).toThrow(

@@ -47,10 +47,10 @@
 		{
 			"package": "platform-tools",
 			"directory": "platform-tools",
-			"revision": "37.0.1",
+			"revision": "37.0.3",
 			"contents": {
-				"linux": "8d2ec933aeed9c8b32a729236df981f0ee0970d2d79ae54626e52f051a1a9be0",
-				"darwin": "c3a67643665e720a564cad37f0220e5521d09244f5438940cd2140fad275f0b7"
+				"linux": "745c8a52439bc3ed9476700bd07252875b7f64ee689bf7fec2bd7c480ca01ec0",
+				"darwin": "9c0f24e2b13800304002f83fa0ee06dcf0b8971698e09b093f1ef52e8ab1a5d5"
 			}
 		}
 	]

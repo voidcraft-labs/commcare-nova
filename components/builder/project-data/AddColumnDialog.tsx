@@ -36,18 +36,36 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { LOOKUP_DATA_TYPES } from "@/lib/lookup/constants";
-import type { LookupColumnDraft, LookupDataType } from "@/lib/lookup/types";
+import type {
+	LookupColumnDraft,
+	LookupDataType,
+	LookupTableSnapshot,
+} from "@/lib/lookup/types";
 import { COLUMN_TYPE_LABELS, suggestWireName } from "./projectDataModel";
+import {
+	ColumnOptionFields,
+	type ColumnOptions,
+	columnOptionInputs,
+} from "./RichDefinitionFields";
+import { TableReaderReview, useTableReaderReview } from "./TableReaderReview";
 
 export function AddColumnDialog({
 	open,
 	onClose,
 	onCreate,
+	table,
 }: {
 	open: boolean;
 	onClose: () => void;
 	/** Resolves `null` on success, or the refusal to show in the dialog. */
-	onCreate: (draft: LookupColumnDraft) => Promise<string | null>;
+	table: LookupTableSnapshot;
+	onCreate: (
+		draft: LookupColumnDraft,
+		reviewed?: {
+			projectRevision: LookupTableSnapshot["projectRevision"];
+			readerAppIds: string[];
+		},
+	) => Promise<string | null>;
 }) {
 	const labelId = useId();
 	const wireNameId = useId();
@@ -58,8 +76,16 @@ export function AddColumnDialog({
 	 * tracks the label, which is what makes the common case one field, but a
 	 * hand-typed name is never overwritten afterwards. */
 	const [wireNameTouched, setWireNameTouched] = useState(false);
+	const [options, setOptions] = useState<ColumnOptions>({
+		repeated: false,
+		indexed: false,
+		properties: [],
+	});
 	const [dataType, setDataType] = useState<LookupDataType>("text");
 	const [failure, setFailure] = useState<string | null>(null);
+	const [baseline] = useState(table);
+	const rich = options.repeated || options.indexed;
+	const review = useTableReaderReview(baseline.projectId, baseline.id, rich);
 	const [working, setWorking] = useState(false);
 	const operation = useRef(0);
 	const mounted = useRef(true);
@@ -124,15 +150,14 @@ export function AddColumnDialog({
 								className="h-11"
 							/>
 							<FieldDescription>
-								Letters, digits, underscores and hyphens, with a letter or an
-								underscore first. This is the heading a CSV import must use.
+								This is the heading to use in a CSV import.
 							</FieldDescription>
 						</Field>
 						<Field>
 							<FieldLabel htmlFor={typeId}>Type of value</FieldLabel>
 							<Select
 								value={dataType}
-								disabled={working}
+								disabled={working || options.repeated}
 								onValueChange={(next) => setDataType(next as LookupDataType)}
 							>
 								{/* `min-h-11`, not `h-11`: the trigger's height is a
@@ -154,6 +179,19 @@ export function AddColumnDialog({
 								</SelectContent>
 							</Select>
 						</Field>
+						<ColumnOptionFields
+							dataType={dataType}
+							options={options}
+							onChange={setOptions}
+							disabled={working}
+						/>
+						{rich && table.tableRevision !== baseline.tableRevision && (
+							<p role="alert">
+								The table changed. You can copy these settings and reopen Add
+								column to review the change.
+							</p>
+						)}
+						{rich && <TableReaderReview review={review} />}
 						<FieldError>{failure}</FieldError>
 					</FieldGroup>
 				</DialogBody>
@@ -171,7 +209,12 @@ export function AddColumnDialog({
 						type="button"
 						variant="default"
 						disabled={
-							working || label.trim() === "" || effectiveWireName.trim() === ""
+							working ||
+							(rich &&
+								(!review.apps ||
+									table.tableRevision !== baseline.tableRevision)) ||
+							label.trim() === "" ||
+							effectiveWireName.trim() === ""
 						}
 						onClick={async () => {
 							if (working) return;
@@ -181,11 +224,20 @@ export function AddColumnDialog({
 							setFailure(null);
 							let refusal: string | null;
 							try {
-								refusal = await onCreate({
-									label: label.trim(),
-									wireName: effectiveWireName.trim(),
-									dataType,
-								});
+								refusal = await onCreate(
+									{
+										...columnOptionInputs(options),
+										label: label.trim(),
+										wireName: effectiveWireName.trim(),
+										dataType,
+									},
+									rich && review.apps
+										? {
+												projectRevision: baseline.projectRevision,
+												readerAppIds: review.apps.map((app) => app.appId),
+											}
+										: undefined,
+								);
 							} catch {
 								if (mounted.current && operation.current === request) {
 									setWorking(false);

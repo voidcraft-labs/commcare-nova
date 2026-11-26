@@ -58,7 +58,7 @@ function app(options: {
 	return buildDoc({
 		appName: "Platform rule",
 		appSettings: settings(options.runsOnlyOn),
-		connectType: options.connect === true ? "learn" : null,
+		connectRoles: options.connect === true ? ["learn"] : [],
 		modules: [
 			...(options.module === true
 				? [
@@ -87,18 +87,6 @@ function app(options: {
 						uuid: FORM,
 						name: "Register visit",
 						type: "survey",
-						...(options.connect === true
-							? {
-									connect: {
-										learn_module: {
-											id: "lesson",
-											name: "Lesson",
-											description: "Read it",
-											time_estimate: 5,
-										},
-									},
-								}
-							: {}),
 						fields: [
 							options.question === true
 								? f({
@@ -164,7 +152,7 @@ describe("one finding per use, located at its owner", () => {
 			details: {
 				feature: "connect-app",
 				platform: "web-apps",
-				connectType: "learn",
+				connectRoles: "learn",
 			},
 		});
 	});

@@ -1,4 +1,8 @@
-import { docxToMarkdownWithFigures, xlsxToMarkdown } from "./officeConversion";
+import {
+	docxToMarkdownWithFigures,
+	selectedWorkbookGrids,
+	xlsxToMarkdown,
+} from "./officeConversion";
 import { OFFICE_LIMITS } from "./officeLimits";
 
 const chunks: Buffer[] = [];
@@ -14,12 +18,19 @@ try {
 	}
 	const bytes = Buffer.concat(chunks);
 	const kind = process.argv[2];
-	if (kind !== "docx" && kind !== "xlsx")
+	if (kind !== "docx" && kind !== "xlsx" && kind !== "selected-workbook")
 		throw new Error("Unknown Office format");
 	const result =
 		kind === "docx"
 			? await docxToMarkdownWithFigures(bytes)
-			: { markdown: xlsxToMarkdown(bytes), figures: [], warnings: [] };
+			: {
+					markdown:
+						kind === "selected-workbook"
+							? JSON.stringify(selectedWorkbookGrids(bytes, process.argv[3]))
+							: xlsxToMarkdown(bytes),
+					figures: [],
+					warnings: [],
+				};
 	// Warnings also enter the model prompt; the image-sized IPC allowance must
 	// not let diagnostic text bypass the text budget.
 	const textBytes =

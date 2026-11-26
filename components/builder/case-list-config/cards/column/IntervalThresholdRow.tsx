@@ -92,6 +92,7 @@ export function IntervalThresholdRow({
 }
 
 interface ThresholdInputProps {
+	readonly signed?: boolean;
 	readonly id: string;
 	readonly value: number;
 	readonly onChange: (next: number) => void;
@@ -104,7 +105,12 @@ interface ThresholdInputProps {
  * schema's `int().positive()` contract, and otherwise exposes a
  * friendly inline action without changing the document.
  */
-function ThresholdInput({ id, value, onChange }: ThresholdInputProps) {
+export function ThresholdInput({
+	id,
+	value,
+	onChange,
+	signed = false,
+}: ThresholdInputProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const errorId = `${id}-error`;
 	const initial = String(value);
@@ -121,27 +127,27 @@ function ThresholdInput({ id, value, onChange }: ThresholdInputProps) {
 			setShowError(false);
 			return;
 		}
-		const parsed = positiveWholeNumber(draft);
+		const parsed = thresholdNumber(draft, signed);
 		if (parsed === undefined) {
 			setShowError(true);
 			return;
 		}
 		setShowError(false);
 		onChange(parsed);
-	}, [draft, initial, onChange]);
+	}, [draft, initial, onChange, signed]);
 	return (
 		<div>
 			<Input
 				id={id}
 				ref={inputRef}
 				type="number"
-				min={1}
+				min={signed ? undefined : 1}
 				step={1}
 				value={draft}
 				onChange={(event) => {
 					const next = event.target.value;
 					setDraft(next);
-					if (showError && positiveWholeNumber(next) !== undefined) {
+					if (showError && thresholdNumber(next, signed) !== undefined) {
 						setShowError(false);
 					}
 				}}
@@ -159,17 +165,21 @@ function ThresholdInput({ id, value, onChange }: ThresholdInputProps) {
 					id={errorId}
 					className="mt-2 text-[13px] leading-5 text-nova-rose"
 				>
-					Enter a whole number greater than 0
+					{signed
+						? "Choose a whole number"
+						: "Enter a whole number greater than 0"}
 				</FieldError>
 			) : null}
 		</div>
 	);
 }
 
-function positiveWholeNumber(draft: string): number | undefined {
+function thresholdNumber(draft: string, signed: boolean): number | undefined {
 	if (draft.trim() === "") return undefined;
 	const parsed = Number(draft);
-	return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed > 0
+	return Number.isSafeInteger(parsed) &&
+		!Object.is(parsed, -0) &&
+		(signed || parsed > 0)
 		? parsed
 		: undefined;
 }

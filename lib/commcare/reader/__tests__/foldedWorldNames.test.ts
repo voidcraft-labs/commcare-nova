@@ -14,9 +14,9 @@
  * other from the session is refused under its own entry, since the gate holds
  * a session read of worker information only by identity
  * (`undeclared-worker-field`); so is a read of both as a place's
- * `location_data`. A level whose name another spells in other letters only is
- * `place-not-holdable`, since the gate folds level names and CommCare HQ does
- * not. And Nova's own document that reads a property and, by name from the
+ * `location_data`. Two levels whose names differ only in letters both come in,
+ * each under its own code, since neither the gate nor CommCare HQ folds level
+ * names. And Nova's own document that reads a property and, by name from the
  * worker's own case, its slug in other letters reads back to the reader's
  * canonical member, which prints the same export.
  *
@@ -209,6 +209,7 @@ describe("location data names that differ only in capitalization", () => {
 			`instance('locations')/locations/location[@id = /data/place]/location_data/zone`,
 			`instance('locations')/locations/location[@id = /data/place]/location_data/Zone`,
 			{
+				sourceProjectFactories: { locations: "flat" },
 				organization: {
 					levelCodes: levels.map((one) => one.code),
 					levels,
@@ -244,6 +245,7 @@ describe("location data names that differ only in capitalization", () => {
 				`instance('locations')/locations/location[@id = /data/place]/location_data/${name}`,
 				"2",
 				{
+					sourceProjectFactories: { locations: "flat" },
 					organization: {
 						levelCodes: levels.map((one) => one.code),
 						levels,
@@ -289,7 +291,7 @@ describe("worker names a write and a read spell in other letters", () => {
 });
 
 describe("levels whose names differ only in capitalization", () => {
-	it("keeps the first in CommCare HQ's list and finds the other, which the gate would refuse", () => {
+	it("keeps both display spellings with their separate level codes", () => {
 		const { levels, findings } = levelsFromHq(
 			[
 				level("state", "State", null),
@@ -299,16 +301,13 @@ describe("levels whose names differ only in capitalization", () => {
 			],
 			claimsUnder(mintingResolver("app-1")),
 		);
-		expect(levels.map((one) => one.code)).toEqual(["state", "clinic"]);
-		expect(findings).toEqual([
-			{
-				code: "place-not-holdable",
-				standing: "not-yet",
-				place: { kind: "organization" },
-				subject: null,
-				detail: { name: "clinic" },
-			},
+		expect(levels.map((one) => one.code)).toEqual([
+			"state",
+			"clinic",
+			"site",
+			"ward",
 		]);
+		expect(findings).toEqual([]);
 		const doc = produce(survey(), (draft) => {
 			draft.organizationLevels = Object.fromEntries(
 				levels.map((one) => [one.uuid, one]),
@@ -346,8 +345,8 @@ describe("levels whose names differ only in capitalization", () => {
 			expect(levels.map((one) => one.code)).toEqual(["site"]);
 			expect(findings).toEqual([
 				{
-					code: "place-not-holdable",
-					standing: "not-yet",
+					code: "place-field-unusable",
+					standing: "fix-in-hq",
 					place: { kind: "organization" },
 					subject: null,
 					detail: { name: finding },

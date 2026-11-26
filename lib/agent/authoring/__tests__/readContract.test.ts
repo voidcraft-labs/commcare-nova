@@ -218,24 +218,23 @@ async function populatedApp() {
 			},
 		],
 	});
+	await ok("configureConnect", { roles: ["learn"] });
 	await ok("addFields", {
 		moduleUuid: "Learning",
 		formUuid: "Assessment",
-		fields: [{ kind: "int", id: "score", label: "Score" }],
+		fields: [
+			{
+				kind: "connect_activity",
+				id: "assessment_result",
+				activity: { kind: "assessment", score: "#form/score" },
+			},
+			{ kind: "int", id: "score", label: "Score" },
+		],
 	});
 	await ok("removeField", {
 		moduleUuid: "Learning",
 		formUuid: "Assessment",
 		fieldUuid: "fixture_placeholder",
-	});
-	await ok("configureConnect", {
-		mode: "learn",
-		participants: [
-			{
-				formUuid: "Assessment",
-				connect: { assessment: { user_score: "#form/score" } },
-			},
-		],
 	});
 	await ok("addLanguage", { language: { language: "fra" } });
 	await ok("setMenuMedia", {
@@ -271,12 +270,14 @@ async function populatedApp() {
  * places, worker records), which this document-only harness cannot supply. */
 const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 	getLookupTables: null,
+	getWorkerGroups: null,
 	getLookupTableRows: null,
 	evaluateForm: null,
 	readAppTest: null,
 	listMediaAssets: null,
 	readSource: null,
 	getOrganization: null,
+	getPreviewSearchSettings: null,
 	getAuthoringGuide: [{ topic: "expressions" }],
 	getUsers: [{}],
 	getAutomations: [{}],
@@ -295,6 +296,11 @@ const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 		{ moduleUuid: "Learning", formUuid: "Assessment" },
 	],
 	getField: [
+		{
+			moduleUuid: "Learning",
+			formUuid: "Assessment",
+			fieldUuid: "assessment_result",
+		},
 		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "head" },
 		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "summary" },
 		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "service" },
@@ -302,6 +308,53 @@ const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 	],
 	getCaseOperations: [{ moduleUuid: "Clients", formUuid: "Visit" }],
 };
+
+it("reads and edits each activity calculation at its actual form position", async () => {
+	const h = await populatedApp();
+	const at = {
+		moduleUuid: "Learning",
+		formUuid: "Assessment",
+		fieldUuid: "assessment_result",
+	};
+	const read = await h.call("getField", at);
+	expect(JSON.stringify(read)).toContain("#form/score");
+	expect(
+		await h.call("configureConnect", { roles: ["learn", "deliver"] }),
+	).not.toHaveProperty("error");
+	expect(
+		await h.call("editField", {
+			...at,
+			updates: {
+				kind: "connect_activity",
+				activity: {
+					kind: "delivery",
+					name: "Visit",
+					entityId: "'person'",
+					workAreaId: "#form/score",
+				},
+			},
+		}),
+	).not.toHaveProperty("error");
+	expect(JSON.stringify(await h.call("getField", at))).toContain("#form/score");
+	expect(
+		await h.call("editField", {
+			...at,
+			updates: {
+				kind: "connect_activity",
+				activity: {
+					kind: "delivery",
+					name: "Visit",
+				},
+			},
+		}),
+	).not.toHaveProperty("error");
+	expect(JSON.stringify(await h.call("getField", at))).not.toContain(
+		"workAreaId",
+	);
+	expect(await h.call("configureConnect", { roles: ["learn"] })).toHaveProperty(
+		"error",
+	);
+});
 
 it("reads every part of a populated app as authored content", async () => {
 	const h = await populatedApp();
@@ -396,6 +449,68 @@ it("prints a calculated value as {{= formula}} in every read that shows its text
 		effective: translated,
 		status: "ready",
 	});
+});
+
+it("reads fixed Search dates as a pair and preserves a calculation that prints worker-zone dates", async () => {
+	const h = await populatedApp();
+	const pair = { from: "2024-03-01", to: "2024-03-31" };
+	const literal = "'2024-03-01 to 2024-03-31'";
+	const fields = [
+		{
+			kind: "advanced",
+			type: "date-range",
+			name: "period",
+			predicate: "#case/state = 'north'",
+			label: "Visit dates",
+			default: pair,
+		},
+		{
+			kind: "advanced",
+			type: "date-range",
+			name: "recent",
+			predicate: "#case/state = 'north'",
+			label: "Recent dates",
+			default: literal,
+		},
+	];
+	expect(
+		await h.call("addSearchInputs", {
+			moduleUuid: "Clients",
+			searchInputs: fields,
+		}),
+	).toMatchObject({ ok: true });
+	const received = z
+		.object({
+			case_list_config: z.object({
+				searchInputs: z.array(
+					z.object({ name: z.string(), default: z.unknown().optional() }),
+				),
+			}),
+		})
+		.parse(await h.call("getModule", { moduleUuid: "Clients" }));
+	const starts = new Map(
+		received.case_list_config.searchInputs.map((field) => [
+			field.name,
+			field.default,
+		]),
+	);
+	expect(starts.get("period")).toEqual(pair);
+	expect(starts.get("recent")).toBe(literal);
+	const saved = () =>
+		Object.values(h.currentDoc().modules).flatMap(
+			(module) => module.caseListConfig?.searchInputs ?? [],
+		);
+	const original = saved();
+	for (const field of fields) {
+		expect(
+			await h.call("updateSearchInput", {
+				moduleUuid: "Clients",
+				searchInputUuid: field.name,
+				searchInput: { ...field, default: starts.get(field.name) },
+			}),
+		).toMatchObject({ ok: true });
+	}
+	expect(saved()).toEqual(original);
 });
 
 it("reads menu icons in the form setMenuMedia accepts, so a read can be written back", async () => {

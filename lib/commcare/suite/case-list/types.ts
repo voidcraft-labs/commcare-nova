@@ -27,6 +27,7 @@ import type { WireElementContext } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { InstanceDecl } from "@/lib/commcare/xpath/wire/instances";
 import type {
+	CaseListConfig,
 	CaseProperty,
 	CaseTileLayout,
 	CaseType,
@@ -37,6 +38,7 @@ import type {
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
+import type { WireTermBindings } from "../../xpath/wire/fromExpression";
 import type { ResolvedSortDirective } from "./sortKeys";
 
 /**
@@ -155,6 +157,10 @@ export type DetailTarget = "case" | "search";
  *     `instance('casedb')` to `instance('results')`.
  */
 export interface CaseListEmitContext {
+	readonly detailBindings?: WireTermBindings;
+	/** Whether the list's faster loading is on, which each field's load
+	 *  behavior reads (`optimizations.ts`). */
+	readonly optimizations?: boolean;
 	/** Prints contribute their reads to the detail's owning scope. */
 	readonly wire: WireElementContext;
 	readonly moduleIndex: number;
@@ -169,7 +175,7 @@ export interface CaseListEmitContext {
 	 * pins `instance('results:inline')/results/case[...]`). Absent means
 	 * the device casedb.
 	 */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: "casedb" | `results:${string}`;
 	/** Effective property catalog for the module's case type. Plain select
 	 * columns derive worker-facing option labels from this metadata; other plain
 	 * fields remain raw. */
@@ -182,6 +188,9 @@ export interface CaseListEmitContext {
 	/** Owning document used to resolve UUID-backed option-label prose. Wire
 	 * emission fails closed if an authored label identity does not resolve. */
 	readonly proseDoc: ReferenceNamesDoc;
+	/** The entry point id a case list icon's action prints
+	 *  (`listIconAction.ts::listIconEndpointId`). The short detail supplies it. */
+	readonly listIconEndpointId?: (entryPointUuid: Uuid) => string;
 	/**
 	 * The case list's tile layout, when it has one. Present only on the
 	 * SHORT detail, where a placed column emits its
@@ -190,6 +199,7 @@ export interface CaseListEmitContext {
 	 * and columns keep any stored cells without emitting them.
 	 */
 	readonly tileLayout?: CaseTileLayout;
+	readonly detailTile?: CaseListConfig["detailTile"];
 	/** The actual owning column slot supplies every expression fact. */
 	readonly expressions: ModuleExpressionContexts;
 	/**

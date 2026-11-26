@@ -44,6 +44,8 @@ import {
 import { audioFieldSchema } from "../fields/audio";
 import { barcodeFieldSchema } from "../fields/barcode";
 import { selectOptionSchema } from "../fields/base";
+import { caseChangeFieldSchema } from "../fields/caseChange";
+import { connectActivityFieldSchema } from "../fields/connectActivity";
 import { dateFieldSchema } from "../fields/date";
 import { datetimeFieldSchema } from "../fields/datetime";
 import { decimalFieldSchema } from "../fields/decimal";
@@ -135,6 +137,8 @@ const NON_REPEAT_KIND_SCHEMAS: Record<
 	secret: secretFieldSchema,
 	group: groupFieldSchema,
 	section: sectionFieldSchema,
+	case_change: caseChangeFieldSchema,
+	connect_activity: connectActivityFieldSchema,
 };
 
 const REPEAT_VARIANT_SCHEMAS: Record<RepeatMode, z.ZodType> = {
@@ -167,6 +171,12 @@ const SUBTREE_LEAF_SCHEMAS = new Set<z.ZodType>([
 ]);
 
 // ── Introspection helpers ─────────────────────────────────────────
+
+/** A tuple's element schemas: its fixed items, then its rest. */
+function tupleElements(schema: z.ZodTuple): z.ZodType[] {
+	const { items, rest } = schema.def;
+	return [...(items as z.ZodType[]), ...(rest ? [rest as z.ZodType] : [])];
+}
 
 function unwrap(schema: z.ZodType): z.ZodType {
 	let current = schema;
@@ -257,6 +267,12 @@ function collectLeaves(
 		collectLeaves(s.element as z.ZodType, `${path}[]`, stopPaths, out);
 		return;
 	}
+	// A non-empty sequence (`z.tuple([step], step)`) holds its elements as an array does.
+	if (s instanceof z.ZodTuple) {
+		for (const element of tupleElements(s))
+			collectLeaves(element, `${path}[]`, stopPaths, out);
+		return;
+	}
 	if (s instanceof z.ZodUnion) {
 		for (const option of s.options as z.ZodType[]) {
 			collectLeaves(option, path, stopPaths, out);
@@ -285,6 +301,8 @@ function resolvePath(root: z.ZodType, path: string): z.ZodType[] {
 				const u = unwrap(child);
 				if (u instanceof z.ZodArray)
 					next.push(...fanOut(u.element as z.ZodType));
+				else if (u instanceof z.ZodTuple)
+					next.push(...new Set(tupleElements(u).flatMap(fanOut)));
 			} else {
 				next.push(...fanOut(child));
 			}
@@ -341,7 +359,8 @@ const MODULE_REGISTRY_PATHS = new Set(moduleSlots.map((s) => s.path));
 describe("registry shape invariants", () => {
 	it("slot ids and paths are unique within each entity", () => {
 		// The otherwise link takes a destination's target and carried-value
-		// slots at its own paths; no other slot id is held twice.
+		// slots at its own paths, and a second entry's choices take a form's
+		// choice slot at theirs; no other slot id is held twice.
 		const sharedLinkSlots = new Set([
 			"form_link_target",
 			"form_link_datum_name",
@@ -351,7 +370,11 @@ describe("registry shape invariants", () => {
 			const ids = slots
 				.filter(
 					(s) =>
-						!(sharedLinkSlots.has(s.slot) && s.path.startsWith("otherwise.")),
+						!(sharedLinkSlots.has(s.slot) && s.path.startsWith("otherwise.")) &&
+						!(
+							s.slot === "form_selection_source" &&
+							s.path.startsWith("shadowOf.")
+						),
 				)
 				.map((s) => s.slot);
 			const paths = slots.map((s) => s.path);
@@ -543,8 +566,13 @@ describe("module slots — paths resolve with the promised shape", () => {
 					(slot?.searchInputKinds?.includes(armKind) ?? false) &&
 					(slot?.searchInputWidgets === undefined ||
 						(armWidget !== undefined &&
-							slot.searchInputWidgets.includes(armWidget)));
-				expect(key in arm.shape).toBe(applies);
+							slot.searchInputWidgets.includes(armWidget))) &&
+					!slot?.searchInputWidgetExceptions?.some(
+						({ kind, widget }) => kind === armKind && widget === armWidget,
+					);
+				expect(key in arm.shape, `${slotId} on ${armKind}/${armWidget}`).toBe(
+					applies,
+				);
 			}
 		}
 	});
@@ -674,13 +702,33 @@ describe("fieldReferenceSlotsFor", () => {
 	it("repeat narrows by mode: count_bound has repeat_count, query_bound has ids_query", () => {
 		expect(
 			fieldReferenceSlotsFor("repeat", "user_controlled").map((s) => s.slot),
-		).toEqual(["relevant", "label"]);
+		).toEqual([
+			"relevant",
+			"label",
+			"extended_text",
+			"addFirstLabel",
+			"addLabel",
+		]);
 		expect(
 			fieldReferenceSlotsFor("repeat", "count_bound").map((s) => s.slot),
-		).toEqual(["relevant", "repeat_count", "label"]);
+		).toEqual([
+			"relevant",
+			"repeat_count",
+			"label",
+			"extended_text",
+			"addFirstLabel",
+			"addLabel",
+		]);
 		expect(
 			fieldReferenceSlotsFor("repeat", "query_bound").map((s) => s.slot),
-		).toEqual(["relevant", "ids_query", "label"]);
+		).toEqual([
+			"relevant",
+			"ids_query",
+			"label",
+			"extended_text",
+			"addFirstLabel",
+			"addLabel",
+		]);
 	});
 
 	it("without a mode, repeat reports the umbrella (kind-level) slot set", () => {
@@ -689,6 +737,9 @@ describe("fieldReferenceSlotsFor", () => {
 			"repeat_count",
 			"ids_query",
 			"label",
+			"extended_text",
+			"addFirstLabel",
+			"addLabel",
 		]);
 	});
 });

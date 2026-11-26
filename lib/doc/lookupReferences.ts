@@ -1,3 +1,8 @@
+import {
+	type LookupRead,
+	readColumnId,
+	readMemberIds,
+} from "@/lib/domain/lookupRead";
 /**
  * Structural lookup-reference extraction.
  *
@@ -30,9 +35,14 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { firstSortedModuleListingForm } from "@/lib/domain/formMembership";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type {
+	LookupColumnId,
+	LookupMemberId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import {
 	type ExpressionCarrierRef,
 	type ExpressionSlotValue,
@@ -119,6 +129,7 @@ export interface LookupReferenceOccurrence {
 	readonly subpath: string;
 	readonly tableId: LookupTableId;
 	readonly columnId?: LookupColumnId;
+	readonly memberId?: LookupMemberId;
 	/**
 	 * Extractor-owned type contract for a column-bearing occurrence. Absent means
 	 * the carrier accepts every lookup data type; a supplied set is nonempty.
@@ -132,12 +143,31 @@ export interface ExtractedLookupReference {
 	readonly carrierUuid: Uuid;
 	readonly subpath: readonly LookupReferencePathSegment[];
 	readonly tableId: LookupTableId;
+	readonly read?: LookupRead;
 	readonly columnId?: LookupColumnId;
+	readonly memberId?: LookupMemberId;
 	readonly acceptedColumnTypes?: readonly LookupDataType[];
 	readonly location: LookupReferenceValidationLocation;
 }
 
-/** One immutable structural carrier walker. */
+/** One reference per column and value detail a read names. Extractors record
+ * the read; every consumer of a column or member target expands it here. */
+export function readReferences(
+	input: ExtractedLookupReference,
+): ExtractedLookupReference[] {
+	const read = input.read;
+	if (read === undefined) return [input];
+	const { read: _, ...base } = input;
+	const columnId = readColumnId(read);
+	const members = readMemberIds(read);
+	if (!members.length) return [{ ...base, columnId }];
+	return members.map((memberId) => ({
+		...base,
+		columnId,
+		memberId,
+		subpath: [...base.subpath, memberId],
+	}));
+}
 export interface LookupReferenceExtractor {
 	readonly registrySlot: string;
 	readonly extract: (doc: BlueprintDoc) => readonly ExtractedLookupReference[];
@@ -155,7 +185,7 @@ export type LookupReferenceExtractorRegistry =
  * schema-owned AST also means a new recursive operator arm cannot silently
  * hide nested lookup identities.
  */
-function extractAstLookupReferences(input: {
+export function extractAstLookupReferences(input: {
 	readonly carrierUuid: Uuid;
 	readonly ast: Expression;
 	readonly subpath?: readonly LookupReferencePathSegment[];
@@ -172,7 +202,7 @@ function extractAstLookupReferences(input: {
 					carrierUuid: input.carrierUuid,
 					subpath: [...path, "columnId"],
 					tableId: term.tableId,
-					columnId: term.columnId,
+					read: term.columnId,
 					location: input.location,
 				});
 			},
@@ -182,7 +212,7 @@ function extractAstLookupReferences(input: {
 						carrierUuid: input.carrierUuid,
 						subpath: [...path, "resultColumnId"],
 						tableId: expression.tableId,
-						columnId: expression.resultColumnId,
+						read: expression.resultColumnId,
 						location: input.location,
 					});
 				if (expression.kind === "table-rows")
@@ -317,7 +347,7 @@ export type LookupOptionsSourceOwner =
 /** One persisted lookup-backed choice list with its extraction-time provenance. */
 export interface LookupOptionsSourceCarrier {
 	readonly owner: LookupOptionsSourceOwner;
-	readonly source: LookupOptionsSource;
+	readonly source: LookupOptionsSource & { sortColumnId?: LookupRead };
 	readonly location: LookupReferenceValidationLocation;
 }
 
@@ -403,14 +433,14 @@ function extractSearchInputOptions(
 					carrierUuid: input.uuid,
 					subpath: ["valueColumnId"],
 					tableId: source.tableId,
-					columnId: source.valueColumnId,
+					read: source.valueColumnId,
 					location,
 				},
 				{
 					carrierUuid: input.uuid,
 					subpath: ["labelColumnId"],
 					tableId: source.tableId,
-					columnId: source.labelColumnId,
+					read: source.labelColumnId,
 					location,
 				},
 			);
@@ -419,7 +449,7 @@ function extractSearchInputOptions(
 					carrierUuid: input.uuid,
 					subpath: ["sortColumnId"],
 					tableId: source.tableId,
-					columnId: source.sortColumnId,
+					read: source.sortColumnId,
 					location,
 				});
 			}
@@ -447,16 +477,27 @@ function extractLookupOptionsSources(
 					carrierUuid: field.uuid,
 					subpath: ["valueColumnId"],
 					tableId: source.tableId,
-					columnId: source.valueColumnId,
+					read: source.valueColumnId,
 					location,
 				},
 				{
 					carrierUuid: field.uuid,
 					subpath: ["labelColumnId"],
 					tableId: source.tableId,
-					columnId: source.labelColumnId,
+					read: source.labelColumnId,
 					location,
 				},
+				...(source.sortColumnId === undefined
+					? []
+					: [
+							{
+								carrierUuid: field.uuid,
+								subpath: ["sortColumnId"],
+								tableId: source.tableId,
+								read: source.sortColumnId,
+								location,
+							},
+						]),
 			);
 	}
 
@@ -583,7 +624,14 @@ function extractRegisteredExpressions(
 					carrierUuid = member.linkUuid;
 					if ("datum" in member) subpath = ["datum", datumRefKey(member.datum)];
 				} else if ("columnUuid" in member) carrierUuid = member.columnUuid;
+				else if ("sortUuid" in member) carrierUuid = member.sortUuid;
+				else if ("tabUuid" in member) carrierUuid = member.tabUuid;
 				else if ("optionUuid" in member) carrierUuid = member.optionUuid;
+				else if ("filterUuid" in member) carrierUuid = member.filterUuid;
+				else if ("supplyUuid" in member) carrierUuid = member.supplyUuid;
+				else if ("parameterUuid" in member) carrierUuid = member.parameterUuid;
+				else if ("name" in member)
+					subpath = ["send", member.name, String(member.occurrence)];
 				else carrierUuid = member.searchInputUuid;
 			}
 			if (
@@ -608,6 +656,36 @@ function extractRegisteredExpressions(
 		}
 	}
 	return references;
+}
+
+/** A record taken from a lookup table reads its real Project column on entry. */
+function extractFormEntryTableSources(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return Object.values(doc.forms).flatMap((form) =>
+		(entrySelectionSettings(form) ?? []).flatMap((choice) => {
+			const source = choice.source;
+			return source.kind === "table"
+				? [
+						{
+							carrierUuid: form.uuid,
+							subpath: [
+								form.shadowOf ? "sharedChoice" : "choice",
+								choice.uuid,
+								"source",
+								"column",
+							],
+							tableId: source.table,
+							columnId: source.column,
+							location: {
+								...formLocation(doc, form),
+								field: `caseSelections[${choice.uuid}].source`,
+							},
+						},
+					]
+				: [];
+		}),
+	);
 }
 
 function productionExtractor(
@@ -650,6 +728,9 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 						: entry.slot === "search_input_options"
 							? extractSearchInputOptions(doc)
 							: []),
+					...(entry.slot === "form_selection_source"
+						? extractFormEntryTableSources(doc)
+						: []),
 					...extractRegisteredExpressions(
 						doc,
 						entry.entity,
@@ -727,7 +808,7 @@ function extractOccurrences(
 		}
 		seenSlots.add(extractor.registrySlot);
 
-		for (const extracted of extractor.extract(doc)) {
+		for (const extracted of extractor.extract(doc).flatMap(readReferences)) {
 			if (
 				extracted.acceptedColumnTypes !== undefined &&
 				extracted.columnId === undefined
@@ -746,6 +827,9 @@ function extractOccurrences(
 				registrySlot: extractor.registrySlot,
 				subpath: canonicalLookupReferenceSubpath(extracted.subpath),
 				tableId: extracted.tableId,
+				...(extracted.memberId !== undefined && {
+					memberId: extracted.memberId,
+				}),
 				...(extracted.columnId !== undefined && {
 					columnId: extracted.columnId,
 				}),
@@ -768,7 +852,14 @@ export interface LookupColumnReferenceTarget {
 }
 
 /** Exact normalized app-to-resource edge set. */
+export interface LookupMemberReferenceTarget {
+	readonly tableId: LookupTableId;
+	readonly columnId?: LookupColumnId;
+	readonly memberId: LookupMemberId;
+}
+
 export interface LookupReferenceTargetSet {
+	readonly memberTargets?: readonly LookupMemberReferenceTarget[];
 	readonly tableIds: readonly LookupTableId[];
 	readonly columnTargets: readonly LookupColumnReferenceTarget[];
 }
@@ -784,6 +875,7 @@ export const EMPTY_LOOKUP_REFERENCE_TARGETS: LookupReferenceTargetSet =
 	});
 
 export interface LookupReferenceTargetSetInput {
+	readonly memberTargets?: Iterable<LookupMemberReferenceTarget>;
 	readonly tableIds?: Iterable<LookupTableId>;
 	readonly columnTargets?: Iterable<LookupColumnReferenceTarget>;
 }
@@ -798,6 +890,20 @@ export function normalizeLookupReferenceTargetSet(
 	const tableIds = new Set(input.tableIds ?? []);
 	const columnsByKey = new Map<string, LookupColumnReferenceTarget>();
 
+	const membersByKey = new Map<string, LookupMemberReferenceTarget>();
+	for (const target of input.memberTargets ?? []) {
+		tableIds.add(target.tableId);
+		if (target.columnId !== undefined) {
+			columnsByKey.set(`${target.tableId}\0${target.columnId}`, {
+				tableId: target.tableId,
+				columnId: target.columnId,
+			});
+		}
+		membersByKey.set(
+			`${target.tableId}\0${target.columnId ?? ""}\0${target.memberId}`,
+			target,
+		);
+	}
 	for (const target of input.columnTargets ?? []) {
 		tableIds.add(target.tableId);
 		columnsByKey.set(`${target.tableId}\0${target.columnId}`, {
@@ -822,6 +928,15 @@ export function normalizeLookupReferenceTargetSet(
 	return Object.freeze({
 		tableIds: normalizedTableIds,
 		columnTargets: normalizedColumnTargets,
+		...(membersByKey.size
+			? {
+					memberTargets: Object.freeze(
+						[...membersByKey]
+							.sort(([a], [b]) => compareStrings(a, b))
+							.map(([, target]) => target),
+					),
+				}
+			: {}),
 	});
 }
 
@@ -830,6 +945,11 @@ export function lookupReferenceTargetsFromOccurrences(
 	occurrences: readonly LookupReferenceOccurrence[],
 ): LookupReferenceTargetSet {
 	return normalizeLookupReferenceTargetSet({
+		memberTargets: occurrences.flatMap(({ tableId, columnId, memberId }) =>
+			memberId === undefined
+				? []
+				: [{ tableId, ...(columnId !== undefined && { columnId }), memberId }],
+		),
 		tableIds: occurrences.map((occurrence) => occurrence.tableId),
 		columnTargets: occurrences.flatMap((occurrence) =>
 			occurrence.columnId === undefined
@@ -863,6 +983,7 @@ export function unionLookupReferenceTargetSets(
 	...sets: readonly LookupReferenceTargetSet[]
 ): LookupReferenceTargetSet {
 	return normalizeLookupReferenceTargetSet({
+		memberTargets: sets.flatMap((set) => [...(set.memberTargets ?? [])]),
 		tableIds: sets.flatMap((set) => [...set.tableIds]),
 		columnTargets: sets.flatMap((set) => [...set.columnTargets]),
 	});

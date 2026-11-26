@@ -20,6 +20,7 @@ import {
 	fieldReferenceSlotsFor,
 	formLinkEntries,
 	formLinkSelectionIsCompatible,
+	isOrdinaryCaseSearchConfig,
 	type Module,
 	moduleIsBareCaseList,
 	readSlotValues,
@@ -34,7 +35,11 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
-import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
+import {
+	expressionSlotValues,
+	translatedFieldProse,
+} from "@/lib/domain/referenceSlots";
 import type { ValidationError } from "../errors";
 import { validationError } from "../errors";
 
@@ -68,9 +73,23 @@ export function multiSelectTopology(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	if (!isMultiple(module)) return [];
-
 	const errors: ValidationError[] = [];
+	if (
+		isOrdinaryCaseSearchConfig(module.caseSearchConfig) &&
+		module.caseSearchConfig.searchOnClear === true &&
+		menuWithInheritedCaseSettings(doc, moduleUuid)?.caseListConfig?.selection
+			?.autoSelect === true
+	) {
+		errors.push(
+			validationError(
+				"MULTI_SELECT_SEARCH_ON_CLEAR",
+				"module",
+				"Turn off searching when the worker clears Search before choosing matching cases automatically.",
+				{ moduleUuid, moduleName: module.name },
+			),
+		);
+	}
+	if (!isMultiple(module)) return errors;
 	if (module.caseListConfig?.tile?.persistOnForms === true) {
 		errors.push(
 			validationError(
@@ -227,13 +246,14 @@ export function multiSelectFormSemantics(
 		if (
 			operation.action === "create" &&
 			operation.target.kind === "new" &&
-			operation.target.idFrom !== undefined
+			(operation.target.idFrom !== undefined ||
+				operation.target.expr !== undefined)
 		) {
 			errors.push(
 				validationError(
 					"MULTI_SELECT_AUTHORED_KEY_CREATE",
 					"form",
-					`Create operation "${operation.id}" derives its case id from one shared form answer. On a form that runs over several selected cases, that would reuse the same derived id across the selected-case execution. Use a generated case id instead.`,
+					`Create operation "${operation.id}" chooses its case ID from the form. A form that runs over several selected cases may reuse that ID across cases. Use a generated case id instead.`,
 					loc,
 					{ operationUuid: operation.uuid, operationId: operation.id },
 				),
@@ -279,6 +299,14 @@ export function multiSelectFormSemantics(
 					)
 				)
 					surfaces.push(slot.slot);
+			}
+			/* A translation that shows values of its own reads them in its
+			 * language, where the source may read no case. */
+			for (const { ref, template } of translatedFieldProse(
+				doc.localization,
+				field,
+			)) {
+				if (referencePartsReadCase(template)) surfaces.push(ref.slot);
 			}
 			for (const { ref, expression } of expressionSlotValues(doc, {
 				entity: "field",

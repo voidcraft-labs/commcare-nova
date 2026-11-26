@@ -31,11 +31,11 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 	const args = { actorUserId, host, workId: begun.workId };
 	const input = {
 		name: "Venues",
-		tag: "venues",
+		tag: "Locations",
 		columns: [
 			{
 				key: "name",
-				wireName: "name",
+				wireName: "région.2",
 				label: "Venue",
 				dataType: "text" as const,
 			},
@@ -64,7 +64,16 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 		await executeWorkTool({ ...args, toolName: "getLookupTables", input: {} }),
 	).toMatchObject({
 		kind: "read",
-		data: { tables: [{ id: receipt.tableId, name: "Venues" }] },
+		data: {
+			tables: [
+				{
+					id: receipt.tableId,
+					name: "Venues",
+					tag: "Locations",
+					columns: [{ id: receipt.columns[0].columnId, wireName: "région.2" }],
+				},
+			],
+		},
 	});
 	const updated = await executeWorkTool({
 		...args,
@@ -74,6 +83,7 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 			tableId: receipt.tableId,
 			expectedTableRevision: receipt.revisions.tableRevision,
 			name: "Outreach venues",
+			tag: "régions.2",
 		},
 	});
 	expect(updated).toMatchObject({
@@ -84,7 +94,11 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 		await executeWorkTool({ ...args, toolName: "getLookupTables", input: {} }),
 	).toMatchObject({
 		kind: "read",
-		data: { tables: [{ id: receipt.tableId, name: "Outreach venues" }] },
+		data: {
+			tables: [
+				{ id: receipt.tableId, name: "Outreach venues", tag: "régions.2" },
+			],
+		},
 	});
 	expect(
 		await executeWorkTool({
@@ -164,4 +178,103 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 			],
 		}),
 	).rejects.toBeInstanceOf(CommitReauthError);
+});
+
+it("binds repeated row details through the shared work tools and retains exact lexical values", async () => {
+	const actorUserId = "rich-author";
+	const projectId = "rich-tables";
+	await h.seedProjectMember(actorUserId, projectId, "owner");
+	const host = { kind: "mcp" } as const;
+	const { workId } = await beginWork({
+		actorUserId,
+		projectId,
+		host,
+		target: { name: "Clinics" },
+		requestId: "begin-rich",
+	});
+	const call = (toolName: string, input: unknown, requestId?: string) =>
+		executeWorkTool({ actorUserId, host, workId, toolName, input, requestId });
+	const created = await call(
+		"createLookupTable",
+		{
+			name: "Clinic names",
+			tag: "clinic_names",
+			columns: [
+				{
+					key: "names",
+					wireName: "names",
+					label: "Names",
+					dataType: "text",
+					repeated: true,
+					properties: [{ wireName: "language", label: "Language" }],
+				},
+			],
+			attributes: [{ wireName: "district", label: "District" }],
+			rows: [
+				{
+					cells: [],
+					content: {
+						attributes: [{ name: "district", text: "007" }],
+						occurrences: [
+							{
+								name: "names",
+								values: [
+									{
+										text: " Hill ",
+										properties: [{ name: "language", text: "en" }],
+									},
+									{
+										text: " Hill ",
+										properties: [{ name: "language", text: "fr" }],
+									},
+								],
+							},
+						],
+					},
+				},
+			],
+		},
+		"create-rich",
+	);
+	const { tableId, columns } = z
+		.object({
+			data: z.object({
+				tableId: z.string(),
+				columns: z.array(z.object({ columnId: z.string() })),
+			}),
+		})
+		.parse(created).data;
+	const catalog = await call("getLookupTables", {});
+	const members = z
+		.object({
+			data: z.object({
+				tables: z.array(
+					z.object({
+						details: z.array(
+							z.object({ id: z.string(), wireName: z.string() }),
+						),
+					}),
+				),
+			}),
+		})
+		.parse(catalog).data.tables[0].details;
+	const district = members.find((member) => member.wireName === "district")?.id;
+	const language = members.find((member) => member.wireName === "language")?.id;
+	if (!district || !language)
+		throw new Error("The catalog omitted a defined row or value detail.");
+	await expect(call("getLookupTableRows", { tableId })).resolves.toMatchObject({
+		data: {
+			rows: [
+				{
+					attributes: { [district]: "007" },
+					occurrences: {
+						[columns[0].columnId]: [
+							{ text: " Hill ", properties: { [language]: "en" } },
+							{ text: " Hill ", properties: { [language]: "fr" } },
+						],
+					},
+				},
+			],
+		},
+	});
 });

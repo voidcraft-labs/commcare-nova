@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { PersonaRemoveConfirm } from "@/components/builder/app-setup/PersonaRemoveConfirm";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Button } from "@/components/shadcn/button";
@@ -169,7 +170,9 @@ createRoot(root).render(
 			<AccessBridge>
 				<ScrollRegistryProvider>
 					<EditGuardProvider>
-						{mode === "shortcuts" ? <Shortcuts /> : <Persona />}
+						<BuilderLocalizationProvider>
+							{mode === "shortcuts" ? <Shortcuts /> : <Persona />}
+						</BuilderLocalizationProvider>
 					</EditGuardProvider>
 				</ScrollRegistryProvider>
 			</AccessBridge>

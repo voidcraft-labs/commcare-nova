@@ -35,6 +35,7 @@ function multiDefault(value: string): BlueprintDoc {
 		throw new Error("The choice fixture is missing.");
 	doc.fields[ids.choice] = {
 		...field,
+		choiceLayout: undefined,
 		kind: "multi_select",
 		optionsSource: {
 			kind: "inline",

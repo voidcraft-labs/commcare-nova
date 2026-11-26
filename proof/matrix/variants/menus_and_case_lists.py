@@ -14,6 +14,7 @@ written here would name none once the base is authored again.
 from __future__ import annotations
 
 from proof.matrix import ops
+from proof.matrix.bases import _pages
 
 
 def _set_each(authoring, app_id, *values):
@@ -33,13 +34,43 @@ def advanced_menu_with_a_narrowed_case_list_item(authoring, app_id):
 
 
 def auto_select_on_a_multi_select_list(authoring, app_id):
-    """Households' list choosing several households, every one chosen at once."""
+    """The existing Household follow-up applies a new shared answer, without a scalar case preload."""
+    def shared_start(root, _form):
+        start, = root.xpath("//*[local-name()='setvalue'][@ref='/data/members']")
+        start.getparent().remove(start)
+
+    ops.set_form_source(authoring, app_id, 0, 1, shared_start, what="shared members answer")
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/multi_select", True),
         ("/modules/0/case_details/short/auto_select", True),
     )
+
+
+def clickable_icon_for_a_visit(authoring, app_id):
+    """A list icon opens its ordinary follow-up with the exact automatic-submission label."""
+    def mark_label(root, _form):
+        text, = root.xpath("//*[local-name()='itext']/*[local-name()='translation']/*[@id='visit_note-label']")
+        label, = root.xpath("//*[local-name()='label'][@ref=$ref]", ref="jr:itext('visit_note-label')")
+        text.set("id", "Pragma-Submit-Automatically")
+        label.set("ref", "jr:itext('Pragma-Submit-Automatically')")
+
+    ops.set_form_source(authoring, app_id, 1, 0, mark_label, what="automatic follow-up label")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/session_endpoint_id", "record-visit")
+    ops.set_json(authoring, app_id, "/modules/1/case_details/short/columns/1", {
+        "doc_type": "DetailColumn",
+        "model": "case",
+        "field": "name",
+        "format": "clickable-icon",
+        "header": {"en": "Record visit"},
+        "endpoint_action_id": "record-visit",
+        "enum": [{
+            "doc_type": "MappingItem",
+            "key": "true()",
+            "value": {"en": "jr://file/commcare/image/register_household.png"},
+        }],
+    })
 
 
 def case_list_deep_link_on_display_only_menu(authoring, app_id):
@@ -50,6 +81,26 @@ def case_list_deep_link_on_display_only_menu(authoring, app_id):
         ("/modules/1/case_list_session_endpoint_id", "follow_ups"),
         ("/modules/1/put_in_root", True),
     )
+
+
+def conditional_registration_returning_to_search(authoring, app_id):
+    """Patients' empty-search action returns even when its form declines to open a case."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    def registration_source(name):
+        form = XFormBuilder(name)
+        form.new_question("case_name", "Name", "string")
+        form.new_question("create_record", "Register this patient?", "select1", choices={"yes": "Yes", "no": "No"})
+        return form.tostring(xml_declaration=True).decode("utf-8")
+
+    ops.upload_form_source(authoring, app_id, 1, 0, registration_source, "conditional-registration")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_case/condition", {
+        "doc_type": "FormActionCondition",
+        "type": "if",
+        "question": "/data/create_record",
+        "answer": "yes",
+        "operator": "=",
+    })
 
 
 def child_menu_registering_its_root_s_case_type(authoring, app_id):
@@ -245,6 +296,16 @@ def multi_select_above_a_hundred(authoring, app_id):
     )
 
 
+def multi_select_exceeds_runtime_integer(authoring, app_id):
+    """Patients' list holds the first maximum outside Core's signed integer range."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/multi_select", True),
+        ("/modules/0/case_details/short/max_select_value", 2_147_483_648),
+    )
+
+
 def multi_select_of_none(authoring, app_id):
     """Households' list choosing several households, at most none."""
     _set_each(
@@ -265,18 +326,101 @@ def multi_select_unbounded(authoring, app_id):
     )
 
 
-def named_callout(authoring, app_id):
-    """Patients' list given a callout as HQ's Case List page saves one: an action, a name, an extra and a response,
-    which is one thing a person adds."""
+def named_callout(authoring, app_id, *, value="scan"):
+    """Patients' list with a lookup extra that reads a relative XPath rather than fixed text."""
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/lookup_enabled", True),
         ("/modules/0/case_details/short/lookup_action", "org.example.SCAN"),
         ("/modules/0/case_details/short/lookup_name", "Scan a card"),
-        ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": "scan"}]),
+        ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": value}]),
         ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}]),
     )
+
+
+def calculated_callout(authoring, app_id):
+    """The same lookup sends a calculated number, outside the current admitted arguments."""
+    named_callout(authoring, app_id, value="1 + 2")
+
+
+def fixed_text_callout(authoring, app_id):
+    """Patients' list with a named companion, literal text arguments and ordered fallback response names."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/lookup_enabled", True),
+        ("/modules/0/case_details/short/lookup_action", "org.example.SCAN"),
+        ("/modules/0/case_details/short/lookup_name", "Scan a card"),
+        ("/modules/0/case_details/short/lookup_extras", [
+            {"key": "mode", "value": "'scan'"},
+            {"key": "source", "value": "concat('home', ' visit')"},
+        ]),
+        ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}, {"key": "fallback"}]),
+    )
+
+
+def fixed_text_callout_with_worker_name(authoring, app_id):
+    """Patients' lookup passes the signed-in worker's username beside a fixed argument."""
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_extras", [
+        {"key": "mode", "value": "'scan'"},
+        {"key": "worker", "value": "instance('commcaresession')/session/context/username"},
+    ])
+
+
+def fixed_text_callout_with_count(authoring, app_id):
+    """A follow-up reads the guarded count from its one case list in an Android-only app."""
+    from lxml import etree
+
+    from proof.matrix.variants.expressions_and_data import _declare
+
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+
+    def edit(root, _held):
+        _declare(root, "commcaresession", "jr://instance/session")
+        model, = root.xpath("//*[local-name()='model']")
+        data, = model.xpath("./*[local-name()='instance'][not(@id)]/*")
+        data.append(etree.Element(f"{{{etree.QName(data).namespace}}}lookup_count"))
+        bind = etree.Element(f"{{{etree.QName(model).namespace}}}bind")
+        bind.set("nodeset", "/data/lookup_count")
+        result = "instance('commcaresession')/session/data/fingerprintquery"
+        bind.set("calculate", f"if(count({result}) = 1, number({result}[1]), '')")
+        model.append(bind)
+
+    ops.set_form_source(authoring, app_id, 0, 1, edit, what="guarded companion lookup count")
+
+
+def fixed_text_callout_with_confidence(authoring, app_id):
+    """Patients' lookup matches the returned IDs to the cases and has a visible confidence heading."""
+    fixed_text_callout(authoring, app_id)
+    _set_each(
+        authoring, app_id,
+        ("/modules/0/case_details/short/lookup_display_results", True),
+        ("/modules/0/case_details/short/lookup_field_template", "@case_id"),
+        ("/modules/0/case_details/short/lookup_field_header", {"en": "Confidence"}),
+    )
+
+
+def case_id_callout_without_result_heading(authoring, app_id):
+    """A row lookup with the heading map HQ would hold before a language has a saved heading."""
+    fixed_text_callout_with_confidence(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_header", {})
+
+
+def fixed_text_callout_with_icon(authoring, app_id):
+    """Patients' lookup button uses a picture the HQ picker uploaded."""
+    fixed_text_callout(authoring, app_id)
+    path = "jr://file/commcare/image/case-lookup.png"
+    _pages.upload_picture(authoring, app_id, path)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_image", path)
+
+
+def automatic_fixed_text_callout(authoring, app_id):
+    """The same companion configuration with automatic lookup enabled."""
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_autolaunch", True)
 
 
 def parent_selection_of_a_list_with_no_columns(authoring, app_id):
@@ -709,6 +853,19 @@ def registration_under_a_display_only_menu_sharing_its_case(authoring, app_id):
     )
 
 
+def _second_case_type_on_another_command(authoring, app_id):
+    from proof.matrix.bases import _pages
+
+    _pages.new_case_module(authoring, app_id, name="Clinics", case_type="clinic")
+    _pages.delete_form(authoring, app_id, 5, 0)
+
+
+def registration_under_a_first_menu_with_different_case_types(authoring, app_id):
+    registration_under_a_display_only_menu_sharing_its_case(authoring, app_id)
+    _second_case_type_on_another_command(authoring, app_id)
+
+
+
 def search_only_column_in_a_tile(authoring, app_id):
     """Follow-ups' list laid out as a tile, its search-only village column given a cell."""
     _set_each(
@@ -817,6 +974,91 @@ def tile_cell_not_aligned(authoring, app_id):
                     "show_shading": False,
                 }
             ],
+        ),
+    )
+
+
+def _tile_cell(field, x, width, y=0):
+    """A placed cell of a custom tile as HQ's Case List page stores it."""
+    return {
+        "model": "case",
+        "field": field,
+        "header": {"en": field},
+        "format": "plain",
+        "useXpathExpression": False,
+        "grid_x": x,
+        "grid_y": y,
+        "enum": [],
+        "graph_configuration": {
+            "config": {},
+            "locale_specific_config": {},
+            "annotations": [],
+            "series": [],
+            "doc_type": "GraphConfiguration",
+        },
+        "late_flag": 30,
+        "time_ago_interval": 365.25,
+        "date_format": "%d/%m/%y",
+        "doc_type": "DetailColumn",
+        "width": width,
+        "height": 1,
+        "horizontal_align": "left",
+        "vertical_align": "start",
+        "font_size": "medium",
+        "show_border": False,
+        "show_shading": False,
+    }
+
+
+def tile_cells_overlapping(authoring, app_id):
+    """Follow-ups' list laid out as a tile whose ``village`` cell covers part of the name's row: both cells as the
+    Case List page stores them, which no check of HQ's compares."""
+
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        ("/modules/1/case_details/short/columns", [_tile_cell("name", 0, 12), _tile_cell("village", 3, 6)]),
+    )
+
+
+def tile_cell_outside_the_grid(authoring, app_id):
+    """Follow-ups' list laid out as a tile whose ``village`` cell runs past the twelfth column: a place HQ's Case
+    List page does not offer (its pickers stop at the twelfth column), as an imported app holds it."""
+
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        ("/modules/1/case_details/short/columns", [_tile_cell("name", 0, 6), _tile_cell("village", 8, 6)]),
+    )
+
+
+def tile_cell_below_the_rows_offered(authoring, app_id):
+    """Follow-ups' list laid out as a tile of two fields whose ``village`` cell sits on the thirteenth row, inside
+    the twelve columns: below the six rows HQ's Case List page offers two columns (``screen.js``,
+    ``caseTileRowMax``), so the page's next save moves it, as an imported app holds it."""
+
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        ("/modules/1/case_details/short/columns", [_tile_cell("name", 0, 12), _tile_cell("village", 0, 12, y=12)]),
+    )
+
+
+def tile_taller_than_twelve_rows(authoring, app_id):
+    """Follow-ups' list laid out as a tile of thirteen fields, one full line each, the last on the thirteenth row:
+    HQ's Case List page offers a list of thirteen columns thirteen rows and keeps that cell, and both runtimes size
+    the tile to it."""
+
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        (
+            "/modules/1/case_details/short/columns",
+            [_tile_cell("name" if row % 2 == 0 else "village", 0, 12, y=row) for row in range(13)],
         ),
     )
 
@@ -1205,6 +1447,12 @@ def village_label_column_sorted(authoring, app_id):
     )
 
 
+def distance_on_translated_calculation(authoring, app_id):
+    """The saved village-label column sorted by distance, which requires a position at the worker."""
+    village_label_column_sorted(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/sort_elements/4/type", "distance")
+
+
 # A text Search field as HQ's Case List page stores one.
 _STATUS_FIELD = {
     "name": "status_note",
@@ -1236,4 +1484,337 @@ def inline_search_under_a_parent_selection(authoring, app_id):
             "/modules/1/parent_select",
             {"active": True, "relationship": "parent", "module_id": {"$menu": 0}, "doc_type": "ParentSelect"},
         ),
+    )
+
+
+def child_menus_listing_the_same_forms(authoring, app_id):
+    """Two physical source menus and the pair of linked parent and child menus that list their forms."""
+    parent = "5adc0de0000000000000000000000003"
+    for position, name, menu_id, source, root in (
+        (5, "Tools mirror", parent, 3, None),
+        (6, "Calculators mirror", "5adc0de0000000000000000000000004", 4, parent),
+    ):
+        ops.set_json(
+            authoring,
+            app_id,
+            f"/modules/{position}",
+            {
+                "doc_type": "ShadowModule",
+                "name": {"en": name},
+                "forms": [],
+                "case_type": None,
+                "shadow_module_version": 2,
+                "unique_id": menu_id,
+                "source_module_id": {"$menu": source},
+                **({"root_module_id": root} if root else {}),
+            },
+        )
+
+
+def form_links_on_a_menu_listing_survey_forms(authoring, app_id):
+    """The Tools / Calculators pair of listing menus, the Tools mirror holding a deep link to Tools' survey. HQ's
+    menu settings page cannot save it: it sends the link with every save, but renders the deep link field its save
+    reads only in the Advanced panel, which it hides on a menu that tracks no cases
+    (``views/modules.py::get_module_view_context``, ``edit_module_attr``)."""
+    child_menus_listing_the_same_forms(authoring, app_id)
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/5/form_session_endpoints",
+        [{"doc_type": "ShadowFormEndpoint", "form_id": {"$form": [3, 0]}, "session_endpoint_id": "tools-survey"}],
+    )
+
+
+def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False, stored_case_type=None):
+    """A second route to the hq-plain forms. HQ resolves the actual source form ids before saving."""
+    owner = _held(authoring, app_id)["modules"][0]
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/-",
+        {
+            "doc_type": "ShadowModule",
+            "shadow_module_version": 2,
+            "module_type": "shadow",
+            "unique_id": "00000000000000000000000000000017",
+            "source_module_id": {"$menu": 0},
+            "name": {"en": "At home"},
+            "forms": [],
+            "case_type": owner["case_type"] if stored_case_type == "source" else None,
+            "case_details": owner["case_details"],
+            "case_list": {"show": show},
+            "excluded_form_ids": list(excluded),
+            "session_endpoint_id": "at-home",
+            "form_session_endpoints": [
+                {"doc_type": "ShadowFormEndpoint", "form_id": form_id, "session_endpoint_id": link}
+                for form_id, link in linked
+            ],
+        },
+    )
+
+
+def all_forms_listed_in_another_menu(authoring, app_id):
+    _add_listed_menu(authoring, app_id)
+
+
+def listed_menu_storing_its_source_case_type(authoring, app_id):
+    """A listing menu whose stored ``case_type`` key holds its source's type, as an app saved before
+    ``ShadowModule.case_type`` became the property derived from the source can. HQ reads the property,
+    so the stored key changes nothing."""
+    _add_listed_menu(authoring, app_id, stored_case_type="source")
+
+
+def some_forms_listed_in_another_menu(authoring, app_id):
+    _add_listed_menu(authoring, app_id, excluded=[{"$form": [0, 0]}], linked=[({"$form": [0, 1]}, "home-followup")])
+
+
+def list_item_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, show=True)
+
+
+def spaced_link_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, linked=[({"$form": [0, 1]}, " home-followup ")])
+
+
+def unavailable_form_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, excluded=["00000000000000000000000000000000"])
+
+
+def listed_menu_missing_its_required_child(authoring, app_id):
+    """The first half of the working Tools / Calculators pair. No Calculators submenu is present."""
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/5",
+        {
+            "doc_type": "ShadowModule",
+            "name": {"en": "Tools mirror"},
+            "forms": [],
+            "case_type": None,
+            "shadow_module_version": 2,
+            "unique_id": "5adc0de0000000000000000000000003",
+            "source_module_id": {"$menu": 3},
+        },
+    )
+
+
+def choose_one_grid_menu(authoring, app_id):
+    """Save the app's individual setting, then the menu's Grid option, through HQ's settings pages."""
+    from proof.matrix.bases import _pages
+
+    _pages.save_settings(authoring, app_id, attributes={"grid_form_menus": "some"})
+    _pages.save_module_attributes(authoring, app_id, 2, [("display_style", "grid")], "grid layout")
+
+
+def _case_display_columns(authoring, app_id, *columns):
+    """Append map or image fields to the five-column HQ-authored case list."""
+    for index, (field, form, label, *mapping) in enumerate(columns, start=5):
+        column = {"doc_type": "DetailColumn", "model": "case", "format": form,
+                  "field": field, "header": {"en": label}, "useXpathExpression": False}
+        if mapping:
+            column["enum"] = mapping[0]
+        ops.set_json(authoring, app_id, f"/modules/0/case_details/short/columns/{index}", column)
+
+
+def case_list_geo_boundary_colors(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('area_colour', 'geo-boundary-color', 'Area colour'),
+        ('address', 'address', 'Address'),
+        ('area', 'geo-boundary', 'Area'),
+    )
+
+
+def case_list_geo_boundary_column(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('area', 'geo-boundary', 'Area'),
+        ('address', 'address', 'Address'),
+    )
+
+
+def case_list_geo_points_colors(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('point_colours', 'geo-points-colors', 'Point colours'),
+        ('address', 'address', 'Address'),
+        ('points', 'geo-points', 'Points'),
+    )
+
+
+def case_list_geo_points_column(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('area', 'geo-points', 'Area'),
+        ('address', 'address', 'Address'),
+    )
+
+
+def case_list_icon_alt_text(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('village', 'enum-image', 'Map', [{'alt_text': {'en': 'North'}, 'doc_type': 'MappingItem', 'key': "selected(., 'north')", 'value': {'en': 'jr://file/commcare/image/north.png'}}]),
+    )
+    _pages.attach_media(authoring, app_id, 'jr://file/commcare/image/north.png')
+
+
+def case_list_icon_column_over_conditions(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('visits', 'enum-image', 'Visits', [{'alt_text': {}, 'doc_type': 'MappingItem', 'key': '. > 3', 'value': {'en': 'jr://file/commcare/image/many.png'}}]),
+    )
+    _pages.attach_media(authoring, app_id, 'jr://file/commcare/image/many.png')
+
+
+def case_list_icon_column_over_values(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('status_code', 'enum-image', 'Status', [
+            {'alt_text': {'en': 'No image for new cases'}, 'doc_type': 'MappingItem',
+             'key': 'new', 'value': {'en': ''}},
+            {'alt_text': {}, 'doc_type': 'MappingItem', 'key': 'a',
+             'value': {'en': 'jr://file/commcare/image/active.png'}},
+        ]),
+    )
+    _pages.attach_media(authoring, app_id, 'jr://file/commcare/image/active.png')
+
+
+def _detail_tile(authoring, app_id, menu, tabs):
+    """Use two physical columns with independent rectangles on the same row."""
+    root = f"/modules/{menu}/case_details/long"
+    columns = [
+        {"doc_type": "DetailColumn", "model": "case", "field": prop,
+         "header": {"en": title}, "format": fmt, "useXpathExpression": False,
+         "grid_x": x, "grid_y": 0, "width": 6, "height": 1,
+         "horizontal_align": "left", "vertical_align": "start", "font_size": "medium",
+         "show_border": False, "show_shading": False}
+        for prop, title, fmt, x in (("name", "Name", "plain", 0), ("date_opened", "Opened", "date", 6))
+    ]
+    _set_each(authoring, app_id, (root + "/columns", columns), (root + "/case_tile_template", "custom"))
+    if tabs:
+        ops.set_json(authoring, app_id, root + "/tabs", [
+            {"doc_type": "DetailTab", "isTab": True, "header": {"en": title},
+             "starting_index": i, "has_nodeset": False} for i, title in enumerate(tabs)
+        ])
+
+
+def placed_case_detail_tile(authoring, app_id):
+    _detail_tile(authoring, app_id, 0, ())
+
+
+def basic_detail_tabs_sharing_a_tile_row(authoring, app_id):
+    _detail_tile(authoring, app_id, 0, ("Patient", "More"))
+
+
+def advanced_detail_tabs_sharing_a_tile_row(authoring, app_id):
+    _detail_tile(authoring, app_id, 1, ("Member", "More"))
+
+
+def all_named_tile_positions(authoring, app_id):
+    """Every built-in tile position names a real column. Repeated properties
+    keep distinct physical columns; each has its own heading."""
+    slots = [f"{position}_{content}" for position in ("top_left", "top_right", "middle_left", "middle_right", "bottom_left") for content in ("image", "text")]
+    columns = [
+        {"doc_type": "DetailColumn", "field": "name", "model": "case",
+         "header": {"en": slot.replace("_", " ").title()}, "format": "plain",
+         "case_tile_field": slot, "useXpathExpression": False}
+        for slot in slots
+    ]
+    _set_each(authoring, app_id, ("/modules/0/case_details/short/columns", columns),
+              ("/modules/0/case_details/short/case_tile_template", "icon_text_grid"))
+
+
+def expand_own_case_tile(authoring, app_id):
+    search_only_column_in_a_tile(authoring, app_id)
+    _set_each(
+        authoring, app_id,
+        ("/modules/1/case_details/short/persist_tile_on_forms", True),
+        ("/modules/1/case_details/short/pull_down_tile", True),
+    )
+
+
+def use_other_case_tile(authoring, app_id):
+    search_only_column_in_a_tile(authoring, app_id)
+    _set_each(authoring, app_id,
+              ("/modules/0/case_details/short/persistent_case_tile_from_module", {"$menu": 1}))
+
+
+def _visit_rows_detail(authoring, app_id, tab, hidden=False):
+    """One ordinary selected-case group and a separate Visits group over its own rows."""
+    root = "/modules/0/case_details/long"
+    fields = [
+        {"doc_type": "DetailColumn", "model": "case", "field": field, "format": fmt, "header": {"en": title}}
+        for field, title, fmt in (("name", "Patient", "plain"), ("name", "Visit", "plain"))
+    ]
+    if hidden:
+        fields.append({"doc_type": "DetailColumn", "model": "case", "field": "status",
+                       "format": "invisible", "header": {"en": "Visit priority"}})
+    _set_each(authoring, app_id, (root + "/columns", fields), (root + "/tabs", [
+        {"doc_type": "DetailTab", "starting_index": 0, "header": {"en": "Patient"}},
+        {"doc_type": "DetailTab", "starting_index": 1, "header": {"en": "Visits"}, "has_nodeset": True, **tab},
+    ]))
+
+
+def explicit_visit_rows(authoring, app_id):
+    _visit_rows_detail(authoring, app_id, {"nodeset": "instance('casedb')/casedb/case[@case_type = 'visit']"})
+
+
+def _member_rows_detail(authoring, app_id, tab, hidden=False):
+    """Households' case detail as one ordinary selected-case group and a separate Members group over its own rows:
+    the household registration adds members as child cases, so HQ's Case Detail page offers ``member`` as the
+    tab's child type (``Application.get_subcase_types``) and keeps it at its next save."""
+    root = "/modules/0/case_details/long"
+    fields = [
+        {"doc_type": "DetailColumn", "model": "case", "field": field, "format": fmt, "header": {"en": title}}
+        for field, title, fmt in (("name", "Household", "plain"), ("name", "Member", "plain"))
+    ]
+    if hidden:
+        fields.append({"doc_type": "DetailColumn", "model": "case", "field": "status_note",
+                       "format": "invisible", "header": {"en": "Member priority"}})
+    _set_each(authoring, app_id, (root + "/columns", fields), (root + "/tabs", [
+        {"doc_type": "DetailTab", "starting_index": 0, "header": {"en": "Household"}},
+        {"doc_type": "DetailTab", "starting_index": 1, "header": {"en": "Members"}, "has_nodeset": True, **tab},
+    ]))
+
+
+def child_member_rows(authoring, app_id):
+    _member_rows_detail(authoring, app_id, {"nodeset_case_type": "member", "nodeset_filter": ""})
+
+
+def hidden_child_member_order(authoring, app_id):
+    _member_rows_detail(authoring, app_id, {"nodeset_case_type": "member"}, hidden=True)
+
+
+def different_persistent_lines(authoring, app_id):
+    root = "/modules/0/case_details/"
+    _set_each(authoring, app_id, (root + "short/persist_case_context", True),
+              (root + "short/persistent_case_context_xml", "case_name"), (root + "long/persist_case_context", True),
+              (root + "long/persistent_case_context_xml", "village"))
+
+
+def named_tile_using_raw_value(authoring, app_id):
+    all_named_tile_positions(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/columns/1/format", "invisible")
+
+
+def named_tile_with_an_unselected_slot(authoring, app_id):
+    all_named_tile_positions(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/columns/-", {
+        "doc_type": "DetailColumn", "field": "village", "model": "case", "format": "plain",
+        "header": {"en": "Extra"}, "case_tile_field": "unused_position",
+    })
+
+
+def unreadable_form_context_line(authoring, app_id):
+    root = "/modules/0/case_details/short"
+    _set_each(authoring, app_id, (root + "/persist_case_context", True),
+              (root + "/persistent_case_context_xml", "instance('unknown-roster')/rows/row"))
+
+
+def explicit_member_rows_with_related_cases(authoring, app_id):
+    _member_rows_detail(authoring, app_id, {"nodeset": "instance('casedb')/casedb/case[@case_type = 'member']",
+                                           "nodeset_case_type": "member"})
+
+
+def calculation_loading_faster(authoring, app_id):
+    """Patients' list with faster loading on and its ``visits + 1`` calculation kept and worked out later: the
+    menu's setting first, as the Case List page saves it, then the column's choice."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/show_case_list_optimization_options", True),
+        ("/modules/0/case_details/short/columns/4/optimization", "cache_and_lazy_load"),
     )

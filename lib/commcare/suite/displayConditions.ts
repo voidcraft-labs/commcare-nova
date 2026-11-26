@@ -41,20 +41,51 @@ function withMenuPresence(
 	return restText === undefined ? OFF_THE_MENU : w.and(OFF_THE_MENU, restText);
 }
 
-function selectedCase(selectedCaseDatumId = "case_id"): WirePath {
+function selectedCaseId(datumId = "case_id"): WirePath {
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step(datumId),
+	]);
+}
+
+function selectedCase(datumId?: string): WirePath {
 	return w.instance(caseDbInstance(), [
 		w.step("casedb"),
 		w.step("case", [
-			w.eq(
-				w.context([w.attr("case_id")]),
-				w.instance(sessionInstance(), [
-					w.step("session"),
-					w.step("data"),
-					w.step(selectedCaseDatumId),
-				]),
-			),
+			w.eq(w.context([w.attr("case_id")]), selectedCaseId(datumId)),
 		]),
 	]);
+}
+
+/** A badge's XPath is copied verbatim by HQ. The navigation expression is lowered
+ * for the device in both export modes. A form's chosen case is on its session
+ * frame, while the menu itself has no implicit row. */
+export function menuBadgeExpression(
+	expression: Expression,
+	types: ExpressionContext,
+	lookupNaming?: LookupWireNaming,
+	selectedCaseDatumId?: string,
+	datumId?: (ref: DatumRef) => string | undefined,
+): WireExpr {
+	return toWire(expression, {
+		target: "suite",
+		types,
+		bindings: {
+			...(datumId !== undefined && { datumId }),
+			...(selectedCaseDatumId !== undefined && {
+				rootCaseIdWireExpr: selectedCaseId(selectedCaseDatumId),
+				emitSelfProperty: (property) =>
+					w.append(
+						selectedCase(selectedCaseDatumId),
+						casePropertyPath(property.property).steps,
+					),
+			}),
+			...(lookupNaming !== undefined && {
+				lookup: { naming: lookupNaming, instanceScope: "suite" },
+			}),
+		},
+	});
 }
 
 /** Module relevancy runs before case selection, so ordinary on-device terms
@@ -102,6 +133,7 @@ export function emitFormDisplayConditionForSuite(
 			types,
 			bindings: {
 				...(datumId === undefined ? {} : { datumId }),
+				rootCaseIdWireExpr: selectedCaseId(selectedCaseDatumId),
 				emitSelfProperty: (property) =>
 					w.append(
 						selectedCase(selectedCaseDatumId),
@@ -144,7 +176,11 @@ export function emitFormDisplayConditionForHq(
 			types,
 			...(rewrites === undefined ? {} : { rewrites }),
 			bindings: {
+				// HQ removes only UsercaseXPath().case()'s exact spelling before
+				// deciding whether a forms-first menu illegally reads case rows.
+				workerProperty: w.hqWorker,
 				...(datumId === undefined ? {} : { datumId }),
+				rootCaseIdWireExpr: selectedCaseId(selectedCaseDatumId),
 				emitSelfProperty: (property) =>
 					RESERVED_CASE_ATTRIBUTES.has(property.property)
 						? w.append(selectedCase(selectedCaseDatumId), [

@@ -26,16 +26,21 @@ import {
 	type Column,
 	columnOnList,
 	orderedColumns,
+	resultsTileFieldCount,
 	TILE_GRID_COLUMNS,
-	TILE_GRID_ROWS,
 	type TileCell,
 	tileCell,
 	tileCellBottomEdge,
 	tileCellRightEdge,
 	tileCellsOverlap,
+	tileRowLimit,
 	type Uuid,
 } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
+import {
+	firstFreeTilePlacement,
+	nextFreeTilePlacement,
+} from "@/lib/domain/tilePlacement";
 import { columnLabel } from "../canvas/ColumnInventory";
 import { LIST_SEARCH_OFF_LINE } from "../workspaceProjection";
 
@@ -133,6 +138,34 @@ export function groupingReopenNotice(
 }
 
 /**
+ * The rows a Results tile has: one for each field it shows, at least six
+ * (`lib/domain/modules.ts::tileRowLimit`, the rows CommCare HQ's Case
+ * List page keeps). Every gesture is held to it, and the canvas draws it.
+ */
+export function resultsTileRows(
+	config: Pick<CaseListConfig, "columns">,
+): number {
+	return tileRowLimit(resultsTileFieldCount(config));
+}
+
+/** The rows the tile has once `column` shows on it: a field joining the
+ *  tile adds a row to a tile of six fields or more. */
+export function resultsTileRowsWith(
+	config: Pick<CaseListConfig, "columns">,
+	column: Column,
+): number {
+	const joined = { ...column, visibleInList: true } as Column;
+	const present = config.columns.some((each) => each.uuid === column.uuid);
+	return resultsTileRows({
+		columns: present
+			? config.columns.map((each) =>
+					each.uuid === column.uuid ? joined : each,
+				)
+			: [...config.columns, joined],
+	});
+}
+
+/**
  * The tile's membership in Results order: the same sequence the short
  * detail emits its fields in.
  */
@@ -207,8 +240,10 @@ export function evaluateTilePlacement(args: {
 	readonly label: string;
 	readonly candidate: TileGeometry;
 	readonly others: readonly TilePlacement[];
+	/** The tile's rows (`resultsTileRows`). */
+	readonly rows: number;
 }): TilePlacementVerdict {
-	const { label, candidate, others } = args;
+	const { label, candidate, others, rows } = args;
 
 	if (candidate.width < 1) {
 		return {
@@ -249,10 +284,10 @@ export function evaluateTilePlacement(args: {
 		};
 	}
 	const bottom = tileCellBottomEdge(cell);
-	if (bottom > TILE_GRID_ROWS) {
+	if (bottom > rows) {
 		return {
 			ok: false,
-			reason: `${label} would reach row ${bottom}, past the bottom edge. A tile is ${TILE_GRID_ROWS} rows tall, so a field has to end by row ${TILE_GRID_ROWS}.`,
+			reason: `${label} would reach row ${bottom}, past the bottom edge. This tile has ${rows} rows, one for each field it shows and at least six, so a field has to end by row ${rows}.`,
 		};
 	}
 
@@ -290,6 +325,7 @@ export function planTilePlacement(
 	placed: readonly TilePlacement[],
 	uuid: Uuid,
 	geometry: TileGeometry,
+	rows: number,
 ): TilePlacementVerdict {
 	const target = placed.find((entry) => entry.uuid === uuid);
 	if (target === undefined) {
@@ -303,6 +339,7 @@ export function planTilePlacement(
 		label: target.label,
 		candidate: geometry,
 		others: placed.filter((entry) => entry.uuid !== uuid),
+		rows,
 	});
 	if (!verdict.ok) return verdict;
 	return { ok: true, cell: withGeometry(target.cell, verdict.cell) };
@@ -321,6 +358,8 @@ export function planColumnTilePlacement(args: {
 	readonly config: CaseListConfig;
 	readonly column: Column;
 	readonly geometry: TileGeometry;
+	/** The tile's rows where `config` is a slice of a larger screen. */
+	readonly rows?: number;
 }): TilePlacementVerdict {
 	const { config, column, geometry } = args;
 	const verdict = evaluateTilePlacement({
@@ -329,6 +368,7 @@ export function planColumnTilePlacement(args: {
 		others: tileMembership(config).placed.filter(
 			(entry) => entry.uuid !== column.uuid,
 		),
+		rows: args.rows ?? resultsTileRows(config),
 	});
 	if (!verdict.ok) return verdict;
 	return { ok: true, cell: withGeometry(column.tile, verdict.cell) };
@@ -340,16 +380,22 @@ export function planTileMove(
 	uuid: Uuid,
 	deltaColumns: number,
 	deltaRows: number,
+	rows: number,
 ): TilePlacementVerdict {
 	const target = placed.find((entry) => entry.uuid === uuid);
 	if (target === undefined)
-		return planTilePlacement(placed, uuid, ZERO_GEOMETRY);
-	return planTilePlacement(placed, uuid, {
-		x: target.cell.x + deltaColumns,
-		y: target.cell.y + deltaRows,
-		width: target.cell.width,
-		height: target.cell.height,
-	});
+		return planTilePlacement(placed, uuid, ZERO_GEOMETRY, rows);
+	return planTilePlacement(
+		placed,
+		uuid,
+		{
+			x: target.cell.x + deltaColumns,
+			y: target.cell.y + deltaRows,
+			width: target.cell.width,
+			height: target.cell.height,
+		},
+		rows,
+	);
 }
 
 /** Grow or shrink one member at its right and bottom edges. */
@@ -358,16 +404,22 @@ export function planTileResize(
 	uuid: Uuid,
 	deltaWidth: number,
 	deltaHeight: number,
+	rows: number,
 ): TilePlacementVerdict {
 	const target = placed.find((entry) => entry.uuid === uuid);
 	if (target === undefined)
-		return planTilePlacement(placed, uuid, ZERO_GEOMETRY);
-	return planTilePlacement(placed, uuid, {
-		x: target.cell.x,
-		y: target.cell.y,
-		width: target.cell.width + deltaWidth,
-		height: target.cell.height + deltaHeight,
-	});
+		return planTilePlacement(placed, uuid, ZERO_GEOMETRY, rows);
+	return planTilePlacement(
+		placed,
+		uuid,
+		{
+			x: target.cell.x,
+			y: target.cell.y,
+			width: target.cell.width + deltaWidth,
+			height: target.cell.height + deltaHeight,
+		},
+		rows,
+	);
 }
 
 const ZERO_GEOMETRY: TileGeometry = { x: 0, y: 0, width: 1, height: 1 };
@@ -425,49 +477,25 @@ export function planTileKeyboardGesture(
 	placed: readonly TilePlacement[],
 	uuid: Uuid,
 	gesture: TileKeyboardGesture,
+	rows: number,
 ): TilePlacementVerdict {
 	return gesture.kind === "move"
-		? planTileMove(placed, uuid, gesture.deltaColumns, gesture.deltaRows)
-		: planTileResize(placed, uuid, gesture.deltaWidth, gesture.deltaHeight);
+		? planTileMove(placed, uuid, gesture.deltaColumns, gesture.deltaRows, rows)
+		: planTileResize(
+				placed,
+				uuid,
+				gesture.deltaWidth,
+				gesture.deltaHeight,
+				rows,
+			);
 }
 
 // ── Free space ────────────────────────────────────────────────────
 
-/**
- * The first free rectangle of the requested size, scanning left to
- * right then top to bottom, where a newly placed field lands so it
- * reads in the order the author added it.
- */
-export function firstFreeTilePlacement(
-	occupied: readonly TileCell[],
-	width: number,
-	height: number,
-): TileCell | null {
-	if (width < 1 || height < 1) return null;
-	for (let y = 0; y + height <= TILE_GRID_ROWS; y++) {
-		for (let x = 0; x + width <= TILE_GRID_COLUMNS; x++) {
-			const candidate = tileCell(x, y, width, height);
-			if (occupied.some((cell) => tileCellsOverlap(cell, candidate))) continue;
-			return candidate;
-		}
-	}
-	return null;
-}
-
-/**
- * The widest free place for one more field, preferring a full line and
- * narrowing until something fits. Returns `null` only when every square
- * is taken.
- */
-export function nextFreeTilePlacement(
-	occupied: readonly TileCell[],
-): TileCell | null {
-	for (const width of [TILE_GRID_COLUMNS, 6, 4, 3, 2, 1]) {
-		const found = firstFreeTilePlacement(occupied, width, 1);
-		if (found !== null) return found;
-	}
-	return null;
-}
+export {
+	firstFreeTilePlacement,
+	nextFreeTilePlacement,
+} from "@/lib/domain/tilePlacement";
 
 /**
  * The place a column takes when it joins the tile: showing a field the
@@ -491,6 +519,7 @@ export function placementForJoiningTile(
 	const others = tileMembership(config).placed.filter(
 		(entry) => entry.uuid !== column.uuid,
 	);
+	const rows = resultsTileRowsWith(config, column);
 	const saved = column.tile;
 	if (
 		saved !== undefined &&
@@ -498,6 +527,7 @@ export function placementForJoiningTile(
 			label: columnLabel(column),
 			candidate: saved,
 			others,
+			rows,
 		}).ok
 	) {
 		return saved;
@@ -506,9 +536,9 @@ export function placementForJoiningTile(
 	const atSavedSize =
 		saved === undefined
 			? null
-			: firstFreeTilePlacement(occupied, saved.width, saved.height);
+			: firstFreeTilePlacement(occupied, saved.width, saved.height, rows);
 	if (atSavedSize !== null) return withGeometry(saved, atSavedSize);
-	return nextFreeTilePlacement(occupied);
+	return nextFreeTilePlacement(occupied, rows);
 }
 
 // ── Findings ──────────────────────────────────────────────────────
@@ -534,15 +564,16 @@ export interface TileIssue {
 export function tileLayoutIssues(config: CaseListConfig): readonly TileIssue[] {
 	const issues: TileIssue[] = [];
 	const columns = orderedColumns(config, "list");
+	const rows = resultsTileRows(config);
 
 	for (const column of columns) {
 		const cell = column.tile;
 		if (cell === undefined) continue;
 		const right = tileCellRightEdge(cell);
 		const bottom = tileCellBottomEdge(cell);
-		if (right <= TILE_GRID_COLUMNS && bottom <= TILE_GRID_ROWS) continue;
+		if (right <= TILE_GRID_COLUMNS && bottom <= rows) continue;
 		const overflow =
-			right > TILE_GRID_COLUMNS && bottom > TILE_GRID_ROWS
+			right > TILE_GRID_COLUMNS && bottom > rows
 				? `column ${right} and row ${bottom}`
 				: right > TILE_GRID_COLUMNS
 					? `column ${right}`
@@ -550,7 +581,7 @@ export function tileLayoutIssues(config: CaseListConfig): readonly TileIssue[] {
 		issues.push({
 			uuid: column.uuid,
 			kind: "out-of-grid",
-			message: `${columnLabel(column)} runs past the edge of the tile: it reaches ${overflow}, and a tile is ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows. Move it back, or make it smaller.`,
+			message: `${columnLabel(column)} runs past the edge of the tile: it reaches ${overflow}, and this tile is ${TILE_GRID_COLUMNS} columns wide and ${rows} rows tall: a row for each field it shows, and at least six. Move it back, or make it smaller.`,
 		});
 	}
 

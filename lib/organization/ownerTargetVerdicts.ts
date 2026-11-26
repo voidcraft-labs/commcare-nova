@@ -348,7 +348,13 @@ export function reverseLocationOwnerRefusal(
 	managed: ManagedPlacesContext | undefined,
 ): string | undefined {
 	const verdict = reverseLocationOwnerVerdict(doc, rows, destinationLevelUuid);
-	if (verdict === undefined) return undefined;
+	return verdict && reverseVerdictMessage(verdict, managed);
+}
+
+export function reverseVerdictMessage(
+	verdict: ReverseLocationOwnerVerdict,
+	managed?: ManagedPlacesContext,
+): string {
 	if (managed === undefined) return authorOwnerSentence(verdict);
 	const gone = (place: OwnerVerdictLocation) => managed.goneIds.has(place.id);
 	switch (verdict.kind) {
@@ -679,4 +685,34 @@ export function locationTopologyChangeIssue(
 		row.id === locationId ? { ...row, ...patch } : row,
 	);
 	return authoredLocationReferenceIssue(doc, candidateRows);
+}
+
+export function placeRuleRequest(
+	doc: OrganizationRuleInputs,
+	revision: string,
+	reverseChoices?: readonly string[],
+) {
+	const fixed = new Set<string>();
+	const reverse = new Set<string>();
+	if (reverseChoices) for (const level of reverseChoices) reverse.add(level);
+	else
+		for (const form of Object.values(doc.forms)) {
+			for (const operation of form.caseOperations ?? []) {
+				const expression = operation.owner;
+				if (expression?.kind !== "term") continue;
+				if (expression.term.kind === "fixed-location")
+					fixed.add(expression.term.locationUuid);
+				if (expression.term.kind === "owner-location-at-level")
+					reverse.add(expression.term.levelUuid);
+			}
+		}
+	return {
+		revision,
+		fixed: [...fixed],
+		reverse: [...reverse],
+		levels: Object.values(organizationLevelsOf(doc)),
+		personas: Object.values(personasOf(doc)).map(
+			({ uuid, name, locations }) => ({ uuid, name, locations }),
+		),
+	};
 }

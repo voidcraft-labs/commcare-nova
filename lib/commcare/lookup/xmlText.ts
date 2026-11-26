@@ -4,6 +4,7 @@ import type {
 } from "@/lib/lookup/types";
 import { type ValidationError, validationError } from "../validator/errors";
 import { xmlTextIssue } from "../xmlText";
+import { lookupLexicalSlots } from "./lexicalSlots";
 
 /**
  * The project space that manages a table, for a table CommCare HQ manages;
@@ -34,13 +35,15 @@ export function lookupXmlTextFindings(
 	for (const table of snapshot.definitions) {
 		const rows = snapshot.rowsByTable.get(table.id) ?? [];
 		const managedInDomain = lookupTableManagedInDomain(table);
-		for (const column of table.columns) {
+		for (const column of lookupLexicalSlots(table)) {
 			let count = 0;
 			const examples: { row: number; id: string; character: string }[] = [];
 			rows.forEach((row, index) => {
-				const value = row.values[column.id];
-				const character =
-					typeof value === "string" ? xmlTextIssue(value) : undefined;
+				let character: string | undefined;
+				for (const value of column.values(row)) {
+					character = xmlTextIssue(value);
+					if (character !== undefined) break;
+				}
 				if (character === undefined) return;
 				count++;
 				if (examples.length < 5)
@@ -60,7 +63,7 @@ export function lookupXmlTextFindings(
 					{
 						tableId: table.id,
 						tableName: table.name,
-						columnId: column.id,
+						...column.target,
 						columnLabel: column.label,
 						offendingRowCount: String(count),
 						offendingRowPositions: examples.map((item) => item.row).join(","),

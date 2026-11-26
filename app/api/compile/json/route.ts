@@ -1,15 +1,18 @@
-import { type NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { handleApiError } from "@/lib/apiError";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
-	buildHqJsonExportArchive,
 	hqImportFileGuide,
+	streamHqJsonExportArchive,
 } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import {
 	encodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	projectSpaceCompatibilityForDownload,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import { textMember } from "@/lib/commcare/streamZip";
+import { manualLookupManifest } from "@/lib/deployment/manualLookupInstall";
+import { compileDownloadResponse } from "@/lib/export/artifacts/response";
 import {
 	EXPORT_ADVISORY_HEADER,
 	encodeExportAdvisories,
@@ -20,6 +23,7 @@ import {
 	MANUAL_IMPORT_GUIDE_HEADER,
 	renderManualImportGuide,
 } from "@/lib/publish/manualImportGuide";
+import { MANUAL_LOOKUP_MANIFEST } from "@/lib/publish/manualLookupManifest";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "../prepareCompileRequest";
 
@@ -36,10 +40,9 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  * `X-Nova-Manual-Import-Guide` header, so the publish dialog shows exactly
  * what the README says once the file has arrived.
  *
- * The file is made for no project space: it carries derived ids and no
- * runtime URL, because CommCare HQ writes its own when it builds the app, and
- * a `domain` in the request is refused. A reached deployment on the chosen
- * server scopes only its attachment links.
+ * HQ creates the app with derived entity IDs and supplies its runtime URL.
+ * A project-supplied search requires an explicit destination and its verified
+ * service IDs. Other files use a reached deployment only for attachment links.
  *
  * The workbook is the SAME artifact the direct upload pushes through CommCare
  * HQ's fixture API, built from the generation the boundary validated, so a
@@ -47,26 +50,29 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
+		const prepared = await prepareCompileRequest(req, {
+			boundaryErrorVerb: "export",
+			mode: "hq-json",
+		});
 		const {
 			doc,
 			assets,
 			compiledAtSeq,
+			download,
 			attachmentTarget,
 			attachmentTargetState,
 			lookupNaming,
 			lookupWorkbook,
 			managedLookupTables,
 			managedLookupWorkbooks,
-		} = await prepareCompileRequest(req, {
-			boundaryErrorVerb: "export",
-			mode: "hq-json",
-		});
+		} = prepared;
 
 		// Only a media-bearing app passes the manifest to `expandDoc`; a
 		// media-free app expands media-OFF so its JSON never depends on an
 		// empty manifest reducing to the same shape.
 		const hasMedia = assets.size > 0;
 		const hqJson = expandDoc(doc, {
+			...(download.identity && { identity: download.identity }),
 			attachmentTarget,
 			...(hasMedia && { assets }),
 			...(lookupNaming && { lookupNaming }),
@@ -79,30 +85,35 @@ export async function POST(req: NextRequest) {
 		const appName = sanitizeFilename(doc.appName);
 		const projectSpaceCompatibilityHeader =
 			encodeProjectSpaceCompatibilityReport(
-				projectSpaceCompatibilityForDownload(doc),
+				download.compatibility ?? projectSpaceCompatibilityForDownload(doc),
 			);
 		// The import file is complete and correct; the advisories say what it
 		// could not carry, so they ride beside it rather than replacing it.
 		const advisoryHeader = encodeExportAdvisories(
-			/* The import file is made for no project space, so nothing it
-			 * keeps is stated. */
+			/* A manual import creates a new app and inherits no remote app settings. */
 			exportAdvisories(doc, attachmentTargetState, null),
 		);
 
 		// The RAW name goes to the builder and the guide: the archive's
 		// Unicode-safe member sanitizer keeps non-Latin and accented names
 		// intact inside the ZIP, and the README names that same member.
+		const install =
+			(prepared.jsonLookupTables?.length ?? 0) > 0
+				? manualLookupManifest(prepared.appId, prepared)
+				: undefined;
 		const guide = hqImportFileGuide({
 			appName: doc.appName,
 			doc,
 			assets,
 			lookupWorkbook,
 			managedLookupWorkbooks,
+			extraWorkbooks: prepared.streamedWorkbooks,
+			manualLookupTables: prepared.jsonLookupTables?.map(({ tag }) => tag),
 			managedLookupTables,
 			attachmentTarget,
 			lookupNaming,
 		});
-		const archive = buildHqJsonExportArchive(
+		const archive = streamHqJsonExportArchive(
 			doc.appName,
 			doc,
 			hqJson,
@@ -110,12 +121,30 @@ export async function POST(req: NextRequest) {
 			lookupWorkbook,
 			managedLookupWorkbooks,
 			renderManualImportGuide(guide),
+			[
+				...(prepared.streamedWorkbooks ?? []),
+				...(install
+					? [
+							textMember(
+								MANUAL_LOOKUP_MANIFEST,
+								JSON.stringify(install, null, 2),
+							),
+						]
+					: []),
+			],
 		);
 		// The archive is the artifact the person hands to HQ, and HQ's importer
 		// owns its version slots. The blueprint's `mutation_seq` rides
 		// out-of-band in the `X-Compiled-At-Seq` response header so the export
 		// still names its document version without perturbing the body.
-		return new NextResponse(new Uint8Array(archive), {
+		return await compileDownloadResponse({
+			source: archive,
+			filename: `${appName}.zip`,
+			prepared,
+			download: prepared.download,
+			appId: prepared.appId,
+			actor: prepared.exportActor,
+			signal: req.signal,
 			headers: {
 				"Content-Type": "application/zip",
 				"Content-Disposition": `attachment; filename="${appName}.zip"`,

@@ -1,3 +1,4 @@
+import { routeContainsForm } from "@/lib/domain/listedForms";
 /**
  * Builder URL location — path serializer, parser, validator, and recovery.
  *
@@ -85,7 +86,16 @@ export type LocationParseDoc = LocationDoc &
  * For `home`, we return an empty array — the builder route itself
  * (no extra path segments) encodes home.
  */
-export function serializePath(loc: Location): string[] {
+export function serializePath(
+	loc: Location,
+	doc?: Pick<BlueprintDoc, "modules">,
+): string[] {
+	const parts = sourcePath(loc);
+	return "formUuid" in loc && doc?.modules[loc.moduleUuid]?.formsFromMenu
+		? [loc.moduleUuid, "forms", ...parts]
+		: parts;
+}
+function sourcePath(loc: Location): string[] {
 	switch (loc.kind) {
 		case "home":
 			return [];
@@ -158,8 +168,12 @@ function decodePathSegment(segment: string): string {
  * Centralizes the `basePath + segments.join("/")` pattern used by every
  * navigation call site. `basePath` is `/build/{appId}` (no trailing slash).
  */
-export function buildUrl(basePath: string, loc: Location): string {
-	const segments = serializePath(loc);
+export function buildUrl(
+	basePath: string,
+	loc: Location,
+	doc?: Pick<BlueprintDoc, "modules">,
+): string {
+	const segments = serializePath(loc, doc);
 	return segments.length > 0 ? `${basePath}/${segments.join("/")}` : basePath;
 }
 
@@ -266,6 +280,22 @@ export function parsePathToLocation(
 	const parsedFirst = uuidSchema.safeParse(segments[0]);
 	if (!parsedFirst.success) return { kind: "home" };
 	const first = parsedFirst.data;
+	if (segments[1] === "forms") {
+		const route = doc.modules[first];
+		if (
+			!route?.formsFromMenu ||
+			segments.length < 3 ||
+			segments.slice(2).includes("forms")
+		)
+			return { kind: "home" };
+		const content = parsePathToLocation(segments.slice(2), doc);
+		if (
+			!("formUuid" in content) ||
+			!routeContainsForm(doc, first, content.formUuid)
+		)
+			return { kind: "module", moduleUuid: first };
+		return { ...content, moduleUuid: first };
+	}
 
 	if (segments.length === 1) {
 		/* Single segment — could be a module, form, or field UUID. */

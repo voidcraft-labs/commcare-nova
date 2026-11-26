@@ -20,12 +20,13 @@ import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import type { LookupColumnId, LookupRowId } from "@/lib/domain/lookupIds";
+import { requiresLookupProjection } from "@/lib/lookup/source";
 import type { LookupRow, LookupTableSnapshot } from "@/lib/lookup/types";
 import { COLUMN_GONE_IN_HQ } from "@/lib/publish/managedData";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -35,13 +36,12 @@ import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
 import {
 	COLUMN_TYPE_LABELS,
 	cellText,
-	filterRows,
 	formatLookupBytes,
 	formatLookupCount,
-	ROWS_PER_PAGE,
-	tableCapacity,
 } from "./projectDataModel";
 import { TableActions } from "./TableActions";
+import { TableSourceActions } from "./TableSourceActions";
+import type { ProjectRowsWindow, ProjectTableWindow } from "./useProjectData";
 
 export function ProjectDataTableScreen() {
 	const workspace = useProjectDataWorkspace();
@@ -130,7 +130,6 @@ export function ProjectDataTableScreen() {
 	}
 
 	const table = state.value;
-	const capacity = tableCapacity(table);
 
 	return (
 		<section
@@ -147,10 +146,16 @@ export function ProjectDataTableScreen() {
 			</h1>
 			<p className="mt-2 text-sm leading-relaxed text-nova-text-secondary">
 				{formatLookupCount(table.columns.length, "column")} ·{" "}
-				{table.rowCount.toLocaleString()} of{" "}
-				{formatLookupCount(capacity.rowLimit, "row")} ·{" "}
-				{formatLookupBytes(table.dataBytes)} of{" "}
-				{formatLookupBytes(capacity.byteLimit)}
+				{table.rowCount === null ||
+				table.dataBytes === null ||
+				requiresLookupProjection(table.hq) ? (
+					"Source inventory in CommCare HQ"
+				) : (
+					<>
+						{formatLookupCount(table.rowCount, "row")} ·{" "}
+						{formatLookupBytes(table.dataBytes)}
+					</>
+				)}
 			</p>
 			<p className="mt-1 text-[12px] text-nova-text-muted">
 				Export tag:{" "}
@@ -159,6 +164,9 @@ export function ProjectDataTableScreen() {
 
 			{workspace !== null && (
 				<ManagedTableBanner table={table} workspace={workspace} />
+			)}
+			{workspace !== null && (
+				<TableSourceActions table={table} workspace={workspace} />
 			)}
 			{workspace !== null && (
 				<TableActions table={table} workspace={workspace} />
@@ -181,6 +189,7 @@ export function ProjectDataTableScreen() {
 				</div>
 			)}
 			<TableGrid
+				key={JSON.stringify([table.projectId, table.id])}
 				table={table}
 				selectedRowId={
 					workspace?.selection?.kind === "row"
@@ -194,12 +203,8 @@ export function ProjectDataTableScreen() {
 							.map((row) => row.id),
 					)
 				}
-				revealRowId={
-					workspace?.selection?.kind === "row" &&
-					workspace.selection.reveal === true
-						? workspace.selection.rowId
-						: undefined
-				}
+				query={workspace?.query ?? ""}
+				openRows={(window) => workspace?.openRows(window)}
 				onSelectRow={(rowId) => workspace?.select({ kind: "row", rowId })}
 				onSelectColumn={(columnId) =>
 					workspace?.select({ kind: "column", columnId })
@@ -221,148 +226,147 @@ function rowLabel(table: LookupTableSnapshot, row: LookupRow): string {
 	const text = first === undefined ? undefined : cellText(row.values, first);
 	return text !== undefined && text.trim() !== ""
 		? text
-		: `at position ${(table.rows.indexOf(row) + 1).toLocaleString("en-US")}`;
+		: `at position ${((row.sourceIndex ?? table.rows.indexOf(row)) + 1).toLocaleString("en-US")}`;
 }
 
-/**
- * The rows, as a real `<table>` in pages.
- *
- * Pages rather than a virtualized window, and that is a semantics decision
- * before it is a performance one. A table cap of 5,000 rows is far past what
- * belongs in the DOM at once, and the two ways out are virtualization or
- * paging: virtualization costs the native element (a CSS grid wearing ARIA
- * roles, with `aria-rowindex` bookkeeping that has to stay honest as the
- * window moves), while paging keeps `<table>`/`<th>`/`<td>`, real row and
- * column headers, real header association, and screen-reader table navigation
- * that works without a single role attribute. The running case list already
- * pages at 50 for the same reason, so the two surfaces behave alike.
- *
- * Finding a row is the search box, not scrolling: a lookup table is a list
- * you look things up in, so matching text across every column beats paging
- * through fifty pages hunting for one facility.
- */
+/** One revision-bound database window per page keeps native table navigation
+ * and searches the complete table, including text in individual details. */
 function TableGrid({
 	table,
 	selectedRowId,
 	draftRowIds,
-	revealRowId,
+	query,
+	openRows,
 	onSelectRow,
 	onSelectColumn,
 }: {
-	table: LookupTableSnapshot;
+	table: ProjectTableWindow;
 	selectedRowId: LookupRowId | undefined;
 	draftRowIds: ReadonlySet<LookupRowId>;
-	revealRowId: LookupRowId | undefined;
+	query: string;
+	openRows: (window: ProjectRowsWindow) => void;
 	onSelectRow: (rowId: LookupRowId) => void;
 	onSelectColumn: (columnId: LookupColumnId) => void;
 }) {
 	const searchId = useId();
 	const searchHintId = useId();
-	const [query, setQuery] = useState("");
-	const [page, setPage] = useState(0);
-	const lastRevealedRow = useRef<LookupRowId | undefined>(undefined);
-
-	/* A newly created row is appended and selected by the controller. Reveal
-	 * that exact receipt instead of merely saying it exists somewhere beyond
-	 * the current search/page. Existing selections are not repeatedly pulled
-	 * back into view on ordinary realtime refreshes. */
+	const [typed, setTyped] = useState(query);
+	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	useEffect(() => {
-		if (revealRowId === undefined || lastRevealedRow.current === revealRowId) {
-			return;
-		}
-		const index = table.rows.findIndex((row) => row.id === revealRowId);
-		if (index < 0) return;
-		lastRevealedRow.current = revealRowId;
-		setQuery("");
-		setPage(Math.floor(index / ROWS_PER_PAGE));
-	}, [revealRowId, table.rows]);
-
-	const matches = useMemo(
-		() => filterRows(table.rows, table.columns, query),
-		[table.rows, table.columns, query],
-	);
-
-	/* A narrowed or refreshed result set can leave the reader past the end.
-	 * Clamping during render (rather than in an effect) keeps the page shown
-	 * and the page counted identical in the same commit: an effect would
-	 * paint one frame of an empty page first. */
-	const pageCount = Math.max(1, Math.ceil(matches.length / ROWS_PER_PAGE));
-	const currentPage = Math.min(page, pageCount - 1);
-	const start = currentPage * ROWS_PER_PAGE;
-	const visible = matches.slice(start, start + ROWS_PER_PAGE);
-	/* Off the WHOLE table, not the current match set: the hint is about the
-	 * table being long, and it should not disappear the moment a query narrows
-	 * the result to one page. */
-	const multiPage = table.rows.length > ROWS_PER_PAGE;
+		setTyped(query);
+		return () => clearTimeout(timer.current);
+	}, [query]);
+	const changeQuery = (next: string) => {
+		clearTimeout(timer.current);
+		setTyped(next);
+		timer.current = setTimeout(() => openRows({ query: next }), 180);
+	};
+	const start = table.rowOffset ?? 0;
+	const visible = table.rows;
+	const count = table.matchingRowCount ?? table.rowCount ?? 0;
+	const paged = Boolean(table.nextRowCursor || table.previousRowCursor);
+	const searchedFor = table.searchedFor ?? "";
+	const searchPending =
+		typed.trim() !== (table.outsideSearch ?? searchedFor).trim();
+	const multiPage = table.rowCount !== null && table.rowCount > 25;
 
 	return (
 		<div className="mt-6 min-w-0">
-			{table.rows.length > 0 && (
-				<div className="flex flex-wrap items-end justify-between gap-3">
-					<div className="min-w-0 grow basis-64">
-						<Label htmlFor={searchId} className="text-[12px]">
-							Find a row
-						</Label>
-						<Input
-							id={searchId}
-							type="search"
-							value={query}
-							placeholder="Search every column"
-							autoComplete="off"
-							data-1p-ignore
-							aria-describedby={multiPage ? searchHintId : undefined}
-							onChange={(event) => {
-								setQuery(event.target.value);
-								setPage(0);
-							}}
-							className="mt-1 h-11"
-						/>
-						{/* Said only once the table is actually long enough for it to
-						 *  matter. A table that fits on one page needs no advice about
-						 *  how to find a row in it. */}
-						{multiPage && (
-							<p
-								id={searchHintId}
-								className="mt-1.5 text-[12px] leading-snug text-nova-text-muted"
-							>
-								This table is longer than one page. Searching is faster than
-								paging through it.
-							</p>
-						)}
+			{table.rowCount !== null &&
+				table.rowCount > 0 &&
+				!table.rowsUnavailable && (
+					<div className="flex flex-wrap items-end justify-between gap-3">
+						<div className="min-w-0 grow basis-64">
+							<Label htmlFor={searchId} className="text-[12px]">
+								Find a row
+							</Label>
+							<Input
+								id={searchId}
+								type="search"
+								maxLength={200}
+								value={typed}
+								placeholder="Search every column"
+								autoComplete="off"
+								data-1p-ignore
+								aria-describedby={multiPage ? searchHintId : undefined}
+								onChange={(event) => {
+									changeQuery(event.target.value);
+								}}
+								className="mt-1 h-11"
+							/>
+							{/* Said only once the table is actually long enough for it to
+							 *  matter. A table that fits on one page needs no advice about
+							 *  how to find a row in it. */}
+							{multiPage && (
+								<p
+									id={searchHintId}
+									className="mt-1.5 text-[12px] leading-snug text-nova-text-muted"
+								>
+									This table is longer than one page. Searching is faster than
+									paging through it.
+								</p>
+							)}
+						</div>
+						<p
+							role="status"
+							className="min-h-11 content-center text-[13px] text-nova-text-secondary"
+						>
+							{searchedFor.trim() === ""
+								? formatLookupCount(table.rowCount, "row")
+								: `${formatLookupCount(count, "row")} matching`}
+						</p>
 					</div>
-					<p
-						role="status"
-						className="min-h-11 content-center text-[13px] text-nova-text-secondary"
-					>
-						{query.trim() === ""
-							? formatLookupCount(table.rows.length, "row")
-							: `${formatLookupCount(matches.length, "row")} matching`}
-					</p>
-				</div>
-			)}
+				)}
 
-			{table.rows.length === 0 ? (
-				<p className="mb-3 max-w-md text-sm leading-relaxed text-nova-text-secondary">
-					This table has its columns but no rows yet. Add rows one at a time, or
-					replace them all at once from a CSV. Column settings remain available
-					below.
+			{table.outsideSearch && (
+				<p role="status">
+					This row is outside your search for “{table.outsideSearch}”.{" "}
+					<Button
+						variant="ghost-action"
+						onClick={() => openRows({ query: table.outsideSearch })}
+					>
+						Return to search
+					</Button>
 				</p>
-			) : matches.length === 0 ? (
+			)}
+			{table.rowCount === null ||
+			table.rowCount === 0 ||
+			table.rowsUnavailable ? (
+				<p className="mb-3 max-w-md text-sm leading-relaxed text-nova-text-secondary">
+					{table.rowsUnavailable || requiresLookupProjection(table.hq)
+						? "A connected Project editor can inspect this table’s source inventory. Preview uses the rows available to the worker."
+						: table.hq?.managedBy === "commcare-hq"
+							? "The current copy contains no rows."
+							: "This table has no rows yet. You can add a row when you're ready."}
+				</p>
+			) : count === 0 ? (
 				<p className="mt-6 text-sm leading-relaxed text-nova-text-secondary">
-					No row in this table contains “{query.trim()}”.
+					No row in this table contains “{searchedFor.trim()}”.
 				</p>
 			) : null}
 
 			<div className="mt-3 overflow-x-auto rounded-xl border border-nova-border">
 				<table className="w-full min-w-max border-collapse text-left">
 					<caption className="sr-only">
-						{table.name}: {formatLookupCount(matches.length, "row")}
+						{table.name}.{" "}
+						{table.rowsUnavailable
+							? "Source inventory requires access"
+							: formatLookupCount(count, "row")}
 						{visible.length > 0
 							? `, showing ${start + 1} to ${start + visible.length}`
 							: ""}
 					</caption>
 					<thead>
 						<tr className="border-b border-nova-border bg-nova-elevated">
+							{table.attributes?.map((member) => (
+								<th
+									scope="col"
+									key={member.id}
+									className="min-w-36 px-3 py-2 text-left"
+								>
+									{member.label}
+								</th>
+							))}
 							{table.columns.map((column) => (
 								<th
 									key={column.id}
@@ -384,7 +388,9 @@ function TableGrid({
 											{column.label}
 										</span>
 										<span className="block text-[12px] font-normal text-nova-text-muted">
-											{COLUMN_TYPE_LABELS[column.dataType]}
+											{column.repeated
+												? "Repeated text"
+												: COLUMN_TYPE_LABELS[column.dataType]}
 										</span>
 										{table.hq?.goneColumnIds.includes(column.id) === true && (
 											<Badge variant="amber" className="mt-1">
@@ -410,26 +416,55 @@ function TableGrid({
 										: ""
 								}`}
 							>
-								{table.columns.map((column) => {
-									const text = cellText(row.values, column);
-									return (
+								{row.fragmented && (
+									<td
+										colSpan={
+											table.columns.length + (table.attributes?.length ?? 0)
+										}
+										className="px-3 py-2.5 text-nova-text-secondary"
+									>
+										Open this row to read its values in parts.
+									</td>
+								)}
+								{!row.fragmented &&
+									table.attributes?.map((member) => (
 										<td
-											key={column.id}
-											className="min-w-36 px-3 py-2.5 align-top text-[13px] text-nova-text [overflow-wrap:anywhere]"
+											key={member.id}
+											className="whitespace-pre-wrap px-3 py-2.5"
 										>
-											{text === undefined ? (
-												/* A missing cell is not an empty one. The dash is
-												 * decoration, so the accessible name says which. */
-												<span className="text-nova-text-muted">
-													<span aria-hidden="true">–</span>
-													<span className="sr-only">No value</span>
-												</span>
-											) : (
-												text
-											)}
+											{row.attributes?.[member.id] || "Empty text"}
 										</td>
-									);
-								})}
+									))}
+								{!row.fragmented &&
+									table.columns.map((column) => {
+										const list = row.occurrences?.[column.id];
+										const text = column.repeated
+											? list === undefined
+												? undefined
+												: list.length
+													? list
+															.map((item) => item.text || "Empty text")
+															.join(" · ")
+													: "Empty list"
+											: cellText(row.values, column);
+										return (
+											<td
+												key={column.id}
+												className="min-w-36 px-3 py-2.5 align-top text-[13px] text-nova-text [overflow-wrap:anywhere]"
+											>
+												{text === undefined ? (
+													/* A missing cell is not an empty one. The dash is
+													 * decoration, so the accessible name says which. */
+													<span className="text-nova-text-muted">
+														<span aria-hidden="true">–</span>
+														<span className="sr-only">No value</span>
+													</span>
+												) : (
+													text
+												)}
+											</td>
+										);
+									})}
 								<td className="w-px px-3 py-2.5 align-top">
 									{draftRowIds.has(row.id) && (
 										<span className="mr-1 inline-flex rounded-full bg-nova-amber/[0.12] px-2 py-1 text-[11px] font-medium text-nova-amber">
@@ -443,6 +478,7 @@ function TableGrid({
 										type="button"
 										variant="ghost"
 										data-project-data-row-open={row.id}
+										disabled={searchPending}
 										onClick={() => onSelectRow(row.id)}
 										className="whitespace-nowrap text-[13px] text-nova-violet-bright"
 									>
@@ -456,7 +492,7 @@ function TableGrid({
 				</table>
 			</div>
 
-			{pageCount > 1 && (
+			{paged && (
 				<nav
 					aria-label="Rows, by page"
 					className="mt-3 flex flex-wrap items-center justify-between gap-2"
@@ -465,8 +501,10 @@ function TableGrid({
 						type="button"
 						variant="outline"
 						className=""
-						disabled={currentPage === 0}
-						onClick={() => setPage(currentPage - 1)}
+						disabled={searchPending || !table.previousRowCursor}
+						onClick={() =>
+							openRows({ query: searchedFor, after: table.previousRowCursor })
+						}
 					>
 						<Icon
 							icon={tablerChevronLeft}
@@ -478,14 +516,16 @@ function TableGrid({
 					</Button>
 					<p className="text-[13px] text-nova-text-secondary">
 						Rows {start + 1}–{start + visible.length} of{" "}
-						{matches.length.toLocaleString()}
+						{count.toLocaleString()}
 					</p>
 					<Button
 						type="button"
 						variant="outline"
 						className=""
-						disabled={currentPage >= pageCount - 1}
-						onClick={() => setPage(currentPage + 1)}
+						disabled={searchPending || !table.nextRowCursor}
+						onClick={() =>
+							openRows({ query: searchedFor, after: table.nextRowCursor })
+						}
 					>
 						Next
 						<Icon

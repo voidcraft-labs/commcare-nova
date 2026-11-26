@@ -66,7 +66,10 @@ export function parseClockTime(text: string): string | null {
  * `08:45:00.000Z` written after it, so a row that predates that rule shows
  * a person a clock instead of wire text.
  */
-export function formatClockTime(value: string): string | null {
+export function formatClockTime(
+	value: string,
+	twelveHour = true,
+): string | null {
 	const wall = storedWallClock(value);
 	if (wall === null) return null;
 	const [hoursText, minutes, secondsAndMillis] = wall.split(":");
@@ -76,5 +79,7 @@ export function formatClockTime(value: string): string | null {
 	const meridiem = hours < 12 ? "AM" : "PM";
 	const clockHours = hours % 12 === 0 ? 12 : hours % 12;
 	const withSeconds = seconds === "00" ? "" : `:${seconds}`;
-	return `${clockHours}:${minutes}${withSeconds} ${meridiem}`;
+	return twelveHour
+		? `${clockHours}:${minutes}${withSeconds} ${meridiem}`
+		: `${hoursText}:${minutes}${withSeconds}`;
 }

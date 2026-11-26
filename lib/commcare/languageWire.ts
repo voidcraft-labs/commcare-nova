@@ -130,14 +130,22 @@ function preferredSpellingHolders(
 	return holders;
 }
 
+/** The explicit code for this registered identity, used when a preferred
+ * spelling is already held. Later collisions append a lower-case a. */
+export function qualifiedLanguageWireCode(
+	identity: AppLanguageIdentity,
+): string {
+	return `${identity.language}-${(identity.script ?? "").toLowerCase()}${(identity.region ?? "").toLowerCase()}`;
+}
+
 /**
  * The code a language takes when it joins an app whose languages hold `held`:
  * its preferred spelling while no language holds that and no other identity
  * holds the spelling alone under the same name, else `language-<script><region>`
  * lowered into Classic's single allowed suffix segment. The suffix always
  * carries a hyphen, which no preferred spelling does, and two identities
- * sharing a language differ in script or region, so the code never collides
- * with one `held` names.
+ * sharing a language differ in script or region, so two registered identities have distinct explicit codes. A project language may
+ * already hold that code, in which case a suffix of a letters distinguishes it.
  *
  * A code with no hyphen and the name the app holds for it are all an HQ app
  * says of a language. Two identities of one preferred spelling and one name
@@ -156,19 +164,26 @@ export function mintLanguageWireCode(
 	held: ReadonlySet<string>,
 	identity: AppLanguageIdentity,
 ): string {
+	if (identity.kind === "project") {
+		if (held.has(identity.language))
+			throw new Error(
+				`The app already has a language with the code “${identity.language}”. Choose another project code or edit that language.`,
+			);
+		return identity.language;
+	}
 	const preferred = preferredWireSpelling(identity);
 	const holder = preferredSpellingHolders(preferred).get(
 		wireLanguageName(identity),
 	);
 	const holdsAlone = holder === undefined || holder === languageTag(identity);
 	if (!held.has(preferred) && holdsAlone) return preferred;
-	const suffixed = `${identity.language}-${(identity.script ?? "").toLowerCase()}${(identity.region ?? "").toLowerCase()}`;
-	if (held.has(suffixed)) {
-		throw new Error(
-			`The CommCare code ${suffixed} for ${languageTag(identity)} is already held by another language of this app. This is a bug in mintLanguageWireCode, not an authorable state.`,
-		);
-	}
-	return suffixed;
+	const suffixed = qualifiedLanguageWireCode(identity);
+	if (!held.has(suffixed)) return suffixed;
+	// Each imported code has its own identity. Allocate a fresh, grammatically
+	// valid suffix without renaming any of those existing language resources.
+	let code = `${suffixed}a`;
+	while (held.has(code)) code += "a";
+	return code;
 }
 
 /**

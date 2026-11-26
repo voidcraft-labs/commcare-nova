@@ -15,7 +15,6 @@
  * (`hqLoadReference`), which feeds HQ's app summary / case property usage.
  */
 
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	expressionSlotValue,
@@ -24,16 +23,16 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { planFormCaseWire } from "./casePlacementPlan";
 import { caseTypeHopMap } from "./caseTypeDepths";
-import {
-	effectiveAssessmentUserScore,
-	effectiveDeliverEntities,
-} from "./connectDefaults";
-import type { ResolvedConnectConfig } from "./connectSlugs";
 import { hqLoadReference } from "./hashtags";
 import type { FormActions } from "./types";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
+import {
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+} from "./xform/connectActivity";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
 
 /**
@@ -73,11 +72,6 @@ export function buildFormActions(
  * XPath fields and emits their own entries keyed by the Connect
  * wrapper paths.
  *
- * `connect` is the resolved config from `buildConnectSlugMap` (a typed
- * pass-through; ids are valid by construction at the source). The XForm
- * builder emits its binds against those same ids, so the load-map keys here
- * line up with the bind nodesets.
- *
  * Every typed case read is projected through `hqLoadReference` into the
  * `#case/`-generation vocabulary HQ's metadata layer parses — `moduleCaseType`
  * feeds the same `caseTypeHopMap` the XForm builder resolves per-type
@@ -86,7 +80,6 @@ export function buildFormActions(
 export function buildCaseReferencesLoad(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	connect?: ResolvedConnectConfig,
 	moduleCaseType?: string,
 ): Record<string, string[]> {
 	const load: Record<string, string[]> = {};
@@ -139,8 +132,9 @@ export function buildCaseReferencesLoad(
 		return [...refs];
 	};
 
+	const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
 	const walk = (parentUuid: Uuid, parentPath: FormPath): void => {
-		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
+		for (const fieldUuid of layout.children.get(parentUuid) ?? []) {
 			const field = doc.fields[fieldUuid];
 			if (!field) continue;
 			const nodePath = parentPath.child(field.id);
@@ -164,58 +158,29 @@ export function buildCaseReferencesLoad(
 			const references = toLoadRefs(expressions);
 			if (references.length > 0) load[nodePath.toXPath()] = references;
 
+			if (field.kind === "connect_activity") {
+				const content = activityWireContent(field.activity);
+				const inner = CONNECT_BLOCK_SHAPES[content.block].element;
+				for (const { leaf, expression } of content.calculations) {
+					if (expression === undefined) continue;
+					const reads = toLoadRefs([expression]);
+					if (reads.length > 0)
+						load[nodePath.child(inner).child(leaf).toXPath()] = reads;
+				}
+			}
+
 			// Containers: recurse into their children. `doc.fieldOrder`
 			// having an entry for this uuid is the container marker.
 			// `descendFormPathIntoField` adds the model-iteration `<item>` step for
 			// `query_bound` so descendant paths match the XForm emitter +
 			// identity-backed case binding path derivation.
-			if (doc.fieldOrder[fieldUuid] !== undefined) {
+			if (layout.children.has(fieldUuid)) {
 				walk(fieldUuid, descendFormPathIntoField(field, nodePath));
 			}
 		}
 	};
 
-	walk(formUuid, FormPath.root());
-
-	// Connect assessment + deliver unit carry their own XPath fields
-	// keyed by the Connect wrapper ids.
-	if (connect?.assessment) {
-		const assessId = connect.assessment.id;
-		// `effectiveAssessmentUserScore` is the single source of truth for
-		// the wire-fallback policy — the bind emitter calls the same helper,
-		// so the load map's hashtag set always matches what the runtime will
-		// evaluate from that bind. (The default is a hashtag-free literal,
-		// so an unset user_score contributes no load entry.)
-		const h = toLoadRefs([effectiveAssessmentUserScore(connect.assessment)]);
-		if (h.length > 0) {
-			load[
-				FormPath.root()
-					.child(assessId)
-					.child("assessment")
-					.child("user_score")
-					.toXPath()
-			] = h;
-		}
-	}
-	if (connect?.deliver_unit) {
-		const duId = connect.deliver_unit.id;
-		// `effectiveDeliverEntities` is the single source of truth for
-		// the wire-fallback policy. The bind emitter calls the same
-		// helper, so the load map's hashtag set always matches what the
-		// runtime will evaluate from those binds.
-		const { entityId, entityName } = effectiveDeliverEntities(
-			connect.deliver_unit,
-		);
-		const deliverPath = FormPath.root().child(duId).child("deliver");
-		const idH = toLoadRefs([entityId]);
-		if (idH.length > 0) {
-			load[deliverPath.child("entity_id").toXPath()] = idH;
-		}
-		const nameH = toLoadRefs([entityName]);
-		if (nameH.length > 0) {
-			load[deliverPath.child("entity_name").toXPath()] = nameH;
-		}
-	}
+	walk(formUuid, FormPath.root(doc.forms[formUuid]?.dataRootName));
 
 	return load;
 }

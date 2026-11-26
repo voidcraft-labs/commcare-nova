@@ -28,6 +28,7 @@ import { gzipSync } from "node:zlib";
 import { sql } from "kysely";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { applyBlueprintChangeProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
@@ -38,6 +39,7 @@ import {
 import type { TargetIdentity } from "../targetIdentity";
 import {
 	type AdoptedBirth,
+	appMappingToken,
 	birthAdoptedApp,
 	HELD_FILE_ID,
 	HELD_PATH,
@@ -98,10 +100,15 @@ function taken(
 		target: TARGET,
 		expectedEndings: 0,
 		remoteAppId: HQ_APP,
+		comparedPushToken: appMappingToken(birth.deployment),
+		reviewedVersion: 42,
 		read,
 		source: stored(source, observedAt),
 		ownership: OWNERSHIP,
-		mediaFiles: { [HELD_PATH]: HELD_FILE_ID },
+		mediaFiles: {
+			read: { [HELD_PATH]: HELD_FILE_ID },
+			next: { [HELD_PATH]: HELD_FILE_ID },
+		},
 		targetIdentity,
 		firstPublish: {
 			accepted: {
@@ -147,16 +154,56 @@ function holdFirstWriter(first: HqChangesTaken) {
 	const wrote = new Promise<void>((resolve) => {
 		markWritten = resolve;
 	});
-	const committed = h
-		.db()
-		.transaction()
-		.execute(async (tx) => {
-			await recordHqChangesTaken({ kind: "commit", tx, seq: FIRST_SEQ }, first);
+	const committed = applyBlueprintChangeProposal({
+		appId: APP,
+		userId: ACTOR,
+		expectedProjectId: PROJECT,
+		batchId: crypto.randomUUID(),
+		kind: "hq-changes",
+		expectedHeadSeq: FIRST_SEQ - 1,
+		guard: { mutations: [{ kind: "setAppName", name: "New name in HQ" }] },
+		inTransaction: async ({ tx, seq }) => {
+			await recordHqChangesTaken({ kind: "commit", tx, seq }, first);
 			markWritten();
 			await released;
-		});
+		},
+	});
 	return { wrote, committed, release };
 }
+
+it("names the later accepted HQ save when an earlier review tries to take its place", async () => {
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	const birth = await birthAdoptedApp(h, {
+		appId: APP,
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		target: TARGET,
+		remoteAppId: HQ_APP,
+	});
+	const identity = { read: birth.targetIdentity, next: birth.targetIdentity };
+	const input = taken(
+		birth,
+		{ sourceDigest: digestOf(SOURCE), novaRevision: 1 },
+		FIRST_SOURCE,
+		"2026-11-14T08:00:00.000Z",
+		identity,
+	);
+	await recordHqChangesTaken({ kind: "own", headSeq: 1 }, input);
+	const stale = {
+		...input,
+		reviewedVersion: 41,
+		read: { sourceDigest: digestOf(FIRST_SOURCE), novaRevision: 1 },
+	};
+	await expect(
+		recordHqChangesTaken({ kind: "own", headSeq: 1 }, stale),
+	).rejects.toMatchObject({
+		name: "HqChangesBaselineMovedError",
+		fence: "remote-version",
+		expected: "41",
+		found: "42",
+		message: expect.stringContaining("expected CommCare HQ save 41, found 42"),
+	});
+});
 
 describe("two writers of one deployment's media paths", () => {
 	it("makes the second wait for the first and write its difference over the rows the first wrote", async () => {

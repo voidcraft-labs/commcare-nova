@@ -13,12 +13,14 @@ import {
 	type Column,
 	calculatedColumn,
 	dateColumn,
+	dateCountColumn,
 	idMappingColumn,
 	idMappingEntry,
 	imageMapColumn,
 	imageMapEntry,
 	intervalColumn,
 	linkColumn,
+	overdueMarkerColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
@@ -372,6 +374,70 @@ describe("case-list Preview cell formatting", () => {
 		});
 	});
 
+	it.each([
+		["", "Unspecified"],
+		["east bank", "East Bank"],
+		["the east bank", "East Bank"],
+		["the  east bank", "Unspecified East Bank"],
+		["east banker", ""],
+		["east\tbank", ""],
+	])(
+		"matches complete mapping keys against the saved value %j",
+		(saved, text) => {
+			const column = idMappingColumn(COLUMN_UUID, "village", "Village", [
+				idMappingEntry("", "Unspecified"),
+				idMappingEntry(" east bank ", "East Bank"),
+			]);
+			expect(
+				projectColumnDisplay(
+					column,
+					makeRow({ village: saved }),
+					EMPTY_CONTEXT,
+				),
+			).toEqual({ kind: "value", text });
+		},
+	);
+
+	it.each([
+		["2026-02-15", "months-until", "1"],
+		["2026-02-14", "months-until", "0"],
+		["2026-02-14", "weeks-since", "-4"],
+		["2025-01-15", "years-since", "0"],
+		["2025-01-14", "years-since", "1"],
+		["", "days-since", ""],
+	] as const)("shows %s measured in %s", (date, period, text) => {
+		const column = dateCountColumn(COLUMN_UUID, "visit_date", "Visit", period);
+		expect(
+			projectColumnDisplay(column, makeRow({ visit_date: date }), {
+				...EMPTY_CONTEXT,
+				today: new Date(2026, 0, 15),
+			}),
+		).toEqual({ kind: "value", text });
+	});
+	it.each([
+		["", 3, "*"],
+		["2026-01-15", 0, ""],
+		["2026-01-14", 1, ""],
+		["2026-01-13", 1, "*"],
+		["2026-01-16", -2, "*"],
+		["2026-01-17", -2, ""],
+	] as const)(
+		"flags date %s when its threshold %s is crossed",
+		(date, days, text) => {
+			const column = overdueMarkerColumn(
+				COLUMN_UUID,
+				"visit_date",
+				"Due",
+				days,
+			);
+			expect(
+				projectColumnDisplay(column, makeRow({ visit_date: date }), {
+					...EMPTY_CONTEXT,
+					today: new Date(2026, 0, 15),
+				}),
+			).toEqual({ kind: "value", text });
+		},
+	);
 	it("renders built-in case dates at native calendar precision across Results, Details and Quick Filter", () => {
 		const instant = new Date("2026-09-30T06:57:00.123Z");
 		const row = {
@@ -628,6 +694,16 @@ describe("case-list Preview cell formatting", () => {
 			kind: "value",
 			text: "VIP Needs follow-up imported",
 		});
+		expect(
+			projectColumnDisplay(
+				{ ...column, showChoice: "saved-value" },
+				row,
+				context,
+			),
+		).toEqual({
+			kind: "value",
+			text: "follow_up imported vip",
+		});
 		const html = renderToStaticMarkup(renderColumnCell(column, row, context));
 		expect(html).toContain("VIP Needs follow-up imported");
 		expect(html).not.toContain("[&quot;vip&quot;");
@@ -681,6 +757,33 @@ describe("case-list Preview cell formatting", () => {
 		expect(filterKeepsRow(columns, row, '["active"', context)).toBe(false);
 	});
 
+	it("shows an independent matching rule even when the unused property has an unrecognized saved shape", () => {
+		const uuid = testUuid("independent-mapping");
+		const source = {
+			uuid,
+			when: { kind: "match-all" as const },
+			label: "Ready",
+		};
+		const column = {
+			...idMappingColumn(COLUMN_UUID, "badge", "Status", [
+				source,
+				idMappingEntry("ready", "Saved ready"),
+			]),
+			behavior: "first-match" as const,
+		};
+		const row = makeRow({ badge: { fromImport: true } }, { [uuid]: "1" });
+		expect(projectColumnDisplay(column, row, EMPTY_CONTEXT)).toEqual({
+			kind: "value",
+			text: "Ready",
+		});
+		expect(
+			projectColumnDisplay(
+				{ ...column, mapping: column.mapping.toReversed() },
+				row,
+				EMPTY_CONTEXT,
+			),
+		).toMatchObject({ kind: "fallback" });
+	});
 	it("draws the first selected image mapping and filters by its image's path", () => {
 		const primary = testMediaAssetId("asset-primary");
 		const secondary = testMediaAssetId("asset-secondary");

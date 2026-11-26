@@ -16,7 +16,12 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	addFixtureField,
+	buildDoc,
+	caseListConfig,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import { availableLookupContext } from "@/lib/__tests__/lookupFixtures";
 import {
 	type BlueprintDoc,
@@ -115,7 +120,7 @@ function makeDoc(): BlueprintDoc {
 	const doc: BlueprintDoc = {
 		appId: "test-app",
 		appName: "Clinic",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: { [MOD]: mod },
@@ -179,8 +184,6 @@ describe("fieldIdVerdict — format classes", () => {
 		["1st", "q1st", "starts with a letter"],
 		["Meta", "q_Meta", "the form's own details"],
 		["Case", "q_Case", "a form's case data"],
-		["SCRIPT", "q_SCRIPT", "warns about"],
-		["registration", "q_registration", "warns about"],
 		["instance", "q_instance", "can't open a form with"],
 		["bind", "q_bind", "can't open a form with"],
 		["parsererror", "q_parsererror", "can't open a form with"],
@@ -196,6 +199,8 @@ describe("fieldIdVerdict — format classes", () => {
 		"metadata",
 		"cases",
 		"registrations",
+		"SCRIPT",
+		"registration",
 		"scripts",
 		"instances",
 		"Bind",
@@ -346,18 +351,15 @@ describe("a form's Connect blocks share its root's names", () => {
 	 * whose wrapper sits beside the form's top-level fields. */
 	function connectDoc(): BlueprintDoc {
 		const doc = makeDoc();
-		return {
-			...doc,
-			connectType: "deliver",
-			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
-			forms: {
-				...doc.forms,
-				[F1]: {
-					...(doc.forms[F1] as Form),
-					connect: { deliver_unit: { id: "visit", name: "Visit" } },
-				},
-			},
-		};
+		doc.connectRoles = ["deliver"];
+		doc.appSettings = { ...NEW_APP_SETTINGS, runsOnlyOn: "android" };
+		addFixtureField(doc, F1, {
+			kind: "connect_activity",
+			uuid: testUuid("visit-activity"),
+			id: "visit",
+			activity: { kind: "delivery", name: "Visit" },
+		});
+		return doc;
 	}
 
 	it("refuses a top-level field named like the block, and admits it in a group or another form", () => {
@@ -368,7 +370,9 @@ describe("a form's Connect blocks share its root's names", () => {
 			newId: "visit",
 		});
 		expect(codeOf(rename)).toBe("sibling_conflict");
-		expect(rename.ok ? "" : rename.userMessage).toContain("Connect block");
+		expect(rename.ok ? "" : rename.userMessage).toContain(
+			'already named "visit"',
+		);
 		expect(
 			codeOf(fieldIdVerdict({ doc, parentUuid: F1, proposedId: "visit" })),
 		).toBe("sibling_conflict");
@@ -379,6 +383,18 @@ describe("a form's Connect blocks share its root's names", () => {
 		expect(
 			renameFieldIdVerdict({ doc, fieldUuid: TARGET_F2, newId: "visit" }),
 		).toEqual({ ok: true });
+	});
+
+	it("keeps the receiver width and reserved names in the field rename verdict", () => {
+		const doc = connectDoc();
+		const fieldUuid = testUuid("visit-activity");
+		expect(
+			renameFieldIdVerdict({ doc, fieldUuid, newId: "v".repeat(100) }),
+		).toEqual({ ok: true });
+		for (const newId of ["work_area_update", "v".repeat(101)])
+			expect(renameFieldIdVerdict({ doc, fieldUuid, newId })).toMatchObject({
+				ok: false,
+			});
 	});
 
 	it("offers a refused top-level id a name the block doesn't hold", () => {
@@ -488,22 +504,16 @@ describe("case-operation names HQ's form builder can't keep", () => {
 			caseOperationIdVerdict("instance", new Set(["q_instance"])),
 		).toMatchObject({ userMessage: expect.stringContaining('"q_instance_2"') });
 		expect(
-			caseOperationLinkIdentifierVerdict("close", new Set(["q_close"])),
-		).toMatchObject({ userMessage: expect.stringContaining('"q_close_2"') });
+			caseOperationLinkIdentifierVerdict("bind", new Set(["q_bind"])),
+		).toMatchObject({ userMessage: expect.stringContaining('"q_bind_2"') });
 	});
 
-	it("refuses a link named close or create, which reads as the block's own action", () => {
+	it("leaves matching a link named close or create to the candidate form gate", () => {
 		expect(caseOperationLinkIdentifierVerdict("close", new Set())).toEqual({
-			ok: false,
-			code: "reads_as_case_action",
-			userMessage:
-				'"close" is a name CommCare HQ\'s form builder reads as closing the case. "q_close" is free here.',
+			ok: true,
 		});
 		expect(caseOperationLinkIdentifierVerdict("create", new Set())).toEqual({
-			ok: false,
-			code: "reads_as_case_action",
-			userMessage:
-				'"create" is a name CommCare HQ\'s form builder reads as starting a new case. "q_create" is free here.',
+			ok: true,
 		});
 	});
 
@@ -580,22 +590,29 @@ describe("case-operation identifier vocabulary", () => {
 					"Start with a letter; use only letters, digits, underscores, or hyphens.",
 			});
 		}
-		for (const candidate of ["source-id", "state", "category"])
+		for (const candidate of [
+			"source-id",
+			"state",
+			"category",
+			"location_id",
+			"hq_user_id",
+		])
 			expect(caseOperationWritePropertyVerdict(candidate, new Set())).toEqual({
 				ok: true,
 			});
-		for (const candidate of ["location_id", "hq_user_id"])
-			expect(
-				caseOperationWritePropertyVerdict(candidate, new Set()),
-			).toMatchObject({ ok: false, code: "reserved" });
-		for (const candidate of ["parent-link", "parent.link", " parent_link"]) {
+		expect(
+			caseOperationLinkIdentifierVerdict("parent-link", new Set()),
+		).toEqual({
+			ok: true,
+		});
+		for (const candidate of ["parent.link", " parent_link"]) {
 			expect(
 				caseOperationLinkIdentifierVerdict(candidate, new Set()),
 			).toMatchObject({
 				ok: false,
 				code: "illegal_format",
 				userMessage:
-					"Start with a letter or underscore; use only letters, digits, or underscores.",
+					"Start with a letter or underscore. Use only letters, digits, underscores, or hyphens.",
 			});
 		}
 	});

@@ -63,6 +63,10 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "changes";
+			/** Number of leading HQ change lines through the last file this decision may remove. */
+			readonly fileReviewLines?: number;
+			/** An older first-publish card cannot authorize a discard on this target. */
+			readonly requiresReview?: true;
 			readonly since: DriftReference;
 			/**
 			 * Every line of what changed in CommCare HQ, then where CommCare HQ
@@ -94,6 +98,12 @@ export type HqChangesReview =
 			 * bring-in's `tableChoices`.
 			 */
 			readonly tables: ReadingReview["tables"];
+			/**
+			 * Each level whose owner rule the changed app gives cases by and
+			 * the places CommCare HQ holds cannot satisfy, answered in the
+			 * bring-in's `ownerRuleChoices`.
+			 */
+			readonly ownerRules: ReadingReview["ownerRules"];
 			/** The name of the app's Project, which a table's choice names. */
 			readonly projectName: string;
 			/** Sent back at the bring-in: the ids of a newly read table derive from it. */
@@ -102,6 +112,7 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "account";
+			readonly requiresReview?: true;
 			readonly findings: readonly Finding[];
 			readonly more: number;
 			readonly counts: {
@@ -112,7 +123,9 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "held";
+			readonly requiresReview?: true;
 			readonly reason: HqChangeHeld;
+			readonly translation?: import("@/lib/publish/hqChangesKinds").HqSourceTranslationRecovery;
 			/** For `runs-elsewhere`: where the app runs, and where CommCare HQ's version runs. */
 			readonly runs: {
 				readonly app: readonly Platform[];
@@ -121,6 +134,7 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "unavailable";
+			readonly requiresReview?: true;
 			readonly reason: HqChangesUnavailable;
 			/**
 			 * What the change is measured against, as the deployment's baseline

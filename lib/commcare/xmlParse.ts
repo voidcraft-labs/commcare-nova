@@ -173,11 +173,15 @@ function parsedXml(xml: string, limits: XmlLimits): ParsedXml {
 		});
 		parser.on("processinginstruction", ({ target, body }) => {
 			add(1);
+			// libxml retains a separating blank for an empty PI body. SAXES
+			// exposes both <?target?> and <?target ?> as the empty body.
+			const separated =
+				body !== "" || /[ \t\n\r]/u.test(xml[parser.position - 3]);
 			appendChild(
 				current,
 				new ProcessingInstruction(
 					`?${target}`,
-					`?${target}${body === "" ? "" : ` ${body}`}?`,
+					`?${target}${separated ? ` ${body}` : ""}?`,
 				),
 			);
 		});

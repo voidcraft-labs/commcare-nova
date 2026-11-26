@@ -19,10 +19,17 @@ import {
 	otherwiseDestinationsOffered,
 	type PostSubmitDestination,
 	postSubmitDestinationsOffered,
+	postSubmitNotOfferedReason,
 	type Uuid,
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import { replaceMediaLanguageEntry } from "@/lib/domain/multimedia";
+import { editNavigationInLanguage } from "@/lib/domain/navigationMedia";
+import {
+	replaceCaseConditions,
+	searchContentWithoutInputs,
+} from "@/lib/domain/searchConditions";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 
 type ModuleParent = Uuid | null;
@@ -176,6 +183,9 @@ export function applyModuleMutation(
 				| "renameModule"
 				| "updateModule"
 				| "setModuleMedia"
+				| "addCalculatedSort"
+				| "updateCalculatedSort"
+				| "removeCalculatedSort"
 				| "addColumn"
 				| "updateColumn"
 				| "removeColumn"
@@ -272,6 +282,24 @@ export function applyModuleMutation(
 		case "updateModule": {
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
+			if (mut.listedForm) {
+				const { sourceUuid, formUuid, included } = mut.listedForm;
+				const source = mod.formsFromMenu;
+				if (
+					source?.menuUuid !== sourceUuid ||
+					!draft.formOrder[sourceUuid]?.includes(formUuid)
+				)
+					return;
+				const excluded = new Set(source.excludedFormUuids);
+				if (included) excluded.delete(formUuid);
+				else excluded.add(formUuid);
+				if (excluded.size > 0)
+					source.excludedFormUuids = (draft.formOrder[sourceUuid] ?? []).filter(
+						(uuid) => excluded.has(uuid),
+					);
+				else delete source.excludedFormUuids;
+				return;
+			}
 			const before = postSubmitBefore(
 				draft,
 				formsOfModuleAndChildren(draft, mut.uuid),
@@ -298,6 +326,12 @@ export function applyModuleMutation(
 				entries.push(["caseSearchConfig", undefined]);
 			}
 			for (const [key, value] of entries) {
+				// Repeating the current source preserves all separately authored route settings.
+				if (
+					key === "formsFromMenu" &&
+					mod.formsFromMenu?.menuUuid === mut.patch.formsFromMenu?.menuUuid
+				)
+					continue;
 				if (key === "caseListConfig" && mut.ensureCaseListConfig) {
 					ensureCaseListConfig(draft, mut.uuid);
 					continue;
@@ -321,7 +355,11 @@ export function applyModuleMutation(
 									}
 								: mod.caseSearchConfig;
 					const targetSearch = fresh as unknown as Record<string, unknown>;
-					for (const [slot, next] of entries) {
+					for (const [slot, value] of entries) {
+						const next =
+							slot === "projectSearch"
+								? mut.caseSearchConfigPatch.projectSearch?.after
+								: value;
 						if (next === null || next === undefined) delete targetSearch[slot];
 						else targetSearch[slot] = structuredClone(next);
 					}
@@ -383,8 +421,7 @@ export function applyModuleMutation(
 							!isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig) &&
 							!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig) &&
 							(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
-							effectiveFilterForEmission(mod.caseListConfig?.filter) ===
-								undefined
+							!searchContentWithoutInputs(mod.caseListConfig)
 						) {
 							delete mod.caseSearchConfig;
 						}
@@ -417,8 +454,7 @@ export function applyModuleMutation(
 					if (config === undefined) continue;
 					const nextConfig = caseSearchConfigAfterFinalInputRemoval(
 						config,
-						effectiveFilterForEmission(mod.caseListConfig?.filter) !==
-							undefined,
+						searchContentWithoutInputs(mod.caseListConfig),
 					);
 					if (nextConfig === undefined) delete mod.caseSearchConfig;
 					else mod.caseSearchConfig = nextConfig;
@@ -431,19 +467,75 @@ export function applyModuleMutation(
 			return;
 		}
 		case "setModuleMedia": {
-			// Set or clear the module's menu media (home-screen tile `icon` +
-			// `audioLabel`). The mutation carries explicit `MediaAssetId | null`
-			// slots so a clear survives JSON over the SSE wire — a generic
-			// `updateModule` patch would encode the clear as `{ key: undefined }`,
-			// which `JSON.stringify` drops, leaving the stale ref on the client.
-			// A `null` clear deletes the optional property; canonical documents
-			// never retain own `undefined` values.
 			const mod = draft.modules[mut.uuid];
-			if (!mod) return;
-			if (mut.icon === null) delete mod.icon;
-			else mod.icon = mut.icon;
-			if (mut.audioLabel === null) delete mod.audioLabel;
-			else mod.audioLabel = mut.audioLabel;
+			const carrier = mut.caseListItem ? mod?.caseListMenuItem : mod;
+			if (!carrier) return;
+			if (mut.languageEntry !== undefined && mut.language) {
+				replaceMediaLanguageEntry(carrier, mut.language, mut.languageEntry);
+				return;
+			}
+			if (mut.language !== undefined)
+				editNavigationInLanguage(
+					carrier,
+					mut,
+					mut.language,
+					effectiveAppLocalization(draft.localization),
+				);
+			else {
+				if (mut.icon === null) delete carrier.icon;
+				else carrier.icon = mut.icon;
+				if (mut.audioLabel === null) delete carrier.audioLabel;
+				else carrier.audioLabel = mut.audioLabel;
+			}
+			return;
+		}
+		case "addCalculatedSort": {
+			const config = ensureCaseListConfig(draft, mut.moduleUuid);
+			if (
+				!config ||
+				config.calculatedSorts?.some((sort) => sort.uuid === mut.sort.uuid)
+			)
+				return;
+			config.calculatedSorts ??= [];
+			config.calculatedSorts.push(structuredClone(mut.sort));
+			return;
+		}
+		case "updateCalculatedSort": {
+			const sort = draft.modules[
+				mut.moduleUuid
+			]?.caseListConfig?.calculatedSorts?.find(
+				(rule) => rule.uuid === mut.uuid,
+			);
+			if (!sort) return;
+			const { comparator, blanks, label, ...values } = structuredClone(
+				mut.patch,
+			);
+			Object.assign(sort, values);
+			if (comparator === null) delete sort.comparator;
+			else if (comparator !== undefined) sort.comparator = comparator;
+			if (blanks === null) delete sort.blanks;
+			else if (blanks !== undefined) sort.blanks = blanks;
+			if (label === null) delete sort.label;
+			else if (label !== undefined) sort.label = label;
+			if (mut.after !== undefined) {
+				const config = draft.modules[mut.moduleUuid]?.caseListConfig;
+				if (config?.calculatedSorts)
+					config.calculatedSorts = spliceEntryAfter(
+						config.calculatedSorts,
+						sort,
+						mut.after,
+					);
+			}
+			return;
+		}
+		case "removeCalculatedSort": {
+			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
+			if (!config?.calculatedSorts) return;
+			const kept = config.calculatedSorts.filter(
+				(sort) => sort.uuid !== mut.uuid,
+			);
+			if (kept.length) config.calculatedSorts = kept;
+			else delete config.calculatedSorts;
 			return;
 		}
 		case "addColumn": {
@@ -589,7 +681,10 @@ export function applyModuleMutation(
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			if (!config) return;
 			const idx = config.searchInputs.findIndex((s) => s.uuid === mut.uuid);
-			if (idx !== -1) config.searchInputs.splice(idx, 1);
+			if (idx !== -1) {
+				config.searchInputs.splice(idx, 1);
+				if (!config.searchInputs.length) delete config.searchInputGroups;
+			}
 			return;
 		}
 		case "moveSearchInput": {
@@ -625,7 +720,62 @@ export function applyModuleMutation(
 			// Apply the patch key-by-key: a `null` (wire spelling of a clear —
 			// JSON drops `undefined`) DELETES the slot, any other value sets it.
 			const target = config as unknown as Record<string, unknown>;
-			for (const [key, value] of Object.entries(mut.patch)) {
+			const {
+				filter,
+				listCondition,
+				searchCondition,
+				searchGroupAssignments,
+				searchFilterEdit,
+				...rest
+			} = mut.patch;
+			if (searchGroupAssignments !== undefined) {
+				const assignments = new Map(
+					searchGroupAssignments.map(({ input, group }) => [input, group]),
+				);
+				for (const input of config.searchInputs) {
+					const group = assignments.get(input.uuid);
+					if (group === null) delete input.group;
+					else if (group !== undefined) input.group = group;
+				}
+			}
+			if (searchFilterEdit !== undefined) {
+				const edit = searchFilterEdit;
+				const rows = config.searchFilters ?? [];
+				if (edit.operation === "add")
+					config.searchFilters = spliceEntryAfter(
+						rows,
+						edit.filter,
+						edit.after,
+					);
+				else {
+					const row = rows.find((r) => r.uuid === edit.uuid);
+					if (row !== undefined) {
+						if (edit.operation === "edit") Object.assign(row, edit.patch);
+						else if (edit.operation === "replace")
+							config.searchFilters = rows.map((r) =>
+								r.uuid === edit.uuid ? edit.filter : r,
+							);
+						else if (edit.operation === "move")
+							config.searchFilters = spliceEntryAfter(rows, row, edit.after);
+						else {
+							const remaining = rows.filter((r) => r.uuid !== row.uuid);
+							if (remaining.length) config.searchFilters = remaining;
+							else delete config.searchFilters;
+						}
+					}
+				}
+			}
+			if (
+				filter !== undefined ||
+				listCondition !== undefined ||
+				searchCondition !== undefined
+			)
+				replaceCaseConditions(config, {
+					filter,
+					listCondition,
+					searchCondition,
+				});
+			for (const [key, value] of Object.entries(rest)) {
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
@@ -851,6 +1001,17 @@ export function reconcilePostSubmitWithMenuShape(
 		const form = draft.forms[formUuid];
 		if (!form) continue;
 		const otherwise = form.otherwise;
+		// A new physical collision could open another record type on Android.
+		// Keep the author's selection for the gate to place the finding. An
+		// explicitly chosen replacement in this same batch can clear it.
+		if (
+			(form.postSubmit === "previous" ||
+				(otherwise?.kind === "destination" &&
+					otherwise.destination === "previous")) &&
+			postSubmitNotOfferedReason(draft, formUuid, "previous", firstMenuCase) ===
+				"previous-carries-other-case-type"
+		)
+			continue;
 		if (otherwise?.kind === "destination") {
 			const offered = otherwiseDestinationsOffered(
 				draft,

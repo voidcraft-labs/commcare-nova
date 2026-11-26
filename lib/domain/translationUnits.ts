@@ -6,12 +6,25 @@
 // none independently walks display slots.
 
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
+import { caseTypesWithRelations } from "./appCaseRelations";
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
+import { caseMappingTextUnit } from "./caseMappingRows";
 import { columnPropertyCaseType } from "./columnRelation";
 import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
+import { FIELD_ITEXT_SLOTS } from "./expression/types";
 import type { Field } from "./fields";
-import { isContainer } from "./fields";
+import { isContainer, isDeviceCaseOptionsSource } from "./fields";
+import { DEFAULT_FORM_SUBMIT_LABEL } from "./formSubmitLabel";
+import {
+	type GeneratedWording,
+	generatedWordingUnits,
+} from "./generatedWording";
+import {
+	LABEL_TEXT_SLOTS,
+	type LabelTextSlot,
+	labelTextOf,
+} from "./labelForms";
 import {
 	effectiveAppLocalization,
 	type LanguageTag,
@@ -45,27 +58,89 @@ export const translationUnitRoles = [
 	"app-name",
 	"module-name",
 	"form-name",
+	"menu-badge",
+	"form-submit-label",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"field-label",
 	"field-hint",
 	"field-help",
 	"field-validation-message",
+	"field-extended-text",
+	"field-extended-hint",
+	"field-extended-help",
+	"field-extended-validation-message",
+	"field-qr-code",
+	"field-spoken-text",
+	"field-first-add-label",
+	"field-add-label",
 	"select-option-label",
+	"select-option-extended-text",
+	"case-detail-tab-title",
 	"case-list-header",
 	"case-list-sort-label",
+	"case-list-calculation-text",
+	"case-list-image-description",
 	"case-list-mapping-label",
 	"case-list-interval-text",
+	"case-list-empty-text",
+	"case-list-select-text",
+	"case-list-lookup-result-heading",
 	"search-input-label",
+	"search-input-group-label",
 	"search-input-hint",
 	"search-input-required-message",
 	"search-input-validation-message",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-runtime-validation-message",
+	"generated-wording",
 	"case-property-option-label",
 ] as const;
 export type TranslationUnitRole = (typeof translationUnitRoles)[number];
+
+/** The translation role of each label text slot (`labelForms.ts`). */
+export const LABEL_TEXT_ROLES = {
+	extended_text: "field-extended-text",
+	qr_code: "field-qr-code",
+	spoken_text: "field-spoken-text",
+} as const satisfies Readonly<Record<LabelTextSlot, TranslationUnitRole>>;
+export type LabelTextRole = (typeof LABEL_TEXT_ROLES)[LabelTextSlot];
+
+/** The label text slot a role translates. */
+export const LABEL_TEXT_SLOT_OF_ROLE: Readonly<
+	Record<LabelTextRole, LabelTextSlot>
+> = {
+	"field-extended-text": "extended_text",
+	"field-qr-code": "qr_code",
+	"field-spoken-text": "spoken_text",
+};
+
+export const EXTENDED_FIELD_TEXT_ROLES = {
+	extended_hint: "field-extended-hint",
+	extended_help: "field-extended-help",
+	extended_validate_msg: "field-extended-validation-message",
+} as const;
+
+export const EXTENDED_FIELD_TEXT_SLOT_OF_ROLE = {
+	"field-extended-hint": "extended_hint",
+	"field-extended-help": "extended_help",
+	"field-extended-validation-message": "extended_validate_msg",
+} as const;
+type ExtendedFieldTextRole = keyof typeof EXTENDED_FIELD_TEXT_SLOT_OF_ROLE;
+
+/** A case list's wording unit for empty text, the Continue label or the
+ *  lookup confidence heading. The module supplies the identity. */
+export function caseListWordingUnitId(
+	moduleUuid: Uuid,
+	slot: "empty" | "select" | "lookup",
+): TranslationUnitId {
+	return makeTranslationUnitId("module", moduleUuid, `list-${slot}-text`);
+}
+
+export function searchInputGroupLabelUnitId(uuid: Uuid): TranslationUnitId {
+	return makeTranslationUnitId("search-input-group", uuid, "label");
+}
 
 export const translationUnitOwnerKinds = [
 	"app",
@@ -75,6 +150,7 @@ export const translationUnitOwnerKinds = [
 	"select-option",
 	"case-list-column",
 	"search-input",
+	"search-input-group",
 	"case-property-option",
 ] as const;
 export type TranslationUnitOwnerKind =
@@ -112,6 +188,11 @@ export type TranslationUnitOwner =
 			readonly searchInputUuid: Uuid;
 	  }
 	| {
+			readonly kind: "search-input-group";
+			readonly moduleUuid: Uuid;
+			readonly groupUuid: Uuid;
+	  }
+	| {
 			readonly kind: "case-property-option";
 			readonly caseType: string;
 			readonly property: string;
@@ -125,6 +206,7 @@ export interface TranslationUnitContext {
 	readonly fieldId?: string;
 	readonly fieldKind?: Field["kind"];
 	readonly columnKind?: string;
+	readonly detailTabUuid?: Uuid;
 	readonly optionValue?: string;
 	readonly caseType?: string;
 	readonly caseProperty?: string;
@@ -135,6 +217,7 @@ export interface TranslationUnit {
 	readonly id: TranslationUnitId;
 	readonly valueKind: "text" | "prose";
 	readonly role: TranslationUnitRole;
+	readonly generated?: GeneratedWording;
 	readonly source: LocalizedValue;
 	readonly sourceFingerprint: string;
 	/** Whether the owning slot permits an empty/whitespace-only target value. */
@@ -152,15 +235,21 @@ export type TranslationStatus =
 	| "ready";
 
 const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
+	"case-detail-tab-title",
 	"app-name",
 	"module-name",
 	"form-name",
+	"menu-badge",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"case-list-sort-label",
+	"case-list-empty-text",
+	"case-list-select-text",
+	"case-list-lookup-result-heading",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-input-label",
+	"search-input-group-label",
 	"search-input-required-message",
 	"search-input-validation-message",
 	"search-runtime-validation-message",
@@ -174,10 +263,19 @@ export function translationRoleRequiresNonblank(
 	return NONBLANK_TRANSLATION_ROLES.has(role);
 }
 
+/** These units have a generated default and no ordinary source-text property. */
+export function hasGeneratedWording(unit: TranslationUnit): boolean {
+	return (
+		unit.role === "search-runtime-validation-message" ||
+		unit.generated !== undefined
+	);
+}
+
 export interface LocalizedTranslationUnit extends TranslationUnit {
 	readonly language: LanguageTag;
 	readonly explicit?: TranslationEntry;
 	readonly effective: LocalizedValue;
+	readonly defaultText?: LocalizedValue;
 	readonly status: TranslationStatus;
 	/**
 	 * The language whose text workers read in place of this current blank
@@ -234,7 +332,9 @@ export function collectTranslationCoverageDiagnostics(
 		});
 	}
 	const caseChoices = Object.values(doc.fields).filter(
-		(field) => "optionsSource" in field && field.optionsSource.kind === "cases",
+		(field) =>
+			"optionsSource" in field &&
+			isDeviceCaseOptionsSource(field.optionsSource),
 	).length;
 	if (caseChoices > 0)
 		diagnostics.push({
@@ -244,16 +344,17 @@ export function collectTranslationCoverageDiagnostics(
 				"These labels are record data. App translations don't change their saved wording.",
 			affectedCount: caseChoices,
 		});
-	const connectForms = Object.values(doc.forms).filter(
-		(form) => form.connect !== undefined,
+	const connectActivities = Object.values(doc.fields).filter(
+		(field) =>
+			field.kind === "connect_activity" && field.activity.kind !== "assessment",
 	).length;
-	if (connectForms > 0) {
+	if (connectActivities > 0) {
 		diagnostics.push({
 			code: "connect-text-has-no-locale-carrier",
 			title: "CommCare Connect names stay in one language",
 			explanation:
 				"CommCare Connect stores learn and delivery content in a single language, so names and descriptions there can't be translated per language.",
-			affectedCount: connectForms,
+			affectedCount: connectActivities,
 		});
 	}
 	const mediaRefs = collectAssetRefs(doc).size;
@@ -351,7 +452,14 @@ function fieldUnits(
 		const addProse = (
 			role: Extract<
 				TranslationUnitRole,
-				"field-label" | "field-hint" | "field-help" | "field-validation-message"
+				| "field-label"
+				| "field-hint"
+				| "field-help"
+				| "field-validation-message"
+				| "field-first-add-label"
+				| "field-add-label"
+				| LabelTextRole
+				| ExtendedFieldTextRole
 			>,
 			slot: string,
 			value: ProseTemplate | undefined,
@@ -375,38 +483,68 @@ function fieldUnits(
 			"label",
 			"label" in field ? field.label : undefined,
 		);
+		for (const slot of LABEL_TEXT_SLOTS)
+			addProse(LABEL_TEXT_ROLES[slot], slot, labelTextOf(field, slot));
 		addProse("field-hint", "hint", "hint" in field ? field.hint : undefined);
 		addProse("field-help", "help", "help" in field ? field.help : undefined);
+		addProse(
+			"field-extended-hint",
+			"extended_hint",
+			"extended_hint" in field ? field.extended_hint : undefined,
+		);
+		addProse(
+			"field-extended-help",
+			"extended_help",
+			"extended_help" in field ? field.extended_help : undefined,
+		);
+		addProse(
+			"field-extended-validation-message",
+			"extended_validate_msg",
+			"extended_validate_msg" in field
+				? field.extended_validate_msg
+				: undefined,
+		);
 		addProse(
 			"field-validation-message",
 			"validate_msg",
 			"validate_msg" in field ? field.validate_msg : undefined,
 		);
 
+		if (field.kind === "repeat") {
+			addProse("field-first-add-label", "addFirstLabel", field.addFirstLabel);
+			addProse("field-add-label", "addLabel", field.addLabel);
+		}
+
 		if ("optionsSource" in field && field.optionsSource.kind === "inline") {
 			for (const option of field.optionsSource.options) {
-				out.push(
-					unit({
-						id: makeTranslationUnitId(
-							"field",
-							fieldUuid,
-							"option",
-							option.uuid,
-						),
-						valueKind: "prose",
-						role: "select-option-label",
-						source: option.label,
-						owner: {
-							kind: "select-option",
-							moduleUuid: context.module.uuid,
-							formUuid: context.formUuid,
-							fieldUuid,
-							optionUuid: option.uuid,
-						},
-						breadcrumb: [...breadcrumb, option.value],
-						context: { ...baseContext, optionValue: option.value },
-					}),
-				);
+				const terms = [
+					["option", "select-option-label", option.label],
+					[
+						"option_extended_text",
+						"select-option-extended-text",
+						option.extended_text,
+					],
+				] as const;
+				for (const [slot, role, source] of terms) {
+					if (source === undefined) continue;
+					out.push(
+						unit({
+							id: makeTranslationUnitId("field", fieldUuid, slot, option.uuid),
+							valueKind: "prose",
+							role,
+							source,
+							owner: {
+								kind: "select-option",
+								moduleUuid: context.module.uuid,
+								formUuid: context.formUuid,
+								fieldUuid,
+								optionUuid: option.uuid,
+							},
+							breadcrumb: [...breadcrumb, option.value],
+							context: { ...baseContext, optionValue: option.value },
+						}),
+					);
+				}
 			}
 		}
 
@@ -538,6 +676,9 @@ export function collectTranslationUnits(
 		}),
 	];
 	const seenCaseOptions = new Set<TranslationUnitId>();
+	let relationTypes: ReturnType<typeof caseTypesWithRelations> | undefined;
+	const dormantBases: TranslationUnit[] = [];
+	const dormantCaseOptions = new Set<TranslationUnitId>();
 	let hasSearchInputs = false;
 	let needsDefaultRequiredMessage = false;
 
@@ -556,6 +697,18 @@ export function collectTranslationUnits(
 				context: { moduleName: module.name },
 			}),
 		);
+		if (module.badge?.kind === "text")
+			out.push(
+				unit({
+					id: makeTranslationUnitId("module", moduleUuid, "badge"),
+					valueKind: "text",
+					role: "menu-badge",
+					source: module.badge.text,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "Badge"],
+					context: { moduleName: module.name },
+				}),
+			);
 		// The case list menu entry's own label, when authored; the wire falls
 		// back to the module-name unit when it is not.
 		if (module.caseListMenuItem?.label !== undefined) {
@@ -611,6 +764,30 @@ export function collectTranslationUnits(
 					context: { moduleName: module.name, formName: form.name },
 				}),
 			);
+			if (form.badge?.kind === "text")
+				out.push(
+					unit({
+						id: makeTranslationUnitId("form", formUuid, "badge"),
+						valueKind: "text",
+						role: "menu-badge",
+						source: form.badge.text,
+						owner: { kind: "form", moduleUuid, formUuid },
+						breadcrumb: [...moduleBreadcrumb, form.name, "Badge"],
+						context: { moduleName: module.name, formName: form.name },
+					}),
+				);
+			if (form.submitLabel !== undefined)
+				out.push(
+					unit({
+						id: makeTranslationUnitId("form", formUuid, "submit-label"),
+						valueKind: "text",
+						role: "form-submit-label",
+						source: form.submitLabel.text ?? DEFAULT_FORM_SUBMIT_LABEL,
+						owner: { kind: "form", moduleUuid, formUuid },
+						breadcrumb: [...moduleBreadcrumb, form.name, "Submit button"],
+						context: { moduleName: module.name, formName: form.name },
+					}),
+				);
 			// The Register action's label on Results, when authored; the
 			// wire falls back to the form-name unit when it is not. The
 			// module owns it, beside the form its slot names.
@@ -645,28 +822,120 @@ export function collectTranslationUnits(
 		}
 
 		const list = module.caseListConfig;
+		for (const [slot, role, source, label] of [
+			["empty", "case-list-empty-text", list?.emptyText, "empty list text"],
+			[
+				"select",
+				"case-list-select-text",
+				list?.selectButtonText,
+				"Continue button",
+			],
+			[
+				"lookup",
+				"case-list-lookup-result-heading",
+				list?.deviceLookup?.resultHeading,
+				"Lookup confidence column",
+			],
+		] as const) {
+			if (source === undefined) continue;
+			out.push(
+				unit({
+					id: caseListWordingUnitId(moduleUuid, slot),
+					valueKind: "text",
+					role,
+					source,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "Cases", "Results", label],
+					context: { moduleName: module.name },
+				}),
+			);
+		}
+		for (const rule of list?.calculatedSorts ?? []) {
+			if (rule.label)
+				out.push(
+					unit({
+						id: makeTranslationUnitId("case-sort", rule.uuid, "label"),
+						valueKind: "text",
+						role: "case-list-sort-label",
+						source: rule.label,
+						owner: { kind: "module", moduleUuid },
+						breadcrumb: [
+							...moduleBreadcrumb,
+							"Cases",
+							"Default order",
+							rule.label,
+						],
+						context: { moduleName: module.name },
+					}),
+				);
+		}
+		for (const tab of list?.detailTabs ?? []) {
+			out.push(
+				unit({
+					id: makeTranslationUnitId("detail-tab", tab.uuid, "title"),
+					role: "case-detail-tab-title",
+					valueKind: "text",
+					source: tab.title,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "Cases", "Details", tab.title],
+					context: { moduleName: module.name, detailTabUuid: tab.uuid },
+				}),
+			);
+		}
 		for (const column of list?.columns ?? []) {
 			// A sort rule's name in the list's Sort by menu, on a column hidden
 			// from Results, whether or not Details shows the column.
 			const sortLabel = column.sort?.label;
-			if (sortLabel !== undefined && columnSortLabelShows(column)) {
-				out.push(
-					unit({
-						id: makeTranslationUnitId("column", column.uuid, "sort-label"),
-						valueKind: "text",
-						role: "case-list-sort-label",
-						source: sortLabel,
-						owner: {
-							kind: "case-list-column",
-							moduleUuid,
-							columnUuid: column.uuid,
-						},
-						breadcrumb: [...moduleBreadcrumb, "Cases", sortLabel, "Sort by"],
-						context: { moduleName: module.name, columnKind: column.kind },
-					}),
-				);
+			(columnSortLabelShows(column) ? out : dormantBases).push(
+				unit({
+					id: makeTranslationUnitId("column", column.uuid, "sort-label"),
+					valueKind: "text",
+					role: "case-list-sort-label",
+					source: sortLabel ?? "",
+					owner: {
+						kind: "case-list-column",
+						moduleUuid,
+						columnUuid: column.uuid,
+					},
+					breadcrumb: [
+						...moduleBreadcrumb,
+						"Cases",
+						sortLabel ?? column.header,
+						"Sort by",
+					],
+					context: { moduleName: module.name, columnKind: column.kind },
+				}),
+			);
+			if (column.kind === "calculated") {
+				for (const [index, item] of (column.texts ?? []).entries())
+					out.push(
+						unit({
+							id: makeTranslationUnitId(
+								"column",
+								column.uuid,
+								"calculation-text",
+								item.uuid,
+							),
+							valueKind: "text",
+							role: "case-list-calculation-text",
+							source: item.label,
+							owner: {
+								kind: "case-list-column",
+								moduleUuid,
+								columnUuid: column.uuid,
+							},
+							breadcrumb: [
+								...moduleBreadcrumb,
+								"Cases",
+								column.header,
+								`Text ${index + 1}`,
+							],
+							context: { moduleName: module.name, columnKind: column.kind },
+						}),
+					);
 			}
-			if (!caseListColumnTextShows(column)) continue;
+			const visible = caseListColumnTextShows(column);
+			const columnUnits = visible ? out : dormantBases;
 			const owner = {
 				kind: "case-list-column" as const,
 				moduleUuid,
@@ -676,7 +945,7 @@ export function collectTranslationUnits(
 				moduleName: module.name,
 				columnKind: column.kind,
 			};
-			out.push(
+			columnUnits.push(
 				unit({
 					id: makeTranslationUnitId("column", column.uuid, "header"),
 					valueKind: "text",
@@ -687,16 +956,32 @@ export function collectTranslationUnits(
 					context,
 				}),
 			);
-			if (column.kind === "id-mapping") {
-				for (const mapping of column.mapping) {
-					out.push(
+			if (column.kind === "image-map") {
+				for (const [index, item] of column.mapping.entries()) {
+					if (item.altText === undefined) continue;
+					columnUnits.push(
 						unit({
-							id: makeTranslationUnitId(
-								"column",
-								column.uuid,
-								"mapping",
-								mapping.value,
-							),
+							id: caseMappingTextUnit(column.uuid, item, "image-description"),
+							valueKind: "text",
+							role: "case-list-image-description",
+							source: item.altText,
+							owner,
+							breadcrumb: [
+								...moduleBreadcrumb,
+								"Cases",
+								column.header,
+								item.value ?? `Rule ${index + 1}`,
+							],
+							context: { ...context, optionValue: item.value },
+						}),
+					);
+				}
+			}
+			if (column.kind === "id-mapping") {
+				for (const [index, mapping] of column.mapping.entries()) {
+					columnUnits.push(
+						unit({
+							id: caseMappingTextUnit(column.uuid, mapping, "mapping"),
 							valueKind: "text",
 							role: "case-list-mapping-label",
 							source: mapping.label,
@@ -705,7 +990,7 @@ export function collectTranslationUnits(
 								...moduleBreadcrumb,
 								"Cases",
 								column.header,
-								mapping.value,
+								mapping.value ?? `Rule ${index + 1}`,
 							],
 							context: { ...context, optionValue: mapping.value },
 						}),
@@ -713,7 +998,7 @@ export function collectTranslationUnits(
 				}
 			}
 			if (column.kind === "interval") {
-				out.push(
+				columnUnits.push(
 					unit({
 						id: makeTranslationUnitId("column", column.uuid, "text"),
 						valueKind: "text",
@@ -730,13 +1015,15 @@ export function collectTranslationUnits(
 					}),
 				);
 			}
-			if (column.kind === "plain") {
+			if (column.kind === "plain" && column.showChoice !== "saved-value") {
 				// A column read through a relation shows the options of the case
 				// its walk reaches.
+				if (column.via !== undefined)
+					relationTypes ??= caseTypesWithRelations(doc);
 				const caseType = columnPropertyCaseType(
 					column,
 					module.caseType,
-					doc.caseTypes ?? [],
+					relationTypes ?? doc.caseTypes ?? [],
 				);
 				const property = caseProperty(doc, caseType, column.field);
 				if (property !== undefined && caseType !== undefined) {
@@ -744,14 +1031,31 @@ export function collectTranslationUnits(
 						doc,
 						module,
 						property,
-						seenCaseOptions,
-						out,
+						visible ? seenCaseOptions : dormantCaseOptions,
+						columnUnits,
 						caseType,
 					);
 				}
 			}
 		}
 
+		for (const group of list?.searchInputGroups ?? []) {
+			out.push(
+				unit({
+					id: searchInputGroupLabelUnitId(group.uuid),
+					valueKind: "text",
+					role: "search-input-group-label",
+					source: group.label,
+					owner: {
+						kind: "search-input-group",
+						moduleUuid,
+						groupUuid: group.uuid,
+					},
+					breadcrumb: [...moduleBreadcrumb, "Search", group.label],
+					context: { moduleName: module.name },
+				}),
+			);
+		}
 		for (const input of list?.searchInputs ?? []) {
 			hasSearchInputs = true;
 			out.push(
@@ -793,7 +1097,9 @@ export function collectTranslationUnits(
 					}),
 				);
 			}
-			if (input.required !== undefined) {
+			// A requirement with no message at all, and a check with none of its
+			// own, which shows CommCare's sentence, have no text to translate.
+			if (input.required !== undefined && input.required.noMessage !== true) {
 				if (input.required.message === undefined) {
 					needsDefaultRequiredMessage = true;
 				} else {
@@ -814,7 +1120,7 @@ export function collectTranslationUnits(
 					);
 				}
 			}
-			if (input.validation !== undefined) {
+			if (input.validation?.message !== undefined) {
 				out.push(
 					unit({
 						id: makeTranslationUnitId(
@@ -836,21 +1142,20 @@ export function collectTranslationUnits(
 		const search = effectiveCaseSearchConfig(module);
 		if (search !== undefined) {
 			const searchOwner = { kind: "module" as const, moduleUuid };
-			// A search with no title has no text to translate.
-			const title = searchScreenTitleText(search);
-			if (title !== null) {
-				out.push(
-					unit({
-						id: makeTranslationUnitId("module", moduleUuid, "search-title"),
-						valueKind: "text",
-						role: "search-screen-title",
-						source: title,
-						owner: searchOwner,
-						breadcrumb: [...moduleBreadcrumb, "Search", "title"],
-						context: { moduleName: module.name },
-					}),
-				);
-			}
+			// Every search has a title unit. A search with no title in its
+			// source language holds the unit blank there, and another language
+			// may show a heading of its own (`searchScreenTitleIn`).
+			out.push(
+				unit({
+					id: makeTranslationUnitId("module", moduleUuid, "search-title"),
+					valueKind: "text",
+					role: "search-screen-title",
+					source: searchScreenTitleText(search) ?? "",
+					owner: searchOwner,
+					breadcrumb: [...moduleBreadcrumb, "Search", "title"],
+					context: { moduleName: module.name },
+				}),
+			);
 			if (search.searchScreenSubtitle !== undefined) {
 				out.push(
 					unit({
@@ -867,31 +1172,46 @@ export function collectTranslationUnits(
 		}
 	}
 
-	if (hasSearchInputs) {
-		for (const message of SEARCH_RUNTIME_VALIDATION_MESSAGES) {
-			out.push(
-				unit({
-					id: makeTranslationUnitId("system", "search-validation", message.key),
-					valueKind: "text",
-					role: "search-runtime-validation-message",
-					source: message.message,
-					owner: { kind: "app" },
-					breadcrumb: [
-						doc.appName,
-						"Search",
-						"System messages",
-						message.description,
-					],
-					context: { systemMessageDescription: message.description },
-				}),
-			);
-		}
+	const saved = [
+		doc.localization?.generatedSourceWording,
+		...Object.values(doc.localization?.translations ?? {}),
+	];
+	const hasSavedWording = (id: string) =>
+		saved.some((entries) => entries && Object.hasOwn(entries, id));
+	for (const message of SEARCH_RUNTIME_VALIDATION_MESSAGES) {
+		const id = makeTranslationUnitId(
+			"system",
+			"search-validation",
+			message.key,
+		);
+		if (!hasSearchInputs && !hasSavedWording(id)) continue;
+		out.push(
+			unit({
+				id,
+				valueKind: "text",
+				role: "search-runtime-validation-message",
+				source: message.message,
+				owner: { kind: "app" },
+				breadcrumb: [
+					doc.appName,
+					"Search",
+					"System messages",
+					message.description,
+				],
+				context: { systemMessageDescription: message.description },
+			}),
+		);
 	}
-	if (needsDefaultRequiredMessage) {
+	const requiredId = makeTranslationUnitId(
+		"system",
+		"search-required",
+		"default",
+	);
+	if (needsDefaultRequiredMessage || hasSavedWording(requiredId)) {
 		const description = "Search answer required";
 		out.push(
 			unit({
-				id: makeTranslationUnitId("system", "search-required", "default"),
+				id: requiredId,
 				valueKind: "text",
 				role: "search-runtime-validation-message",
 				source: SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -902,7 +1222,29 @@ export function collectTranslationUnits(
 		);
 	}
 
-	return out;
+	out.push(...generatedWordingUnits(doc, [...dormantBases, ...out]).map(unit));
+	// A generated original lives outside the ordinary source property. Edits
+	// to it invalidate source-dependent drafts and open review forms alike.
+	const originals = doc.localization?.generatedSourceWording;
+	if (!originals) return out;
+	const savedText = (id: TranslationUnitId) => {
+		const entry = originals[id];
+		if (entry) return entry.workerFallback?.value ?? entry.value;
+	};
+	return out.map((row) => {
+		if (!hasGeneratedWording(row)) return row;
+		const own = savedText(row.id);
+		const value =
+			own === undefined || own === ""
+				? row.generated?.base && savedText(row.generated.base)
+				: own;
+		return value === undefined || value === ""
+			? row
+			: {
+					...row,
+					sourceFingerprint: translationSourceFingerprint(row.valueKind, value),
+				};
+	});
 }
 
 export function translationUnitsById(
@@ -945,13 +1287,7 @@ export function itextUnitTranslationId(unit: ItextUnit): TranslationUnitId {
 	return makeTranslationUnitId(
 		"field",
 		unit.field,
-		unit.role === "field-label"
-			? "label"
-			: unit.role === "field-hint"
-				? "hint"
-				: unit.role === "field-help"
-					? "help"
-					: "validate_msg",
+		FIELD_ITEXT_SLOTS[unit.role],
 	);
 }
 
@@ -1058,7 +1394,10 @@ export function translationUnitProseSlot(
 		return {
 			entity: "field",
 			uuid: owner.fieldUuid,
-			slot: "option_label",
+			slot:
+				unit.role === "select-option-extended-text"
+					? "option_extended_text"
+					: "option_label",
 			member: { optionUuid: owner.optionUuid },
 		};
 	if (owner.kind !== "field") return undefined;
@@ -1069,8 +1408,30 @@ export function translationUnitProseSlot(
 			return { entity: "field", uuid: owner.fieldUuid, slot: "hint" };
 		case "field-help":
 			return { entity: "field", uuid: owner.fieldUuid, slot: "help" };
+		case "field-first-add-label":
+		case "field-add-label":
 		case "field-validation-message":
-			return { entity: "field", uuid: owner.fieldUuid, slot: "validate_msg" };
+			return {
+				entity: "field",
+				uuid: owner.fieldUuid,
+				slot: FIELD_ITEXT_SLOTS[unit.role],
+			};
+		case "field-extended-hint":
+		case "field-extended-help":
+		case "field-extended-validation-message":
+			return {
+				entity: "field",
+				uuid: owner.fieldUuid,
+				slot: EXTENDED_FIELD_TEXT_SLOT_OF_ROLE[unit.role],
+			};
+		case "field-extended-text":
+		case "field-qr-code":
+		case "field-spoken-text":
+			return {
+				entity: "field",
+				uuid: owner.fieldUuid,
+				slot: LABEL_TEXT_SLOT_OF_ROLE[unit.role],
+			};
 		default:
 			return undefined;
 	}
@@ -1126,10 +1487,114 @@ export function translationValueIntegrityIssue(
 		: "protected-content";
 }
 
+/** A deliberate change to the values shown by one worker language. Plain
+ * locale strings and prose outside a form have no expression context. */
+export function authoredTranslationValueMode(
+	unit: TranslationUnit,
+	value: LocalizedValue,
+): Pick<TranslationEntry, "valueMode"> {
+	return translationUnitProseSlot(unit) !== undefined &&
+		typeof unit.source !== "string" &&
+		typeof value !== "string"
+		? translatedProseValueMode(unit.source, value)
+		: {};
+}
+
+export function translatedProseValueMode(
+	source: ProseTemplate,
+	target: ProseTemplate,
+): Pick<TranslationEntry, "valueMode"> {
+	return JSON.stringify(proseReferenceSignature(source)) ===
+		JSON.stringify(proseReferenceSignature(target))
+		? {}
+		: { valueMode: "independent-values" };
+}
+
+/** Reviewing an independent translation against a new source can bring the
+ * two sets of references back into agreement. */
+export function reviewedTranslationValueMode(
+	unit: TranslationUnit,
+	entry: TranslationEntry,
+): Pick<TranslationEntry, "valueMode"> {
+	return entry.valueMode === undefined
+		? {}
+		: authoredTranslationValueMode(unit, entry.value);
+}
+
+/** The stricter two-argument check above is also the automatic translator's contract. */
+export function translationEntryIntegrityIssue(
+	unit: TranslationUnit,
+	entry: Pick<TranslationEntry, "value" | "valueMode">,
+): TranslationValueIntegrityIssue | undefined {
+	const issue = translationValueIntegrityIssue(unit, entry.value);
+	if (entry.valueMode === undefined) return issue;
+	if (
+		issue === "protected-content" &&
+		translationUnitProseSlot(unit) !== undefined
+	)
+		return undefined;
+	return issue ?? "protected-content";
+}
+
 interface StoredTranslation {
 	readonly explicit?: TranslationEntry;
 	readonly effective: LocalizedValue;
 	readonly status: TranslationStatus;
+}
+
+/** Whether the stored draft can serve as current worker text for this source.
+ * A still-active fallback deliberately keeps its saved draft separate. */
+export function translationIsOutOfDate(
+	entry: TranslationEntry,
+	unit: TranslationUnit,
+	language?: LanguageTag,
+	isOriginal = false,
+): boolean {
+	const activeFallback =
+		entry.workerFallback &&
+		translationSourceFingerprintsEqual(
+			entry.workerFallback.sourceFingerprint,
+			unit.sourceFingerprint,
+		);
+	// A directly authored output, including a former original, belongs to
+	// this control in this language. A translation draft also depends on the
+	// source text it was prepared against, even after a person reviews it.
+	const independent =
+		hasGeneratedWording(unit) &&
+		(isOriginal ||
+			entry.origin === "human" ||
+			entry.translatedFrom === language);
+	return (
+		!!activeFallback ||
+		(!independent &&
+			!translationSourceFingerprintsEqual(
+				entry.sourceFingerprint,
+				unit.sourceFingerprint,
+			)) ||
+		translationEntryIntegrityIssue(unit, entry) !== undefined
+	);
+}
+
+/** The wording produced without an override of this particular output. */
+export function defaultWording(
+	doc: BlueprintDoc,
+	language: LanguageTag,
+	unit: TranslationUnit,
+): LocalizedValue {
+	if (
+		unit.role === "form-submit-label" &&
+		language !== effectiveAppLocalization(doc.localization).sourceLanguage
+	)
+		return DEFAULT_FORM_SUBMIT_LABEL;
+	const base =
+		unit.generated?.base &&
+		snapshotTranslationUnits(doc).get(unit.generated.base);
+	const value = base
+		? storedTranslation(doc, language, base).effective
+		: unit.source;
+	return typeof value === "string" || !unit.generated
+		? value
+		: projectProseTemplate(value, doc).text;
 }
 
 function storedTranslation(
@@ -1141,21 +1606,47 @@ function storedTranslation(
 	if (!localization.languageOrder.includes(language)) {
 		throw new Error(`Language ${language} does not belong to this app.`);
 	}
-	if (language === localization.sourceLanguage) {
-		return { effective: unitValue.source, status: "ready" };
+	const isSource = language === localization.sourceLanguage;
+	const explicit = isSource
+		? localization.generatedSourceWording?.[unitValue.id]
+		: localization.translations[language]?.[unitValue.id];
+	if (
+		explicit === undefined ||
+		(unitValue.generated && explicit.value === "")
+	) {
+		if (unitValue.generated) {
+			return {
+				...(explicit && { explicit }),
+				effective: defaultWording(doc, language, unitValue),
+				status: "ready",
+			};
+		}
+		return {
+			effective: defaultWording(doc, language, unitValue),
+			status:
+				isSource ||
+				(unitValue.role === "search-screen-title" && unitValue.source === "")
+					? "ready"
+					: "missing",
+		};
 	}
-	const explicit = localization.translations[language]?.[unitValue.id];
-	if (explicit === undefined) {
-		return { effective: unitValue.source, status: "missing" };
-	}
-	const current =
+	const fallback = explicit.workerFallback;
+	if (
+		fallback !== undefined &&
 		translationSourceFingerprintsEqual(
-			explicit.sourceFingerprint,
+			fallback.sourceFingerprint,
 			unitValue.sourceFingerprint,
 		) &&
-		translationValueIntegrityIssue(unitValue, explicit.value) === undefined;
-	if (!current) {
-		return { explicit, effective: unitValue.source, status: "out-of-date" };
+		translationValueIntegrityIssue(unitValue, fallback.value) === undefined
+	) {
+		return { explicit, effective: fallback.value, status: "out-of-date" };
+	}
+	if (translationIsOutOfDate(explicit, unitValue, language, isSource)) {
+		return {
+			explicit,
+			effective: defaultWording(doc, language, unitValue),
+			status: "out-of-date",
+		};
 	}
 	return {
 		explicit,
@@ -1190,9 +1681,20 @@ export function localizeTranslationUnit(
 	unitValue: TranslationUnit,
 ): LocalizedTranslationUnit {
 	const stored = storedTranslation(doc, language, unitValue);
+	const original = hasGeneratedWording(unitValue)
+		? storedTranslation(
+				doc,
+				effectiveAppLocalization(doc.localization).sourceLanguage,
+				unitValue,
+			).effective
+		: unitValue.source;
 	const localized: LocalizedTranslationUnit = {
 		...unitValue,
+		source: original,
 		language,
+		...(hasGeneratedWording(unitValue) && {
+			defaultText: defaultWording(doc, language, unitValue),
+		}),
 		...stored,
 	};
 	if (stored.explicit === undefined || stored.status === "out-of-date") {
@@ -1208,8 +1710,26 @@ export function collectLocalizedTranslationUnits(
 	doc: BlueprintDoc,
 	language: LanguageTag,
 ): readonly LocalizedTranslationUnit[] {
-	return collectTranslationUnits(doc).map((entry) =>
-		localizeTranslationUnit(doc, language, entry),
+	return collectTranslationUnits(doc)
+		.filter((unit) => !unit.generated?.dormant)
+		.map((entry) => localizeTranslationUnit(doc, language, entry));
+}
+
+/**
+ * The units a language added by copying another takes a translation of: each
+ * whose text, as the copied language shows it, can be a translation. A unit
+ * whose shown text can't (a Search title the app shows none of, blank where
+ * its role needs text) gets none, and the new language shows what the unit
+ * holds, as the copied language does. Shared by every editor that adds a
+ * language, so none copies what the gate refuses.
+ */
+export function unitsCopiedToANewLanguage<T extends LocalizedTranslationUnit>(
+	units: readonly T[],
+): readonly T[] {
+	return units.filter(
+		(unit) =>
+			(!unit.generated || unit.explicit !== undefined) &&
+			translationValueIntegrityIssue(unit, unit.effective) === undefined,
 	);
 }
 

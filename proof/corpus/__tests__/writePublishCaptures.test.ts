@@ -226,8 +226,6 @@ it("writes the same bytes on every run for a seed, sends every publish of a docu
 			"search-lookup-media/minimum/update.import.json",
 			"search-lookup-media/minimum/update.lookup.body",
 			"search-lookup-media/minimum/update.lookup.json",
-			"search-lookup-media/minimum/update.media.body",
-			"search-lookup-media/minimum/update.media.json",
 			"search-lookup-media/none/outcome.json",
 			"search-lookup-media/verdict.json",
 		]);
@@ -281,7 +279,6 @@ it("writes the same bytes on every run for a seed, sends every publish of a docu
 			),
 		).toMatchObject({
 			saveCounter: { before: 3, after: 4 },
-			mediaSaveCounter: { before: 4, after: 5 },
 		});
 
 		// Nova's derived ids reach the files: every publish sends the same ones.
@@ -321,14 +318,13 @@ it("writes the same bytes on every run for a seed, sends every publish of a docu
 		);
 		expect(minted(renamed)).toEqual(minted(updated));
 
-		// The document with an uploaded image sends its media after each
-		// content import, to the app the first publish made, as one ZIP
-		// holding the image's bytes under its wire path; the shell sends none,
-		// and the republish sends the content's ZIP.
+		// The first publish sends the referenced image in its ZIP. The second
+		// verifies the existing bytes and sends only the workbook and import.
 		const media = "search-lookup-media/minimum";
 		const outcome = JSON.parse(body(`${media}/outcome.json`).toString());
 		expect(outcome.create.requests).toEqual(["import"]);
 		expect(outcome.content.requests).toEqual(["lookup", "import", "media"]);
+		expect(outcome.updates.update.requests).toEqual(["lookup", "import"]);
 		const sidecar = JSON.parse(body(`${media}/content.media.json`).toString());
 		expect(sidecar).toMatchObject({
 			method: "POST",
@@ -354,11 +350,10 @@ it("writes the same bytes on every run for a seed, sends every publish of a docu
 			(entry) => entry.entryName === `commcare/${hash}.png`,
 		);
 		expect(image?.getData().equals(png)).toBe(true);
+		expect(nova.has(`${media}/update.media.body`)).toBe(false);
 		expect(
-			body(`${media}/update.media.body`).equals(
-				body(`${media}/content.media.body`),
-			),
-		).toBe(true);
+			JSON.parse(body(`${media}/update.import.json`).toString()),
+		).not.toHaveProperty("mediaSaveCounter");
 		expect(nova.has("clinic-visits/minimum/content.media.body")).toBe(false);
 	} finally {
 		vi.useRealTimers();

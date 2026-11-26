@@ -1,19 +1,16 @@
 /**
- * Choice values holding a quote mark, and selects of one choice
+ * Choice values holding either or both quote marks, and selects of one choice
  * (`targeted-choice-values`).
  *
- * A choice's value is the answer a form saves: it holds no whitespace, and
- * never both an apostrophe and a double quote, which no XPath string literal
- * spells (`lib/domain/selectOptionValue.ts`). Every other value is written
- * verbatim: as the `<value>` of its `<item>`, inside a string literal of each
- * rule that compares it, as the token a multi-select answer holds, and as
+ * A stored choice value holds no whitespace. Quoted values appear verbatim
+ * as the `<value>` of an `<item>`, as the token a multi-select answer holds, and as
  * the case property a save writes. One registration of a client holds:
  *
  * - a single select and a multi-select of one choice each, which HQ's form
  *   builder and Core both take;
- * - a single select over `it's`, `say"hi"`, `` back`tick `` and `plain`,
- *   starting at `it's`, and a multi-select over `o'clock` and `half"past`,
- *   each saved to a select property of the client;
+ * - a single select starting at `it's_"here"`, and a multiple select whose
+ *   tokens contain apostrophes, double quote marks and both together; each
+ *   is saved to a select property of the client;
  * - a display condition on a question for each quoted value, a literal no
  *   reader may split or alter;
  * - a label showing the single select's choice label (`jr:choice-name`),
@@ -23,10 +20,10 @@
  * HQ's JSON writes with placeholder keys and no value.
  *
  * Fixed values: the form, opened as its menu's registration, holds the
- * single select's answer `say"hi"` and the multi-select's `o'clock
- * half"past` as answered. Core's evaluation takes a select's answer as each
+ * single select's mixed-quote answer and all three multi-select values.
+ * Core's evaluation takes a select's answer as each
  * chosen choice's 1-based position, as Web Apps sends it
- * (`JsonActionUtils.getAnswerData`), so the requests name `2` and `1 2`.
+ * (`JsonActionUtils.getAnswerData`), so the requests name `5` and `1 2 3`.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -38,15 +35,20 @@ import { answerHeld, type HeldSession } from "./echo";
 const ID = "targeted-choice-values";
 const uuid = (name: string) => targetedUuid(ID, name);
 
+const MIXED = `it's_"here"`;
+const MIXED_XPATH = `concat('it', "'", 's_"here"')`;
+
 const ANSWER_OPTIONS = [
 	{ value: "it's", label: "It's here" },
 	{ value: 'say"hi"', label: "Say hi" },
 	{ value: "back`tick", label: "Backtick" },
 	{ value: "plain", label: "Plain" },
+	{ value: MIXED, label: "Both quote marks" },
 ] as const;
 const TIME_OPTIONS = [
 	{ value: "o'clock", label: "On the hour" },
 	{ value: 'half"past', label: "Half past" },
+	{ value: MIXED, label: "Scheduled" },
 ] as const;
 
 const options = (
@@ -166,7 +168,7 @@ export function choiceValues() {
 								id: "answer",
 								label: proseText("Answer"),
 								options: options("answer", ANSWER_OPTIONS),
-								default_value: `"it's"`,
+								default_value: MIXED_XPATH,
 								caseWrite: { caseType: "client", property: "answer" },
 							}),
 							f({
@@ -213,6 +215,13 @@ export function choiceValues() {
 								relevant: `selected(#form/times, 'half"past')`,
 							}),
 							f({
+								kind: "text",
+								uuid: uuid("schedule-note"),
+								id: "schedule_note",
+								label: proseText("Scheduled visit notes"),
+								relevant: `selected(#form/times, ${MIXED_XPATH})`,
+							}),
+							f({
 								kind: "hidden",
 								uuid: uuid("answer-label"),
 								id: "answer_label",
@@ -241,12 +250,19 @@ export function choiceValues() {
 		doc,
 		expected: {
 			intent: [
+				{
+					id: "starting-answer",
+					export: "local",
+					form,
+					request: { session, expressions: ["/data/answer"] },
+					expect: [{ pointer: "/values/0/value", value: MIXED }],
+				},
 				choicesHeld(
 					"answer-held",
 					form,
 					"/data/answer",
 					ANSWER_OPTIONS,
-					['say"hi"'],
+					[MIXED],
 					session,
 				),
 				choicesHeld(
@@ -254,7 +270,7 @@ export function choiceValues() {
 					form,
 					"/data/times",
 					TIME_OPTIONS,
-					["o'clock", 'half"past'],
+					["o'clock", 'half"past', MIXED],
 					session,
 				),
 			],

@@ -10,6 +10,83 @@ from proof.matrix import ops
 WEB_APPS_LOGO = "hq_logo_web_apps"
 
 
+def menu_icon_override_without_a_resource(authoring, app_id):
+    """Keep the mapped icon and locale value, but remove its ordinary form carrier."""
+    path = "jr://file/commcare/image/data/animal_name.png"
+
+    def remove_picture(root, _form):
+        media = [
+            value for value in root.iter("{http://www.w3.org/2002/xforms}value")
+            if value.get("form") == "image" and value.text == path
+        ]
+        assert len(media) == 1
+        media[0].getparent().remove(media[0])
+
+    ops.set_form_source(authoring, app_id, 0, 0, remove_picture, what="remove the ordinary picture carrier")
+    ops.set_json(authoring, app_id, "/translations", {"en": {"modules.m0.icon": path}})
+
+
+def translation_overrides_a_detail_tab_title(authoring, app_id):
+    """The Case Detail editor changes the tab's ordinary header independently of the generated override."""
+    import json
+
+    from proof.hq import operations
+    from proof.checks.compare.app_strings import parse_app_strings
+
+    key = "m0.case_long.tab.1.title"
+    tabs = [
+        {"doc_type": "DetailTab", "header": {"en": "Patient"}, "starting_index": 0, "has_nodeset": False},
+        {"doc_type": "DetailTab", "header": {"en": "More"}, "starting_index": 3, "has_nodeset": False},
+    ]
+
+    def save_tabs():
+        module = operations.held_app(authoring.state, app_id).get_module(0)
+        body, content_type = ops.form_body([
+            ("type", json.dumps("case")),
+            ("long", json.dumps([column.to_json() for column in module.case_details.long.columns])),
+            ("tabs", json.dumps(tabs)),
+        ])
+        ops.post(authoring, "edit_module_detail_screens", [app_id, module.unique_id], body, content_type, "Case Detail tabs")
+
+    with authoring.step("variant:plain-detail-tab-title"):
+        save_tabs()
+        app = operations.held_app(authoring.state, app_id)
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Patient"
+    ops.set_json(authoring, app_id, f"/translations/en/{key}", "Patient details")
+    tabs[0]["header"]["en"] = "Patient record"
+    with authoring.step("variant:edited-detail-tab-header-with-override"):
+        save_tabs()
+        app = operations.held_app(authoring.state, app_id)
+        assert app.get_module(0).case_details.long.tabs[0].header["en"] == "Patient record"
+        assert app.translations["en"][key] == "Patient details"
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Patient details"
+
+
+def translation_overrides_a_menu_badge(authoring, app_id):
+    """The native menu uses its badge locale independently of the text stored on the icon."""
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+
+    key = "modules.m2.badge"
+    ops.set_json(authoring, app_id, "/modules/2/custom_icons", [
+        {"doc_type": "CustomIcon", "form": "badge", "text": {"en": "New"}, "xpath": ""},
+    ])
+    with authoring.step("variant:plain-menu-badge"):
+        app = operations.held_app(authoring.state, app_id)
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "New"
+        suite = etree.fromstring(app.create_suite())
+        assert suite.xpath(f"//menu/display/text[@form='badge']/locale[@id='{key}']")
+    translations = dict(app.translations)
+    translations["en"] = {**translations.get("en", {}), key: "Urgent"}
+    ops.set_json(authoring, app_id, "/translations", translations)
+    with authoring.step("variant:overridden-menu-badge"):
+        app = operations.held_app(authoring.state, app_id)
+        assert app.get_module(2).custom_icons[0].text["en"] == "New"
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Urgent"
+
+
 def every_form_deleted(authoring, app_id):
     """The first menu's case list offered as a menu item of its own (``case_list``, shown, labelled), and then each
     of its forms deleted through the form's own delete (``views/forms.py::delete_form``), which takes the form out
@@ -69,3 +146,15 @@ def custom_suite_kept_unused(authoring, app_id):
 
     with authoring.step("variant:custom-suite", CUSTOM_SUITE.encode()):
         operations.held_app(authoring.state, app_id).set_custom_suite(CUSTOM_SUITE)
+
+
+def choose_grid_first_menu(authoring, app_id):
+    from proof.matrix.bases import _pages
+
+    _pages.save_settings(authoring, app_id, attributes={"use_grid_menus": True})
+
+
+def choose_grid_form_menus(authoring, app_id):
+    from proof.matrix.bases import _pages
+
+    _pages.save_settings(authoring, app_id, attributes={"grid_form_menus": "all"})

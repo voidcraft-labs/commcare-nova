@@ -64,6 +64,11 @@ The app remains unfinished while those checks are pending. Continue resumes the
 review with its earlier evidence; reloading the page keeps the same checkpoint.
 Direct editing and Preview become available when the build finishes.
 
+In **Form settings**, **Submit button in Web Apps** lets you give the last action
+a name that fits the visit, such as “Send referral”. You can translate that
+wording in **Languages**. Android uses its own finish button.
+
+
 ## Files in a conversation
 
 You can attach a document or image to a request or a question reply. Nova reads
@@ -113,9 +118,49 @@ written, so `*`, `#` and numbered lines stay as you typed them. A label's
 beside the choice. Web Apps still formats a choice, and the builder notes it where
 you turn formatting off.
 
+A question's label can also carry three more texts, which you can add from
+the inspector under **Extended text**, **QR code** and **Spoken text**, each
+translated like the label:
+
+- **Extended text** shows in place of the label wherever the label's
+  **Format text** is off. Groups, repeats and sections also offer extended
+  text for their headings. A repeat's default add button uses its extended
+  text whenever it has one.
+- **QR code** is the text Android draws as a QR code beside the question, in
+  place of the label's image. Web Apps shows no QR code.
+- **Spoken text** is what Android reads aloud from a speaker button beside a
+  question whose label has no audio. Web Apps shows no speaker button.
+
+Each can show an answer or a calculated value, like the label. In Preview,
+Android shows the QR code's text and a speaker button that reads the spoken
+text aloud.
+
+A question's label media can also hold an **Inline video**, which you can
+attach beside its image, audio and video, and choose per language like them.
+Android plays it inside the question, in place of the QR code and the label's
+image. Web Apps doesn't show it. A help text and a choice hold no inline
+video. You can attach a video there and workers can play it from a button.
+When an app brought in from HQ has inline video outside question labels,
+the first-publish review shows the references that workers never see.
+When inline video is the only content of a question’s help, Android opens
+empty help. You can fix it in CommCare HQ by adding help text and attaching
+the file as a regular video, or by moving the inline video to the question label.
+
 You can type `<`, `>` and `&` directly in your wording. With formatting off,
 spellings such as `&amp;` and `&#65;` also stay as written. With formatting on,
 the platform’s Markdown renderer interprets supported character references.
+
+## Choose how a question looks
+
+You can select a question in the Builder and find **Appearance** in the inspector to change its display. You can also describe what the worker should do, such as “Let me search for a district by name” or “Show three choices across on Android and move ahead when I choose one.” Choosing **Ordinary display** or **Ordinary choices** restores the question's usual control. The question keeps its answers and choice values. When a question brought in from CommCare HQ draws different choices on each platform, its display lists both controls. You can keep that pairing, adjust the layout, or restore ordinary choices. Nova keeps existing spacing and search settings when both workers can read them. On Android, a Web Apps row setting leaves the ordinary screen layout in place.
+
+- **Finding a choice.** A dropdown saves space. A search box lets a worker narrow a long list. **Several words** matches complete words in Web Apps and parts of words on Android. **Similar spellings** uses the search of the platform the worker is using. An Android grid shows pictures. Give each choice an image so workers can tell the tiles apart. A grid can advance immediately after a choice. If you choose **Different layouts by platform**, you can set the grid columns or search matching for the platform that uses it. Android keeps a fixed number of grid columns only when the question has no other display setting; otherwise it fits as many columns as the screen allows. Table headings display the choices as column labels.
+- **Dates and times.** An Ethiopian date question stores the same day as an ordinary date question. If you also set **Items per row**, Web Apps keeps the Ethiopian calendar and Android uses its usual date picker. Clearing the row setting brings back the Ethiopian picker on Android. Nepali and alternate Gregorian pickers are Android choices. **Gregorian with a clear button** lets the worker erase a selected day directly from the question. On Android an unanswered date opens on today. Leaving that page or finishing the form saves the day shown. Clear leaves the answer empty on this visit. Returning to the empty question opens the picker on today again. In Web Apps an unanswered date stays empty until the worker picks a day. **12-hour clock** shows AM and PM in Web Apps.
+- **Laying out a form.** In Web Apps, **Items per row** places neighboring questions across the screen. A group can have a border and start open or closed. A group with a repeat can set **Repeat items per row**. On Android, a compact group shows each question's label beside its answer, one question per screen. A banner draws attention to a prompt.
+- **Capturing an answer.** A barcode question can open the Android scanner immediately or let the worker edit the scanned code. When Preview runs as Android, you can type the code only where the question lets workers edit it, or where your browser can't scan. Picture and video questions can ask workers to use the camera. An audio question can allow a recording to be paused and resumed, or let the worker choose an audio file.
+- **Filling a related answer.** In Web Apps, an uploaded file can send its original filename to a text question. Give the file a channel under **Send updates to**. On the text question, choose the same channel under **Fill from a channel** and use `filename` as the returned field. A worker clearing the file clears that related answer. Inside a repeat, the change stays within the current entry. A text, password or barcode question can **Find an address** in Web Apps: the worker searches and chooses an address, and the question can send that address's parts, such as its street, city or postcode, to other questions. Web Apps runs the search only where the project space has advanced case search and the Geocoder plan feature. Before publishing sends anything, it checks the first and asks you to confirm the second, and it stops where the project space lacks advanced case search. Without them, Web Apps saves “Not Supported by Web Entry” as the answer. Android workers type the answer. Preview searches with its own map provider, so the addresses it offers can differ from the ones Web Apps offers.
+
+In Preview you can switch between **Web Apps** and **Android** to try the controls your workers will see. If two settings would make a question behave differently from your choices, the Builder explains which settings can work together.
 
 ## Try the app in Preview
 
@@ -146,6 +191,8 @@ history, Back shows the earlier screen as the running app stands now.
 Screen readers announce question and section positions within their current
 container. Hidden calculations and questions that do not currently apply are
 skipped, including inside each repeated entry.
+
+For one row per case, **Choose the rows** controls when the form looks up the cases. **When the form opens** keeps the records it finds, even if a worker changes the answer that selected them. **As answers change** lets the list follow the query. Switching the timing of a published list changes where its row IDs appear in CommCare HQ exports. The edit shows that change for review.
 
 Repeating sections with only hidden calculations and no title stay out of the
 running form. Their calculations still run, and any configured record
@@ -213,6 +260,15 @@ Preview uses your real case records; the recorded journeys use separate test
 records. Disposable records and places do not appear in ordinary Preview, and
 the recorded view cannot rerun submissions.
 
+In **App settings → Required Android apps**, you can choose which apps workers need
+on their phone and set the order workers see them. In Android Preview, the phone
+lists any that are missing. Choose **Install in Preview** to try opening the app
+with them installed. The worker menu also lets you change which apps the Preview
+phone has. Workers using Web Apps can open the app in their browser. If a
+project space you publish to loses App Dependencies, CommCare HQ stops listing
+these apps; when you check for changes from CommCare HQ, Nova keeps your
+selection, since no one chose to remove it.
+
 ### Preview on Web Apps and Android
 
 Preview runs your app the way Web Apps does, or the way the CommCare app on
@@ -251,6 +307,32 @@ first. In Web Apps the list keeps the order it shows, its own or the item a
 worker picked in **Sort by**, and closeness decides only between cases that
 order places equally.
 
+For record searches, open the **Running as** menu and choose **Preview search and map
+settings**. The project space sets its own time zone, maximum results, and
+which record properties use fuzzy matching or ignore particular text. A team
+member with edit access can record the settings your project space uses. They
+appear as supplied by your team. For a list with an address, you can also record whether the project space offers the Web Apps record map. Leave it unrecorded if your team has yet to check. Android uses the list’s address independently. Choose a named time zone such as Asia/Kolkata or America/New_York so Preview can follow daylight saving time. You can browse matching rules in order and save a single setting while keeping the other rules. If a setting changes in CommCare HQ, you can
+update it here. Publishing always uses CommCare HQ's current settings.
+
+An app you bring in keeps its searches. If a search needs an unrecorded setting,
+you can supply it and try again. For an app on several project spaces you can
+choose the destination you want to test. For an app with no destination you can
+choose **Local Preview**, which starts in UTC with exact matching and a limit of
+500 records. Project members share the settings they record for each destination.
+If a teammate saves while you're editing, you can review their settings, then
+choose **Keep my edits** to keep each setting you changed over theirs, or **Use
+latest settings** to start again from theirs.
+
+A search for similar spellings finds the records CommCare HQ would find. Words
+are separated by spaces only, so "Mary-Jane" and "O'Brien" stay whole words, and
+accents count as letters of their own. A record matches when it shares a whole
+word with the search, or when one of its words starts with the same two
+characters as the whole search and differs from it by at most one character for
+a search of three to five characters, or two for a longer one. CommCare checks
+at most 100 saved words close to what was typed. When more are close, Preview
+can't tell which records CommCare would find, and says so for that search. A
+longer or more exact search lets you preview it.
+
 A case list in Preview has the **Sort by** menu each platform gives it. On
 Android it lists every item Results shows and each hidden item you named in
 Sort by, numbered in the list's own order until a worker picks one. In Web Apps
@@ -275,6 +357,12 @@ a menu, a crumb or home, starts it over on both.
 
 ## Name new records
 
+In **Form settings**, **Submitted answer addresses** shows the name at the start
+of every answer in a submission. New forms start at `data`. A form brought
+in from CommCare HQ keeps its existing name. If your reporting system expects
+`survey`, for example, you can use that name to submit a question called
+`name` at `/survey/name`. Workers see the same question on their screen.
+
 A registration form’s **Form settings** includes **Record name**, the name shown
 in lists and record details. Choose an answer or combine answers in an expression.
 Changing the name preserves the form’s other saved answers. Nova uses the same
@@ -287,6 +375,41 @@ question a record's name or external ID comes from gains a hidden value that
 holds the trimmed answer. You'll see it in CommCare HQ's form builder, in
 submissions, and as a column in form exports. From the next build, the names
 and external IDs CommCare HQ stores are trimmed of surrounding spaces.
+
+### Change how a form submits in Web Apps
+
+In **Form settings**, **Form behavior** lets you choose a question or choice text that already appears in the form to hold a Web Apps setting. The setting follows that text when you rename or move its question, and its translations travel with it.
+
+- **Automatic submission** sends the form as soon as it opens in Web Apps, once its answers are valid. If an answer needs attention, the form stays open so the worker can fix it.
+- **Skip automatic sync** tells Web Apps to skip a sync after the form is sent. Web Apps syncs after a form only in an app set to sync after each form, which Nova apps aren't, so workers see no change. The setting is kept so an app brought in from CommCare HQ keeps it.
+- **Check changed answers** lets Web Apps accept previously accepted answers again without rechecking them. For example, a date already accepted can stay accepted after a worker changes the date it was compared with. A blank required answer still needs an answer.
+
+Android opens and submits these forms as it does any other form.
+
+To reuse the same setting on another question or choice, open **Shared texts**. Shared texts need matching wording, formatting and media in every language. If CommCare HQ would combine two texts and lose a setting, Nova names both texts. Changing either one or choosing another text lets you carry on.
+
+### Show recent form activity in Web Apps
+
+In **Form settings → Form behavior**, **Activity notice key** lets the form
+warn a worker when another worker recently opened or submitted it for the
+same evaluated key. A question text that reads the record ID lets different
+records keep their own notices. The existing question text still appears
+on the form.
+
+**Activity notice record title** can give the notice a readable record name.
+**Activity notice window** can supply the number of seconds to keep it. The
+default is five minutes, and Web Apps keeps a notice for at most one hour.
+Android keeps showing the question texts and does not show the notice.
+
+### Name saved forms on Android
+
+In **Form settings**, choose **Form behavior** then **Saved form label**. You can use a question or choice text that already appears in the form, including one that shows an answer. Android evaluates the text in the worker's language when they save, then lists it with the form's name.
+
+In Android Preview, **Save for later** returns to the home screen. Open **Incomplete forms** to pick up the same entry. **Saved forms** lists submissions you completed in this Preview. Turn on the corresponding buttons under **App settings** then **Saved and incomplete forms**. Preview keeps these records in the current tab and clears them when you leave Preview or change workers. If you edit the app after saving an incomplete form, you can start a fresh form.
+
+### Keep a case change in its submitted position
+
+Some forms brought in from CommCare HQ show a **Case change** among their questions. The row marks where the form submits an update or closes a case. Workers see the surrounding questions as usual. Keep the row in the same group or repeat when you want the submitted update to stay at its existing address. A close condition applies to the close itself, so the form can save an update even when the case stays open.
 
 ## Share a document with Nova
 
@@ -424,15 +547,16 @@ questions closes any optional editor you had just opened.
 
 **Show when** affects the question's data as well as its visibility. When its
 condition is false, the answer is omitted from submission and can read as blank
-in other expressions. A **Hidden** field can carry a calculated or starting
-value without displaying a question. With neither, it stays blank.
+in other expressions. A **Hidden** field carries a value without showing a question. Its **Starting value** runs when the form opens or its repeat row is added. A later question can copy that value as its own starting answer. Its **Calculation** updates the hidden value as answers change. You can use either setting, both, or leave the field blank. In a repeat, a hidden value with both runs differently on each platform. In Web Apps, the worker's next answer works out the calculation again, so the starting value is gone before the form is sent. On Android, the starting value stays, and is sent, until the calculation runs again.
 
 A starting value can read another answer in the form. Renaming that question in
 Nova keeps the starting value reading it; renaming it in CommCare HQ's form
 builder leaves the starting value reading the old name.
 
 Each choice you write for a select question has a label, or an image, audio or
-video, so a worker never sees an empty choice.
+video, so a worker never sees an empty choice. A stored choice value can include
+apostrophes and double quotation marks together. You can enter that value in
+the choice editor and use the choice in a rule or starting answer.
 
 A formula that compares a select question with one of its choices, and a
 starting value that picks one, keep the choice itself rather than its value.
@@ -450,7 +574,26 @@ or MKV video. Nova checks each file as you add it and shows where it plays: ICO
 and AVIF images play only in Web Apps, and AAC, AMR and MIDI audio, MP4 with
 HEVC or MPEG-4 Part 2 video and MKV play only on Android. A file goes in an app
 where it plays on every platform the app runs on. SVG images can't be used,
-because CommCare HQ can't store them.
+because CommCare HQ can't store them, and neither can a picture of more than
+178,956,970 pixels (about 13,000 by 13,000), whatever its file size.
+
+## Automatic location on Android
+
+**App settings → Request location for every form** asks the phone for a location
+when each form opens. With the switch off, **Form settings → Request location for
+this form** lets each form choose. Each form keeps its own switch if you change
+the app-wide setting. Connect requests location for every form.
+
+Android includes a fix in the submission when the worker grants location permission
+and the phone gets a fix. Workers can still send a form when the phone has no fix.
+Web Apps leaves automatic location empty. A location question records the point the
+worker answers independently.
+
+In Android Preview, open the worker menu and choose **Device location**. Enter the
+coordinates of a simulated phone fix or choose **Use unavailable location**. After
+sending a form that records location, the worker menu shows the submitted fix or
+says that no fix was available.
+The next form you open uses that choice. You can ask Nova to test both outcomes.
 
 ## Asking for a date and a time separately
 
@@ -554,7 +697,10 @@ Apps.
 
 A formula in a form can read a Project data table by its export tag. For
 example, `instance('facilities')/facilities_list/facilities[code = #form/facility]/name`
-reads the name of the facility a worker chose. Nova keeps the table and its
+reads the name of the facility a worker chose. If the table shares a name with
+another source in the app, the formula can identify it with `item-list:`.
+For a table tagged `locations`, `instance('item-list:locations')/locations_list/locations/name`
+reads the table's name column. Nova keeps the table and its
 columns themselves rather than their names, so renaming the table's export tag
 or a column's export name keeps the formula reading them, and a table or column
 a formula reads can't be removed until that formula changes. Choices and record
@@ -576,12 +722,19 @@ does, so a registration form that reads its new case's ID reads the ID the case
 is saved with. The formula editor lists the values this form receives, each
 labelled by what it means.
 
-A hidden value has one expression and a choice of when it runs, or no
-expression at all. **Keep in
-step** recalculates whenever a value it uses changes, and every time the form
-opens, including when a worker resumes a saved form. **Set once** runs when the
-form first opens and never again, which suits a timestamp or a fixed value.
-Switching between them keeps your expression. A hidden value that saves to the
+**Answer type** sets how a hidden value holds its answer. Automatic suits most calculations. Choose a whole number when a starting value such as `007` should become `7`, or Text when those zeros matter. A yes or no answer needs a calculation. A value brought in from CommCare HQ keeps its answer type.
+
+A receiving service may expect a hidden answer to have its own namespace. In the hidden value’s settings, open **Receiving service** and enter that namespace. Clearing it makes the value use the form’s namespace again.
+
+Workers use question IDs when they submit the form. `case` belongs to case changes on both platforms. Web Apps also reserves `registration`, `fixture` and `schema`. A name like `case_note` or `registration_note` keeps working on either platform. `script` is available on both.
+
+**Lock this question in CommCare HQ**, under **Field ID**, limits who can change that question in the HQ form designer. Your Nova Project’s editors can still change the question or remove its lock. The destination project space needs the Locked Admin Questions feature.
+
+A hidden value's two settings run at different times, and a change to one
+leaves the other as it was. Its **Starting value** runs once, when the form
+opens or its repeat row is added, which suits a timestamp or a fixed value. Its
+**Calculation** works itself out again whenever a value it uses changes, and
+when a worker resumes a saved form. A hidden value that saves to the
 case the form opened is set by its calculation, so the case's stored value
 never overrides it. When a hidden calculation saves to a date-and-time property,
 Nova preserves its clock time in Preview and export. Choose a date property when
@@ -595,9 +748,10 @@ kind of value its expression works out to, so it needs to fit the property's
 kind when the property or another question already sets it. Values of
 different kinds saved to one property, from different questions or from the
 branches of one hidden value, are kept as text when each is text, a choice, a
-number or a date: a number is kept as its digits and a date as `2024-05-01`,
-exactly as a phone saves them. That doesn't work when one of them is a date
-and time, a time or a location, or when a question opens showing the property
+number, a date or a location: a number is kept as its digits, a date as
+`2024-05-01` and a location as its four numbers, exactly as a phone saves them.
+That doesn't work when one of them is a date and time or a time, or when a
+question opens showing the property
 as a number, a date, a time or a location, since that question would stop on
 the other values; Nova names that question so you can change it. When a choice
 question opens showing a case property, a fixed value saved into that property
@@ -690,3 +844,14 @@ save; leaving can discard them. Moving between screens within the same app
 keeps your edits in place. Waiting for **Saved** before closing is the safest
 option, especially on mobile devices where closing the browser may skip its
 warning.
+
+
+### Messages and confirmation
+
+Add a label to show a message. Turn on **Ask for confirmation** if you want the worker to check it on Android. Make the label required to keep the worker on the screen until they check it. Web Apps confirms messages when the worker submits the form.
+
+You can give a message or a location a starting value, and a message, a location or an attachment a validation condition. The validation message appears when the answer fails that condition. An attachment always starts empty, since Web Apps clears a starting file and Android can't open a form that names one. Use the hint for short guidance or add help text and media that the worker can open when needed.
+
+A repeating group that workers fill themselves starts empty. They can add as many entries as they need and remove the last one to leave the group empty again. Its add button can use different words before and after the first entry. In the group's display settings, **First entry button** sets the first invitation and **Another entry button** sets the next one. If you give only the second, workers see it for both. Each language can have its own wording.
+
+In a worker test, opening a form or editing an ordinary answer leaves messages unanswered. Turning a page on Android confirms the messages on that page. On Web Apps, submitting the form confirms its messages.

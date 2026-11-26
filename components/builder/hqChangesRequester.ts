@@ -131,6 +131,7 @@ export function createHqChangesRequester(
 						readingId: request.readingId,
 						reviewDigest: request.reviewDigest,
 						tableChoices: request.tableChoices,
+						ownerRuleChoices: request.ownerRuleChoices,
 					},
 					progress,
 				)

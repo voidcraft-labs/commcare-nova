@@ -19,20 +19,61 @@ import { remapAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { AdoptedMediaFile } from "../adoption";
-import type { HqMediaPath } from "../hqMedia";
+import type { HqMediaPath, HqMediaRecord } from "../hqMedia";
+import type { appConfirmationScope } from "../hqSourceBaseline";
 import { reviewMediaId } from "../reading/mediaIds";
-import type { ReviewTable } from "../reading/projectData/reviewTypes";
+import type {
+	ReviewOwnerRule,
+	ReviewTable,
+} from "../reading/projectData/reviewTypes";
+import {
+	canonicalTargetIdentity,
+	type SearchDestinationChange,
+	type TargetIdentity,
+} from "../targetIdentity";
 
 export interface HqChangesDigestInput {
-	readonly v: 1;
+	readonly identity: {
+		readonly read: TargetIdentity;
+		readonly next: TargetIdentity;
+	};
+	/** The reviewed mapping and its continuous claim of this HQ app. */
+	readonly authority: ReturnType<typeof appConfirmationScope>;
+	readonly projectSearchReview?: {
+		readonly endings: number;
+		readonly changes: readonly SearchDestinationChange[];
+	};
 	/** The stored baseline's `source_digest`: the source the base reading read. */
 	readonly baselineDigest: string;
+	readonly approvedRemovals?: readonly string[];
+	readonly removedFiles?: readonly string[];
+	readonly requiredReview?:
+		| "historical-first-publish"
+		| "new-unused-files"
+		| "changed-publish-subjects";
 	/** The digest of CommCare HQ's whole normalized source as this request read it. */
 	readonly sourceDigest: string;
 	/** The app's head sequence the plan was computed at. */
 	readonly headSeq: number;
+	/** The exact destination, principal and profile changes the explicit review will record. */
+	readonly installationReview?: {
+		readonly app: string;
+		readonly actor: string;
+		readonly project: string;
+		readonly server: string;
+		readonly domain: string;
+		readonly remoteApp: string;
+		readonly workingVersion: number;
+		readonly mapping: string;
+		readonly deployment: string;
+		readonly endings: number;
+		readonly changes: readonly import("../targetIdentity").InstallationReviewChange[];
+	};
 	/** Every path the reference publishes, settled against the source now. */
 	readonly media: readonly HqMediaPath[];
+	/** Baseline file ids at the paths whose meaning the decision used. */
+	readonly recordedFiles: HqMediaRecord | null;
+	readonly incomingPaths: readonly string[];
 	/** `contentNamedDocument` of the document the app takes, where the review lists changes. */
 	readonly target: string | null;
 	/**
@@ -42,6 +83,8 @@ export interface HqChangesDigestInput {
 	 * these, so one that changed since the review is asked about again.
 	 */
 	readonly tables: readonly ReviewTable[];
+	/** The owner rules the changed app gives cases by that the places cannot satisfy. */
+	readonly ownerRules: readonly ReviewOwnerRule[];
 }
 
 /**
@@ -51,18 +94,52 @@ export interface HqChangesDigestInput {
  */
 export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 	return canonicalJsonDigest({
-		v: input.v,
+		v: 4,
+		...(input.approvedRemovals?.length
+			? { approvedRemovals: input.approvedRemovals }
+			: {}),
+		...(input.removedFiles?.length ? { removedFiles: input.removedFiles } : {}),
+		...(input.requiredReview && { requiredReview: input.requiredReview }),
+		identity: {
+			read: canonicalTargetIdentity(input.identity.read),
+			next: canonicalTargetIdentity(input.identity.next),
+		},
+		authority: input.authority,
+		...(input.projectSearchReview && {
+			projectSearchReview: input.projectSearchReview,
+		}),
 		baselineDigest: input.baselineDigest,
 		sourceDigest: input.sourceDigest,
 		headSeq: input.headSeq,
-		media: input.media.map((path) => ({
-			wirePath: path.wirePath,
-			contentHash: path.contentHash,
-			standing: path.standing,
-			hq: path.hq,
-		})),
+		...(input.installationReview && {
+			installationReview: input.installationReview,
+		}),
+		media: [...input.media]
+			.sort((a, b) =>
+				a.wirePath < b.wirePath ? -1 : a.wirePath > b.wirePath ? 1 : 0,
+			)
+			.map((path) => ({
+				wirePath: path.wirePath,
+				contentHash: path.contentHash,
+				standing: path.standing,
+				hq: path.hq,
+			})),
+		recordedFiles: [
+			...new Set([
+				...input.media.map((file) => file.wirePath),
+				...input.incomingPaths,
+			]),
+		]
+			.sort()
+			.map((path) => [
+				path,
+				input.recordedFiles && Object.hasOwn(input.recordedFiles, path)
+					? input.recordedFiles[path]
+					: null,
+			]),
 		target: input.target,
 		tables: input.tables,
+		...(input.ownerRules.length > 0 && { ownerRules: input.ownerRules }),
 	});
 }
 
@@ -82,6 +159,17 @@ export function contentNamedDocument(
 	files: readonly Pick<AdoptedMediaFile, "assetId" | "contentHash">[],
 	ownContent: ReadonlyMap<MediaAssetId, string>,
 ): string {
+	return canonicalJsonDigest(
+		remapAssetRefs(toPersistableDoc(doc), reviewAssetNames(files, ownContent)),
+	);
+}
+
+/** Every asset carrying content shared with an incoming file gets the same
+ * stable name before the document or its target paths are compared. */
+export function reviewAssetNames(
+	files: readonly Pick<AdoptedMediaFile, "assetId" | "contentHash">[],
+	ownContent: ReadonlyMap<MediaAssetId, string>,
+): ReadonlyMap<MediaAssetId, MediaAssetId> {
 	const byContent = new Map<MediaAssetId, MediaAssetId>(
 		files.map((file) => [file.assetId, reviewMediaId(file.contentHash)]),
 	);
@@ -89,5 +177,5 @@ export function contentNamedDocument(
 	for (const [assetId, contentHash] of ownContent)
 		if (read.has(contentHash) && !byContent.has(assetId))
 			byContent.set(assetId, reviewMediaId(contentHash));
-	return canonicalJsonDigest(remapAssetRefs(toPersistableDoc(doc), byContent));
+	return byContent;
 }

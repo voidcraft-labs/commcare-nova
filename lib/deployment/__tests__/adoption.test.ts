@@ -7,7 +7,7 @@ import { gunzipSync } from "node:zlib";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { MEDIA_PATH_FLOOR_CASES } from "@/lib/case-store/migrations/__tests__/mediaPathFloor";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { connectWireFixtures } from "@/lib/commcare/__tests__/connectWireFixtures";
@@ -83,10 +83,16 @@ const READ = {
 		{ uuid: syntheticModuleUuid(REGISTRATION), uniqueId: "menu-hidden" },
 	],
 	forms: [
-		{ uuid: FORM, xmlns: XMLNS, moduleUniqueId: "menu-visits" },
+		{
+			uuid: FORM,
+			xmlns: XMLNS,
+			readUniqueId: "read-form-real-id",
+			moduleUniqueId: "menu-visits",
+		},
 		{
 			uuid: REGISTRATION,
 			xmlns: REGISTRATION_XMLNS,
+			readUniqueId: "read-registration-real-id",
 			moduleUniqueId: "menu-hidden",
 		},
 	],
@@ -137,6 +143,42 @@ describe("adoptedIdentityRows", () => {
 			ok: true,
 			rows: [...forms, ...modules],
 		});
+	});
+
+	it("adopts two entries of one form under their own real ids and keeps the content namespace once", () => {
+		const parent = alignedForm("parent-id", XMLNS);
+		const entries = ["north", "south"].map((id) => {
+			const entry = alignedForm(id, XMLNS);
+			return {
+				...entry,
+				source: {
+					...entry.source,
+					docType: "ShadowForm",
+					xmlns: null,
+					shadowParentReadId: parent.source.readUniqueId,
+				},
+			};
+		});
+		const aligned = [alignedMenu("visits", [entries[0], parent, entries[1]])];
+		const forms = [parent, ...entries].map((entry) => ({
+			uuid: testUuid(entry.uniqueId),
+			readUniqueId: entry.source.readUniqueId,
+			xmlns: XMLNS,
+			moduleUniqueId: "visits",
+		}));
+		const result = adoptedIdentityRows({ modules: [], forms }, aligned);
+		expect(result.ok && result.rows).toHaveLength(3);
+		for (const entry of [parent, ...entries]) {
+			expect(
+				result.ok &&
+					result.rows.find(
+						(row) => row.novaEntityUuid === testUuid(entry.uniqueId),
+					),
+			).toMatchObject({
+				uniqueId: entry.uniqueId,
+				xmlns: entry.source.xmlns,
+			});
+		}
 	});
 
 	it("names the menu HQ could not summarize, which holds no real form id", () => {
@@ -746,6 +788,8 @@ describe("adoptedAppBaselineWrite", () => {
 	it("stores the list less the two Web Apps lines, beside HQ's setting, and reads back the same list", () => {
 		const write = baselineFor(PLAIN);
 		const stored = {
+			reviewed: 1,
+			reviewedInputs: 1,
 			ids: ["forms-and-settings-rewritten", "media-files-renamed"],
 			webAppsOnInHq: false,
 			of: "first-publish",
@@ -753,7 +797,7 @@ describe("adoptedAppBaselineWrite", () => {
 		expect(write.firstPublish).toEqual({ kind: "set", list: stored });
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,
@@ -762,12 +806,15 @@ describe("adoptedAppBaselineWrite", () => {
 		).toEqual(FIRST_PUBLISH);
 	});
 
-	it("owns the needed add-ons and the two settings Nova always writes, and no custom profile property", () => {
+	it("owns the needed add-ons, form lists, Android app selection and app-wide location, and no custom profile property", () => {
 		expect(baselineFor(PLAIN).ownership).toEqual({
+			menuLayouts: true,
 			addOns: ["display_conditions"],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
-			autoGpsCapture: false,
+			autoGpsCapture: true,
+			caseSharing: true,
 		});
 	});
 
@@ -777,10 +824,13 @@ describe("adoptedAppBaselineWrite", () => {
 		)?.doc;
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
 		expect(baselineFor(connect).ownership).toEqual({
+			menuLayouts: true,
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: true,
+			caseSharing: true,
 		});
 	});
 
@@ -847,5 +897,30 @@ describe("adoptionPlanFeatureConfirmations", () => {
 			{ kind: "plan-feature", subject: "worker-records" },
 			{ kind: "plan-feature", subject: "data-forwarding" },
 		]);
+	});
+
+	it("never records Geocoder, which an address question in the source says nothing about", () => {
+		const address = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "home",
+									label: "Home",
+									addressLookup: true,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(confirmed(address, true, false)).toEqual(["web-apps"]);
 	});
 });

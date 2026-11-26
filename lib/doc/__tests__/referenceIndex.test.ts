@@ -627,6 +627,68 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		});
 	});
 
+	it("tracks the properties the server sorts separately from native search predicates and display fields", () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: ["priority", "notes", "rank"].map((name) => ({
+						name,
+						label: proseText(name),
+					})),
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [],
+						searchInputs: [],
+						searchFilters: [
+							{
+								uuid: testUuid("sort-filter"),
+								kind: "order",
+								order: [
+									{
+										property: "priority",
+										direction: "descending",
+										comparison: "number",
+									},
+								],
+							},
+							{
+								uuid: testUuid("notes-filter"),
+								target: { kind: "property", property: "notes" },
+								value: term(literal("urgent")),
+							},
+						],
+					},
+					caseSearchConfig: {
+						requestOrder: [
+							{
+								property: "rank",
+								direction: "ascending",
+								comparison: "number",
+							},
+						],
+					},
+					forms: [],
+				},
+			],
+		});
+		const uuid = Object.keys(doc.modules)[0];
+		expect(
+			slotsFor(doc, casePropertyTargetKey("patient", "priority")),
+		).toMatchObject({ [uuid]: { search_filter_order_property: true } });
+		expect(
+			slotsFor(doc, casePropertyTargetKey("patient", "rank")),
+		).toMatchObject({ [uuid]: { search_order_property: true } });
+		expect(
+			slotsFor(doc, casePropertyTargetKey("patient", "notes")),
+		).toMatchObject({ [uuid]: { search_filter_property: true } });
+	});
+
 	it("indexes selected-case form display-condition Predicate leaves", () => {
 		const doc = buildDoc({
 			caseTypes: [
@@ -945,6 +1007,66 @@ describe("declarations index", () => {
 		]);
 		expect(declarersOf(renamed, "patient", "nickname")).toEqual([RICH_FORM]);
 		expect(declarersOf(renamed, "patient", "full_name")).toEqual([]);
+	});
+
+	it("rebinds a shared case link when another menu changes the case type it selects", () => {
+		const firstMenu = testUuid("parent-selection-menu");
+		const reader = testUuid("separate-menu-reading-the-same-case-type");
+		const doc = buildDoc({
+			caseTypes: [
+				{ name: "visit", properties: [] },
+				...["clinic", "household"].map((name) => ({
+					name,
+					properties: [{ name: "status", label: proseText("Status") }],
+				})),
+			],
+			modules: [
+				{ uuid: firstMenu, name: "Places", caseType: "clinic" },
+				{
+					name: "Visits here",
+					caseType: "visit",
+					parentCaseModuleUuid: firstMenu,
+				},
+				{
+					uuid: reader,
+					name: "All visits",
+					caseType: "visit",
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("status-on-place"), "status", "Status", {
+								via: [{ identifier: "parent" }],
+							}),
+						],
+						searchInputs: [],
+					},
+				},
+			],
+		});
+		doc.refIndex = buildReferenceIndex(doc);
+		const owners = (current: BlueprintDoc) =>
+			["clinic", "household"].filter((type) =>
+				referencingCarrierUuids(
+					current,
+					casePropertyTargetKey(type, "status"),
+				).includes(reader),
+			);
+		expect(owners(doc)).toEqual(["clinic"]);
+		const changed = produce(doc, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "updateModule",
+					uuid: firstMenu,
+					patch: { caseType: "household" },
+				},
+			]);
+		});
+		expect(owners(changed)).toEqual(["household"]);
+		expect(changed.refIndex).toEqual(buildReferenceIndex(changed));
+		const deleted = produce(changed, (draft) => {
+			applyMutations(draft, [{ kind: "removeModule", uuid: firstMenu }]);
+		});
+		expect(owners(deleted)).toEqual(["clinic", "household"]);
+		expect(deleted.refIndex).toEqual(buildReferenceIndex(deleted));
 	});
 
 	it("declares a write through `via` on the case type it reaches, and the own case's on the module's", () => {

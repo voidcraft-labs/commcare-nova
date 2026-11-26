@@ -66,7 +66,9 @@ function caseDataScopeOf(context: ExpressionContext): CaseDataScope {
 		// A form's display condition on a menu where the case is picked first
 		// reads that one case; everywhere else no case is chosen yet.
 		case "session":
-			return context.profile.caseData ? "selected-case" : "global";
+			return activeRowScope(context)?.kind === "case"
+				? "selected-case"
+				: "global";
 		// A case change reads the form's case only when this form opens with one.
 		// "selected-case" is not the middle answer here: the gate admits none of
 		// the chosen case's properties in a form without one.

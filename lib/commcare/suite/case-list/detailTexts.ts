@@ -12,11 +12,16 @@
  * `::no_items_text`).
  */
 
+import {
+	CASE_LIST_EMPTY_TEXT_DEFAULT,
+	CASE_LIST_SELECT_TEXT_DEFAULT,
+} from "@/lib/domain";
+
 /** The select button's text, `m<N>_select_text`. */
-export const SELECT_TEXT = "Continue";
+export const SELECT_TEXT = CASE_LIST_SELECT_TEXT_DEFAULT;
 
 /** An empty list's text, `m<N>_no_items_text`. */
-export const EMPTY_CASE_LIST_TEXT = "List is empty.";
+export const EMPTY_CASE_LIST_TEXT = CASE_LIST_EMPTY_TEXT_DEFAULT;
 
 /** HQ's locale id for a menu's select button text (`id_strings.py::select_text_detail`). */
 export function selectTextLocaleId(moduleIndex: number): string {

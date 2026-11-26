@@ -42,6 +42,8 @@ import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
+	hqDomainPath,
+	hqPathOf,
 	INVALID_DOMAIN_SLUG,
 	isEdgeRefusal,
 	isValidDomainSlug,
@@ -207,13 +209,16 @@ export async function findHqMobileWorkers(
 	const query = usernames
 		.map((username) => `username:"${username.replace(/"/g, "")}"`)
 		.join(" OR ");
-	const url = new URL(`${baseUrl(creds)}/a/${domain}/api/bulk-user/v1/`);
+	const url = new URL(
+		`${hqDomainPath(domain)}/api/bulk-user/v1/`,
+		baseUrl(creds),
+	);
 	url.searchParams.set("q", query);
 	url.searchParams.append("fields", "id");
 	url.searchParams.append("fields", "username");
 	url.searchParams.set("limit", String(usernames.length * 4));
 
-	const response = await readHqJson(creds, url.toString(), "worker search", {
+	const response = await readHqJson(creds, hqPathOf(url), "worker search", {
 		maxBytes: HQ_WORKER_SEARCH_MAX_BYTES,
 	});
 	if ("success" in response) return response;
@@ -277,7 +282,7 @@ export async function createHqMobileWorker(
 	return writeWorker(
 		creds,
 		domain,
-		`${baseUrl(creds)}/a/${domain}/api/user/v1/`,
+		`${hqDomainPath(domain)}/api/user/v1/`,
 		"POST",
 		body,
 		(parsed) => {
@@ -321,7 +326,7 @@ export async function updateHqMobileWorker(
 	return writeWorker(
 		creds,
 		domain,
-		`${baseUrl(creds)}/a/${domain}/api/user/v1/${encodeURIComponent(userId)}/`,
+		`${hqDomainPath(domain)}/api/user/v1/${encodeURIComponent(userId)}/`,
 		"PUT",
 		body,
 		(parsed) =>

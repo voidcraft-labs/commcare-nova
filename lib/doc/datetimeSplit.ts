@@ -24,7 +24,7 @@ import {
 	type Form,
 	fieldCaseWriteViews,
 	fieldPreload,
-	formConnectIds,
+	LABEL_TEXT_SLOTS,
 	type LanguageTag,
 	type Module,
 	makeTranslationUnitId,
@@ -107,7 +107,7 @@ export const DATETIME_SPLIT_REFUSAL_MESSAGES: Readonly<
 const TIME_OF_DAY_PATTERN = "%H:%M:%S.%3";
 
 /** The translatable slots each new question copies from the original. */
-const COPIED_SLOTS = ["label", "hint", "help"] as const;
+const COPIED_SLOTS = ["label", "hint", "help", ...LABEL_TEXT_SLOTS] as const;
 
 function refusal(reason: DatetimeSplitRefusal): DatetimeSplitPlan {
 	return {
@@ -195,15 +195,9 @@ function locate(
 	return undefined;
 }
 
-/** The ids beside `parentUuid`'s children: theirs, plus the form's Connect
- *  block ids when the parent is the form root (the sibling rule of
- *  `identifierVerdicts.ts`). */
+/** Data node names already used by this parent's children. */
 function takenIds(doc: BlueprintDoc, parentUuid: Uuid): Set<string> {
-	const taken = new Set<string>(
-		ownRecordValue(doc.forms, parentUuid) === undefined
-			? []
-			: formConnectIds(doc, parentUuid),
-	);
+	const taken = new Set<string>();
 	for (const sibling of ownRecordValue(doc.fieldOrder, parentUuid) ?? []) {
 		const id = ownRecordValue(doc.fields, sibling)?.id;
 		if (id !== undefined) taken.add(id);
@@ -381,6 +375,13 @@ export function planDatetimeSplit(
 		...(original.label_media !== undefined && {
 			label_media: structuredClone(original.label_media),
 		}),
+		...Object.fromEntries(
+			LABEL_TEXT_SLOTS.flatMap((slot) =>
+				original[slot] === undefined
+					? []
+					: [[slot, structuredClone(original[slot])]],
+			),
+		),
 		...(original.hint !== undefined && {
 			hint: structuredClone(original.hint),
 		}),

@@ -261,7 +261,7 @@ BASE = Base(
     id="hq-case-management",
     build=build,
     configuration=Configuration(
-        flags=frozenset({"SAVE_ONLY_EDITED_FORM_FIELDS"}), privileges=frozenset({"USERCASE", "CHILD_CASES"})
+        flags=frozenset({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM", "SAVE_ONLY_EDITED_FORM_FIELDS"}), privileges=frozenset({"USERCASE", "CHILD_CASES"})
     ),
     exhibits=(
         "forms-and-case-writes/open-case-name-update-question-path",

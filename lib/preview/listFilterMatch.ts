@@ -51,21 +51,22 @@ export function normalizeForFilter(text: string): string {
 export function fuzzyMatch(
 	source: string,
 	target: string,
+	threshold = FUZZY_DISTANCE_THRESHOLD,
 ): { matches: boolean; distance: number } {
 	if (source.length <= FUZZY_MINIMUM_SOURCE_LENGTH)
 		return { matches: false, distance: -1 };
 	const cut =
-		target.length > source.length + FUZZY_DISTANCE_THRESHOLD
-			? target.substring(0, source.length + FUZZY_DISTANCE_THRESHOLD)
+		target.length > source.length + threshold
+			? target.substring(0, source.length + threshold)
 			: target;
 	const distance = levenshteinDistance(source, cut);
-	return distance <= FUZZY_DISTANCE_THRESHOLD
+	return distance <= threshold
 		? { matches: true, distance }
 		: { matches: false, distance: -1 };
 }
 
 /** `StringUtils.LevenshteinDistance`: two rolling rows over UTF-16 code units. */
-function levenshteinDistance(s0: string, s1: string): number {
+export function levenshteinDistance(s0: string, s1: string): number {
 	const len0 = s0.length + 1;
 	const len1 = s1.length + 1;
 	let cost = Array.from({ length: len0 }, (_, i) => i);

@@ -6,22 +6,13 @@
  * Pure.
  */
 
-import {
-	buildLookupFixtures,
-	type CompiledLookupFixture,
-	MAX_LOOKUP_FIXTURE_BYTES,
-	MAX_LOOKUP_FIXTURE_CELLS,
-	MAX_LOOKUP_FIXTURE_ROWS,
-} from "@/lib/commcare/lookup/fixtures";
-import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import type { IdentityResolver } from "@/lib/commcare/reader/identity";
 import type { BlueprintDoc } from "@/lib/domain";
 import { recordFromEntries } from "@/lib/domain/records";
-import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	bornPlaces,
-	keptColumnsOf,
 	type ReaderProjectDataReads,
 	type ReadingLookupTable,
 	type ReadingProjectData,
@@ -30,6 +21,7 @@ import {
 import {
 	type LookupTableStanding,
 	lookupTableStanding,
+	needsWorkerRows,
 	readingLookupSnapshot,
 } from "./lookupTables";
 import type {
@@ -53,17 +45,6 @@ function compareCodeUnits(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** Each table's compiled fixture in `snapshot`, by its id. */
-function fixturesOf(
-	snapshot: LookupFixtureDataSnapshot,
-): ReadonlyMap<string, CompiledLookupFixture> {
-	const set = buildLookupFixtures(
-		lookupWireNaming(snapshot.definitions),
-		snapshot.rowsByTable,
-	);
-	return new Map(set.fixtures.map((fixture) => [fixture.tableId, fixture]));
-}
-
 /**
  * The review of the tables the app reads (the tags of `reads.lookupFields`,
  * in tag order) and, where it reads places, of the places it will hold. A
@@ -74,9 +55,11 @@ function fixturesOf(
  * A `choice` holds its standing as judged with the fields the reader read,
  * and its `use-project` offer is then closed by what only the document can
  * say: the Project's rows must be able to be the choices of every question
- * and search field that takes them from the table, and the tables the app
- * reads, each `choice` table at the larger of its two forms, must fit in one
- * `.ccz` together. An offer that fails either is `fails-a-project-space-rule`.
+ * and search field that takes them from the table. An offer that fails it is
+ * `fails-a-project-space-rule`. No total of the tables closes it: a
+ * downloadable app walks each complete global table a page at a time
+ * (`lib/lookup/fixtureSnapshot.ts`, `download-archive`), and the HQ modes
+ * hold their own workbook row ceiling.
  *
  * Called on a read with no finding.
  */
@@ -139,74 +122,6 @@ export function projectDataReview(
 		offers.set(tag, { ...standing.options, "use-project": useProject });
 	}
 
-	// The tables together, each `choice` at the larger of the forms it may take.
-	const choiceTags = entries
-		.filter(({ standing }) => standing.kind === "choice")
-		.map(({ tag }) => tag);
-	if (choiceTags.length > 0) {
-		const asHqs = fixturesOf(
-			readingLookupSnapshot(
-				underTableChoices(
-					data,
-					recordFromEntries(
-						choiceTags.map((tag) => [tag, "use-commcare-hq" as const]),
-					),
-				),
-				reads,
-			),
-		);
-		const projectTags = choiceTags.filter(
-			(tag) => offers.get(tag)?.["use-project"].offered === true,
-		);
-		const asProjects = fixturesOf(
-			readingLookupSnapshot(
-				underTableChoices(
-					data,
-					recordFromEntries(
-						projectTags.map((tag) => [tag, "use-project" as const]),
-					),
-				),
-				reads,
-			),
-		);
-		let rows = 0;
-		let cells = 0;
-		let bytes = 0;
-		for (const [index, { tag, table }] of entries.entries()) {
-			const tableId = table.binding?.tableId ?? "";
-			const forms = [asHqs.get(tableId)];
-			if (projectTags.includes(tag)) forms.push(asProjects.get(tableId));
-			const present = forms.filter(
-				(form): form is CompiledLookupFixture => form !== undefined,
-			);
-			if (present.length === 0) {
-				/* Named by its place, never its tag: this reaches the route's failed line and
-				 * Sentry (layer 7's small edit, kept for the rebase). */
-				throw new Error(
-					`A lookup table built no fixture (table ${index + 1} of ${entries.length} in the review).`,
-				);
-			}
-			rows += Math.max(...present.map((form) => form.rowCount));
-			cells += Math.max(...present.map((form) => form.cellCount));
-			bytes += Math.max(...present.map((form) => form.bytes));
-		}
-		if (
-			rows > MAX_LOOKUP_FIXTURE_ROWS ||
-			cells > MAX_LOOKUP_FIXTURE_CELLS ||
-			bytes > MAX_LOOKUP_FIXTURE_BYTES
-		) {
-			for (const tag of projectTags) {
-				const options = offers.get(tag);
-				if (options !== undefined) {
-					offers.set(tag, {
-						...options,
-						"use-project": FAILS_A_PROJECT_SPACE_RULE,
-					});
-				}
-			}
-		}
-	}
-
 	const tables = entries.map(({ tag, table, standing }, index): ReviewTable => {
 		if (table.read.kind !== "read") {
 			/* Named by its place, never its tag (layer 7's small edit, kept for
@@ -219,7 +134,12 @@ export function projectDataReview(
 		return {
 			tag,
 			standing: standing.kind,
-			hqDigest: table.read.canonical.digest,
+			source: table.read.canonical.source,
+			hqDigest: canonicalJsonDigest([
+				table.read.table.id,
+				table.read.canonical.digest,
+				table.read.rows.map((row) => [row.id, row.sortKey ?? null]),
+			]),
 			projectTable: table.projectTable,
 			choice:
 				standing.kind === "choice" && options !== undefined
@@ -250,7 +170,10 @@ function standingWithReads(
 	}
 	const { project, origin } = data.gathered;
 	const existing = standing.table;
-	if (!Object.hasOwn(project.rowsByTable, existing.id)) {
+	if (
+		!needsWorkerRows(existing) &&
+		!Object.hasOwn(project.rowsByTable, existing.id)
+	) {
 		throw new Error(
 			`The Project's lookup table ${existing.id} was read without its rows.`,
 		);
@@ -258,7 +181,12 @@ function standingWithReads(
 	const again = lookupTableStanding({
 		read,
 		origin,
-		existing: { table: existing, rows: project.rowsByTable[existing.id] },
+		existing: {
+			table: existing,
+			rows: needsWorkerRows(existing)
+				? undefined
+				: project.rowsByTable[existing.id],
+		},
 		apps: Object.hasOwn(project.apps, existing.id)
 			? project.apps[existing.id]
 			: [],
@@ -267,7 +195,6 @@ function standingWithReads(
 		),
 		appReads,
 		mayAdminister: project.mayAdminister,
-		keptColumnIds: keptColumnsOf(project.keptColumns, existing),
 	});
 	if (again.kind !== "choice") {
 		throw new Error(

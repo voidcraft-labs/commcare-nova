@@ -145,8 +145,37 @@ it("recovers accepted batches across a replacement run, preserves references and
 	const f = await fixture();
 	let session = f.session;
 	let authority = f.authority;
+	const original = (await session.snapshot()).doc;
+	const button = collectTranslationUnits(original).find(
+		(unit) => unit.generated?.role === "submitButton",
+	);
+	if (!button) throw Error("Expected a form submit button");
+	expect(
+		await session.shared(
+			{
+				toolName: "updateTranslations",
+				toolCallId: "original-button",
+				input: {
+					language: { language: "eng" },
+					updates: [
+						{
+							operation: "set",
+							unitId: button.id,
+							expectedSourceFingerprint: authoringFingerprint(
+								button.sourceFingerprint,
+							),
+							value: "Complete this loan",
+						},
+					],
+				},
+			},
+			"architect",
+		),
+	).toMatchObject({ ok: true });
 	const source = (await session.snapshot()).doc;
-	const units = collectTranslationUnits(source);
+	const units = collectTranslationUnits(source).filter(
+		(unit) => !unit.generated || unit.id === button.id,
+	);
 	const batchCount = planTranslationBatches(units).length;
 	expect(batchCount).toBeGreaterThan(1);
 	const requests: ProviderRequest[] = [];
@@ -244,6 +273,13 @@ it("recovers accepted batches across a replacement run, preserves references and
 				saved: false,
 			});
 			expect(requests).toHaveLength(batchCount);
+			expect(
+				requests
+					.flatMap((request) => requestBatch(request).units)
+					.filter((unit) => unit.unitId === button.id),
+			).toEqual([
+				expect.objectContaining({ sourceText: "Complete this loan" }),
+			]);
 			// Reopening the workspace returns its exact semantic receipt, before invoking the model.
 			session = new AuthoringSession(
 				authority,
@@ -261,8 +297,10 @@ it("recovers accepted batches across a replacement run, preserves references and
 				(await session.snapshot()).doc,
 				tag,
 			);
-			expect(translated).toHaveLength(units.length);
-			for (const unit of translated) {
+			expect(translated.filter((unit) => unit.explicit)).toHaveLength(
+				units.length,
+			);
+			for (const unit of translated.filter((unit) => unit.explicit)) {
 				expect(unit.status).toBe("needs-review");
 				expect(unit.explicit).toMatchObject({
 					origin: "ai",
@@ -354,6 +392,21 @@ it("recovers accepted batches across a replacement run, preserves references and
 					"architect",
 				),
 			).toMatchObject({ ok: true });
+			// French already exists. An empty French control must never inherit
+			// the explicit English source when the two locale views are built.
+			expect(
+				await session.shared(
+					{
+						toolName: "updateTranslations",
+						toolCallId: "clear-translated-button",
+						input: {
+							language: target,
+							updates: [{ operation: "clear", unitId: button.id }],
+						},
+					},
+					"architect",
+				),
+			).toMatchObject({ ok: true });
 			const revised = (await session.snapshot()).doc;
 			expect(
 				collectLocalizedTranslationUnits(revised, tag).filter(
@@ -379,9 +432,15 @@ it("recovers accepted batches across a replacement run, preserves references and
 					{ ...call, toolCallId: "translate-revised-source" },
 					(ctx) => translateLanguage(ctx, target, run()),
 				),
-			).toMatchObject({ ok: true, translated: 1 });
+			).toMatchObject({ ok: true, translated: 2 });
 			expect(requests).toHaveLength(batchCount + 1);
 			const followupPayload = requestBatch(requests[batchCount]);
+			expect(followupPayload.units).toContainEqual(
+				expect.objectContaining({
+					unitId: button.id,
+					sourceText: "Complete this loan",
+				}),
+			);
 			expect(followupPayload.glossary).toContainEqual(
 				expect.objectContaining({
 					source: "Loans",
@@ -685,6 +744,146 @@ it("translates a blank translation beside text, which workers read in another la
 				status: "needs-review",
 				effective: { parts: [{ kind: "text", text: "Français Borrower" }] },
 			});
+		},
+	);
+	expect(failures).toEqual([]);
+});
+
+it("leaves an out-of-date translation that shows values of its own, and counts it", {
+	// The same steps as the test above, on the shared database.
+	timeout: 20_000,
+}, async () => {
+	const f = await fixture();
+	const requests: ProviderRequest[] = [];
+	const failures: unknown[] = [];
+	await withResponsesPeer(
+		(request, response) => {
+			const chunks: Buffer[] = [];
+			request.on("data", (chunk: Buffer) => chunks.push(chunk));
+			request.on("end", () => {
+				try {
+					const wire: ProviderRequest = JSON.parse(
+						Buffer.concat(chunks).toString(),
+					);
+					requests.push(wire);
+					respondWithParts(
+						response,
+						[
+							{
+								type: "text",
+								text: JSON.stringify({
+									translations: requestBatch(wire).units.map((unit) => ({
+										unitId: unit.unitId,
+										translatedText: `Français ${unit.sourceText.replaceAll("\n", "\\n")}`,
+									})),
+								}),
+							},
+						],
+						requests.length,
+					);
+				} catch (error) {
+					failures.push(error);
+					response.writeHead(400).end();
+				}
+			});
+		},
+		async (provider) => {
+			const run = (): TranslationRun => ({
+				designSessionId: f.claim.designSessionId,
+				authority: {
+					actorUserId: f.authority.actorUserId,
+					expectedProjectId: f.authority.projectId,
+					runId: f.authority.runId,
+					holderNonce: f.authority.holderNonce,
+				},
+				signal: new AbortController().signal,
+				modelStep: productionModelStep(
+					provider(MODEL_ROLES.translator.modelId),
+					MODEL_ROLES.translator.reasoningEffort,
+					"translation-test",
+				),
+				onStep: async () => {},
+				onRecoveredUsage: () => {},
+			});
+			expect(
+				await f.session.write(call, (ctx) =>
+					translateLanguage(ctx, target, run()),
+				),
+			).toMatchObject({ ok: true });
+			const row = async (fieldId: string) => {
+				const found = collectLocalizedTranslationUnits(
+					(await f.session.snapshot()).doc,
+					tag,
+				).find(
+					(unit) =>
+						unit.context.fieldId === fieldId && unit.role === "field-label",
+				);
+				if (found === undefined) throw new Error(`Missing ${fieldId} label`);
+				return found;
+			};
+			const confirmation = await row("confirmation");
+			/* The author gives French a label that shows no borrower. */
+			expect(
+				await f.session.shared(
+					{
+						toolName: "updateTranslations",
+						toolCallId: "own-values",
+						input: {
+							language: target,
+							updates: [
+								{
+									operation: "set",
+									unitId: confirmation.id,
+									expectedSourceFingerprint: authoringFingerprint(
+										confirmation.sourceFingerprint,
+									),
+									value: "Confirmez le prêt",
+									changeShownValues: true,
+								},
+							],
+						},
+					},
+					"architect",
+				),
+			).toMatchObject({ ok: true });
+			const own = (await row("confirmation")).explicit;
+			expect(own?.valueMode).toBe("independent-values");
+			/* Both English labels change, so both French ones go out of date. */
+			for (const [fieldId, label] of [
+				["confirmation", "Confirm {{borrower}} now"],
+				["borrower", "Who borrows"],
+			] as const) {
+				expect(
+					await f.session.shared(
+						{
+							toolName: "editField",
+							toolCallId: `edit-${fieldId}`,
+							input: {
+								moduleUuid: "Loans",
+								formUuid: "Lend",
+								fieldUuid: fieldId,
+								updates: { label },
+							},
+						},
+						"architect",
+					),
+				).toMatchObject({ ok: true });
+			}
+			expect((await row("confirmation")).status).toBe("out-of-date");
+			const firstRequests = requests.length;
+			expect(
+				await f.session.write(
+					{ ...call, toolCallId: "translate-again" },
+					(ctx) => translateLanguage(ctx, target, run()),
+				),
+			).toMatchObject({ ok: true, translated: 1, keptWithOwnValues: 1 });
+			expect(
+				requests
+					.slice(firstRequests)
+					.flatMap((wire) => requestBatch(wire).units)
+					.map((unit) => unit.unitId),
+			).toEqual([(await row("borrower")).id]);
+			expect((await row("confirmation")).explicit).toEqual(own);
 		},
 	);
 	expect(failures).toEqual([]);

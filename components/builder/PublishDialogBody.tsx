@@ -66,6 +66,7 @@ import {
 import { HqNotConnected } from "@/components/builder/HqNotConnected";
 import type { HqChangesSettled } from "@/components/builder/hqChangesPanelModel";
 import type { ShownRefreshedView } from "@/components/builder/keptListModel";
+import { ProjectSearchConnections } from "@/components/builder/ProjectSearchConnections";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
@@ -137,12 +138,17 @@ import {
 import type {
 	DeploymentConfirmationKey,
 	DeploymentConfirmationNeeded,
+	DeploymentFailure,
 	DeploymentFailureCode,
 	DeploymentRemoteChange,
 	DeploymentResourceConflict,
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import {
+	useAppSettings,
+	useNeedsProjectSearchDestination,
+} from "@/lib/doc/hooks/useAppSettings";
 import {
 	CONNECTION_CHECK_FAILED,
 	DRIFT_STOP_EDITOR_LINE,
@@ -162,6 +168,7 @@ import {
 	type ManualImportStep,
 	manualImportStepKey,
 } from "@/lib/publish/manualImportGuide";
+import { MANUAL_LOOKUP_INSTALL_PATH } from "@/lib/publish/manualLookupManifest";
 import {
 	ACCEPT_PLACEMENT_MOVES_LABEL,
 	type AcceptPlacementMoves,
@@ -193,6 +200,7 @@ import {
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { describeApiFailure } from "@/lib/ui/apiFailure";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
+import { useInstallationChoiceLabels } from "./localization/useInstallationChoiceLabels";
 
 type Domain = { name: string; displayName: string };
 type PublishTarget = "hq" | "web" | "mobile";
@@ -274,9 +282,14 @@ export interface PublishDialogProps {
 		domain: string | undefined,
 		signal: AbortSignal,
 	) => Promise<PublishProjectSpaceCompatibilityOutcome>;
-	onDownloadJson: (server?: CommCareServer) => Promise<PublishDownloadOutcome>;
+	onDownloadJson: (
+		server?: CommCareServer,
+		domain?: string,
+		privateData?: boolean,
+	) => Promise<PublishDownloadOutcome>;
 	/** A CCZ is made for one project space this app is published to. */
 	onDownloadCcz: (target: {
+		readonly installationProfileUuid?: string;
 		readonly server: CommCareServer;
 		readonly domain: string;
 	}) => Promise<PublishDownloadOutcome>;
@@ -328,6 +341,9 @@ type PublishStatus =
 			webAppsChange: WebAppsChange | null;
 			/** The case changes Nova offers to move; null where it offers none. */
 			placementMoves: PlacementMoveOfferView | null;
+			installationProfileConfirmation?: string;
+			installationProfileChoices?: DeploymentFailure["installationProfileChoices"];
+			installationProfileReviewUrl?: string;
 			warnings: string[];
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 	  }
@@ -410,6 +426,7 @@ export function PublishDialogBody({
 	const compatibilityControllerRef = useRef<AbortController | null>(null);
 	const operationGenerationRef = useRef(0);
 	const storeAppName = useAppName();
+	const needsSearchDestination = useNeedsProjectSearchDestination();
 	const [reviewing, setReviewing] = useState(false);
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const stepHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -433,12 +450,24 @@ export function PublishDialogBody({
 	const [status, setStatus] = useState<PublishStatus>({ type: "idle" });
 	const [appName, setAppName] = useState(storeAppName);
 	const [selectedDomain, setSelectedDomain] = useState("");
+	const [privateDomain, setPrivateDomain] = useState("");
 	const [downloadServer, setDownloadServer] = useState<CommCareServer | "">("");
 	const [downloadTargets, setDownloadTargets] = useState<DownloadTargets>({
 		type: "loading",
 	});
 	/** The CCZ's project space, as `downloadTargetKey` spells it; "" for none chosen. */
 	const [cczTargetKey, setCczTargetKey] = useState("");
+	const appSettings = useAppSettings();
+	const profiles = useMemo(
+		() => Object.values(appSettings.installationProfiles ?? {}),
+		[appSettings.installationProfiles],
+	);
+	const profileLabels = useInstallationChoiceLabels(profiles);
+
+	const [selectedProfileUuid, setSelectedProfileUuid] = useState("");
+	const selectedProfile = profiles.find(
+		(profile) => profile.uuid === selectedProfileUuid,
+	);
 	/**
 	 * Counts what changed where a CCZ can be made while this is open, a
 	 * publish that landed, a stop and a CCZ download that was refused, so
@@ -486,6 +515,8 @@ export function PublishDialogBody({
 	 * write, or null until they tick it. Cleared wherever `confirmations` is,
 	 * so an answer never outlives the question it answered.
 	 */
+	const [confirmInstallationProfiles, setConfirmInstallationProfiles] =
+		useState<string | null>(null);
 	const [confirmWebApps, setConfirmWebApps] = useState<boolean | null>(null);
 	/**
 	 * The move offer the person accepted, named back by its reason and the
@@ -537,6 +568,7 @@ export function PublishDialogBody({
 		setAdoptResourceIds([]);
 		setDiscardRemoteChanges([]);
 		setConfirmations([]);
+		setConfirmInstallationProfiles(null);
 		setConfirmWebApps(null);
 		setAcceptMoves(null);
 		setStoppedDomain(null);
@@ -647,6 +679,7 @@ export function PublishDialogBody({
 			requestedDiscard !== undefined ? [requestedDiscard] : [],
 		);
 		setConfirmations([]);
+		setConfirmInstallationProfiles(null);
 		setConfirmWebApps(null);
 		setAcceptMoves(null);
 		setStoppedDomain(null);
@@ -816,6 +849,7 @@ export function PublishDialogBody({
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
+			setConfirmInstallationProfiles(null);
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
 			setStoppedDomain(target.domain);
@@ -931,7 +965,7 @@ export function PublishDialogBody({
 	};
 
 	const compatibilityDomain =
-		target === "hq"
+		target === "hq" || (target === "web" && needsSearchDestination)
 			? selectedDomain ||
 				(availableDomains.length === 1 ? availableDomains[0].name : undefined)
 			: undefined;
@@ -988,7 +1022,7 @@ export function PublishDialogBody({
 	const handleTargetChange = useCallback(
 		(next: PublishTarget) => {
 			const nextDomain =
-				next === "hq"
+				next === "hq" || (next === "web" && needsSearchDestination)
 					? selectedDomain ||
 						(availableDomains.length === 1
 							? availableDomains[0].name
@@ -999,6 +1033,7 @@ export function PublishDialogBody({
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
+			setConfirmInstallationProfiles(null);
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
 			setStoppedDomain(null);
@@ -1009,6 +1044,7 @@ export function PublishDialogBody({
 		},
 		[
 			availableDomains,
+			needsSearchDestination,
 			compatibilityDomain,
 			invalidateCompatibilityReport,
 			selectedDomain,
@@ -1025,6 +1061,7 @@ export function PublishDialogBody({
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
+			setConfirmInstallationProfiles(null);
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
 			setStoppedDomain(null);
@@ -1184,6 +1221,7 @@ export function PublishDialogBody({
 					discard_remote_changes: discardRemoteChanges,
 					confirm: confirmations,
 					...(confirmWebApps !== null && { confirmWebApps }),
+					...(confirmInstallationProfiles && { confirmInstallationProfiles }),
 					...(acceptMoves !== null && { acceptPlacementMoves: acceptMoves }),
 					/* The reader's own day for a sentence that names when the app
 					 * was brought in, the same values this dialog's own sentences
@@ -1290,6 +1328,7 @@ export function PublishDialogBody({
 				setDiscardRemoteChanges([]);
 				/* The deployment holds what was confirmed from now on. */
 				setConfirmations([]);
+				setConfirmInstallationProfiles(null);
 				setConfirmWebApps(null);
 				setTargetChanges((count) => count + 1);
 				const record = outcome.deployment?.deployment.deployment;
@@ -1355,6 +1394,10 @@ export function PublishDialogBody({
 				remoteChanges: outcome.remoteChanges,
 				webAppsChange: outcome.webAppsChange,
 				placementMoves: outcome.placementMoves,
+				installationProfileChoices: outcome.installationProfileChoices,
+				installationProfileConfirmation:
+					outcome.installationProfileConfirmation,
+				installationProfileReviewUrl: outcome.installationProfileReviewUrl,
 				warnings: outcome.warnings,
 				projectSpaceCompatibility: serverCompatibility,
 			});
@@ -1381,6 +1424,7 @@ export function PublishDialogBody({
 		adoptResourceIds,
 		discardRemoteChanges,
 		confirmations,
+		confirmInstallationProfiles,
 		confirmWebApps,
 		acceptMoves,
 		compatibilityState,
@@ -1456,16 +1500,41 @@ export function PublishDialogBody({
 		[focusLater],
 	);
 
+	const assignmentDomains = needsSearchDestination
+		? availableDomains.filter((domain) => domain.name === selectedDomain)
+		: availableDomains;
+
 	const handleDownload = useCallback(
 		async (downloadTarget: "web" | "mobile") => {
 			/* A CCZ is made for one project space; the button stays off until
 			 * one is chosen, so there is nothing to send without it. */
 			if (downloadTarget === "mobile" && cczTarget === null) return;
+			if (
+				downloadTarget === "web" &&
+				needsSearchDestination &&
+				(!connectionServer || !selectedDomain)
+			)
+				return;
 			const generation = ++operationGenerationRef.current;
 			setStatus({ type: "downloading", target: downloadTarget });
 			const outcome = await (cczTarget !== null && downloadTarget === "mobile"
-				? onDownloadCcz(cczTarget)
-				: onDownloadJson(downloadServer || undefined));
+				? onDownloadCcz({
+						...cczTarget,
+						...(selectedProfile && {
+							installationProfileUuid: selectedProfile.uuid,
+						}),
+					})
+				: onDownloadJson(
+						needsSearchDestination || privateDomain
+							? (connectionServer ?? undefined)
+							: downloadServer || undefined,
+						needsSearchDestination
+							? selectedDomain
+							: privateDomain || undefined,
+						needsSearchDestination
+							? privateDomain.length > 0 && privateDomain === selectedDomain
+							: privateDomain.length > 0,
+					));
 			if (operationGenerationRef.current !== generation) return;
 			if (!outcome.ok) {
 				setStatus({ type: "idle" });
@@ -1488,7 +1557,17 @@ export function PublishDialogBody({
 				manualImportGuide: outcome.manualImportGuide,
 			});
 		},
-		[onDownloadCcz, onDownloadJson, downloadServer, cczTarget],
+		[
+			onDownloadCcz,
+			onDownloadJson,
+			downloadServer,
+			cczTarget,
+			selectedProfile,
+			privateDomain,
+			connectionServer,
+			needsSearchDestination,
+			selectedDomain,
+		],
 	);
 
 	const isWorking =
@@ -1557,10 +1636,18 @@ export function PublishDialogBody({
 	};
 	const mobileUnavailable =
 		target === "mobile" && cczHasNoChoice(downloadTargets);
+	const searchTarget =
+		target === "mobile"
+			? cczTarget
+			: connectionServer && selectedDomain
+				? { server: connectionServer, domain: selectedDomain }
+				: null;
 	const canReview =
 		target === "hq"
 			? !notConfigured && Boolean(selectedDomain) && appName.trim().length > 0
-			: target !== "mobile" || cczTarget !== null;
+			: target === "mobile"
+				? cczTarget !== null
+				: !needsSearchDestination || Boolean(searchTarget);
 	const showCompatibilityPreflight =
 		status.type !== "landed" &&
 		!downloadComplete &&
@@ -1658,13 +1745,15 @@ export function PublishDialogBody({
 							</FieldDescription>
 						</Field>
 
-						{target === "web" && (
+						{target === "web" && !needsSearchDestination && (
 							<Field className="mt-4 gap-1.5">
 								<FieldLabel htmlFor="download-server">
 									CommCare HQ server
 								</FieldLabel>
 								<Select
-									value={downloadServer}
+									value={
+										privateDomain ? (connectionServer ?? "") : downloadServer
+									}
 									items={[
 										{ value: "", label: "Use published destination" },
 										...(["production", "india", "eu"] as const).map(
@@ -1678,7 +1767,7 @@ export function PublishDialogBody({
 										setDownloadServer((value ?? "") as CommCareServer | "");
 										setStatus({ type: "idle" });
 									}}
-									disabled={isWorking}
+									disabled={isWorking || Boolean(privateDomain)}
 								>
 									<SelectTrigger id="download-server">
 										<SelectValue />
@@ -1700,6 +1789,130 @@ export function PublishDialogBody({
 								</FieldDescription>
 							</Field>
 						)}
+						{target === "web" &&
+							needsSearchDestination &&
+							(notConfigured ? (
+								<HqNotConnected
+									title="Connect a project space"
+									body="This file uses searches from one project space. Connect that space in Settings to choose its searches."
+									isRefreshing={isRefreshingHqConnection}
+									onRefresh={onRefreshHqConnection}
+								/>
+							) : (
+								<Field className="mt-4 gap-1.5">
+									<FieldLabel htmlFor="download-search-space">
+										Project space
+									</FieldLabel>
+									<Select
+										value={selectedDomain}
+										items={domainItems}
+										disabled={isWorking}
+										onValueChange={(value) =>
+											handleSelectedDomainChange(value ?? "")
+										}
+									>
+										<SelectTrigger id="download-search-space">
+											<SelectValue placeholder="Choose a project space" />
+										</SelectTrigger>
+										<SelectContent>
+											{availableDomains.map((domain) => (
+												<SelectItem key={domain.name} value={domain.name}>
+													{domain.displayName}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<FieldDescription>
+										This file uses the searches configured in the selected
+										project space.
+									</FieldDescription>
+								</Field>
+							))}
+						{target === "web" &&
+							canEdit &&
+							connectionServer &&
+							assignmentDomains.length > 0 && (
+								<Field className="mt-4 gap-1.5">
+									<FieldLabel htmlFor="download-private-data">
+										Worker assignments
+									</FieldLabel>
+									<Select
+										value={privateDomain}
+										items={[
+											{ value: "", label: "Connect data after importing" },
+											...assignmentDomains.map((d) => ({
+												value: d.name,
+												label: d.name,
+											})),
+										]}
+										onValueChange={(val) => {
+											setPrivateDomain(val ?? "");
+											setStatus({ type: "idle" });
+										}}
+										disabled={isWorking}
+									>
+										<SelectTrigger id="download-private-data">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="">
+												Connect data after importing
+											</SelectItem>
+											{assignmentDomains.map((d) => (
+												<SelectItem key={d.name} value={d.name}>
+													{d.name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<FieldDescription>
+										Choose a project space to include its verified worker
+										assignments in a private download.
+									</FieldDescription>
+								</Field>
+							)}
+						{target === "mobile" &&
+							appSettings.runsOnlyOn !== "web-apps" &&
+							cczTarget !== null &&
+							!downloadComplete &&
+							profiles.length > 0 && (
+								<Field>
+									<FieldLabel htmlFor="install-profile">
+										Installation profile
+									</FieldLabel>
+									<Select
+										disabled={isWorking}
+										value={selectedProfile?.uuid ?? ""}
+										onValueChange={(value) => {
+											setSelectedProfileUuid(value ?? "");
+											setStatus({ type: "idle" });
+										}}
+									>
+										<SelectTrigger id="install-profile">
+											<SelectValue>
+												{selectedProfile
+													? profileLabels.get(selectedProfile.uuid)
+													: "All app languages"}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="">All app languages</SelectItem>
+											{profiles.map((profile) => (
+												<SelectItem key={profile.uuid} value={profile.uuid}>
+													{profileLabels.get(profile.uuid)}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									{selectedProfile?.requiresPracticeWorker && (
+										<FieldDescription>
+											This profile needs a practice worker from{" "}
+											{cczTarget.domain}. Publish to that project space to check
+											which version can supply its installation.
+										</FieldDescription>
+									)}
+								</Field>
+							)}
 						{target === "mobile" && !downloadComplete && (
 							<CczTargetField
 								state={downloadTargets}
@@ -1712,6 +1925,14 @@ export function PublishDialogBody({
 								onPublish={
 									canUploadToHq ? () => handleTargetChange("hq") : undefined
 								}
+							/>
+						)}
+						{target !== "hq" && needsSearchDestination && searchTarget && (
+							<ProjectSearchConnections
+								key={`${target + searchTarget.server}:${searchTarget.domain}`}
+								appId={getAppId()}
+								{...searchTarget}
+								canEdit={canEdit}
 							/>
 						)}
 						{target === "hq" ? (
@@ -1753,6 +1974,14 @@ export function PublishDialogBody({
 											publishPlanContext,
 										)}
 									/>
+									{needsSearchDestination && searchTarget && (
+										<ProjectSearchConnections
+											key={`${searchTarget.server}:${searchTarget.domain}`}
+											appId={getAppId()}
+											{...searchTarget}
+											canEdit={canEdit}
+										/>
+									)}
 									{publishOverChosen ? (
 										<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 											{PUBLISH_OVER_CHOSEN_LINE}
@@ -1823,6 +2052,12 @@ export function PublishDialogBody({
 											? projectSpaceLabel(cczTarget)
 											: "Import into CommCare HQ"}
 								</p>
+								{target === "mobile" && selectedProfile && (
+									<p className="mt-2 text-sm text-nova-text-secondary">
+										Installation profile:{" "}
+										{profileLabels.get(selectedProfile.uuid)}
+									</p>
+								)}
 								{target === "hq" ? (
 									<>
 										<p className="mt-2 text-sm text-nova-text-secondary">
@@ -1962,6 +2197,59 @@ export function PublishDialogBody({
 										{/* The Web Apps question: the app's Web App setting
 												    on CommCare HQ differs from where it runs, and
 												    the next publish changes it once ticked. */}
+										{status.installationProfileReviewUrl ? (
+											<a
+												className="underline"
+												href={status.installationProfileReviewUrl}
+												target="_blank"
+												rel="noreferrer"
+											>
+												Open application profiles in CommCare HQ
+											</a>
+										) : null}
+										{canEdit && status.installationProfileChoices && (
+											<RadioGroup<string>
+												aria-label="Installation choices"
+												value={confirmInstallationProfiles ?? ""}
+												disabled={isWorking}
+												onValueChange={(value) =>
+													setConfirmInstallationProfiles(value)
+												}
+											>
+												{status.installationProfileChoices.map((choice) => (
+													<RadioGroupItem<string>
+														key={choice.confirmation}
+														value={choice.confirmation}
+													>
+														{choice.label}
+													</RadioGroupItem>
+												))}
+											</RadioGroup>
+										)}
+										{status.installationProfileConfirmation && canEdit ? (
+											<label
+												htmlFor="installation-worker-confirmation"
+												className="flex items-center gap-2"
+											>
+												<Checkbox
+													id="installation-worker-confirmation"
+													checked={
+														confirmInstallationProfiles ===
+														status.installationProfileConfirmation
+													}
+													onCheckedChange={(checked) =>
+														setConfirmInstallationProfiles(
+															checked === true
+																? (status.installationProfileConfirmation ??
+																		null)
+																: null,
+														)
+													}
+													disabled={isWorking}
+												/>
+												Use these practice workers in this project space
+											</label>
+										) : null}
 										{status.webAppsChange !== null && canEdit ? (
 											<WebAppsChangeChoice
 												change={status.webAppsChange}
@@ -2192,7 +2480,10 @@ export function PublishDialogBody({
 							type="button"
 							onClick={() => handleDownload(downloadTarget)}
 							disabled={
-								isWorking || (downloadTarget === "mobile" && cczTarget === null)
+								isWorking ||
+								(downloadTarget === "mobile" &&
+									(cczTarget === null ||
+										selectedProfile?.requiresPracticeWorker === true))
 							}
 						>
 							{status.type === "downloading" ? (
@@ -2406,7 +2697,18 @@ function ManualImportGuide({ steps }: { steps: readonly ManualImportStep[] }) {
 						key={manualImportStepKey(step)}
 						className="text-xs leading-relaxed"
 					>
-						<p className="font-medium text-nova-text">{step.title}</p>
+						{step.kind === "install-lookup-data" ? (
+							<Link
+								href={MANUAL_LOOKUP_INSTALL_PATH}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="font-medium text-nova-text underline underline-offset-2"
+							>
+								{step.title}
+							</Link>
+						) : (
+							<p className="font-medium text-nova-text">{step.title}</p>
+						)}
 						<p className="mt-1 whitespace-pre-wrap break-words text-nova-text-secondary">
 							{step.lines.join("\n")}
 						</p>
@@ -3084,7 +3386,9 @@ function confirmsRemoteChange(
 	discard: RemoteChangeDiscard,
 	change: DeploymentRemoteChange,
 ): boolean {
-	if (sameRemoteChange(discard, change)) return true;
+	if (sameRemoteChange(discard, change)) return !change.requiresReview;
+	// Only a completed review offers its own receipt here. The short
+	// preview and the receipt for all disclosed files have distinct digests.
 	return (
 		change.kind === "app" &&
 		change.canBringIn &&
@@ -3160,19 +3464,22 @@ function RemoteChangeChoice({
 				const id = `discard-${change.kind}-${change.novaResourceId}`;
 				const item = (
 					<>
-						{change.baselineKnown ? (
+						{change.parts.length > 0 && (
 							<ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-nova-text-secondary">
 								{change.parts.map((part, index) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: two parts can name forms of the same name, so the text is no key.
 									<li key={index}>{part}</li>
 								))}
 							</ul>
-						) : (
+						)}
+						{!change.baselineKnown && (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{baselineUnknownSentence(change.since, viewerDriftDate())}
 							</p>
 						)}
-						{change.kind === "app" && !change.canBringIn ? (
+						{change.kind === "app" &&
+						!change.canBringIn &&
+						!change.requiresReview ? (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{hqChangesUnavailableLine("no-reference", {
 									domain,
@@ -3186,24 +3493,26 @@ function RemoteChangeChoice({
 								{change.note}
 							</p>
 						) : null}
-						<label
-							htmlFor={id}
-							className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
-						>
-							<Checkbox
-								id={id}
-								checked={discarded.some((entry) =>
-									sameRemoteChange(entry, change),
-								)}
-								onCheckedChange={(next) =>
-									onDiscardChange(change, next === true)
-								}
-							/>
-							<span>
-								Publish over this
-								<span className="sr-only"> {change.name}</span>
-							</span>
-						</label>
+						{!change.requiresReview && (
+							<label
+								htmlFor={id}
+								className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+							>
+								<Checkbox
+									id={id}
+									checked={discarded.some((entry) =>
+										sameRemoteChange(entry, change),
+									)}
+									onCheckedChange={(next) =>
+										onDiscardChange(change, next === true)
+									}
+								/>
+								<span>
+									Publish over this
+									<span className="sr-only"> {change.name}</span>
+								</span>
+							</label>
+						)}
 						{change.kind === "app" && stop !== null ? (
 							<DriftStop
 								canStop={stop.canStop}
@@ -3226,7 +3535,15 @@ function RemoteChangeChoice({
 								({change.identity})
 							</span>
 						</p>
-						{change.kind === "app" && change.canBringIn && panel !== null ? (
+						{/* Menu layouts CommCare HQ holds that this publish replaces
+						 * are no change since the reading the panel compares, so its
+						 * review cannot show them; the item lists them with their
+						 * tick, and the person matches them in Nova or publishes
+						 * over them. */}
+						{change.kind === "app" &&
+						change.canBringIn &&
+						!change.replacesMenuLayouts &&
+						panel !== null ? (
 							/* A new refusal is a new review: keyed by the state it read. */
 							<HqChangesPanel
 								key={change.observedDigest}

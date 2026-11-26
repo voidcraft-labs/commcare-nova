@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import {
-	type CaseOperationMutationPlan,
+	type CaseOperationRemovalPlan,
 	removeCaseOperationMutation,
 } from "@/lib/doc/caseOperationMutations";
 import { asUuid, uuidSchema } from "@/lib/domain";
@@ -48,9 +48,10 @@ export type RemoveCaseOperationResult =
  */
 function removalRefusal(
 	operationId: string,
-	plan: Extract<CaseOperationMutationPlan, { ok: false }>,
+	plan: Extract<CaseOperationRemovalPlan, { ok: false }>,
 	dependents: string,
 ): string {
+	if (plan.reason === "case-list-action") return plan.message;
 	if (plan.reason === "own-case" || plan.reason === "own-first")
 		return OWN_CASE_OPERATION_REFUSAL;
 	if (plan.reason !== "dependent-reference") {

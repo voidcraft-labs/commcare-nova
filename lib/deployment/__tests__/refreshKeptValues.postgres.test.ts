@@ -20,9 +20,11 @@
  */
 
 import { gzipSync } from "node:zlib";
+import { sql } from "kysely";
 import { Client } from "pg";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { deploymentSession } from "@/__tests__/helpers/deploymentSession";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedPublishRead,
@@ -31,9 +33,12 @@ import {
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { writeHqRoundTripHorizon } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
 import { getSession } from "@/lib/auth-utils";
 import { decrypt } from "@/lib/commcare/encryption";
+import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { log } from "@/lib/logger";
 import { refreshKeptValuesAction } from "../actions";
 import {
@@ -44,15 +49,22 @@ import { DeploymentError } from "../errors";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { deploymentKept, refreshKeptValues } from "../service";
 import {
+	admitAppWrite,
 	type DeploymentScope,
 	foldDeploymentAttempt,
 	holdTargetFacts,
+	readAppBaseline,
 	readDeployment,
 	readTargetFacts,
+	readTargetIdentity,
 	recordCreatedRemoteApp,
+	recordDeploymentMediaFiles,
+	recordRefreshedAppBaseline,
 	recordRemoteResource,
 } from "../store";
 import type { AppBaselineWrite, AppOwnership } from "../types";
+import { appMappingToken, birthAdoptedApp } from "./adoptedBirth";
+import { certifyFold } from "./certifiedFold";
 import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
@@ -214,7 +226,7 @@ async function published(baseline: AppBaselineWrite, remoteId = HQ_APP) {
 		remoteId,
 		ownership: "nova-created",
 		adoptedBy: null,
-		pushedRevision: 1,
+		pushedRevision: baseline.novaRevision ?? 1,
 		uploadedAt: PUBLISHED_AT,
 		remoteRevision: null,
 		baseline,
@@ -246,15 +258,158 @@ async function baselineRow() {
 		.db()
 		.selectFrom("app_deployment_baselines")
 		.selectAll()
+		.select(sql<string>`xmin::text`.as("written_by_transaction"))
+		.where(
+			"deployment_id",
+			"in",
+			h
+				.db()
+				.selectFrom("app_deployments")
+				.select("id")
+				.where("app_id", "=", APP),
+		)
 		.executeTakeFirst();
 }
 
 describe("refreshKeptValues", () => {
+	it.each([
+		"refresh-first-identical",
+		"refresh-first-kept",
+		"refresh-first-owned",
+		"publish-first-identical",
+		"publish-first-owned",
+	] as const)(
+		"orders the accepted import and the newer observation across a fold for %s",
+		async (order) => {
+			await seedApp();
+			const old = await writeHqRoundTripHorizon(h.db(), APP, "Clinic");
+			await published({ ...baselineOf(liveSource()), novaRevision: old });
+			await certifyFold(h.db(), APP);
+			const now = await readAppBaseline(SCOPE, TARGET);
+			if (!now || now.origin === "unread" || !now.foldBinding)
+				throw new Error("Expected a certified earlier target.");
+			const revision = now.foldBinding.foldSeq;
+			const admitted = await admitAppWrite(SCOPE, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+				compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+				writeKind: "import",
+				compiledAtSeq: revision,
+			});
+			if (admitted.kind !== "admitted")
+				throw new Error("Expected a post-fold import.");
+			const held = order.endsWith("kept") ? fuzzyOnSource() : liveSource();
+			const pushed = baselineOf(
+				order.endsWith("owned") ? formEditedSource() : liveSource(),
+				{ observedAt: new Date(Date.now() - 1000).toISOString() },
+			);
+			const record = () =>
+				recordRemoteResource(
+					SCOPE,
+					TARGET,
+					{
+						expectedEndings: 0,
+						kind: "app",
+						novaResourceId: APP,
+						remoteId: HQ_APP,
+						ownership: "nova-created",
+						pushedRevision: revision,
+						remoteRevision: 5,
+						uploadedAt: pushed.observedAt,
+						baseline: {
+							...pushed,
+							novaRevision: revision,
+							mediaFiles: { kind: "keep" },
+						},
+					},
+					{
+						writeIds: [admitted.writeId],
+						settle: [
+							{ writeIds: [admitted.writeId], how: { kind: "settled" } },
+						],
+					},
+				);
+			const first = order.startsWith("refresh-first");
+			const refresh = await withHttpPeer(async (peer) => {
+				if (first) serveSource(peer, held);
+				else
+					request(peer).reply(async () => {
+						await record();
+						return { statusCode: 200, data: JSON.stringify(held) };
+					});
+				return refreshKeptValues(SCOPE, TARGET);
+			});
+			if (first) {
+				expect(refresh.kind).toBe("refreshed");
+				const seen = await baselineRow();
+				await record();
+				const after = await baselineRow();
+				expect(after?.observed_at).toEqual(seen?.observed_at);
+				expect(after?.source_digest).toBe(baselineOf(held).sourceDigest);
+			}
+			const got = await readAppBaseline(SCOPE, TARGET);
+			if (first && order.endsWith("owned")) {
+				expect(got).toMatchObject({ origin: "unread", novaRevision: null });
+				expect(
+					await certifyFold(h.db(), APP, "hq-round-trip-case-writes"),
+				).toMatchObject({ usable: 0, unavailable: 1 });
+			} else {
+				expect(got).toMatchObject({ origin: "push", novaRevision: revision });
+				expect(got).not.toHaveProperty("foldBinding");
+				expect(
+					await certifyFold(h.db(), APP, "hq-round-trip-case-writes"),
+				).toMatchObject({ usable: 1 });
+			}
+		},
+	);
+	it("refreshes a kept setting across a fold while an editor’s later change stays unpublished", async () => {
+		await seedApp();
+		const publishedSeq = await writeHqRoundTripHorizon(
+			h.db(),
+			APP,
+			"Published survey",
+		);
+		await published({
+			...baselineOf(liveSource()),
+			novaRevision: publishedSeq,
+		});
+		await commitGuardedBatchProposal({
+			appId: APP,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: [{ kind: "setAppName", name: "My unpublished survey" }],
+			actorUserId: ACTOR,
+			kind: "autosave",
+		});
+		expect(await certifyFold(h.db(), APP)).toMatchObject({ usable: 1 });
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, fuzzyOnSource());
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+		});
+		expect(await readAppBaseline(SCOPE, TARGET)).toMatchObject({
+			novaRevision: publishedSeq,
+			foldBinding: {
+				novaRevision: publishedSeq,
+				sourceDigest: baselineOf(fuzzyOnSource()).sourceDigest,
+			},
+		});
+	});
 	it.each(["push", "cutover"] as const)(
 		"rewrites a %s baseline's source, digest and date from the read, and keeps its origin, ownership and discard",
 		async (origin) => {
 			await seedApp();
 			await published(baselineOf(liveSource(), { origin, discard: DISCARDED }));
+			// A deployment recorded before claim-bound read-backs were available.
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({
+					readback_push_token: null,
+					readback_source_digest: null,
+				})
+				.where("remote_app_id", "=", HQ_APP)
+				.execute();
 			const before = await baselineRow();
 			const listener = new Client({ connectionString: h.uri() });
 			const payloads: unknown[] = [];
@@ -335,6 +490,48 @@ describe("refreshKeptValues", () => {
 		expect(await baselineRow()).toEqual(before);
 	});
 
+	/* A baseline from before Nova owned the app's location switch: the
+	 * source it holds names HQ's value then, and only HQ moving from it is a
+	 * change made there. */
+	describe("over a baseline that does not own the app's location switch", () => {
+		const withLocation = (on: boolean) => ({
+			...liveSource(),
+			auto_gps_capture: on,
+		});
+
+		it("refreshes when the author turned location on in Nova and HQ still holds it off", async () => {
+			await seedApp();
+			await published(baselineOf(withLocation(false)));
+			await commitGuardedBatchProposal({
+				appId: APP,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				mutations: [
+					{ kind: "setAppSettings", settings: { captureLocation: true } },
+				],
+				actorUserId: ACTOR,
+				kind: "autosave",
+			});
+			await withHttpPeer(async (peer) => {
+				serveSource(peer, withLocation(false));
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+			});
+		});
+
+		it("answers changed-in-hq when HQ turned location on, and writes nothing", async () => {
+			await seedApp();
+			await published(baselineOf(withLocation(false)));
+			const before = await baselineRow();
+			await withHttpPeer(async (peer) => {
+				serveSource(peer, withLocation(true));
+				expect(await refreshKeptValues(SCOPE, TARGET)).toEqual({
+					kind: "changed-in-hq",
+				});
+			});
+			expect(await baselineRow()).toEqual(before);
+		});
+	});
+
 	/* A key HQ's build writes as another string than its own name is no
 	 * publish's to carry, so one stored in CommCare HQ is a change. */
 	it("answers changed-in-hq for a stored key that sets another string than its own name, and writes nothing", async () => {
@@ -350,7 +547,7 @@ describe("refreshKeptValues", () => {
 		expect(await baselineRow()).toEqual(before);
 	});
 
-	it("answers changed-in-hq for a file replaced at a path the record holds, and nothing for a path it holds no record of", async () => {
+	it("preserves the compared source for a replaced file and for a new unaccounted mapping the next import may prune", async () => {
 		const path = "commcare/image/visit.png";
 		const withFile = (id: string) => {
 			const source = liveSource();
@@ -389,7 +586,9 @@ describe("refreshKeptValues", () => {
 			.execute();
 		await withHttpPeer(async (peer) => {
 			serveSource(peer, withFile("doc-person"));
-			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(
+				"changed-in-hq",
+			);
 			expect(sent(peer)).toBe(1);
 		});
 	});
@@ -551,6 +750,7 @@ describe("refreshKeptValues", () => {
 			await seedApp();
 			const files = { "commcare/image/logo.png": "hq-file-1" };
 			const list = {
+				reviewed: 1,
 				ids: ["forms-and-settings-rewritten"],
 				webAppsOnInHq: true,
 				of: "first-publish",
@@ -595,6 +795,63 @@ describe("refreshKeptValues", () => {
 			});
 			expect(Number(after?.nova_revision)).toBe(1);
 		});
+
+		/* A publish reads the app back before its media upload, and HQ's bulk
+		 * upload then adds the file's path to the map. Only the file Nova's own
+		 * upload recorded at that path settles. */
+		it.each([
+			{ recorded: "nova-file", served: "nova-file", kind: "refreshed" },
+			{ recorded: null, served: "nova-file", kind: "changed-in-hq" },
+			{ recorded: "nova-file", served: "hq-file", kind: "changed-in-hq" },
+		] as const)(
+			"answers $kind on an adopted app whose map gained $served where the publish recorded $recorded",
+			async ({ recorded, served, kind }) => {
+				await seedApp();
+				const path = "commcare/image/photo.png";
+				await foldDeploymentAttempt(
+					SCOPE,
+					TARGET,
+					"preflight",
+					{ status: "succeeded", at: PUBLISHED_AT },
+					{ ensure: true, expectedEndings: 0 },
+				);
+				await recordRemoteResource(SCOPE, TARGET, {
+					expectedEndings: 0,
+					kind: "app",
+					novaResourceId: APP,
+					remoteId: HQ_APP,
+					ownership: "adopted",
+					adoptedBy: ACTOR,
+					pushedRevision: 1,
+					uploadedAt: PUBLISHED_AT,
+					remoteRevision: null,
+					baseline: {
+						...baselineOf(liveSource()),
+						novaRevision: 1,
+						mediaFiles: {
+							kind: "set",
+							files: recorded === null ? null : { [path]: recorded },
+						},
+					},
+				});
+				const before = await baselineRow();
+				const grown = liveSource();
+				grown.multimedia_map = {
+					[`jr://file/${path}`]: {
+						media_type: "CommCareImage",
+						multimedia_id: served,
+					},
+				};
+				await withHttpPeer(async (peer) => {
+					serveSource(peer, grown);
+					expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(kind);
+				});
+				const after = await baselineRow();
+				if (kind === "refreshed")
+					expect(after?.source_digest).toBe(baselineOf(grown).sourceDigest);
+				else expect(after).toEqual(before);
+			},
+		);
 	});
 
 	describe("writes nothing where CommCare HQ's answer is no app Nova can compare", () => {
@@ -733,6 +990,327 @@ describe("refreshKeptValues", () => {
 			new Date(readBack.observedAt),
 		);
 	});
+
+	it.each([
+		"verified",
+		"unread",
+		"corrupt",
+		"media moved",
+		"folded again",
+	] as const)(
+		"checks the later publish's %s read-back after it replaces a certified baseline, without writing",
+		async (readBack) => {
+			await seedApp();
+			const path = "commcare/image/facility.png";
+			const source = liveSource();
+			source.multimedia_map = {
+				[`jr://file/${path}`]: {
+					multimedia_id: "original",
+					media_type: "CommCareImage",
+				},
+			};
+			/* The publish recorded HQ's file at its path, so the next import
+			 * accounts for it and the refresh compares the source alone. */
+			const recorded = {
+				mediaFiles: { kind: "set", files: { [path]: "original" } },
+			} as const;
+			const first = await writeHqRoundTripHorizon(
+				h.db(),
+				APP,
+				"Published survey",
+			);
+			await published({
+				...baselineOf(source),
+				...recorded,
+				novaRevision: first,
+			});
+			await certifyFold(h.db(), APP);
+			const before = await readAppBaseline(SCOPE, TARGET);
+			if (!before || before.origin === "unread" || !before.foldBinding)
+				throw new Error("Expected a certified comparison");
+			const latest = before.foldBinding.foldSeq;
+			let afterPublish: Awaited<ReturnType<typeof baselineRow>>;
+			await withHttpPeer(async (peer) => {
+				request(peer).reply(async () => {
+					const next = baselineOf(source, {
+						observedAt: new Date().toISOString(),
+					});
+					await published({
+						...next,
+						...recorded,
+						novaRevision: latest,
+						...(readBack === "unread" && {
+							origin: "unread",
+							ownership: null,
+							sourceGzip: null,
+							sourceDigest: null,
+							sourceBytes: null,
+							novaRevision: null,
+						}),
+						...(readBack === "corrupt" && {
+							sourceGzip: gzipSync(Buffer.from("{}")),
+						}),
+						...(readBack === "media moved" && {
+							mediaFiles: { kind: "set", files: { [path]: "replacement" } },
+						}),
+					});
+					if (readBack === "folded again")
+						await certifyFold(h.db(), APP, "hq-round-trip-case-writes");
+					afterPublish = await baselineRow();
+					expect(afterPublish?.reference_fold_seq === null).toBe(
+						readBack !== "folded again",
+					);
+					return { statusCode: 200, data: JSON.stringify(source) };
+				});
+				const outcome = await refreshKeptValues(SCOPE, TARGET);
+				expect(outcome).toEqual({
+					kind: readBack === "verified" ? "refreshed" : "superseded",
+					deployment: await readDeployment(SCOPE, TARGET),
+				});
+			});
+			expect(await baselineRow()).toEqual(afterPublish);
+		},
+	);
+
+	it("acknowledges the same publish after another refresh on its claim reads the same bytes", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-11-21T12:00:00.000Z"));
+		await seedApp();
+		await published(baselineOf(liveSource()));
+		let later: Awaited<ReturnType<typeof baselineRow>>;
+		await withHttpPeer(async (peer) => {
+			request(peer).reply(async () => {
+				const readBack = baselineOf(liveSource(), {
+					observedAt: new Date().toISOString(),
+				});
+				const push = await published(readBack);
+				vi.setSystemTime(new Date("2026-11-21T12:00:01.000Z"));
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+				later = await baselineRow();
+				expect(later?.observed_at.getTime()).toBeGreaterThan(
+					Date.parse(readBack.observedAt),
+				);
+				expect(later).toMatchObject({
+					readback_push_token: push.pushToken,
+					readback_source_digest: readBack.sourceDigest,
+				});
+				return { statusCode: 200, data: JSON.stringify(liveSource()) };
+			});
+			serveSource(peer, liveSource());
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+		});
+		expect(await baselineRow()).toEqual(later);
+	});
+
+	it("refuses to attribute a legacy writer's later source to the publish whose token it retained", async () => {
+		await seedApp();
+		await published(baselineOf(liveSource()));
+		let afterLegacyRead: Awaited<ReturnType<typeof baselineRow>>;
+		await withHttpPeer(async (peer) => {
+			request(peer).reply(async () => {
+				const publishedRead = baselineOf(fuzzyOnSource(), {
+					observedAt: new Date().toISOString(),
+				});
+				const push = await published(publishedRead);
+				// An in-flight writer from the previous revision updates the columns
+				// it knows, retaining the candidate's token for a different source.
+				const legacyRead = baselineOf(liveSource(), {
+					observedAt: new Date().toISOString(),
+				});
+				await h
+					.db()
+					.updateTable("app_deployment_baselines")
+					.set({
+						source_digest: legacyRead.sourceDigest,
+						source_gzip: legacyRead.sourceGzip,
+						source_bytes: legacyRead.sourceBytes,
+						observed_at: legacyRead.observedAt,
+					})
+					.where("remote_app_id", "=", HQ_APP)
+					.execute();
+				afterLegacyRead = await baselineRow();
+				expect(afterLegacyRead).toMatchObject({
+					readback_push_token: push.pushToken,
+					readback_source_digest: publishedRead.sourceDigest,
+					source_digest: legacyRead.sourceDigest,
+				});
+				return { statusCode: 200, data: JSON.stringify(liveSource()) };
+			});
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("superseded");
+		});
+		expect(await baselineRow()).toEqual(afterLegacyRead);
+	});
+
+	it.each([
+		["same", liveSource],
+		["different", fuzzyOnSource],
+	] as const)(
+		"refuses a late read after the matching publish's claim was released and reclaimed and the other owner published %s bytes",
+		async (_name, otherSource) => {
+			await seedApp();
+			const owner = "restore-owner";
+			await h.seedProjectMember(owner, PROJECT, "owner");
+			await published(baselineOf(liveSource()));
+			let winner: Awaited<ReturnType<typeof baselineRow>>;
+			await withHttpPeer(async (peer) => {
+				request(peer).reply(async () => {
+					const push = await published(
+						baselineOf(liveSource(), { observedAt: new Date().toISOString() }),
+					);
+					winner = await baselineRow();
+					await softDeleteApp(APP, owner);
+					const other = await birthAdoptedApp(h, {
+						appId: crypto.randomUUID(),
+						projectId: PROJECT,
+						actorUserId: owner,
+						target: TARGET,
+						remoteAppId: HQ_APP,
+					});
+					const theirRead = baselineOf(otherSource(), {
+						observedAt: new Date().toISOString(),
+					});
+					await recordRemoteResource(other.scope, TARGET, {
+						expectedEndings: 0,
+						kind: "app",
+						novaResourceId: other.scope.appId,
+						remoteId: HQ_APP,
+						ownership: "adopted",
+						adoptedBy: owner,
+						pushedRevision: 1,
+						remoteRevision: 42,
+						uploadedAt: theirRead.observedAt,
+						baseline: { ...theirRead, novaRevision: 1 },
+					});
+					expect(await readAppBaseline(other.scope, TARGET)).toMatchObject({
+						sourceDigest: theirRead.sourceDigest,
+					});
+					await softDeleteApp(other.scope.appId, owner);
+					expect(await restoreApp(APP, owner)).toEqual({
+						stoppedPublishing: [],
+					});
+					const reclaimed = (await readDeployment(SCOPE, TARGET))?.active.find(
+						(r) => r.kind === "app",
+					);
+					expect(reclaimed).toMatchObject({
+						releasedAt: null,
+						remoteId: HQ_APP,
+					});
+					expect(reclaimed?.pushToken).not.toBe(push.pushToken);
+					return { statusCode: 200, data: JSON.stringify(liveSource()) };
+				});
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(
+					"superseded",
+				);
+			});
+			expect(await baselineRow()).toEqual(winner);
+		},
+	);
+
+	it.each([
+		["replacing the source", false, false],
+		["replacing a certified source", true, false],
+		["advancing the date of a now-identical certified source", true, true],
+	] as const)(
+		"refuses a changed media file before %s under the same claim",
+		async (_operation, certified, earlierReadLanded) => {
+			await seedApp();
+			const path = "commcare/image/facility.png";
+			const sequence = await writeHqRoundTripHorizon(
+				h.db(),
+				APP,
+				"Published survey",
+			);
+			const old = baselineOf(liveSource());
+			const push = await published({
+				...old,
+				novaRevision: sequence,
+				mediaFiles: { kind: "set", files: { [path]: "first" } },
+			});
+			if (certified) await certifyFold(h.db(), APP);
+			const before = await readAppBaseline(SCOPE, TARGET);
+			if (!before || before.origin === "unread" || !push.pushToken)
+				throw new Error("Expected a published source");
+			const token = push.pushToken;
+			const source = fuzzyOnSource();
+			source.multimedia_map = {
+				[`jr://file/${path}`]: {
+					multimedia_id: "first",
+					media_type: "CommCareImage",
+				},
+			};
+			const read = baselineOf(source, {
+				observedAt: new Date(Date.parse(PUBLISHED_AT) + 1000).toISOString(),
+			});
+			let afterMedia: Awaited<ReturnType<typeof baselineRow>>;
+			await withHttpPeer(async (peer) => {
+				request(peer).reply(async () => {
+					if (earlierReadLanded) {
+						expect(
+							(
+								await recordRefreshedAppBaseline(SCOPE, TARGET, {
+									expectedEndings: 0,
+									remoteAppId: HQ_APP,
+									comparedDigest: before.sourceDigest,
+									comparedPushToken: token,
+									comparedRevision: sequence,
+									comparedFold: before.foldBinding?.foldSeq,
+									read,
+								})
+							).outcome,
+						).toBe("current");
+					}
+					expect(
+						await recordDeploymentMediaFiles(SCOPE, TARGET, {
+							expectedEndings: 0,
+							remoteAppId: HQ_APP,
+							pushToken: token,
+							novaRevision: sequence,
+							sourceDigest: earlierReadLanded
+								? read.sourceDigest
+								: old.sourceDigest,
+							files: { read: { [path]: "first" }, next: { [path]: "later" } },
+						}),
+					).toBe("recorded");
+					afterMedia = await baselineRow();
+					expect(afterMedia?.media_files).toEqual({ [path]: "later" });
+					return { statusCode: 200, data: JSON.stringify(source) };
+				});
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(
+					"superseded",
+				);
+			});
+			expect(await baselineRow()).toEqual(afterMedia);
+		},
+	);
+
+	it.each(["released", "reclaimed"] as const)(
+		"leaves the same source untouched if the claim was %s without a new push during refresh",
+		async (claim) => {
+			await seedApp();
+			await published(
+				baselineOf(liveSource(), {
+					observedAt: new Date(Date.now() + 60_000).toISOString(),
+				}),
+			);
+			const before = await baselineRow();
+			await withHttpPeer(async (peer) => {
+				request(peer).reply(async () => {
+					const mapping = h
+						.db()
+						.updateTable("app_deployment_resources")
+						.where("kind", "=", "app");
+					await mapping.set({ released_at: new Date() }).execute();
+					if (claim === "reclaimed")
+						await mapping.set({ released_at: null }).execute();
+					return { statusCode: 200, data: JSON.stringify(liveSource()) };
+				});
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(
+					"superseded",
+				);
+			});
+			expect(await baselineRow()).toEqual(before);
+		},
+	);
 
 	it.each([
 		["an unchanged project space", liveSource],
@@ -914,7 +1492,9 @@ describe("refreshKeptValuesAction", () => {
 	it("answers a refresh whose write landed as landed when its kept list cannot be read after it, and logs the fault by its class and code alone", async () => {
 		await seedApp();
 		await published(baselineOf(liveSource()));
-		vi.mocked(getSession).mockResolvedValue({ user: { id: ACTOR } } as never);
+		vi.mocked(getSession).mockResolvedValue(
+			(await deploymentSession(h.db(), ACTOR)) as never,
+		);
 		/* A fault whose message quotes what it was reading: no log line may
 		 * carry it. */
 		const words = "Mother's Visit Checklist";

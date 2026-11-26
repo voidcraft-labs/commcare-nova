@@ -68,3 +68,10 @@ export function sharedFormSyntax(text: string): FormSyntaxResult {
 	chargeSyntaxRead(text.length);
 	return heldReadings.of(text, (source) => frozenWhole(readSyntax(source)));
 }
+
+/** The grammar including stored XML names, for attributing a broken read.
+ * The ordinary parse and its cache always use the worker alphabet. */
+export function readStoredNameSyntax(text: string): FormSyntaxResult {
+	chargeSyntaxRead(text.length);
+	return readSyntax(text, "stored-xml");
+}

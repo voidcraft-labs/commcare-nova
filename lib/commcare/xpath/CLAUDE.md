@@ -10,7 +10,14 @@ validator; emitted wire shapes remain behind `lib/commcare`.
 `grammar.lezer.grammar` defines the syntax. `parser.ts` and `parser.terms.ts` are
 committed generated files; regenerate them with `scripts/build-xpath-parser.ts`.
 `hashtagGuard.ts` keeps a hashtag contiguous and stays aligned with the domain
-hashtag matchers through the divergence corpus.
+hashtag matchers through the divergence corpus. `coreNameTokens.ts` reads each
+QName from the pinned Core lexer’s UTF-16 name alphabet. Web Apps uses the
+build JVM’s table. Apps that run on Android also need the alphabet supported
+from Android API 23. `proof/android/lookup_names/probe.py` records the complete
+range tables from Core on the JVM and on ART and checks the product tables.
+To regenerate a table, use the probe’s `.ranges` output for JDK 17 or API 23
+and format it with Biome. The reader can parse stored XML names for a precise
+refusal, but only a runtime parse is eligible to supply a saved expression.
 
 `formSyntax.ts` converts the Lezer tree into a finite syntax tree. It retains
 source spans for diagnostics, never as saved executable text. `expressionAst.ts`
@@ -35,6 +42,12 @@ type (`selectedCaseType`). A record type is `#<type>/<property>` or
 existing slot passes that slot's stored tree as `current`. An absolute path names a field of the form; the root alone,
 `/data`, names none, and the parser refuses it (`form-root`), since HQ's form
 builder shows it as an unknown question.
+
+A stored choice value may contain both XPath delimiters. Its projection joins
+quoted pieces with `concat`. Comparisons with a static select, membership tests
+and select starting answers bind a constant concatenation to choice identities
+only when the exact text names those choices. Other calculations keep their
+operands.
 
 A field, choice, worker property, text unit, lookup table or column is saved by
 identity. Case reads retain their case type and property; selected-record reads
@@ -101,8 +114,10 @@ keeps the read), the flat location list, and, where the source entry passes
 through a menu whose forms read the search, what the search found,
 `results:inline` (`lib/domain/entryDatumSupplies.ts`, `searchResults`). A Project table tag resolves
 through the authorized catalog into stable table and column identities;
-printing and emission derive its current name, the bare tag in a form and
-`item-list:<tag>` in a suite, and both spellings parse to the same read. A
+printing and emission derive the instance ID from the source. In a form an
+ordinary table uses its tag and a table sharing a runtime name uses
+`item-list:<tag>`. The suite uses the qualified name for all tables. An HQ
+form's own instance declaration binds its local ID to the fixture source. A
 loading catalog cannot establish that a table is missing.
 
 `formPathBinding.ts` types a `results:inline` row with no `@case_type` as the

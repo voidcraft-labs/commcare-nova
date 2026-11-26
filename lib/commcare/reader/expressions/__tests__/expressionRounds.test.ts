@@ -121,7 +121,9 @@ describe("a later round that changes a Hidden Value's type", () => {
 	const TABLE = "01890000-0000-7000-8000-000000000401" as LookupTableId;
 	const NAME = "01890000-0000-7000-8000-000000000402" as LookupColumnId;
 	const WHEN = "01890000-0000-7000-8000-000000000403" as LookupColumnId;
-	const ROWS = "instance('visits')/visits_list/visits";
+	// HQ's source names the fixture by its registered factory ID. Nova's
+	// next publish declares the bare tag for subsequent reads of its print.
+	const ROWS = "instance('item-list:visits')/visits_list/visits";
 	const env = readEnv({
 		lookup: new Map([
 			[

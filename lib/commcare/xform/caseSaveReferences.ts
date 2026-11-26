@@ -290,7 +290,7 @@ export function caseSaveReferences(
 				"caseSaveReferences found a <bind> with no nodeset. Every bind the XForm emitter constructs addresses its node through a FormPath; look at the emission site that built this bind.",
 			);
 		}
-		FormPath.parse(nodeset);
+		FormPath.parse(nodeset, data.name);
 	}
 	return caseSaveReferencesOf(model, data);
 }

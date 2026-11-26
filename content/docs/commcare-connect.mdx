@@ -1,21 +1,29 @@
 ---
 title: CommCare Connect
-description: Make a learn app or a deliver app for CommCare Connect, and keep the IDs Connect knows each part by.
+description: Design learning and delivery activities for CommCare Connect, try them in Preview, and keep their IDs when you publish.
 ---
 
-CommCare Connect pays frontline workers for training they finish and for
-visits they deliver. A Connect app in Nova is one of two kinds, chosen in
-**App settings → Connect**:
+CommCare Connect pays frontline workers for training and for work delivered
+through an opportunity. In **App settings → Connect**, you can turn on learning,
+delivery or both. Connect runs on Android. If your app runs only in Web Apps,
+choose **Android only** under **Where workers use this app** to check its forms
+and media first. You can choose a role before adding its first activity.
 
-- A **learn app** teaches. Each form that takes part holds a **learn module**,
-  its training content, or an **assessment**, a quiz whose score Connect
-  reads, or both.
-- A **deliver app** records the work. Each form that takes part holds a
-  **deliver unit**, a visit Connect can pay for, or a **task**, something a
-  worker is assigned and finishes with that form.
+In a form, **Connect activity** lets you place a learning module, assessment,
+delivery or assigned task beside the questions it belongs with. An activity
+does its work when the worker submits the form. The worker can answer a
+question to determine whether the activity applies. For example, a visit
+can record a delivery only when the worker says they reached the household.
 
-A form that holds none of these stays an ordinary form of the app. You set a
-form's part in its settings, or for every form at once in the Connect manager.
+- A **learning module** has a name, a description and estimated hours. Zero is a valid estimate.
+- An **assessment** takes its score from a form calculation. The submitted score must be a whole number.
+- A **delivery** has a name and can take its person or place ID, person or place name and work area ID from the form.
+- An **assigned task** identifies the task Connect should look up for the worker. Connect completes a matching open assignment once.
+
+After submitting in Preview, **View activities** shows the names, scores,
+delivery details and repeat rows the form submitted. CommCare Connect applies
+the opportunity's assignments, verification rules and payment settings when
+it receives a published form.
 
 Once the Connect version is installed on Android, every form a worker submits
 includes the device's location if CommCare has location permission and the
@@ -34,23 +42,45 @@ what else that choice decides.
 
 ### Turning off automatic location capture
 
-Turning off Connect in Nova leaves Auto Capture Location as it is in each app on
-CommCare HQ. To stop automatic capture on workers' devices:
+After Connect is turned off, **App settings → Request location for every form**
+controls the app. With that switch off, each form uses its own **Request location
+for this form** switch. Publish the app, then build and release its new version
+in CommCare HQ. Workers use the new settings when they install that version.
 
-1. Publish the app with Connect turned off. In the app's settings in CommCare
-   HQ, open **Advanced Settings → Android Settings** and turn off **Auto Capture
-   Location (all forms)**.
-2. If an individual form still has **Auto Capture Location** on, turn it off in
-   that form's **Settings → Advanced**.
-3. Build and release a new version in CommCare HQ. The change takes effect on
-   each worker's device when they install that version.
+## Activities in a repeated or conditional part of a form
 
-## Deliver units and tasks
+A form can record distinct learning modules together. Each module can occur
+once in a submission, and one assessment can supply a score. A group or row
+that the worker never reaches contributes no activity. If Connect reserves
+the ID of a group, section or repeat containing an activity, Nova points out
+where you can rename it.
 
-A task goes in a form of its own. CommCare Connect checks the delivery before it
-completes a task, so a form holding both a deliver unit and a task has its own
-visit turned away while the task is assigned. Nova offers a form's task only
-while that form holds no deliver unit, and the other way round.
+Each delivery of the same unit needs a distinct person or place ID in the
+submission. In a repeat where the worker adds each row, **Delivery with a person or place ID**
+adds a required question and links it to the delivery. Each ID can hold up to
+255 characters. If the worker enters the same ID twice, the form asks for a
+different ID before they can finish. You can rename the question and its link
+follows. For a brought-in form that calculates the same delivery ID for two
+rows, give the worker a distinct ID to enter for each person or place or record the
+deliveries in separate submissions.
+
+Two empty IDs also count as the same ID.
+
+A delivery can use the work area's case ID to record a visit there. If a worker
+needs to mark an area inaccessible, they can send the request through the
+opportunity's work-area process. When a form includes this request, CommCare HQ
+keeps the photo but sends Connect only its filename. Connect declines the whole
+submission, including any deliveries or learning activities in it.
+
+Connect processes deliveries before assigned tasks in the same submission.
+A worker can complete the task in its own form before submitting the delivery,
+or the form can offer mutually exclusive paths resulting in just one of them.
+
+## Activities and pages
+
+A Connect activity can sit before, between or after the pages of a form.
+It keeps its position in the submission without giving the worker an extra screen.
+To make an activity depend on a group or repeat, place it inside that group or repeat.
 
 ## Names and descriptions
 
@@ -63,12 +93,10 @@ before the bracket keeps it as text.
 
 ## IDs
 
-Each learn module, assessment, deliver unit and task has an ID that CommCare
-Connect knows it by. Nova picks one from the name. An ID you choose yourself
-starts with a letter, uses letters, digits, underscores and hyphens, and is 50
-characters or fewer. It also differs from every other Connect ID in the app
-and from the IDs of the form's top-level fields, since the block sits beside
-them in the form.
+Each activity has a question ID at its place in the form. That ID also names
+the activity in the submitted form. IDs start with a letter and can use
+letters, digits, underscores and hyphens. Learning module and task IDs have
+room for 50 characters. Delivery unit IDs have room for 100.
 
 CommCare Connect keeps its records under these IDs, so it helps to settle them
 before you publish. If you change a deliver unit's ID after that, Connect turns

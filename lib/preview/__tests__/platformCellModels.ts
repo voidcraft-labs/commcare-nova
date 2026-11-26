@@ -12,18 +12,29 @@ import { rowsMatchingFilterText } from "@/components/preview/shared/listFilter";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
 import {
+	ENDPOINT_MODULE,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
+import {
 	asMediaAssetId,
 	type CaseListOrderPlan,
 	type Column,
 	caseListOrderPlan,
 	columnSort,
 	hiddenSearchInputDef,
+	imageMapColumn,
 	linkColumn,
+	type ProseTemplate,
 	plainColumn,
 	proseText,
 	simpleSearchInputDef,
 	tileCell,
 } from "@/lib/domain";
+import {
+	FIXTURE_FORM,
+	FIXTURE_MODULE,
+	PLATFORM_FEATURE_FIXTURES,
+} from "@/lib/domain/__tests__/platformFeatureFixtures";
 import { literal, term } from "@/lib/domain/expression";
 import type { Platform } from "@/lib/domain/platforms";
 import { projectProseTemplate } from "@/lib/domain/prose";
@@ -36,6 +47,8 @@ import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
 import { previewRegisterAction } from "../caseListRegistration";
 import { caseListSortOptions, LIST_ORDER } from "../caseListSortMenu";
+import { caseListOwnWording } from "../caseListWording";
+import { projectCaseMap } from "../caseMap";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import { projectTileGrid } from "../caseTileLayout";
 import { planTileCell } from "../caseTileRendering";
@@ -50,6 +63,10 @@ import {
 	webAppsDevice,
 } from "../engine/__tests__/fixtures/previewDevices";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
+import {
+	caseListActionReturn,
+	selectionsAfterRegistrationReturn,
+} from "../engine/caseListRegisterAction";
 import { DataInstance } from "../engine/dataInstance";
 import { buildFieldTree } from "../engine/fieldTree";
 import { FormEngine } from "../engine/formEngine";
@@ -57,13 +74,24 @@ import {
 	type AfterSubmitFrameChoice,
 	evaluateAfterSubmit,
 } from "../engine/formLinkEvaluation";
+import { firstMenuSelections } from "../engine/frameLanding";
 import { previewSessionValues } from "../engine/identity";
+import { resolvePreviousTask } from "../engine/previousTask";
 import {
 	searchInputConstraintErrors,
 	searchInputRequiredMarks,
 } from "../engine/searchInputConstraints";
+import {
+	startingSearchRange,
+	webSearchRangeDraft,
+} from "../engine/searchRangeAnswer";
+import {
+	drawnSearchInputs,
+	searchInputAnswerKeys,
+} from "../engine/searchRunState";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
-import { drawnSearchInputs } from "../hooks/useSearchInputRunState";
+import { labelPresentation } from "../labelPresentation";
+import { shownMenuBadge } from "../menuProjection";
 import {
 	ANDROID_DEVICE_ID_PREFIX,
 	androidAppVersion,
@@ -71,6 +99,8 @@ import {
 	WEB_APPS_APPVERSION,
 	WEB_APPS_DEVICE_ID,
 } from "../platform";
+import { searchAfterClear } from "../searchStanding";
+import { automaticSubmissionEntry } from "../submitOffer";
 import { evaluateAsync } from "../xpath/asyncEvaluator";
 import {
 	coreDateAdd,
@@ -295,7 +325,202 @@ function searchFixture() {
 
 // ── The checks ────────────────────────────────────────────────────────
 
+function firstMenuPrevious(platform: Platform) {
+	const doc = PLATFORM_FEATURE_FIXTURES["first-menu-previous"].with();
+	const patient = row();
+	const task = resolvePreviousTask({
+		doc,
+		platform,
+		formUuid: FIXTURE_FORM,
+		submittedCaseIds: [patient.case_id],
+		selections: {},
+		caseDatabase: { rows: [patient], indices: [] },
+	});
+	expect(task.destination).toEqual({ kind: "home" });
+	return (
+		task.selections[FIXTURE_MODULE]?.cases.map((choice) => choice.caseId) ?? []
+	);
+}
+
+/** A deep link to a form listed on the first menu, choosing patient "b":
+ *  the menus whose entries read that same datum after Back to Home. */
+function firstMenuEntryPoint(platform: Platform) {
+	const doc = endpointWireFixture("first-menu");
+	const result = prepareEntryPointLaunch({
+		doc,
+		entryPointUuid: testUuid("endpoint-identity"),
+		expectedSeq: 4,
+		selections: [{ moduleUuid: ENDPOINT_MODULE, caseIds: ["b"] }],
+		database: {
+			rows: [{ ...row(), case_id: "b", case_name: "b" }],
+			indices: [] as CaseIndexRow[],
+		},
+		session: { context: { userid: "worker" }, user: {}, userPropertySlugs: {} },
+		lookup: { kind: "idle" as const },
+		notHeld: { rows: [] as CaseRow[], indices: [] as CaseIndexRow[] },
+		rules: previewPlatformRules(platform),
+	});
+	if (result.kind !== "ready") throw new Error(result.message);
+	return Object.fromEntries(
+		Object.entries(result.launch.firstMenuSelections ?? {}).map(
+			([moduleUuid, selection]) => [
+				moduleUuid,
+				selection.cases.map((choice) => choice.caseId),
+			],
+		),
+	);
+}
+
+const FIRST_MENU_ABOVE = testUuid("cell-model-first-menu-visits");
+const FIRST_MENU_HOST = testUuid("cell-model-first-menu-reviews");
+const FIRST_MENU_REGISTER = testUuid("cell-model-first-menu-register");
+
+/** Visits lists its patient follow-up on the first menu; Reviews, under it,
+ *  always offers another menu's registration and returns to the new case. */
+function firstMenuRegistrationDoc() {
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			...["Visits", "Reviews"].map((name) => ({
+				uuid: `cell-model-first-menu-${name.toLowerCase()}`,
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: name === "Visits" ? "Visit" : "Review",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			})),
+			{
+				uuid: "cell-model-first-menu-registration",
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "cell-model-first-menu-register",
+						name: "Register patient",
+						type: "registration" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[FIRST_MENU_ABOVE].formsInMenuAbove = true;
+	doc.modules[FIRST_MENU_HOST].parentModuleUuid = FIRST_MENU_ABOVE;
+	doc.modules[FIRST_MENU_HOST].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: FIRST_MENU_REGISTER,
+		afterSubmit: "new-case",
+	};
+	assertAdmittedPreviewDoc(doc);
+	return doc;
+}
+
+/** Register from Reviews' list, then Back to Home: the first-menu choice the
+ *  return frame leaves for the next command that reads it. */
+function firstMenuRegistration(platform: Platform) {
+	const doc = firstMenuRegistrationDoc();
+	const landing = caseListActionReturn(
+		doc,
+		FIRST_MENU_REGISTER,
+		{ hostModuleUuid: FIRST_MENU_HOST },
+		"registered",
+	);
+	if (!landing) throw new Error("Register returns to the new case.");
+	const next = selectionsAfterRegistrationReturn(
+		{},
+		landing,
+		FIRST_MENU_HOST,
+		"patient",
+		{ caseId: "registered", caseName: "Asha" },
+	);
+	expect(next[FIRST_MENU_HOST]?.cases[0]?.caseId).toBe("registered");
+	const home = firstMenuSelections(
+		landing.firstMenuCases,
+		next,
+		previewPlatformRules(platform),
+	);
+	return home?.[FIRST_MENU_ABOVE]?.cases.map((choice) => choice.caseId) ?? [];
+}
+
 export const PLATFORM_MODEL_CHECKS = {
+	/* A deep link through a first menu that shares one case: Web Apps
+	 * opens Home fresh; Android keeps the case for both menus that read it. */
+	"first-menu-entry-point-web-apps": () => {
+		expect(firstMenuEntryPoint("web-apps")).toEqual({});
+	},
+	"first-menu-entry-point-android": () => {
+		expect(firstMenuEntryPoint("android")).toEqual({
+			[ENDPOINT_MODULE]: ["b"],
+			[testUuid("endpoint-second-patient-menu")]: ["b"],
+		});
+	},
+	/* Register's return through that first menu carries the new case to its
+	 * list on both; only Android keeps it on Home after Back. */
+	"first-menu-registration-web-apps": () => {
+		expect(firstMenuRegistration("web-apps")).toEqual([]);
+	},
+	"first-menu-registration-android": () => {
+		expect(firstMenuRegistration("android")).toEqual(["registered"]);
+	},
+	"first-menu-previous-web-apps": () => {
+		expect(firstMenuPrevious("web-apps")).toEqual([]);
+	},
+	"first-menu-previous-android": () => {
+		expect(firstMenuPrevious("android")).toEqual([row().case_id]);
+	},
+
+	"desktop-search-on-clear": () => {
+		expect(searchAfterClear(true, WEB_APPS, 991)).toBe(false);
+		expect(searchAfterClear(true, WEB_APPS, 992)).toBe(true);
+		expect(searchAfterClear(false, WEB_APPS, 992)).toBe(false);
+		expect(searchAfterClear(true, ANDROID, 1280)).toBe(false);
+	},
+	/* Formplayer reads the presence pragmas, Android none: a Web Apps form
+	 * holding automatic submission submits once per entry when its submit is
+	 * offered, and an Android one waits for the worker. */
+	"presence-pragmas-on-web-apps-only": () => {
+		const opening = {
+			active: true,
+			enabled: true,
+			offered: "offered" as const,
+			entry: "second-visit",
+			attempted: undefined,
+		};
+		const web = {
+			...opening,
+			platformAllows: previewPlatformRules("web-apps").webAppsFormPragmas,
+		};
+		expect(automaticSubmissionEntry(web)).toBe("second-visit");
+		expect(
+			automaticSubmissionEntry({ ...web, attempted: "second-visit" }),
+		).toBeUndefined();
+		expect(
+			automaticSubmissionEntry({ ...web, offered: "waiting" }),
+		).toBeUndefined();
+		expect(automaticSubmissionEntry({ ...web, active: false })).toBeUndefined();
+		expect(
+			automaticSubmissionEntry({
+				...opening,
+				platformAllows: previewPlatformRules("android").webAppsFormPragmas,
+			}),
+		).toBeUndefined();
+	},
 	/* A calculate over the clock and a condition over it re-evaluate after
 	 * an unrelated answer on Web Apps; a starting value does not; on Android
 	 * neither moves. */
@@ -348,6 +573,71 @@ export const PLATFORM_MODEL_CHECKS = {
 		} finally {
 			vi.useRealTimers();
 		}
+	},
+
+	/* A row's starting value beside a calculation that reads a value the
+	 * row's insertion set first: a later starting value in the row reads it,
+	 * and the row keeps it on Android, while Web Apps works the calculation
+	 * out again on the next answer, so the starting value never reaches the
+	 * form Web Apps sends. Both platforms take the calculation once what it
+	 * reads changes. */
+	"row-starting-value": () => {
+		const run = (platform: Platform) => {
+			const engine = new FormEngine(
+				engineFixtureInput(
+					[
+						{ id: "unrelated", kind: "text" },
+						{
+							id: "rows",
+							kind: "repeat",
+							repeat_mode: "user_controlled",
+							children: [
+								{ id: "note", kind: "text", default_value: "'a'" },
+								{
+									id: "value",
+									kind: "hidden",
+									default_value: "'D'",
+									calculate: "concat(../note, '!')",
+								},
+								{ id: "seen", kind: "text", default_value: "../value" },
+							],
+						},
+					],
+					{ formUuid: testUuid("cell-model-row-value"), formType: "survey" },
+				),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					device: platform === "web-apps" ? webAppsDevice() : androidDevice(),
+				},
+			);
+			engine.addRepeat("/data/rows");
+			const inserted = {
+				value: engine.getState("/data/rows[0]/value").value,
+				seen: engine.getState("/data/rows[0]/seen").value,
+			};
+			engine.setValue("/data/unrelated", "u");
+			const afterUnrelated = engine.getState("/data/rows[0]/value").value;
+			engine.setValue("/data/rows[0]/note", "ab");
+			return {
+				inserted,
+				afterUnrelated,
+				afterRead: engine.getState("/data/rows[0]/value").value,
+			};
+		};
+		expect(run("web-apps")).toEqual({
+			inserted: { value: "D", seen: "D" },
+			afterUnrelated: "a!",
+			afterRead: "ab!",
+		});
+		expect(run("android")).toEqual({
+			inserted: { value: "D", seen: "D" },
+			afterUnrelated: "D",
+			afterRead: "ab!",
+		});
 	},
 
 	/* Formplayer's day numbers count from UTC's midnight: the calendar day
@@ -470,6 +760,93 @@ export const PLATFORM_MODEL_CHECKS = {
 		});
 	},
 
+	/* A label's QR code takes the image's place on Android and shows nowhere
+	 * in Web Apps, and an inline video takes the place of both; its spoken text's speaker button shows on Android where the
+	 * label has no audio, and nowhere in Web Apps. */
+	"label-texts": () => {
+		const image = asMediaAssetId(testUuid("platform-cells-label-image"));
+		const card = {
+			uuid: testUuid("platform-cells-label-card"),
+			id: "card",
+			kind: "label",
+			label: proseText("Show the card"),
+			qr_code: proseText("ID-17"),
+			spoken_text: proseText("Show the card"),
+			label_media: { image },
+		} as const;
+		const project = (template: ProseTemplate) =>
+			template.parts
+				.map((part) => (part.kind === "text" ? part.text : ""))
+				.join("");
+		const shown = (platform: Platform) =>
+			labelPresentation(
+				card,
+				false,
+				previewPlatformRules(platform),
+				{},
+				project,
+			);
+		expect(shown("web-apps")).toMatchObject({
+			qrCode: undefined,
+			speech: undefined,
+			media: { image },
+		});
+		expect(shown("android")).toMatchObject({
+			qrCode: "ID-17",
+			speech: "Show the card",
+			media: { image: undefined },
+		});
+		/* An inline video plays on Android in the place of the QR code and the
+		 * image alike, and shows nowhere in Web Apps. */
+		const video = asMediaAssetId(testUuid("platform-cells-label-video"));
+		const film = { ...card, label_media: { image, videoInline: video } };
+		const played = (platform: Platform) =>
+			labelPresentation(
+				film,
+				false,
+				previewPlatformRules(platform),
+				{},
+				project,
+			);
+		expect(played("web-apps")).toMatchObject({
+			qrCode: undefined,
+			media: { image, videoInline: undefined },
+		});
+		expect(played("android")).toMatchObject({
+			qrCode: undefined,
+			media: { image: undefined, videoInline: video },
+		});
+	},
+
+	/* A menu or form badge: Web Apps shows the evaluated text whole; Android
+	 * hides an empty or exactly "0" badge and shortens a longer one, "999+"
+	 * where a Java int reads it, else its first three units and "..". */
+	"menu-badge-android": () => {
+		const values = [
+			"",
+			"0",
+			"New",
+			"0000",
+			"1234",
+			"-2147483648",
+			"2147483648",
+			"Équipe",
+		];
+		expect(values.map((text) => shownMenuBadge(text, "web-apps"))).toEqual(
+			values,
+		);
+		expect(values.map((text) => shownMenuBadge(text, "android"))).toEqual([
+			"",
+			"",
+			"New",
+			"999+",
+			"999+",
+			"999+",
+			"214..",
+			"Équ..",
+		]);
+	},
+
 	"tiles-flat-android": () => {
 		const projection = projectTileGrid([
 			plainColumn(NAME, "case_name", "Name", { tile: tileCell(0, 0, 2, 1) }),
@@ -539,6 +916,8 @@ export const PLATFORM_MODEL_CHECKS = {
 				],
 				carriers: [],
 				authored: [],
+				introductionOrders: [],
+				calculations: [],
 			}),
 		).toBe(true);
 	},
@@ -596,7 +975,94 @@ export const PLATFORM_MODEL_CHECKS = {
 		);
 	},
 
+	/* A case list's own empty text and Continue label: Web Apps draws both,
+	 * the label on its several-case Continue only; Android keeps its own. */
+	"case-list-own-wording": (platform) => {
+		const wording = caseListOwnWording(previewPlatformRules(platform), {
+			emptyText: "No patients yet",
+			selectButtonText: "Visit these patients",
+		});
+		expect(wording).toEqual(
+			platform === "android"
+				? {}
+				: {
+						emptyText: "No patients yet",
+						continueText: "Visit these patients",
+					},
+		);
+	},
+
+	/* An image rule's description is what Web Apps reads for its picture;
+	 * Android shows the picture alone. */
+	"case-image-description-android": (platform) => {
+		const column = imageMapColumn(LINK, "priority", "Priority", [
+			{
+				value: "urgent",
+				assetId: asMediaAssetId(testUuid("cell-model-urgent")),
+				altText: "Urgent case",
+			},
+		]);
+		const shown = projectColumnDisplay(column, row({ priority: "urgent" }), {
+			...DISPLAY,
+			readsCaseImageDescriptions:
+				previewPlatformRules(platform).readsCaseImageDescriptions,
+		});
+		expect(shown.kind).toBe("image");
+		expect("altText" in shown ? shown.altText : undefined).toBe(
+			platform === "android" ? undefined : "Urgent case",
+		);
+	},
+
+	/* Android marks a case at its first location that holds one; Web Apps
+	 * reads the first location alone. */
+	"case-map-fallback-android": (platform) => {
+		const home = testUuid("cell-model-home");
+		const clinic = testUuid("cell-model-clinic");
+		const values = new Map([
+			[home, ""],
+			[clinic, "12.5 3.25"],
+		]);
+		const geometry = projectCaseMap(
+			platform,
+			{ locations: [home, clinic], layers: {} },
+			(id) => values.get(id) ?? "",
+		);
+		expect(geometry.location).toEqual(
+			platform === "android" ? { lat: 12.5, lng: 3.25 } : undefined,
+		);
+	},
+
 	/* Android searches whatever the answers: no checks, no required marks. */
+	"starting-dates-android": () => {
+		expect(
+			startingSearchRange(
+				"2024-03-10 to 2024-03-11",
+				"device-zone",
+				"America/New_York",
+			),
+		).toEqual({ kind: "pair", from: "2024-03-09", to: "2024-03-10" });
+		expect(
+			startingSearchRange("unfinished", "device-zone", "America/New_York"),
+		).toEqual({ kind: "unparsed", text: "unfinished" });
+	},
+	"starting-dates-web-apps": () => {
+		const range = simpleSearchInputDef(
+			testUuid("platform-range"),
+			"dates",
+			"Dates",
+			"date-range",
+			"dob",
+		);
+		expect(startingSearchRange("2024-03-10 to 2024-03-11", "utc")).toEqual({
+			kind: "pair",
+			from: "2024-03-10",
+			to: "2024-03-11",
+		});
+		expect(
+			webSearchRangeDraft([range], new Map([["dates:starting", "unfinished"]]))
+				.unavailable?.inputUuid,
+		).toBe(range.uuid);
+	},
 	"search-field-checks-android": () => {
 		const { inputs, session, environment } = searchFixture();
 		expect(
@@ -623,8 +1089,69 @@ export const PLATFORM_MODEL_CHECKS = {
 		).toBe(1);
 	},
 
-	/* Android draws a hidden Search field with a starting value as an
-	 * ordinary field. */
+	"search-headings-android": () => {
+		const first = {
+			...simpleSearchInputDef(
+				testUuid("heading-area"),
+				"area",
+				"Area",
+				"text",
+				"area",
+			),
+			group: testUuid("search-heading-location"),
+		};
+		const second = {
+			...simpleSearchInputDef(
+				testUuid("heading-identifier"),
+				"identifier",
+				"Identifier",
+				"text",
+				"identifier",
+			),
+			group: testUuid("search-heading-identification"),
+		};
+		expect(ANDROID.searchFieldGroups).toBe(false);
+		expect(drawnSearchInputs([first, second], ANDROID)).toEqual([
+			first,
+			second,
+		]);
+		expect(WEB_APPS.searchFieldGroups).toBe(true);
+	},
+
+	/* Android reads no `hidden`: it draws a hidden value, with or without a
+	 * starting value, and a field Web Apps does not draw, as ordinary fields;
+	 * Web Apps draws none of them (`SearchInputForm` reads the same rule). */
+	"search-address-picker-android": () => {
+		const source = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("address-source"),
+			name: "source",
+			label: "Address",
+		} as const;
+		const receiver = {
+			...simpleSearchInputDef(
+				testUuid("address-receiver"),
+				"city",
+				"City",
+				"text",
+				"city",
+			),
+			addressReceiver: {
+				kind: "address",
+				source: source.uuid,
+				parts: ["city"] as "city"[],
+			},
+		} as const;
+		expect(drawnSearchInputs([source, receiver], ANDROID)).toEqual([receiver]);
+		expect(drawnSearchInputs([source, receiver], WEB_APPS)).toEqual([
+			source,
+			receiver,
+		]);
+		expect(searchInputAnswerKeys([source, receiver])).toEqual(
+			new Set(["city"]),
+		);
+	},
 	"hidden-search-field-android": () => {
 		const hidden = hiddenSearchInputDef(
 			testUuid("cell-model-hidden"),
@@ -632,8 +1159,37 @@ export const PLATFORM_MODEL_CHECKS = {
 			"District",
 			term(literal("north")),
 		);
-		expect(drawnSearchInputs([hidden], ANDROID)).toEqual([hidden]);
-		expect(drawnSearchInputs([hidden], WEB_APPS)).toEqual([]);
+		const empty = hiddenSearchInputDef(
+			testUuid("cell-model-hidden-empty"),
+			"zone",
+			"Zone",
+			undefined,
+		);
+		const field = simpleSearchInputDef(
+			testUuid("cell-model-hidden-field"),
+			"region",
+			"Region",
+			"text",
+			"region",
+			{ hidden: true, default: term(literal("north")) },
+		);
+		expect(drawnSearchInputs([hidden, empty, field], ANDROID)).toEqual([
+			hidden,
+			empty,
+			field,
+		]);
+		expect(drawnSearchInputs([hidden, empty, field], WEB_APPS)).toEqual([]);
+		expect(ANDROID.hiddenSearchField).toBe("editable");
+		expect(WEB_APPS.hiddenSearchField).toBe("hidden");
+	},
+
+	/* Android reads no `allow_blank_value`: its Search screen draws the field
+	 * alone, so no blank is ever ticked or sent; Web Apps draws the box
+	 * (`SearchInputForm`'s row reads this rule; the browser witness is
+	 * `preview-search-audit.spec.ts`). */
+	"search-for-blank-android": () => {
+		expect(ANDROID.searchForBlank).toBe(false);
+		expect(WEB_APPS.searchForBlank).toBe(true);
 	},
 
 	/* A search that found nothing keeps the search screen on Android, and a

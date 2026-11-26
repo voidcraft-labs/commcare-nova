@@ -16,6 +16,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import { useState } from "react";
 import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
+import { requiresLookupProjection } from "@/lib/lookup/source";
 import { MANAGED_TABLE_BADGE } from "@/lib/publish/managedData";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useProjectCanEdit } from "@/lib/session/hooks";
@@ -27,6 +28,7 @@ import {
 	formatLookupCount,
 	type RetainedRowRecovery,
 } from "./projectDataModel";
+import { WorkerGroups } from "./WorkerGroups";
 
 export function ProjectDataTableListScreen() {
 	const workspace = useProjectDataWorkspace();
@@ -48,8 +50,8 @@ export function ProjectDataTableListScreen() {
 			<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
 				A data table holds a list you reuse across forms: facilities, districts,
 				products, anything a question should offer as choices instead of asking
-				someone to type. Point a question at a column here and everyone
-				answering that question sees the same list.
+				someone to type. You can share a table with every worker or choose which
+				rows each worker receives.
 			</p>
 
 			{canEdit && (
@@ -64,6 +66,7 @@ export function ProjectDataTableListScreen() {
 				</Button>
 			)}
 
+			{canEdit && <WorkerGroups />}
 			{creating && (
 				<CreateTableDialog
 					open
@@ -177,8 +180,16 @@ export function ProjectDataTableListScreen() {
 									</span>
 									<span className="min-w-0 whitespace-normal text-[12px] leading-snug text-nova-text-secondary [overflow-wrap:anywhere]">
 										{formatLookupCount(table.columnCount, "column")} ·{" "}
-										{formatLookupCount(table.rowCount, "row")} ·{" "}
-										{formatLookupBytes(table.dataBytes)}
+										{table.rowCount === null ||
+										table.dataBytes === null ||
+										requiresLookupProjection(table.hq) ? (
+											"Source inventory in CommCare HQ"
+										) : (
+											<>
+												{formatLookupCount(table.rowCount, "row")} ·{" "}
+												{formatLookupBytes(table.dataBytes)}
+											</>
+										)}
 									</span>
 									<span className="min-w-0 text-[12px] leading-snug text-nova-text-muted [overflow-wrap:anywhere]">
 										Export tag: <code className="font-mono">{table.tag}</code>

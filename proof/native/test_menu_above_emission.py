@@ -2,7 +2,8 @@
 
 Contract: for each document of the ``menu-screens`` family but its three controls, every ``<menu>``, every
 ``<entry>/<stack>`` and every ``<endpoint>`` HQ's suite contributors build from Nova's HQ import body equal the
-ones Nova's local suite writes, compared whole (every attribute, leaf text and child, in order), with known
+ones Nova's local suite writes, compared whole (every attribute, leaf text and child, in order, but a menu's
+instance declarations, whose order HQ takes from a set: ``_menu_instances_by_id``), with known
 XPath carriers compared as HQ's parser's complete expression trees. ``MenuScreensRuntimeTest`` then runs the
 menus and frames on both suites in Core. The plausible failures: a menu id, a ``root`` attribute, a locale id,
 a conjoined condition or a frame child Nova writes differently from HQ's build (``id_strings.py::menu_id``,
@@ -17,10 +18,16 @@ from proof.native.hq_support import hq_commit, parse_xml_xpaths, sha256, shape, 
 FAMILIES = ("menu-screens",)
 
 DOCUMENTS = (
+    "first-menu-previous",
+    "first-menu-link",
+    "first-menu-static",
+    "first-menu-registration",
     "forms-in-menu-above",
     "forms-in-menu-above-nested",
     "forms-in-menu-above-one-case",
     "forms-in-menu-above-registration-only",
+    "case-list-action-roles-basic",
+    "case-list-action-roles-advanced",
     "register-from-case-list",
     "register-from-case-list-web-apps",
     "register-from-case-list-other-returns",
@@ -29,17 +36,46 @@ DOCUMENTS = (
     "worker-place-forms",
     "worker-place-menus",
     "menu-landings",
+    "menu-badge-readings",
+    "worker-record-menu-readings",
     "pinned-tile",
+    "listed-source-forms",
 )
 CONTROLS = ("step-back-control", "two-registrations-control", "undeclared-worker-field-control")
 SELECTORS = ("menu", "entry/stack", "endpoint")
+
+
+def _menu_instances_by_id(root):
+    """Each ``<menu>``'s ``<instance>`` declarations in id order, in place.
+
+    HQ appends a menu's instances by iterating a ``set``
+    (``post_process/instances.py::InstancesHelper._add_menu_instances`` over
+    ``get_all_instances_referenced_in_xpaths``; ``Instance.__hash__`` hashes
+    its ``src`` and ``id``), so their order follows the process's string hash
+    seed, which the proof fixes and HQ's build does not choose. Core reads
+    a menu's instances into a table by id (``MenuParser.parse``), so the order
+    carries nothing; everything else of the menu is compared in order.
+    """
+    for menu in root.findall("menu"):
+        instances = menu.findall("instance")
+        for instance in instances:
+            menu.remove(instance)
+        menu.extend(sorted(instances, key=lambda instance: instance.get("id")))
+    return root
 
 
 def test_hq_menus_frames_and_endpoints_equal_novas(native):
     records = native.step("menu-screens")
     assert sorted(record["scenario"] for record in records) == sorted(DOCUMENTS + CONTROLS)
     compared = [record for record in records if record["scenario"] in DOCUMENTS]
-    suites = [(record, etree.fromstring(record["local"]), etree.fromstring(record["native"])) for record in compared]
+    suites = [
+        (
+            record,
+            _menu_instances_by_id(etree.fromstring(record["local"])),
+            _menu_instances_by_id(etree.fromstring(record["native"])),
+        )
+        for record in compared
+    ]
     parsed = parse_xml_xpaths(
         *(
             element
@@ -51,9 +87,13 @@ def test_hq_menus_frames_and_endpoints_equal_novas(native):
     )
     for record, local, native_suite in suites:
         for selector in SELECTORS:
-            assert [shape(e, parsed) for e in local.findall(selector)] == [
-                shape(e, parsed) for e in native_suite.findall(selector)
-            ], (record["scenario"], selector)
+            local_shapes = [shape(e, parsed) for e in local.findall(selector)]
+            hq_shapes = [shape(e, parsed) for e in native_suite.findall(selector)]
+            if local_shapes != hq_shapes:
+                # Both are printed whole, since pytest cuts a long comparison short.
+                print(record["scenario"], selector, "local", repr(local_shapes))
+                print(record["scenario"], selector, "hq", repr(hq_shapes))
+            assert local_shapes == hq_shapes, (record["scenario"], selector)
         # Every document of the family is one HQ's build admits: no case list offers a form HQ refuses.
         assert record["caseListFormErrors"] == [], record["scenario"]
     write_evidence(
@@ -71,3 +111,31 @@ def test_hq_menus_frames_and_endpoints_equal_novas(native):
             "session endpoints on. No whole HQ build or resource installation.",
         },
     )
+
+def test_source_menu_entries_open_one_form_using_the_detail_of_each_route(native):
+    records = native.step("menu-screens")
+    record = next(row for row in records if row["scenario"] == "listed-source-forms")
+    for artifact in ("local", "native"):
+        suite = etree.fromstring(record[artifact])
+        entries = {entry.find("command").get("id"): entry for entry in suite.findall("entry") if entry.find("form") is not None}
+        assert set(entries) == {"m0-f1", "m1-f0", "m1-f1"}, artifact
+        sources = [entries[command].findtext("form") for command in ("m0-f1", "m1-f1")]
+        assert sources[0] == sources[1] and sources[0] != entries["m1-f0"].findtext("form"), artifact
+        for command, detail in (("m0-f1", "m0_case_short"), ("m1-f1", "m1_case_short")):
+            entry = entries[command]
+            assert entry.find("command/text/locale").get("id") == "forms.m1f1", artifact
+            assert entry.find("session/datum[@id='case_id']").get("detail-select") == detail, artifact
+        endpoints = {endpoint.get("id"): endpoint for endpoint in suite.findall("endpoint")}
+        for link, command in (("clinic-visit", "m0-f1"), ("visit", "m1-f1")):
+            assert command in [el.get("value").strip("'") for el in endpoints[link].findall(".//command")], (artifact,link)
+
+
+def test_hq_and_local_menu_and_command_badges(native):
+    record = next(record for record in native.step("menu-screens") if record["scenario"] == "menu-badge-readings")
+    local, hq = (etree.fromstring(record[key]) for key in ("local", "native"))
+    for carrier in ("menu", "entry/command"):
+        path = f'{carrier}/display/text[@form="badge"]'
+        actual, expected = local.findall(path), hq.findall(path)
+        assert len(expected) == 2, carrier
+        parsed = parse_xml_xpaths(*actual, *expected)
+        assert [shape(node, parsed) for node in actual] == [shape(node, parsed) for node in expected], carrier

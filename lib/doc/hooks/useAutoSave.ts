@@ -97,7 +97,7 @@ export function projectSaveSlice(
 		formOrder: s.formOrder,
 		fieldOrder: s.fieldOrder,
 		appName: s.appName,
-		connectType: s.connectType,
+		connectRoles: s.connectRoles,
 		caseTypes: s.caseTypes,
 		localization: s.localization,
 		appSettings: s.appSettings,

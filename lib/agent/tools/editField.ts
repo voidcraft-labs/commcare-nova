@@ -202,14 +202,48 @@ function editPatchToFieldPatch(
 	// projected options source is the one exception, supplied separately after
 	// its identity bridge.
 	const scalarKeys = [
+		"activity",
 		"id",
 		"label",
+		"extended_text",
+		"extended_hint",
+		"extended_help",
+		"extended_validate_msg",
+		"qr_code",
+		"spoken_text",
 		"hint",
 		"help",
+		"addFirstLabel",
+		"addLabel",
 		"required",
 		"relevant",
 		"calculate",
+		"answerNamespace",
+		"lockedInHq",
 		"default_value",
+		"inputWidth",
+		"addressLookup",
+		"sendTopics",
+		"receiveFrom",
+		"hintPlacement",
+		"scanOnOpen",
+		"canEditScan",
+		"calendar",
+		"clock",
+		"locationPicker",
+		"captureSource",
+		"overlaySize",
+		"recorder",
+		"pauseRecording",
+		"selectableText",
+		"banner",
+		"compact",
+		"collapse",
+		"border",
+		"itemsPerRow",
+		"repeatsPerRow",
+		"textAlignment",
+		"webSignature",
 	] as const;
 	for (const key of scalarKeys) {
 		const value = updates[key];
@@ -228,12 +262,21 @@ function editPatchToFieldPatch(
 	// `plainHelp`, false or null clears it (the domain stores only `true`).
 	if (updates.field_list !== undefined)
 		patch.fieldList = updates.field_list === true ? true : null;
+	if (updates.askForConfirmation !== undefined)
+		patch.askForConfirmation =
+			updates.askForConfirmation === true ? true : null;
 	if (updates.plain_label !== undefined)
 		patch.plainLabel = updates.plain_label === true ? true : null;
 	if (updates.plain_help !== undefined)
 		patch.plainHelp = updates.plain_help === true ? true : null;
 	// The keypad is stored under its own name; null returns the full keyboard.
 	if (updates.keypad !== undefined) patch.keypad = updates.keypad;
+	if (updates.choiceLayout !== undefined)
+		patch.choiceLayout = updates.choiceLayout;
+	if (updates.answerType !== undefined) patch.answerType = updates.answerType;
+	if (updates.maxDimension !== undefined)
+		patch.maxDimension = updates.maxDimension;
+	if (updates.androidApp !== undefined) patch.androidApp = updates.androidApp;
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).
@@ -255,8 +298,10 @@ function editPatchToFieldPatch(
 	if (repeat != null) {
 		patch.repeat_mode = repeat.mode;
 		if (repeat.mode === "count_bound") patch.repeat_count = repeat.count;
-		if (repeat.mode === "query_bound")
+		if (repeat.mode === "query_bound") {
 			patch.data_source = { ids_query: repeat.ids_query };
+			if (repeat.when !== undefined) patch.rowTiming = repeat.when;
+		}
 	}
 	return patch as FieldPatchFor<FieldKind>;
 }
@@ -660,39 +705,6 @@ export const editFieldTool = {
 						id: newId,
 					}),
 			};
-			// A hidden field carries at most ONE value source: Nova doesn't yet
-			// write a Hidden Value's default beside its calculate
-			// (`HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). The schema
-			// refuses both in one call; this is the cross-call case, where the
-			// field already holds one slot and the patch sets the other without
-			// mentioning it. Clear the held slot in the SAME patch (one gate
-			// evaluation, one undo entry) and say so in the result. A patch
-			// that names the other slot itself (`Object.hasOwn`, null included)
-			// already states its intent and is left alone. This is also what
-			// keeps a same-call text-to-hidden conversion plus `calculate` from
-			// landing both: the conversion carries the source's `default_value`
-			// across, and `currentField` is the post-convert field.
-			let valueSourceSwap:
-				| { readonly set: "calculate"; readonly cleared: "default_value" }
-				| { readonly set: "default_value"; readonly cleared: "calculate" }
-				| undefined;
-			if (currentField.kind === "hidden") {
-				if (
-					propertyUpdates.calculate != null &&
-					!Object.hasOwn(propertyUpdates, "default_value") &&
-					currentField.default_value !== undefined
-				) {
-					propertyUpdates.default_value = null;
-					valueSourceSwap = { set: "calculate", cleared: "default_value" };
-				} else if (
-					propertyUpdates.default_value != null &&
-					!Object.hasOwn(propertyUpdates, "calculate") &&
-					currentField.calculate !== undefined
-				) {
-					propertyUpdates.calculate = null;
-					valueSourceSwap = { set: "default_value", cleared: "calculate" };
-				}
-			}
 			if (Object.keys(propertyUpdates).length > 0) {
 				const patch = editPatchToFieldPatch(
 					propertyUpdates,
@@ -775,7 +787,6 @@ export const editFieldTool = {
 					...(preservation.preservedChoiceCount > 0 && {
 						preservedChoiceCount: preservation.preservedChoiceCount,
 					}),
-					...(valueSourceSwap && { valueSource: valueSourceSwap }),
 					...(note !== undefined && { note }),
 					...(writeNotes.length > 0 && { notes: writeNotes }),
 					...(preparedOptionsSource?.kind === "inline" && {

@@ -52,6 +52,10 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.managedTableBannerRefreshed("November 3, 2026")],
 	},
+	LOOKUP_DISCARD_NOTE: {
+		kind: "sentence",
+		texts: [copy.LOOKUP_DISCARD_NOTE],
+	},
 	REFRESH_FROM_HQ: { kind: "label", texts: [copy.REFRESH_FROM_HQ] },
 	OPEN_IN_HQ: { kind: "label", texts: [copy.OPEN_IN_HQ] },
 	MANAGE_IN_NOVA: { kind: "label", texts: [copy.MANAGE_IN_NOVA] },
@@ -78,15 +82,21 @@ const READINGS: Record<
 			copy.managedTableUnsupported(copy.holdsColumnNamed("2nd name")),
 		],
 	},
-	managedTableOverCap: {
+	managedTablePastInlineRead: {
 		kind: "sentence",
-		texts: [
-			copy.managedTableOverCap(["6,000 rows (Nova takes 5,000)"]),
-			copy.managedTableOverCap([
-				"6,000 rows (Nova takes 5,000)",
-				"300 columns (Nova takes 250)",
-			]),
-		],
+		texts: [copy.managedTablePastInlineRead],
+	},
+	managedTakeOverPastInlineRead: {
+		kind: "sentence",
+		texts: [copy.managedTakeOverPastInlineRead],
+	},
+	managedHandBackPastInlineRead: {
+		kind: "sentence",
+		texts: [copy.managedHandBackPastInlineRead],
+	},
+	useHqTablePastInlineRead: {
+		kind: "sentence",
+		texts: [copy.useHqTablePastInlineRead],
 	},
 	managedLookupTableRefusal: {
 		kind: "sentence",
@@ -258,9 +268,9 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.MANAGED_PLACES_REFRESHED_SINCE],
 	},
-	managedPlacesOverLimit: {
+	managedPlacesPastInventory: {
 		kind: "sentence",
-		texts: [copy.managedPlacesOverLimit("acme-health", 12400)],
+		texts: [copy.managedPlacesPastInventory("acme-health", 100_000)],
 	},
 	cannotReadManagedPlaces: {
 		kind: "sentence",
@@ -466,17 +476,9 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.managedTableManyValuesItem("districts")],
 	},
-	managedTableOverCapItem: {
+	managedTablePastInlineItem: {
 		kind: "sentence",
-		texts: [
-			copy.managedTableOverCapItem("districts", [
-				"6,000 rows (Nova takes 5,000)",
-			]),
-			copy.managedTableOverCapItem("districts", [
-				"6,000 rows (Nova takes 5,000)",
-				"9 MB of rows (Nova takes 8 MB in one table)",
-			]),
-		],
+		texts: [copy.managedTablePastInlineItem("districts")],
 	},
 	MANAGED_TABLE_NO_COLUMNS: {
 		kind: "sentence",
@@ -519,6 +521,110 @@ const READINGS: Record<
 		],
 	},
 	HAND_BACK_OFFERED: { kind: "sentence", texts: [copy.HAND_BACK_OFFERED] },
+	USE_HQ_TABLE: { kind: "label", texts: [copy.USE_HQ_TABLE] },
+	USE_HQ_TABLE_CHOOSE: { kind: "sentence", texts: [copy.USE_HQ_TABLE_CHOOSE] },
+	takeHqTableTitle: {
+		kind: "label",
+		texts: [copy.takeHqTableTitle("Districts", "acme-health")],
+	},
+	takeHqTableBody: {
+		kind: "sentence",
+		texts: [copy.takeHqTableBody("acme-health")],
+	},
+	takeHqTableChanges: {
+		kind: "sentence",
+		texts: [
+			...copy.takeHqTableChanges({
+				domain: "acme-health",
+				rowsBefore: 2,
+				rowsAfter: 1,
+				addedColumns: ["region"],
+				removedColumns: ["Notes"],
+				keptColumns: ["Zone"],
+				typedColumns: ["Population"],
+				assignmentsRemoved: true,
+				assignedInHq: false,
+				otherDomains: ["acme-west"],
+			}),
+			...copy.takeHqTableChanges({
+				domain: "acme-health",
+				rowsBefore: 1,
+				rowsAfter: 3,
+				addedColumns: ["region", "zone"],
+				removedColumns: ["Notes", "Code"],
+				keptColumns: ["Zone", "Ward"],
+				typedColumns: [],
+				assignmentsRemoved: false,
+				assignedInHq: true,
+				otherDomains: ["acme-west", "acme-east"],
+			}),
+		],
+	},
+	USE_HQ_TABLE_CONFIRM: { kind: "label", texts: [copy.USE_HQ_TABLE_CONFIRM] },
+	KEEP_NOVA_TABLE: { kind: "label", texts: [copy.KEEP_NOVA_TABLE] },
+	USE_HQ_TABLE_OFFERED: {
+		kind: "sentence",
+		texts: [copy.USE_HQ_TABLE_OFFERED],
+	},
+	TABLE_HAS_HQ_ORIGIN: { kind: "sentence", texts: [copy.TABLE_HAS_HQ_ORIGIN] },
+	USE_HQ_TABLE_NO_SOURCE: {
+		kind: "sentence",
+		texts: [copy.USE_HQ_TABLE_NO_SOURCE],
+	},
+	takeHqTableSourceMoved: {
+		kind: "sentence",
+		texts: [copy.takeHqTableSourceMoved("acme-health")],
+	},
+	SEPARATE_TABLE: { kind: "label", texts: [copy.SEPARATE_TABLE] },
+	separateTableTitle: {
+		kind: "label",
+		texts: [copy.separateTableTitle("Districts")],
+	},
+	separateTableBody: {
+		kind: "sentence",
+		texts: [copy.separateTableBody("Districts")],
+	},
+	SEPARATE_TABLE_INDEXES: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_INDEXES],
+	},
+	SEPARATE_TABLE_OWNED: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_OWNED],
+	},
+	SEPARATE_TABLE_CONFIRM: {
+		kind: "label",
+		texts: [copy.SEPARATE_TABLE_CONFIRM],
+	},
+	KEEP_ONE_TABLE: { kind: "label", texts: [copy.KEEP_ONE_TABLE] },
+	SEPARATE_TABLE_NO_APPS: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_NO_APPS],
+	},
+	SEPARATE_TABLE_NO_READERS: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_NO_READERS],
+	},
+	SEPARATE_TABLE_ASSIGNED: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_ASSIGNED],
+	},
+	SEPARATE_TABLE_TOO_LARGE: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_TOO_LARGE],
+	},
+	SEPARATE_TABLE_ROWS_UNAVAILABLE: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_ROWS_UNAVAILABLE],
+	},
+	SEPARATE_TABLE_NO_ROOM: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_NO_ROOM],
+	},
+	separateTableAppChanged: {
+		kind: "sentence",
+		texts: [copy.separateTableAppChanged("Facility visits")],
+	},
 	managedPlacesPassed: {
 		kind: "sentence",
 		texts: [
@@ -651,10 +757,6 @@ const READINGS: Record<
 			),
 			choiceNotOffered(
 				{ offered: false, why: "fails-a-project-space-rule", name: null },
-				"Kenya rollout",
-			),
-			choiceNotOffered(
-				{ offered: false, why: "too-many-columns", name: "312" },
 				"Kenya rollout",
 			),
 		],
@@ -832,23 +934,11 @@ describe("the forms a sentence chooses by its arguments", () => {
 		expect(managedPlacesKeptLeftOut(["Mercy Clinic", "Old Post"])).toBe(
 			"2 places in CommCare HQ sit at a level this app doesn't have, and a persona, an owner rule or an automation still uses them: Mercy Clinic and Old Post. Nova kept them as they stood before. You can add the levels they sit at, or move or change what uses them, then refresh again.",
 		);
-		expect(copy.managedPlacesOverLimit("acme-health", 12400)).toBe(
-			"acme-health now has 12,400 places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.",
-		);
-		// A list that passed the bytes Nova reads before it passed the count.
-		expect(copy.managedPlacesOverLimit("acme-health", null)).toBe(
-			"acme-health now holds more place information than Nova reads, and Nova holds up to 10,000 places for an app. Nova kept its copy as it was.",
-		);
 	});
 
-	it("joins the caps' phrases with and", () => {
-		expect(
-			copy.managedTableOverCap([
-				"6,000 rows (Nova takes 5,000)",
-				"300 columns (Nova takes 250)",
-			]),
-		).toBe(
-			"This table now has 6,000 rows (Nova takes 5,000) and 300 columns (Nova takes 250) in CommCare HQ. Nova kept its copy as it was.",
+	it("offers a large table's refresh, never a shorter table", () => {
+		expect(copy.managedTablePastInlineItem("districts")).toBe(
+			"districts may have changed in CommCare HQ since Nova last refreshed it, and it's larger than a publish reads at once. You can refresh it from its Project data page, then publish again.",
 		);
 	});
 
@@ -1038,14 +1128,6 @@ describe("the review's choice about a table that meets a Project table", () => {
 			),
 		).toBe(
 			"This app reads the column region, which Kenya rollout's table doesn't have.",
-		);
-		expect(
-			choiceNotOffered(
-				{ offered: false, why: "too-many-columns", name: "1,312" },
-				"Kenya rollout",
-			),
-		).toBe(
-			"Kenya rollout's table would have 1,312 columns with the ones its apps still read, and Nova takes 250.",
 		);
 		expect(() =>
 			choiceNotOffered(

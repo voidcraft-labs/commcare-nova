@@ -9,8 +9,15 @@
 "use client";
 
 import type { AppSettings } from "@/lib/domain";
+import { projectSearchDependencies } from "@/lib/domain/projectSearches";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
 export function useAppSettings(): AppSettings {
 	return useBlueprintDoc((s) => s.appSettings);
+}
+
+/** Opening the publish dialog requires a specific destination when a menu
+ * sends searches to that project space. */
+export function useNeedsProjectSearchDestination(): boolean {
+	return useBlueprintDoc((doc) => projectSearchDependencies(doc).size > 0);
 }

@@ -1,0 +1,9 @@
+{
+	"/api/user_domains/v1/?limit=100&feature_flag=hierarchical_location_fixture": {
+		"status": 200,
+		"headers": {
+			"Content-Type": "application/json"
+		},
+		"body": "{\"meta\": {\"total_count\": 0}, \"objects\": []}"
+	}
+}

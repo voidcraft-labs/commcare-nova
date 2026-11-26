@@ -28,6 +28,7 @@ import {
 } from "@/lib/domain";
 import {
 	nextFreeTilePlacement,
+	resultsTileRows,
 	type TileGeometry,
 	tileMembership,
 	tileMemberUuids,
@@ -35,7 +36,6 @@ import {
 import {
 	assignTileArrangement,
 	seedTileArrangement,
-	TILE_MAX_FIELDS,
 	type TilePreset,
 } from "./tilePresets";
 
@@ -87,8 +87,14 @@ export function planTileLayoutEnable(args: {
 
 	if (placed.length === 0) {
 		const arrangement = seedTileArrangement(memberCount);
+		/* A tile has a row for each field, so every count of one or more
+		 * has a seed; the guard keeps the type honest. */
 		if (arrangement === null) {
-			return { ok: false, reason: tooManyFieldsReason(memberCount) };
+			return {
+				ok: false,
+				reason:
+					"Add information to Results before turning on the tile: a tile needs at least one field to lay out.",
+			};
 		}
 		const assigned = assignTileArrangement(
 			unplaced.map((entry) => entry.uuid),
@@ -103,10 +109,11 @@ export function planTileLayoutEnable(args: {
 		}
 	} else {
 		const occupied: TileCell[] = placed.map((entry) => entry.cell);
+		const rows = resultsTileRows(config);
 		for (const vacancy of unplaced) {
 			const column = byUuid.get(vacancy.uuid);
 			if (column === undefined) continue;
-			const free = nextFreeTilePlacement(occupied);
+			const free = nextFreeTilePlacement(occupied, rows);
 			if (free === null) {
 				return {
 					ok: false,
@@ -244,7 +251,7 @@ export function planTilePlaceField(args: {
 	const occupied = tileMembership(config)
 		.placed.filter((entry) => entry.uuid !== uuid)
 		.map((entry) => entry.cell);
-	const free = nextFreeTilePlacement(occupied);
+	const free = nextFreeTilePlacement(occupied, resultsTileRows(config));
 	if (free === null) {
 		return {
 			ok: false,
@@ -253,10 +260,6 @@ export function planTilePlaceField(args: {
 		};
 	}
 	return { ok: true, mutations: tileCellMutations(moduleUuid, column, free) };
-}
-
-function tooManyFieldsReason(memberCount: number): string {
-	return `A tile has room for ${TILE_MAX_FIELDS} fields, and Results shows ${memberCount}. Hide some information from Results first.`;
 }
 
 function cellOf(geometry: TileGeometry): TileCell {

@@ -331,10 +331,14 @@ describe("checkHqChangesForApp", () => {
 		});
 	});
 
-	it("lists a file whose recorded id moved, and not a path that holds no record", async () => {
+	it("lists a file whose recorded id moved, and not a file Nova's own upload recorded at its path", async () => {
+		/* Both baselines are reads from before the file was mapped. In QUIET
+		 * the entry HQ holds now is the one Nova's upload recorded there. */
 		const scope = await seed({
 			changed: baselineOf(HQ_APP, { mediaFiles: { [PATH]: "doc-nova" } }),
-			quiet: baselineOf(QUIET_HQ_APP, { mediaFiles: {} }),
+			quiet: baselineOf(QUIET_HQ_APP, {
+				mediaFiles: { [PATH]: "doc-a-person-uploaded" },
+			}),
 		});
 		await connect();
 		const changed = await withHttpPeer(async (peer) => {

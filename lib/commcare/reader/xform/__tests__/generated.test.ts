@@ -660,6 +660,7 @@ describe("a case write's siblings, proposed for the case management stage", () =
 				entry: DATETIME_SIBLING_ENTRY,
 				path: expect.stringMatching(/^\/_attachments\/[^/]+$/),
 				register: "date-and-time-saved-as-hq-stores-it",
+				removedInputs: [["datetime-question", "/data/seen"]],
 			},
 		]);
 		// One token of the earlier spelling changed is no spelling Nova wrote.

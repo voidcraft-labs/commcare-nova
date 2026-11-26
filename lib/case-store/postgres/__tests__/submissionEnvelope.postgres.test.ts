@@ -52,13 +52,17 @@ import {
 	SubmissionRejectedError,
 } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
-import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
+import {
+	buildIsolatedDb,
+	setupPerTestDatabase,
+} from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
 import type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,
 	EnvelopeCaseOperation,
+	OpeningReadSet,
 	OwnCaseProgram,
 	SubmissionReceiptClaim,
 } from "../../submission";
@@ -122,15 +126,20 @@ const PATIENT: CaseType = {
 		{ name: "prior_age", label: proseText("Prior age"), data_type: "int" },
 		{ name: "meds", label: proseText("Meds"), data_type: "multi_select" },
 		{ name: "seen_at", label: proseText("Seen at"), data_type: "datetime" },
+		{ name: "seen_on", label: proseText("Seen on"), data_type: "date" },
+		{ name: "hq_user_id", label: proseText("Worker ID"), data_type: "text" },
 	],
 };
-// A superset of `patient` — every shared property keeps its exact
-// type (the wirePortable retype destination), plus a destination-only
-// `severity` slot a retyping operation's write may populate.
+// Every patient value has the same JSON representation here, including the
+// date widened to text. The promoted case can also hold a severity.
 const PATIENT_V2: CaseType = {
 	name: "patient_v2",
 	properties: [
-		...PATIENT.properties,
+		...PATIENT.properties.map((property) =>
+			property.name === "seen_on"
+				? { ...property, data_type: "text" as const }
+				: property,
+		),
 		{ name: "severity", label: proseText("Severity"), data_type: "text" },
 	],
 };
@@ -772,6 +781,68 @@ describe("whole-envelope atomicity", () => {
 });
 
 describe("ordered selected-case batches", () => {
+	it("refuses a 101-case selection before a shared write or receipt can land", {
+		timeout: 25_000,
+	}, async () => {
+		const store = makeStore();
+		const caseIds = Array.from(
+			{ length: 101 },
+			(_, index) => `bounded-case-${index}`,
+		);
+		for (const caseId of caseIds) await seedPatient(store, caseId, caseId);
+		const apply = (selected: readonly string[], maximum: number) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: {
+					kind: "followup",
+					caseType: "patient",
+					caseIds: selected,
+					selection: { kind: "multiple", maximum },
+				},
+				operations: {
+					...ownProgram("followup", [
+						ownOp({
+							writes: literalWrites({ notes: "from the selected form" }),
+						}),
+					]),
+					sessionCaseIds: selected,
+				},
+			});
+		for (const maximum of [100, 101]) {
+			await expect(apply(caseIds, maximum)).rejects.toMatchObject({
+				rejection: { kind: "selection", reason: "too-many", maximum: 100 },
+			});
+		}
+		const read = () =>
+			store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
+		expect((await read()).map((row) => row.properties.notes)).toEqual(
+			caseIds.map(() => "original"),
+		);
+		const receipts = () =>
+			sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
+				dbHandle.db,
+			);
+		expect((await receipts()).rows).toEqual([]);
+		const selected = caseIds.slice(0, 100).reverse();
+		expect(await apply(selected, 100)).toMatchObject({
+			primaryCaseIds: selected,
+		});
+		const rows = await read();
+		expect(
+			rows
+				.filter((row) => row.properties.notes === "from the selected form")
+				.map((row) => row.case_id)
+				.sort(),
+		).toEqual(selected.toSorted());
+		expect(
+			rows.find((row) => row.case_id === caseIds[100])?.properties.notes,
+		).toBe("original");
+		expect((await receipts()).rows).toHaveLength(1);
+	});
 	it("applies the own case's shared answers to every selected case, then each later operation", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
@@ -1180,6 +1251,572 @@ describe("ordered selected-case batches", () => {
 		}
 	});
 
+	it("separates a childless close's server history from an active close and an absent block", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const older = new Date("2025-01-01T00:00:00Z");
+		await (dbHandle.db as Kysely<Database>)
+			.updateTable("cases")
+			.set({ modified_on: older })
+			.where("case_id", "=", SESSION_CASE_ID)
+			.execute();
+		const existingTarget = {
+			kind: "expression",
+			expr: term(literal(SESSION_CASE_ID)),
+		} as const;
+		const predicate = (matches: boolean) =>
+			eq(literal(matches ? "yes" : "no"), literal("yes"));
+		const close: TargetedCaseOperation = {
+			uuid: OP_A,
+			id: "close_patient",
+			action: "close",
+			caseType: "patient",
+			target: existingTarget,
+			closeCondition: predicate(false),
+		};
+		const request = (
+			targeted: TargetedCaseOperation,
+			opening?: OpeningReadSet,
+		): TestSubmissionArgs => ({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...rootProgram([envOp(targeted)], { sessionCaseId: null }),
+				...(opening && { openingReads: opening }),
+			},
+		});
+		const absent = await submit(
+			store,
+			request({ ...close, condition: predicate(false) }),
+		);
+		expect(absent.operations).toEqual([
+			expect.objectContaining({ caseId: "", executed: false }),
+		]);
+		expect(absent.operations[0]).not.toHaveProperty("childlessBlock");
+		expect((await patientRow(store, SESSION_CASE_ID))?.modified_on).toEqual(
+			older,
+		);
+
+		const opening: OpeningReadSet = {
+			cases: { rows: [], indices: [], propertyTypes: {} },
+			currentOwnerIds: [ACTOR],
+			lookupRows: [],
+		};
+		await expect(
+			submit(
+				store,
+				request(
+					{
+						...close,
+						target: { kind: "expression", expr: term(literal("unknown-case")) },
+					},
+					opening,
+				),
+			),
+		).rejects.toMatchObject({
+			rejection: { kind: "target", reason: "not-found-or-out-of-scope" },
+		});
+		expect(await patientRow(store, "unknown-case")).toBeUndefined();
+
+		const childlessRequest = request(close, opening);
+		const childlessClaim = {
+			...childlessRequest,
+			submissionReceipt: receiptFor(childlessRequest),
+		};
+		const childless = await store.applySubmission(childlessClaim);
+		expect(childless.operations).toEqual([
+			expect.objectContaining({
+				caseId: SESSION_CASE_ID,
+				executed: false,
+				childlessBlock: true,
+			}),
+		]);
+		expect(childless.caseDatabasePatch?.rows).toEqual([]);
+		const afterChildless = await patientRow(store, SESSION_CASE_ID);
+		expect(afterChildless?.status).toBe("open");
+		expect(afterChildless?.modified_on?.getTime()).toBeGreaterThan(
+			older.getTime(),
+		);
+		expect(await store.applySubmission(childlessClaim)).toEqual(childless);
+
+		const activeRequest = request(
+			{ ...close, closeCondition: predicate(true) },
+			opening,
+		);
+		const activeClaim = {
+			...activeRequest,
+			submissionReceipt: receiptFor(activeRequest),
+		};
+		await expect(store.applySubmission(activeClaim)).rejects.toMatchObject({
+			rejection: { kind: "target", reason: "not-found-or-out-of-scope" },
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.modified_on).toEqual(
+			afterChildless?.modified_on,
+		);
+		if (!activeClaim.operations || !afterChildless?.modified_on)
+			throw new Error("Expected case and program");
+		// Retry the same claim with the signed device row restored.
+		const recovered = await store.applySubmission({
+			...activeClaim,
+			operations: {
+				...activeClaim.operations,
+				openingReads: {
+					...opening,
+					cases: { ...opening.cases, rows: [afterChildless] },
+				},
+			},
+		});
+		expect(recovered.operations).toEqual([
+			expect.objectContaining({ caseId: SESSION_CASE_ID, executed: true }),
+		]);
+		expect(recovered.operations[0]).not.toHaveProperty("childlessBlock");
+		expect(recovered.caseDatabasePatch?.rows[0]?.status).toBe("closed");
+		expect(
+			recovered.caseDatabasePatch?.rows[0]?.modified_on?.getTime(),
+		).toBeGreaterThan(afterChildless.modified_on.getTime());
+
+		const irrelevantUpdate = await submit(
+			store,
+			request({
+				...close,
+				closeCondition: predicate(false),
+				writes: literalWrites({ notes: "never saved" }).map((write) => ({
+					...write,
+					condition: predicate(false),
+				})),
+			}),
+		);
+		expect(irrelevantUpdate.caseDatabasePatch?.rows[0]).toMatchObject({
+			status: "closed",
+			properties: { notes: "original" },
+		});
+		expect(
+			irrelevantUpdate.caseDatabasePatch?.rows[0]?.modified_on?.getTime(),
+		).toBeGreaterThan(
+			recovered.caseDatabasePatch?.rows[0]?.modified_on?.getTime() ?? 0,
+		);
+
+		const writtenAndClosed = await submit(
+			store,
+			request({
+				...close,
+				action: "update",
+				closeAfter: true,
+				closeCondition: predicate(true),
+				writes: literalWrites({ notes: "saved before closing" }),
+				rename: term(literal("Renamed before closing")),
+			}),
+		);
+		expect(writtenAndClosed.caseDatabasePatch?.rows[0]).toMatchObject({
+			status: "closed",
+			case_name: "Renamed before closing",
+			properties: { notes: "saved before closing" },
+		});
+	});
+
+	it("applies nested repeat case effects within each enclosing row and replays that state", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const inner = testUuid("nested-iteration");
+		const record = (
+			uuid: Uuid,
+			repeat: Uuid,
+			id: string,
+			condition?: TargetedCaseOperation["condition"],
+		) =>
+			operation({
+				uuid,
+				id,
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				forEach: { repeat },
+				...(condition !== undefined && { condition }),
+				writes: [{ property: "notes", value: term(formField(KEY_FIELD)) }],
+			});
+		const program = rootProgram([
+			envOp(record(OP_A, inner, "inner_notes")),
+			envOp(
+				record(
+					OP_B,
+					REPEAT_UUID,
+					"outer_notes",
+					eq(formField(KEY_FIELD), literal("outer row one")),
+				),
+			),
+		]);
+		const request = {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...program,
+				scopes: [
+					...program.scopes,
+					{
+						repeat: inner,
+						iterations: ["inner row one", "inner row two"].map((value) => ({
+							formFields: new Map([[KEY_FIELD, value]]),
+						})),
+					},
+					{
+						repeat: REPEAT_UUID,
+						iterations: ["outer row one", "skip outer row two"].map(
+							(value) => ({ formFields: new Map([[KEY_FIELD, value]]) }),
+						),
+					},
+				],
+				scopeOrder: [
+					{ iteration: 0 },
+					{ repeat: inner, iteration: 0 },
+					{ repeat: REPEAT_UUID, iteration: 0 },
+					{ repeat: inner, iteration: 1 },
+					{ repeat: REPEAT_UUID, iteration: 1 },
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		await expect(
+			store.applySubmission({
+				...claim,
+				operations: {
+					...claim.operations,
+					scopeOrder: claim.operations.scopeOrder.slice(0, -1),
+				},
+			}),
+		).rejects.toThrow("schedule each live row once");
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({
+			notes: "original",
+		});
+		const saved = await store.applySubmission(claim);
+		expect(
+			saved.operations.map((effect) => [
+				effect.operationUuid,
+				effect.iteration,
+				effect.executed,
+			]),
+		).toEqual([
+			[OP_A, 0, true],
+			[OP_B, 0, true],
+			[OP_A, 1, true],
+			[OP_B, 1, false],
+		]);
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({
+			notes: "inner row two",
+		});
+		expect(await store.applySubmission(claim)).toEqual(saved);
+	});
+
+	it("commits a root's opening ID even after the answer changes", async () => {
+		const store = makeStore();
+		const exact = operation({
+			uuid: OP_A,
+			id: "opened_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new", expr: term(formField(KEY_FIELD)) },
+			name: term(literal("Opened patient")),
+		});
+		const program = rootProgram([envOp(exact)], {
+			sessionCaseId: null,
+			formFields: [[KEY_FIELD, "later-worker-answer"]],
+		});
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...program,
+				openingCreateIds: new Map([[OP_A, "opened-case-id"]]),
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const result = await store.applySubmission(claim);
+		expect(result.operations[0]).toMatchObject({
+			caseId: "opened-case-id",
+			operationUuid: OP_A,
+			executed: true,
+		});
+		expect(await patientRow(store, "later-worker-answer")).toBeUndefined();
+		expect(await store.applySubmission(claim)).toEqual(result);
+	});
+
+	it("evaluates exact create IDs for each live repeat row and reuses only authorized cases", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const known = await patientRow(store, SESSION_CASE_ID);
+		if (!known) throw new Error("Expected the authorized case.");
+		const condition = eq(formField(FLAG_FIELD), literal("create"));
+		const operationWithExactId = operation({
+			uuid: OP_A,
+			id: "exact_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new", expr: term(formField(KEY_FIELD)) },
+			name: term(literal("New name")),
+			forEach: { repeat: REPEAT_UUID },
+			condition,
+		});
+		const program = rootProgram([envOp(operationWithExactId)], {
+			sessionCaseId: null,
+		});
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...program,
+				openingReads: {
+					cases: { rows: [], indices: [], propertyTypes: {} },
+					currentOwnerIds: [ACTOR],
+					lookupRows: [],
+				},
+				scopes: [
+					...program.scopes,
+					{
+						repeat: REPEAT_UUID,
+						iterations: [
+							{
+								formFields: new Map([
+									[KEY_FIELD, "raw-exact-id"],
+									[FLAG_FIELD, "create"],
+								]),
+							},
+							{
+								formFields: new Map([
+									[KEY_FIELD, SESSION_CASE_ID],
+									[FLAG_FIELD, "create"],
+								]),
+							},
+							{
+								formFields: new Map([
+									[KEY_FIELD, ""],
+									[FLAG_FIELD, "skip"],
+								]),
+							},
+						],
+					},
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		await expect(store.applySubmission(claim)).rejects.toMatchObject({
+			rejection: { kind: "target", reason: "not-found-or-out-of-scope" },
+		});
+		expect(await patientRow(store, "raw-exact-id")).toBeUndefined();
+		expect((await patientRow(store, SESSION_CASE_ID))?.case_name).toBe("Alice");
+
+		const operations = request.operations;
+		if (!operations?.openingReads)
+			throw new Error("Expected the form's signed opening reads.");
+		const withKnown = {
+			...claim,
+			operations: {
+				...operations,
+				openingReads: {
+					...operations.openingReads,
+					cases: { ...operations.openingReads.cases, rows: [known] },
+				},
+			},
+		};
+		const saved = await store.applySubmission(withKnown);
+		expect(
+			saved.operations.map(({ caseId, executed }) => [caseId, executed]),
+		).toEqual([
+			["raw-exact-id", true],
+			[SESSION_CASE_ID, true],
+			["", false],
+		]);
+		expect((await patientRow(store, SESSION_CASE_ID))?.case_name).toBe(
+			"New name",
+		);
+		expect((await patientRow(store, "raw-exact-id"))?.case_name).toBe(
+			"New name",
+		);
+		expect(await store.applySubmission(withKnown)).toEqual(saved);
+	});
+
+	it("omits a conditional create owner before evaluation and keeps each row's resolved owner on replay", async () => {
+		const store = makeStore();
+		const root = operation({
+			uuid: OP_A,
+			id: "group_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: term(literal("Group patient")),
+		});
+		const repeating = operation({
+			uuid: OP_B,
+			id: "repeat_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: term(literal("Repeated patient")),
+			forEach: { repeat: REPEAT_UUID },
+			owner: term(formField(KEY_FIELD)),
+			ownerCondition: eq(formField(FLAG_FIELD), literal("assign")),
+		});
+		const program = rootProgram([envOp(root), envOp(repeating)], {
+			sessionCaseId: null,
+		});
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...program,
+				groupDefaults: { owner: "team-1", operations: [OP_A, OP_B] },
+				scopes: [
+					...program.scopes,
+					{
+						repeat: REPEAT_UUID,
+						iterations: [
+							{ formFields: new Map([[FLAG_FIELD, "skip"]]) },
+							{
+								formFields: new Map([
+									[FLAG_FIELD, "assign"],
+									[KEY_FIELD, "supervisor-9"],
+								]),
+							},
+						],
+					},
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const saved = await store.applySubmission(claim);
+		expect(
+			saved.operations.map(({ operationUuid, iteration }) => [
+				operationUuid,
+				iteration,
+			]),
+		).toEqual([
+			[OP_A, 0],
+			[OP_B, 0],
+			[OP_B, 1],
+		]);
+		const rows = await Promise.all(
+			saved.operations.map(({ caseId }) => patientRow(store, caseId)),
+		);
+		expect(rows.map((row) => row?.owner_id)).toEqual([
+			"team-1",
+			ACTOR,
+			"supervisor-9",
+		]);
+		expect(await store.applySubmission(claim)).toEqual(saved);
+	});
+
+	it("keeps the existing update owner when its condition is false and still saves other values", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const originalOwner = (await patientRow(store, SESSION_CASE_ID))?.owner_id;
+		const update = envOp(
+			operation({
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: term(formField(KEY_FIELD)),
+				ownerCondition: eq(formField(FLAG_FIELD), literal("transfer")),
+				writes: [{ property: "notes", value: term(formField(FLAG_FIELD)) }],
+			}),
+		);
+		const submitUpdate = (
+			formFields: NonNullable<Parameters<typeof rootProgram>[1]>["formFields"],
+		) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: rootProgram([update], { formFields }),
+			});
+
+		await submitUpdate([[FLAG_FIELD, "keep"]]);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			owner_id: originalOwner,
+			properties: { notes: "keep" },
+		});
+		await expect(
+			submitUpdate([
+				[FLAG_FIELD, "transfer"],
+				[KEY_FIELD, ""],
+			]),
+		).rejects.toBeInstanceOf(SubmissionRejectedError);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			owner_id: originalOwner,
+			properties: { notes: "keep" },
+		});
+		await submitUpdate([
+			[FLAG_FIELD, "transfer"],
+			[KEY_FIELD, "supervisor-9"],
+		]);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			owner_id: "supervisor-9",
+			properties: { notes: "transfer" },
+		});
+	});
+
+	it("applies authored case changes within a row and omits absent positions on replay", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const write = (uuid: Uuid, id: string) =>
+			envOp(
+				operation({
+					uuid,
+					id,
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					forEach: { repeat: REPEAT_UUID },
+					writes: [{ property: "notes", value: term(literal(id)) }],
+				}),
+			);
+		const program = rootProgram([
+			write(OP_A, "generated"),
+			write(OP_B, "positioned"),
+		]);
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...program,
+				scopes: [
+					...program.scopes,
+					{
+						repeat: REPEAT_UUID,
+						iterations: [{ formFields: new Map() }, { formFields: new Map() }],
+					},
+				],
+				effectOrder: [
+					{ repeat: REPEAT_UUID, iteration: 0, operationUuids: [OP_B] },
+					{ repeat: REPEAT_UUID, iteration: 0, operationUuids: [OP_A] },
+					{
+						repeat: REPEAT_UUID,
+						iteration: 1,
+						operationUuids: [OP_B],
+						absent: true,
+					},
+					{ repeat: REPEAT_UUID, iteration: 1, operationUuids: [OP_A] },
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const effects = await store.applySubmission(claim);
+		expect(
+			effects.operations.map((effect) => [
+				effect.operationUuid,
+				effect.iteration,
+			]),
+		).toEqual([
+			[OP_B, 0],
+			[OP_A, 0],
+			[OP_A, 1],
+		]);
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			properties: { notes: "generated" },
+		});
+		expect(await store.applySubmission(claim)).toEqual(effects);
+	});
+
 	it("runs repeat outer by selected case inner with one session anchor per case", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice");
@@ -1426,57 +2063,75 @@ describe("pre-submission snapshot", () => {
 		});
 	});
 
-	it("makes one child under each selected case for a create linked to the loaded case", async () => {
-		const store = makeStore();
-		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
-		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
-		const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
-		const result = await submit(store, {
-			appId: APP_ID,
-			ordinary: {
-				kind: "followup",
-				caseIds,
-				selection: { kind: "multiple", maximum: 2 },
-				caseType: "patient",
-			},
-			operations: {
-				...rootProgram([
-					envOp(
-						operation({
-							uuid: OP_A,
-							id: "visit",
-							action: "create",
-							caseType: "visit",
-							target: { kind: "new" },
-							name: term(literal("Visit")),
-							links: [
-								{
-									identifier: "parent",
-									targetType: "patient",
-									target: { kind: "session" },
-									relationship: "child",
-								},
-							],
-						}),
-					),
-				]),
-				sessionCaseIds: caseIds,
-			},
-		});
-		expect(result.operations.map((item) => item.operationUuid)).toEqual([
-			OP_A,
-			OP_A,
-		]);
-		const visits = await store.query({
-			reading: SEARCH_READING,
-			appId: APP_ID,
-			caseType: "visit",
-		});
-		expect(visits.map((visit) => visit.parent_case_id).sort()).toEqual(
-			[...caseIds].sort(),
-		);
-		expect(new Set(visits.map((visit) => visit.case_id)).size).toBe(2);
-	});
+	it.each(["parent", "my-parent"])(
+		"makes one child under each selected case using the %s connection",
+		async (identifier) => {
+			const store = makeStore();
+			await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
+			await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
+			const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
+			const result = await submit(store, {
+				appId: APP_ID,
+				ordinary: {
+					kind: "followup",
+					caseIds,
+					selection: { kind: "multiple", maximum: 2 },
+					caseType: "patient",
+				},
+				operations: {
+					...rootProgram([
+						envOp(
+							operation({
+								uuid: OP_A,
+								id: "visit",
+								action: "create",
+								caseType: "visit",
+								target: { kind: "new" },
+								name: term(literal("Visit")),
+								links: [
+									{
+										identifier,
+										targetType: "patient",
+										target: { kind: "session" },
+										relationship: "child",
+									},
+								],
+							}),
+						),
+					]),
+					sessionCaseIds: caseIds,
+				},
+			});
+			expect(result.operations.map((item) => item.operationUuid)).toEqual([
+				OP_A,
+				OP_A,
+			]);
+			const visits = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			});
+			expect(visits.map((visit) => visit.parent_case_id).sort()).toEqual(
+				identifier === "parent" ? [...caseIds].sort() : [null, null],
+			);
+			const visitIds = visits.map(({ case_id }) => case_id);
+			expect(new Set(visitIds).size).toBe(2);
+			const device = await store.readCaseDatabasePatch({
+				appId: APP_ID,
+				caseIds: visitIds,
+			});
+			const links = device.indices.filter(({ case_id }) =>
+				visitIds.includes(case_id),
+			);
+			expect(links.map(({ identifier }) => identifier)).toEqual([
+				identifier,
+				identifier,
+			]);
+			expect(links.map(({ ancestor_id }) => ancestor_id).sort()).toEqual(
+				[...caseIds].sort(),
+			);
+		},
+	);
 
 	it("refuses a link to the loaded case on a batch operation that runs once for the form", async () => {
 		const store = makeStore();
@@ -1656,6 +2311,49 @@ describe("blank writes", () => {
 		});
 		expect(visits).toHaveLength(1);
 		expect(visits[0]?.properties).not.toHaveProperty("outcome");
+	});
+
+	it("a create's write saved only when changed saves a given answer and nothing for a blank one", async () => {
+		// HQ's `edit` compares the new case's casedb leaf, which a new case
+		// lacks, so its empty text differs from any answer but a blank one
+		// (`XFormCaseBlock.add_case_updates`).
+		const store = makeStore();
+		const create = (name: string, outcome: string) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram(
+					[
+						envOp(
+							operation({
+								uuid: OP_A,
+								action: "create",
+								caseType: "visit",
+								target: { kind: "new" },
+								name: term(literal(name)),
+								writes: [
+									{
+										property: "outcome",
+										value: term(literal(outcome)),
+										onlyIfChanged: true,
+									},
+								],
+							}),
+						),
+					],
+					{ sessionCaseId: null },
+				),
+			});
+		await create("Blank", "");
+		await create("Seen", "seen");
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
+		const byName = new Map(visits.map((row) => [row.case_name, row]));
+		expect(byName.get("Blank")?.properties).not.toHaveProperty("outcome");
+		expect(byName.get("Seen")?.properties.outcome).toBe("seen");
 	});
 });
 
@@ -2624,9 +3322,10 @@ describe("owner stamping", () => {
 // ---------------------------------------------------------------
 
 describe("retype", () => {
-	it("executes the wirePortable subset: type flips, properties retained verbatim", async () => {
+	it("retypes the case and keeps its original date string in the text property", async () => {
 		const store = makeStore();
-		await seedSessionPatient(store, { notes: "kept", age: 30 });
+		const properties = { notes: "kept", age: 30, seen_on: "2026-04-17" };
+		await seedSessionPatient(store, properties);
 
 		await submit(store, {
 			appId: APP_ID,
@@ -2651,7 +3350,7 @@ describe("retype", () => {
 		});
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.case_id).toBe(SESSION_CASE_ID);
-		expect(rows[0]?.properties).toMatchObject({ notes: "kept", age: 30 });
+		expect(rows[0]?.properties).toEqual(properties);
 	});
 
 	it("applies destination-typed writes and the type change as one unit", async () => {
@@ -3139,6 +3838,209 @@ describe("the form's own case", () => {
 		expect((await patientRow(store, taken))?.case_name).toBe("Already here");
 	});
 
+	it("creates the externally named case once and rejects a second entry with the same supplied ID", async () => {
+		const store = makeStore();
+		const caseId = "registration-record-224";
+		const program = (name: string): CaseOperationProgram => ({
+			...ownProgram("registration", [ownOp({ name: term(literal(name)) })]),
+			entryCaseKeys: new Map([[OWN_UUID, "new-case"]]),
+			suppliedCaseIds: new Map([[OWN_UUID, caseId]]),
+		});
+		const receipt = (entryKey: string): SubmissionReceiptClaim => ({
+			entryKey,
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
+			requestDigest: `${entryKey}-request`,
+		});
+		const first = {
+			appId: APP_ID,
+			ordinary: { kind: "registration" as const },
+			operations: program("Amina"),
+			submissionReceipt: receipt("first-supplied-entry"),
+		};
+		expect((await submit(store, first)).primaryCaseIds).toEqual([caseId]);
+		expect((await submit(store, first)).primaryCaseIds).toEqual([caseId]);
+		const other = await rejection(
+			submit(store, {
+				...first,
+				operations: program("Second entry"),
+				submissionReceipt: receipt("second-supplied-entry"),
+			}),
+		);
+		expect(other.rejection).toMatchObject({
+			kind: "new-case",
+			reason: "case-id-taken",
+			caseId,
+		});
+		expect((await patientRow(store, caseId))?.case_name).toBe("Amina");
+	});
+
+	it("refuses a resumed entry when a concurrent save took the new ID its form also reads", async () => {
+		const caseId = "registration-after-form-open";
+		const store = makeStore();
+		expect(await patientRow(store, caseId)).toBeUndefined();
+		const winner = receiptFor({
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
+		});
+		const resumed = receiptFor({
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
+		});
+		const creation = (
+			name: string,
+			operations: EnvelopeCaseOperation[] = [],
+		): CaseOperationProgram => ({
+			...ownProgram(
+				"registration",
+				[ownOp({ name: term(literal(name)) }), ...operations],
+				{
+					formFields: [[KEY_FIELD, caseId]],
+				},
+			),
+			entryCaseKeys: new Map([[OWN_UUID, "new-case"]]),
+			suppliedCaseIds: new Map([[OWN_UUID, caseId]]),
+		});
+		const raced = buildIsolatedDb<Database>(dbHandle.uri);
+		const gate = new Client({ connectionString: dbHandle.uri });
+		let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+		try {
+			await gate.connect();
+			const scope = `nova-form-attachment-entry:${APP_ID}:${ACTOR}:${resumed.entryKey}`;
+			await gate.query("SELECT pg_advisory_lock(hashtextextended($1,0))", [
+				scope,
+			]);
+			const otherStore = makeStore(PROJECT_A, ACTOR, ACTOR, raced.db);
+			pending = Promise.allSettled([
+				submit(otherStore, {
+					appId: APP_ID,
+					ordinary: { kind: "registration" },
+					operations: creation("Resumed form", [
+						envOp(
+							operation({
+								target: {
+									kind: "expression",
+									expr: term(formField(KEY_FIELD)),
+								},
+								writes: literalWrites({ notes: "Should not be saved" }),
+							}),
+							{
+								expressionSnapshotTypes: {
+									target: "patient",
+									links: new Map(),
+								},
+							},
+						),
+					]),
+					submissionReceipt: resumed,
+				}),
+			]);
+			await vi.waitFor(async () => {
+				const waiters = await gate.query<{ count: number }>(`
+					SELECT count(*)::int AS count FROM pg_stat_activity
+					WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
+				`);
+				expect(waiters.rows[0]?.count).toBe(1);
+			});
+			const first = await submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "registration" },
+				operations: creation("Concurrent winner"),
+				submissionReceipt: winner,
+			});
+			expect(first.primaryCaseIds).toEqual([caseId]);
+			const saved = await patientRow(store, caseId);
+			await gate.query("SELECT pg_advisory_unlock(hashtextextended($1,0))", [
+				scope,
+			]);
+
+			const [other] = await pending;
+			expect(other).toMatchObject({
+				status: "rejected",
+				reason: {
+					rejection: { kind: "new-case", reason: "case-id-taken", caseId },
+				},
+			});
+			expect(await patientRow(store, caseId)).toEqual(saved);
+			const receipts = await dbHandle.pool.query(
+				"SELECT entry_key FROM form_submission_intents WHERE app_id = $1",
+				[APP_ID],
+			);
+			expect(receipts.rows).toEqual([{ entry_key: winner.entryKey }]);
+		} finally {
+			try {
+				await gate.end();
+				await pending;
+			} finally {
+				await raced.destroy();
+			}
+		}
+	});
+
+	it.each(["before", "after"] as const)(
+		"refuses a new entry ID that equals a keyed create %s it in the same submission",
+		async (placement) => {
+			const store = makeStore();
+			const key = "same-envelope";
+			const caseId = `${PINNED_VECTOR_PREFIX}${key}`;
+			const named = envOp(
+				operation({
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: term(literal("Named visit")),
+				}),
+			);
+			const keyed = envOp(
+				operation({
+					uuid: VECTOR_OP_UUID,
+					id: "keyed_visit",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new", idFrom: KEY_FIELD },
+					name: term(literal("Keyed visit")),
+				}),
+			);
+			const operations =
+				placement === "before" ? [keyed, named] : [named, keyed];
+			const refused = await rejection(
+				submit(store, {
+					appId: APP_ID,
+					ordinary: { kind: "none" },
+					operations: {
+						...rootProgram(operations, {
+							formFields: [[KEY_FIELD, key]],
+							sessionCaseId: null,
+						}),
+						entryCaseKeys: new Map([[OP_A, "new-child-case:visit"]]),
+						suppliedCaseIds: new Map([[OP_A, caseId]]),
+					},
+				}),
+			);
+			expect(refused.rejection).toEqual({
+				kind: "new-case",
+				reason: "case-id-taken",
+				caseId,
+			});
+			expect(
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "visit",
+				}),
+			).toEqual([]);
+			expect(
+				(
+					await dbHandle.pool.query(
+						"SELECT entry_key FROM form_submission_intents WHERE app_id = $1",
+						[APP_ID],
+					)
+				).rows,
+			).toEqual([]);
+		},
+	);
+
 	it("creates every case the entry gives a datum under its own minted id, an advanced open action's extension included", async () => {
 		// An advanced registration: its own case and two visits made as its
 		// extensions, each an open action outside a repeat with a datum of its
@@ -3285,12 +4187,129 @@ describe("the form's own case", () => {
 		expect((await patientRow(store, SESSION_CASE_ID))?.status).toBe("closed");
 	});
 
-	it("saves a write through its index to the case the index reaches, and nothing where none is indexed", async () => {
+	it.each(["parent", "user"] as const)(
+		"saves through the %s index to the linked case",
+		async (identifier) => {
+			const store = makeStore();
+			const HOUSEHOLD_ID = "00000000-0000-7000-8000-00000000dddd";
+			await seedPatient(store, HOUSEHOLD_ID, "The household", {
+				notes: "household",
+			});
+			await seedSessionPatient(store);
+			await submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram([
+					envOp(
+						operation({
+							uuid: OP_A,
+							id: "index_household",
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							links: [
+								{
+									identifier,
+									targetType: "patient",
+									target: {
+										kind: "expression",
+										expr: term(literal(HOUSEHOLD_ID)),
+									},
+									relationship: "child",
+								},
+							],
+						}),
+						{
+							expressionSnapshotTypes: {
+								links: new Map([[0, "patient"]]),
+							},
+						},
+					),
+				]),
+			});
+
+			const viaIndex = (value: string): EnvelopeCaseOperation =>
+				ownOp({
+					writes: [
+						{
+							property: "notes",
+							value: term(literal(value)),
+							via: [{ identifier }],
+						},
+						{ property: "copy", value: term(literal(value)) },
+					],
+				});
+			const withVia = (program: CaseOperationProgram) => ({
+				...program,
+				operations: program.operations.map((entry) =>
+					entry.operation.uuid === OWN_UUID
+						? { ...entry, viaCaseTypes: new Map([[0, "patient"]]) }
+						: entry,
+				),
+			});
+			const request = {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: withVia(ownProgram("followup", [viaIndex("from child")])),
+			};
+			const claim = { ...request, submissionReceipt: receiptFor(request) };
+			const saved = await store.applySubmission(claim);
+			expect(saved.caseDatabasePatch?.rows).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						case_id: HOUSEHOLD_ID,
+						properties: expect.objectContaining({ notes: "from child" }),
+					}),
+				]),
+			);
+			expect((await store.applySubmission(claim)).caseDatabasePatch).toEqual(
+				saved.caseDatabasePatch,
+			);
+			expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject(
+				{
+					notes: "from child",
+				},
+			);
+			expect(
+				(await patientRow(store, SESSION_CASE_ID))?.properties,
+			).toMatchObject({ notes: "original", copy: "from child" });
+
+			const missing = submit(store, {
+				appId: APP_ID,
+				ordinary: { ...followupOrdinary(), caseIds: [HOUSEHOLD_ID] },
+				operations: {
+					...withVia(ownProgram("followup", [viaIndex("nowhere")])),
+					sessionCaseIds: [HOUSEHOLD_ID],
+				},
+			});
+			if (identifier === "user") {
+				expect((await rejection(missing)).rejection).toMatchObject({
+					kind: "target",
+					reason: "missing-connection",
+				});
+				expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toEqual({
+					notes: "from child",
+				});
+			} else {
+				// Preserve the legacy envelope behavior when no signed opening is supplied.
+				await missing;
+				expect(
+					(await patientRow(store, HOUSEHOLD_ID))?.properties,
+				).toMatchObject({
+					notes: "from child",
+					copy: "nowhere",
+				});
+			}
+		},
+	);
+
+	it("saves the name and the owner of the case its index reaches as that case's, and refuses a blank name", async () => {
+		// HQ's build writes `parent/name` and `parent/owner_id` into the parent's
+		// block as its `case_name` and `owner_id` (`XFormCaseBlock.add_case_updates`),
+		// which Core and HQ's server set as the case's name and owner.
 		const store = makeStore();
-		const HOUSEHOLD_ID = "00000000-0000-7000-8000-00000000dddd";
-		await seedPatient(store, HOUSEHOLD_ID, "The household", {
-			notes: "household",
-		});
+		const HOUSEHOLD_ID = "00000000-0000-7000-8000-00000000dde1";
+		await seedPatient(store, HOUSEHOLD_ID, "The household", {});
 		await seedSessionPatient(store);
 		await submit(store, {
 			appId: APP_ID,
@@ -3315,60 +4334,170 @@ describe("the form's own case", () => {
 							},
 						],
 					}),
-					{
-						expressionSnapshotTypes: {
-							links: new Map([[0, "patient"]]),
-						},
-					},
+					{ expressionSnapshotTypes: { links: new Map([[0, "patient"]]) } },
 				),
 			]),
 		});
+		const facets = (name: string, owner: string) =>
+			ownProgram("followup", [
+				{
+					...ownOp({
+						writes: [
+							{
+								property: "case_name",
+								value: term(literal(name)),
+								via: [{ identifier: "parent" }],
+							},
+							{
+								property: "owner_id",
+								value: term(literal(owner)),
+								via: [{ identifier: "parent" }],
+							},
+						],
+					}),
+					viaCaseTypes: new Map([
+						[0, "patient"],
+						[1, "patient"],
+					]),
+				},
+			]);
+		// A blank name is refused as every case name is, and nothing lands.
+		expect(
+			(
+				await rejection(
+					submit(store, {
+						appId: APP_ID,
+						ordinary: followupOrdinary(),
+						operations: facets("   ", "group-a"),
+					}),
+				)
+			).rejection,
+		).toMatchObject({ kind: "text-value", facet: "rename" });
+		expect((await patientRow(store, HOUSEHOLD_ID))?.case_name).toBe(
+			"The household",
+		);
 
-		const viaParent = (value: string): EnvelopeCaseOperation =>
-			ownOp({
-				writes: [
-					{
-						property: "notes",
-						value: term(literal(value)),
-						via: [{ identifier: "parent" }],
-					},
-					{ property: "copy", value: term(literal(value)) },
-				],
-			});
-		const withVia = (program: CaseOperationProgram) => ({
-			...program,
-			operations: program.operations.map((entry) =>
-				entry.operation.uuid === OWN_UUID
-					? { ...entry, viaCaseTypes: new Map([[0, "patient"]]) }
-					: entry,
-			),
-		});
 		await submit(store, {
 			appId: APP_ID,
 			ordinary: followupOrdinary(),
-			operations: withVia(ownProgram("followup", [viaParent("from child")])),
+			operations: facets("  Renamed household ", "group-a"),
 		});
-		expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject({
-			notes: "from child",
-		});
-		expect(
-			(await patientRow(store, SESSION_CASE_ID))?.properties,
-		).toMatchObject({ notes: "original", copy: "from child" });
+		const household = await patientRow(store, HOUSEHOLD_ID);
+		expect(household?.case_name).toBe("Renamed household");
+		expect(household?.owner_id).toBe("group-a");
+		expect(household?.properties).not.toHaveProperty("case_name");
+		expect(household?.properties).not.toHaveProperty("owner_id");
+		const own = await patientRow(store, SESSION_CASE_ID);
+		expect(own?.case_name).not.toBe("Renamed household");
+		expect(own?.owner_id).toBe(ACTOR);
+	});
 
-		// The household itself has no parent index: its write through one
-		// saves nothing, and its own write still lands.
+	it("compares edited answers with the opening leaf and writes to the original authorized parent after a relink", async () => {
+		const store = makeStore();
+		const first = "00000000-0000-7000-8000-000000001001";
+		const second = "00000000-0000-7000-8000-000000001002";
+		await seedSessionPatient(store);
+		await seedPatient(store, first, "First household", { notes: "A" });
+		await seedPatient(store, second, "Second household", { notes: "neighbor" });
+		const link = (target: string) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram([
+					envOp(
+						operation({
+							uuid: OP_A,
+							id: "choose_household",
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							links: [
+								{
+									identifier: "parent",
+									targetType: "patient",
+									relationship: "child",
+									target: { kind: "expression", expr: term(literal(target)) },
+								},
+							],
+						}),
+						{ expressionSnapshotTypes: { links: new Map([[0, "patient"]]) } },
+					),
+				]),
+			});
+		const opening = async () => ({
+			currentOwnerIds: [ACTOR],
+			lookupRows: [],
+			cases: await store.readDeviceCaseDatabase({
+				appId: APP_ID,
+				restoreScope: { ownerIds: [ACTOR] },
+			}),
+		});
+		const missing = await opening();
+		await link(first);
+		const entered = await opening();
+		await link(second);
 		await submit(store, {
 			appId: APP_ID,
-			ordinary: { ...followupOrdinary(), caseIds: [HOUSEHOLD_ID] },
+			ordinary: { ...followupOrdinary(), caseIds: [first] },
 			operations: {
-				...withVia(ownProgram("followup", [viaParent("nowhere")])),
-				sessionCaseIds: [HOUSEHOLD_ID],
+				...ownProgram("followup", [
+					ownOp({ writes: literalWrites({ notes: "B" }) }),
+				]),
+				sessionCaseIds: [first],
 			},
 		});
-		expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject({
-			notes: "from child",
-			copy: "nowhere",
-		});
+		const visit = (value: string, view: OpeningReadSet) => {
+			const own = ownOp({
+				writes: [
+					{
+						property: "notes",
+						via: [{ identifier: "parent" }],
+						value: term(literal(value)),
+						onlyIfChanged: true,
+					},
+					{ property: "copy", value: term(literal(value)) },
+					{ property: "age", value: term(literal("42")), onlyIfChanged: true },
+				],
+			});
+			return submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: {
+					...ownProgram("followup", [
+						{ ...own, viaCaseTypes: new Map([[0, "patient"]]) },
+					]),
+					openingReads: view,
+				},
+			});
+		};
+		await visit("A", entered);
+		expect((await patientRow(store, first))?.properties.notes).toBe("B");
+		await visit("C", entered);
+		expect((await patientRow(store, first))?.properties.notes).toBe("C");
+		expect((await patientRow(store, second))?.properties.notes).toBe(
+			"neighbor",
+		);
+		// The case never saved `age`. A device compares the empty leaf as "",
+		// which differs from "42", so it saves the answer.
+		expect(
+			String((await patientRow(store, SESSION_CASE_ID))?.properties.age),
+		).toBe("42");
+		expect(
+			(await rejection(visit("missing", missing))).rejection,
+		).toMatchObject({ kind: "target", reason: "missing-connection" });
+		await sql`UPDATE cases SET owner_id='other-worker' WHERE app_id=${APP_ID} AND case_id=${first}`.execute(
+			dbHandle.db,
+		);
+		expect(
+			(await rejection(visit("inaccessible", entered))).rejection,
+		).toMatchObject({ kind: "target", reason: "not-found-or-out-of-scope" });
+		expect((await patientRow(store, SESSION_CASE_ID))?.properties.copy).toBe(
+			"C",
+		);
+		// A case this actor's own unsynced submission left on the device is
+		// still the device's to write, though the current restore omits it.
+		await visit("held", { ...entered, submittedCaseIds: [first] });
+		expect((await patientRow(store, first))?.properties.notes).toBe("held");
 	});
 
 	it("saves an only-if-changed write only when the answer differs from the case's value", async () => {
@@ -3421,6 +4550,92 @@ describe("the form's own case", () => {
 			notes: "different",
 			age: 30,
 		});
+	});
+
+	it("saves a rename only when it differs from the name the form opened on, and an owner only when one is given", async () => {
+		// HQ's `edit` on `name` compares the casedb `case_name` with the
+		// answer, and on `owner_id` a leaf a case holds as an attribute, so
+		// "" (`XFormCaseBlock.add_case_updates`, `XPathNodeset.unpack`).
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const entered = {
+			currentOwnerIds: [ACTOR],
+			lookupRows: [],
+			cases: await store.readDeviceCaseDatabase({
+				appId: APP_ID,
+				restoreScope: { ownerIds: [ACTOR] },
+			}),
+		};
+		// Another submission renames the case after this form opened on "Alice".
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: ownProgram("followup", [
+				ownOp({ name: term(literal("Bob")) }),
+			]),
+		});
+		const facets = (name: string, owner: string, flagged: boolean) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: {
+					...ownProgram("followup", [
+						ownOp({
+							name: term(literal(name)),
+							owner: term(literal(owner)),
+							...(flagged && {
+								nameOnlyIfChanged: true as const,
+								ownerOnlyIfChanged: true as const,
+							}),
+						}),
+					]),
+					openingReads: entered,
+				},
+			});
+		// The answer equals the name the form opened on, and the owner is
+		// blank: neither is saved, so the other submission's name stands.
+		await facets("Alice", "", true);
+		let row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.case_name).toBe("Bob");
+		expect(row?.owner_id).toBe(ACTOR);
+		// Saved every time, the same answers rename the case and a blank owner
+		// is refused, as a blank owner always is.
+		expect(
+			(await rejection(facets("Alice", "", false))).rejection,
+		).toMatchObject({ kind: "text-value", facet: "owner" });
+		await facets("Carol", "group-a", true);
+		row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.case_name).toBe("Carol");
+		expect(row?.owner_id).toBe("group-a");
+	});
+
+	it("leaves a new case with no owner where its owner saved only when given is blank", async () => {
+		// HQ's build gives the create block `-` beside an `owner_id` update
+		// (`autoset_owner_id_for_open_case`), which the update's leaf
+		// overwrites only when the answer is given.
+		const store = makeStore();
+		const register = (name: string, owner: string) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: ownProgram("registration", [
+					ownOp({
+						name: term(literal(name)),
+						owner: term(literal(owner)),
+						ownerOnlyIfChanged: true,
+					}),
+				]),
+			});
+		await register("Unowned", "");
+		await register("Owned", "group-a");
+		const patients = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		const byName = new Map(patients.map((one) => [one.case_name, one]));
+		expect(byName.get("Unowned")?.owner_id).toBe("-");
+		expect(byName.get("Owned")?.owner_id).toBe("group-a");
 	});
 
 	it("updates the acting worker's own record through the worker-record target", async () => {
@@ -3499,6 +4714,91 @@ describe("the form's own case", () => {
 		expect(result.caseDatabasePatch?.rows.map((row) => row.case_id)).toEqual([
 			WORKER_RECORD_ID,
 		]);
+
+		// The case type or spelling of a source ID cannot turn another worker’s
+		// record into an eligible target. Exercise each conjunct separately.
+		const writeById = (caseId: string, property = "visits") =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: {
+					...rootProgram(
+						[
+							envOp(
+								operation({
+									uuid: OP_A,
+									id: "update_by_id",
+									action: "update",
+									caseType: USERCASE_CASE_TYPE,
+									target: { kind: "expression", expr: term(literal(caseId)) },
+									writes: [{ property, value: term(literal("3")) }],
+								}),
+								{
+									expressionSnapshotTypes: {
+										target: USERCASE_CASE_TYPE,
+										links: new Map(),
+									},
+								},
+							),
+						],
+						{ sessionCaseId: null },
+					),
+					caseTypeSchemas: workerSchemas,
+				},
+			});
+		expect((await writeById(WORKER_RECORD_ID)).operations).toEqual([
+			expect.objectContaining({ caseId: WORKER_RECORD_ID, executed: true }),
+		]);
+		for (const property of [
+			"hq_user_id",
+			"username",
+			"undeclared_profile_value",
+		]) {
+			expect(
+				(await rejection(writeById(WORKER_RECORD_ID, property))).rejection,
+			).toMatchObject({
+				kind: "target",
+				reason: "managed-worker-record",
+				slot: "write:0",
+			});
+		}
+		const [unchangedProfile] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: USERCASE_CASE_TYPE,
+		});
+		expect(unchangedProfile?.properties).toEqual({
+			hq_user_id: ACTOR,
+			visits: "3",
+		});
+		for (const [owner, profile, status] of [
+			["another-worker", ACTOR, "open"],
+			[ACTOR, "another-worker", "open"],
+			[ACTOR, ACTOR, "closed"],
+		] as const) {
+			const other = await makeStore(PROJECT_A, ACTOR, owner).insert({
+				appId: APP_ID,
+				row: {
+					case_type: USERCASE_CASE_TYPE,
+					case_name: "Other record",
+					status,
+					properties: JSON.stringify({ hq_user_id: profile, visits: "1" }),
+				},
+			});
+			expect(
+				(await rejection(writeById(other.caseId))).rejection,
+			).toMatchObject({
+				kind: "target",
+				reason: "not-found-or-out-of-scope",
+			});
+			const held = await (dbHandle.db as Kysely<Database>)
+				.selectFrom("cases")
+				.select("properties")
+				.where("case_id", "=", other.caseId)
+				.where("app_id", "=", APP_ID)
+				.executeTakeFirstOrThrow();
+			expect(held.properties).toMatchObject({ visits: "1" });
+		}
 	});
 });
 
@@ -3646,7 +4946,9 @@ describe("durable text-only submission receipt", () => {
 			blueprintDigest: "0".repeat(64),
 			requestDigest: "text-registration-request",
 		};
+		const location = { latitude: 12, longitude: -73, altitude: 7, accuracy: 4 };
 		const first = await submit(store, {
+			submissionLocation: location,
 			appId: APP_ID,
 			submissionReceipt: receipt,
 			ordinary: { kind: "registration" },
@@ -3669,6 +4971,7 @@ describe("durable text-only submission receipt", () => {
 				}),
 			]),
 		});
+		expect(first.submissionLocation).toEqual(location);
 		expect(replay).toEqual(first);
 		expect(first.primaryCaseIds).toEqual([expect.any(String)]);
 		const primaryCaseId = first.primaryCaseIds[0];
@@ -4252,4 +5555,355 @@ describe("a date and time saved to a case", () => {
 			expect(row?.properties.seen_at).toBe(stored);
 		},
 	);
+
+	// A date-and-time question saved to a `date` property keeps its day where
+	// the device is (`Recalculate.wrapData` wraps the moment as `DateData`):
+	// late evening in Los Angeles is already the next day in UTC.
+	it.for([
+		["2026-01-02T23:30:00.000", "2026-01-02"],
+		["2026-01-02T23:30:00.000-08:00", "2026-01-02"],
+		["2026-01-03T07:30:00.000Z", "2026-01-02"],
+	] as const)(
+		"stores %s saved to a day as its day in the viewer's zone",
+		async ([answer, stored]) => {
+			const store = makeStore();
+			await seedSessionPatient(store);
+			await submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: {
+					...ownProgram(
+						"followup",
+						[
+							ownOp({
+								writes: [
+									{ property: "seen_on", value: term(formField(SEEN_FIELD)) },
+								],
+							}),
+						],
+						{ formFields: [["seen-at-field", answer]] },
+					),
+					formFieldTypes: new Map([[SEEN_FIELD, "datetime"]]),
+					viewerTimeZone: "America/Los_Angeles",
+				},
+			});
+			const row = await patientRow(store, SESSION_CASE_ID);
+			expect(row?.properties.seen_on).toBe(stored);
+		},
+	);
+});
+
+// ---------------------------------------------------------------
+// The keys CommCare HQ's server stores apart from a case's properties
+// ---------------------------------------------------------------
+
+// HQ's server applies a block's `<update>` key by key
+// (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`):
+// `location_id` sets the case's location column and is no property, and
+// `hq_user_id` is a property whose value it also copies into the external id,
+// after the block's known keys (`external_id` among them). A device applies
+// both as properties alone (`CaseXmlParser.updateCase`), so until its next
+// sync it keeps its own external id. The plausible failures: the location
+// saved as a JSONB property, the copy missing from the stored external id, or
+// the submission's device patch showing the server's copy before a sync.
+describe("location_id and hq_user_id", () => {
+	const update = (writes: CaseOperationWrite[]) =>
+		rootProgram([envOp(operation({ uuid: OP_A, writes }))]);
+	const text = (value: string) => term(literal(value));
+
+	it("stores the location in its column and copies hq_user_id into the external id the device keeps", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		await store.update({
+			appId: APP_ID,
+			caseId: SESSION_CASE_ID,
+			patch: { external_id: "before" },
+		});
+
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: update([
+				{ property: "location_id", value: text("district-7") },
+				{ property: "hq_user_id", value: text("worker-9") },
+			]),
+		});
+
+		const row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.location_id).toBe("district-7");
+		expect(row?.properties).not.toHaveProperty("location_id");
+		expect(row?.properties).toMatchObject({ hq_user_id: "worker-9" });
+		expect(row?.external_id).toBe("worker-9");
+		const patched = result.caseDatabasePatch?.rows.find(
+			(one) => one.case_id === SESSION_CASE_ID,
+		);
+		expect(patched?.external_id).toBe("before");
+		expect(patched?.location_id).toBe("district-7");
+		expect(patched?.properties).toMatchObject({ hq_user_id: "worker-9" });
+
+		const found = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			predicate: eq(prop("patient", "location_id"), literal("district-7")),
+		});
+		expect(found.map((one) => one.case_id)).toEqual([SESSION_CASE_ID]);
+	});
+
+	it("keeps the block's own external_id on the device and the hq_user_id copy on the server", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: update([
+				{ property: "external_id", value: text("written") },
+				{ property: "hq_user_id", value: text("copied") },
+			]),
+		});
+
+		expect((await patientRow(store, SESSION_CASE_ID))?.external_id).toBe(
+			"copied",
+		);
+		expect(
+			result.caseDatabasePatch?.rows.find(
+				(one) => one.case_id === SESSION_CASE_ID,
+			)?.external_id,
+		).toBe("written");
+	});
+
+	it("gives a created case the hq_user_id copy on the server and no external id on the device", async () => {
+		const store = makeStore();
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram(
+				[
+					envOp(
+						operation({
+							uuid: OP_A,
+							action: "create",
+							target: { kind: "new" },
+							name: text("Bea"),
+							writes: [
+								{ property: "hq_user_id", value: text("worker-3") },
+								{ property: "location_id", value: text("") },
+							],
+						}),
+					),
+				],
+				{ sessionCaseId: null },
+			),
+		});
+		const created = result.operations[0]?.caseId;
+		if (created === undefined) throw new Error("The create ran.");
+		const row = await patientRow(store, created);
+		expect(row?.external_id).toBe("worker-3");
+		// A blank location is a real blank write, which reads as blank.
+		expect(row?.location_id).toBe("");
+		const patched = result.caseDatabasePatch?.rows.find(
+			(one) => one.case_id === created,
+		);
+		expect(patched?.external_id).toBeNull();
+	});
+
+	it("rejects a location past 255 characters before any effect", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const err = await rejection(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: update([
+					{ property: "notes", value: text("changed") },
+					{ property: "location_id", value: text("x".repeat(256)) },
+				]),
+			}),
+		);
+		expect(err.rejection).toMatchObject({
+			kind: "text-value",
+			facet: "location_id",
+			reason: "too-long",
+		});
+		const row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.location_id).toBeNull();
+		expect(row?.properties).toMatchObject({ notes: "original" });
+	});
+
+	it("keeps the hq_user_id copy on a parent written through an index, whatever the authored order", async () => {
+		// HQ's build gathers a form's writes through `parent` into one block,
+		// so the copy lands after the block's known `external_id`.
+		const store = makeStore();
+		const parent = "00000000-0000-7000-8000-000000004601";
+		await seedSessionPatient(store);
+		await seedPatient(store, parent, "Household");
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						id: "link_household",
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						links: [
+							{
+								identifier: "parent",
+								targetType: "patient",
+								relationship: "child",
+								target: { kind: "expression", expr: text(parent) },
+							},
+						],
+					}),
+					{ expressionSnapshotTypes: { links: new Map([[0, "patient"]]) } },
+				),
+			]),
+		});
+		const opening = {
+			currentOwnerIds: [ACTOR],
+			lookupRows: [],
+			cases: await store.readDeviceCaseDatabase({
+				appId: APP_ID,
+				restoreScope: { ownerIds: [ACTOR] },
+			}),
+		};
+		const own = ownOp({
+			writes: [
+				{
+					property: "hq_user_id",
+					via: [{ identifier: "parent" }],
+					value: text("worker-7"),
+				},
+				{
+					property: "external_id",
+					via: [{ identifier: "parent" }],
+					value: text("explicit"),
+				},
+			],
+		});
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...ownProgram("followup", [
+					{
+						...own,
+						viaCaseTypes: new Map([
+							[0, "patient"],
+							[1, "patient"],
+						]),
+					},
+				]),
+				openingReads: opening,
+			},
+		});
+		const row = await patientRow(store, parent);
+		expect(row?.external_id).toBe("worker-7");
+		expect(row?.properties).toMatchObject({ hq_user_id: "worker-7" });
+	});
+});
+
+// One choice saved to a list of choices: the writers agree on the list
+// (`ruleSets.ts::isValueStorageAssignable`), and the stored list is the one a
+// device reads from the text it stores, the values split on spaces. The
+// plausible failure: the scalar refused at storage, or stored as one string a
+// several-choice read takes apart differently.
+describe("a single choice saved to a list of choices", () => {
+	it("stores the choice as a one-element list and a blank one as nothing", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store, { notes: "original", meds: ["old"] });
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						writes: [{ property: "meds", value: term(literal("aspirin")) }],
+					}),
+				),
+			]),
+		});
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({ meds: ["aspirin"] });
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						writes: [{ property: "meds", value: term(literal("")) }],
+					}),
+				),
+			]),
+		});
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).not.toHaveProperty("meds");
+	});
+});
+
+it("resolves a dynamic create type from this submission and rolls back an invalid declared range", async () => {
+	const store = makeStore();
+	const create: TargetedCaseOperation = {
+		uuid: OP_A,
+		id: "op_a",
+		action: "create",
+		caseType: "patient",
+		target: { kind: "new" },
+		name: term(literal("Case selected at submit")),
+		writes: literalWrites({ notes: "same saved property" }),
+		typeChoice: {
+			condition: eq(formField(FLAG_FIELD), literal("patient")),
+			otherwise: "narrow",
+		},
+	};
+	const request = (type: string, other = "narrow") => ({
+		appId: APP_ID,
+		ordinary: { kind: "none" } as const,
+		operations: rootProgram(
+			[
+				envOp({
+					...create,
+					typeChoice: {
+						condition: eq(formField(FLAG_FIELD), literal("patient")),
+						otherwise: other,
+					},
+				}),
+			],
+			{ sessionCaseId: null, formFields: [[FLAG_FIELD, type]] },
+		),
+	});
+	const valid = request("narrow");
+	const invalid = request("narrow", "unknown");
+	const receipt = receiptFor(valid);
+	await expect(
+		store.applySubmission({ ...invalid, submissionReceipt: receipt }),
+	).rejects.toMatchObject({
+		rejection: {
+			kind: "expression",
+			reason: "invalid-value",
+			slot: "case type",
+		},
+	});
+	const result = await store.applySubmission({
+		...valid,
+		submissionReceipt: receipt,
+	});
+	expect(result.caseDatabasePatch?.rows).toEqual([
+		expect.objectContaining({
+			case_type: "narrow",
+			properties: { notes: "same saved property" },
+		}),
+	]);
+	expect(
+		await store.applySubmission({ ...valid, submissionReceipt: receipt }),
+	).toEqual(result);
+	const direct = await submit(store, request("patient"));
+	expect(direct.caseDatabasePatch?.rows[0]?.case_type).toBe("patient");
 });

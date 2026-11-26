@@ -61,15 +61,14 @@ because that decides what the condition can use. It is not the same for every
 item.
 
 **A module's condition** is checked on the app's home screen, before anyone opens
-a module or picks a case. There is no case yet, so the condition can use fixed
-values and information about the person signed in, not case information.
+a module or picks a case. It can use the worker's sign-in information, the worker's saved record, data tables, and counts of cases available on that device. For example, you can show **Household visits** when at least one household is available.
 
 **A form's condition** is checked wherever people choose that form, and that
 depends on the module it sits in:
 
 - If **every form in the module opens an existing case**, people pick the case
   first. Nova checks the condition straight afterwards, for the case they
-  picked, so the condition can read that case's own information. The module
+  picked, so the condition can read that case and follow its connections. The module
   then lists its forms, even when it holds only one, and a form whose
   condition the case does not match is left off that list.
 - If **any form in the module starts a new case** (or collects a plain survey),
@@ -80,10 +79,7 @@ depends on the module it sits in:
   that form list, where there is no case yet, so it can use fixed values and
   information about the person signed in.
 
-The editor only offers what the condition can actually use at that point, so
-you cannot build a rule that reads information CommCare will not have. On a
-form checked for an already-chosen case, that case's own information is
-available; information from connected cases, and counts of them, is not.
+**Worker record** reads information saved on the person's own record. **Sign-in information** reads the values the device received for this session. Choose the source that holds the value your rule uses. A worker's team may be supplied at sign-in, while the date they finished training may be saved on their record.
 
 A date can be compared with before or after. A time of day can't: CommCare
 compares these as numbers and a time is not one, so the condition would never
@@ -126,3 +122,11 @@ data away from people.
 **Always show** removes the condition and confirms what that changes before it
 does, from the settings row or from the condition screen. The item then appears
 every time. Like every other edit in the builder, you can undo it.
+
+## Add a badge beside an item
+
+Open the module or form settings and find **Menu badge**. Enter a short label, such as “New”, or choose **Use a calculation** to show a value such as the number of outstanding visits. A text badge has a translation for each app language. **Remove badge** clears it from the menu.
+
+In Preview, choose the platform your workers use. Web Apps shows the full badge. Android leaves a zero or empty value off the menu. A longer integer such as 1234 shows as “999+”, and longer words are shortened.
+
+Badges are a feature of CommCare HQ's Advanced and Enterprise plans. When you publish an app that has one, Nova asks you to confirm that the project space's plan includes them. Without them, people editing the app in CommCare HQ can't change its badges.

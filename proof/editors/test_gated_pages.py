@@ -117,6 +117,38 @@ def test_the_case_list_page_offers_the_advanced_search_controls_only_under_the_f
     }, found
 
 
+def test_case_list_save_preserves_checkbox_options_starting_value_and_search_for_blank(hq, core_runner, editor_driver):
+    document = corpus_document("prompt-checkboxes")
+    minimum = document.exports["minimum"].configuration.hq()
+    assert ADVANCED in minimum.flags
+    with _published(document, minimum) as (state, app_id):
+        module = _searching_module(state, app_id)
+        def definition(current):
+            field = next(item for item in current.search_config.properties if item.name == "regions")
+            name = next(item for item in current.search_config.properties if item.name == "first_name")
+            return field.input_, field.default_value, field.itemset.to_json(), name.allow_blank_value
+        before = definition(module)
+        assert before[0] == "checkbox" and before[1] and before[2]["nodeset"] and before[3] is True
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        after = definition(operations.held_app(state, app_id).get_module_by_unique_id(module.unique_id))
+        assert after == before
+
+
+def test_case_list_page_keeps_fixed_and_calculated_starting_dates(hq, core_runner, editor_driver):
+    document = corpus_document("prompt-periods")
+    with _published(document, document.exports["minimum"].configuration.hq()) as (state, app_id):
+        module = _searching_module(state, app_id)
+        def ranges(current):
+            return [(field.name, field.default_value) for field in current.search_config.properties if field.input_ == "daterange"]
+        before = ranges(module)
+        assert [name for name, _ in before] == ["period", "visit_date"]
+        assert "__range__2024-01-01__2024-12-31" in before[0][1] and "2024-03-10" in before[1][1]
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        assert ranges(operations.held_app(state, app_id).get_module_by_unique_id(module.unique_id)) == before
+
+
 def test_the_case_list_page_offers_related_cases_only_under_related_lookups(hq, core_runner, editor_driver):
     document = corpus_document("search-multiple")
     minimum = document.exports["minimum"].configuration.hq()
@@ -151,3 +183,53 @@ def test_a_case_list_save_drops_a_custom_tile_under_case_list_tile_alone_and_kee
             after = operations.held_app(state, app_id).modules[0].case_details.short
             found[name] = after.case_tile_template
     assert found == {"both": "custom", "tile alone": None}, found
+
+
+def test_named_independent_order_survives_the_case_list_page_save(hq, core_runner, editor_driver):
+    document = corpus_document("targeted-independent-case-order")
+    minimum = document.exports["minimum"].configuration.hq()
+    flag = "SORT_CALCULATION_IN_CASE_LIST"
+    assert flag in minimum.flags
+    for active in (True, False):
+        flags = minimum.flags if active else minimum.flags - {flag}
+        with _published(document, _with_flags(minimum, flags)) as (state, app_id):
+            module = operations.held_app(state, app_id).modules[0]
+            offered = _offered(editor_driver, state, app_id, module.unique_id,
+                               {"order calculation": 'input[data-bind="value: sortCalculation"]'})
+            assert offered["order calculation"] is active
+            saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+            assert saved.save is not None and saved.save.status == 200 and not saved.refused, saved.alerts
+            short = operations.held_app(state, app_id).modules[0].case_details.short
+            assert len(short.columns) == 1
+            assert [(row.field or "", row.sort_calculation or "", row.type) for row in short.sort_elements] == [
+                ("", "appointment_number" if active else "", "int"), ("name", "", "plain"),
+            ]
+            if active:
+                assert short.sort_elements[0].display["en"] == "Appointment number"
+
+
+def test_case_tile_save_keeps_extra_sort_choices_in_menu_order_and_cases_in_rule_order(hq, core_runner, editor_driver):
+    from corehq.apps.app_manager.models.case_list import SortElement
+    from lxml import etree
+
+    document = corpus_document("targeted-custom-tile")
+    with _published(document, document.exports["minimum"].configuration.hq()) as (state, app_id):
+        app = operations.held_app(state, app_id)
+        module = app.modules[0]
+        rows = [("phone", "descending", "Phone"), ("notes", "ascending", "Notes"), ("phone", "descending", "Phone")]
+        module.case_details.short.sort_elements = [
+            SortElement(field=field, type="plain", direction=direction, blanks="first", display={"en": label})
+            for field, direction, label in rows
+        ]
+        app.save()
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+        assert saved.save is not None and saved.save.status == 200 and not saved.refused, saved.alerts
+        app = operations.held_app(state, app_id)
+        short = app.modules[0].case_details.short
+        assert [(r.field, r.direction, r.display["en"]) for r in short.sort_elements] == rows
+        source = app.create_suite()
+        root = etree.fromstring(source.encode("utf-8") if isinstance(source, str) else source)
+        fields = root.xpath('./detail[@id="m0_case_short"]/field[sort/@order]')
+        assert [(field.find("sort").get("order"), field.xpath("sort/text/xpath/@function")) for field in fields] == [
+            ("3", ["phone"]), ("2", ["notes"]),
+        ]

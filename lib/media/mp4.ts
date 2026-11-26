@@ -15,7 +15,14 @@
  * end, and never a sample. Its verdict follows WebM's order of checks: sound
  * only first, then several videos, then another track, then audio codecs,
  * then the video codec.
+ *
+ * The file is read by position (`randomAccess.ts`): each box's header, a
+ * handler's type, and each track's whole sample description, which holds the
+ * codec settings. The sample tables and the media are never read, so a
+ * video of any length is judged from a few kilobytes.
  */
+
+import type { RandomAccessBytes } from "./randomAccess";
 
 export type Mp4VariantKey =
 	| "mp4-h264-baseline"
@@ -326,45 +333,105 @@ function audioCodec(
 
 interface Track {
 	readonly handler: string;
-	/** The one sample entry, or `several` when the track holds more than one. */
-	readonly entry: Box | "several";
+	/** The one sample entry, inside its sample description's bytes, or `several` when the
+	 *  track holds more than one. */
+	readonly entry:
+		| { readonly box: Box; readonly view: DataView; readonly bytes: Uint8Array }
+		| "several";
 }
 
 const SEVERAL_ENCODINGS = "several encodings in one track";
 
-function track(view: DataView, bytes: Uint8Array, trak: Box): Track {
-	const mdia = child(view, bytes, trak, "mdia");
-	const hdlr = mdia && child(view, bytes, mdia, "hdlr");
+/** The longest sample description Nova reads: a track's codec settings take a few hundred bytes. */
+export const MP4_SAMPLE_DESCRIPTION_MAX_BYTES = 1024 * 1024;
+
+/** The boxes inside `[start, end)` of the file, each held inside it, read by their headers. */
+async function boxesAt(
+	source: RandomAccessBytes,
+	start: number,
+	end: number,
+): Promise<Box[]> {
+	const found: Box[] = [];
+	let at = start;
+	while (at + 8 <= end) {
+		const header = await source.read(at, 16);
+		const view = new DataView(
+			header.buffer,
+			header.byteOffset,
+			header.byteLength,
+		);
+		let size = view.getUint32(0);
+		const type = fourcc(header, 4);
+		let length = 8;
+		if (size === 1) {
+			if (at + 16 > end)
+				throw new Unreadable("a box runs past the end of the file");
+			size = view.getUint32(8) * 2 ** 32 + view.getUint32(12);
+			length = 16;
+		} else if (size === 0) {
+			size = end - at;
+		}
+		if (size < length || at + size > end) {
+			throw new Unreadable("a box runs past the end of the file");
+		}
+		found.push({ type, start: at + length, end: at + size });
+		at += size;
+	}
+	return found;
+}
+
+async function childAt(
+	source: RandomAccessBytes,
+	parent: Box,
+	type: string,
+): Promise<Box | undefined> {
+	return (await boxesAt(source, parent.start, parent.end)).find(
+		(box) => box.type === type,
+	);
+}
+
+/** A track's handler and its one sample entry, read out of its sample description. */
+async function track(source: RandomAccessBytes, trak: Box): Promise<Track> {
+	const mdia = await childAt(source, trak, "mdia");
+	const hdlr = mdia && (await childAt(source, mdia, "hdlr"));
 	if (mdia === undefined || hdlr === undefined || hdlr.start + 12 > hdlr.end) {
 		throw new Unreadable("a track has no handler");
 	}
-	const handler = fourcc(bytes, hdlr.start + 8);
-	const minf = child(view, bytes, mdia, "minf");
-	const stbl = minf && child(view, bytes, minf, "stbl");
-	const stsd = stbl && child(view, bytes, stbl, "stsd");
+	const handler = fourcc(await source.read(hdlr.start + 8, 4), 0);
+	const minf = await childAt(source, mdia, "minf");
+	const stbl = minf && (await childAt(source, minf, "stbl"));
+	const stsd = stbl && (await childAt(source, stbl, "stsd"));
 	if (stsd === undefined || stsd.start + 8 > stsd.end) {
 		throw new Unreadable("a track has no sample description");
 	}
-	const count = view.getUint32(stsd.start + 4);
+	if (stsd.end - stsd.start > MP4_SAMPLE_DESCRIPTION_MAX_BYTES) {
+		throw new Unreadable(
+			"a track's sample description is longer than Nova reads",
+		);
+	}
+	const bytes = await source.read(stsd.start, stsd.end - stsd.start);
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const count = view.getUint32(4);
 	if (count !== 1) return { handler, entry: "several" };
-	const [entry] = boxes(view, bytes, stsd.start + 8, stsd.end);
+	const [entry] = boxes(view, bytes, 8, bytes.byteLength);
 	if (entry === undefined)
 		throw new Unreadable("a track has no sample description");
-	return { handler, entry };
+	return { handler, entry: { box: entry, view, bytes } };
 }
 
 /** Read an MP4's tracks and say which variant it is, or why it is none. */
-export function readMp4(bytes: Uint8Array): Mp4Reading {
-	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+export async function readMp4(source: RandomAccessBytes): Promise<Mp4Reading> {
 	try {
-		const moov = boxes(view, bytes, 0, bytes.byteLength).find(
+		const moov = (await boxesAt(source, 0, source.size)).find(
 			(box) => box.type === "moov",
 		);
 		if (moov === undefined)
 			return { kind: "unreadable", detail: "no movie header" };
-		const tracks = boxes(view, bytes, moov.start, moov.end)
-			.filter((box) => box.type === "trak")
-			.map((trak) => track(view, bytes, trak));
+		const tracks: Track[] = [];
+		for (const trak of (await boxesAt(source, moov.start, moov.end)).filter(
+			(box) => box.type === "trak",
+		))
+			tracks.push(await track(source, trak));
 		const videos = tracks.filter((t) => t.handler === "vide");
 		const audios = tracks.filter((t) => t.handler === "soun");
 		const other = tracks.find(
@@ -379,7 +446,7 @@ export function readMp4(bytes: Uint8Array): Mp4Reading {
 			const codec =
 				audio.entry === "several"
 					? SEVERAL_ENCODINGS
-					: audioCodec(view, bytes, audio.entry);
+					: audioCodec(audio.entry.view, audio.entry.bytes, audio.entry.box);
 			if (codec !== undefined)
 				return { kind: "codec", codec, accepted: MP4_AUDIO_ADVICE };
 		}
@@ -390,7 +457,11 @@ export function readMp4(bytes: Uint8Array): Mp4Reading {
 				accepted: MP4_VIDEO_ADVICE,
 			};
 		}
-		const verdict = videoEntry(view, bytes, video.entry);
+		const verdict = videoEntry(
+			video.entry.view,
+			video.entry.bytes,
+			video.entry.box,
+		);
 		return verdict.kind === "variant"
 			? verdict
 			: { kind: "codec", codec: verdict.codec, accepted: MP4_VIDEO_ADVICE };

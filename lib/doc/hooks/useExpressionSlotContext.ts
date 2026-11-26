@@ -3,6 +3,7 @@
 import { useCallback, useMemo } from "react";
 import type {
 	BlueprintDoc,
+	CalculatedSort,
 	CaseOperation,
 	Column,
 	Field,
@@ -20,9 +21,14 @@ import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 
 /** A whole pending entity; partial source/type patches cannot invent context. */
 export type ExpressionSlotCandidate =
+	| {
+			readonly entity: "detail-tab";
+			readonly value: import("@/lib/domain/detailTabs").DetailTab;
+	  }
 	| { readonly entity: "field"; readonly value: Field }
 	| { readonly entity: "search-input"; readonly value: SearchInputDef }
 	| { readonly entity: "column"; readonly value: Column }
+	| { readonly entity: "case-sort"; readonly value: CalculatedSort }
 	| { readonly entity: "case-operation"; readonly value: CaseOperation }
 	| { readonly entity: "form-link"; readonly value: FormLink };
 
@@ -35,6 +41,36 @@ export function expressionCandidateDoc(
 ): BlueprintDoc | undefined {
 	if (candidate === undefined) return doc;
 	const value = candidate.value;
+	if (candidate.entity === "detail-tab") {
+		if (
+			slot.entity !== "module" ||
+			!("member" in slot) ||
+			!("tabUuid" in slot.member) ||
+			slot.member.tabUuid !== candidate.value.uuid
+		)
+			return undefined;
+		const module = doc.modules[slot.uuid];
+		const list = module?.caseListConfig;
+		if (!list) return undefined;
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[slot.uuid]: {
+					...module,
+					caseListConfig: {
+						...list,
+						detailTabs: [
+							...(list.detailTabs ?? []).filter(
+								(tab) => tab.uuid !== candidate.value.uuid,
+							),
+							candidate.value,
+						],
+					},
+				},
+			},
+		};
+	}
 	if (candidate.entity === "field") {
 		if (
 			slot.entity !== "field" ||
@@ -43,6 +79,34 @@ export function expressionCandidateDoc(
 		)
 			return undefined;
 		return { ...doc, fields: { ...doc.fields, [slot.uuid]: candidate.value } };
+	}
+	if (candidate.entity === "case-sort") {
+		if (
+			slot.entity !== "module" ||
+			slot.slot !== "case_list_sort_expression" ||
+			slot.member.sortUuid !== candidate.value.uuid
+		)
+			return undefined;
+		const mod = doc.modules[slot.uuid];
+		const config = mod?.caseListConfig;
+		if (!config) return undefined;
+		const other =
+			config.calculatedSorts?.filter(
+				(rule) => rule.uuid !== candidate.value.uuid,
+			) ?? [];
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[slot.uuid]: {
+					...mod,
+					caseListConfig: {
+						...config,
+						calculatedSorts: [...other, candidate.value],
+					},
+				},
+			},
+		};
 	}
 	if (candidate.entity === "column" || candidate.entity === "search-input") {
 		if (slot.entity !== "module" || !("member" in slot)) return undefined;

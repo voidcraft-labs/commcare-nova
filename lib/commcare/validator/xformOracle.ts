@@ -1108,10 +1108,17 @@ function checkMediaValues(
 		(el) => el.name === "value",
 	)) {
 		const form = getAttributeValue(valueEl, "form");
-		// Media values carry one of the three image/audio/video forms. The plain
-		// `<value>` (no form) is the text translation; markdown / vellum forms
-		// are non-media and out of scope here.
-		if (form !== "image" && form !== "audio" && form !== "video") continue;
+		// Media values carry one of the image/audio/video/video-inline forms
+		// (`xform.py::VALID_VALUE_FORMS`'s media). The plain `<value>` (no form)
+		// is the text translation; markdown / vellum forms are non-media and out
+		// of scope here.
+		if (
+			form !== "image" &&
+			form !== "audio" &&
+			form !== "video" &&
+			form !== "video-inline"
+		)
+			continue;
 
 		const refText = readElementText(valueEl);
 		if (refText === "") continue;

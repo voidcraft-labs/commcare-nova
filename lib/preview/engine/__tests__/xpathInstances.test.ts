@@ -62,7 +62,7 @@ function context(instances: ReadonlyMap<string, XPathInstance>) {
 	};
 }
 
-function regionsLookup() {
+function regionsLookup(tag = "regions") {
 	const tableId = lookupTableIdSchema.parse(
 		"11111111-1111-7111-8111-111111111111",
 	);
@@ -78,7 +78,7 @@ function regionsLookup() {
 			{
 				id: tableId,
 				name: "Regions",
-				tag: "regions",
+				tag,
 				definitionRevision: parseLookupRevision("1"),
 				columns: [
 					{
@@ -123,6 +123,41 @@ describe("Preview structural XPath instances", () => {
 		expect(evaluate("count(instance('casedb')/casedb/case/@state)", ctx)).toBe(
 			0,
 		);
+	});
+
+	it("projects the case's location column as its location_id property where it holds text", () => {
+		// CommCare HQ's restore writes the column back as the case's `location_id`
+		// element only where it holds text (`V2CaseXMLGenerator.add_custom_properties`).
+		const instance = caseDatabaseXPathInstance(
+			{
+				rows: [
+					row({ case_id: "placed", location_id: "district-7" }),
+					row({ case_id: "blank", location_id: "" }),
+					row({ case_id: "none" }),
+				],
+				indices: [],
+			},
+			[],
+		);
+		const ctx = context(new Map([["casedb", instance]]));
+		expect(
+			evaluate(
+				"instance('casedb')/casedb/case[@case_id='placed']/location_id",
+				ctx,
+			),
+		).toBe("district-7");
+		expect(
+			evaluate(
+				"count(instance('casedb')/casedb/case[@case_id='blank' or @case_id='none']/location_id)",
+				ctx,
+			),
+		).toBe(0);
+		expect(
+			evaluate(
+				"count(instance('casedb')/casedb/case[location_id = 'district-7'])",
+				ctx,
+			),
+		).toBe(1);
 	});
 
 	it("projects the device casedb attributes, properties, and parent index", () => {
@@ -448,7 +483,7 @@ describe("Preview structural XPath instances", () => {
 			),
 			answers: new Map([["patient_name", "Zzz"]]),
 			sessionData: { case_id: "household-1" },
-			lookupData: regionsLookup(),
+			lookupData: regionsLookup("search-input"),
 		});
 		const ctx = context(instances);
 
@@ -467,7 +502,7 @@ describe("Preview structural XPath instances", () => {
 		).toBe("household-1");
 		expect(
 			evaluate(
-				"instance('item-list:regions')/regions_list/regions[value='north']/name",
+				"instance('item-list:search-input')/search-input_list/search-input[value='north']/name",
 				ctx,
 			),
 		).toBe("Northern");

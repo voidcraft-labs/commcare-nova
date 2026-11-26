@@ -30,8 +30,26 @@ describe("columnCardSchemas — defaultValue parses through schema", () => {
 			if (value === undefined) throw new Error(`expected ${kind} seed`);
 			expect(() => columnSchema.parse(value)).not.toThrow();
 			const { doc, moduleUuid } = admittedWorkspace([...ctx.caseTypes]);
+			/* A worker's distance runs on Android alone, and a map layer draws
+			 * over a location the list holds. */
+			if (kind === "worker-distance")
+				doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+			const location = columnCardSchemas["map-location"].defaultValue(ctx);
+			const prerequisite =
+				kind === "map-layer" && location !== undefined
+					? [
+							{
+								kind: "addColumn" as const,
+								moduleUuid,
+								column: location,
+								afterInList: null,
+								afterInDetail: null,
+							},
+						]
+					: [];
 			expect(
 				commitWorkspace(doc, [
+					...prerequisite,
 					{
 						kind: "addColumn",
 						moduleUuid,

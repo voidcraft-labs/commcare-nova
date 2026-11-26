@@ -43,10 +43,12 @@ import {
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	idMappingColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
 import { concat, literal, term } from "@/lib/domain/expression";
+import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import type { HqLocationType } from "../../hq/locations";
 import {
 	targetWireIdentity,
@@ -363,6 +365,9 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 						plainColumn(uuid(2), "phone", "Phone"),
 						plainColumn(uuid(3), "phone", "Phone again"),
 						phoneColumn(uuid(4), "phone", "Call"),
+						idMappingColumn(uuid(5), "notes", "Area", [
+							{ value: "a", label: "Area A" },
+						]),
 					],
 					{
 						searchInputs: [
@@ -384,10 +389,44 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 							},
 						],
 						search: {},
+						list: {
+							calculatedSorts: [
+								{
+									uuid: uuid(20),
+									expression: term(literal("a")),
+									direction: "asc",
+									priority: 0,
+									label: "Priority",
+								},
+							],
+							detailTabs: [
+								{ uuid: uuid(21), title: "Patient", startColumnUuid: uuid(1) },
+								{ uuid: uuid(22), title: "Contact", startColumnUuid: uuid(4) },
+							],
+							// Two filters on one request key, which count apart.
+							searchFilters: [
+								{
+									uuid: uuid(11),
+									target: { kind: "owner" },
+									value: term(literal("worker-a")),
+								},
+								{
+									uuid: uuid(12),
+									target: { kind: "owner" },
+									value: term(literal("worker-b")),
+								},
+							],
+						},
 					},
 				),
 		},
 	"a deep link to a menu, its case list and a form": { doc: entryPoints },
+	"two choices from one list, an automatic record and a value made at entry": {
+		doc: () => independentChoicesBlueprint("parity-independent-choices"),
+	},
+	"values two opening records and the form's own record give its questions": {
+		doc: () => independentChoicesBlueprint("parity-opening-values", true),
+	},
 	"two links to one menu, a link to a form and a link otherwise": {
 		doc: () =>
 			buildShape(
@@ -414,6 +453,7 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 				),
 		},
 		input: {
+			sourceProjectFactories: { locations: "flat" },
 			organization: {
 				levelCodes: LEVELS.map((one) => one.code),
 				levels: LEVELS,
@@ -508,14 +548,14 @@ const RETAINED_READ: readonly string[] = [
 
 /**
  * Retained app sources holding content Nova does not hold, with the finding
- * that says so: a mirror form, and a report menu and a visit schedule. Each
+ * that says so: a report menu beside a shared form, and a report menu beside a visit schedule. Each
  * is held to its account; one that comes to read moves to `RETAINED_READ`.
  */
 const RETAINED_ACCOUNT: readonly [string, () => RetainedHqAnswer, string][] = [
 	[
 		"reading/source-shadow",
 		() => retainedReadingRead("source-shadow"),
-		"forms-and-case-writes/shadowform",
+		"menus-and-case-lists/reportmodule-mobile-ucr-and-all-of-report-configs",
 	],
 	[
 		"hq-built/app-source",

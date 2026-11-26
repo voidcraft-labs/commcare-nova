@@ -35,9 +35,15 @@ export function guardedLinkDatums(
 	doc: BlueprintDoc,
 	sourceFormUuid: Uuid,
 	link: Pick<MayNotRunLink, "target" | "datums">,
+	routeMenuUuid?: Uuid,
 ): readonly FormLinkDatum[] {
 	if (link.datums === undefined) return [];
-	const target = resolveFormLinkTarget(doc, sourceFormUuid, link.target);
+	const target = resolveFormLinkTarget(
+		doc,
+		sourceFormUuid,
+		link.target,
+		routeMenuUuid,
+	);
 	if (target === undefined) return [];
 	const scalar = new Set(
 		formLinkTargetSupplies(doc, target)

@@ -129,6 +129,7 @@ describe("case-schema lifecycle and drift repair", () => {
 				    app_name_lower = ${desired.appName.toLowerCase()},
 				    case_types = ${JSON.stringify(desired.caseTypes)}::jsonb,
 				    app_settings = ${JSON.stringify(desired.appSettings)}::jsonb,
+				    connect_roles = '{}',
 				    module_count = ${desired.moduleOrder.length},
 				    form_count = 0,
 				    mutation_seq = 2

@@ -82,6 +82,14 @@ export function servedHqApp(
 	for (const [name, text] of Object.entries(attachments))
 		if (typeof text === "string" && name.endsWith(".xml"))
 			attachments[name] = xml(text);
+	return summarizeServedHqApp(body);
+}
+
+/** Build the application read from the actual source held by a test's HQ peer. */
+export function summarizeServedHqApp(
+	body: Body,
+	remoteAppId?: string,
+): ServedHqApp {
 	const parsed = parseHqAppSource(body);
 	if (parsed.kind !== "source")
 		throw new Error(`The emission is no source (${JSON.stringify(parsed)}).`);
@@ -91,7 +99,8 @@ export function servedHqApp(
 		(held) => ({
 			...held,
 			name: body.name,
-			version,
+			version: body.version,
+			...(remoteAppId && { id: remoteAppId }),
 			modules: parsed.source.modules.map((menu, i) => ({
 				case_properties: [],
 				case_type: menu.caseType,

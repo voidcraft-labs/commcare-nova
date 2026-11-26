@@ -4,6 +4,7 @@ import {
 	slotContext,
 } from "@/lib/domain/expression/context";
 import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import type { PreviewLookupData } from "./lookupEvaluation";
 
 /** Runtime expressions use the exact document slot and held Project snapshot. */
@@ -18,7 +19,7 @@ export function previewExpressionContext(
 		new Map(
 			(lookup?.definitions ?? []).map((table) => [
 				table.id,
-				new Map(table.columns.map((column) => [column.id, column.dataType])),
+				lookupReadTypes(table),
 			]),
 		),
 	);

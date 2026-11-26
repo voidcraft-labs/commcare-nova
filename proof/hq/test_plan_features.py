@@ -62,11 +62,20 @@ NOVA_LABELS = {
     "cloudcare": "Web-Based Apps (CloudCare)",
     "user_case": "Worker records (user cases)",
     "lookup_tables": "Lookup Tables",
+    "templated_intents": "Built-in Integration",
+    "custom_intents": "External Integration Framework",
     "child_cases": "Child Cases",
+    "case_sharing_groups": "Case Sharing via Groups",
     "form_link_workflow": "Link to other forms in End of Form Navigation",
     "save_to_case": "Save to Case",
+    "locked_admin_questions": "Locked Admin Questions",
     "locations": "Locations",
     "data_forwarding": "Data Forwarding",
+    "app_dependencies": "App Dependencies",
+    "geocoder": "Geocoder",
+    "build_profiles": "Build Profiles",
+    "practice_mobile_workers": "Practice mode for mobile workers",
+    "custom_icon_badges": "Add text or xpath based custom icon badges to menus and forms",
 }
 
 

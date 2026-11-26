@@ -44,6 +44,7 @@
 		"expressions-and-data/xpath-location-paths",
 		"expressions-and-data/xpath-operators-and-literals",
 		"forms-and-case-writes/a-writer-question-with-no-case-preload-update-only",
+		"forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held",
 		"forms-and-case-writes/case-preload-question-property-into-a-question-outside-any",
 		"forms-and-case-writes/case-references-data-load",
 		"forms-and-case-writes/conditionalcaseupdate-update-mode-edit",

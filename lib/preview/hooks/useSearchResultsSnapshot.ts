@@ -118,12 +118,14 @@ export function searchResultsSnapshotKey(args: {
 	readonly ready: boolean;
 	readonly appId: string | undefined;
 	readonly moduleUuid: Uuid | undefined;
+	readonly formUuid?: Uuid;
 	readonly caseType: string | undefined;
 	readonly searchState: PreviewSearchState | undefined;
 	readonly personaUuid: string | undefined;
 	readonly parentCase: ParentCaseSelection | undefined;
 	readonly deviceValues: SubmissionValuesState;
 	readonly retries: number;
+	readonly configurationRevision?: string;
 }): string | undefined {
 	const completed =
 		args.searchState?.kind === "completed" ? args.searchState : undefined;
@@ -139,8 +141,10 @@ export function searchResultsSnapshotKey(args: {
 	return JSON.stringify([
 		args.appId,
 		args.moduleUuid,
+		args.formUuid,
 		args.caseType,
 		completed.submission,
+		completed.resultReceipt,
 		completed.answers,
 		completed.registeredCaseId ?? null,
 		args.personaUuid ?? null,
@@ -149,6 +153,7 @@ export function searchResultsSnapshotKey(args: {
 			? (args.deviceValues.value ?? null)
 			: null,
 		args.retries,
+		args.configurationRevision,
 	]);
 }
 
@@ -158,6 +163,7 @@ export function useSearchResultsSnapshot(args: {
 	readonly appId: string | undefined;
 	readonly doc: BlueprintDoc;
 	readonly moduleUuid: Uuid | undefined;
+	readonly formUuid?: Uuid;
 	readonly searchState: PreviewSearchState | undefined;
 	readonly parentCase?: ParentCaseSelection;
 	readonly caseTypes: readonly CaseType[];
@@ -205,12 +211,14 @@ export function useSearchResultsSnapshot(args: {
 		ready: args.enabled && accessPhase === "authorized",
 		appId: args.appId,
 		moduleUuid: args.moduleUuid,
+		formUuid: args.formUuid,
 		caseType: module?.caseType,
 		searchState: args.searchState,
 		personaUuid,
 		parentCase: args.parentCase,
 		deviceValues,
 		retries,
+		configurationRevision: device.searchConfiguration?.revision,
 	});
 	/* The latest inputs, read when a load starts; the key alone decides
 	 * whether one starts. */
@@ -259,13 +267,23 @@ export function useSearchResultsSnapshot(args: {
 			appId: input.appId,
 			caseType: mod.caseType,
 			moduleUuid: input.moduleUuid,
+			formUuid: input.formUuid,
 			blueprint: toRscSerializableDoc(input.doc),
 			caseListConfig: mod.caseListConfig,
 			excludedOwnerIdsExpression: mod.caseSearchConfig?.excludedOwnerIds,
 			/* After the case list registration form registers a case, the search is that
 			 * one case, as the wire's return frame keys it. */
 			...(search.registeredCaseId === undefined
-				? { inputValues: { ...search.answers } }
+				? {
+						inputValues: { ...search.answers },
+						/* Web Apps history can issue a new query past the list after the
+						 * worker changed its answers. That new query had no served page. */
+						...(!search.rerunPastList && {
+							searchSubmission: search.submission,
+							resultReceipt: search.resultReceipt,
+						}),
+						...(search.automatic === true && { defaultSearch: true }),
+					}
 				: { caseIds: [search.registeredCaseId] }),
 			...(input.parentCase === undefined
 				? {}

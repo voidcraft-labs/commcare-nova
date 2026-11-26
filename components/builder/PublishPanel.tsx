@@ -89,10 +89,13 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
  * where, so the toast shows those lines rather than a generic "failed".
  */
 async function downloadArtifact(opts: {
+	installationProfileUuid?: string;
 	appId: string;
 	server?: CommCareServer;
 	/** The project space a CCZ is made for; the import file takes none. */
 	domain?: string;
+	privateData?: boolean;
+	manualLookupInstaller?: boolean;
 	endpoint: string;
 	/** Noun for the failure toast, e.g. `"the .ccz file"` / `"the JSON file"`. */
 	fileLabel: string;
@@ -114,8 +117,13 @@ async function downloadArtifact(opts: {
 			// project space.
 			body: JSON.stringify({
 				appId: opts.appId,
+				...(opts.installationProfileUuid && {
+					installationProfileUuid: opts.installationProfileUuid,
+				}),
 				...(opts.server ? { server: opts.server } : {}),
 				...(opts.domain ? { domain: opts.domain } : {}),
+				...(opts.privateData && { privateData: true }),
+				...(opts.manualLookupInstaller && { manualLookupInstaller: true }),
 			}),
 			signal: opts.signal,
 		});
@@ -156,9 +164,26 @@ async function downloadArtifact(opts: {
 		const manualImportGuide = decodeManualImportGuide(
 			res.headers.get(MANUAL_IMPORT_GUIDE_HEADER),
 		);
-		const blob = await res.blob();
-		if (!opts.isCurrent()) return { ok: false };
-		triggerBlobDownload(blob, opts.filename);
+		if (res.headers.get("Content-Type")?.startsWith("application/json")) {
+			const body = await res.json();
+			if (!opts.isCurrent()) return { ok: false };
+			const id = body?.artifact?.id;
+			if (
+				typeof id !== "string" ||
+				!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(id)
+			)
+				throw new Error(
+					"Nova could not open this download. You can prepare the file again.",
+				);
+			const link = document.createElement("a");
+			link.href = `/api/compile/downloads/${id}`;
+			link.download = opts.filename;
+			link.click();
+		} else {
+			const blob = await res.blob();
+			if (!opts.isCurrent()) return { ok: false };
+			triggerBlobDownload(blob, opts.filename);
+		}
 		return {
 			ok: true,
 			projectSpaceCompatibility,
@@ -309,6 +334,7 @@ export const PublishPanel = memo(function PublishPanel() {
 
 	const handleDownloadCcz = useCallback(
 		async (target: {
+			readonly installationProfileUuid?: string;
 			readonly server: CommCareServer;
 			readonly domain: string;
 		}): Promise<PublishDownloadOutcome> => {
@@ -321,6 +347,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				appId: s.appId,
 				server: target.server,
 				domain: target.domain,
+				installationProfileUuid: target.installationProfileUuid,
 				endpoint: "/api/compile",
 				fileLabel: "the .ccz file",
 				filename: `${s.appName || "app"}.ccz`,
@@ -332,12 +359,17 @@ export const PublishPanel = memo(function PublishPanel() {
 	const handleDownloadJson = useCallback(
 		async (
 			downloadServer?: CommCareServer,
+			domain?: string,
+			privateData?: boolean,
 		): Promise<PublishDownloadOutcome> => {
 			const s = docStore?.getState();
 			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
 			return runDownload({
 				appId: s.appId,
 				server: downloadServer,
+				domain,
+				...(privateData && { privateData: true }),
+				manualLookupInstaller: canEdit,
 				endpoint: "/api/compile/json",
 				fileLabel: "the CommCare HQ import file",
 				// The import file is always a ZIP: the app, its companions, and the
@@ -345,7 +377,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				filename: `${s.appName || "app"}.zip`,
 			});
 		},
-		[docStore, runDownload],
+		[canEdit, docStore, runDownload],
 	);
 
 	const loadProjectSpaceCompatibility = useCallback(

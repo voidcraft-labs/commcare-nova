@@ -47,6 +47,14 @@ its own, because neither would open anything useful: Android would show a menu
 with nothing in it, and Web Apps the app's first screen. Link to a form inside
 the module instead, or show the module on the menu again.
 
+## Link to the same form through another menu
+
+A form listed under two menus can have a different link for each route. Give the second menu a link, then choose the form under that menu when creating its link. Workers see that menu’s case list. In Web Apps, this link follows the form’s display conditions. The form’s original link keeps its own settings. Android opens deep links without checking those conditions.
+
+These links need the menu that owns the form to have a case type: CommCare HQ can't save the settings of a menu that lists the forms of a menu without one and holds its own form links. For a form in a menu without a case type, you can give the form its link in the menu that owns it instead.
+
+Hiding the form in the second menu pauses its link. Showing it there again restores the same link ID. Removing the second menu’s own link also pauses its form links. You can still find them in **Deep links**.
+
 ## Try it in Preview
 
 Choose a Preview worker and the required cases, then open the entry point.
@@ -85,3 +93,26 @@ checked, and a later release can change its behavior.
 
 If you change or remove an entry point, publish and release the updated app
 before expecting the change on CommCare HQ.
+
+
+## Supply IDs for new cases
+
+A form can accept a new case ID from its link. In **Deep links**, choose the form and use **IDs for new cases** to choose the case creations the link can name. You can leave a creation unchecked to let the form generate its ID.
+
+When trying the link in Preview, enter a fresh ID for each chosen creation. The form sees that ID as soon as it opens. Submitting creates the case with that ID. An ID already used in the app or supplied twice needs a replacement before the form can open. If another submission takes the ID while the form is open, Nova keeps the existing case and asks for a new ID.
+
+Generating an HQ link uses the case IDs in the destination project space. Adding or removing a supplied ID changes what callers must provide. Publish and release that choice before sharing a replacement link.
+
+On Android, a visit a deep link opens ends with its first form. Whether the
+worker submits that form or presses Back, CommCare returns to the app that
+opened the link, and the form's after-submit setting doesn't run. The next
+visit starts fresh. Preview's Android device shows the phone's home screen
+then.
+
+A link to a menu or a case list keeps the visit going until a form ends it.
+Pressing Back there returns to the first menu with the first record the link
+supplied still selected. A menu that asks for that record under the same name
+then opens without asking again, as Preview's Android device shows.
+
+In Web Apps, Back returns to a fresh first menu, and a submitted form follows
+its after-submit setting.

@@ -20,6 +20,7 @@ import { getCaseOperationsTool } from "@/lib/agent/tools/case-operations/getCase
 import { getFieldTool } from "@/lib/agent/tools/getField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
 import { getModuleTool } from "@/lib/agent/tools/getModule";
+import { fixedSearchRangeDates } from "@/lib/doc/expressionText";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
@@ -53,6 +54,7 @@ const RECORD_SLOTS = [
 	"module_display_condition",
 	"case_list_filter",
 	"case_list_column_expression",
+	"case_list_mapping_condition",
 	"search_button_display_condition",
 	"excluded_owner_ids",
 	"search_input_default",
@@ -147,9 +149,11 @@ async function printsOf(document: CorpusDocument, doc: BlueprintDoc) {
 		const [root, ...rest] = path;
 		return root === "displayCondition"
 			? at(authored, ["display_condition"])
-			: root === "caseListConfig"
-				? at(authored, ["case_list_config", ...rest])
-				: at(authored, ["case_search_config", ...rest]);
+			: root === "caseListRegistrationForm"
+				? at(authored, ["caseListRegistrationForm", ...rest])
+				: root === "caseListConfig"
+					? at(authored, ["case_list_config", ...rest])
+					: at(authored, ["case_search_config", ...rest]);
 	};
 	const owners: ExpressionCarrierRef[] = [
 		...doc.moduleOrder.map((uuid) => ({ entity: "module" as const, uuid })),
@@ -219,8 +223,16 @@ it("prints every record slot of the published documents as its read tool prints 
 	const differing: string[] = [];
 	for (const { document, doc } of publishedDocuments()) {
 		const { prints } = await printsOf(document, doc);
-		for (const { ref, production, judge } of prints) {
+		for (const { ref, expression, production, judge } of prints) {
 			seen.add(ref.slot);
+			// A date range's fixed starting pair reads back as the pair the
+			// editors take, not as text (`readContract.test.ts` holds its round
+			// trip), so no record scope prints it.
+			if (
+				ref.slot === "search_input_default" &&
+				fixedSearchRangeDates(expression) !== undefined
+			)
+				continue;
 			if (production !== judge)
 				differing.push(
 					`${document.id} ${ref.slot}: read ${JSON.stringify(production)}, judge ${JSON.stringify(judge)}`,

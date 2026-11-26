@@ -8,6 +8,7 @@
  * Each placement is a proposal judged by Nova's own emission of the menu's
  * rows (`expressions/searchRows.ts::matchSearchRows`).
  */
+
 import type {
 	BlueprintDoc,
 	Expression,
@@ -19,7 +20,9 @@ import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { literalInstantMicros } from "@/lib/domain/expression/instantOperand";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import {
 	isRelationPath,
 	type RelationPath,
@@ -32,10 +35,16 @@ import {
 import {
 	effectiveCaseSearchConfig,
 	moduleFormsReadSearch,
+	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type SearchInputMode,
 	type SimpleSearchInputDef,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import {
+	readsSearchField,
+	replaceCaseConditions,
+	searchConditionOf,
+} from "@/lib/domain/searchConditions";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { advancedFormLoads } from "../../advancedSelections";
@@ -65,11 +74,12 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import type { ClaimSite } from "../accounting";
 import { withCandidate } from "../candidate";
 import { sameState } from "../caseList/details";
-import { type Claim, defineClaims, refuse, take } from "../claims";
+import { type Claim, defineClaims, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { canonicalExpression } from "../expressions/canonical";
 import type { ComparedType } from "../expressions/comparedTypes";
 import {
+	holdsHqConvertedComparison,
 	type SearchRowRuntimeClass,
 	searchRowRuntimeClasses,
 } from "../expressions/csqlRead";
@@ -109,19 +119,19 @@ export const ROWS_HELD = `${S}several-xpath-query-rows`;
 export const MARKERS_HELD = `${S}default-properties-entries-keyed-include-closed-or-x-commcare`;
 
 export const ROW_CLAIMS = defineClaims("search.rows", {
-	readsMatchedField: refuse(
+	readsMatchedField: take(
 		`${S}xpath-query-row-reading-a-field-hq-also-matches`,
-		"schema:CaseSearch.default_properties",
+		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
-	readsExcludedField: refuse(
+	readsExcludedField: take(
 		`${S}xpath-query-row-reading-an-excluded-field-outside-its-presence-guard`,
-		"schema:CaseSearch.default_properties",
+		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
-	noSlot: refuse(
+	noSlot: take(
 		`${S}xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s`,
-		"schema:CaseSearch.default_properties",
+		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
-	unrestated: refuse(
+	unrestated: take(
 		`${S}case-list-filter-clause-the-search-does-not-restate`,
 		"schema:Detail.filter",
 	),
@@ -138,6 +148,16 @@ const PRESENCE_CLAIMS = defineClaims("search.rows.presence", {
 /** The surface use a row's presence test makes (`surfaceUses.ts::csqlUses`), which the row's
  *  value holds, not its key. */
 const PRESENCE_USE = "csql-key:_xpath_query";
+
+/** A held row's comparison HQ's search runs by its own conversion of the value, which Nova's own
+ *  rules would type otherwise (`csqlRead.ts::holdsHqConvertedComparison`): a part of the row's
+ *  value claimed beside the row's own claim. */
+const CONVERTED_CLAIMS = defineClaims("search.rows.converted", {
+	converted: take(
+		`${S}xpath-query-condition-outside-what-nova-types`,
+		ROW_VALUE,
+	),
+});
 
 /** What a held row works out on the device, each class a part of the row's value claimed beside
  *  the row's own claim (`csqlRead.ts::searchRowRuntimeClasses`). */
@@ -328,6 +348,32 @@ const SCALAR_MODES: readonly (SearchInputMode | undefined)[] = [
 	{ kind: "exact" },
 ];
 
+/**
+ * Whether a simple field's type admits the type the app's writers give the property it matches
+ * (`SEARCH_INPUT_TYPE_PROPERTY_TYPES`, at the relation's destination, the table the gate refuses
+ * Nova's own matching by): a condition a field of another type would derive to is Nova's
+ * comparison of a value the property does not hold, so the field keeps its condition.
+ */
+function typeFitsProperty(
+	doc: BlueprintDoc,
+	caseType: string,
+	candidate: SimpleSearchInputDef,
+): boolean {
+	const allowed = SEARCH_INPUT_TYPE_PROPERTY_TYPES[candidate.type];
+	if (allowed === undefined) return true;
+	const caseTypes = effectiveCaseTypes(doc);
+	const destination = resolveRelationDestination(
+		candidate.via,
+		caseType,
+		caseTypes,
+	);
+	if (!destination.ok) return true;
+	const type = caseTypes
+		.find((one) => one.name === destination.caseType)
+		?.properties.find((one) => one.name === candidate.property)?.data_type;
+	return type === undefined || allowed.includes(type);
+}
+
 /** The simple field whose derivation, in `doc`'s own types, is `conjunct`, for the visible field
  *  `input` it waits for; undefined where no property, path and mode derive it. The two trees are
  *  compared as the field's condition slot prints them (`canonicalExpression` there): a derivation
@@ -346,6 +392,11 @@ function derivedField(
 	)
 		return undefined;
 	if (input.kind === "hidden") return undefined;
+	// A field that lets the worker search for blank sends the blank beside its answer, which a
+	// derived condition reads as part of the answer: Nova's gate holds no simple field matched
+	// through a condition that searches for blank (`searchForBlankRefusal`), so the field keeps its
+	// condition as it reads.
+	if (input.allowBlank === true) return undefined;
 	const context = moduleExpressionContexts(
 		doc,
 		moduleUuid,
@@ -394,6 +445,7 @@ function derivedField(
 				...(mode !== undefined && { mode }),
 			} as SimpleSearchInputDef;
 			if (!simpleArmNeedsXPathQueryEmission(candidate)) continue;
+			if (!typeFitsProperty(doc, caseType, candidate)) continue;
 			let derived: Expression;
 			try {
 				derived = deriveSimpleArmPredicate(candidate, caseType, context);
@@ -521,10 +573,9 @@ export function derivedConditionsAreSimpleFields(
  * row `match-none()` and none of its other conditions (`xpathQuery.ts::composeXPathQueryClauses`),
  * so every simple field it derives a row for reads as an advanced field, every advanced field's
  * condition as none, the list filter as the list's own filter a device reads prints it (its Search
- * fields unanswered, `deviceFilter`), and, where a field's condition sent the row, the first
- * advanced field holds it (`classifySearchRows`, which places a row that reads no field on the
- * first field it can), or the filter does on a menu whose forms read the search where joining it
- * leaves what a device prints there as it was.
+ * fields unanswered, `deviceFilter`), and the search condition as `match-none`, whichever source
+ * sent the row: it reads no field, so it is a condition on the whole search
+ * (`classifySearchRows`, kind F), and the search condition is the list's where the two are one.
  */
 export function searchesThatFindNothingAsRead(doc: BlueprintDoc): BlueprintDoc {
 	let out = doc;
@@ -534,29 +585,20 @@ export function searchesThatFindNothingAsRead(doc: BlueprintDoc): BlueprintDoc {
 		const conjuncts = emittedSearchConjuncts(out, moduleUuid);
 		const [only, ...more] = conjuncts;
 		if (only?.kind !== "match-none" || more.length > 0) continue;
-		const fromFilter =
-			effectiveFilterForEmission(config.filter)?.kind === "match-none";
 		// No row of the filter's is sent, so it prints only as a device reads
 		// it, its Search fields unanswered.
 		const device = deviceFilter(config.filter);
-		// On a menu whose forms read the search a row that reads no field joins
-		// the filter first, where a device's list filter prints the same with
-		// it joined (`classifySearchRows`, kind F).
-		const module = out.modules[moduleUuid];
-		const ownsFilter =
-			module !== undefined &&
-			moduleFormsReadSearch(module) &&
-			!listLoadedByAdvancedForm(out, moduleUuid) &&
-			joinKeepsDeviceFilter(device, { kind: "match-none" });
 		const next = withCandidate(out, (draft) => {
 			const list = draft.modules[moduleUuid]?.caseListConfig;
 			const inputs = list?.searchInputs;
 			if (list === undefined || inputs === undefined) return;
-			if (device === undefined) delete list.filter;
-			else list.filter = device;
-			if (!fromFilter && ownsFilter)
-				setFilter(draft as BlueprintDoc, moduleUuid, { kind: "match-none" });
-			let holder = fromFilter || ownsFilter;
+			// The one row reads no field, so it is the search condition's
+			// (`classifySearchRows`, kind F), whichever source sent it; the list a
+			// device runs keeps its own condition.
+			replaceCaseConditions(list, {
+				listCondition: device ?? null,
+				searchCondition: { kind: "match-none" },
+			});
 			inputs.forEach((input, at) => {
 				const excluded =
 					input.kind === "advanced" ||
@@ -577,9 +619,8 @@ export function searchesThatFindNothingAsRead(doc: BlueprintDoc): BlueprintDoc {
 				inputs[at] = {
 					...rest,
 					kind: "advanced",
-					predicate: { kind: holder ? "match-all" : "match-none" },
+					predicate: { kind: "match-all" },
 				} as SearchInputDef;
-				holder = true;
 			});
 		});
 		if (!sameJson(next, out)) out = next;
@@ -875,6 +916,70 @@ export function fieldConditionsReadingNoFieldAreTheFilters(
 	return out;
 }
 
+/**
+ * The reader's canonical choice `search-field-conditions-reading-no-field-are-the-search-s`: a
+ * top-level conjunct of an advanced Search field's condition that reads no Search field
+ * (`searchConditions.ts::readsSearchField`), and the same conjunct as the search condition's last
+ * clause, the field's condition all records where it held nothing else. Nova writes every field's
+ * conjunct that reads no field with the search condition's rows, ahead of every field's
+ * (`xpathQuery.ts::composeXPathQueryClauses`), so both print one request, and the reader returns
+ * the search condition's (`classifySearchRows`, kind F): such a conjunct is a condition on the whole
+ * search, which an author sees there. The list a device runs keeps its own condition. A move is
+ * taken only where the search's rows come out the same.
+ */
+export function fieldConditionsReadingNoFieldAreTheSearchs(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	let out = doc;
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = out.modules[moduleUuid];
+		const config = module?.caseListConfig;
+		if (
+			module === undefined ||
+			config === undefined ||
+			effectiveCaseSearchConfig(module) === undefined
+		)
+			continue;
+		const [only, ...more] = emittedSearchConjuncts(out, moduleUuid);
+		if (only?.kind === "match-none" && more.length === 0) continue;
+		const moved = withCandidate(out, (draft) => {
+			const list = draft.modules[moduleUuid]?.caseListConfig;
+			if (list === undefined) return;
+			let search = searchConditionOf(list);
+			for (const input of list.searchInputs) {
+				if (input.kind !== "advanced") continue;
+				const own = topLevel(effectiveFilterForEmission(input.predicate));
+				const wide = own.filter((clause) => !readsSearchField(clause));
+				if (wide.length === 0) continue;
+				for (const clause of wide) search = joinedFilter(search, clause);
+				const [head, ...rest] = own.filter((clause) =>
+					readsSearchField(clause),
+				);
+				input.predicate =
+					head === undefined
+						? { kind: "match-all" }
+						: rest.length === 0
+							? head
+							: { kind: "and", clauses: [head, ...rest] };
+			}
+			if (search !== undefined)
+				replaceCaseConditions(list, { searchCondition: search });
+		});
+		if (
+			!sameJson(
+				moved.modules[moduleUuid]?.caseListConfig,
+				out.modules[moduleUuid]?.caseListConfig,
+			) &&
+			sameJson(
+				emittedSearchConjuncts(moved, moduleUuid),
+				emittedSearchConjuncts(out, moduleUuid),
+			)
+		)
+			out = moved;
+	}
+	return out;
+}
+
 /** `filter` with `clause` joined as its last top-level conjunct, as `setFilter` joins it. */
 function joinedFilter(
 	filter: Expression | undefined,
@@ -923,6 +1028,29 @@ function deviceFilter(filter: Expression | undefined): Expression | undefined {
  *  the list the case list stage reads, which a row restates (kind B). */
 function waitsForFields(clause: Expression): boolean {
 	return deviceFilter(clause) === undefined;
+}
+
+/** Whether the module's list filter type-checks in its own slot: a filter both the list and the
+ *  search read takes a device's rules as well as HQ's, so a comparison only HQ's search runs by
+ *  converting its value (`searchIndexedComparison`) stays the search condition's alone. */
+function typesAsListFilter(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	naming: ReturnType<typeof readProjectionInputs>["lookupNaming"],
+): boolean {
+	const filter = doc.modules[moduleUuid]?.caseListConfig?.filter;
+	if (filter === undefined) return true;
+	try {
+		const context = moduleExpressionContexts(
+			doc,
+			moduleUuid,
+			naming,
+		)({ slot: "case_list_filter" });
+		return checkExpression(filter, context).errors.length === 0;
+	} catch (error) {
+		rethrowWorkStop(error);
+		return false;
+	}
 }
 
 /** Whether an advanced form loads a case from `moduleUuid`'s list. */
@@ -1705,6 +1833,22 @@ function claimRowKey(
 	);
 }
 
+/** The detail's own expression and its intact scope are established before search
+ * rows settle. Record the different request at the same detail source pointer. */
+function takeUnrestatedDetail(ctx: ReadContext, module: DraftModule): void {
+	for (const index of ctx.pending.of("module", module.uuid)) {
+		const registration = ctx.pending.list()[index];
+		if (
+			registration?.key !== "schema:Detail.filter" ||
+			registration.ref.slot !== "case_list_filter"
+		)
+			continue;
+		const { at } = ctx.pending.site(index);
+		if ("json" in at)
+			at.json.takePart(at.key, "independent-search", ROW_CLAIMS.unrestated);
+	}
+}
+
 export function classifySearchRows(
 	ctx: ReadContext,
 	module: DraftModule,
@@ -1736,7 +1880,6 @@ export function classifySearchRows(
 	// Whether a row could not be read: a list clause it restates is then not known to go unrestated.
 	let unread = false;
 	// Whether the search's own filter joined to the list is declared.
-	let joinRecorded = false;
 	// Each conjunct read as a simple field's derivation, with its record's place.
 	const derivations: { input: Uuid; conjunct: Expression; at: number }[] = [];
 	// Each conjunct read as a field's own condition where the list filter could also take it,
@@ -1757,19 +1900,11 @@ export function classifySearchRows(
 		// where the source's search finds every case of the type and HQ applies the filter to the
 		// device's list alone (`remote_requests.py::_build_datum_nodeset`). No clause is restated.
 		const unrestated = listClauses.map((_, index) => index);
-		if (input.formsReadSearch)
-			sameState(
-				ctx,
-				ROWS_HELD,
-				`${module.json.pointer}/search_config/default_properties`,
-				"search-restates-list-filter",
-			);
-		else
-			ctx.accounting.finding(ROW_CLAIMS.unrestated, {
-				kind: "case-list",
-				menu: module.index,
-				name: place.kind === "search" ? place.name : "",
-			});
+		ctx.doc = withCandidate(doc, (draft) => {
+			const config = draft.modules[module.uuid]?.caseListConfig;
+			if (config) replaceCaseConditions(config, { searchCondition: null });
+		});
+		takeUnrestatedDetail(ctx, module);
 		return { conjuncts, unrestated };
 	}
 	// The fields some row reads: a row that reads a field is that field's (its derivation or its own
@@ -1783,7 +1918,7 @@ export function classifySearchRows(
 		for (const row of input.rows) {
 			const read = readSearchRowConjuncts(
 				row.text,
-				contexts({ slot: "case_list_filter" }),
+				contexts({ slot: "case_search_filter" }),
 				{ ...env, doc },
 			);
 			if (read.ok)
@@ -1813,7 +1948,7 @@ export function classifySearchRows(
 		const contexts = moduleExpressionContexts(doc, module.uuid, naming);
 		let read = readSearchRowConjuncts(
 			row.text,
-			contexts({ slot: "case_list_filter" }),
+			contexts({ slot: "case_search_filter" }),
 			{ ...env, doc },
 		);
 		// A row the list filter's slot does not admit can be an advanced field's own condition,
@@ -1896,6 +2031,17 @@ export function classifySearchRows(
 		for (const [part, claim] of Object.entries(RUNTIME_CLAIMS))
 			if (classes.has(part as SearchRowRuntimeClass))
 				row.cursor.takePart("defaultValue", part, claim);
+		const rowContext = contexts({ slot: "case_search_filter" });
+		if (
+			read.conjuncts.some((one) =>
+				holdsHqConvertedComparison(one, rowContext, read.types),
+			)
+		)
+			row.cursor.takePart(
+				"defaultValue",
+				"hq-converted-comparison",
+				CONVERTED_CLAIMS.converted,
+			);
 		claimUses();
 		for (const id of read.rewrites) rowRewrites.add(id);
 		if (read.respelled) selectionRespelled = true;
@@ -2101,6 +2247,41 @@ export function classifySearchRows(
 				/** The derivation the candidate reads as its field's condition again. */
 				undoes?: (typeof derivations)[number];
 			}[] = [];
+			// The field an earlier row read as a simple field's derivation, read as its condition
+			// again with this conjunct joined: a condition one of whose conjuncts a simple field
+			// derives is no simple field.
+			const undoing = (
+				derivation: (typeof derivations)[number],
+			): (typeof candidates)[number] => ({
+				from: "field",
+				input: derivation.input,
+				undoes: derivation,
+				doc: withCandidate(doc, (draft) => {
+					const inputs =
+						draft.modules[module.uuid]?.caseListConfig?.searchInputs;
+					const at =
+						inputs?.findIndex((one) => one.uuid === derivation.input) ?? -1;
+					const entry = inputs?.[at];
+					if (inputs === undefined || entry?.kind !== "simple") return;
+					const {
+						property: _property,
+						via: _via,
+						mode: _mode,
+						...rest
+					} = entry as SimpleSearchInputDef;
+					inputs[at] = {
+						...rest,
+						kind: "advanced",
+						predicate: derivation.conjunct,
+					} as SearchInputDef;
+					setPredicate(
+						draft as BlueprintDoc,
+						module.uuid,
+						derivation.input,
+						conjunct,
+					);
+				}),
+			});
 			// A field that holds no condition (a simple or a hidden one) takes no conjunct: a
 			// candidate that changes nothing is no placement.
 			const fieldCandidate = (field: PromptReading) =>
@@ -2125,28 +2306,13 @@ export function classifySearchRows(
 				setFilter(draft as BlueprintDoc, module.uuid, conjunct),
 			);
 			const listHolds = deviceRunsList(doc, filterDoc, module.uuid);
-			// Every clause of the list filter is also a clause a device prints in the list's own
-			// filter (`caseList.ts::projectCaseListFilter`), so a row joins it ahead of a field only
-			// where that print stays the stored one.
-			const filterJoinKeepsList = () => {
-				const before = listFilterText(ctx, doc, module.uuid);
-				const after = listFilterText(ctx, filterDoc, module.uuid);
-				return (
-					before !== undefined &&
-					after !== undefined &&
-					(before === "" || after === ""
-						? before === after
-						: sameXPathText(before, after))
-				);
-			};
 			const filterCandidate = () => {
 				if (listHolds) candidates.push({ from: "filter", doc: filterDoc });
 			};
 			// The excluded advanced fields that can take a condition, those that hold none yet first
-			// and of those first the ones no row reads, each group in `properties` order. Nova writes one row per top-level conjunct of each
-			// field's condition, field after field, so a run of rows that read no field prints the
-			// same whichever of the fields holds each: each row is its own field's where the fields
-			// allow it.
+			// and of those first the ones no row reads, each group in `properties` order: the holders
+			// of a conjunct that reads another field outside its guard, and of a row only a field's
+			// slot admits. A conjunct that reads no field is the search's own (below).
 			const holders = () => {
 				const all = input.prompts.filter(
 					(field) =>
@@ -2216,48 +2382,20 @@ export function classifySearchRows(
 					? derivations.filter((one) => one.input === firstPrompt?.uuid)
 					: derivations) {
 					if (conjuncts[derivation.at]?.placement.kind !== "C") continue;
-					candidates.push({
-						from: "field",
-						input: derivation.input,
-						undoes: derivation,
-						doc: withCandidate(doc, (draft) => {
-							const inputs =
-								draft.modules[module.uuid]?.caseListConfig?.searchInputs;
-							const at =
-								inputs?.findIndex((one) => one.uuid === derivation.input) ?? -1;
-							const entry = inputs?.[at];
-							if (inputs === undefined || entry?.kind !== "simple") return;
-							const {
-								property: _property,
-								via: _via,
-								mode: _mode,
-								...rest
-							} = entry as SimpleSearchInputDef;
-							inputs[at] = {
-								...rest,
-								kind: "advanced",
-								predicate: derivation.conjunct,
-							} as SearchInputDef;
-							setPredicate(
-								draft as BlueprintDoc,
-								module.uuid,
-								derivation.input,
-								conjunct,
-							);
-						}),
-					});
+					candidates.push(undoing(derivation));
 				}
 			} else {
-				// A conjunct that reads no field: the search's own filter (F) on a menu whose forms
-				// read the search, then the condition of an excluded field, which may read no field.
-				// A join that changes what the list's own filter prints comes after every field, and
-				// one the device's list filter reads otherwise than HQ's search is no join
-				// (`joinReadsAlike`).
-				const joins = ownsFilter && joinReadsAlike(conjunct, doc, caseType);
-				const keeps = joins && filterJoinKeepsList();
-				if (keeps) filterCandidate();
-				for (const field of holders()) fieldCandidate(field);
-				if (joins && !keeps) filterCandidate();
+				// A conjunct that reads no field is a condition on the whole search, never on a field
+				// (`searchConditions.ts::readsSearchField`): the search's own filter joined to the list
+				// filter (F) on a menu whose forms read the search, where the device's list filter reads
+				// it as HQ's search does (`joinReadsAlike`), and else the search condition alone (F,
+				// below). Nova writes every field's conjunct that reads no field with the search
+				// condition's rows, ahead of the fields' (`xpathQuery.ts::composeXPathQueryClauses`),
+				// so a reading of Nova's export gives the search condition again, and a source that
+				// holds such a row after a field's is written in Nova's order
+				// (`search-filter-rows-recut`), which finds the same cases.
+				if (ownsFilter && joinReadsAlike(conjunct, doc, caseType))
+					filterCandidate();
 			}
 			// A conjunct that reads a field outside its presence guard is no condition Nova prints in
 			// either slot (the gate's `searchInputRefUsesWhenInputPresent`), so neither candidate holds it.
@@ -2279,13 +2417,6 @@ export function classifySearchRows(
 				(chosen === undefined || chosen.from === "filter");
 			if (joinsFilter) {
 				doc = chosen?.doc ?? filterDoc;
-				sameState(
-					ctx,
-					ROWS_HELD,
-					`${module.json.pointer}/case_details/short/filter`,
-					"search-filter-joined-to-list",
-				);
-				joinRecorded = true;
 				record({ kind: "F" });
 				continue;
 			}
@@ -2321,20 +2452,20 @@ export function classifySearchRows(
 				});
 				continue;
 			}
-			// An unguarded read of an excluded field alone is the excluded field's own entry: HQ's
-			// matcher does not compare that field, and the row compares a blank while it is unanswered.
-			const claim = reads.every((one) => one.presence)
-				? ROW_CLAIMS.noSlot
-				: unguarded.length > 0 &&
-						unguarded.every(
-							(uuid) =>
-								input.prompts.find((one) => one.uuid === uuid)?.exclude ===
-								true,
-						)
-					? ROW_CLAIMS.readsExcludedField
-					: ROW_CLAIMS.readsMatchedField;
-			ctx.accounting.finding(claim, place);
-			record({ kind: "E", entry: claim.entry });
+			// An independent server condition owns a matched or excluded
+			// prompt's value without changing its own matching behavior.
+			const claim =
+				unguarded.length === 0
+					? ROW_CLAIMS.noSlot
+					: unguarded.every(
+								(uuid) =>
+									input.prompts.find((one) => one.uuid === uuid)?.exclude ===
+									true,
+							)
+						? ROW_CLAIMS.readsExcludedField
+						: ROW_CLAIMS.readsMatchedField;
+			row.cursor.takePart("defaultValue", "independent-condition", claim);
+			record({ kind: "F" });
 		}
 	}
 
@@ -2488,62 +2619,67 @@ export function classifySearchRows(
 			break;
 		}
 	}
-	// The search's own filter joined to the list changes the list a device runs, whichever placement
-	// joined it, so the change is declared from the settled menu: wherever a conjunct is kind F, or
-	// the list filter a device runs prints otherwise than it did.
-	const listChanged = () => {
-		const before = listFilterText(ctx, start, module.uuid);
-		const after = listFilterText(ctx, doc, module.uuid);
-		return (
-			before !== undefined &&
-			after !== undefined &&
-			(before === "" || after === ""
-				? before !== after
-				: !sameXPathText(before, after))
-		);
-	};
-	if (
-		!joinRecorded &&
-		(conjuncts.some((one) => one.placement.kind === "F") || listChanged())
-	)
-		sameState(
-			ctx,
-			ROWS_HELD,
-			`${module.json.pointer}/case_details/short/filter`,
-			"search-filter-joined-to-list",
-		);
-
+	// Only a field-owned conjunct can be supplied by its prompt. Every
+	// remaining conjunct stays with the ordered online request. Restore
+	// the original detail even when a candidate tested a joined spelling.
+	const requestConditions = conjuncts.filter(
+		(one) =>
+			one.placement.kind === "B" ||
+			one.placement.kind === "F" ||
+			(one.placement.kind === "D" && one.placement.from === "filter"),
+	);
+	const requestCondition = requestConditions.reduce<Expression | undefined>(
+		(result, one) => joinedFilter(result, one.predicate),
+		undefined,
+	);
 	const unrestated = listClauses.flatMap((_, index) =>
 		restated.has(index) ? [] : [index],
 	);
-	// A search that sends `match-none()` finds nothing, and Nova sends no other row beside it
-	// (`xpathQuery.ts::composeXPathQueryClauses`), so a list clause it leaves out restates nothing.
-	const findsNothing = conjuncts.some(
-		(one) => one.predicate.kind === "match-none",
-	);
-	if (unrestated.length > 0 && !unread && !findsNothing) {
-		if (input.formsReadSearch)
-			sameState(
-				ctx,
-				ROWS_HELD,
-				`${module.json.pointer}/search_config/default_properties`,
-				"search-restates-list-filter",
-			);
-		else
-			ctx.accounting.finding(ROW_CLAIMS.unrestated, {
-				kind: "case-list",
-				menu: module.index,
-				name: place.kind === "search" ? place.name : "",
-			});
-	}
-
+	// The list's filter, in the spelling a restating row gave a clause of it where that prints
+	// the stored filter (kind B), where every row restated it.
+	const listNow = doc.modules[module.uuid]?.caseListConfig?.filter;
+	const combined = withCandidate(doc, (draft) => {
+		const config = draft.modules[module.uuid]?.caseListConfig;
+		if (config)
+			replaceCaseConditions(config, { filter: requestCondition ?? null });
+	});
+	const originally = listFilterText(ctx, start, module.uuid);
+	const shared = listFilterText(ctx, combined, module.uuid);
+	doc =
+		// Every row restates the list and every clause of the list is restated: the one filter
+		// both send, in the list's own spelling.
+		requestConditions.length > 0 &&
+		requestConditions.every((one) => one.placement.kind === "B") &&
+		listClauses.length > 0 &&
+		unrestated.length === 0 &&
+		!unread
+			? withCandidate(doc, (draft) => {
+					const config = draft.modules[module.uuid]?.caseListConfig;
+					if (config)
+						replaceCaseConditions(config, { filter: listNow ?? null });
+				})
+			: originally !== undefined &&
+					shared !== undefined &&
+					(originally === shared ||
+						(originally !== "" &&
+							shared !== "" &&
+							sameXPathText(originally, shared))) &&
+					(typesAsListFilter(combined, module.uuid, naming) ||
+						!typesAsListFilter(start, module.uuid, naming))
+				? combined
+				: withCandidate(doc, (draft) => {
+						const config = draft.modules[module.uuid]?.caseListConfig;
+						if (config)
+							replaceCaseConditions(config, {
+								listCondition: mod.caseListConfig?.filter ?? null,
+								searchCondition: requestCondition ?? null,
+							});
+					});
+	if (unrestated.length > 0 && !unread) takeUnrestatedDetail(ctx, module);
 	// Nova's emission of the settled menu writes every source row back. A search of HQ's two
 	// markers alone is Nova's search with no fields and no filter, whose zero-input row Nova writes
 	// in their place: that row is the one the emission must write.
-	const markersRow =
-		input.markersOnly === true &&
-		input.rows.length === 0 &&
-		listClauses.length === 0;
+	const markersRow = input.markersOnly === true && input.rows.length === 0;
 	const settled = matchSearchRows(
 		doc,
 		module.uuid,
@@ -2557,7 +2693,7 @@ export function classifySearchRows(
 	// Nova's emission restates every clause of the list filter as a row of its own, so each clause
 	// no row restates is a row it adds: held where the menu's forms read the search, and the one
 	// finding at the list otherwise, which stands for the rows it adds.
-	const extraAllowed = unread ? 0 : unrestated.length;
+	const extraAllowed = 0;
 	if (settled.unmatched.length > 0 || settled.extra.length > extraAllowed) {
 		// A field's check whose refusal its settle has yet to apply stands at the search too.
 		if (!ctx.accounting.hasFindingAt(place) && !refusalDeferredAt(ctx, place))

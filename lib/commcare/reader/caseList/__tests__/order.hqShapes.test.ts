@@ -21,7 +21,10 @@ import {
 	idMappingEntry,
 	plainColumn,
 } from "@/lib/domain/modules";
+import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { matchingResolver } from "../../identity";
+import { externalIdentityMap } from "../../identityMap";
 import { patients, uuid } from "./fixtures";
 import {
 	type AppJson,
@@ -51,6 +54,143 @@ function registers(reading: Awaited<ReturnType<typeof readLists>>): string[] {
 }
 
 describe("CommCare HQ's sort elements", () => {
+	it("keeps independent calculations and the named field in worker order without showing extra columns", async () => {
+		const doc = patients([plainColumn(uuid(1), "notes", "Notes")]);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const short = app.modules[0]?.case_details.short;
+				if (!short) throw new Error("Missing short detail");
+				short.sort_elements = [
+					element("", {
+						sort_calculation: "notes",
+						type: "int",
+						direction: "descending",
+					}),
+					element("", { sort_calculation: "'a'", display: { en: "Priority" } }),
+					element("notes", { type: "int" }),
+					element("", {
+						sort_calculation: "notes",
+						type: "double",
+						display: { en: "Visit number" },
+					}),
+				];
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const config = listOf(reading);
+		expect(config.columns.map((column) => column.header)).toEqual(["Notes"]);
+		expect(
+			config.calculatedSorts?.map((rule) => [rule.priority, rule.label]),
+		).toEqual([
+			[2, "Visit number"],
+			[0, "Priority"],
+		]);
+		expect(config.calculatedSorts?.[0]?.expression).not.toEqual(
+			config.calculatedSorts?.[1]?.expression,
+		);
+		expect(registers(reading)).not.toContain("sort-rule-kept-as-hidden-column");
+		const written = await emittedApp(reading.ctx.doc as BlueprintDoc);
+		expect(
+			written.modules[0]?.case_details.short.sort_elements.map((rule) => [
+				rule.field,
+				rule.sort_calculation,
+				rule.type,
+				(rule.display as Record<string, string>).en,
+			]),
+		).toEqual([
+			["", "notes", "double", "Visit number"],
+			["", "'a'", "plain", "Priority"],
+			["notes", "", "int", ""],
+			["", "notes", "double", "Visit number"],
+		]);
+		const canonical = await readLists(reading.ctx.doc as BlueprintDoc);
+		expect(closedCodes(canonical)).toEqual([]);
+		expect(
+			canonical.ctx.facts.sameStateRewrites.filter((fact) =>
+				fact.entry.endsWith("/sort-elements-sharing-a-join-text"),
+			),
+		).toEqual([]);
+	});
+
+	it("retains two differently named choices over the same calculated value", async () => {
+		const doc = patients([plainColumn(uuid(1), "notes", "Notes")]);
+		const first = await readLists(doc, {
+			edit: (app) => {
+				app.modules[0].case_details.short.sort_elements = [
+					element("", {
+						sort_calculation: "notes",
+						display: { en: "Earlier visits" },
+					}),
+					element("", {
+						sort_calculation: "(notes)",
+						direction: "descending",
+						display: { en: "Later visits" },
+					}),
+				];
+			},
+		});
+		expect(closedCodes(first)).toEqual([]);
+		const config = listOf(first);
+		expect(config.calculatedSorts?.map((rule) => rule.label)).toEqual([
+			"Earlier visits",
+			"Later visits",
+		]);
+		const emitted = await emittedApp(first.ctx.doc as BlueprintDoc);
+		expect(
+			emitted.modules[0].case_details.short.sort_elements.map(
+				(rule) => rule.sort_calculation,
+			),
+		).toEqual(["notes", "(notes)"]);
+	});
+
+	it("keeps each calculation's identity across a move and an HQ spelling edit", async () => {
+		const doc = patients([plainColumn(uuid(1), "notes", "Notes")]);
+		const first = await readLists(doc, {
+			edit: (app) => {
+				const short = app.modules[0].case_details.short;
+				short.sort_elements = [
+					element("", {
+						sort_calculation: "notes",
+						display: { en: "Visit order" },
+					}),
+					element("notes"),
+					element("", { sort_calculation: "'A'", display: { en: "Alphabet" } }),
+				];
+			},
+		});
+		expect(closedCodes(first)).toEqual([]);
+		const adopted = first.ctx.doc;
+		if (!adopted) throw new Error("Missing adopted document");
+		const expected = Object.fromEntries(
+			(listOf(first).calculatedSorts ?? []).map((rule) => [
+				rule.label,
+				rule.uuid,
+			]),
+		);
+		const reread = await readLists(adopted, {
+			input: (base) => ({
+				...base,
+				resolver: matchingResolver(
+					adopted.appId,
+					externalIdentityMap(adopted, DERIVED_WIRE_IDENTITY),
+				),
+			}),
+			edit: (app) => {
+				const short = app.modules[0].case_details.short;
+				short.sort_elements.reverse();
+				short.sort_elements[0].sort_calculation = '  ("A") ';
+			},
+		});
+		expect(closedCodes(reread)).toEqual([]);
+		const sorts = listOf(reread).calculatedSorts ?? [];
+		expect(sorts.map((rule) => [rule.label, rule.uuid, rule.priority])).toEqual(
+			[
+				["Alphabet", expected.Alphabet, 0],
+				["Visit order", expected["Visit order"], 2],
+			],
+		);
+	});
+
 	it("reads a sort-only element as a hidden column, beside a detail-only column that stays off the list", async () => {
 		const doc = patients([
 			plainColumn(uuid(1), "case_name", "Name"),
@@ -116,6 +256,85 @@ describe("CommCare HQ's sort elements", () => {
 		).toEqual([["notes", "ascending"]]);
 	});
 
+	it("keeps Android's first-insertion order for hidden property choices when the last rule sets their priority", async () => {
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				app.modules[0].case_details.short.sort_elements = [
+					element("phone", { display: { en: "Outdated phone label" } }),
+					element("notes", { display: { en: "Notes" } }),
+					element("phone", {
+						display: { en: "Phone" },
+						direction: "descending",
+					}),
+				];
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const output = (await emittedApp(reading.ctx.doc as BlueprintDoc))
+			.modules[0].case_details.short;
+		expect(output.columns.map((column) => column.field)).toEqual([
+			"name",
+			"phone",
+			"notes",
+		]);
+		expect(
+			output.sort_elements.map((rule) => [rule.field, rule.direction]),
+		).toEqual([
+			["notes", "ascending"],
+			["phone", "descending"],
+		]);
+	});
+
+	it("keeps hidden choices in their native tile menu positions after changing their default priorities", async () => {
+		const doc = patients(
+			[
+				plainColumn(uuid(1), "case_name", "Name", {
+					tile: {
+						x: 0,
+						y: 0,
+						width: 12,
+						height: 1,
+						horizontalAlign: "left",
+						verticalAlign: "top",
+						fontSize: "medium",
+					},
+				}),
+			],
+			{ list: { tile: {} } },
+		);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				app.modules[0].case_details.short.sort_elements = [
+					element("phone", { display: { en: "Old phone label" } }),
+					element("notes", { display: { en: "Notes" } }),
+					element("phone", {
+						display: { en: "Phone" },
+						direction: "descending",
+					}),
+				];
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const output = (await emittedApp(reading.ctx.doc as BlueprintDoc))
+			.modules[0].case_details.short;
+		expect(output.columns.map((column) => column.field)).toEqual(["name"]);
+		expect(
+			output.sort_elements.map((rule) => [rule.field, rule.direction]),
+		).toEqual([
+			["phone", "descending"],
+			["notes", "ascending"],
+			["phone", "descending"],
+		]);
+		const reread = await readLists(reading.ctx.doc as BlueprintDoc);
+		expect(closedCodes(reread)).toEqual([]);
+		expect(
+			reread.ctx.facts.sameStateRewrites.filter((fact) =>
+				fact.entry.endsWith("/sort-elements-sharing-a-join-text"),
+			),
+		).toEqual([]);
+	});
+
 	it("reads the later of two elements with one field and drops the earlier", async () => {
 		const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
 		const reading = await readLists(doc, {
@@ -127,7 +346,6 @@ describe("CommCare HQ's sort elements", () => {
 						element("name", { direction: "descending" }),
 					];
 			},
-			firstPassOnly: true,
 		});
 		expect(codes(reading)).toEqual([]);
 		const read = comparableList(listOf(reading)) as {
@@ -369,7 +587,30 @@ describe("CommCare HQ's sort elements", () => {
 		]);
 	});
 
-	it("raises `int` on a property a text question saves", async () => {
+	it("keeps an Android distance rule through the source read and its next HQ upload", async () => {
+		const doc = patients([
+			plainColumn(uuid(1), "notes", "Coordinates", {
+				sort: columnSort("asc", 0),
+			}),
+		]);
+		const reading = await readLists(
+			{ ...doc, appSettings: { ...doc.appSettings, runsOnlyOn: "android" } },
+			{
+				edit: (app) => {
+					const first = app.modules[0]?.case_details.short.sort_elements[0];
+					if (first) first.type = "distance";
+				},
+			},
+		);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).columns[0]?.sort?.comparator).toBe("distance");
+		const written = await emittedApp(reading.ctx.doc as BlueprintDoc);
+		expect(written.modules[0]?.case_details.short.sort_elements[0]?.type).toBe(
+			"distance",
+		);
+	});
+
+	it("keeps a whole-number comparison on a property a text question saves", async () => {
 		const doc = patients([
 			plainColumn(uuid(1), "notes", "Notes", { sort: columnSort("asc", 0) }),
 		]);
@@ -379,8 +620,18 @@ describe("CommCare HQ's sort elements", () => {
 				if (first !== undefined) first.type = "int";
 			},
 		});
-		expect(codes(reading)).toContain(
+		expect(closedCodes(reading)).toEqual([]);
+		expect(
+			listOf(reading)?.columns.find((column) => column.sort)?.sort?.comparator,
+		).toBe("integer");
+		expect(
+			[...reading.ctx.close().claims.records()].map((record) => record.entry),
+		).toContain(
 			"menus-and-case-lists/type-int-or-double-differing-from-the-derived-type-on-a-column",
+		);
+		const written = await emittedApp(reading.ctx.doc as BlueprintDoc);
+		expect(written.modules[0]?.case_details.short.sort_elements[0]?.type).toBe(
+			"int",
 		);
 	});
 
@@ -448,9 +699,6 @@ function withVisits(columns: Column[]): BlueprintDoc {
 	});
 }
 
-const TEXT_OVER_NUMBER =
-	"menus-and-case-lists/type-plain-date-or-string-or-none-where-nova-derives-int-or-double";
-
 /**
  * Contract: HQ's build compares a sort element's `plain`, `date` or `string` type, and its default
  * element, as text, where Nova's derived comparator over a whole-number property is a number, so
@@ -472,7 +720,7 @@ describe("a text comparison over a whole-number property", () => {
 	// Core's `DetailFieldParser` compares every word but `int` and `double` as text, and HQ writes
 	// a word it does not map as it is (`FormattedDetailColumn.sort_node`).
 	for (const type of ["plain", "date", "string", "", "integer", "number"])
-		it(`raises a stored \`${type || "none"}\` element`, async () => {
+		it(`keeps the textual order of a stored \`${type || "none"}\` element`, async () => {
 			const doc = withVisits([
 				plainColumn(uuid(1), "visits", "Visits", {
 					sort: columnSort("asc", 0),
@@ -484,7 +732,15 @@ describe("a text comparison over a whole-number property", () => {
 					if (first !== undefined) first.type = type;
 				},
 			});
-			expect(codes(reading)).toContain(TEXT_OVER_NUMBER);
+			expect(closedCodes(reading)).toEqual([]);
+			expect(
+				listOf(reading)?.columns.find((column) => column.sort)?.sort
+					?.comparator,
+			).toBe("text");
+			const written = await emittedApp(reading.ctx.doc as BlueprintDoc);
+			expect(
+				written.modules[0]?.case_details.short.sort_elements[0]?.type,
+			).toBe("plain");
 		});
 
 	it("holds a word HQ's page does not offer over a text property, as Nova's derived word", async () => {
@@ -521,7 +777,7 @@ describe("a text comparison over a whole-number property", () => {
 		);
 	});
 
-	it("raises HQ's default element over a hidden first column", async () => {
+	it("keeps HQ's default text order over a hidden numeric first column", async () => {
 		const doc = withVisits([
 			plainColumn(uuid(1), "visits", "Visits", { visibleInList: false }),
 			plainColumn(uuid(2), "case_name", "Name"),
@@ -532,7 +788,14 @@ describe("a text comparison over a whole-number property", () => {
 				if (short !== undefined) short.sort_elements = [];
 			},
 		});
-		expect(codes(reading)).toContain(TEXT_OVER_NUMBER);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(
+			listOf(reading)?.columns.find((column) => column.sort)?.sort?.comparator,
+		).toBe("text");
+		const written = await emittedApp(reading.ctx.doc as BlueprintDoc);
+		expect(written.modules[0]?.case_details.short.sort_elements[0]?.type).toBe(
+			"plain",
+		);
 	});
 
 	it("holds any stored type on an ID mapping, whose format sorts by its own", async () => {
@@ -566,11 +829,9 @@ describe("a text comparison over a whole-number property", () => {
 describe("a sort element's field that is no one word", () => {
 	for (const [field, entry] of [
 		[
-			"parent/village",
-			"menus-and-case-lists/idx-prop-in-a-menu-that-offers-search-or-through-an-index",
+			"parent/case_id",
+			"menus-and-case-lists/case-id-as-a-property-column-s-field",
 		],
-		["user/district", "menus-and-case-lists/user-prop-usercase"],
-		["#owner_name", "menus-and-case-lists/owner-name"],
 		["ledger:stock", "menus-and-case-lists/ledger-section"],
 		["case_id", "menus-and-case-lists/case-id-as-a-property-column-s-field"],
 		[

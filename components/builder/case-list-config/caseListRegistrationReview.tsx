@@ -411,7 +411,7 @@ export function CaseListRegistrationReviewDialog({
 								{review.firstMenuAfterSubmit
 									? "First menu."
 									: review.hostKeepsMenuForms
-										? "Results showing the case it registered."
+										? "Results, which list no record until the worker searches again."
 										: "Search, since the module has no other forms."}
 							</p>
 							{creating && (

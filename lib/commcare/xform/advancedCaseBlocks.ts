@@ -72,18 +72,20 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { advancedAutosetsOwner, appendDefaultOwner } from "../workerGroupsWire";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { caseById } from "../xpath/wire/rowScope";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
+import { caseOpeningSetvalues } from "./caseOpeningSetvalues";
 
 /** CommCare's case-transaction namespace, which every `<case>` is in. */
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
 
-/** The owner HQ writes on an open action whose owner it does not set
- *  (`const.py::UNOWNED_EXTENSION_OWNER_ID`). */
-const UNOWNED_OWNER_ID = "-";
+/** The owner HQ writes into a create block whose owner it does not set
+ *  (`const.py::UNOWNED_EXTENSION_OWNER_ID`, `xform.py::add_create_block`). */
+export const UNOWNED_OWNER_ID = "-";
 
 /** What the injection reads of the form's case wire plan. */
 export interface AdvancedCaseBlocksPlan {
@@ -91,6 +93,7 @@ export interface AdvancedCaseBlocksPlan {
 }
 
 export interface AdvancedCaseBlocksContext {
+	readonly caseSharing?: boolean;
 	/**
 	 * The session datum each load's case id is read from, by the load's tag,
 	 * after HQ's child-module alignment (`EntriesHelper.
@@ -126,18 +129,19 @@ function formElementName(tag: string): string {
 	return `case_${tag}`;
 }
 
-const META_TIME_END = FormPath.root().child("meta").child("timeEnd");
-const META_USER_ID = FormPath.root().child("meta").child("userID");
-
 /** The relevance HQ's build writes for an action's condition
  *  (`xform.py::XForm.action_relevance`): the question's comparison for
  *  `if`, `false()` for `never`, and none for `always`, whose `true()`
  *  `XForm.add_bind` drops. */
-function actionRelevance(condition: FormActionCondition): WireExpr | undefined {
+function actionRelevance(
+	condition: FormActionCondition,
+	rootName?: string,
+): WireExpr | undefined {
 	if (condition.type === "always") return undefined;
 	if (condition.type !== "if") return w.call("false");
 	const question = FormPath.parse(
-		validateXFormPath(condition.question ?? ""),
+		validateXFormPath(condition.question ?? "", rootName),
+		rootName,
 	).toWire();
 	if (condition.operator === "boolean_true") return question;
 	const answer = w.str(condition.answer ?? "");
@@ -149,6 +153,7 @@ function actionRelevance(condition: FormActionCondition): WireExpr | undefined {
 /** Everything the injection adds besides the data elements it splices as
  *  it goes. */
 interface Emission {
+	readonly caseSharing: boolean;
 	readonly binds: Element[];
 	readonly setvalues: Element[];
 	readonly requiredNamePaths: string[];
@@ -183,11 +188,19 @@ function caseElement(emission: Emission, casePath: FormPath): Element {
 	bind(
 		emission,
 		casePath.attr("date_modified"),
-		{ calculate: META_TIME_END.toWire() },
+		{
+			calculate: FormPath.root(emission.context.mode.formRootName)
+				.child("meta")
+				.child("timeEnd")
+				.toWire(),
+		},
 		{ type: "xsd:dateTime" },
 	);
 	bind(emission, casePath.attr("user_id"), {
-		calculate: META_USER_ID.toWire(),
+		calculate: FormPath.root(emission.context.mode.formRootName)
+			.child("meta")
+			.child("userID")
+			.toWire(),
 	});
 	return el(
 		"case",
@@ -222,7 +235,13 @@ function addUpdates(
 	const rows = updates
 		.map(([key, update]) => ({
 			property: validatePropertyName(key === "name" ? "case_name" : key),
-			source: FormPath.parse(validateXFormPath(update.question_path)),
+			source: FormPath.parse(
+				validateXFormPath(
+					update.question_path,
+					emission.context.mode.formRootName,
+				),
+				emission.context.mode.formRootName,
+			),
 			edit: update.update_mode === "edit",
 		}))
 		.sort((a, b) =>
@@ -266,7 +285,7 @@ function addClose(
 	if (condition.type === "never") return;
 	append(caseEl, el("close", {}));
 	bind(emission, casePath.child("close"), {
-		relevant: actionRelevance(condition),
+		relevant: actionRelevance(condition, emission.context.mode.formRootName),
 	});
 }
 
@@ -277,12 +296,15 @@ function addLoadBlock(
 	load: LoadUpdateAction,
 	datumId: string,
 ): void {
+	const caseId = sessionRead(datumId);
+	emission.setvalues.push(
+		...caseOpeningSetvalues(load.preload, caseId, emission.context),
+	);
 	const properties = Object.entries(load.case_properties);
 	if (properties.length === 0 && load.close_condition.type === "never") return;
 	const name = formElementName(load.case_tag);
-	const basePath = FormPath.root().child(name);
+	const basePath = FormPath.root(data.name).child(name);
 	const casePath = basePath.child("case");
-	const caseId = sessionRead(datumId);
 	const baseEl = el(name, {}, []);
 	append(data, baseEl);
 	const caseEl = caseElement(emission, casePath);
@@ -342,6 +364,7 @@ function addLoadBlock(
 function actionPath(
 	action: AdvancedOpenCaseAction,
 	indexedPerRepeat: ReadonlyMap<string, number>,
+	rootName: string,
 ): {
 	readonly path: FormPath;
 	readonly parent: FormPath;
@@ -350,11 +373,14 @@ function actionPath(
 	const ownNode = formElementName(action.case_tag);
 	if (action.repeat_context === "")
 		return {
-			path: FormPath.root().child(ownNode),
-			parent: FormPath.root(),
+			path: FormPath.root(rootName).child(ownNode),
+			parent: FormPath.root(rootName),
 			ownNode,
 		};
-	const repeat = FormPath.parse(validateXFormPath(action.repeat_context));
+	const repeat = FormPath.parse(
+		validateXFormPath(action.repeat_context, rootName),
+		rootName,
+	);
 	return (indexedPerRepeat.get(action.repeat_context) ?? 0) > 1
 		? { path: repeat.child(ownNode), parent: repeat, ownNode }
 		: { path: repeat, parent: repeat };
@@ -389,7 +415,11 @@ function addOpenBlock(
 	const action = actions.open_cases[index];
 	if (action === undefined) return;
 	const caseType = validateCaseType(action.case_type);
-	const { path, parent, ownNode } = actionPath(action, indexedPerRepeat);
+	const { path, parent, ownNode } = actionPath(
+		action,
+		indexedPerRepeat,
+		data.name,
+	);
 	let node: Element;
 	if (ownNode !== undefined) {
 		node = el(ownNode, {}, []);
@@ -401,7 +431,7 @@ function addOpenBlock(
 
 	// `XFormCaseBlock.add_create_block`.
 	const createPath = casePath.child("create");
-	const ownerSet = autosetsOwner(action);
+	const ownerSet = advancedAutosetsOwner(action);
 	append(
 		caseEl,
 		el("create", {}, [
@@ -411,7 +441,10 @@ function addOpenBlock(
 		]),
 	);
 	bind(emission, casePath, {
-		relevant: actionRelevance(action.open_condition),
+		relevant: actionRelevance(
+			action.open_condition,
+			emission.context.mode.formRootName,
+		),
 	});
 	if (action.repeat_context === "")
 		emission.setvalues.push(
@@ -428,14 +461,24 @@ function addOpenBlock(
 			),
 		);
 	else bind(emission, casePath.attr("case_id"), { calculate: w.call("uuid") });
-	const namePath = validateXFormPath(action.name_update.question_path);
+	const namePath = validateXFormPath(
+		action.name_update.question_path,
+		data.name,
+	);
 	bind(emission, createPath.child("case_name"), {
-		calculate: FormPath.parse(namePath).toWire(),
+		calculate: FormPath.parse(namePath, data.name).toWire(),
 	});
 	if (ownerSet)
-		bind(emission, createPath.child("owner_id"), {
-			calculate: META_USER_ID.toWire(),
-		});
+		appendDefaultOwner(
+			emission,
+			createPath.child("owner_id").toWire(),
+			FormPath.root(emission.context.mode.formRootName)
+				.child("meta")
+				.child("userID")
+				.toWire(),
+			emission.caseSharing,
+			!!action.repeat_context,
+		);
 	emission.requiredNamePaths.push(namePath);
 
 	addUpdates(
@@ -467,7 +510,7 @@ function addOpenBlock(
 				calculate:
 					target.kind === "load"
 						? sessionRead(loadSessionVar(target.action.case_tag))
-						: actionPath(target.action, indexedPerRepeat)
+						: actionPath(target.action, indexedPerRepeat, data.name)
 								.path.child("case")
 								.attr("case_id")
 								.toWire(),
@@ -475,14 +518,6 @@ function addOpenBlock(
 		}
 	}
 	addClose(emission, caseEl, casePath, action.close_condition);
-}
-
-/** `autoset_owner_id_for_advanced_action`: HQ sets the owner unless the
- *  action writes `owner_id` or every index it carries is an extension. */
-function autosetsOwner(action: AdvancedOpenCaseAction): boolean {
-	if (Object.hasOwn(action.case_properties, "owner_id")) return false;
-	if (action.case_indices.length === 0) return true;
-	return action.case_indices.some((index) => index.relationship === "child");
 }
 
 /** The action a tag names (`AdvancedFormActions.actions_meta_by_tag`). */
@@ -515,15 +550,19 @@ export function addAdvancedCaseBlocks(
 	const { actions } = plan;
 	if (actions.load_update_cases.length === 0 && actions.open_cases.length === 0)
 		return xform;
+	const doc = parseXForm(xform);
+	const data = findDataElement(doc, "addAdvancedCaseBlocks");
 	const instances = new InstanceSink();
 	const emission: Emission = {
+		caseSharing: ctx.caseSharing === true,
 		binds: [],
 		setvalues: [],
 		requiredNamePaths: [],
-		context: { mode: { target: "xform", constraint: false }, instances },
+		context: {
+			mode: { target: "xform", constraint: false, formRootName: data.name },
+			instances,
+		},
 	};
-	const doc = parseXForm(xform);
-	const data = findDataElement(doc, "addAdvancedCaseBlocks");
 
 	for (const load of actions.load_update_cases)
 		addLoadBlock(
@@ -592,7 +631,7 @@ function markRequired(
 			"bind",
 			{
 				xpath: {
-					nodeset: FormPath.parse(namePath).toWire(),
+					nodeset: FormPath.parse(namePath, context.mode.formRootName).toWire(),
 					required: w.call("true"),
 				},
 			},

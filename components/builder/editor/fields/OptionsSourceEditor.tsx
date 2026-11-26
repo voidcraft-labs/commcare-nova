@@ -13,10 +13,12 @@ import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import { useCallback, useId, useMemo, useState } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/catalogContext";
+import { LookupChoiceNameOption } from "@/components/builder/lookup/LookupChoiceNameOption";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
+import { LookupValuePicker } from "@/components/builder/shared/LookupValuePicker";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
@@ -29,6 +31,7 @@ import {
 } from "@/components/shadcn/select";
 import { lookupFilterEligibleFormFields } from "@/lib/doc/formFieldEntries";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
@@ -64,10 +67,13 @@ export function OptionsSourceEditor<
 	F extends SingleSelectField | MultiSelectField,
 >({ field, value, onChange }: FieldEditorComponentProps<F, "optionsSource">) {
 	const modeId = useId();
+	const caseStatusId = useId();
 	const valueColumnSelectId = useId();
 	const labelColumnSelectId = useId();
+	const sortColumnSelectId = useId();
 	const canEdit = useCanEdit();
 	const catalog = useBuilderLookupCatalog();
+	const platforms = useDeclaredPlatforms();
 	const formContext = useSelectedFormContext();
 	const formUuid = formContext?.form.uuid;
 	const entries = useFormFieldEntries(formUuid ?? field.uuid);
@@ -77,7 +83,7 @@ export function OptionsSourceEditor<
 	const [draft, setDraft] = useState<SourceDraft | null>(null);
 	const [rejection, setRejection] = useState<string | null>(null);
 
-	const tables = catalog.kind === "ready" ? catalog.tables : [];
+	const tables = catalog.kind === "ready" ? catalog.definitions : [];
 	const tablesById =
 		catalog.kind === "ready"
 			? catalog.byId
@@ -95,9 +101,9 @@ export function OptionsSourceEditor<
 	const completeSource =
 		active.kind === "lookup" ? completeLookupSource(active, table) : active;
 	const expressionContext = useExpressionSlotContext(
-		completeSource === undefined || completeSource.kind === "inline"
-			? undefined
-			: { entity: "field", uuid: field.uuid, slot: "lookup_options_source" },
+		completeSource?.kind === "cases" || completeSource?.kind === "lookup"
+			? { entity: "field", uuid: field.uuid, slot: "lookup_options_source" }
+			: undefined,
 		completeSource === undefined
 			? undefined
 			: {
@@ -160,6 +166,9 @@ export function OptionsSourceEditor<
 			valueColumnId: next.valueColumnId,
 			labelColumnId: next.labelColumnId,
 			...(next.filter === undefined ? {} : { filter: next.filter }),
+			...(next.sortColumnId === undefined
+				? {}
+				: { sortColumnId: next.sortColumnId }),
 		});
 	};
 
@@ -191,6 +200,8 @@ export function OptionsSourceEditor<
 								if (selected === INLINE) return "Options in this question";
 								if (selected === "cases")
 									return "Cases available to the worker";
+								if (selected === "available-cases")
+									return "All available cases";
 								const selectedTable = tables.find(
 									(candidate) => candidate.id === selected,
 								);
@@ -208,6 +219,11 @@ export function OptionsSourceEditor<
 					<SelectContent>
 						<SelectItem value={INLINE}>Options in this question</SelectItem>
 						<SelectItem value="cases">Cases available to the worker</SelectItem>
+						{field.kind === "single_select" ? (
+							<SelectItem value="available-cases">
+								All available cases
+							</SelectItem>
+						) : null}
 						{/* Keep a missing saved identity represented. Base UI otherwise
 						 * treats catalog removal as a value change and restores the initial
 						 * inline option, which would incorrectly stage a new source. */}
@@ -218,9 +234,15 @@ export function OptionsSourceEditor<
 							</SelectItem>
 						) : null}
 						{tables.map((candidate) => (
-							<SelectItem key={candidate.id} value={candidate.id} wrap>
-								{candidate.name}
-							</SelectItem>
+							<LookupChoiceNameOption
+								key={candidate.id}
+								value={candidate.id}
+								name={candidate.tag}
+								label={candidate.name}
+								part="tag"
+								slot="lookup_options_source"
+								platforms={platforms}
+							/>
 						))}
 					</SelectContent>
 				</Select>
@@ -313,6 +335,58 @@ export function OptionsSourceEditor<
 						setRejection(null);
 					}}
 				/>
+			) : active.kind === "available-cases" ? (
+				<div className="space-y-3">
+					<p className="text-sm text-nova-text-secondary">
+						Choose from cases restored for the worker across all case types.
+						Choices show case names and save case IDs.
+					</p>
+					<div className="space-y-2">
+						<Label htmlFor={caseStatusId}>Cases to offer</Label>
+						<Select
+							items={{ all: "All available cases", open: "Open cases only" }}
+							value={active.status ?? "all"}
+							onValueChange={(selection) => {
+								if (selection !== "all" && selection !== "open") return;
+								const next: typeof active = {
+									kind: "available-cases",
+									...(selection === "open" && { status: selection }),
+								};
+								if (draft?.kind === "available-cases") setDraft(next);
+								else commit(next);
+							}}
+						>
+							<SelectTrigger id={caseStatusId} disabled={!canEdit}>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All available cases</SelectItem>
+								<SelectItem value="open">Open cases only</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					{draft?.kind === "available-cases" ? (
+						<div className="flex justify-end gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setDraft(null);
+									setRejection(null);
+								}}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="button"
+								disabled={!canEdit}
+								onClick={() => commit(active)}
+							>
+								Use these cases
+							</Button>
+						</div>
+					) : null}
+				</div>
 			) : table === undefined ? (
 				catalog.kind === "ready" ? (
 					<p
@@ -325,107 +399,43 @@ export function OptionsSourceEditor<
 				) : null
 			) : (
 				<>
-					<div>
-						<Label htmlFor={valueColumnSelectId} className="text-[13px]">
-							Value that gets saved
-						</Label>
-						<Select
-							value={active.valueColumnId ?? null}
-							disabled={!canEdit}
-							onValueChange={(next) => {
-								const column = table.columns.find(
-									(candidate) => candidate.id === next,
-								);
-								if (column === undefined) {
-									setRejection(
-										"That column is no longer available. Choose another column.",
-									);
-									return;
-								}
-								writeLookup({
-									...active,
-									valueColumnId: column.id,
-								});
-							}}
-						>
-							<SelectTrigger
-								id={valueColumnSelectId}
-								wrapValue
-								className="mt-1 min-h-11 w-full"
-							>
-								<SelectValue placeholder="Choose a column">
-									{(selected) =>
-										/* A render function replaces the placeholder entirely, so
-										 * the unchosen case has to be handled here: a column
-										 * nobody has picked yet is not a column that went
-										 * missing. */
-										selected === null || selected === undefined
-											? "Choose a column"
-											: (table.columns.find((column) => column.id === selected)
-													?.label ?? "A column that is no longer available")
-									}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id} wrap>
-										{column.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-
-					<div>
-						<Label htmlFor={labelColumnSelectId} className="text-[13px]">
-							Value people see
-						</Label>
-						<Select
-							value={active.labelColumnId ?? null}
-							disabled={!canEdit}
-							onValueChange={(next) => {
-								const column = table.columns.find(
-									(candidate) => candidate.id === next,
-								);
-								if (column === undefined) {
-									setRejection(
-										"That column is no longer available. Choose another column.",
-									);
-									return;
-								}
-								writeLookup({
-									...active,
-									labelColumnId: column.id,
-								});
-							}}
-						>
-							<SelectTrigger
-								id={labelColumnSelectId}
-								wrapValue
-								className="mt-1 min-h-11 w-full"
-							>
-								<SelectValue placeholder="Choose a column">
-									{(selected) =>
-										/* A render function replaces the placeholder entirely, so
-										 * the unchosen case has to be handled here: a column
-										 * nobody has picked yet is not a column that went
-										 * missing. */
-										selected === null || selected === undefined
-											? "Choose a column"
-											: (table.columns.find((column) => column.id === selected)
-													?.label ?? "A column that is no longer available")
-									}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id} wrap>
-										{column.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
+					<LookupValuePicker
+						questionChoice
+						id={valueColumnSelectId}
+						label="Value that gets saved"
+						table={table}
+						value={active.valueColumnId}
+						disabled={!canEdit}
+						names={{ slot: "lookup_options_source", platforms }}
+						onChange={(read) => writeLookup({ ...active, valueColumnId: read })}
+					/>
+					<LookupValuePicker
+						questionChoice
+						id={labelColumnSelectId}
+						label="Value people see"
+						table={table}
+						value={active.labelColumnId}
+						disabled={!canEdit}
+						names={{ slot: "lookup_options_source", platforms }}
+						onChange={(read) => writeLookup({ ...active, labelColumnId: read })}
+					/>
+					<LookupValuePicker
+						questionChoice
+						id={sortColumnSelectId}
+						table={table}
+						value={active.sortColumnId}
+						label="Order of the choices"
+						disabled={!canEdit}
+						names={{ slot: "lookup_options_source", platforms }}
+						defaultChoice={{
+							label: "The table's row order",
+							select: () => {
+								const { sortColumnId: _sort, ...rest } = active;
+								writeLookup(rest);
+							},
+						}}
+						onChange={(read) => writeLookup({ ...active, sortColumnId: read })}
+					/>
 
 					<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
 						<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">

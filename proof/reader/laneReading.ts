@@ -1,3 +1,4 @@
+import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 /**
  * Nova's reading of an app CommCare HQ holds, as the proof lane asks for it:
  * the production path with no service around it, over HQ's retained answers.
@@ -22,17 +23,19 @@ import { createHash } from "node:crypto";
 import { Immer } from "immer";
 import { v7 } from "uuid";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
-import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
+import { createHqSourceFlagReader } from "@/lib/commcare/client";
 import {
 	type HqAlignedModule,
 	type HqAppReading,
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { hqReadCircumstance } from "@/lib/commcare/hq/failure";
 import {
 	publishedCaseBlocks,
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	knownCaseTypesOf,
@@ -42,14 +45,19 @@ import {
 	type ReaderLookupCatalog,
 	type ReaderMediaResolution,
 	readHqApp,
+	readHqLookupTagsSteps,
 } from "@/lib/commcare/reader";
 import { serializeClaimLog } from "@/lib/commcare/reader/accounting";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
-import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
+import {
+	externalIdentityMap,
+	knownDirectParentSearchNamesOf,
+} from "@/lib/commcare/reader/identityMap";
 import { levelsAsPublished } from "@/lib/commcare/reader/worldEntities";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
 	type ColumnFieldWordRow,
+	type ProjectSearchBinding,
 	targetWireIdentity,
 	type WireIdentityOverride,
 } from "@/lib/commcare/wireIdentity";
@@ -63,9 +71,19 @@ import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
 import {
 	type FirstPublishChangePlaces,
 	firstPublishChangePlaces,
+	withAnsweredChanges,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
+import { Pieces } from "@/lib/deployment/reading/pieces";
+import { boundAsItStands } from "@/lib/deployment/reading/projectData/lookupTables";
+import { memoryMediaStaging } from "@/lib/deployment/reading/projectData/mediaStore";
+import { workerOwnerMutations } from "@/lib/deployment/reading/projectData/ownerRules";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
+import {
+	mayUseProjectFactory,
+	sourceFactoryReads,
+} from "@/lib/deployment/reading/projectData/read";
+import { resolveOwnerRuleChoices } from "@/lib/deployment/reading/projectData/reviewTypes";
 import {
 	EMPTY_TARGET_IDENTITY,
 	observedTargetIdentity,
@@ -82,6 +100,7 @@ import {
 	blueprintDocSchema,
 	type MediaKind,
 } from "@/lib/domain";
+import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import type { LookupRowId } from "@/lib/domain/lookupIds";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { lookupRevisionSchema } from "@/lib/lookup/schema";
@@ -93,6 +112,7 @@ import {
 	partitionAssetRefs,
 	resolveBuiltinManifestEntries,
 } from "@/lib/media/builtinIconAssets";
+import { ANSWERED_FIRST_PUBLISH_CHANGES } from "@/lib/publish/firstPublishChangeIds";
 import {
 	type CircumstanceDetail,
 	circumstanceFinding,
@@ -130,15 +150,20 @@ export interface LaneReadInput {
 	readonly currentVersion: RetainedHqAnswer;
 	/** HQ's two project space lists, whole and filtered by the flag. Asked for only where the
 	 *  source holds a write saved only if changed. */
+	readonly sourceFactoryReads?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
-		readonly flagged: RetainedHqAnswer;
+		readonly flagged?: RetainedHqAnswer;
+		readonly caseListActions?: RetainedHqAnswer;
 	};
 	/** Required for `identity: "mint"`: HQ's own project data answers, and its files. */
 	readonly projectData?: {
 		readonly lookupTables: RetainedHqAnswer;
+		readonly lookupDefinitions?: Readonly<Record<string, RetainedHqAnswer>>;
+		readonly fixtureDetails?: Readonly<Record<string, RetainedHqAnswer>>;
 		readonly fixtureRows: Readonly<Record<string, RetainedHqAnswer>>;
 		readonly locationTypes?: RetainedHqAnswer;
+		readonly locationsV1?: RetainedHqAnswer;
 		readonly locations?: RetainedHqAnswer;
 		/** One a mapped path: HQ's answer to the file's read, and its bytes where HQ gave them. */
 		readonly media: readonly {
@@ -160,6 +185,9 @@ export interface LaneReadInput {
 	readonly servedMedia?: readonly ServedFile[];
 	/** A first reading's declaration: the base's own, or absent for the reading's preselected one. */
 	readonly declaration?: LaneDeclaration;
+	/** A first reading's answers to the review's owner-rule questions, by level code, as a person
+	 *  gives them to the create (`BringInInput.ownerRuleChoices`): the base's own, or none. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	/** `mint`: a base's first reading. `match`: a read back, which must give D's own UUIDs. */
 	readonly identity: "mint" | "match";
 	/** The reader's `claims` option. */
@@ -233,6 +261,7 @@ export type LaneReading =
 			/** A first reading's document under its declaration; a read back's draft as it came. */
 			readonly doc: BlueprintDoc;
 			readonly identity: readonly WireIdentityOverride[];
+
 			readonly declaration: LaneDeclaration;
 			/** Every declaration the reading offers, for a read back's declaration check. */
 			readonly offered: readonly LaneDeclaration[];
@@ -250,6 +279,8 @@ export type LaneReading =
 			 *  (`targetIdentity.ts::resolveTargetIdentity`'s column words), which every later
 			 *  publish to that project space prints the column under. */
 			readonly columnWords: readonly ColumnFieldWordRow[];
+			readonly projectSearches: readonly ProjectSearchBinding[];
+			readonly installationProfiles?: readonly InstallationProfileBinding[];
 			/** A first reading's lookup data: each table the document reads, with CommCare HQ's
 			 *  rows, as the birth leaves it in the Project (`bornLookup`). Absent on a read back,
 			 *  whose tables are the corpus document's own. */
@@ -281,15 +312,50 @@ export type LaneReading =
 			readonly offered: readonly LaneDeclaration[];
 			readonly asked: readonly string[];
 			readonly claims: string;
+	  }
+	/** A first reading whose owner-rule answers are not one for each question its review asks
+	 *  (`reviewTypes.ts::resolveOwnerRuleChoices`): the create refuses it, and so does the lane. */
+	| {
+			readonly kind: "owner-rules-not-answered";
+			readonly stated: Readonly<Record<string, string>>;
+			/** The level code of each question the review asks. */
+			readonly askedLevels: readonly string[];
+			readonly asked: readonly string[];
+			readonly claims: string;
 	  };
 
 // ---------------------------------------------------------------------------
 // Developer messages
 // ---------------------------------------------------------------------------
 
+/** A reading that asked for a request the lane retained no answer for (`noRetainedAnswer` is its message). */
+export class NoRetainedAnswer extends Error {
+	constructor(
+		readonly path: string,
+		message: string,
+	) {
+		super(message);
+		this.name = "NoRetainedAnswer";
+	}
+}
+
 /** A request the lane holds no retained answer for. `base` is the app the reading is of: a base's id, or a corpus document's app id. */
 export function noRetainedAnswer(path: string, base: string): string {
 	return `Nova's reader asked CommCare HQ for ${path} while it read ${base}, and the lane holds no answer for that request. The retained answers are every request Nova's client makes of an app; either the client now asks for something new, which the lane must read and keep (proof/matrix/retain.py), or it built an address HQ does not give.`;
+}
+
+/** A reading that asked for a request the lane holds no answer for: its
+ * message is `noRetainedAnswer`'s, and `path` the request. A base the lane
+ * made is set aside by it until the round authors it again; any other
+ * reading stops on it. */
+export class LaneAnswerMissing extends Error {
+	constructor(
+		readonly path: string,
+		readonly base: string,
+	) {
+		super(noRetainedAnswer(path, base));
+		this.name = "LaneAnswerMissing";
+	}
 }
 
 const MINT_WITHOUT_PROJECT_DATA =
@@ -369,36 +435,35 @@ function bornRowId(tableId: string, hqRowId: string): LookupRowId {
  * `deployment/managedData.ts`), as it does after a real bring-in.
  */
 function bornLookup(gathered: Gathered): LookupFixtureDataSnapshot {
-	const { origin, tables } = gathered.fetched.data.gathered;
-	const born = new Set<string>();
-	const definitions = gathered.lookup.definitions.map((definition) => {
-		if (definition.hq !== undefined) return definition;
-		born.add(definition.id);
-		const read = tables.find(
-			(table) => table.binding?.tableId === definition.id,
-		)?.read;
-		if (read === undefined)
-			throw new Error(
-				`The reading's lookup data holds a table (${definition.id}) that no table CommCare HQ listed is bound to, which readingLookupSnapshot never gives. Look at lib/deployment/reading/projectData/lookupTables.ts.`,
-			);
-		return {
-			...definition,
-			hq: {
-				server: origin.server,
-				domain: origin.domain,
-				remoteId: read.table.id,
-				managedBy: "commcare-hq" as const,
-				broughtInAt: LANE_BROUGHT_IN_AT,
-				takenOverAt: null,
-				takenOverBy: null,
-				refreshedAt: LANE_BROUGHT_IN_AT,
-				goneColumnIds: [],
-			},
-		};
-	});
+	// The production birth projection already carries custody, including for
+	// ordinary global data. Only rows materialized from the reading acquire
+	// Nova row identities. Reused Project rows keep theirs.
+	const born = new Set(
+		gathered.fetched.data.gathered.tables.flatMap((table) =>
+			table.binding &&
+			table.standing &&
+			!boundAsItStands(table.standing, table.choice)
+				? [table.binding.tableId]
+				: [],
+		),
+	);
+
 	return {
 		...gathered.lookup,
-		definitions,
+		/* The production projection stamps the reading's clock. A lane birth
+		 * stamps its fixed day, so the same answers give the same document. */
+		definitions: gathered.lookup.definitions.map((definition) =>
+			born.has(definition.id) && definition.hq !== undefined
+				? {
+						...definition,
+						hq: {
+							...definition.hq,
+							broughtInAt: LANE_BROUGHT_IN_AT,
+							refreshedAt: LANE_BROUGHT_IN_AT,
+						},
+					}
+				: definition,
+		),
 		rowsByTable: new Map(
 			[...gathered.lookup.rowsByTable].map(([tableId, rows]) => [
 				tableId,
@@ -492,7 +557,8 @@ async function firstReading(
 		},
 		readingId: LANE_READING_ID,
 		appId: input.appId,
-		keepMedia: false,
+		stageMedia: null,
+		spillMedia: memoryMediaStaging(),
 		onEvent: () => {},
 		creds,
 		project: EMPTY_PROJECT,
@@ -544,6 +610,33 @@ async function firstReading(
 			claims: claimsText,
 		};
 	}
+	/* The base's answers to the review's owner-rule questions, applied as the create applies them
+	 * (`reading/create.ts`), and the change they make named as the birth names it
+	 * (`reading/birth.ts::adoptedDeploymentWrite`). */
+	const stated = input.ownerRuleChoices ?? {};
+	const ownerRules = resolveOwnerRuleChoices(
+		result.gathered.review.ownerRules,
+		stated,
+	);
+	if (!ownerRules.ok)
+		return {
+			kind: "owner-rules-not-answered",
+			stated,
+			askedLevels: result.gathered.review.ownerRules.map((rule) => rule.level),
+			asked: asked(),
+			claims: claimsText,
+		};
+	const read = docUnder(draft.doc, chosen.mutations);
+	const doc = docUnder(read, workerOwnerMutations(read, ownerRules.levels));
+	const firstPublish = withAnsweredChanges(
+		chosen.firstPublish,
+		chosen.firstPublishFacts,
+		doc,
+		ANSWERED_FIRST_PUBLISH_CHANGES,
+	);
+	const answered = firstPublish.ids.filter(
+		(id) => !chosen.firstPublish.ids.includes(id),
+	);
 	const rows = adoptedIdentityRows(draft.identities, fetched.modules);
 	if (!rows.ok)
 		throw new Error(
@@ -551,7 +644,7 @@ async function firstReading(
 		);
 	return {
 		kind: "read",
-		doc: docUnder(draft.doc, chosen.mutations),
+		doc,
 		identity: rows.rows.map(
 			({ entityKind, novaEntityUuid, uniqueId, xmlns }) => ({
 				entityKind,
@@ -562,14 +655,26 @@ async function firstReading(
 		),
 		declaration: laneDeclarationOf(chosen.runsOnlyOn, chosen.splitDatetime),
 		offered,
-		firstPublish: [...chosen.firstPublish.ids],
-		firstPublishPlaces: firstPublishChangePlaces(
-			chosen.firstPublishFacts,
-			chosen.firstPublish.ids,
-		),
+		firstPublish: [...firstPublish.ids],
+		firstPublishPlaces: [
+			...firstPublishChangePlaces(
+				chosen.firstPublishFacts,
+				chosen.firstPublish.ids,
+			),
+			...firstPublishChangePlaces(
+				{
+					...chosen.firstPublishFacts,
+					read: chosen.firstPublishFacts.doc,
+					doc,
+				},
+				answered,
+			),
+		],
 		/* The record the birth writes (`reading/birth.ts::adoptedDeploymentWrite`). */
 		keyedCaseIds: result.gathered.targetIdentity.keyedCaseIds,
 		columnWords: result.gathered.targetIdentity.columnWords,
+		projectSearches: result.gathered.targetIdentity.projectSearches ?? [],
+		installationProfiles: result.gathered.targetIdentity.installationProfiles,
 		lookup: bornLookup(result.gathered),
 		media: laneMediaOf(result.gathered),
 		asked: asked(),
@@ -592,7 +697,9 @@ interface StoredDocument {
 	/** Each uploaded asset of the document's media, in its order, then each built-in icon the
 	 *  document shows, with the SHA-256 of its bytes. */
 	readonly assets: readonly DocumentAsset[];
+	readonly projectSearches: readonly ProjectSearchBinding[];
 	readonly identity: readonly WireIdentityOverride[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 }
 
 interface StoredMedia {
@@ -778,9 +885,13 @@ async function storedDocument(document: unknown): Promise<StoredDocument> {
 			readonly projectRevision: string;
 			readonly definitions: readonly LookupTableDefinition[];
 		};
+		readonly projectSearches?: readonly ProjectSearchBinding[];
 		readonly identity?: readonly WireIdentityOverride[];
+		readonly installationProfiles?: readonly InstallationProfileBinding[];
 		readonly hqAuthored?: {
+			readonly projectSearches?: readonly ProjectSearchBinding[];
 			readonly identity: readonly WireIdentityOverride[];
+			readonly installationProfiles?: readonly InstallationProfileBinding[];
 		};
 	};
 	const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(stored.doc));
@@ -814,6 +925,10 @@ async function storedDocument(document: unknown): Promise<StoredDocument> {
 		published: { byPath, sameFile: files.sameFile },
 		assets,
 		identity: stored.identity ?? stored.hqAuthored?.identity ?? [],
+		projectSearches:
+			stored.projectSearches ?? stored.hqAuthored?.projectSearches ?? [],
+		installationProfiles:
+			stored.installationProfiles ?? stored.hqAuthored?.installationProfiles,
 	};
 }
 
@@ -849,6 +964,12 @@ function lookupCatalogOf(
 						tableId: table.id,
 						column: (name) =>
 							table.columns.find((column) => column.wireName === name)?.id,
+						attribute: (name) =>
+							table.attributes?.find((member) => member.wireName === name)?.id,
+						property: (columnId, name) =>
+							table.columns
+								.find((column) => column.id === columnId)
+								?.properties?.find((member) => member.wireName === name)?.id,
 					};
 		},
 		definitions: new Map(definitions.map((table) => [table.id, table])),
@@ -879,9 +1000,18 @@ async function readBack(
 	if (reading.kind !== "read") return account(readingStop(reading));
 	const { source, modules } = reading;
 
+	const readFlag = createHqSourceFlagReader(creds, LANE_TARGET.domain);
+	let caseListActionsApplied: boolean | undefined;
+	if (sourceUsesCaseListActionSetting(source.raw)) {
+		const flag = await readFlag("no-matches-registration");
+		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
+		if (flag.kind === "failed")
+			return account(atApp(hqReadCircumstance(flag.failure)));
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	if (sourceHoldsEditMode(publishedCaseBlocks(source.raw))) {
-		const flag = await readHqSaveOnlyEditedAnswers(creds, LANE_TARGET.domain);
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
 		if (flag.kind === "failed")
 			return account(atApp(hqReadCircumstance(flag.failure)));
@@ -901,7 +1031,16 @@ async function readBack(
 		modules,
 		resolver: matchingResolver(
 			input.appId,
-			externalIdentityMap(doc, targetWireIdentity(stored.identity)),
+			externalIdentityMap(
+				doc,
+				targetWireIdentity(
+					stored.identity,
+					[],
+					stored.projectSearches,
+					stored.installationProfiles,
+				),
+				lookupWireNaming(stored.lookupDefinitions),
+			),
 		),
 		lookup: lookupCatalogOf(stored.lookupDefinitions),
 		organization: { levelCodes: levels.map((level) => level.code), levels },
@@ -909,10 +1048,39 @@ async function readBack(
 		appStrings: readingAppStrings(stored.lookup),
 		recordDialect: recordDialectRoundTrip,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		knownCaseTypes: knownCaseTypesOf(doc),
+		knownFormEntryChoices: knownFormEntryChoicesOf(doc),
+		knownDirectParentSearchNames: knownDirectParentSearchNamesOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};
-	const outcome = readHqApp(readerInput, { claims: input.claims });
+	const discovery = sourceFactoryReads({
+		creds,
+		domain: LANE_TARGET.domain,
+		working: reading,
+		source,
+	});
+	if (mayUseProjectFactory(source))
+		await new Pieces().steps(
+			readHqLookupTagsSteps({
+				...readerInput,
+				observeFactory: (kind, id, form) =>
+					discovery.observe(source, kind, id, form),
+				observeSuiteDetail: (details, id) =>
+					discovery.observeDetail(source, details, id),
+			}),
+		);
+	const factories = await discovery.read();
+	if (factories.kind === "failed")
+		return account(atApp(hqReadCircumstance(factories.failure)));
+	const outcome = readHqApp(
+		{
+			...readerInput,
+			sourceProjectFactories: factories.facts,
+			suiteDetails: await discovery.readDetails(),
+		},
+		{ claims: input.claims },
+	);
 	const claims =
 		input.claims === "full"
 			? serializeClaimLog(outcome.claims)
@@ -985,7 +1153,7 @@ export async function readForLane(input: LaneReadInput): Promise<LaneReading> {
 		);
 	} catch (error) {
 		if (error instanceof RetainedAnswerMissing)
-			throw new Error(noRetainedAnswer(error.path, input.appId));
+			throw new LaneAnswerMissing(error.path, input.appId);
 		throw error;
 	}
 }
@@ -1001,6 +1169,8 @@ function readBackRecordRows(
 ): {
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches: readonly ProjectSearchBinding[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 } {
 	const observed = observedTargetIdentity({
 		read: draft.identities,
@@ -1013,10 +1183,12 @@ function readBackRecordRows(
 		throw new Error(
 			`A read back named a menu or form CommCare HQ's application resource does not hold (${observed.at}). Look at lib/deployment/adoption.ts::adoptedIdentityRows.`,
 		);
-	const { keyedCaseIds, columnWords } = resolveTargetIdentity(
-		EMPTY_TARGET_IDENTITY,
-		observed.observed,
-		draft.doc,
-	);
-	return { keyedCaseIds, columnWords };
+	const { keyedCaseIds, columnWords, projectSearches, installationProfiles } =
+		resolveTargetIdentity(EMPTY_TARGET_IDENTITY, observed.observed, draft.doc);
+	return {
+		keyedCaseIds,
+		columnWords,
+		projectSearches: projectSearches ?? [],
+		installationProfiles,
+	};
 }

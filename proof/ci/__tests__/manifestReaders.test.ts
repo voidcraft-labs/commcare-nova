@@ -25,9 +25,16 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { RESERVED_CASE_PROPERTIES } from "@/lib/commcare/constants";
+import {
+	SERVER_ORDER_RECORD_KEYS,
+	serverOrderKeyNovaReserves,
+} from "@/lib/commcare/suite/case-search/requestOrder";
 import { loadManifest } from "@/lib/commcare/surface/__tests__/loadManifest";
 import type { InventoryEntry } from "@/lib/commcare/surface/schema";
-import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import {
+	DEVICE_ONLY_CASE_PROPERTIES,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
+} from "@/lib/domain/standardCaseProperties";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import {
 	USER_DATA_RESERVED_PREFIXES,
@@ -152,20 +159,49 @@ it("reads a SaveToCase block's reserved update keys as the commit gate reserves 
 		"manifest_value_classes.py",
 		"SAVE_TO_CASE_RESERVED_UPDATE_KEYS",
 	);
-	// The block's own rows (a retype, a rename, the owner) and the two keys
-	// `update-keys-location-id-hq-user-id` holds are read apart.
-	const apart = new Set([
-		"case_type",
-		"case_name",
-		"owner_id",
-		"location_id",
-		"hq_user_id",
-	]);
+	// The block's own rows (a retype, a rename, the owner) are read apart.
+	const apart = new Set(["case_type", "case_name", "owner_id"]);
 	expect([...lane].sort()).toEqual(
 		[...FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES]
 			.filter((name) => !apart.has(name))
 			.sort(),
 	);
+});
+
+it("reads the same Search properties kept outside the server index", async () => {
+	const deviceOnly = await pythonNames(
+		"manifest_value_classes.py",
+		"SERVER_SEARCH_DEVICE_ONLY_KEYS",
+	);
+	expect([...deviceOnly].sort()).toEqual(
+		[...DEVICE_ONLY_CASE_PROPERTIES].sort(),
+	);
+});
+
+// The lane reads a server order's key as one naming a property Nova reserves by lists of its own
+// (proof/checks/manifest_value_classes.py::_order_key_reserved), as the reader asks
+// lib/commcare/suite/case-search/requestOrder.ts::serverOrderKeyNovaReserves. The plausible failure held here: a
+// record key the reader comes to read, or a name the gate comes to reserve, that the lane's lists do not follow.
+it("reads a server order's reserved keys as the reader refuses them", async () => {
+	const [recordKeys, ownRows, saveToCase] = await Promise.all(
+		[
+			"SERVER_ORDER_RECORD_KEYS",
+			"CASE_OPERATION_OWN_ROWS",
+			"SAVE_TO_CASE_RESERVED_UPDATE_KEYS",
+		].map((name) => pythonNames("manifest_value_classes.py", name)),
+	);
+	expect([...recordKeys].sort()).toEqual([...SERVER_ORDER_RECORD_KEYS].sort());
+	expect([...new Set([...ownRows, ...saveToCase])].sort()).toEqual(
+		[...FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES].sort(),
+	);
+	for (const key of [
+		...FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
+		...SERVER_ORDER_RECORD_KEYS,
+		"priority",
+	])
+		expect(serverOrderKeyNovaReserves(key), key).toBe(
+			!recordKeys.has(key) && (ownRows.has(key) || saveToCase.has(key)),
+		);
 });
 
 // The lane reads a write of the worker's record to a key no worker property takes by lists of its own

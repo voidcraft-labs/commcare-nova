@@ -64,7 +64,13 @@ export function expressionChildPath(
 				return [...parentPath, parentKind, role.index];
 			return [
 				...parentPath,
-				...(["call", "cases", "table-rows", "locations"].includes(parentKind)
+				...([
+					"call",
+					"cases",
+					"table-rows",
+					"locations",
+					"worker-groups",
+				].includes(parentKind)
 					? [parentKind]
 					: []),
 				role.slot,
@@ -238,6 +244,7 @@ export function expressionChildren(
 			break;
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations":
 			items("where", node.where);
 			break;
@@ -252,9 +259,11 @@ export function expressionChildren(
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "case-text":
 		case "itext":
 		case "here":
 		case "case-list-search-text":
+		case "case-list-lookup-count":
 		case "selected-cases":
 		case "form-case":
 		case "capture-link":
@@ -268,10 +277,12 @@ export function expressionChildren(
 		case "literal":
 		case "choice":
 		case "case-type":
+		case "search-result-field":
 		case "case-row-type":
 		case "case-index":
 		case "session-datum":
 		case "location-level":
+		case "worker-group-field":
 		case "location-field":
 			break;
 		default: {

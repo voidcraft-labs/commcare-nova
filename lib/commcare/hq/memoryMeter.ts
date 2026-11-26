@@ -121,9 +121,9 @@ export interface MemoryBounds {
  *   the cap (`HQ_BRING_IN_APP_MAX_BYTES`) charges 480 MiB, which fits.
  * - external: a quarter of the memory. Outside V8's heap is about half the
  *   container, and half of that is serving's own: the runtime, sockets and
- *   buffers. On the instance, 512 MiB: one create at its media bound
- *   (`MAX_MEDIA_EXPORT_BYTES` kept and `HQ_MEDIA_IN_FLIGHT_MAX_BYTES` in
- *   flight, 264 MiB) fits, and so does a second of ordinary size.
+ *   buffers. On the instance, 512 MiB: a create stages each file as it
+ *   judges it, so its media holds at most `HQ_MEDIA_IN_FLIGHT_MAX_BYTES`
+ *   in flight however many files the app has, and several fit at once.
  */
 export function processMemoryBounds(): MemoryBounds {
 	const constrained = process.constrainedMemory();

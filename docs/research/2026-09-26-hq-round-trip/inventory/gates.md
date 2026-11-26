@@ -80,7 +80,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 | ES_QUERY_PREFERENCE [internal] | INERT · no content: it routes that query to the same shards each time (`es/client.py::ElasticDocumentAdapter._search`), which changes no result | n/a | none |
 | IS_CONTRACTOR [internal, user] | INERT · no content | n/a | none |
 | MOBILE_RECOVERY_MEASURES [internal] | TARGET-OWNED · computed profile URL | n/a | none |
-| FACE_CAPTURE [release] | TARGET-OWNED · HELD-NEW (Question types face capture) | n/a | none: it gates only creating the question in Vellum (`core.js`), and HQ reads it nowhere else |
+| FACE_CAPTURE [release] | TARGET-OWNED · HELD (Question types face capture) | n/a | none: it gates only creating the question in Vellum (`core.js`), and HQ reads it nowhere else |
 | COMMCARE_CONNECT [connect division] | TARGET-OWNED · HELD / HELD-NEW (Application: a Connect app; Question types Connect blocks) | n/a | precondition |
 
 Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail, or prints it in a form; whether case search is on (`CaseSearchConfig.enabled`), which Nova's runtime probe reads for an app with case search (`lib/commcare/client.ts::probeCaseSearchRuntime`); and, by asking the person to confirm, since no API reads those settings: that sync on form entry is off for an app that declares Android with a form that works on a case in a module that offers search (defect 20) and that the flat location fixture still syncs for an app that reads locations (Settings and profile); and, at publish of an app with an advanced module whose case list menu item is on, or with a form whose source text, decoded, holds `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`), by asking the person to confirm, that CommTrack is off in the project space (defect 20).
@@ -112,7 +112,7 @@ Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTAC
 | `practice_mobile_workers` | TARGET-OWNED · target value | n/a | none |
 | `commcare_logo_uploader` | TARGET-OWNED · HELD / HELD-NEW (Application logos) | n/a | not a publish precondition: publish writes no logo (defect 14) and says HQ's builds carry the app's logos only where the plan has this privilege and the person uploaded them in HQ (HQ's build drops the profile logo properties without it, and a plan downgrade archives the logos, `archived_media`) |
 | `build_profiles` | TARGET-OWNED · `build_profiles` target value | n/a | none |
-| `app_dependencies` | TARGET-OWNED · HELD-NEW (Settings and profile, `features.dependencies`) | n/a | confirmed at publish (HQ drops the content without it) |
+| `app_dependencies` | TARGET-OWNED · HELD (Settings and profile, `features.dependencies`) | n/a | confirmed at publish (HQ drops the content without it) |
 | `phone_apk_heartbeat` | TARGET-OWNED · no document content | n/a | none |
 | `form_link_workflow` | TARGET-OWNED · HELD (Form fields) | n/a | editor gate, confirmed at publish |
 | `custom_icon_badges` | TARGET-OWNED · HELD-NEW (badges) | n/a | editor gate, confirmed at publish |

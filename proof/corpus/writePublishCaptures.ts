@@ -18,7 +18,7 @@
  *
  *   { "id", "doc", "compiledAtSeq",
  *     "lookup"?: { "projectId", "projectRevision", "definitions", "rowsByTable": { <table id>: rows } },
- *     "media"?: { <asset id>: { "kind", "mimeType", "extension", "base64" } },
+ *     "media"?: { <asset id>: { "kind", "mimeType", "extension", "base64", "source"? } },
  *     "edited"?: { "doc", "compiledAtSeq", "lookup"?, "media"? } }
  *
  * where `doc` is the stored (persistable) document and `edited` is D′, the
@@ -32,7 +32,8 @@
  * - `media` holds each uploaded asset the document references, by its asset
  *   id: an accepted MIME type as Nova writes it (`image/png`), the kind and
  *   the dotted extension Nova stores for that type (`image`, `.png`), and
- *   the bytes in canonical base64. Built-in icons need no entry.
+ *   the bytes in canonical base64, and `"source": "commcare-hq"` for a file a
+ *   bring-in stored, which no upload cap bounds. Built-in icons need no entry.
  *
  * The Project holds no places, so no publish pushes any. A document Nova's
  * export boundary refuses (`./publish.ts::exportFindings`) stops the run
@@ -96,15 +97,18 @@ import {
 } from "@/lib/domain/lookupIds";
 import { MEDIA_KINDS, mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import { validateLookupRowValues } from "@/lib/lookup/coercion";
-import { LOOKUP_MAX_COLUMNS, LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
+import { checkedRowContent } from "@/lib/lookup/rowContent";
 import {
 	lookupColumnLabelSchema,
 	lookupDataTypeSchema,
+	lookupMemberSchema,
 	lookupRevisionSchema,
+	lookupRowContentSchema,
+	lookupStoredTagSchema,
 	lookupTableNameSchema,
-	lookupTagSchema,
 	lookupWireNameSchema,
 } from "@/lib/lookup/schema";
+import { lookupSourceFactsSchema } from "@/lib/lookup/source";
 import type {
 	LookupFixtureDataSnapshot,
 	LookupFixtureRow,
@@ -113,6 +117,7 @@ import type {
 } from "@/lib/lookup/types";
 import { DEFAULT_CORPUS_SEED } from "./defaults";
 import { LOCAL_CONFIGURATION, OPERATION_ORDINALS } from "./entropy.mts";
+import { writeMediaSidecar } from "./mediaSidecar";
 import {
 	type CapturedRequest,
 	CCZ_CLOCK,
@@ -163,10 +168,14 @@ const lookupColumnSchema = z.strictObject({
 	wireName: lookupWireNameSchema,
 	label: lookupColumnLabelSchema,
 	dataType: lookupDataTypeSchema,
+	repeated: z.literal(true).optional(),
+	properties: z.array(lookupMemberSchema).optional(),
+	index: z.enum(["indexed", "unobserved"]).optional(),
 });
 
 /** Where a stored table came from in CommCare HQ (`lib/lookup/types.ts::LookupHqOrigin`). */
 const lookupHqOriginSchema = z.strictObject({
+	source: lookupSourceFactsSchema.optional(),
 	server: z.string().min(1),
 	domain: z.string().min(1),
 	remoteId: z.string().min(1),
@@ -182,14 +191,15 @@ const lookupHqOriginSchema = z.strictObject({
 const lookupDefinitionSchema = z.strictObject({
 	id: lookupTableIdSchema,
 	name: lookupTableNameSchema,
-	tag: lookupTagSchema,
+	tag: lookupStoredTagSchema,
 	columnCount: z.number().int().nonnegative().optional(),
 	rowCount: z.number().int().nonnegative().optional(),
 	dataBytes: z.number().int().nonnegative().optional(),
 	definitionRevision: lookupRevisionSchema,
 	rowsRevision: lookupRevisionSchema.optional(),
 	tableRevision: lookupRevisionSchema.optional(),
-	columns: z.array(lookupColumnSchema).max(LOOKUP_MAX_COLUMNS),
+	columns: z.array(lookupColumnSchema),
+	attributes: z.array(lookupMemberSchema).optional(),
 	hq: lookupHqOriginSchema.optional(),
 });
 
@@ -200,9 +210,12 @@ const lookupSnapshotSchema = z.strictObject({
 	definitions: z.array(lookupDefinitionSchema),
 	rowsByTable: z.record(
 		lookupTableIdSchema,
-		z
-			.array(z.strictObject({ id: lookupRowIdSchema, values: z.unknown() }))
-			.max(LOOKUP_MAX_ROWS),
+		z.array(
+			lookupRowContentSchema.extend({
+				id: lookupRowIdSchema,
+				values: z.unknown(),
+			}),
+		),
 	),
 });
 
@@ -248,10 +261,20 @@ function lookupSnapshotProblem(
 		if (row !== undefined) {
 			return `the table ${definition.tag} has the row ${row} twice`;
 		}
-		for (const { id, values } of rows) {
+		for (const { id, values, ...content } of rows) {
 			const checked = validateLookupRowValues(definition.columns, values);
 			if (!checked.success) {
 				return `in the table ${definition.tag}, row ${id}: ${sentences(checked.issues.map((issue) => issue.message))}`;
+			}
+			try {
+				checkedRowContent(
+					definition.columns,
+					definition.attributes ?? [],
+					checked.values,
+					content,
+				);
+			} catch (error) {
+				return `in the table ${definition.tag}, row ${id}: ${error instanceof Error ? error.message : String(error)}`;
 			}
 			if (!isDeepStrictEqual(checked.values, values)) {
 				return `in the table ${definition.tag}, row ${id} holds cells Nova's store keeps as ${JSON.stringify(checked.values)}`;
@@ -297,7 +320,7 @@ function readLookup(
 				definition.id,
 				(parsed.data.rowsByTable[definition.id] ?? []).map(
 					(row): LookupFixtureRow => ({
-						id: row.id,
+						...row,
 						values: row.values as LookupRowValues,
 					}),
 				),
@@ -312,6 +335,7 @@ const uploadedMediaSchema = z.strictObject({
 	mimeType: z.string(),
 	extension: z.string(),
 	base64: z.string().min(1),
+	source: z.literal("commcare-hq").optional(),
 });
 
 function readMedia(
@@ -333,7 +357,7 @@ function readMedia(
 			const parsed = uploadedMediaSchema.safeParse(entry);
 			if (!parsed.success) {
 				fail(
-					`${where} needs exactly a kind (${MEDIA_KINDS.join(", ")}), mimeType, extension and base64 bytes: ${parsed.error.issues
+					`${where} needs exactly a kind (${MEDIA_KINDS.join(", ")}), mimeType, extension and base64 bytes, and a source of "commcare-hq" only for a file a bring-in stored: ${parsed.error.issues
 						.map(
 							(issue) =>
 								`${issue.path.join(".") || "entry"}: ${sentences([issue.message])}`,
@@ -352,6 +376,9 @@ function readMedia(
 				mimeType: parsed.data.mimeType,
 				extension: parsed.data.extension,
 				bytes,
+				...(parsed.data.source !== undefined && {
+					source: parsed.data.source,
+				}),
 			};
 			const problem = uploadedMediaProblem(asset);
 			if (problem !== undefined) {
@@ -490,8 +517,8 @@ function updateSidecar(
 		layout: TWO_IMPORT_LAYOUT,
 		placeholderAppId: PLACEHOLDER_APP_ID,
 		saveCounter: sent.saveCounter,
-		...(sent.mediaSaveCounter !== undefined && {
-			mediaSaveCounter: sent.mediaSaveCounter,
+		...(Object.keys(sent.verifiedMedia).length > 0 && {
+			verifiedMedia: sent.verifiedMedia,
 		}),
 		assumedSource: sent.assumedSource,
 		...(sent.assumedResources !== undefined && {
@@ -506,7 +533,7 @@ function stepSummary(step: {
 	readonly compatibility?: unknown;
 	readonly code?: string;
 	readonly lookup?: unknown;
-	readonly media?: unknown;
+	readonly mediaUploads?: readonly unknown[];
 }) {
 	return {
 		status: step.status,
@@ -518,7 +545,7 @@ function stepSummary(step: {
 			requests: [
 				...(step.lookup !== undefined ? ["lookup"] : []),
 				"import",
-				...(step.media !== undefined ? ["media"] : []),
+				...(step.mediaUploads ?? []).map(() => "media"),
 			],
 		}),
 	};
@@ -533,16 +560,18 @@ async function writeImport(
 	if (sent.lookup !== undefined) {
 		await writeRequest(directory, `${name}.lookup`, sent.lookup);
 	}
-	await writeRequest(
-		directory,
-		`${name}.import`,
-		sent.importApp,
-		updateSidecar(sent),
+	const media = await writeMediaSidecar(
+		sent.mediaUploads,
+		async (request, role) => {
+			const base = `${name}.${role}`;
+			await writeRequest(directory, base, request);
+			return `${base}.body`;
+		},
 	);
-
-	if (sent.media !== undefined) {
-		await writeRequest(directory, `${name}.media`, sent.media);
-	}
+	await writeRequest(directory, `${name}.import`, sent.importApp, {
+		...updateSidecar(sent),
+		...media,
+	});
 }
 
 async function writeStep(
@@ -692,18 +721,26 @@ export async function writePublishCaptures(
 ): Promise<string[]> {
 	/* A document Nova does not export stops the run before anything is
 	 * written: D is published and downloaded, D′ is published. */
+	const domains = new Set([
+		PROOF_DOMAIN,
+		...configurations.map((config) => config.domain),
+	]);
 	for (const entry of entries) {
-		const exports = [
-			[entry.document, "hq-upload"],
-			[entry.document, "ccz"],
-			...(entry.edited !== undefined
-				? [[entry.edited, "hq-upload"] as const]
-				: []),
-		] as const;
-		for (const [document, mode] of exports) {
-			const findings = await exportFindings(document, mode);
-			if (findings.length > 0) {
-				throw new UnexportableDocumentError(document.id, mode, findings);
+		const downloads = await exportFindings(entry.document, "ccz");
+		if (downloads.length)
+			throw new UnexportableDocumentError(entry.document.id, "ccz", downloads);
+		for (const document of [
+			entry.document,
+			...(entry.edited ? [entry.edited] : []),
+		]) {
+			for (const domain of domains) {
+				const findings = await exportFindings(document, "hq-upload", domain);
+				if (findings.length)
+					throw new UnexportableDocumentError(
+						document.id,
+						"hq-upload",
+						findings,
+					);
 			}
 		}
 	}

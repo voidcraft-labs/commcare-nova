@@ -805,14 +805,17 @@ export function getBuilderPathSegmentsSnapshot(): string[] {
  * document to distinguish a selected field from a form or module here. A
  * matching UUID can only belong to this field.
  */
-export function useIsBuilderFieldPathSelected(uuid: string): boolean {
+export function useIsBuilderFieldPathSelected(
+	uuid: string,
+	route?: string | null,
+): boolean {
 	const getSelectedSnapshot = useCallback(() => {
 		const segments = extractSegments(getSnapshot());
-		return (
-			(segments.length === 1 || segments.length === 2) &&
-			segments[segments.length - 1] === uuid
-		);
-	}, [uuid]);
+		const sharedRoute = segments[1] === "forms" ? segments[0] : null;
+		if (route !== undefined && sharedRoute !== route) return false;
+		const size = segments.length - (sharedRoute ? 2 : 0);
+		return (size === 1 || size === 2) && segments[segments.length - 1] === uuid;
+	}, [uuid, route]);
 	return useSyncExternalStore(subscribe, getSelectedSnapshot, () => false);
 }
 

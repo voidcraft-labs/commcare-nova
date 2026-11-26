@@ -28,7 +28,9 @@
  *   holds the declaration it was read under and that declaration's
  *   first-publish ids. With `expected`, the two documents are compared whole
  *   (`choices: null`). With `holds`, each fragment's value is found at its
- *   pointer of the entity its external key names: `named` says whether the
+ *   pointer of the entity its external key names, or the document itself under
+ *   the key `app` (a row may also give it as the list `["app"]`, the spelling
+ *   of every other key): `named` says whether the
  *   reading holds an entity under the key at all, and `found` is what that
  *   entity holds at the pointer (`null` for nothing, and for a key that names
  *   no entity), so a fragment whose value is `null` is told apart from a key
@@ -48,10 +50,13 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { expandDoc } from "@/lib/commcare/expander";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { canonDocument } from "@/lib/commcare/reader/canon";
 import { externalKeyText } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { planFromDocuments } from "@/lib/deployment/hqChanges/plan";
 import {
 	type ReadBackDifference,
 	readBackDifferences,
@@ -61,7 +66,11 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	makeTranslationUnitId,
+} from "@/lib/domain";
 import { remapAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
@@ -74,6 +83,8 @@ import {
 type Mode = "read-back" | "first-read" | "claims";
 
 interface Hold {
+	/** A field translation addressed by the same external field key as its source. */
+	readonly translation?: { readonly language: string; readonly slot: string };
 	readonly key: string;
 	readonly pointer: string;
 	readonly value: unknown;
@@ -86,6 +97,8 @@ interface Request {
 	/** A stored document (`document.json`'s `doc`). */
 	readonly expected?: unknown;
 	readonly canon?: boolean;
+	/** Review the changed reading over the previously adopted, unchanged app supplied as expected. */
+	readonly reviewChanges?: boolean;
 	readonly holds?: readonly Hold[];
 }
 
@@ -97,6 +110,11 @@ interface Answer {
 	readonly claims: string;
 	readonly declaration?: LaneDeclaration;
 	readonly offered?: readonly LaneDeclaration[];
+	readonly review?: ReturnType<typeof reviewChanges>;
+	/** Where the owner-rule answers a first reading states are not one for each question it asks:
+	 *  those answers, and the level of each question. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
+	readonly ownerRuleLevels?: readonly string[];
 	readonly firstPublish?: readonly string[];
 	readonly held?: readonly {
 		readonly key: string;
@@ -183,7 +201,10 @@ function withValues(
 
 /** The record of the entity `uuid` names, from whichever of the document's maps holds it. */
 function entityOf(doc: BlueprintDoc, uuid: string): unknown {
-	for (const value of Object.values(doc)) {
+	for (const value of [
+		...Object.values(doc),
+		doc.appSettings.installationProfiles,
+	]) {
 		if (
 			typeof value === "object" &&
 			value !== null &&
@@ -200,16 +221,32 @@ function heldOf(
 	holds: readonly Hold[],
 ): Answer["held"] {
 	const uuidOfKey = new Map(
-		externalIdentityMap(reading.doc, targetWireIdentity(reading.identity)).map(
-			(entry) => [
-				externalKeyText({ kind: entry.kind, parts: entry.parts }),
-				entry.uuid,
-			],
-		),
+		externalIdentityMap(
+			reading.doc,
+			targetWireIdentity(
+				reading.identity,
+				reading.columnWords,
+				reading.projectSearches,
+				reading.installationProfiles,
+			),
+			reading.lookup && lookupWireNaming(reading.lookup.definitions),
+		).map((entry) => [
+			externalKeyText({ kind: entry.kind, parts: entry.parts }),
+			entry.uuid,
+		]),
 	);
-	return holds.map(({ key, pointer }) => {
+	return holds.map(({ key, pointer, translation }) => {
 		const uuid = uuidOfKey.get(key);
-		const entity = uuid === undefined ? undefined : entityOf(reading.doc, uuid);
+		const entity =
+			key === "app" || key === JSON.stringify(["app"])
+				? reading.doc
+				: uuid === undefined
+					? undefined
+					: translation === undefined
+						? entityOf(reading.doc, uuid)
+						: reading.doc.localization?.translations[translation.language]?.[
+								makeTranslationUnitId("field", uuid, translation.slot)
+							];
 		return {
 			key,
 			pointer,
@@ -217,6 +254,33 @@ function heldOf(
 			found: entity === undefined ? null : (atPointer(entity, pointer) ?? null),
 		};
 	});
+}
+
+/** Apply the production HQ change planner to an adoption with no unpublished edits, then emit
+ * the resulting app under its adopted IDs so HQ can read back the actual wire. */
+function reviewChanges(
+	previous: BlueprintDoc | undefined,
+	reading: Extract<LaneReading, { kind: "read" }>,
+) {
+	if (previous === undefined)
+		throw new Error("A change review needs the previous adopted document.");
+	const plan = planFromDocuments({
+		ref: previous,
+		now: previous,
+		base: previous,
+		theirs: reading.doc,
+		renamesSince: [],
+	});
+	if (plan.kind !== "changes") return plan;
+	return {
+		kind: plan.kind,
+		target: toPersistableDoc(plan.target),
+		application: expandDoc(plan.target, {
+			identity: targetWireIdentity(reading.identity),
+			lookupNaming:
+				reading.lookup && lookupWireNaming(reading.lookup.definitions),
+		}),
+	};
 }
 
 async function answer(request: Request): Promise<Answer> {
@@ -245,6 +309,12 @@ async function answer(request: Request): Promise<Answer> {
 		return { ...base, findings: reading.findings };
 	if (reading.kind === "declaration-not-offered")
 		return { ...base, declaration: reading.stated, offered: reading.offered };
+	if (reading.kind === "owner-rules-not-answered")
+		return {
+			...base,
+			ownerRuleChoices: reading.stated,
+			ownerRuleLevels: reading.askedLevels,
+		};
 	// Where two assets of the document are one file, the expected document names the one the read
 	// back names it by.
 	const expectedDoc =
@@ -256,7 +326,13 @@ async function answer(request: Request): Promise<Answer> {
 				);
 	const expected =
 		expectedDoc !== undefined && request.canon === true
-			? canonDocument(expectedDoc)
+			? canonDocument(
+					expectedDoc,
+					undefined,
+					request.mode === "read-back"
+						? expectedDoc.localization?.sourceLanguage
+						: undefined,
+				)
 			: expectedDoc;
 	const differences =
 		expected === undefined
@@ -277,6 +353,9 @@ async function answer(request: Request): Promise<Answer> {
 	return {
 		...base,
 		...(differences !== undefined && { differences }),
+		...(request.reviewChanges && {
+			review: reviewChanges(expectedDoc, reading),
+		}),
 		...(request.mode === "first-read" && {
 			declaration: reading.declaration,
 			firstPublish: reading.firstPublish,

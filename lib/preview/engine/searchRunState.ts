@@ -5,6 +5,7 @@ import {
 	type SearchInputDef,
 	searchInputDefault,
 	searchInputLookupSortColumnId,
+	type Uuid,
 } from "@/lib/domain";
 import { PreviewDataRefusal } from "@/lib/preview/engine/dataRefusal";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
@@ -13,7 +14,10 @@ import {
 	lookupOptionsSourceCovered,
 	predicateLookupsCovered,
 } from "@/lib/preview/engine/lookupEvaluation";
-import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import {
+	type SearchInputValues,
+	searchForBlankKey,
+} from "@/lib/preview/engine/runtimeBindings";
 import {
 	type PreviewSearchEnvironment,
 	resolveSearchHiddenValues,
@@ -22,6 +26,7 @@ import {
 } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { readSearchScreenConditionsAtOpen } from "@/lib/preview/engine/searchInputConstraints";
 import type { LookupChoice } from "@/lib/preview/engine/types";
+import type { PreviewPlatformRules } from "@/lib/preview/platform";
 
 export interface SearchRunState {
 	readonly scopeKey: string;
@@ -63,7 +68,7 @@ export function changeSearchRunDraft(
 		submitted: submit ? draft : base.submitted,
 		submittedHidden: submit ? desired.resolveHidden() : base.submittedHidden,
 		hasSubmitted: submit ? true : base.hasSubmitted,
-		touched: changedKeys(base.draft, draft, base.touched, base.allowedKeys),
+		touched: changedKeys(base.draft, draft, base.touched, base.keyShapes),
 	};
 }
 
@@ -82,7 +87,7 @@ export function restoreSearchRun(
 			[...values].filter(([key]) => !base.allowedKeys.has(key)),
 		),
 		hasSubmitted: true,
-		touched: changedKeys(base.draft, draft, base.touched, base.allowedKeys),
+		touched: changedKeys(base.draft, draft, base.touched, base.keyShapes),
 	};
 }
 
@@ -110,21 +115,25 @@ export function buildSearchRunState(
 	 *  read them (`openSearchRunState`); otherwise each is read here. */
 	startingValues?: SearchInputValues,
 ): SearchRunState {
-	const allowedKeys = searchInputAnswerKeys(searchInputs);
 	const keyShapes = new Map<string, string>();
 	for (const input of searchInputs) {
 		// A hidden input has no draft key: the worker never answers it. Its
 		// value is resolved at submit, and a constraint judged over the draft
 		// seeds it itself (`emitPreviewSearchPredicate`).
-		if (input.kind === "hidden") continue;
+		if (input.kind === "hidden" || input.kind === "address") continue;
 		const shape = `${input.uuid}:${input.type}`;
 		if (input.type === "date-range") {
 			keyShapes.set(`${input.name}:from`, shape);
 			keyShapes.set(`${input.name}:to`, shape);
+			keyShapes.set(`${input.name}:starting`, shape);
+			keyShapes.set(`${input.name}:opening`, shape);
 		} else {
 			keyShapes.set(input.name, shape);
 		}
+		if (input.allowBlank === true)
+			keyShapes.set(searchForBlankKey(input.name), shape);
 	}
+	const allowedKeys = new Set(keyShapes.keys());
 	const defaults =
 		startingValues ??
 		resolveSearchInputDefaults(searchInputs, session, environment);
@@ -166,13 +175,97 @@ export function searchInputAnswerKeys(
 ): Set<string> {
 	const keys = new Set<string>();
 	for (const input of searchInputs) {
-		if (input.kind === "hidden") continue;
+		if (input.kind === "hidden" || input.kind === "address") continue;
 		if (input.type === "date-range") {
 			keys.add(`${input.name}:from`);
 			keys.add(`${input.name}:to`);
 		} else keys.add(input.name);
+		if (input.allowBlank === true) keys.add(searchForBlankKey(input.name));
 	}
 	return keys;
+}
+
+/** Why an answer supplied from outside a Search screen (an App Test, a form
+ *  check) for a field's search for blank is refused, or `undefined` where the
+ *  key is no such answer or is taken. Web Apps draws the box and sends it
+ *  ticked; Android draws none and reads no `allow_blank_value`
+ *  (`searchForBlank`), so an Android run takes no such answer. The box's
+ *  answer is `true` alone: an unticked box is an answer left out. */
+export function searchForBlankAnswerRefusal(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<PreviewPlatformRules, "searchForBlank">,
+	key: string,
+	value: string,
+): string | undefined {
+	const field = searchInputs.find(
+		(input) =>
+			input.kind !== "hidden" &&
+			input.allowBlank === true &&
+			searchForBlankKey(input.name) === key,
+	);
+	if (field === undefined) return undefined;
+	if (!rules.searchForBlank)
+		return `Android's Search screen shows ${field.name} without the box to also find blank, so an Android run takes no ${key}. Leave it out, or run on Web Apps.`;
+	if (value !== "true")
+		return `Search answer ${key} says the worker also searched for blank, so its value is true. Leave it out where they did not.`;
+	return undefined;
+}
+
+/** The inputs a Search screen draws on a platform: Web Apps hides a hidden
+ *  value and a field marked hidden; Android draws each as an editable
+ *  field holding its value. */
+export function drawnSearchInputs(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
+): readonly SearchInputDef[] {
+	return searchInputs.filter((input) =>
+		input.kind === "address"
+			? rules.searchAddressPicker
+			: rules.hiddenSearchField === "editable" ||
+				(input.kind !== "hidden" && input.hidden !== true),
+	);
+}
+
+/** The answer keys of the fields a platform's Search screen does not draw
+ *  though the worker would answer them where it did: on Web Apps, each
+ *  field marked hidden (`query.js` adds `d-none` to its row), whose
+ *  starting value the search sends as it stands. */
+export function undrawnSearchAnswerKeys(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
+): Set<string> {
+	const drawn = new Set(drawnSearchInputs(searchInputs, rules));
+	return searchInputAnswerKeys(
+		searchInputs.filter((input) => !drawn.has(input)),
+	);
+}
+
+/** Why an answer supplied from outside a Search screen (an App Test, a form
+ *  check) for a field the platform does not draw is refused, or `undefined`
+ *  where it is drawn. A Web Apps worker never sees a field marked hidden,
+ *  so only its starting value, or a Clear, reaches the search; Android draws
+ *  it, and takes the answer. */
+export function undrawnSearchAnswerRefusal(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
+	key: string,
+): string | undefined {
+	if (!undrawnSearchAnswerKeys(searchInputs, rules).has(key)) return undefined;
+	const field = searchInputs.find(
+		(input) =>
+			input.kind !== "hidden" && searchInputAnswerKeys([input]).has(key),
+	);
+	const name = field?.name ?? key;
+	return `Web Apps doesn't show ${name} on the Search screen, so a Web Apps run takes no answer for it: the search sends its starting value as it stands. Leave ${key} out, or run on Android.`;
 }
 
 /** Every key a query's prompts answer by: the answers the worker gives
@@ -184,8 +277,13 @@ export function searchPromptKeys(
 	searchInputs: readonly SearchInputDef[],
 ): Set<string> {
 	const keys = searchInputAnswerKeys(searchInputs);
-	for (const input of searchInputs)
+	for (const input of searchInputs) {
 		if (input.kind === "hidden") keys.add(input.name);
+		else if (input.type === "date-range") {
+			keys.add(input.name + ":starting");
+			keys.add(input.name + ":opening");
+		}
+	}
 	return keys;
 }
 
@@ -216,8 +314,15 @@ export function openSearchRunState(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
+	openedRanges?: ReadonlyMap<Uuid, Readonly<Record<string, string>>>,
 ): SearchRunState {
-	const read = resolveSearchInputDefaults(searchInputs, session, environment);
+	const read = resolveSearchInputDefaults(
+		searchInputs,
+		session,
+		environment,
+		undefined,
+		openedRanges,
+	);
 	resolveSearchHiddenValues(searchInputs, session, environment);
 	const choices = new Map<string, readonly LookupChoice[]>();
 	for (const input of searchInputs) {
@@ -336,15 +441,24 @@ function javaSplit(value: string, separator: string): string[] {
 export function searchScreenOpeningCovered(
 	searchInputs: readonly SearchInputDef[],
 	environment: Pick<PreviewSearchEnvironment, "lookup">,
+	openedRanges?: ReadonlyMap<Uuid, Readonly<Record<string, string>>>,
 ): boolean {
 	const lookup = environment.lookup;
 	for (const input of searchInputs) {
 		if (input.kind === "hidden") {
-			if (!expressionLookupsCovered(input.value, lookup)) return false;
+			if (
+				input.value !== undefined &&
+				!expressionLookupsCovered(input.value, lookup)
+			)
+				return false;
 			continue;
 		}
 		const start = searchInputDefault(input);
-		if (start !== undefined && !expressionLookupsCovered(start, lookup))
+		if (
+			start !== undefined &&
+			!openedRanges?.has(input.uuid) &&
+			!expressionLookupsCovered(start, lookup)
+		)
 			return false;
 		if (
 			"options" in input &&
@@ -439,15 +553,21 @@ function changedKeys(
 	previous: SearchInputValues,
 	next: SearchInputValues,
 	priorTouched: ReadonlySet<string>,
-	allowedKeys: ReadonlySet<string>,
+	keyShapes: ReadonlyMap<string, string>,
 ): ReadonlySet<string> {
+	const changed = new Set<string>();
+	for (const [key, shape] of keyShapes)
+		if (previous.get(key) !== next.get(key)) changed.add(shape);
+	// Both ends belong to the same answer. Refreshing the worker's untouched
+	// end from a different starting expression would construct a new range.
 	const touched = new Set(priorTouched);
-	for (const key of allowedKeys) {
-		if ((previous.get(key) ?? "") !== (next.get(key) ?? "")) touched.add(key);
-	}
+	for (const [key, shape] of keyShapes)
+		if (changed.has(shape)) touched.add(key);
 	return touched;
 }
 
 export function hasNonEmptyValue(values: SearchInputValues): boolean {
-	return [...values.values()].some((value) => value !== "");
+	return [...values].some(
+		([key, value]) => !key.endsWith(":opening") && value !== "",
+	);
 }

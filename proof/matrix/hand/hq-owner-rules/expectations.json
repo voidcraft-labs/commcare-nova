@@ -1,0 +1,94 @@
+[
+	{
+		"id": "transfer-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f0",
+				"data": {
+					"case_id": "patient-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "moved"
+				}
+			],
+			"expressions": ["/data/note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "moved"
+			}
+		]
+	},
+	{
+		"id": "owner-rule-given-to-worker:before",
+		"entry": "expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f0",
+				"data": {
+					"case_id": "patient-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "moved"
+				}
+			],
+			"expressions": ["/data/nova_operations/transfer/case/update/owner_id"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": ""
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "owner-rule-given-to-worker:after",
+		"entry": "expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f0",
+				"data": {
+					"case_id": "patient-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "moved"
+				}
+			],
+			"expressions": ["/data/nova_operations/transfer/case/update/owner_id"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "test_uuid"
+			}
+		],
+		"exports": ["B", "local"]
+	}
+]

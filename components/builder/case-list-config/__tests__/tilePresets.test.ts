@@ -10,7 +10,6 @@ import { tileCell } from "@/lib/domain";
 import {
 	matchingTilePreset,
 	seedTileArrangement,
-	TILE_MAX_FIELDS,
 	TILE_PRESETS,
 	tilePresetUnavailableReason,
 } from "../tile/tilePresets";
@@ -30,11 +29,12 @@ describe("stacked lines", () => {
 		]);
 	});
 
-	it("runs out of room past twelve lines", () => {
-		expect(preset("stacked-lines").arrange(12)).not.toBeNull();
-		expect(preset("stacked-lines").arrange(13)).toBeNull();
+	it("has a line for every field: a tile has a row for each field it shows", () => {
+		const thirteen = preset("stacked-lines").arrange(13);
+		expect(thirteen).toHaveLength(13);
+		expect(thirteen?.at(-1)).toEqual({ x: 0, y: 12, width: 12, height: 1 });
 		expect(tilePresetUnavailableReason(preset("stacked-lines"), 13)).toBe(
-			"This layout has no room for 13 fields on a 12 by 12 tile.",
+			undefined,
 		);
 	});
 });
@@ -92,7 +92,7 @@ describe("title over two columns", () => {
 });
 
 describe("every preset", () => {
-	it("stays inside the grid and never overlaps, at every field count", () => {
+	it("stays inside the grid, a row for each field and at least six, and never overlaps, at every field count", () => {
 		for (const candidate of TILE_PRESETS) {
 			for (let count = 1; count <= 30; count++) {
 				const arranged = candidate.arrange(count);
@@ -102,7 +102,7 @@ describe("every preset", () => {
 					expect(cell.x).toBeGreaterThanOrEqual(0);
 					expect(cell.y).toBeGreaterThanOrEqual(0);
 					expect(cell.x + cell.width).toBeLessThanOrEqual(12);
-					expect(cell.y + cell.height).toBeLessThanOrEqual(12);
+					expect(cell.y + cell.height).toBeLessThanOrEqual(Math.max(count, 6));
 				}
 				for (let a = 0; a < arranged.length; a++) {
 					for (let b = a + 1; b < arranged.length; b++) {
@@ -140,9 +140,11 @@ describe("seedTileArrangement", () => {
 		expect(thirty?.[0]?.width).toBe(4);
 	});
 
-	it("lays out a full grid, and only refuses past it", () => {
-		expect(seedTileArrangement(TILE_MAX_FIELDS)).toHaveLength(TILE_MAX_FIELDS);
-		expect(seedTileArrangement(TILE_MAX_FIELDS + 1)).toBeNull();
+	it("lays out a full grid, then adds rows, and refuses only an empty tile", () => {
+		expect(seedTileArrangement(144)).toHaveLength(144);
+		const more = seedTileArrangement(145);
+		expect(more).toHaveLength(145);
+		expect(more?.at(-1)).toEqual({ x: 0, y: 12, width: 1, height: 1 });
 		expect(seedTileArrangement(0)).toBeNull();
 	});
 });

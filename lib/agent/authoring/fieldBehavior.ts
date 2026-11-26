@@ -60,7 +60,13 @@ export function fieldCaseWrites(
 	doc: BlueprintDoc,
 	field: Field,
 ): FieldCaseWriteRead[] {
-	return fieldCaseWriteViews(doc, field.uuid).map((view) => ({
+	return caseWriteReads(fieldCaseWriteViews(doc, field.uuid));
+}
+
+export function caseWriteReads(
+	views: ReturnType<typeof fieldCaseWriteViews>,
+): FieldCaseWriteRead[] {
+	return views.map((view) => ({
 		caseType: view.caseType,
 		property: view.property,
 		...(view.via !== undefined && { via: view.via }),
@@ -88,12 +94,7 @@ export function effectiveFieldBehavior(doc: BlueprintDoc, field: Field) {
 					...(queryRepeatRowsKept(field) && { rowsKept: true as const }),
 				};
 	}
-	if (
-		field.kind === "group" ||
-		field.kind === "section" ||
-		field.kind === "label"
-	)
-		return undefined;
+	if (field.kind === "group" || field.kind === "section") return undefined;
 	const caseWrites = fieldCaseWrites(doc, field);
 	const preload = fieldPreload(field);
 	const calculated = field.kind === "hidden" && field.calculate !== undefined;

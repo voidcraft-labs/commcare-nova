@@ -5,14 +5,13 @@
 // dialect.
 
 "use client";
-import type { ExpressionOfKind } from "@/lib/domain/expression";
 
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	absenceSubjectConstraint,
 	type Expression,
 	isBlank,
 	prop,
-	sessionContext,
 	tableColumn,
 } from "@/lib/domain/expression";
 import {
@@ -20,15 +19,17 @@ import {
 	type PredicateEditContext,
 	tableRowInScope,
 } from "../editorSchemas";
+import { editorLookupReads } from "../lookupTablePresentation";
 import { appendSlot, type EditorPath } from "../path";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
+import { globalSeedSubject } from "./comparisonSeed";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 export function isBlankDefault(
 	ctx: PredicateEditContext,
 ): ExpressionOfKind<"is-blank"> {
 	if (tableRowInScope(ctx)) {
-		const column = ctx.tableScope?.columns[0];
+		const column = editorLookupReads(ctx.tableScope)[0];
 		if (ctx.tableScope === undefined || column === undefined) {
 			throw new Error(
 				"A table-row blank condition requires one active-table column.",
@@ -39,7 +40,7 @@ export function isBlankDefault(
 	// A global slot reads no case. Seed a REAL always-present session
 	// value (never an invented user-data field name); the author swaps
 	// the subject to their own current-user field from the picker.
-	if (!caseDataInScope(ctx)) return isBlank(sessionContext("username"));
+	if (!caseDataInScope(ctx)) return isBlank(globalSeedSubject(ctx).subject);
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties[0];
 	const propName = property?.name ?? "";

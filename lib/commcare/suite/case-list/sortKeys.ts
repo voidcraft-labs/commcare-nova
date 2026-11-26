@@ -39,6 +39,8 @@ import type {
 	SortDirection,
 	Uuid,
 } from "@/lib/domain";
+import type { CaseMappingRow } from "@/lib/domain/caseMappingRows";
+import type { InstanceRoot } from "../../xpath/wire/rowScope";
 import { columnPropertyPath } from "../wire";
 
 // ============================================================
@@ -102,6 +104,7 @@ export type ResolvedSortDirective = SortRuleAttributes &
 	(
 		| { readonly kind: "property"; readonly xpath: WireExpr }
 		| { readonly kind: "calculated" }
+		| { readonly kind: "distance-calculated" }
 		| { readonly kind: "variables" }
 	);
 
@@ -128,12 +131,17 @@ export interface PlannedSortNodes {
  */
 export function idMappingSortXpath(
 	path: WireExpr,
-	mapping: readonly { readonly value: string }[],
+	mapping: readonly CaseMappingRow[],
+	condition?: (entry: CaseMappingRow) => WireExpr,
 ): WireExpr {
 	return mapping.reduceRight<WireExpr>(
 		(elseArm, entry, index) =>
 			w.call("if", [
-				w.call("selected", [path, w.str(entry.value)]),
+				condition
+					? condition(entry)
+					: entry.match === "exact"
+						? w.eq(path, w.str(entry.value ?? ""))
+						: w.call("selected", [path, w.str(entry.value ?? "")]),
 				w.num(index),
 				elseArm,
 			]),
@@ -152,17 +160,52 @@ function ruleAttributes(
 	};
 }
 
-function keyDirective(
+/** Distance.SORT_XPATH_FUNCTION in HQ's detail_screen.py. A missing case
+ * location is the largest signed 32-bit integer. With no worker fix, Core's
+ * distance() returns -1. Both are real values to the field comparator. */
+export function distanceSortXpath(value: WireExpr): WireExpr {
+	return w.call("if", [
+		w.eq(value, w.str("")),
+		w.num(2147483647),
+		w.call("round", [w.call("distance", [value, w.call("here", [])])]),
+	]);
+}
+
+export function keyDirective(
 	key: CaseListSortKey,
 	column: Column,
 	attributes: SortRuleAttributes,
+	root: InstanceRoot,
+	condition?: (uuid: Uuid, entry: CaseMappingRow, field: WireExpr) => WireExpr,
 ): ResolvedSortDirective {
 	switch (key.kind) {
+		case "independent-calculation":
+			throw new Error(
+				"An independent default order calculation has its own hidden field.",
+			);
+		case "distance-property":
+			return {
+				...attributes,
+				kind: "property",
+				xpath: distanceSortXpath(
+					columnPropertyPath({ ...key, field: key.property }, root),
+				),
+			};
+		case "distance-calculated":
+			return { ...attributes, kind: "distance-calculated" };
 		case "property":
 			return {
 				...attributes,
 				kind: "property",
-				xpath: columnPropertyPath({ field: key.property, via: key.via }),
+				xpath: columnPropertyPath(
+					{
+						field: key.property,
+						via: key.via,
+						readFrom: key.readFrom,
+						showOwner: key.showOwner,
+					},
+					root,
+				),
 			};
 		case "mapping-position": {
 			if (column.kind !== "id-mapping" && column.kind !== "image-map") {
@@ -173,14 +216,30 @@ function keyDirective(
 			return {
 				...attributes,
 				kind: "property",
-				xpath: idMappingSortXpath(columnPropertyPath(column), column.mapping),
+				xpath: idMappingSortXpath(
+					columnPropertyPath(column, root),
+					column.mapping,
+					condition
+						? (row) =>
+								condition(column.uuid, row, columnPropertyPath(column, root))
+						: undefined,
+				),
 			};
 		}
 		case "option-label":
+		case "mapping-label":
+		case "overdue-marker":
 		case "interval-text":
 			return { ...attributes, kind: "variables" };
-		case "link-text":
 		case "calculated":
+			if (
+				column.kind === "calculated" &&
+				column.texts !== undefined &&
+				column.visibleInList !== false
+			)
+				return { ...attributes, kind: "variables" };
+			return { ...attributes, kind: "calculated" };
+		case "link-text":
 			return { ...attributes, kind: "calculated" };
 	}
 }
@@ -191,16 +250,26 @@ function keyDirective(
  * the plan gives a hidden field no key of its own (rule 3), and the key of a
  * rule that lands on it is the stored value.
  */
-export function planSortNodes(plan: CaseListOrderPlan): PlannedSortNodes {
+export function planSortNodes(
+	plan: CaseListOrderPlan,
+	root: InstanceRoot = "casedb",
+	condition?: (uuid: Uuid, entry: CaseMappingRow, field: WireExpr) => WireExpr,
+): PlannedSortNodes {
 	const byUuid = new Map<Uuid, ResolvedSortDirective>();
 	for (const field of plan.fields) {
 		if (field.key === undefined) continue;
 		byUuid.set(
 			field.column.uuid,
-			keyDirective(field.key, field.column, {
-				type: field.comparator,
-				...ruleAttributes(field.rule),
-			}),
+			keyDirective(
+				field.key,
+				field.column,
+				{
+					type: field.comparator,
+					...ruleAttributes(field.rule),
+				},
+				root,
+				condition,
+			),
 		);
 	}
 	const carriers = plan.carriers.map((carrier) => ({
@@ -210,7 +279,10 @@ export function planSortNodes(plan: CaseListOrderPlan): PlannedSortNodes {
 		...(carrier.rule.label !== undefined && { label: carrier.rule.label }),
 		directive: {
 			kind: "property" as const,
-			xpath: columnPropertyPath(carrier),
+			xpath:
+				carrier.key.kind === "distance-property"
+					? distanceSortXpath(columnPropertyPath(carrier, root))
+					: columnPropertyPath(carrier, root),
 			type: carrier.comparator,
 			...ruleAttributes(carrier.rule),
 		},
