@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 3}, \"objects\": [{\"fields\": {\"description\": \"Meet the family\", \"id\": \"first\", \"name\": \"First visit\"}, \"fixture_type\": \"types\", \"id\": \"c5e2e9e726b04407923ed513140132ea\", \"resource_uri\": \"\"}, {\"fields\": {\"description\": \"Check on progress\", \"id\": \"follow_up\", \"name\": \"Follow-up\"}, \"fixture_type\": \"types\", \"id\": \"6d6096a3b0194d309d35915847fb005c\", \"resource_uri\": \"\"}, {\"fields\": {\"description\": \"Say goodbye\", \"id\": \"closing\", \"name\": \"Closing visit\"}, \"fixture_type\": \"types\", \"id\": \"1e4f3f335da049418486cdd1695695fd\", \"resource_uri\": \"\"}]}"
+}

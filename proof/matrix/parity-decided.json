@@ -166,6 +166,7 @@
 		"hq-lookup-names/dotted-field-in-form-condition",
 		"hq-lookup-names/dotted-table-in-form-condition"
 	],
+	"hq-lookup-types": [],
 	"hq-lookups": [
 		"hq-lookups/declared-report-fixture",
 		"hq-lookups/itemset-copy",
