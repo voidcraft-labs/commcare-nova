@@ -10,5 +10,6 @@
 		"dependencies"
 	],
 	"profileCustomProperties": [],
-	"autoGpsCapture": true
+	"autoGpsCapture": true,
+	"caseSharing": true
 }
