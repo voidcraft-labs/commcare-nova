@@ -923,13 +923,6 @@ export function bindCaseListActionTargets(ctx: ReadContext): void {
 				// none (`parentFollowUpsReturnToTheList`).
 				slot.afterSubmit = "case-list";
 			});
-			const stored = rawModules(ctx)[read.host.index]?.case_list_form;
-			if (isJsonObject(stored) && stored.post_form_workflow === "default")
-				ctx.facts.sameStateRewrites.push({
-					entry: REGISTRATION.workflow.entry,
-					path: `${read.host.json.pointer}/case_list_form/post_form_workflow`,
-					register: "follow-up-list-return-rewritten",
-				});
 			continue;
 		}
 		const operation = read.form.form.caseOperations?.find(({ placement }) =>
@@ -1100,7 +1093,9 @@ export function settleRegistrations(
 			continue;
 		}
 		// A selected parent's follow-up returns to the list whatever HQ holds
-		// (`parentFollowUpsReturnToTheList`); its rewrite is recorded on binding.
+		// (`parentFollowUpsReturnToTheList`): HQ's build reads the value for
+		// no such form, and a spelling rule of the proof lane erases it
+		// (`proof/rules/case_list_form_follow_up_return.py`).
 		const followUpReturn =
 			block.source?.kind === "parent" &&
 			source.post_form_workflow === "default" &&

@@ -343,9 +343,7 @@ export const SAME_STATE_REGISTERS = [
  * a comparison: an app whose missing incomplete-forms setting still shows the shared
  * Web Apps tile (`appShell.ts::readProfile`), a date and time a Save to Case value wrote in Nova's earlier
  * spelling, a registration label read as the words CommCare HQ's build
- * writes for one with no text, a list button opening a selected parent's
- * follow-up stored returning to a new case, which Nova writes as the list
- * (`menus/registration.ts::bindCaseListActionTargets`), a menu's or form's name map read as the
+ * writes for one with no text, a menu's or form's name map read as the
  * text HQ's build shows in each language where Nova prints another map
  * (`structure.ts::nameAsRead`), an app string of any surface where a worker
  * then reads another text in some language (one that shows blank beside a
@@ -368,7 +366,6 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"incomplete-forms-tile-hidden",
 	"date-and-time-saved-as-hq-stores-it",
 	"registration-label-fixed",
-	"follow-up-list-return-rewritten",
 	"names-respelled",
 	"text-spaces-dropped",
 	"media-maps-respelled",
