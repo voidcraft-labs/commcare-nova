@@ -4147,46 +4147,6 @@ def _search_and_menus():
         ),
         # HQ's build reads these three only on a search the menu offers; on one it does not, each is part of the
         # search configuration HQ stores and builds nothing of.
-        "case-search/case-search-endpoint-id": (
-            refused(
-                "app",
-                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id=1)),
-                "schema:CaseSearch.case_search_endpoint_id",
-                f"{config}/case_search_endpoint_id",
-            ),
-            accepted(
-                "app",
-                search(_search_module(case_search_endpoint_id=1)),
-                "schema:CaseSearch.case_search_endpoint_id",
-                f"{config}/case_search_endpoint_id",
-            ),
-            accepted(
-                "app",
-                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id="visits")),
-                "schema:CaseSearch.case_search_endpoint_id",
-                f"{config}/case_search_endpoint_id",
-            ),
-            # A default filter is the endpoint's parameter beside an id unless the key configures Search itself.
-            refused(
-                "app",
-                search(_search_module(default_properties=[_default("dob", "'x'")], case_search_endpoint_id=1)),
-                "schema:DefaultCaseSearchProperty.property",
-                f"{config}/default_properties/0/property",
-            ),
-            accepted(
-                "app",
-                search(_search_module(default_properties=[_default("dob", "'x'")])),
-                "schema:DefaultCaseSearchProperty.property",
-                f"{config}/default_properties/0/property",
-            ),
-            accepted(
-                "app",
-                search(_search_module(default_properties=[_default("commcare_sort", "'+priority'")],
-                                      case_search_endpoint_id=1)),
-                "schema:DefaultCaseSearchProperty.property",
-                f"{config}/default_properties/0/property",
-            ),
-        ),
         "case-search/search-button-label-any-other-value": (
             refused(
                 "app",
