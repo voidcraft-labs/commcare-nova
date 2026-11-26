@@ -96,6 +96,55 @@ describe("QUERY_REPEAT_MODEL_ITERATION_SHAPE", () => {
 		expect(finding(doc)).toBeUndefined();
 	});
 
+	describe("row visibility during insertion", () => {
+		const firstRead = "#form/first = 'yes'";
+		const laterRead = "#form/later = 'yes'";
+		const gated = (
+			ids: string,
+			placement: "model-iteration" | "count",
+			later: string,
+		) =>
+			docWith([
+				{ kind: "text", id: "first", default_value: "'yes'" },
+				{ kind: "text", id: "later" },
+				queryRepeat({
+					placement,
+					data_source: { ids_query: ids },
+					relevant: `if(position() = 0, ${firstRead}, ${later})`,
+				}),
+			]);
+
+		it("refuses model iteration when a later row can take the hidden first row's ID", () => {
+			const found = finding(gated("'a b c'", "model-iteration", laterRead));
+			expect(found?.details).toMatchObject({ reason: "row-condition" });
+			expect(found?.location.fieldUuid).toBe(REPEAT);
+		});
+
+		it.each([
+			["count uses the physical position", "'a b c'", "count", laterRead],
+			[
+				"one row cannot take another's place",
+				"'a'",
+				"model-iteration",
+				laterRead,
+			],
+			[
+				"no rows cannot take another's place",
+				"''",
+				"model-iteration",
+				laterRead,
+			],
+			[
+				"the same question shows every row",
+				"'a b c'",
+				"model-iteration",
+				firstRead,
+			],
+		] as const)("admits a repeat when %s", (_, ids, placement, later) => {
+			expect(finding(gated(ids, placement, later))).toBeUndefined();
+		});
+	});
+
 	it("refuses one inside another repeat, naming it", () => {
 		const doc = docWith([
 			{

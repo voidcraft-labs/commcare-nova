@@ -417,6 +417,38 @@ def model_iteration_outside_rule(authoring, app_id):
     )
 
 
+def model_iteration_hidden_first_row(authoring, app_id):
+    """The first row can hide while separately enabled later rows are created."""
+    _change(
+        authoring,
+        app_id,
+        "model-iteration-hidden-first-row",
+        (
+            '<input vellum:ref="#form/phone" ref="/data/phone" appearance="numeric">',
+            '<input vellum:ref="#form/phone" ref="/data/phone">',
+            1,
+        ),
+        (
+            ROUNDS_ROW_BIND,
+            ROUNDS_ROW_BIND.removesuffix(" />")
+            + """ relevant="if(position() = 0, /data/full_name = 'yes', /data/phone = '2')" />""",
+            1,
+        ),
+        (
+            FIRST_SETVALUE,
+            """<setvalue event="xforms-ready" ref="/data/full_name" value="'yes'" />
+"""
+            + FIRST_SETVALUE,
+            1,
+        ),
+        (
+            """value="join(' ', instance('casedb')/casedb/case/@case_id)" """.strip(),
+            """value="join(' ', 'a b c')" """.strip(),
+            1,
+        ),
+    )
+
+
 def model_iteration_container_condition(authoring, app_id):
     """A display condition (``true()``) on the model-iteration repeat ``rounds``' container node, a bind the form
     builder discards (its question is the rows): the repeat's condition, which the first publish writes on the rows."""

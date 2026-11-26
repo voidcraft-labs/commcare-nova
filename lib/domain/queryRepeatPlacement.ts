@@ -20,9 +20,10 @@
 // so a row made while its condition hides an earlier one takes an earlier
 // row's place and record. HQ's form builder writes those setvalues itself on
 // every save (Vellum `src/modeliteration.js::getSetValues`), so a repeat with
-// a condition needs the count placement, whose rows store their place from
-// `position(..)`. Those are the needs below. A held placement (the repeat's stored
-// `placement`) wins over the rule; an unheld repeat takes the rule's answer.
+// a condition uses the count placement by default, whose rows store their
+// place from `position(..)`. Explicit opening timing can keep a condition
+// unless it can cause a demonstrated runtime limitation. A held placement
+// wins over the default rule; an unheld repeat takes the rule's answer.
 
 import { z } from "zod";
 import type { FormStructure } from "./expression/formStructure";

@@ -10034,6 +10034,75 @@ def _relevance(form, element):
     return relevant.strip() if relevant and relevant.strip() else None
 
 
+def model_iteration_hides_earlier_row(use, manifest):
+    """Core's insertion counter counts only visible rows; support only the independently editable first/later shape."""
+    from proof.checks.xpath_tree import tree
+
+    form, container = _model_iteration(use)
+    if form is None:
+        return None
+    if container is None or form.body is None:
+        return False
+    wrapper = form.paths[container]
+    path = f"{wrapper}/item"
+    bind = form.bind(path)
+    if bind is None or not bind.get("relevant"):
+        return False
+    condition = tree(bind.get("relevant"))
+    match condition:
+        case ("call", "if", (("EQ", left, right), first, later)):
+            pass
+        case _:
+            return False
+    if {left, right} != {("call", "position", ()), ("num", 0)}:
+        return False
+    ids = _iteration_ids(form, container)
+    if ids is None:
+        return None
+    match tree(ids.get("value") or ""):
+        case ("call", "join", (("str", " "), ("str", fixed))):
+            if len(re.split(" +", fixed.rstrip(" "))) <= 1:
+                return False
+    repeats = [control for control in form.controls.get(path, ()) if _local(control) == "repeat"]
+    if len(repeats) != 1:
+        return None
+    earlier_controls = set()
+    for control in form.body.iter():
+        if control is repeats[0]:
+            break
+        earlier_controls.add(control)
+
+    def answer(branch):
+        if branch[0] != "EQ":
+            return None
+        for operand, comparison in ((branch[1], branch[2]), (branch[2], branch[1])):
+            if comparison[0] != "str" or re.fullmatch(r"[A-Za-z0-9]+", comparison[1]) is None:
+                continue
+            match operand:
+                case (
+                    "path", "SLASH", None,
+                    (("step", "child", root_name, ()), ("step", "child", field_name, ())),
+                ) if root_name == _local(form.data_root):
+                    field_path = f"/{root_name}/{field_name}"
+                    field_bind = form.bind(field_path)
+                    controls = form.controls.get(field_path, ())
+                    if len(controls) != 1:
+                        return None
+                    control = controls[0]
+                    if (
+                        _local(control) == "input" and not control.get("appearance")
+                        and control in earlier_controls
+                        and control.getparent() is form.body and field_bind is not None
+                        and field_bind.get("type", "xsd:string") == "xsd:string"
+                        and not any(field_bind.get(key) for key in ("relevant", "readonly", "constraint", "calculate"))
+                    ):
+                        return field_path
+        return None
+
+    first_path, later_path = answer(first), answer(later)
+    return first_path is not None and later_path is not None and first_path != later_path
+
+
 def model_iteration_under_late_relevance(use, manifest):
     """``questions/model-iteration-repeat-under-an-ancestor-that-core-s-load-can…``: a model iteration under an
     ancestor that Core's load can leave not relevant where its setvalues run, on an opening where the ancestor can
@@ -12192,6 +12261,7 @@ VALUE_CLASSES = {
     "questions/user-controlled-repeat-inside-a-question-list-a-group-whose": user_repeat_in_field_list,
     "questions/a-count-that-depends-on-the-rows-it-creates-through-calculations": count_reading_its_rows,
     "questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind": model_iteration_nested,
+    "questions/model-iteration-repeat-allowing-insertion-after-a-hidden-first-row": model_iteration_hides_earlier_row,
     "questions/model-iteration-repeat-under-an-ancestor-that-core-s-load-can": model_iteration_under_late_relevance,
     "questions/model-iteration-repeat-whose-query-reads-a-form-answer-that-is": model_iteration_reading_blank_answer,
     "questions/relevance-bound-on-the-savetocase-node-itself": relevance_on_save_to_case,

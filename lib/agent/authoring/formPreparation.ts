@@ -36,6 +36,7 @@ import {
 	formLinkDatumNameSchema,
 	formLinkSelectionName,
 } from "@/lib/domain/expression/types";
+import { TEXT_KEYPADS } from "@/lib/domain/fields/text";
 import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { rowTimingSchema } from "@/lib/domain/queryRepeatPlacement";
@@ -178,6 +179,18 @@ function fieldDeclaration(
 						.enum(["user_controlled", "count_bound", "query_bound"])
 						.parse(repeat?.mode ?? previous?.repeatMode ?? "user_controlled"),
 				}),
+		...(kind === "text" && {
+			textInput: {
+				keypad:
+					raw.keypad === undefined
+						? previous?.textInput?.keypad
+						: (z.enum(TEXT_KEYPADS).nullish().parse(raw.keypad) ?? undefined),
+				addressLookup:
+					raw.addressLookup === undefined
+						? previous?.textInput?.addressLookup
+						: (z.literal(true).nullish().parse(raw.addressLookup) ?? undefined),
+			},
+		}),
 		...(choice === undefined ? {} : { choices: choice }),
 		proseSlots: [...prose],
 	};

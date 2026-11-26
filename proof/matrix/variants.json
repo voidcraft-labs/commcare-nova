@@ -33984,6 +33984,24 @@
 		}
 	},
 	{
+		"id": "hq-questions/model-iteration-hidden-first-row",
+		"base": "hq-questions",
+		"entry": "questions/model-iteration-repeat-allowing-insertion-after-a-hidden-first-row",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "rounds"
+		},
+		"change": {
+			"op": "named",
+			"name": "model_iteration_hidden_first_row"
+		}
+	},
+	{
 		"id": "hq-questions/model-iteration-late-relevance",
 		"base": "hq-questions",
 		"entry": "questions/model-iteration-repeat-under-an-ancestor-that-core-s-load-can",

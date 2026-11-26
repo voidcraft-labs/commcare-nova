@@ -2263,6 +2263,32 @@
 		"gates": []
 	},
 	{
+		"id": "questions/model-iteration-repeat-allowing-insertion-after-a-hidden-first-row",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a model iteration whose first row and later rows are shown by separate earlier editable text answers and whose query can return another row",
+		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
+		"valueClass": "model-iteration-hidden-first-row-on-insert",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime. Core counts only visible rows when it assigns the next row's record. Separate answers can hide the first row as later rows are added, giving them the earlier row's record instead of their own. The count placement keeps each row's record.",
+		"subject": "repeats",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core counts only visible rows when it assigns the next row's record. Separate answers can hide the first row as later rows are added, giving them the earlier row's record instead of their own."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/relevance-bound-on-a-model-iteration-repeat-s-container",
 		"area": "questions",
 		"section": "Question types",

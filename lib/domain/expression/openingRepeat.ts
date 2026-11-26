@@ -1,7 +1,8 @@
 /** The cases a repeat can capture at its opening event. A form answer being
  * read is ordinary input. A limitation needs an effect we can establish:
- * the query requires an ID the worker has not given, or a condition already
- * triggered by an earlier answer hides the only count assignment. */
+ * the query requires an ID the worker has not given, an earlier answer
+ * hides the only count assignment, or a later row can be made while an
+ * already-created row is hidden. */
 import type { QueryRepeatNeed } from "../queryRepeatPlacement";
 import type { Uuid } from "../uuid";
 import { selectAnswerTokens } from "./choiceValue";
@@ -160,6 +161,67 @@ function suppressedAtCapture(
 	}
 }
 
+function isFirstRow(condition: Expression): boolean {
+	if (condition.kind !== "eq") return false;
+	const isPosition = (value: Expression) =>
+		value.kind === "call" && value.fn === "position" && value.args.length === 0;
+	return (
+		(isPosition(condition.left) && literal(condition.right) === 0) ||
+		(isPosition(condition.right) && literal(condition.left) === 0)
+	);
+}
+
+/** The directly editable text answer whose equality can show this branch.
+ * Keep the proof to independent, ordinary controls the worker can reach
+ * before the query repeat. */
+function earlierTextAnswer(
+	form: FormStructure,
+	condition: Expression,
+	earlier: OpeningOrder,
+): Uuid | undefined {
+	if (condition.kind !== "eq") return undefined;
+	const first = literal(condition.left);
+	const last = literal(condition.right);
+	const editableValue = (value: string | number | undefined) =>
+		typeof value === "string" && /^[A-Za-z0-9]+$/.test(value);
+	const uuid = editableValue(last)
+		? directField(condition.left)
+		: editableValue(first)
+			? directField(condition.right)
+			: undefined;
+	if (uuid === undefined || !earlier(uuid)) return undefined;
+	const field = form.fields.get(uuid);
+	return field?.kind === "text" &&
+		field.parent === form.formUuid &&
+		form.expressionAt({ entity: "field", uuid, slot: "relevant" }) ===
+			undefined &&
+		form.expressionAt({ entity: "field", uuid, slot: "validate" }) === undefined
+		? uuid
+		: undefined;
+}
+
+function hidesAnEarlierRow(
+	form: FormStructure,
+	uuid: Uuid,
+	ids: string | number | undefined,
+	earlier: OpeningOrder,
+): boolean {
+	if (typeof ids === "string" && selectAnswerTokens(ids).length <= 1)
+		return false;
+	const condition = form.expressionAt({
+		entity: "field",
+		uuid,
+		slot: "relevant",
+	});
+	if (condition?.kind !== "if" || !isFirstRow(condition.cond)) return false;
+	const first = earlierTextAnswer(form, condition.then, earlier);
+	const later = earlierTextAnswer(form, condition.else, earlier);
+	// Core counts only relevant rows when assigning a newly inserted row's
+	// model index. With independent answers for the first row and later rows,
+	// the worker can reach the first row, hide it, then make another row.
+	return first !== undefined && later !== undefined && first !== later;
+}
+
 export function openingRepeatLimitation(
 	form: FormStructure,
 	uuid: Uuid,
@@ -263,9 +325,17 @@ export function openingRepeatLimitation(
 	};
 	if (query !== undefined && requiresMissingId(query, blank))
 		return { kind: "query-reads-answers" };
-	return needs.find(
+	const hiddenAtCapture = needs.find(
 		(need) =>
 			need.kind === "ancestor-condition-changes" &&
 			suppressedAtCapture(form, need.groupUuid, earlier),
 	);
+	if (hiddenAtCapture !== undefined) return hiddenAtCapture;
+	// This is screen order, not the order of the form's opening assignments.
+	const earlierQuestion = (field: Uuid) =>
+		sameEvent(field) &&
+		(order.get(field)?.position ?? Infinity) < capture.position;
+	return hidesAnEarlierRow(form, uuid, ids, earlierQuestion)
+		? { kind: "row-condition" }
+		: undefined;
 }

@@ -1117,6 +1117,11 @@ export const X = {
 		Q("model-iteration-repeat-under-an-ancestor-that-core-s-load-can"),
 		"vellum-markup:model/instance//*@vellum:role",
 	),
+	modelIterationHidesEarlierRow: one(
+		"refuse",
+		Q("model-iteration-repeat-allowing-insertion-after-a-hidden-first-row"),
+		"vellum-markup:model/instance//*@vellum:role",
+	),
 	modelIterationOutsideRule: one(
 		"take",
 		Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),

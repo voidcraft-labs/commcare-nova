@@ -1,6 +1,7 @@
 import type { BlueprintDoc } from "../blueprint";
 import type { FieldKind, RepeatMode } from "../fields";
 import type { ConnectActivity } from "../fields/connectActivity";
+import type { TextField } from "../fields/text";
 import {
 	type FormBehaviorTexts,
 	type FormLinkTarget,
@@ -48,6 +49,7 @@ export interface FormStructureField {
 	readonly rowTiming?: RowTiming;
 	/** A Hidden Value's value slot, absent where it holds neither. Where both slots are present, the calculation supplies the final answer. */
 	readonly hiddenValueSource?: "calculate" | "default_value";
+	readonly textInput?: Pick<TextField, "keypad" | "addressLookup">;
 	readonly choices?: FormStructureChoices;
 	readonly proseSlots?: readonly (
 		| "label"
@@ -138,6 +140,12 @@ export function formStructure(
 						? ["validate_msg" as const]
 						: []),
 				],
+				...(field.kind === "text" && {
+					textInput: {
+						keypad: field.keypad,
+						addressLookup: field.addressLookup,
+					},
+				}),
 				...(field.kind === "repeat" ? { repeatMode: field.repeat_mode } : {}),
 				...(field.kind === "repeat" &&
 				field.repeat_mode === "query_bound" &&

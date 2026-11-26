@@ -619,6 +619,8 @@ export function modelIterationVerdict(
 			return { kind: "refused", claim: X.modelIterationNested };
 		case "query-reads-answers":
 			return { kind: "refused", claim: X.modelIterationBlankAnswer };
+		case "row-condition":
+			return { kind: "refused", claim: X.modelIterationHidesEarlierRow };
 		case "ancestor-condition-changes":
 			return { kind: "refused", claim: X.modelIterationLateRelevance };
 		default:
