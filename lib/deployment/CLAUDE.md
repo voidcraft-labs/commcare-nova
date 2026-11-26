@@ -335,21 +335,9 @@ table or a place reads it again before the import. Each of the three compares
 what it read with its baseline and collects what changed, and preflight gives
 one verdict over all of it, `hq_changed`, before any write. `target-app` also
 holds the CommCare version that read carries to the floor
-(`hq_app_version_below_floor`). The `build-profiles` edge holds that read's
-build profiles to the languages this publish writes
-(`lib/commcare/targetBuildProfiles.ts::buildProfileLanguageGaps`, the refusal
-`hq_build_profile_language_missing`): no API key can change a profile, so a
-publish that would leave one naming a language the app lacks stops before any
-write, and the same check runs on the second read, where it stops at `upload`.
-It comes after the `hq-changes` verdict, because a language a profile names
-may have been added in CommCare HQ since Nova's last push: that is asked about
-as the change it is, and a publish over it takes the language out. It stops
-whatever the plan, since no API key reads whether the plan still includes
-application profiles and HQ keeps a profile on a plan without them; so the
-refusal names HQ's Languages tab, which takes a language out of every profile
-on any plan, wherever the app there still lists every missing language
-(`views/apps.py::edit_app_langs`), beside the Application Profiles tab, which
-HQ shows only under the `build_profiles` privilege.
+(`hq_app_version_below_floor`). The installation review compares every observed key, name, ordered language list and practice worker. The initial shell carries the complete installation map. In-place imports leave the map to Application Profiles on HQ's Releases page. A mismatch records the actor, Project, target app, source and Nova revision and shows the complete required edit. A new key allocated there can identify one uniquely matching new profile. A person confirms the exact worker chosen in this project space and HQ's working suite verifies the account. A change to the surrounding app brings back the ordinary drift review.
+
+A profile that adds an unavailable language requires an intermediate content import. Existing profile languages stay present until the authorized edit removes them. When a language is being replaced, its effective translations come from the previous published revision by stable unit identity. The intermediate read is bound to the acknowledged save counter and the deployment stays incomplete. Only a complete final read advances the uploaded revision. The profile key and practice worker are stored per deployment. An older deployment whose profile metadata was unavailable needs a fresh HQ read. The pre-DDL scan in `scripts/scan-installation-profiles.ts` reports those separately. A legacy unmanaged profile that depends on a removed language still raises `hq_build_profile_language_missing` before any content is sent.
 
 The floor is `lib/commcare/versionFloor.ts::compareToVersionFloor`, 2.57: the
 refusal below it carries the app's address in `hqAppUrl`, and an unreadable
@@ -1501,7 +1489,7 @@ one-screen groups reads as groups where the base reads sections; no mutation
 converts between the two, so the diff removes each page by name and adds it
 again under its own UUID (`lib/doc/diffDocsToMutations.ts::rebornFields`), and
 the change is taken. Something a publish never
-sends and its comparison does not read (the logo, a build profile) stops no
+sends and its comparison does not read (the logo) stops no
 publish and is not looked for, and something the reader reads as what Nova
 writes (`FIRST_PUBLISH_CHANGES`' register) changes nothing in the document and
 is listed as what the next publish changes there.
@@ -1825,10 +1813,12 @@ authority take too, for a live app whose caller may edit it
   `lookup-json`) takes the same locks as a workbook for its one table,
   rechecks the publisher's grant and the table's revisions
   (`workbookAuthorityMatches`), and journals the operation in the same
-  transaction. CommCare HQ's lookup resources check no lookup permission
-  (`fixtures/resources/v0_1.py` overrides `obj_*` without calling the
-  resource's authorization), so this admission is the only check on each
-  request.
+  transaction. CommCare HQ's lookup resources omit the lookup-specific
+  permission check (`fixtures/resources/v0_1.py` overrides `obj_*` without
+  calling the resource's authorization). Nova checks the current HQ account
+  and scoped key's `edit_data` permission with a bounded empty read of the
+  permission-gated device-log resource before direct or manual lookup delivery
+  and again before each JSON mutation.
 
 An admission stays open while HQ may still be finishing a write. A lost
 reply, a deadline or a 5xx that an intermediary could have sent leaves a
@@ -2008,9 +1998,9 @@ and `applyDeploymentObservation` discards an observation of a mapping a birth
 released while HQ was being asked.
 
 **Restoring takes each given-up HQ app back unless a live Nova app holds it.**
-`lib/db/apps.ts::restoreApp`, and `publishAppToHq` before it reads anything
-of CommCare HQ (`store.ts::settleReleasedClaims`), settle the app's released
-claims: a claim no one holds is taken back with its identity rows, media
+`lib/db/apps.ts::restoreApp` settles the restored app’s released claims. A publish
+settles the claim for its selected project space before reading from CommCare HQ
+(`store.ts::settleReleasedClaims`). A claim no one holds is taken back with its identity rows, media
 paths and baseline as they were; one a holder in recently deleted took is
 taken back from it, releasing that holder's mapping in turn, so of two
 deleted apps the first one restored publishes there; and where a live app
@@ -2739,6 +2729,8 @@ An editor may inspect an assigned table's source separately from a worker's fixt
 
 Global transfer obtains a full authenticated restore and independent details for every candidate. It compares cardinality, ordered device projection, complete canonical content and the locally reviewed ordered row identities, then stamps the observed index flags while holding the transfer lock. An assigned or incomplete table remains managed at its source. The server retains a verified reference when an inline read exceeds its capacity. An unreadable inventory has no count and its historical rows never enter a device projection.
 
+Bring-in can bind a verified HQ-managed assigned table by its definition and source link. It stores no worker projection at adoption. Preview and delivery still need and validate the projection for their worker.
+
 Promoting a verified generation reconciles the current HQ field, row-attribute and value-property definitions through the same identity and reference governance as inline refresh. An admin transferring a complete global generation rechecks its exact active generation, original source grant, ordered administrative digest and two complete native fixture observations. Transfer binds index flags from those fixtures, materializes stable editable rows and lexical value slots under the table lock, and rechecks the grant before changing custody. The previous generation retires in the same transaction.
 
 
@@ -2755,8 +2747,8 @@ workbook under its tag (a live mapping of any of its apps, or a takeover
 from there: `store.ts::readWorkbookLookupTags`) stays in the workbook, whose
 findings name what it cannot carry (`carriedBy: "workbook-there"`). The HQ
 app file cannot carry such a table and says so
-(`describeLookupCarrierAlternative`, `carriedBy: "file"`); a table held in a
-paged generation does not travel this way yet on either (`"too-large"`).
+(`describeLookupCarrierAlternative`). Direct publish reads eligible paged tables
+under the same authority and ledger.
 A reading of that project space judges a Project table there by the carrier
 that keeps it there: a sibling mapping that is the table's JSON destination
 (`store.ts::readSiblingLookupMappings`, `jsonDestination`) is held to the JSON
@@ -2817,6 +2809,29 @@ the writes the whole table is read back and held to the ledger in Nova's
 order. Each table found there gets a `nova-created` mapping, recorded
 `partial` and retained by the resources phase's complete record.
 
+Direct publish can use the JSON carrier when a complete paged global table
+with known unindexed columns needs a value or shape the workbook cannot
+preserve. It can continue a prior JSON destination over the same row IDs.
+A revision-bound paged reader reassembles the exact external leaves and
+validates UTF-8 and the encoded request bodies before any writes. Preparation
+stages at most 10,000 rows and 16 MiB of JSON body bytes across these paged
+tables for that publish. Every carried value also has to fit JavaRosa's
+65,535-byte modified UTF-8 string format, which worker fixtures use in native
+storage. The separate per-value limit applies before an archive or HQ write. The executor returns a checkpoint only between
+settled operations, after up to 200 writes or the wall-clock budget. An
+unfinished checkpoint retains the mapping and prevents sending app content.
+Publishing again reads the same destination ledger, rechecks the intended
+source and remote facts, and sends only outstanding work.
+
+An editor's HQ app download can opt in to the manual lookup installer.
+`lookup-install.json` identifies the exact app, data revision, and staged
+plan by digest. It carries no credentials or row bytes. The installer rebuilds
+the same bounded plan and requires current Project edit access and the named
+HQ connection. It checks the destination before explicit confirmation and
+uses the same lookup journal and operation fences for every wave. It records
+only lookup resources. The separate HQ app import remains a manual step.
+Workbook carriers and existing downloads still use their usual paths.
+
 ### Lookup workbooks, media receipts and device downloads
 
 A direct workbook publish compares the actual target definition and ordered
@@ -2860,3 +2875,56 @@ and replaying that write require both the read grant and
 A settings edit carries only changed scalars and indexed rule splices under the current revision. The Builder transport and the SA/MCP tool share the same 64 KiB change budget. Complete confirmed profiles remain readable. `previewSearchPages.ts` pages destination summaries and twelve ordered rules at a time under a fresh Project/role snapshot. Its continuation binds the app, Project, target and revisions and gives an explicit restart if the selection changed. The stream sends bounded profile segments and the Builder exposes only the complete Project snapshot.
 
 The nullable `caseListMap` field uses the same Project/target/revision, consent and role fences. Older JSON without the field remains readable and unrelated scalar edits preserve that absence. An explicit false records an unavailable Web Apps record map.
+
+### Destination-bound searches
+
+`app_deployment_search_bindings` maps an app's logical search UUID to a
+positive service ID within a single deployment. The app's catalog contains
+names and logical identities. A numeric service ID first seen in HQ belongs
+to that exact space. `inspectProjectSearchDestination` reads configured and
+missing bindings under the viewer's Project access. A contributor confirms
+the current app, actor, role, target and bindings before replacing them.
+The writer rechecks edit access and refuses a conflicting open remote write.
+
+A request includes the fields the menu sends, named defaults and any keys the
+selected route adds for ownership or parent selection. The capability probe
+answers whether the space supports external search. HQ's application API does
+not expose the service's query or verify what rows it returns. Every physical
+publish write checks the planned bindings against the locked deployment.
+
+
+The first bring-in review and the saved destination review derive search contracts
+from the same logical uses and target-owned bindings. Each menu shows its request
+parameter names and the returned fields it actually reads. A source service ID
+stays on the adopted deployment. A binding whose last menu was removed remains
+visible for an editor to release explicitly. Complete paged MCP reviews bind
+continuations to the original reading and return approval on the final page.
+
+For named installations, Project edit and HQ Import are checked before managed writes and again at profile write admission. Only the current unreleased, unsuperseded app mapping can receive review or identity changes. HQ’s working suite validates the active account. A new binding also needs a reviewed cold-to-prepared named installation or a newly prepared build, using the exact working version. The per-destination witness describes that version and definition. The key cannot report current subscription entitlement. A released status check uses the build application detail with `extras=true` to inspect its exact profile and nonempty stored file metadata. Asking HQ for a named download, even with HEAD, can generate its files and save the build. The status check also probes the ordinary released profile and its suite URL. To prepare a named installation, the person chooses the exact version on Releases, then Deploy → Download to Android → Offline Installation, selects the Application Profile and downloads that version’s CommCare_vN.ccz.
+
+On first publication, HQ’s empty project-space shell cannot build. Once its profile definitions and selected destination worker have been confirmed and the working suite has checked that the account is active, Nova pushes the dependencies and full content to that same app, verifies the working source and keeps the upload incomplete. Its sequence, dependency revisions, confirmed target and read-back bind the pending import. A verified named restore records the exact worker, build, definition and version, including when another profile still needs its download. A later retry lists only the outstanding installations and can finish on a newer version. An unchanged, complete intermediate is promoted after the independent restore witness without re-importing the app or resending resources. On HQ’s Application Profiles tab the selected languages follow the app’s option order. Saving moves the default to the front. The review gives the sequence of saved defaults needed for a different secondary-language order.
+
+A change to any destination installation is an explicit Changes review, including a worker-only change that reads to the same blueprint. The acceptance binds revision, actor, live app mapping and both installation states. Its targeted identity write and retained receipt share the locked baseline transaction. For a pre-deploy census, `scripts/scan-installation-profiles.ts` reads retained baseline maps. `scripts/scan-live-installation-profiles.ts --prod` reads the live target at a verified save counter using a current authorized project member. Missing access, a moving counter and unreadable source stay unknown. A changed profile digest calls for an explicit Changes review on the affected destination.
+
+An HQ named installation does not demonstrate that the project space has the Build Profiles or Practice Users privilege. Bring-in reviews list the applicable features for confirmation on the first upload. A signed change compares both actual HQ drafts separately from the local document. It includes worker changes to a profile the author removed locally, because an undo can restore its destination binding. Both bearer grants (HQ Import and HQ Write) and a current Project edit role are checked on profile-bearing births and accepted profile-management changes. Plain reads and unchanged receipts retain the import grant. The live census groups destinations by their app and ordered portable profile definitions, leaving each physical profile key and worker account in its own destination. An unobserved space never establishes agreement.
+
+A named installation’s reviewed destination choice belongs to the acting editor, Nova revision, exact HQ working save and current app claim. Losing and reclaiming the same HQ app starts a fresh choice. Only the import that recorded a buildable practice version carries its progress to its next mapping token. When several physical installations match, the person chooses one Nova installation and browses its matching destination IDs before agreeing.
+
+Every named practice result rechecks the working save after its last suite or build read. The upload record checks the live mapping again under the database lock. Both the physical choice and worker agreement are released after the final page of the exact decision. A native installation key is kept byte for byte only when HQ’s own profile and suite URLs select it. Recreating a broken installation in Releases assigns a usable key.
+
+
+HQ stores each installation under one native folder. A profile key must select that folder in HQ’s raw query and leave every ordinary and selected locale and module path intact when its offline packager strips the key. Birth, publishing, selected local downloads and released status check this at their destination boundary. Every Android release, including a target with no recorded named installations, checks the build document for foreign folders and incompatible physical keys before the ordinary install probe. Release instructions follow the platform declaration at the published sequence. A publication older than the available fold history gives neutral platform guidance. A web-only publication retains its served-profile check. Named release readiness observes positive build attachment metadata and the ordinary suite generated from the working app. The form paths for both ordinary and named packages must agree with that independent suite at the exact build save, including enabled release notes and excluding shadow forms and disabled release notes. No released form or restore is opened. Positive metadata must cover the exact ordinary and selected profiles, media profiles, suites, selected locales, enabled form paths and any required restore. The downloadable archive takes its profile.ccpr from the build’s media profile.
+
+A management decision checks the live API key’s owner, grants, expiry and availability under lock at the operation that consumes it. An OAuth request retains its signed scopes and expiry and rechecks account, current consent scopes, and the revocation watermark for its verified client. A named installation’s destination key is retained byte-for-byte. PostgreSQL enforces exact destination/key equality through a fixed-width hash index with a full equality recheck. The deployment transaction owns every binding in a batch. In the Releases installation picker the first entry is the ordinary installation in every UI language. Named entries follow it.
+
+When a publish manages installation profiles, its additional live credential is checked in each transaction that can expose a placement, preflight confirmation, managed table refresh, managed place refresh, or imported file in the Project library. Initial adoption and change acceptance pass this authority to their individual ready-media publications. A committed remote write or media object is reconciled under its existing identity. The shared deployment phase stores a generic installation recovery step. Worker bindings, destination choices and confirmations belong to the acting publisher’s response and private checkpoint.
+
+An HQ 404 on a publish read can change the next publish to a replacement. The observation validates the remote ID and push token, then consumes the live installation-management credential in the transaction for protected mappings. This applies to preflight and a later read around dependency writes. The HQ reply to an admitted app import records that write’s own result. Explicit Check status uses its existing observation authority. Reclaim and stop determine the affected installation ownership from the exact physical deployment under lock. A publish settles only its chosen project space.
+
+A publish records each admitted operation under its own actor, app, Project, destination and type of write. A direct refusal of that operation can be recorded after its credential changes. A later source read or removal of an unused kind of dependency must consume the current management grant in its own transaction. Finishing an attempt that sent nothing keeps any newer publisher’s entry-point manifest. Only a real overlapping remote write makes its order uncertain.
+
+Placement and managed-data refresh transactions lock the app and chosen deployment before they classify the destination. Another editor’s pending review still protects a target after the app drops its final named installation. The ordinary install keeps its own publish authority.
+
+A successful named installation import records the exact admitted request, physical app and returned version on the write ledger. Completing its private review still requires live edit and management authority, the same claim, the same checkpoint and the same document revision. A changed credential or revision leaves that agreement pending, and the acknowledged remote operation settles independently. Resuming the previously prepared app creates no import receipt. Actor checkpoints are replaced with DELETE and INSERT under the deployment lock.
+
+An abandoned installation review remains protected until an authorized publish on that destination sees empty requested, bound and physical profile sets and verifies its own ordinary import at the returned HQ version. Under the current claim and app revision it then retires obsolete private reviews for all actors on that destination. A newer HQ save, claim or local edit keeps its review. Browser management uses the verified session ID and checks its current account and expiry in the consuming transaction, including when a restore must settle a protected physical claim.

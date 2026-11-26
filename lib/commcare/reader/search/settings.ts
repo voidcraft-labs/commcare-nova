@@ -7,17 +7,24 @@
  * claims and the same-state rows.
  */
 import type { BlueprintDoc, Expression, Module, Uuid } from "@/lib/domain";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import { caseTypeNameSchema } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
+	type CaseListConfig,
 	DEFAULT_CASE_SEARCH_TITLE,
+	emptyCaseListConfig,
 	NO_SEARCH_SCREEN_TITLE,
 	type OrdinaryCaseSearchConfig,
+	type SearchInputDef,
+	searchResultsNameSchema,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
 	type SearchRuntimeValidationMessage,
 } from "@/lib/domain/searchRuntimeValidationMessages";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
@@ -29,8 +36,9 @@ import {
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { emitExcludedOwnerFilterExpression } from "../../suite/case-list/nodesetFilter";
 import { searchGuardedFieldNames } from "../../suite/case-search/moduleXPathQuery";
+import { includeSearchHierarchy } from "../../suite/case-search/relatedCaseProjection";
 import {
-	dedicatedOrderNamesReserved,
+	dedicatedOrderRefusal,
 	readDedicatedOrder,
 } from "../../suite/case-search/requestOrder";
 import { normalizeSpace } from "../../suite/wire";
@@ -147,16 +155,20 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}include-all-related-cases-implied-by-nova-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	includeFalse: refuse(
+	includeFalse: take(
 		`${S}include-all-related-cases-false-where-nova-s-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	includeAuthored: refuse(
+	includeAuthored: take(
 		`${S}include-all-related-cases-authored-without-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	instanceUnreserved: refuse(
+	instanceUnreserved: take(
 		`${S}instance-name-without-casedb-ledgerdb-fixture-or-session-in-it`,
+		"schema:CaseSearch.instance_name",
+	),
+	instanceUneditable: refuse(
+		`${S}results-name-outside-the-search-editor`,
 		"schema:CaseSearch.instance_name",
 	),
 	instanceReserved: refuse(
@@ -167,11 +179,15 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}a-module-whose-effective-results-instance-results-instance-name`,
 		"schema:CaseSearch.instance_name",
 	),
-	instanceClashInert: drop(
+	instanceClashOutsideInline: take(
 		`${S}an-effective-results-instance-equal-to-a-module-s-that-does-not`,
 		"schema:CaseSearch.instance_name",
 	),
-	additionalTypes: refuse(
+	additionalTypeWithoutMenu: refuse(
+		`${S}additional-record-type-without-menu`,
+		"schema:CaseSearch.additional_case_types",
+	),
+	additionalTypes: take(
 		`${S}additional-case-types`,
 		"schema:CaseSearch.additional_case_types",
 	),
@@ -179,7 +195,11 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}additional-case-types-naming-only-the-menu-s-own-type`,
 		"schema:CaseSearch.additional_case_types",
 	),
-	relatedProperty: refuse(
+	relatedPropertyDeviceOnly: refuse(
+		`${S}a-related-record-property-only-devices-hold`,
+		"schema:CaseSearch.custom_related_case_property",
+	),
+	relatedProperty: take(
 		`${S}custom-related-case-property`,
 		"schema:CaseSearch.custom_related_case_property",
 	),
@@ -207,6 +227,10 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}a-server-order-naming-a-property-nova-reserves`,
 		"schema:CaseSearch.custom_sort_properties",
 	),
+	customSortDeviceOnly: refuse(
+		`${S}a-server-order-naming-a-property-only-devices-hold`,
+		"schema:CaseSearch.custom_sort_properties",
+	),
 	searchOnClear: take(
 		`${S}search-on-clear`,
 		"schema:CaseSearch.search_on_clear",
@@ -215,7 +239,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}search-on-clear-with-the-case-list-s-auto-select-checked-whether`,
 		"schema:CaseSearch.search_on_clear",
 	),
-	endpoint: refuse(
+	endpoint: take(
 		`${S}case-search-endpoint-id`,
 		"schema:CaseSearch.case_search_endpoint_id",
 	),
@@ -427,29 +451,6 @@ function instanceClash(
 		clash = "other";
 	}
 	return clash;
-}
-
-/** Whether the menu's root menu, or the menu its parent selection names, searches inline: the
- *  menus HQ's build compares its results instance with (`instanceClash`). */
-function underInlineSearch(ctx: ReadContext, module: DraftModule): boolean {
-	const root = module.json.peek("root_module_id");
-	const parent = module.json.peek("parent_select");
-	const ids = [
-		...(typeof root === "string" && root !== "" ? [root] : []),
-		...(isJsonObject(parent) &&
-		parent.active === true &&
-		typeof parent.module_id === "string"
-			? [parent.module_id]
-			: []),
-	];
-	return ids.some((id) => {
-		const other = ctx.draft.modules.find((one) => one.uniqueId === id);
-		return (
-			other !== undefined &&
-			other !== module &&
-			usesInlineSearch(other.json.peek("search_config"))
-		);
-	});
 }
 
 /**
@@ -737,6 +738,45 @@ const REFUSED_INSTANCE_NAMES = new WeakMap<
 	Map<string, { readonly claim: Claim<"refuse">; readonly place: HqPlace }>
 >();
 
+/** HQ compares names even on a submenu with Search turned off. Its stored name is independent of activation. */
+export function readSearchResultsName(
+	ctx: ReadContext,
+	module: DraftModule,
+	cursor: JsonCursor,
+	place: HqPlace,
+): { ok: boolean; claimed: boolean } {
+	const raw = cursor.peek("instance_name");
+	const named = typeof raw === "string" && raw !== "";
+	if (named && RESERVED_INSTANCE_WORDS.some((word) => raw.includes(word))) {
+		refuseInstanceName(ctx, cursor, T.instanceReserved, place);
+		return { ok: false, claimed: true };
+	}
+	const clash = instanceClash(ctx, module);
+	if (clash === "inline") {
+		const existing = parentSelectionClash(ctx, module);
+		if (existing !== undefined) {
+			if (named)
+				ctx.accounting.cover({ json: cursor, key: "instance_name" }, existing);
+		} else if (named) refuseInstanceName(ctx, cursor, T.instanceClash, place);
+		else ctx.accounting.finding(T.instanceClash, place);
+		return { ok: false, claimed: named };
+	}
+	if (!named) return { ok: true, claimed: false };
+	if (!searchResultsNameSchema.safeParse(raw).success) {
+		refuseInstanceName(ctx, cursor, T.instanceUneditable, place);
+		return { ok: false, claimed: true };
+	}
+	const name = cursor.take(
+		"instance_name",
+		clash === "other" ? T.instanceClashOutsideInline : T.instanceUnreserved,
+		String,
+	);
+	ctx.writeDraft(() => {
+		module.module.searchResultsName = name.value;
+	});
+	return { ok: true, claimed: true };
+}
+
 function refuseInstanceName(
 	ctx: ReadContext,
 	cursor: JsonCursor,
@@ -794,10 +834,11 @@ export function readSearchSettings(
 	cursor: JsonCursor,
 	offers: boolean,
 	config: Partial<OrdinaryCaseSearchConfig>,
+	coveredSettings: ReadonlySet<string> = new Set(),
 ): SettingsReading {
 	const place = searchPlace(module);
 	let ok = true;
-	const claimed = new Set<string>();
+	const claimed = new Set(coveredSettings);
 	for (const [key, claim] of BLANK_KEYS)
 		if (cursor.peek(key) === "") {
 			cursor.drop(key, claim);
@@ -815,8 +856,41 @@ export function readSearchSettings(
 	if (cursor.used("additional_case_types")) {
 		claimed.add("additional_case_types");
 		if (widensTheList(cursor.peek("additional_case_types"), module)) {
-			cursor.refuse("additional_case_types", T.additionalTypes);
-			ok = false;
+			const values = cursor.peek("additional_case_types");
+			if (
+				Array.isArray(values) &&
+				values.every((value) => caseTypeNameSchema.safeParse(value).success)
+			) {
+				const additional = [...new Set(values as string[])]
+					.filter((type) => type !== module.module.caseType)
+					.sort();
+				const choices = new Set(
+					ctx.draft.modules.map((menu) => menu.module.caseType),
+				);
+				const missing = additional.find((type) => !choices.has(type));
+				if (missing !== undefined) {
+					cursor.refuse("additional_case_types", T.additionalTypeWithoutMenu, {
+						name: missing,
+					});
+					ok = false;
+				} else {
+					cursor.take(
+						"additional_case_types",
+						T.additionalTypes,
+						() => additional,
+					).value;
+					ctx.writeDraft(() => {
+						const target = module.module as { caseListConfig?: CaseListConfig };
+						target.caseListConfig ??= emptyCaseListConfig();
+						target.caseListConfig.additionalCaseTypes = additional;
+					});
+				}
+			} else {
+				ctx.accounting.circumstance("unrecognized", place, {
+					name: "schema:CaseSearch.additional_case_types",
+				});
+				ok = false;
+			}
 		} else {
 			cursor.drop("additional_case_types", T.additionalOwnType);
 			if (offers)
@@ -847,9 +921,9 @@ export function readSearchSettings(
 			{ json: cursor, key },
 		);
 	};
-	const clash = instanceClash(ctx, module);
-	const selectionClash =
-		clash === "inline" ? parentSelectionClash(ctx, module) : undefined;
+	const name = readSearchResultsName(ctx, module, cursor, place);
+	if (name.claimed) claimed.add("instance_name");
+	if (!name.ok) ok = false;
 	let owners: number | undefined;
 	const filter = filterWithOwnerClause(module);
 	let ownersWithoutClause = false;
@@ -877,32 +951,6 @@ export function readSearchSettings(
 			config.excludedOwnerIds = pendingPlaceholder("value");
 	}
 	if (!offers) {
-		// A menu that offers no search still loads its results instance by name.
-		if (clash === "inline") {
-			if (selectionClash === undefined)
-				ctx.accounting.finding(T.instanceClash, place);
-			ok = false;
-		} else if (
-			holdsText(cursor, "instance_name") &&
-			underInlineSearch(ctx, module)
-		) {
-			// Under a menu that searches inline, a menu that searches nothing keeps HQ's build
-			// only by a results instance name of its own (`validate_search_config` and
-			// `validate_parent_select` compare it with that menu's whether or not this one
-			// searches), and Nova holds no such name: its export would give both menus
-			// `results:inline`, which CommCare HQ refuses.
-			const instance = String(cursor.peek("instance_name"));
-			claimed.add("instance_name");
-			refuseInstanceName(
-				ctx,
-				cursor,
-				RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
-					? T.instanceReserved
-					: T.instanceUnreserved,
-				place,
-			);
-			ok = false;
-		}
 		return { ok, claimed, ...(owners !== undefined && { owners }) };
 	}
 
@@ -1128,37 +1176,15 @@ export function readSearchSettings(
 	if (buttonIndex !== undefined)
 		config.searchButtonDisplayCondition = pendingPlaceholder("condition");
 
-	const instance = claimed.has("instance_name")
-		? undefined
-		: cursor.peek("instance_name");
-	const named = typeof instance === "string" && instance !== "";
-	if (
-		named &&
-		RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
-	) {
-		refuseInstanceName(ctx, cursor, T.instanceReserved, place);
-		ok = false;
-	} else if (clash === "inline") {
-		if (selectionClash !== undefined) {
-			if (named)
-				ctx.accounting.cover(
-					{ json: cursor, key: "instance_name" },
-					selectionClash,
-				);
-		} else if (named) refuseInstanceName(ctx, cursor, T.instanceClash, place);
-		else ctx.accounting.finding(T.instanceClash, place);
-		ok = false;
-	} else if (named && clash === "other") {
-		cursor.drop("instance_name", T.instanceClashInert);
-	} else if (named) {
-		refuseInstanceName(ctx, cursor, T.instanceUnreserved, place);
-		ok = false;
-	}
 	if (cursor.used("custom_sort_properties")) {
 		const stored = cursor.peek("custom_sort_properties");
 		const order = readDedicatedOrder(stored);
-		if (order === undefined && dedicatedOrderNamesReserved(stored)) {
-			cursor.refuse("custom_sort_properties", T.customSortReserved);
+		const refusal = dedicatedOrderRefusal(stored);
+		if (order === undefined && refusal !== undefined) {
+			cursor.refuse(
+				"custom_sort_properties",
+				refusal === "reserved" ? T.customSortReserved : T.customSortDeviceOnly,
+			);
 			ok = false;
 		} else if (order === undefined) {
 			const detail = { name: "schema:CaseSearch.custom_sort_properties" };
@@ -1184,16 +1210,36 @@ export function readSearchSettings(
 		}
 		claimed.add("custom_sort_properties");
 	}
-	const findings: [string, typeof T.additionalTypes][] = [
-		["custom_related_case_property", T.relatedProperty],
-
-		["case_search_endpoint_id", T.endpoint],
-	];
-	for (const [key, claim] of findings)
-		if (!claimed.has(key) && cursor.used(key)) {
-			cursor.refuse(key, claim);
+	if (
+		!claimed.has("custom_related_case_property") &&
+		cursor.used("custom_related_case_property")
+	) {
+		const property = authoredCasePropertyNameSchema.safeParse(
+			cursor.peek("custom_related_case_property"),
+		);
+		if (!property.success) {
+			ctx.accounting.circumstance("unrecognized", place, {
+				name: "schema:CaseSearch.custom_related_case_property",
+			});
 			ok = false;
+		} else if (isDeviceOnlyCaseProperty(property.data)) {
+			cursor.refuse(
+				"custom_related_case_property",
+				T.relatedPropertyDeviceOnly,
+				{
+					name: property.data,
+				},
+			);
+			ok = false;
+		} else {
+			cursor.take(
+				"custom_related_case_property",
+				T.relatedProperty,
+				() => property.data,
+			).value;
+			config.relatedRecordIdProperty = property.data;
 		}
+	}
 	if (!readRegistry(ctx, cursor, claimed)) ok = false;
 	if (cursor.used("search_on_clear")) {
 		if (hqAutoSelects(module)) {
@@ -1203,7 +1249,7 @@ export function readSearchSettings(
 			config.searchOnClear = true;
 		}
 	}
-	cursor.derived("include_all_related_cases", T.includeDerived);
+
 	claimUndeclaredSearchKeys(cursor);
 	return {
 		ok,
@@ -1414,6 +1460,22 @@ function promptDifference(
 	ours: JsonObject,
 	firstValidation: Readonly<Record<string, string>> | undefined,
 ): string | undefined {
+	const storedGroup = stored.is_group === true;
+	if (storedGroup !== (ours.is_group === true))
+		return "schema:CaseSearchProperty.is_group";
+	if (storedGroup)
+		return sameTexts(
+			codes,
+			source,
+			"search-input-group-label",
+			stored.label,
+			ours.label,
+		)
+			? undefined
+			: "schema:CaseSearchProperty.label";
+	// Group keys change with row placement in the Case List editor. The
+	// first pass already proved every field belongs to its preceding heading.
+
 	for (const key of PROMPT_PLAIN_KEYS)
 		if (!(BLANK(stored[key]) && BLANK(ours[key])) && stored[key] !== ours[key])
 			return `schema:CaseSearchProperty.${key}`;
@@ -1513,6 +1575,7 @@ type SearchSlotRef = Parameters<SearchConfigRewrites>[0];
 
 /** The key a search slot's level is kept under. */
 function searchSlotKey(ref: SearchSlotRef): string {
+	if ("parameterUuid" in ref) return `${ref.slot}/${ref.parameterUuid}`;
 	return "searchInputUuid" in ref
 		? `${ref.slot}/${ref.searchInputUuid}`
 		: ref.slot;
@@ -1523,6 +1586,13 @@ function searchSlotTree(
 	mod: Module,
 	ref: SearchSlotRef,
 ): Expression | undefined {
+	if ("parameterUuid" in ref) {
+		const config = mod.caseSearchConfig;
+		return config && "projectSearch" in config
+			? config.projectSearch?.defaults.find((p) => p.uuid === ref.parameterUuid)
+					?.value
+			: undefined;
+	}
 	if (!("searchInputUuid" in ref)) {
 		const config = mod.caseSearchConfig;
 		if (config === undefined) return undefined;
@@ -1571,12 +1641,15 @@ function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
 		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
 		if (expression === undefined || level === undefined) continue;
-		const member = (ref as { readonly member?: { searchInputUuid?: string } })
-			.member;
-		const key =
-			member?.searchInputUuid === undefined
-				? ref.slot
-				: `${ref.slot}/${member.searchInputUuid}`;
+		const member = "member" in ref ? ref.member : undefined;
+		const uuid =
+			member &&
+			("searchInputUuid" in member
+				? member.searchInputUuid
+				: "parameterUuid" in member
+					? member.parameterUuid
+					: undefined);
+		const key = uuid ? `${ref.slot}/${uuid}` : ref.slot;
 		held.set(key, { tree: expression, level });
 	}
 	return (ref) => {
@@ -1587,6 +1660,72 @@ function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
 			? levelControl(one.level)
 			: undefined;
 	};
+}
+
+function callArgs(
+	node: FormSyntax,
+	name: string,
+	count: number,
+): readonly FormSyntax[] | undefined {
+	const expression = core(node);
+	return expression.kind === "call" &&
+		expression.name === name &&
+		expression.args.length === count
+		? expression.args
+		: undefined;
+}
+
+/** Core checks only a nonempty answer. A lowercase ASCII rule on this same
+ * input already rejects an answer containing either quote. Accept only the
+ * exact direct-input guard we generate after that rule. A computed value,
+ * another field's answer, or any additional requirement needs its own proof.
+ */
+function redundantQuoteCheck(
+	field: SearchInputDef,
+	stored: unknown,
+	printed: unknown,
+): boolean {
+	if (field.kind === "hidden" || field.validation?.message !== undefined)
+		return false;
+	const rule = field.validation?.rule;
+	if (
+		rule?.kind !== "matches-pattern" ||
+		rule.pattern !== "^[a-z]+$" ||
+		rule.left.kind !== "term" ||
+		rule.left.term.kind !== "input" ||
+		rule.left.term.searchInputUuid !== field.uuid ||
+		typeof stored !== "string" ||
+		typeof printed !== "string"
+	)
+		return false;
+	const before = readFormSyntax(stored);
+	const after = readFormSyntax(printed);
+	if (!before.ok || !before.node || !after.ok || !after.node) return false;
+	const merged = core(after.node);
+	if (
+		merged.kind !== "binary" ||
+		merged.op !== "and" ||
+		!sameSyntax(merged.left, before.node)
+	)
+		return false;
+	const [text] = callArgs(merged.left, "regex", 2) ?? [];
+	// Core reads the input via its node-set-to-value conversion, as printed
+	// by the expression emitter. The typed rule above already binds its UUID.
+	const answer = text && (callArgs(text, "if", 3)?.[1] ?? text);
+	const [rejection] = callArgs(merged.right, "not", 1) ?? [];
+	if (!answer || !rejection) return false;
+	const parts = clauses(rejection, "and");
+	if (parts.length !== 3) return false;
+	const [present] = callArgs(parts[0], "count", 1) ?? [];
+	if (!present || !sameSyntax(present, answer)) return false;
+	const quotes = parts.slice(1).map((part) => {
+		const [value, quote] = callArgs(part, "contains", 2) ?? [];
+		const literal = quote && core(quote);
+		return value && sameSyntax(value, answer) && literal?.kind === "string"
+			? literal.value
+			: undefined;
+	});
+	return quotes.includes("'") && quotes.includes('"');
 }
 
 /** The surface key of the first difference between the stored search and the projection's,
@@ -1723,6 +1862,20 @@ function searchDifference(
 					}
 				}
 			}
+		}
+		if (
+			field &&
+			stored.length === 1 &&
+			ours.length === 1 &&
+			stored[0] &&
+			ours[0] &&
+			redundantQuoteCheck(field, stored[0].test, ours[0].test)
+		) {
+			addedGuards?.add(prompt.pointer);
+			projected = {
+				...projected,
+				validations: [{ ...ours[0], test: stored[0].test }],
+			};
 		}
 		const key = promptDifference(
 			codes,
@@ -1924,8 +2077,31 @@ export function settleSearchSettings(
 	prompts: readonly PromptReading[],
 ): void {
 	const place = searchPlace(module);
-	const start = ctx.doc;
-	if (start === undefined || start.modules[module.uuid] === undefined) return;
+	const original = ctx.doc;
+	if (original === undefined || original.modules[module.uuid] === undefined)
+		return;
+	const list = original.modules[module.uuid]?.caseListConfig;
+	const storedIncludes = cursor.peek("include_all_related_cases") === true;
+	const derivedIncludes =
+		list !== undefined &&
+		includeSearchHierarchy(
+			list,
+			moduleExpressionContexts(original, module.uuid),
+		);
+	let start = original;
+	if (storedIncludes === derivedIncludes) {
+		cursor.derived("include_all_related_cases", T.includeDerived);
+	} else {
+		const claim = storedIncludes ? T.includeAuthored : T.includeFalse;
+		cursor.take("include_all_related_cases", claim, Boolean).value;
+		start = withCandidate(original, (draft) => {
+			const menu = draft.modules[module.uuid];
+			menu.caseSearchConfig ??= {};
+			const settings = menu.caseSearchConfig;
+			if ("searchActionEnabled" in settings) return;
+			settings.relatedRecords = storedIncludes ? "hierarchy" : "details";
+		});
+	}
 	const ruled = prompts.flatMap((prompt) => {
 		const entry = start.modules[module.uuid]?.caseListConfig?.searchInputs.find(
 			(one) => one.uuid === prompt.uuid,
@@ -2041,15 +2217,6 @@ export function settleSearchSettings(
 		return;
 	}
 	const first = asRead;
-	if (first === "schema:CaseSearch.include_all_related_cases") {
-		ctx.accounting.finding(
-			cursor.peek("include_all_related_cases") === true
-				? T.includeAuthored
-				: T.includeFalse,
-			place,
-		);
-		return;
-	}
 	if (first === EMITTER_THREW)
 		ctx.accounting.defect(
 			place,

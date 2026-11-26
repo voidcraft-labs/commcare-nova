@@ -142,6 +142,38 @@ it("binds unique short field names without changing exact paths or accepting amb
 	expect(rooted.resolveField(["check_date"])).toBe(testUuid("root-check-date"));
 });
 
+it.each(["mé-trique", "Ωprobe", "probe߀"])(
+	"retains the exact index %s in an authored record expression",
+	(identifier) => {
+		const doc = buildDoc({
+			caseTypes: [
+				household,
+				{
+					...patient,
+					relations: [{ identifier, targetType: "Household" }],
+				},
+			],
+		});
+		const scope = new AuthoringScope({ doc, currentCaseType: "Patient" });
+		const value = parseQueryValue(
+			`via(ancestor('${identifier}'), #case/region)`,
+			scope,
+		);
+		expect(value).toMatchObject({
+			kind: "term",
+			term: {
+				caseType: "Patient",
+				property: "region",
+				via: { kind: "ancestor", via: [{ identifier }] },
+			},
+		});
+		expect(inferRecordQuery(value, scope.typeContext).errors).toEqual([]);
+		expect(parseQueryValue(queryPrinter(scope).value(value), scope)).toEqual(
+			value,
+		);
+	},
+);
+
 it("binds related names on their destination while preserving the canonical origin", () => {
 	const moduleUuid = testUuid("household-query-module");
 	const doc = buildDoc({

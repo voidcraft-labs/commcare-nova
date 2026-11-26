@@ -53,6 +53,57 @@ def _digest(value) -> bytes:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).digest()
 
 
+def upload_commcare_translation(state, app_id, key, value, *, language="en"):
+    """Edit HQ's own Bulk CommCare Translations workbook and upload it through HQ's save view."""
+    import io
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
+    from django.urls import resolve, reverse
+    from openpyxl import load_workbook
+
+    from proof.hq import operations, requests
+
+    def downloadable():
+        path = reverse("download_bulk_ui_translations", args=[state.domain, app_id])
+        view = resolve(path)
+        with requests.held_get(state, path) as request:
+            response = view.func(request, *view.args, **view.kwargs)
+            assert response.status_code == 200, response.status_code
+            content = b"".join(response.streaming_content) if response.streaming else response.content
+        return load_workbook(io.BytesIO(content))
+
+    download = downloadable()
+    sheet = download["translations"]
+    languages = [cell.value for cell in sheet[1][1:]]
+    current = operations.held_app(state, app_id).translations
+    expected = {code: dict(values) for code, values in current.items() if values}
+    expected.setdefault(language, {})[key] = value
+    # Keep the workbook and version metadata HQ downloaded. Upload only the
+    # edited and explicitly saved rows so stock defaults do not become edits.
+    sheet.delete_rows(2, sheet.max_row - 1)
+    for prop in sorted({prop for values in expected.values() for prop in values}):
+        sheet.append([prop, *(expected.get(code, {}).get(prop) for code in languages)])
+    output = io.BytesIO()
+    download.save(output)
+    path = reverse("upload_bulk_ui_translations", args=[state.domain, app_id])
+    body = encode_multipart(
+        BOUNDARY, {"bulk_upload_file": SimpleUploadedFile("translations.xlsx", output.getvalue())},
+    )
+    view = resolve(path)
+    request = requests.raw_post(state, path, body, MULTIPART_CONTENT)
+    response = view.func(request, *view.args, **view.kwargs)
+    assert response.status_code == 302, response.status_code
+    messages = requests.messages(request)
+    actual = operations.held_app(state, app_id).translations
+    assert {code: dict(values) for code, values in actual.items() if values} == expected, messages
+    after = downloadable()["translations"]
+    column = languages.index(language) + 1
+    [recorded] = [row[column].value for row in after.iter_rows() if row[0].value == key]
+    assert recorded == value, messages
+    return messages
+
+
 def form_body(pairs):
     """A form-encoded body of ``pairs``, as a page's form posts it."""
     return urlencode(list(pairs)).encode(), FORM_CONTENT_TYPE

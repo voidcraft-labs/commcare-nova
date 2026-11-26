@@ -47,6 +47,8 @@ from types import SimpleNamespace
 import pytest
 
 from proof.checks import changes, parity, source
+from proof.checks.compare.trace import compare_traces
+from proof.checks.compare.xml_tree import compare_xml
 from proof.checks.differences import Difference
 
 RESIDUE = "forms-and-settings-rewritten"
@@ -925,6 +927,73 @@ def _built(artifact, path, at, kind="changed"):
     return Difference("proof2", "hq-planted", artifact, path, at, kind, None, None)
 
 
+@pytest.mark.parametrize("build_element", ("remote-request", "entry"))
+def test_repeated_search_order_change_covers_original_filter_and_exact_built_and_sent_values(build_element):
+    change = "search-order-direction-signs-respelled"
+    document = _document(RESIDUE, (change, ["/menu/0/search_config/default_properties/0/defaultValue"]))
+    sites = changes.Sites(
+        builds={("suite.xml", f"{build_element}[1]"): ("menu", "0")},
+        steps={(0, 0): ("menu", "0", "search_config")},
+    )
+
+    def app(first, second):
+        return {
+            "modules": [{
+                "search_config": {"default_properties": [
+                    {"property": "commcare_sort", "defaultValue": first},
+                    {"property": "region", "defaultValue": second},
+                ]},
+            }],
+        }
+
+    def suite(first, second):
+        return (
+            f'<suite><{build_element}><session><query>'
+            f'<data key="commcare_sort" ref="{first}"/><data key="commcare_sort" ref="{second}"/>'
+            '<data key="region" ref="&apos;north&apos;"/>'
+            f'</query></session></{build_element}></suite>'
+        )
+
+    def run(first, second):
+        params = {"commcare_sort": [first, second], "region": ["north"]}
+        return {
+            "end": "incomplete",
+            "script": [],
+            "trace": [{"screen": "search", "params": params, "requests": [{"kind": "search", "params": params}]}],
+        }
+
+    changed = source.compare_sources("hq-planted", app("'++priority'", "'north'"), app("'+priority'", "'south'"))
+    assert len(changed) == 2
+    assert [_held_by(document, item, sites) for item in changed] == [{change}, frozenset()]
+
+    built = compare_xml(
+        suite("'++priority'", "'-name'"), suite("'+priority'", "'-name'"),
+        check="proof2", document="hq-planted", artifact="suite.xml",
+    )
+    assert [item.path for item in built] == [
+        f"/suite/{build_element}[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+    ]
+    assert _held_by(document, built[0], sites) == {change}
+
+    position_swapped = compare_xml(
+        suite("'+priority'", "'-name'"), suite("'-name'", "'+priority'"),
+        check="proof2", document="hq-planted", artifact="suite.xml",
+    )
+    assert len(position_swapped) == 2
+    assert all(not _held_by(document, item, sites) for item in position_swapped)
+    assert not _held_by(document, replace(built[0], after="'-priority'"), sites)
+
+    sent = compare_traces(
+        {"runs": [run("++priority", "-name")]}, {"runs": [run("+priority", "-name")]},
+        check="proof3", document="hq-planted", artifact="trace@B", rules=(),
+    )
+    assert {item.path for item in sent} == {
+        "/runs/*/trace/*/params/commcare_sort/*",
+        "/runs/*/trace/*/requests/*/params/commcare_sort/*",
+    }
+    assert all(_held_by(document, item, sites) == {change} for item in sent)
+
+
 def test_a_menu_s_change_holds_no_other_menu_s_build_difference():
     # The review's second defect: each of its scenarios, over the register's own rows.
     sites = changes.Sites(
@@ -1471,3 +1540,100 @@ def test_a_native_blank_label_is_filled_only_from_the_first_language_of_that_sam
         assert not proof3.first_language_fill(altered, place, app, read)
     for altered in ((), (*place[:-2], "hin", "default"), (*place[:4], "unrelated", *place[5:])):
         assert not proof3.first_language_fill(difference, altered, app, read)
+
+
+def test_legacy_related_case_text_requires_its_exact_column_and_unchanged_text():
+    change = changes.LEGACY_RELATED_CASE_TEXT
+    register = changes.load()
+    place = "/menu/0/case_details/short/columns/1"
+    header_path = "/m*.*.*_*_*.header"
+    before = replace(
+        _built("app_strings:en", header_path, "/m0.case_short.case_parent~1zone_2.header", "removed"),
+        before="Parent area",
+        after=None,
+    )
+    after = replace(
+        _built("app_strings:en", header_path, "/m0.case_short.case_calculated_property_2.header", "added"),
+        before=None,
+        after="Parent area",
+    )
+    applying = {change: (place,)}
+    assert changes.holders(after, register, applying, siblings=(before, after)) == [change]
+    changed = replace(after, after="A different title")
+    assert changes.holders(changed, register, applying, siblings=(before, changed)) == []
+    assert changes.holders(after, register, applying, siblings=(before, after, after)) == []
+    assert changes.holders(after, register, {change: (place[:-1] + "0",)}, siblings=(before, after)) == []
+
+    header = replace(
+        _built(
+            "suite.xml", "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+            "/suite/detail[@id=m0_case_short]/field[2]/header[1]/text[1]/locale[1]/@id",
+        ),
+        before="m0.case_short.case_parent/zone_2.header",
+        after="m0.case_short.case_calculated_property_2.header",
+    )
+    assert changes.holders(header, register, applying) == [change]
+    assert changes.holders(header, register, {change: (place[:-1] + "0",)}) == []
+
+
+def test_legacy_related_case_text_allows_only_the_same_stored_projection():
+    from proof.checks import source
+
+    change = changes.LEGACY_RELATED_CASE_TEXT
+    place = "/menu/0/case_details/short/columns/0"
+    apply = {change: (place,)}
+    register = changes.load()
+    before = {
+        "model": "case", "format": "translatable-enum", "field": "parent/village", "useXpathExpression": False,
+        "enum": [{"key": "north", "value": {"en": "North village", "es": "Pueblo del norte"}}],
+    }
+    after = {
+        **before,
+        "field": "instance('casedb')/casedb/case[@case_id = current()/index/parent]/village",
+        "useXpathExpression": True,
+        "enum": [{**before["enum"][0], "key": "case_text_9ab95772fa3351eabc620be9ec96300b"}],
+    }
+
+    def stored(column):
+        return {"modules": [{"case_details": {"short": {"columns": [column]}}}]}
+
+    compared = source.compare_sources("legacy", stored(before), stored(after))
+    assert {d.at.rsplit("/", 1)[-1] for d in compared} == {"field", "key", "useXpathExpression"}
+    assert all(changes.holders(d, register, apply, siblings=compared) == [change] for d in compared)
+    for difference in compared:
+        assert changes.naming(difference, register, {}) == change
+        for altered in (replace(difference, kind="added", before=None), replace(difference, kind="removed", after=None)):
+            assert changes.naming(altered, register, {}) != change
+            assert not changes.holders(altered, register, apply, siblings=compared)
+    assert all(changes.holders(d, register, {change: (place[:-1] + "1",)}, siblings=compared) == []
+               for d in compared)
+    for damaged in (
+        {**after, "field": after["field"].replace("/parent]", "/uncle]")},
+        {**after, "field": after["field"].replace("/village", "/town")},
+        {**after, "enum": [{**after["enum"][0], "value": {"en": "Changed words"}}]},
+    ):
+        differences = source.compare_sources("legacy", stored(before), stored(damaged))
+        assert any(changes.held(d) for d in differences)
+        assert all(not changes.holders(d, register, apply, siblings=differences) for d in differences)
+
+
+@pytest.mark.parametrize("change", ["media-paths-joined", "media-files-renamed"])
+def test_the_built_lookup_image_move_is_bound_to_the_stored_icon(change):
+    place = "/menu/0/case_details/short/lookup_image"
+    document = _document(RESIDUE, (change, [place]))
+
+    def suite(menu, path):
+        return f'<suite><detail id="m{menu}_case_short"><lookup image="{path}"/></detail></suite>'
+
+    def difference(menu):
+        found, = compare_xml(
+            suite(menu, "jr://file/b.png"), suite(menu, "jr://file/a.png"),
+            check="proof2", document="hq-planted", artifact="suite.xml",
+        )
+        return found
+
+    assert _held_by(document, difference(0)) == {change}
+    assert _held_by(document, difference(1)) == frozenset()
+    unrelated = _document(RESIDUE, (change, ["/menu/0/case_details/short/columns/0/header"]))
+    assert _held_by(unrelated, difference(0)) == frozenset()
+    assert _held_by(document, replace(difference(0), kind="removed", after=None)) == frozenset()

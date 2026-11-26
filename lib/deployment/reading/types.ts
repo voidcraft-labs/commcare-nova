@@ -23,6 +23,7 @@ import { LOOKUP_UUID_V7_PATTERN } from "@/lib/domain/lookupIds";
 import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
 import type { CircumstanceFinding, Finding } from "@/lib/publish/hqFindings";
 import type { KeptLabelId } from "@/lib/publish/keptValues";
+import type { InstallationReviewState } from "../targetIdentity";
 import {
 	LOOKUP_TABLE_CHOICES,
 	ownerRuleChoicesSchema,
@@ -116,6 +117,11 @@ export interface ReadingDeclarationChoice {
 	 * case search and the Geocoder plan feature; absent where none does.
 	 */
 	readonly addressSearch?: readonly string[];
+	/** Features retained in the app that HQ source cannot establish for its plan. */
+	readonly installationPlanChecks?: readonly (
+		| "installation-profiles"
+		| "practice-workers"
+	)[];
 	/** What a first publish changes where this choice is made. */
 	readonly firstPublish: FirstPublishView;
 	/** The concrete source references this choice would remove on its first publish. */
@@ -124,6 +130,10 @@ export interface ReadingDeclarationChoice {
 
 /** What creating will make. Everything here is shown to the person or is a count of what is. */
 export interface ReadingReview {
+	/** The named installations and destination-scoped accounts accepted at birth. */
+	readonly installations?: readonly (InstallationReviewState & {
+		readonly key: string;
+	})[];
 	/** CommCare HQ's name for the app: the default of the name choice. */
 	readonly appName: string;
 	/** ISO 8601: when the read ended. The kept list's date. Not in the digest. */
@@ -157,6 +167,9 @@ export interface ReadingReview {
 	readonly kept: readonly KeptLabelId[];
 	/** The lookup tables the app reads, by tag. */
 	readonly tables: readonly ReviewTable[];
+	readonly projectSearches?: ReturnType<
+		typeof import("../targetIdentity").projectSearchDestinationRows
+	>;
 	/** The places the app's logic reads, or null where it reads none. */
 	readonly places: ReviewPlaces | null;
 	/**
@@ -218,13 +231,14 @@ export type CreateAnswer =
 
 /**
  * Every refusal of a bring-in: the two a route meets before its stream opens,
- * and the six that only ever ride a `CreateAnswer`. `publish_in_flight` is a
+ * and those that only ever ride a `CreateAnswer`. `publish_in_flight` is a
  * create whose claim met a write another Nova app let out to the HQ app that
  * has not settled: the review stands, and the person can try again shortly. `no_project_access` is
  * both: the route's 403, and the birth's own check of `edit` after the stream
  * is open.
  */
 export const READING_REFUSALS = [
+	"session_ended",
 	"no_project_access",
 	"invalid_input",
 	"name_missing",
@@ -238,6 +252,7 @@ export type ReadingRefusal = (typeof READING_REFUSALS)[number];
 
 /** The status a route answers a refusal with: 200 where it rides the stream's last line. */
 export const READING_REFUSAL_STATUS = {
+	session_ended: 200,
 	no_project_access: 403,
 	invalid_input: 400,
 	name_missing: 200,

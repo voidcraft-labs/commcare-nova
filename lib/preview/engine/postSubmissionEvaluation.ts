@@ -120,6 +120,7 @@ export async function evaluatePostSubmissionSnapshot(
 				? args.mutation.caseIds.map((caseId) => ({ caseId }))
 				: [],
 		menuSelections: args.selections,
+		...(context.searches === undefined ? {} : { searches: context.searches }),
 		...(context.searchResults === undefined
 			? {}
 			: { searchResults: context.searchResults }),
@@ -139,6 +140,7 @@ export async function evaluatePostSubmissionSnapshot(
 		),
 		caseDatabase: context.cases,
 		lookupData: previewLookupData(context.lookup),
+		...(entry.searches === undefined ? {} : { searches: entry.searches }),
 		...(entry.searchResults === undefined
 			? {}
 			: { searchResults: entry.searchResults }),

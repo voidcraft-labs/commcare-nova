@@ -82,11 +82,15 @@ export function previewSelectionsTargetOf(
 			entryChoices: target.entryChoices.map((choice) => ({ ...choice })),
 		}),
 		...(target.cases !== undefined && {
-			cases: target.cases.map(({ caseId, caseName, claimable }) => ({
-				caseId,
-				...(caseName !== undefined && { caseName }),
-				...(claimable === true && { claimable }),
-			})),
+			cases: target.cases.map(
+				({ caseId, caseName, caseType, searchSource, claimable }) => ({
+					caseId,
+					...(caseName !== undefined && { caseName }),
+					...(caseType && { caseType }),
+					...(searchSource && { searchSource }),
+					...(claimable === true && { claimable }),
+				}),
+			),
 		}),
 		...(target.caseListSearchText !== undefined && {
 			caseListSearchText: target.caseListSearchText,

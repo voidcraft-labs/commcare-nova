@@ -35,6 +35,7 @@ const projection: FormOpeningProjection = {
 	sessionData: {},
 	datums: { selected: "record-a" },
 	resolvedEntries: {},
+	caseCreateIds: { [testUuid("operation")]: "initial-case-id" },
 	complete: true,
 };
 const secret = "synthetic entry signing secret";
@@ -77,6 +78,12 @@ describe("the authorized running form's immutable opening", () => {
 			verifyFormOpening(secret, audience, {
 				...signed,
 				content: signed.content.replaceAll("record-a", "record-b"),
+			}),
+		).rejects.toThrow(/Reopen/);
+		await expect(
+			verifyFormOpening(secret, audience, {
+				...signed,
+				content: signed.content.replaceAll("initial-case-id", "later-answer"),
 			}),
 		).rejects.toThrow(/Reopen/);
 		for (const changes of [

@@ -124,6 +124,7 @@ describe("hqMediaReferencesOf", () => {
 		["form_audio_label", "tile"],
 		["case_list_icon", "tile"],
 		["case_list_audio_label", "tile"],
+		["case_list_lookup_icon", "lookup-action"],
 		["case_list_registration_icon", "register-action"],
 		["case_list_registration_audio_label", "register-action"],
 		["app_logo", "logo"],
@@ -431,9 +432,15 @@ describe("the first-match rule over every slot, declaration and install setting"
 		tile: (kind) => kind === "audio",
 		"list-image": () => false,
 		"register-action": () => false,
+		"lookup-action": () => false,
 		logo: () => false,
 	};
-	const DRAWN_ON_ANDROID = new Set(["form", "choice", "list-image"]);
+	const DRAWN_ON_ANDROID = new Set([
+		"form",
+		"choice",
+		"list-image",
+		"lookup-action",
+	]);
 	/* An icon whose map entry has no usable file id: Web Apps can show a broken picture, and
 	 * it is left out, said by the first publish. */
 	const brokenPicture = (
@@ -450,7 +457,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 		missing: "no-entry" | "no-file",
 	) =>
 		missing === "no-file"
-			? slot !== "choice" && slot !== "unheld-itext"
+			? slot !== "choice" && slot !== "unheld-itext" && slot !== "lookup-action"
 			: slot === "list-image" ||
 				(slot === "form" && (kind === "audio" || kind === "video"));
 	const KINDS: Readonly<
@@ -462,6 +469,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 		tile: ["image", "audio"],
 		"list-image": ["image"],
 		"register-action": ["image", "audio"],
+		"lookup-action": ["image"],
 		logo: ["image"],
 	};
 	const PLACE: Readonly<Record<HqMediaReference["slot"], HqPlace>> = {
@@ -471,6 +479,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 		tile: FORM,
 		"list-image": CASE_LIST,
 		"register-action": CASE_LIST,
+		"lookup-action": CASE_LIST,
 		logo: { kind: "app" },
 	};
 	const DECLARATIONS = [
@@ -536,7 +545,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 								]);
 							cases++;
 						}
-		expect(cases).toBe(14 * 3 * 3 * 2);
+		expect(cases).toBe(15 * 3 * 3 * 2);
 	});
 });
 

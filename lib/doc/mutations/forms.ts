@@ -342,6 +342,20 @@ export function applyFormMutation(
 						} as Record<string, unknown>;
 						const patch = semantic.patch as Record<string, unknown>;
 						applyPatch(prospective, patch);
+						if (
+							prospective.action !== "create" ||
+							(prospective.caseType !== current.caseType &&
+								!Object.hasOwn(patch, "typeCalculation"))
+						)
+							delete prospective.typeCalculation;
+						if (
+							prospective.action !== "create" ||
+							(prospective.caseType !== current.caseType &&
+								!Object.hasOwn(patch, "typeChoice"))
+						)
+							delete prospective.typeChoice;
+						if (prospective.action !== "create")
+							delete prospective.ownerAfterCreate;
 						// Saving a name or owner only when changed means nothing once
 						// the patch stops saving that name or owner. A flag the patch
 						// itself sets stays for the gate to judge.

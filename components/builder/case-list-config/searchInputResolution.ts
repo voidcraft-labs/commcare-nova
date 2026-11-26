@@ -20,6 +20,7 @@ import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
 import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
@@ -35,11 +36,14 @@ import {
 	fuzzyDateMode,
 	fuzzyMode,
 	hiddenSearchFieldRefusal,
+	isSearchAnswerInput,
+	parentPathSearchRequestKey,
 	phoneticMode,
 	projectSpaceMatchingFits,
 	rangeMode,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
+	type SearchAnswerInput,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
@@ -119,7 +123,9 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 export function searchInputIcon(input: SearchInputDef): IconifyIcon {
 	return input.kind === "hidden"
 		? tablerEyeOff
-		: SEARCH_INPUT_TYPE_ICONS[input.type];
+		: input.kind === "address"
+			? tablerMapPin
+			: SEARCH_INPUT_TYPE_ICONS[input.type];
 }
 
 /** Plain-words explanation per field type: what the field looks
@@ -287,7 +293,10 @@ export function resolveRows(
 		let typeCouplingErrors: readonly string[] = [];
 		if (row.kind === "simple") {
 			const property = resolveProperty(caseTypes, row, currentCaseType);
-			if (property === undefined) {
+			if (
+				property === undefined &&
+				parentPathSearchRequestKey(row) === undefined
+			) {
 				propertyState = {
 					kind: "dangling",
 					destination: resolveDestinationCaseType(
@@ -515,15 +524,16 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 // produce, so a row referencing its own input is the canonical shape,
 // not a self-reference to forbid. `slotContext` derives the same
 // full search-input catalog for the expression checker. This list
-// provides editor vocabulary; the actual slot context decides which
-// answers are available at that point in the search workflow.
+// provides editor vocabulary for referable answers. A direct parent
+// match uses the answer only for remote matching. The actual slot
+// context decides which of the other answers the workflow can read.
 //
 // Slots that run BEFORE the search screen opens, including default
 // values and the search-button condition, see no answers. Calculated
 // columns use the case-list's configured search stage.
 
 export function deriveSearchInputDecl(
-	row: SearchInputDef,
+	row: SearchAnswerInput,
 ): EditorSearchInputDecl {
 	return {
 		uuid: row.uuid,
@@ -536,7 +546,10 @@ export function deriveSearchInputDecl(
 export function searchInputDecls(
 	rows: readonly SearchInputDef[],
 ): readonly EditorSearchInputDecl[] {
-	return rows.map(deriveSearchInputDecl);
+	return rows
+		.filter(isSearchAnswerInput)
+		.filter((row) => parentPathSearchRequestKey(row) === undefined)
+		.map(deriveSearchInputDecl);
 }
 
 // ── Default-value expectedType + seed ─────────────────────────────

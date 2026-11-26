@@ -250,7 +250,7 @@
 			"answers": [
 				{
 					"path": "/data/referral_note",
-					"value": "Clinic appointment arranged"
+					"value": "Clinic visit arranged"
 				}
 			],
 			"expressions": ["/data/referral_note"]
@@ -258,7 +258,7 @@
 		"expect": [
 			{
 				"pointer": "/values/0/value",
-				"value": "Clinic appointment arranged"
+				"value": "Clinic visit arranged"
 			}
 		]
 	}

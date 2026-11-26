@@ -102,6 +102,7 @@ import {
 } from "@/components/shadcn/dialog";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
+import { listIconSelectionModule } from "@/lib/doc/entryPointProjection";
 import { useEntryCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
 	useOrderedForms,
@@ -126,6 +127,7 @@ import {
 	orderedColumns,
 	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
+	searchInputGroupLabelUnitId,
 	searchScreenTitleText,
 	visibleSearchInputs,
 } from "@/lib/domain";
@@ -237,6 +239,7 @@ import {
 } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useClaimSearchedCases } from "@/lib/preview/hooks/useClaimSearchedCases";
+import { useEntryPointLaunch } from "@/lib/preview/hooks/useEntryPointLaunch";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import {
 	usePreviewStandingSearchState,
@@ -365,7 +368,10 @@ const NO_CLAIMED_CASES: readonly string[] = [];
 type FormMenuCase = Pick<
 	CaseRowWithCalculated,
 	"case_id" | "case_name" | "heldOnDevice"
->;
+> &
+	Partial<Pick<CaseRowWithCalculated, "case_type">> & {
+		readonly searchSource?: PreviewCaseChoice["searchSource"];
+	};
 /** The Results while the device's cases a search reads have failed to load:
  * a cases-load failure, retried by reading the device's cases again. */
 const CASES_LOAD_FAILED: ReturnType<typeof useCases>["state"] = {
@@ -843,8 +849,27 @@ export function CaseListScreen({
 	 * prompts the platform draws decide whether a worker has a Search screen
 	 * to fill in: Web Apps draws no field marked hidden, Android draws it
 	 * (`drawnSearchInputs`). */
-	const hasSearchInputs = visibleSearchInputs(searchRun.drawnInputs).length > 0;
+	const hasSearchInputs =
+		visibleSearchInputs(searchRun.drawnInputs).length > 0 ||
+		(platformRules.searchFieldGroups &&
+			(config?.searchInputGroups?.length ?? 0) > 0 &&
+			(config?.searchInputs.length ?? 0) > 0);
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
+	const formActionRule =
+		mod?.caseListRegistrationForm?.kind === "always"
+			? mod.caseListRegistrationForm.showWhen
+			: undefined;
+	const formActionCondition =
+		formActionRule?.kind === "condition" ? formActionRule.condition : undefined;
+	const waitsForCases = (condition: typeof searchButtonCondition) =>
+		condition !== undefined &&
+		navigationDeviceCases.snapshot === null &&
+		expressionReadsCaseDatabase(condition, menuSource.doc);
+	const searchActionAvailable =
+		searchConfig !== undefined && (!mod || !moduleShowsFormsInMenuAbove(mod));
+	const actionWaitsForCases =
+		(searchActionAvailable && waitsForCases(searchButtonCondition)) ||
+		waitsForCases(formActionCondition);
 	/* CommCare evaluates this predicate on the case-list Search action, before
 	 * the prompt screen exists. Preview's combined Search + Results composition
 	 * therefore gates the whole Search pane from the same session/global context;
@@ -866,6 +891,8 @@ export function CaseListScreen({
 			 * (`awaitsPreviewIdentity`): the condition is undecided until the
 			 * worker arrives, as it is while lookups load. */
 			if (awaitsPreviewIdentity(searchSession)) return "undecided";
+			if (waitsForCases(condition))
+				return deviceCaseLoad.status === "error" ? false : "undecided";
 			/* A condition whose carriers the held snapshot doesn't cover (still
 			 * loading, or a valid edit the stale snapshot predates) is undecided:
 			 * the Search pane stays withheld, and a step that depends on it waits
@@ -897,26 +924,13 @@ export function CaseListScreen({
 				EMPTY_SEARCH_INPUT_VALUES,
 			);
 		});
-	const searchActionRead =
-		searchConfig === undefined || (mod && moduleShowsFormsInMenuAbove(mod))
-			? { kind: "read" as const, value: false }
-			: readAction(searchButtonCondition, "search_button_display_condition");
-	const formActionRule =
-		mod?.caseListRegistrationForm?.kind === "always"
-			? mod.caseListRegistrationForm.showWhen
-			: undefined;
-	const actionWaitsForCases =
-		formActionRule?.kind === "condition" &&
-		navigationDeviceCases.snapshot === null &&
-		expressionReadsCaseDatabase(formActionRule.condition, menuSource.doc);
-	const formActionRead = actionWaitsForCases
-		? { kind: "read" as const, value: "undecided" as const }
-		: readAction(
-				formActionRule?.kind === "condition"
-					? formActionRule.condition
-					: undefined,
-				"case_list_action_condition",
-			);
+	const searchActionRead = searchActionAvailable
+		? readAction(searchButtonCondition, "search_button_display_condition")
+		: { kind: "read" as const, value: false };
+	const formActionRead = readAction(
+		formActionCondition,
+		"case_list_action_condition",
+	);
 	const searchActionIsRelevant =
 		searchActionRead.kind === "read" && searchActionRead.value === true;
 	/* The menu's forms read the search (CommCare's inline search): the
@@ -1439,6 +1453,13 @@ export function CaseListScreen({
 	}
 	const multipleSelection = config?.selection;
 	const selectionMaximum = multipleSelection?.maximum ?? 1;
+	const automaticSelection =
+		previewing &&
+		canContinue &&
+		entryStep === undefined &&
+		multipleSelection?.autoSelect === true;
+	const manualMultipleSelection =
+		multipleSelection !== undefined && !automaticSelection;
 	/* A collaborator can replace the live case-list configuration while an
 	 * authoritative selection read is in flight. Keep both the configuration
 	 * identity and its projected limit in the attempt identity: neither the old
@@ -1538,12 +1559,76 @@ export function CaseListScreen({
 		() => ({ ...columnDisplayContext, ...columnDisplayContext.detailWording }),
 		[columnDisplayContext],
 	);
+	const launchListEntry = useEntryPointLaunch();
+	const iconLaunchPending = useRef(false);
+	const [launchingIcon, setLaunchingIcon] = useState(false);
 	const resultsDisplayContext = useMemo<ColumnDisplayContext>(
 		() => ({
 			...columnDisplayContext,
 			linkColumnInList: platformRules.linkColumnInList,
+			...(platformRules.caseListIconActions &&
+				entryStep === undefined && {
+					listIconAction: {
+						disabled: !canEdit || !current || launchingIcon,
+						run(column, id) {
+							if (
+								!canEdit ||
+								!current ||
+								iconLaunchPending.current ||
+								!column.entryPointUuid ||
+								!moduleUuid
+							)
+								return;
+							const target = listIconSelectionModule(
+								menuSource.doc,
+								moduleUuid,
+								column,
+							);
+							if (!target) {
+								showToast("error", "This icon's form is unavailable.");
+								return;
+							}
+							iconLaunchPending.current = true;
+							setLaunchingIcon(true);
+							void launchListEntry(
+								column.entryPointUuid,
+								[{ moduleUuid: target, caseIds: [id] }],
+								previewPersonaUuid,
+								undefined,
+								{ moduleUuid, columnUuid: column.uuid },
+							)
+								.then(
+									(result) => {
+										if (result.kind === "refused")
+											showToast("error", result.message);
+									},
+									() =>
+										showToast(
+											"error",
+											"The action couldn't open. You can try the icon again.",
+										),
+								)
+								.finally(() => {
+									iconLaunchPending.current = false;
+									setLaunchingIcon(false);
+								});
+						},
+					},
+				}),
 		}),
-		[columnDisplayContext, platformRules.linkColumnInList],
+		[
+			columnDisplayContext,
+			platformRules.linkColumnInList,
+			platformRules.caseListIconActions,
+			canEdit,
+			entryStep,
+			current,
+			launchingIcon,
+			launchListEntry,
+			menuSource.doc,
+			moduleUuid,
+			previewPersonaUuid,
+		],
 	);
 	/* A claim writes the worker's claim rows, then the device is read again
 	 * as a restore after a claim would be (Android syncs after every claim).
@@ -1571,12 +1656,32 @@ export function CaseListScreen({
 	 * nothing. Resolves false when the claim did not land, with the reason
 	 * shown, so the caller stays where it is, or when the worker has left
 	 * the step the choice was made on (`step`) meanwhile. */
+	const choiceOf = (row: FormMenuCase): PreviewCaseChoice => ({
+		...previewCaseChoiceOf(row),
+		...(row.searchSource
+			? { searchSource: row.searchSource }
+			: moduleUuid &&
+				row.heldOnDevice !== undefined &&
+				activeSearchInputValues !== undefined && {
+					searchSource: {
+						moduleUuid,
+						...(submittedSearchOf(searchState)?.automatic === true && {
+							defaultSearch: true,
+						}),
+						answers: [...activeSearchInputValues].map(([name, value]) => ({
+							name,
+							value,
+						})),
+					},
+				}),
+	});
 	const postClaim = async (
 		caseIds: readonly string[],
 		step: PreviewChoiceStep = choiceStep(),
+		choices: readonly PreviewCaseChoice[] = [],
 	): Promise<boolean> => {
 		if (caseIds.length === 0) return choiceStands(step);
-		const outcome = await claimSearchedCases(caseIds);
+		const outcome = await claimSearchedCases(caseIds, choices);
 		/* A claim whose screen is gone (another app, scope or worker), or
 		 * whose choice the worker has left, answers no one: nothing to say. */
 		if (outcome.kind === "superseded" || !choiceStands(step)) return false;
@@ -1592,13 +1697,11 @@ export function CaseListScreen({
 	const claimChoices = (
 		choices: readonly PreviewCaseChoice[],
 		step?: PreviewChoiceStep,
-	) => postClaim(claimableCaseIds(choices), step);
+	) => postClaim(claimableCaseIds(choices), step, choices);
 	/* The cases choosing this row claims at the result: none in a module
 	 * whose claim waits for the form. */
 	const claimedAtResult = (row: CaseRowWithCalculated) =>
-		claimsAtResult
-			? claimableCaseIds([previewCaseChoiceOf(row)])
-			: NO_CLAIMED_CASES;
+		claimsAtResult ? claimableCaseIds([choiceOf(row)]) : NO_CLAIMED_CASES;
 	/* What the device works out for the submitted search's `_xpath_query`
 	 * before HQ reads it, once, as it sends the search; the server folds the
 	 * rows with it. A search-first module's search has it worked out and
@@ -1676,12 +1779,15 @@ export function CaseListScreen({
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
 		parentCase: parentCaseConstraint,
-		page: casePage,
+		page: automaticSelection ? undefined : casePage,
+		...(automaticSelection && { automaticSelection }),
 		/* What the worker owns is the list's identity; a claim re-reads the
 		 * list through the case data revision and keeps the settled rows on
 		 * screen. */
 		requestScopeKey: selectionScopeKey,
 		search: readsSearchResults,
+		searchSubmission: searchAttempt?.submission,
+		retainSearchResult: searchAttempt?.kind === "running",
 		/* The menu's default search sends no prompt's answer (Formplayer's
 		 * `doQuery` with `isDefaultSearch`), so a starting value narrows only
 		 * where a row or a hidden value reads it. */
@@ -1865,7 +1971,7 @@ export function CaseListScreen({
 	const clearSearch = () => {
 		resetSearch();
 		const alsoSearch = searchAfterClear(
-			searchConfig?.searchOnClear === true,
+			searchConfig?.searchOnClear === true && !automaticSelection,
 			platformRules,
 			withNavigationWidth(device).windowWidth,
 		);
@@ -2099,6 +2205,8 @@ export function CaseListScreen({
 		return {
 			case_id: held.caseId,
 			case_name: held.caseName ?? "",
+			case_type: held.caseType,
+			searchSource: held.searchSource,
 			...(held.claimable === true && { heldOnDevice: false }),
 		};
 	}, [heldChoices, multipleSelection]);
@@ -2127,13 +2235,19 @@ export function CaseListScreen({
 	 *  made on a case's details replaces them: a device leaves the details
 	 *  behind once the case is chosen, so a step back off the menu reaches
 	 *  the list (`CommCareSession.stepBack`). */
-	const holdFormMenu = (cases: readonly PreviewCaseChoice[]) => {
+	const holdFormMenu = (
+		cases: readonly PreviewCaseChoice[],
+		replaceList = false,
+	) => {
 		if (!moduleUuid) return;
 		if (routeCaseId !== undefined) explicitRouteCloseRef.current = routeCaseId;
 		setOpenCase(null);
 		navigate.holdPreviewMenu(
 			{ moduleUuid, cases },
-			{ replace: routeCaseId !== undefined, session: previewSessionId },
+			{
+				replace: replaceList || routeCaseId !== undefined,
+				session: previewSessionId,
+			},
 		);
 	};
 	/* The cases this screen's session holds, in the order they were chosen:
@@ -2590,6 +2704,54 @@ export function CaseListScreen({
 		else routeCaseGoesOnRef.current?.(loadedRows[0], true);
 	}, [entryStep, current, state, loadedRows, filterText]);
 
+	const automaticSelectionCount =
+		state.kind === "rows"
+			? Math.max(state.totalCount ?? 0, state.rows.length)
+			: 0;
+	const [automaticSelectionFailure, setAutomaticSelectionFailure] =
+		useState<string>();
+	const autoBatch = useRef<
+		{ scope: string; config: typeof selectionConfiguration } | undefined
+	>(undefined);
+	const advanceAutoBatch = useRef<
+		((rows: readonly CaseRowWithCalculated[]) => void) | undefined
+	>(undefined);
+	advanceAutoBatch.current = undefined;
+	useEffect(() => {
+		if (
+			!automaticSelection ||
+			!current ||
+			heldMenuShown ||
+			fetching ||
+			state.kind !== "rows" ||
+			automaticSelectionCount === 0 ||
+			automaticSelectionCount > selectionMaximum ||
+			!advanceAutoBatch.current
+		)
+			return;
+		const tried = autoBatch.current;
+		if (
+			tried?.scope === selectionScopeKey &&
+			tried.config === selectionConfiguration
+		)
+			return;
+		autoBatch.current = {
+			scope: selectionScopeKey,
+			config: selectionConfiguration,
+		};
+		advanceAutoBatch.current(state.rows);
+	}, [
+		automaticSelection,
+		current,
+		heldMenuShown,
+		fetching,
+		state,
+		automaticSelectionCount,
+		selectionMaximum,
+		selectionScopeKey,
+		selectionConfiguration,
+	]);
+
 	if (mod === undefined) {
 		return (
 			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
@@ -2650,6 +2812,7 @@ export function CaseListScreen({
 		chosenAfterCase = false,
 		/** Where the worker stood as they made the choice. */
 		step: PreviewChoiceStep = choiceStep(),
+		replaceList = false,
 	) => {
 		if (!moduleUuid) return;
 		/* In a menu whose forms read the search the claim sits in the form's
@@ -2699,13 +2862,14 @@ export function CaseListScreen({
 						: undefined,
 			}),
 		});
-		navigate.openForm(moduleUuid, formUuid);
+		if (replaceList) navigate.replace({ kind: "form", moduleUuid, formUuid });
+		else navigate.openForm(moduleUuid, formUuid);
 	};
 	const openFormWithCase = (
 		formUuid: Uuid,
 		row: FormMenuCase,
 		chosenAfterCase = false,
-	) => openFormWithCases(formUuid, [previewCaseChoiceOf(row)], chosenAfterCase);
+	) => openFormWithCases(formUuid, [choiceOf(row)], chosenAfterCase);
 
 	const continueAfterMenuSelection = (
 		cases: readonly (PreviewCaseChoice & {
@@ -2815,7 +2979,7 @@ export function CaseListScreen({
 		/* The claim posts as the result is chosen, and the choice goes on once
 		 * it has landed; one that did not land keeps the worker on the list
 		 * with the reason shown. */
-		void postClaim(claimed).then((landed) => {
+		void postClaim(claimed, choiceStep(), [choiceOf(row)]).then((landed) => {
 			if (landed) continueWithChosenCase(row, claimed, automatic);
 		});
 	};
@@ -2826,7 +2990,7 @@ export function CaseListScreen({
 		automatic = false,
 	) => {
 		if (entryStep) {
-			entryStep.onChoose(previewCaseChoiceOf(row), automatic);
+			entryStep.onChoose(choiceOf(row), automatic);
 			return;
 		}
 		if (openedFromCaseListMenuItem) {
@@ -2837,7 +3001,7 @@ export function CaseListScreen({
 		if (selectsForMenu && moduleUuid && mod.caseType) {
 			continueAfterMenuSelection([
 				{
-					...previewCaseChoiceOf(row),
+					...choiceOf(row),
 					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 				},
 			]);
@@ -2858,7 +3022,7 @@ export function CaseListScreen({
 		 * device does not hold yet shows as loading until it does. */
 		const read = readPreviewScreen(() => decideCaseLoadingForms(row, claimed));
 		if (read.kind === "refused" || read.value.length > 0)
-			holdFormMenu([previewCaseChoiceOf(row)]);
+			holdFormMenu([choiceOf(row)]);
 	};
 
 	/* Where a choice made from the case list menu entry lands: Web Apps
@@ -2882,7 +3046,7 @@ export function CaseListScreen({
 	);
 	const toggleMultipleCase = (row: CaseRowWithCalculated) => {
 		if (validatingSelection) return;
-		const choice = previewCaseChoiceOf(row);
+		const choice = choiceOf(row);
 		const alreadySelected = selectedChoices.some(
 			(selected) => selected.caseId === choice.caseId,
 		);
@@ -2906,7 +3070,7 @@ export function CaseListScreen({
 			tileCards === undefined
 				? filteredRows
 				: tileCards.map((card) => card.rows[0]);
-		const visibleChoices = selectableRows.map(previewCaseChoiceOf);
+		const visibleChoices = selectableRows.map(choiceOf);
 		const result = addVisiblePreviewCaseChoices(
 			selectedChoices,
 			visibleChoices,
@@ -2929,6 +3093,7 @@ export function CaseListScreen({
 		choices: readonly PreviewCaseChoice[],
 		/** Where the worker stood as they pressed Continue. */
 		step: PreviewChoiceStep,
+		replaceList = false,
 	) => {
 		if (!choiceStands(step)) return;
 		/* Read the live limit at the final effect boundary. The async caller's
@@ -2947,6 +3112,10 @@ export function CaseListScreen({
 			return;
 		}
 		if (claimsAtResult && !(await claimChoices(choices, step))) return;
+		if (openedFromCaseListMenuItem) {
+			routeCaseListMenuItemSelection();
+			return;
+		}
 		if (selectsForMenu) {
 			continueAfterMenuSelection(choices);
 			return;
@@ -2955,7 +3124,7 @@ export function CaseListScreen({
 		 * listed (`previewRequestedForm`). */
 		const requestedForm = retainedFormUuid ?? seededFormUuid;
 		if (requestedForm !== undefined) {
-			await openFormWithCases(requestedForm, choices, false, step);
+			await openFormWithCases(requestedForm, choices, false, step, replaceList);
 			return;
 		}
 		/* Otherwise Core lists the menu, reading its form conditions once the
@@ -2963,7 +3132,25 @@ export function CaseListScreen({
 		 * reads data the device lacks fails the whole screen, which the form
 		 * menu shows in its place. */
 		const read = readPreviewScreen(() => decideMultiCaseLoadingForms());
-		if (read.kind === "refused" || read.value.length > 0) holdFormMenu(choices);
+		if (read.kind === "refused" || read.value.length > 0)
+			holdFormMenu(choices, replaceList);
+	};
+	advanceAutoBatch.current = (rows) => {
+		const run = choiceStep();
+		setAutomaticSelectionFailure(undefined);
+		void finishSelectedCaseNavigation(
+			rows.map(previewCaseChoiceOf),
+			run,
+			step === "browse" && !openedFromCaseListMenuItem,
+		).then(
+			() => {
+				if (choiceStands(run) && !openedFromCaseListMenuItem)
+					setAutomaticSelectionFailure(selectionScopeKey);
+			},
+			() => {
+				if (choiceStands(run)) setAutomaticSelectionFailure(selectionScopeKey);
+			},
+		);
 	};
 	const continueWithSelectedCases = async () => {
 		if (
@@ -3019,10 +3206,7 @@ export function CaseListScreen({
 					return;
 				}
 				/* The check is the latest word on which choices the device holds. */
-				await finishSelectedCaseNavigation(
-					reconciled.rows.map(previewCaseChoiceOf),
-					step,
-				);
+				await finishSelectedCaseNavigation(reconciled.rows.map(choiceOf), step);
 				return;
 			}
 			if (result.kind === "empty") {
@@ -3083,7 +3267,7 @@ export function CaseListScreen({
 			(step === "browse" ||
 				(step === "results" &&
 					searchAfterClear(
-						searchConfig?.searchOnClear === true,
+						searchConfig?.searchOnClear === true && !automaticSelection,
 						platformRules,
 						withNavigationWidth(device).windowWidth,
 					)))) ? (
@@ -3192,6 +3376,17 @@ export function CaseListScreen({
 							landmarkLabel={title ?? undefined}
 							scopeKey={moduleUuid}
 							searchInputs={config?.searchInputs ?? []}
+							searchInputGroups={config?.searchInputGroups?.map((group) => ({
+								...group,
+								label:
+									(localizedValues.get(
+										generatedWordingId(group.uuid, "searchGroupHeading"),
+									) as string | undefined) ??
+									(localizedValues.get(
+										searchInputGroupLabelUnitId(group.uuid),
+									) as string | undefined) ??
+									group.label,
+							}))}
 							filter={config?.filter}
 							caseType={caseType}
 							session={searchSession}
@@ -3264,6 +3459,7 @@ export function CaseListScreen({
 				columns={detailColumns}
 				row={displayedOpenCase}
 				displayContext={detailDisplayContext}
+				search={claimsAtResult}
 			/>
 			{/* The running app's confirm step ends in Continue: on to the
 			 *  case-loading form (or the form menu, when the module has more
@@ -3480,11 +3676,18 @@ export function CaseListScreen({
 				ref={formMenuBackRef}
 				type="button"
 				variant="ghost"
-				onClick={() => stepBackOffPreviewHeldMenu(previewSessionId)}
+				onClick={() => {
+					if (automaticSelection && step === "browse") navigate.back();
+					else stepBackOffPreviewHeldMenu(previewSessionId);
+				}}
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				<WorkerText message="backToResults" />
+				<WorkerText
+					message={
+						automaticSelection && step === "browse" ? "back" : "backToResults"
+					}
+				/>
 			</Button>
 			<h1 className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]">
 				{message(
@@ -3601,6 +3804,33 @@ export function CaseListScreen({
 					</>
 				)}
 			</div>
+			{platform === "android" &&
+				(step === "browse" || step === "results") &&
+				accessPhase === "authorized" &&
+				config?.deviceLookup && (
+					<div className="mb-4 space-y-1">
+						<Button type="button" variant="outline" disabled>
+							{config.deviceLookup.icon !== undefined && (
+								<ProjectMediaImage
+									assetId={config.deviceLookup.icon}
+									alt=""
+									className="size-5 shrink-0 object-contain"
+								/>
+							)}
+							{config.deviceLookup.label}
+						</Button>
+						<p className="text-sm text-nova-text-muted">
+							Open this case list on an Android device with its companion app to
+							use this lookup.
+						</p>
+						{config.deviceLookup.resultHeading !== undefined && (
+							<dl className="flex flex-wrap gap-x-2 text-sm">
+								<dt className="text-nova-text-muted">Lookup results heading</dt>
+								<dd>{config.deviceLookup.resultHeading}</dd>
+							</dl>
+						)}
+					</div>
+				)}
 			{step === "results" && hasSearchInputs && (
 				<Button
 					type="button"
@@ -3820,7 +4050,7 @@ export function CaseListScreen({
 				rowAction={rowAction}
 				onOpenCase={handleOpenCase}
 				selection={
-					multipleSelection === undefined
+					!manualMultipleSelection
 						? undefined
 						: {
 								selectedCaseIds,
@@ -3830,7 +4060,7 @@ export function CaseListScreen({
 				}
 				busy={fetching || validatingSelection}
 			/>
-			{multipleSelection !== undefined && (
+			{manualMultipleSelection && (
 				<MultiSelectionTray
 					choices={selectedChoices}
 					maximum={selectionMaximum}
@@ -3962,17 +4192,42 @@ export function CaseListScreen({
 					{/* Stacked + a sub-screen open = the narrow experience: the
 					 *  sub-screen takes the whole canvas, search waits behind Back. */}
 					{(split || !onSubScreen) && searchPane}
-					{step === "search" && !onSubScreen
-						? null
-						: multiFormMenuChoices !== undefined
-							? multiFormMenuPane
-							: displayedFormMenuCase !== null
-								? formMenuPane
-								: displayedOpenCase !== null
-									? detailPane
-									: routeCaseId !== undefined
-										? routeCaseFallbackPane
-										: resultsPane}
+					{step === "search" && !onSubScreen ? null : multiFormMenuChoices !==
+						undefined ? (
+						multiFormMenuPane
+					) : displayedFormMenuCase !== null ? (
+						formMenuPane
+					) : displayedOpenCase !== null ? (
+						detailPane
+					) : routeCaseId !== undefined ? (
+						routeCaseFallbackPane
+					) : automaticSelection &&
+						state.kind === "rows" &&
+						(!openedFromCaseListMenuItem ||
+							automaticSelectionCount > selectionMaximum) ? (
+						automaticSelectionCount > selectionMaximum ? (
+							<CaseListEmptyNotice
+								headingLevel={1}
+								title={message("automaticSelectionTooMany", {
+									count: automaticSelectionCount,
+									maximum: selectionMaximum,
+								})}
+								description={message("automaticSelectionUnavailable")}
+								tone="error"
+							/>
+						) : automaticSelectionFailure === selectionScopeKey ? (
+							<CaseListEmptyNotice
+								headingLevel={1}
+								title={message("automaticSelectionFailed")}
+								description={message("automaticSelectionUnavailable")}
+								tone="error"
+							/>
+						) : (
+							<CasesLoading />
+						)
+					) : (
+						resultsPane
+					)}
 				</div>
 			</ContentFrame>
 		</>
@@ -5056,6 +5311,7 @@ function ResultsTiles({
 					tile: (
 						<CaseTileGroup
 							projection={groupedTile}
+							groupCaseId={card.key}
 							columns={tile.columns}
 							rows={card.rows}
 							caseProperties={caseProperties}

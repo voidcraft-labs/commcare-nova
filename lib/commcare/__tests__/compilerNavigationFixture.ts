@@ -25,7 +25,14 @@ export const navigationScenarios = [
 	"links",
 ] as const;
 export type NavigationScenario = (typeof navigationScenarios)[number];
-export function compilerNavigationFixture(scenario: NavigationScenario) {
+export function compilerNavigationFixture(
+	scenario: NavigationScenario,
+	identities?: {
+		readonly menu: string;
+		readonly visit: string;
+		readonly register: string;
+	},
+) {
 	if (scenario === "links") {
 		const moduleUuid = testUuid("navigation-module");
 		const nextFormUuid = testUuid("navigation-next");
@@ -87,6 +94,7 @@ export function compilerNavigationFixture(scenario: NavigationScenario) {
 				: {}),
 		modules: [
 			{
+				uuid: identities?.menu,
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: caseListConfig([
@@ -105,6 +113,7 @@ export function compilerNavigationFixture(scenario: NavigationScenario) {
 					: {}),
 				forms: [
 					{
+						uuid: identities?.visit,
 						name: "Visit",
 						type: "followup",
 						...(scenario === "conditions"
@@ -131,6 +140,7 @@ export function compilerNavigationFixture(scenario: NavigationScenario) {
 						? []
 						: [
 								{
+									uuid: identities?.register,
 									name: "Register",
 									type: "registration" as const,
 									fields: [

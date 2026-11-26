@@ -369,6 +369,55 @@ test("native Search chooser filters, recovers focus, and creates the selected ty
 	await expect(trigger).toHaveAttribute("aria-expanded", "false");
 	await expect(trigger).toBeFocused();
 });
+test("direct parent Search keeps its match when a field is renamed or relabeled", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-direct-parent`);
+	const original = (await savedModule(page)).caseListConfig.searchInputs[0];
+	await page.locator(`[data-case-search-field="${original.uuid}"]`).click();
+
+	const matching = page.getByRole("switch", {
+		name: /^Use project space matching/,
+	});
+	await expect(matching).toBeChecked();
+	const label = page.getByRole("textbox", { name: "Search field 1 label" });
+	await label.fill("Household address");
+	await label.press("Tab");
+	await expect
+		.poll(async () => (await savedModule(page)).caseListConfig.searchInputs[0])
+		.toMatchObject({ ...original, label: "Household address" });
+
+	await page.getByRole("button", { name: "More settings" }).click();
+	const name = page.getByRole("textbox", {
+		name: "Search field 1 name",
+		exact: true,
+	});
+	await name.fill("home_address");
+	await name.press("Tab");
+	await expect
+		.poll(async () => (await savedModule(page)).caseListConfig.searchInputs[0])
+		.toMatchObject({
+			...original,
+			label: "Household address",
+			name: "home_address",
+		});
+	await expect(matching).toBeChecked();
+
+	await page
+		.getByRole("combobox", { name: "Search field 1 information" })
+		.click();
+	await page.getByRole("option", { name: /^Region/ }).click();
+	const changed = (await savedModule(page)).caseListConfig.searchInputs[0];
+	expect(changed).toMatchObject({
+		uuid: original.uuid,
+		property: "region",
+		name: "home_address",
+	});
+	expect(changed).not.toHaveProperty("matching");
+	expect(changed).not.toHaveProperty("via");
+	await expect(matching).toHaveCount(0);
+});
+
 test("native Search keyboard reordering and removal preserve field identity and move focus", async ({
 	page,
 }) => {
@@ -669,6 +718,77 @@ test("native Search dependency review follows exact editors and recomputes peer 
 			(x: { name: string }) => x.name,
 		),
 	).toEqual(["region"]);
+});
+test("native Search address removal reviews, retargets and clears links", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-address-removal`);
+	await selectSearchInput(page);
+	const before = (await savedModule(page)).caseListConfig.searchInputs;
+	const remove = page.getByRole("button", {
+		name: "Remove search field",
+		exact: true,
+	});
+	const review = page.getByRole("alertdialog");
+	await remove.click();
+	const uses = review.getByRole("list", { name: "Uses of Find an address" });
+	await expect(uses.getByRole("listitem")).toHaveCount(2);
+	const receiver = uses.getByRole("button", {
+		name: /Region.*Fills from this address field.*Review/,
+	});
+	await receiver.click();
+	const back = page.getByRole("button", {
+		name: "Back to Find an address search field",
+		exact: true,
+	});
+	const addressSetting = page.getByText("Fill from an address", {
+		exact: true,
+	});
+	await expect(addressSetting).toBeVisible();
+	const sourceControl = page
+		.getByRole("button", { name: "Find an address", exact: true })
+		.and(page.locator('[aria-haspopup="menu"]'));
+	await expect(sourceControl).toBeFocused();
+	await back.click();
+	await expect(receiver).toBeVisible();
+	expect((await savedModule(page)).caseListConfig.searchInputs).toEqual(before);
+
+	await receiver.click();
+	await sourceControl.click();
+	await page
+		.getByRole("menuitemradio", { name: "Alternative address", exact: true })
+		.click();
+	await expect
+		.poll(
+			async () =>
+				(await savedModule(page)).caseListConfig.searchInputs[2].addressReceiver
+					.source,
+		)
+		.toBe(before[1].uuid);
+	await back.click();
+	await expect(receiver).toHaveCount(0);
+	const otherReceiver = uses.getByRole("button", {
+		name: /Client name.*Fills from this address field.*Review/,
+	});
+	await otherReceiver.click();
+	await expect(sourceControl).toBeFocused();
+	await sourceControl.click();
+	await page
+		.getByRole("menuitemradio", { name: "No address field", exact: true })
+		.click();
+	await back.click();
+	await expect(review).toHaveCount(0);
+	await expect(remove).toBeFocused();
+	await remove.click();
+	const { addressReceiver: _oldReceiver, ...unlinked } = before[3];
+	expect((await savedModule(page)).caseListConfig.searchInputs).toStrictEqual([
+		before[1],
+		{
+			...before[2],
+			addressReceiver: { ...before[2].addressReceiver, source: before[1].uuid },
+		},
+		unlinked,
+	]);
 });
 test("native Add information progressive choices create a separate view and reset on reopen", async ({
 	page,
@@ -1045,6 +1165,67 @@ test("native clearing availability confirms once and preserves Search and assign
 	await expect(
 		page.getByText("Search is available from Results", { exact: true }),
 	).toBeVisible();
+});
+
+test("a menu can send its existing answer and a named value to a project space and switch back", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search`);
+	const [original] = (await savedModule(page)).caseListConfig.searchInputs;
+	await page
+		.getByRole("button", { name: "Edit Search screen", exact: true })
+		.click();
+	const source = page.getByRole("combobox", { name: "Search source" });
+	const chooseSource = async (name: string) => {
+		await source.click();
+		await page.getByRole("option", { name, exact: true }).click();
+	};
+	await chooseSource("New project space search");
+	await expect(
+		page.getByText("Any matching rules on those fields will be replaced.", {
+			exact: false,
+		}),
+	).toBeVisible();
+	await page
+		.getByRole("textbox", { name: "Search name", exact: true })
+		.fill("Clinic registry");
+	const use = page.getByRole("button", { name: "Use this search" });
+	await use.click();
+	await expect(source).toContainText("Clinic registry");
+	expect((await savedModule(page)).caseListConfig.searchInputs).toMatchObject([
+		{
+			kind: "parameter",
+			uuid: original.uuid,
+			name: original.name,
+			sendAnswer: true,
+		},
+	]);
+	await page
+		.getByRole("textbox", { name: "Name sent to the search", exact: true })
+		.fill("area");
+	await page.getByRole("textbox", { name: "Value", exact: true }).fill("north");
+	await page.getByRole("button", { name: "Add named value" }).click();
+	expect(
+		(await savedModule(page)).caseSearchConfig.projectSearch.defaults,
+	).toMatchObject([{ name: "area" }]);
+	await chooseSource("Ordinary case search");
+	await use.click();
+	await expect(
+		page.getByText(
+			/Choose the case property.*will search before switching back/,
+		),
+	).toBeVisible();
+	await page
+		.getByRole("combobox", { name: original.label, exact: true })
+		.click();
+	await page
+		.getByRole("option", { name: original.property, exact: true })
+		.click();
+	await use.click();
+	await expect(source).toContainText("Ordinary case search");
+	const saved = await savedModule(page);
+	expect(saved.caseListConfig.searchInputs).toEqual([original]);
+	expect(saved.caseSearchConfig?.projectSearch).toBeUndefined();
 });
 
 test("native Search screen copy clears overrides back to visible defaults and states the button's fixed text", async ({

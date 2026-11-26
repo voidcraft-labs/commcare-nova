@@ -1,8 +1,6 @@
 import type { CaseType } from "@/lib/domain";
-import {
-	CASE_INDEX_NAME_PATTERN,
-	declaredCaseRelations,
-} from "@/lib/domain/caseRelations";
+import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
+import { declaredCaseRelations } from "@/lib/domain/caseRelations";
 import {
 	ancestorPath,
 	anyRelationPath,
@@ -231,7 +229,7 @@ export function changeKind(
 			: value.kind === "ancestor"
 				? value.via[0].identifier
 				: value.identifier;
-	const identifier = CASE_INDEX_NAME_PATTERN.test(savedIdentifier)
+	const identifier = isAdvancedCaseIndexIdentifier(savedIdentifier)
 		? savedIdentifier
 		: DEFAULT_IDENTIFIER;
 	const children = availableCaseTypesForSingleRelation(
@@ -457,7 +455,7 @@ export function rebuildValidAncestorPath(
 	const contexts = ancestorStepContexts(steps, originCaseType, caseTypes);
 	if (
 		contexts.some((context) => context.parentCaseType === undefined) ||
-		steps.some((step) => !CASE_INDEX_NAME_PATTERN.test(step.identifier))
+		steps.some((step) => !isAdvancedCaseIndexIdentifier(step.identifier))
 	) {
 		return undefined;
 	}

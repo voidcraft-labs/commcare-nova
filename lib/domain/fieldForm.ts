@@ -19,11 +19,13 @@ export function formOfField(
 	return undefined;
 }
 
-/** A hidden value and a submitted Connect activity have no worker control. */
+/** Hidden values and submitted case changes and activities have no worker control. */
 export function fieldHasWorkerControl(
 	kind: FieldKind,
-): kind is Exclude<FieldKind, "hidden" | "connect_activity"> {
-	return kind !== "hidden" && kind !== "connect_activity";
+): kind is Exclude<FieldKind, "hidden" | "connect_activity" | "case_change"> {
+	return (
+		kind !== "hidden" && kind !== "connect_activity" && kind !== "case_change"
+	);
 }
 
 /** A Connect activity may sit before the worker's first page. */

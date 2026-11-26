@@ -75,6 +75,8 @@ export interface EntryDatumSupplies {
 		readonly scalar: boolean;
 	}[];
 	readonly searchResults?: { readonly module: Uuid };
+	/** The still-readable query steps in entry order when more than one supplies results. */
+	readonly searchResultModules?: readonly Uuid[];
 	/** At a `case-list` or `search` point: the refs the module's own entries
 	 * supply before its selection, which another entry the list runs in
 	 * (`module`'s) holds in another place or not at all, so no one datum id
@@ -99,13 +101,24 @@ const alignments = new WeakMap<
 >();
 const supplies = new WeakMap<BlueprintDoc, Map<string, EntryDatumSupplies>>();
 
+/** Loaded queries in the order the worker completed them. A navigation parent can appear
+ * on the path without supplying a selection and therefore without supplying a query. */
+export function loadedSearchModules(
+	supplies: EntryDatumSupplies,
+): readonly Uuid[] {
+	return (
+		supplies.searchResultModules ??
+		(supplies.searchResults ? [supplies.searchResults.module] : [])
+	);
+}
+
 function entryKey(entry: DatumEntry): string {
 	return entry.kind === "form"
 		? JSON.stringify([entry.kind, entry.module, entry.form])
 		: JSON.stringify([entry.kind, entry.module]);
 }
 
-function parentSelectionChain(
+export function parentSelectionChain(
 	doc: Pick<EntrySelectionSource, "modules">,
 	moduleUuid: Uuid,
 ): Uuid[] {
@@ -323,7 +336,10 @@ function suppliedAtEntry(
 		)
 			add({ kind: "new-case" });
 		if (saved !== undefined) {
-			if (savesToWorkerRecord(saved)) add({ kind: "worker-record" });
+			// Guarded and repeated Save to Case blocks use the restore directly.
+			// Only an unconditional root update can supply the entry datum.
+			if (savesToWorkerRecord(saved, "root-unconditional"))
+				add({ kind: "worker-record" });
 			if (
 				mod.caseType !== undefined &&
 				(form.type === "registration" ||
@@ -340,14 +356,26 @@ function suppliedAtEntry(
 	}
 	// Queries are inserted after alignment for the original selectable source,
 	// never for an alias or an inherited computed value.
-	const searched = selected.filter((module) =>
+	const queries = selected.filter((module) =>
 		moduleFormsReadSearch(doc.modules[module]),
+	);
+	// Core collects session instances in frame order with putAll, but an XForm
+	// declaration finds the first matching source (CommCareInstanceInitializer).
+	// Non-adjacent queries may reuse a name; neither is an unambiguous supplier.
+	const counts = new Map<string, number>();
+	for (const uuid of queries) {
+		const name = doc.modules[uuid].searchResultsName ?? "inline";
+		counts.set(name, (counts.get(name) ?? 0) + 1);
+	}
+	const distinct = queries.filter(
+		(uuid) => counts.get(doc.modules[uuid].searchResultsName ?? "inline") === 1,
 	);
 	return {
 		refs: [...refs.values()],
-		...(searched.length === 0
-			? {}
-			: { searchResults: { module: searched[searched.length - 1] } }),
+		...(queries.length > 1 && { searchResultModules: distinct }),
+		...(queries.length > 0 && {
+			searchResults: { module: queries[queries.length - 1] },
+		}),
 	};
 }
 

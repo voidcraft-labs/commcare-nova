@@ -52,6 +52,7 @@ import {
 	submittedAction,
 } from "@/lib/domain/submittedAnswerName";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
+import { androidAppAnswerProblem } from "../../xform/androidApp";
 import { fieldDisplayProblem } from "../../xform/readDisplaySettings";
 import { type ValidationError, validationError } from "../errors";
 
@@ -814,9 +815,31 @@ function localizedMedia(field: Field, ctx: FieldContext): ValidationError[] {
 	return [];
 }
 
+function androidAppAnswer(field: Field, ctx: FieldContext): ValidationError[] {
+	const problem = androidAppAnswerProblem(ctx.doc, ctx.formUuid, field);
+	if (problem === undefined) return [];
+	return [
+		validationError(
+			"ANDROID_APP_ANSWER_INVALID",
+			"field",
+			problem,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+			},
+			{ problem },
+		),
+	];
+}
+
 const FIELD_RULES = [
 	displayCombination,
 	localizedMedia,
+	androidAppAnswer,
 	selectNoOptions,
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,

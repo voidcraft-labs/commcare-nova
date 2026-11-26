@@ -35,3 +35,6 @@ export const ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS = [
  * Android sets (`CommCareActivity.saveLastQueryString`).
  */
 export const CASE_LIST_SEARCH_TEXT_DATA_NAME = "stringquery";
+
+/** The count of distinct keys returned by Android's companion lookup for a selection. */
+export const CASE_LIST_LOOKUP_COUNT_DATA_NAME = "fingerprintquery";
