@@ -1796,6 +1796,8 @@ const USER_MESSAGE_BY_CODE: Record<
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_VALUES_UNBOUNDED: (e) =>
 		`Nova can't confirm that the starting value for ${q(fieldName(e))} always gives an available answer. You can map each result to an available answer, or remove the starting value and ask the worker to choose.`,
+	CAPTURE_DEFAULT_NOT_BLANK: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} starts with a file. Web Apps clears a starting file as the form opens, and Android can't open the form. You can leave its starting value empty.`,
 	SELECT_DEFAULT_NOT_AN_OPTION: (e) =>
 		`The starting value for ${q(fieldName(e))} is not one of its choices. Choose an available answer or clear the starting value.`,
 	SELECT_NO_OPTIONS: (e) =>

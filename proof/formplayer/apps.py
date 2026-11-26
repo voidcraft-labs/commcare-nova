@@ -177,6 +177,25 @@ def form_written(holder, write):
     return change
 
 
+def with_a_starting_value(path, value):
+    """A form rewrite for ``form_written`` that gives the node at ``path`` the starting value ``value`` (XPath text)
+    as CommCare HQ's form builder writes a Default Value: a ``setvalue`` on ``xforms-ready`` at the end of the
+    form's model. The lane writes by hand, past Nova's gate, a value Nova refuses."""
+
+    def write(source):
+        from lxml import etree
+
+        tree = etree.fromstring(source.encode() if isinstance(source, str) else source)
+        model, = tree.xpath("//*[local-name()='model']")
+        setvalue = etree.SubElement(model, "{http://www.w3.org/2002/xforms}setvalue")
+        setvalue.set("event", "xforms-ready")
+        setvalue.set("ref", path)
+        setvalue.set("value", value)
+        return etree.tostring(tree, encoding="unicode")
+
+    return write
+
+
 # The forms Nova emitted before defect 16, by document id (``<id>.form.xml``).
 MEDIA_SLOTS = Path(__file__).parent / "media_slots"
 

@@ -1447,6 +1447,17 @@ def _questions():
         model="""<setvalue event="xforms-ready" ref="/data/made/case/@case_id" value="''"/>
           <setvalue event="xforms-ready" ref="/data/other/case/@case_id" value="uuid()"/>""",
     )
+    # A blank and a file name on two attachment questions, and a text question's default beside them.
+    capture_defaults = form(
+        data="<photo/><report/><note/>",
+        model="""<bind nodeset="/data/photo" type="binary"/><bind nodeset="/data/report" type="binary"/>
+          <bind nodeset="/data/note" type="xsd:string"/>
+          <setvalue event="xforms-ready" ref="/data/photo" value="''"/>
+          <setvalue event="xforms-ready" ref="/data/report" value="'carry-forward.pdf'"/>
+          <setvalue event="xforms-ready" ref="/data/note" value="'x'"/>""",
+        body="""<upload ref="/data/photo" mediatype="image/*"/>
+          <upload ref="/data/report" mediatype="application/*,text/*"/><input ref="/data/note"/>""",
+    )
     leaves = form(
         data=f'<q/><op vellum:role="SaveToCase">{case}<update><when/></update></case></op>',
         model="""<bind nodeset="/data/q" type="xsd:dateTime"/>
@@ -1578,6 +1589,11 @@ def _questions():
         "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": (
             refused("form", setvalues, setvalue, "model[1]/setvalue[3]"),
             accepted("form", setvalues, setvalue, "model[1]/setvalue[2]"),  # a question's default value
+        ),
+        "questions/default-other-than-blank-on-a-capture-question": (
+            refused("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[2]/@value"),
+            accepted("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[1]/@value"),
+            accepted("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[3]/@value"),
         ),
         "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": (
             refused("form", created, setvalue, "model[1]/setvalue[1]", readings=True),

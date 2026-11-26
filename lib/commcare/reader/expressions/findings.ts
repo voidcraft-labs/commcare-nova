@@ -1403,6 +1403,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/default-on-a-capture-question-or-a-label",
 		"xform:setvalue@value",
 	),
+	"capture-default-not-blank": refuse(
+		"questions/default-other-than-blank-on-a-capture-question",
+		"xform:setvalue@value",
+	),
 	"bind-constraint": take(
 		"questions/bind-constraint",
 		"xform:model/bind@constraint",
@@ -2619,6 +2623,8 @@ export function checkErrorEntry(
 				"a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes"
 			].entry,
 		);
+	if (error.code === "capture-default-not-blank")
+		return answer(C["capture-default-not-blank"].entry);
 	if (error.code === "time-ordering")
 		return answer(
 			C[
@@ -2756,6 +2762,7 @@ export function formRefusalEntry(code: CheckErrorCode): string {
 		case "expected-value":
 		case "constraint-value":
 		case "default-not-a-choice":
+		case "capture-default-not-blank":
 		case "arm-unavailable":
 		case "search-answer-unavailable":
 		case "search-results-not-supplied":

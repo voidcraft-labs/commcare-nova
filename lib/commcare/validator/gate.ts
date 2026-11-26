@@ -403,6 +403,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	HELD_BLOCK_PATH_TAKEN: "soundness",
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_NOT_AN_OPTION: "soundness",
+	// Web Apps clears a starting file and Android stops the form on it.
+	CAPTURE_DEFAULT_NOT_BLANK: "soundness",
 	SELECT_NO_OPTIONS: "shape",
 	// Empty answers, whitespace-separated tokens and accidental HQ instance
 	// references cannot be stored as an individual choice.

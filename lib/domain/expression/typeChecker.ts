@@ -47,6 +47,7 @@ import {
 	isIsoDateText,
 } from "./datePattern";
 import { formNodeGraph } from "./formNodes";
+import { isBlankLiteral } from "./inference";
 import {
 	branchesMixCoercedDays,
 	coercedValueRefusal,
@@ -182,6 +183,7 @@ export type CheckErrorCode =
 	| "expected-value"
 	| "constraint-value"
 	| "default-not-a-choice"
+	| "capture-default-not-blank"
 	| "arm-unavailable"
 	| "case-data-unavailable"
 	| "form-answer-unavailable"
@@ -797,8 +799,11 @@ export function checkExpression(
 		const refused = repeatCountRefusal(expression, outcome, ctx);
 		if (refused !== undefined) errors.push(refused);
 	}
-	if (ctx.slot.entity === "field" && ctx.slot.slot === "default_value")
+	if (ctx.slot.entity === "field" && ctx.slot.slot === "default_value") {
 		checkChoiceDefault(expression, ctx, errors);
+		const startingFile = captureDefaultRefusal(expression, ctx);
+		if (startingFile !== undefined) errors.push(startingFile);
+	}
 	return { type: outcome.type, errors };
 }
 
@@ -3606,6 +3611,26 @@ function systemDateNode(
 		? { ...node, dayText: "date_opened" }
 		: node;
 }
+/** An attachment question starts blank. Web Apps clears a starting file name
+ * as the form opens and submits nothing for it (the client sends
+ * `clear_answer`), and Android looks for the named file in the form's own
+ * folder and stops the form (`MediaWidget` raises "Failed to decrypt media"),
+ * so any other starting value, a file name or an expression that can give
+ * one, never reaches a submission. */
+function captureDefaultRefusal(
+	expression: Expression,
+	ctx: ExpressionContext,
+): CheckError | undefined {
+	if (ctx.slot.entity !== "field") return undefined;
+	const field = ctx.form?.fields.get(ctx.slot.uuid);
+	if (field === undefined || !isCaptureFieldKind(field.kind)) return undefined;
+	if (isBlankLiteral(expression)) return undefined;
+	return refusal(
+		"capture-default-not-blank",
+		"An attachment question can't start with a file. Web Apps clears it as the form opens, and Android can't open the form. You can leave the starting value empty.",
+	);
+}
+
 function checkChoiceDefault(
 	expression: Expression,
 	ctx: ExpressionContext,

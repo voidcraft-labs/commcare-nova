@@ -1464,6 +1464,32 @@ def _default_value(form, setvalue, target):
     )
 
 
+def default_other_than_blank_on_a_capture_question(use, manifest):
+    """``questions/default-other-than-blank-on-a-capture-question``: an attachment question's Default Value
+    (``_default_value``: a setvalue Vellum reads as the Default Value of a question an ``<upload>`` binds, which is
+    every image, audio, video, signature and file question) whose value is anything but the blank string literal.
+    Web Apps clears a starting file as the form opens and submits nothing for it, and Android's ``MediaWidget``
+    looks for the named file in the form's own folder and stops the form. A value Core's lexer refuses, or this
+    port does not read, is not settled here: None."""
+    form, setvalue = _setvalue(use)
+    if form is None:
+        return None
+    if setvalue is None:
+        return False  # an event on another element of the form, no setvalue
+    target = _target(form, setvalue)
+    if target is None:
+        return _unplaced_target(form, setvalue)
+    if not _default_value(form, setvalue, target) or isinstance(target, tuple):
+        return False
+    path = form.paths.get(target)
+    if not any(_local(control) == "upload" for control in form.question_controls(path)):
+        return False
+    found = xpath_tokens(setvalue.get("value") or "")
+    if found is None:
+        return None
+    return not (len(found) == 1 and found[0].kind == "STR" and found[0].text[1:-1] == "")
+
+
 def default_event_mismatching_placement(use, manifest):
     """``questions/a-default-value-s-setvalue-whose-event-does-not-match-…``: a setvalue Vellum reads as a
     Default Value whose event does not match where the question sits, which a save rewrites
@@ -10261,6 +10287,7 @@ VALUE_CLASSES = {
     "questions/a-default-value-s-setvalue-whose-event-does-not-match-where-the": default_event_mismatching_placement,
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
     "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": savetocase_blank_create_id,
+    "questions/default-other-than-blank-on-a-capture-question": default_other_than_blank_on_a_capture_question,
     "questions/actions-nested-inside-controls": action_nested_in_control,
     "questions/unknown-namespace-model-children-named-itext-instance-bind": foreign_namespace_model_child,
     "questions/jr-count-naming-a-node-in-a-secondary-instance-or-no-node": count_outside_form_data,

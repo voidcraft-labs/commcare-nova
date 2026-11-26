@@ -8,7 +8,9 @@ import { uploadedMedia } from "../../corpus/documents";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
-/** The same signed questionnaire is opened in the editor, the web client and on a phone. */
+/** The same signed questionnaire is opened in the editor, the web client and on a phone. Its documents form
+ * holds the one starting value an attachment question keeps, a blank one, on the picture; the witnesses write a
+ * file name as another question's starting value past Nova's gate to show what each platform does with it. */
 export function workerMessages() {
 	const id = "targeted-worker-messages";
 	const uuid = (name: string) => targetedUuid(id, name);
@@ -81,7 +83,6 @@ export function workerMessages() {
 								uuid: uuid("report"),
 								id: "report",
 								label: proseText("Previous report"),
-								default_value: "'carry-forward.pdf'",
 								validate: ". != 'blocked.pdf'",
 							}),
 							f({
@@ -97,8 +98,8 @@ export function workerMessages() {
 								uuid: uuid("replacement"),
 								id: "replacement",
 								label: proseText("Current report"),
-								default_value: "'needs-file.pdf'",
-								validate: ". != 'needs-file.pdf'",
+								required: "true()",
+								validate: ". != 'blocked.pdf'",
 								validate_msg: proseText("Choose the current report"),
 							}),
 						],

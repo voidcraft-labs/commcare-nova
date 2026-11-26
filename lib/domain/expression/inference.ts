@@ -580,7 +580,9 @@ function writesIsoDateText(expression: Expression): boolean {
 	return every;
 }
 
-function isBlankLiteral(expression: Expression): boolean {
+/** Whether an expression is the blank text literal `''`, with no declared
+ * type: the one starting value an attachment question keeps. */
+export function isBlankLiteral(expression: Expression): boolean {
 	return (
 		expression.kind === "term" &&
 		expression.term.kind === "literal" &&

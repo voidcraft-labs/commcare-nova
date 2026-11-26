@@ -553,6 +553,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"breaks-when-run":
 			"The app points at a media file here that CommCare HQ doesn't have. Workers meet a missing file there, and Android may not start the app at all.",
 	},
+	"question-logic": {
+		"breaks-when-run":
+			"An attachment question here starts with a file. Web Apps clears that file as the form opens, and Android can't open the form. Leaving its starting value empty in the form designer fixes it.",
+	},
 	"question-ids": {
 		"hq-refuses":
 			"A question ID here is one CommCare HQ's form builder can't keep.",

@@ -30564,12 +30564,12 @@
 		]
 	},
 	{
-		"id": "hq-questions/default-on-capture",
+		"id": "hq-questions/default-blank-on-capture",
 		"base": "hq-questions",
 		"entry": "questions/default-on-a-capture-question-or-a-label",
 		"change": {
 			"op": "named",
-			"name": "default_on_capture"
+			"name": "default_blank_on_capture"
 		},
 		"holds": [
 			{
@@ -30581,9 +30581,27 @@
 					["photo"]
 				],
 				"pointer": "/default_value/term/value",
-				"value": "x"
+				"value": ""
 			}
 		]
+	},
+	{
+		"id": "hq-questions/default-on-capture",
+		"base": "hq-questions",
+		"entry": "questions/default-other-than-blank-on-a-capture-question",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "photo"
+		},
+		"change": {
+			"op": "named",
+			"name": "default_on_capture"
+		}
 	},
 	{
 		"id": "hq-questions/defaults-out-of-order",

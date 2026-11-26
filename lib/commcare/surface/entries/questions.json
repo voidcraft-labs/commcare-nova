@@ -5955,7 +5955,7 @@
 		"id": "questions/default-on-a-capture-question-or-a-label",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "a default on an image, audio, video, signature or file question or a label",
+		"item": "a blank default on an image, audio, video, signature or file question, or a default on a label",
 		"surfaceKeys": [
 			"jr-action:setvalue",
 			"jr-event:xforms-ready",
@@ -5966,7 +5966,7 @@
 		],
 		"valueClass": "on-capture-or-label",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Once-only starting value on the answer.",
+		"dispositionCell": "**HELD**: Once-only starting value on the answer: blank on an attachment question, any value on a label.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (new sessions only) / RUNS (new instances only)",
@@ -5985,6 +5985,32 @@
 		},
 		"gates": [],
 		"slotChanges": []
+	},
+	{
+		"id": "questions/default-other-than-blank-on-a-capture-question",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "a default other than the blank string on an image, audio, video, signature or file question: a file name, or an expression that can give one",
+		"surfaceKeys": ["xform:setvalue@value"],
+		"valueClass": "other-than-blank-on-capture",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Web Apps clears the starting file as the form opens and submits nothing for it, and Android looks for the file in the form's own folder and can't open the form. Leaving the starting value blank in the form builder fixes it.",
+		"subject": "question-logic",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps clears the starting file as the form opens and submits nothing for it (its client sends `clear_answer` for the question); Android's `MediaWidget` looks for the named file in the form's own folder and raises \"Failed to decrypt media\", so the form does not open"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "questions/setvalue-event-jr-insert-default-inside-a-repeat-not-reading",

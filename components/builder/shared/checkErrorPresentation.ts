@@ -149,6 +149,8 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"text-value": () => "Choose text",
 	"expected-value": () => "Choose a value that fits this setting",
 	"constraint-value": () => "Choose a value that fits this setting",
+	"capture-default-not-blank": () =>
+		"Leave an attachment's starting value empty",
 	"default-not-a-choice": () =>
 		"Choose a starting value from the available choices",
 	"arm-unavailable": (_path, reason, error) =>

@@ -1,4 +1,5 @@
-"""Installed Android widgets supply the passive OK, the worker's checkbox, and the unchanged optional default."""
+"""Installed Android widgets supply the passive OK, the worker's checkbox, and the unchanged optional default; an
+attachment question starts blank, and a starting file name stops the form from opening."""
 
 import pytest
 from lxml import etree
@@ -33,6 +34,8 @@ def test_android_worker_confirms_the_required_checkbox_and_keeps_the_optional_de
 
 
 def test_android_sends_only_the_file_attached_at_a_capture_question(android_documents, hq, core_runner):
+    """The accepted neighbour of a starting file: the picture's blank starting value opens the form, the required file
+    left out keeps the form from finishing, and once attached it is the one file sent."""
     from proof.android.test_form_reads import _entries, _forms
     from proof.formplayer.walk import CAPTURES_DIR
 
@@ -52,15 +55,32 @@ def test_android_sends_only_the_file_attached_at_a_capture_question(android_docu
         refused, refused_sent = walked("kept", keep)
         posted = []
         accepted, _ = walked("replaced", {**keep, "/data/replacement": [filename]}, submissions=posted)
-    assert _forms(refused["walks"]["m0-f1"]), refused["walks"]["m0-f1"]
     first, = _forms(refused["walks"]["m0-f1"])
     last, = _forms(accepted["walks"]["m0-f1"])
     assert not refused_sent and not first["saved"]["finishing"], first
     assert last["saved"]["finishing"], last
-    assert _entries(last, "/data/report[1]")[0]["kept"] == "carry-forward.pdf", last
     assert _entries(last, "/data/photo[1]")[0]["kept"] is None, last
     submission, = posted
     root = etree.fromstring(submission.instance)
-    assert root.findtext("{*}report") == "carry-forward.pdf" and not root.findtext("{*}photo"), submission.instance
+    assert not root.findtext("{*}report") and not root.findtext("{*}photo"), submission.instance
     actual, = submission.files
     assert actual == (root.findtext("{*}replacement"), (CAPTURES_DIR / filename).read_bytes()), actual[0]
+
+
+def test_android_cannot_open_a_form_whose_attachment_starts_with_a_file(android_documents, hq, core_runner):
+    """The refusal's Android half: a starting file name written past Nova's gate
+    (``questions/default-other-than-blank-on-a-capture-question``) makes the file widget look for that file in the
+    form's own folder, and the form does not open (``MediaWidget.decryptMedia`` raises)."""
+    doc = android_documents["targeted-worker-messages"]
+    with apps.published(doc, core_runner) as published:
+        starting_file = apps.with_a_starting_value("/data/report", "'carry-forward.pdf'")
+        change = apps.form_written(published, {"0.1": starting_file})
+        with hq_forms.serve(published.unit, doc, published.app_id, change=change) as served:
+            blobs = Blobs()
+            found = observe.app(served, blobs, label="starting-file", archive=observe.release_archive(served),
+                                commands=["m0-f1"], questions={"/data/report": [], "/data/photo": [],
+                                                                "/data/replacement": []})
+            walk = blobs.get_json(found["answer"])["walks"]["m0-f1"]
+    raised = walk.get("raised") or {}
+    assert raised.get("class") == "java.lang.RuntimeException", walk
+    assert raised.get("message", "").startswith("Failed to decrypt media at path "), raised

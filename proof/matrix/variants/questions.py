@@ -852,8 +852,15 @@ def bind_on_attribute(authoring, app_id):
 
 
 def default_on_capture(authoring, app_id):
-    """A default on the image question ``photo``."""
+    """A default naming a file, ``x``, on the image question ``photo``."""
     _model(authoring, app_id, "default-on-capture", '<setvalue event="xforms-ready" ref="/data/photo" value="\'x\'" />')
+
+
+def default_blank_on_capture(authoring, app_id):
+    """A blank default on the image question ``photo``."""
+    _model(
+        authoring, app_id, "default-blank-on-capture", '<setvalue event="xforms-ready" ref="/data/photo" value="\'\'" />'
+    )
 
 
 def second_default(authoring, app_id):

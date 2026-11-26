@@ -309,6 +309,7 @@
 		"hq-questions/date-nepali",
 		"hq-questions/default-data-value",
 		"hq-questions/default-event-mismatch",
+		"hq-questions/default-on-capture",
 		"hq-questions/element-inside-value",
 		"hq-questions/empty-hidden-namespace",
 		"hq-questions/face-capture",
