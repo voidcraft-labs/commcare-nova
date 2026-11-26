@@ -1,6 +1,6 @@
-import { sql, type Transaction } from "kysely";
-import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
+import type { Transaction } from "kysely";
 import { isCommCareServer } from "@/lib/commcare/servers";
+import { loadSchemaAdmittedAppForInspection } from "@/lib/db/apps";
 import type { AppDatabase } from "@/lib/db/pg";
 import { sourceFromBaseline } from "@/lib/deployment/hqChanges/baselineSource";
 import {
@@ -9,7 +9,6 @@ import {
 } from "@/lib/deployment/store";
 import { exportIdentityOf } from "@/lib/deployment/targetIdentity";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { blueprintDocSchema } from "@/lib/domain";
 import { planMenuLayoutAdoption } from "./menuLayoutAdoption";
 
 export async function scanMenuLayoutAdoptions(
@@ -76,19 +75,12 @@ export async function scanMenuLayoutAdoptions(
 			outcomes.push({ ...identity, standing: "owned" });
 			continue;
 		}
-		const {
-			rows: [stored],
-		} = await sql<{ snapshot: string | null }>`
-			SELECT public.nova_current_app_change_fold_snapshot(${appId})::text AS snapshot
-		`.execute(tx);
-		const parsed = blueprintDocSchema.safeParse(
-			stored?.snapshot ? parseHqJsonText(stored.snapshot) : null,
-		);
-		if (!parsed.success) {
+		const stored = await loadSchemaAdmittedAppForInspection(appId, tx);
+		if (stored === null) {
 			outcomes.push({ ...identity, standing: "unreadable-document" });
 			continue;
 		}
-		const doc = hydratePersistedBlueprint(parsed.data);
+		const doc = hydratePersistedBlueprint(stored.blueprint);
 		const record = await readTargetIdentityRows(tx, deploymentId, {
 			appId,
 			server,
