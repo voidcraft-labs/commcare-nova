@@ -145,6 +145,7 @@ export interface DocumentChanges {
  * where it is no change, and one a change moved has its line.
  */
 export const MENU_KEY_PARTS = {
+	autoSelectSingle: "case-list",
 	entryPoint: "settings",
 	caseListEntryPoint: "case-list",
 	uuid: null,
@@ -198,9 +199,16 @@ export const CASE_LIST_KEY_PARTS = {
 /**
  * The part each key of a form is listed under. `null` only for the form's
  * own `uuid`. Its type, its conditions, its case changes and the held place
- * of its own close are what it saves to cases.
+ * of its own close and of its opening records are what it saves to cases.
  */
 export const FORM_KEY_PARTS = {
+	heldSelectionTags: "case-changes",
+	shadowOf: "case-changes",
+	caseSelections: "case-changes",
+	openingAssignments: "case-changes",
+	heldBasicOpening: "case-changes",
+	computedDatums: "settings",
+	submitLabel: "settings",
 	entryPoint: "settings",
 	entryCaseCreations: "settings",
 	uuid: null,

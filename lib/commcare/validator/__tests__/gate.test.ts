@@ -609,25 +609,16 @@ describe("evaluateCommit", () => {
 		).toBe(true);
 	});
 
-	it("reports both conflicting writers after a kind change in one module", () => {
+	it("joins one choice and several on several after a kind change, and refuses the single choice that opens on the list", () => {
+		// One choice is a list holding it alone, so the writers agree on a
+		// list of choices; the other module's single-choice question still
+		// opens on the property's value, which a list can make no one choice.
 		const doc = peerWriters("score", "single_select");
-		const [first, second] = Object.values(doc.fields);
+		const [first] = Object.values(doc.fields);
 		const verdict = gateCommit(doc, [
 			{ kind: "convertField", uuid: first.uuid, toKind: "multi_select" },
 		]);
-		expect(codes(verdict)).toEqual([
-			"FIELD_KIND_WRITERS_DISAGREE",
-			"FIELD_KIND_WRITERS_DISAGREE",
-			"SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
-		]);
-		if (verdict.ok)
-			throw new Error("Expected conflicting writers to be refused");
-		expect(
-			verdict.findings
-				.filter(({ code }) => code === "FIELD_KIND_WRITERS_DISAGREE")
-				.map(({ location }) => location.fieldUuid)
-				.sort(),
-		).toEqual([first.uuid, second.uuid].sort());
+		expect(codes(verdict)).toEqual(["SELECT_PRELOAD_WRITE_NOT_AN_OPTION"]);
 	});
 });
 

@@ -2871,8 +2871,9 @@ EDITOR_TAG = re.compile(r"[a-zA-Z][\w_-]*(/[a-zA-Z][\w_-]*)*", re.ASCII)
 
 
 def _advanced_lists(form):
-    """A form's loads and open actions, or two empty lists for a form that holds neither."""
-    actions = _actions(form)
+    """A form's loads and open actions, or two empty lists for a form that holds neither. A shadow form's own are
+    its ``extra_actions`` (``ShadowForm.extra_actions``), each in the list a use of it sits in."""
+    actions = (form.get("extra_actions") or {}) if form.get("doc_type") == "ShadowForm" else _actions(form)
     loads = [action for action in actions.get("load_update_cases") or [] if isinstance(action, dict)]
     opens = [action for action in actions.get("open_cases") or [] if isinstance(action, dict)]
     return loads, opens
@@ -2976,6 +2977,174 @@ a non-blank tag on an action whose tag the advanced editor checks, outside its f
 ``-``, after a letter, in ``/``-separated parts) or held by another of the form's actions (``getCaseTags('all')``:
 its loads and open actions alike), each an error the page marks (``advanced/actions.js::actionBase.validate``). A
 blank tag is ``blank-tag``'s."""
+
+
+def _same_tag(at, form, loads, opens, action, index):
+    tag = action.get("case_tag")
+    return bool(tag) and sum(1 for other in (*loads, *opens) if other.get("case_tag") == tag) > 1
+
+
+case_actions_using_the_same_tag = _advanced_reader(_same_tag)
+case_actions_using_the_same_tag.__doc__ = """``forms-and-case-writes/case-actions-using-the-same-tag``: a nonblank
+``case_tag`` another of the form's loads or open actions also holds, whatever the editor checks of either; HQ's
+build resolves an index or a connection by tag (``actions_meta_by_tag``), so the second action is lost."""
+
+
+# The automatic modes the advanced editor offers (``advanced/case_config_ui.js::getAutoSelectModes``): ``case``
+# only after the first load, which ``auto-select-mode-case-naming-itself-a-later-load-or-an-open`` reads.
+EDITOR_AUTO_SELECT_MODES = frozenset({"raw", "user", "fixture", "usercase", "case"})
+
+
+def _auto_select(action, loads):
+    """A load's ``auto_select`` object, or None for an open action or a load that chooses its case."""
+    if not _is_load(action, loads) or not _auto_selected(action):
+        return None
+    return action["auto_select"]
+
+
+def _worker_mode_with_another_type(at, form, loads, opens, action, index):
+    auto = _auto_select(action, loads)
+    return auto is not None and auto.get("mode") == "usercase" and action.get("case_type") != "commcare-user"
+
+
+worker_mode_with_another_type = _advanced_reader(_worker_mode_with_another_type)
+worker_mode_with_another_type.__doc__ = """``forms-and-case-writes/worker-record-selection-with-another-case-type``:
+a load selected in the ``usercase`` mode whose ``case_type`` is not ``commcare-user``, which the editor sets as it
+chooses that mode (``advanced/actions.js``)."""
+
+
+def _unknown_auto_mode(at, form, loads, opens, action, index):
+    auto = _auto_select(action, loads)
+    mode = auto.get("mode") if auto is not None else None
+    return bool(mode) and mode not in EDITOR_AUTO_SELECT_MODES
+
+
+unknown_auto_mode = _advanced_reader(_unknown_auto_mode)
+unknown_auto_mode.__doc__ = """``forms-and-case-writes/automatic-choice-with-an-unknown-mode``: a load's nonblank
+``auto_select.mode`` the editor does not offer (``EDITOR_AUTO_SELECT_MODES``), ``location`` among them. A blank mode
+is ``an-auto-select-load-with-a-blank-mode-or-a-blank-case-type``'s."""
+
+
+def _table_choice_without_its_source(at, form, loads, opens, action, index):
+    auto = _auto_select(action, loads)
+    if auto is None or auto.get("mode") != "fixture":
+        return False
+    if not auto.get("value_source") or not auto.get("value_key"):
+        return True
+    # A named table and field: whether the project space holds them is the lookup catalog's.
+    return None
+
+
+table_choice_without_its_source = _advanced_reader(_table_choice_without_its_source)
+table_choice_without_its_source.__doc__ = """
+``forms-and-case-writes/automatic-table-choice-without-its-table-or-column``: a ``fixture`` load with no table tag
+(``value_source``) or no field (``value_key``). A table the project space holds is read where the reading resolves
+the tag against its lookup catalog; the app's JSON alone names it and says nothing of whether it is there, so a
+named table and field are left undecided here (None)."""
+
+
+def _opening_ids(form, loads, opens):
+    """The session ids an advanced form's entry writes before parent alignment, in HQ's order
+    (``EntriesHelper.configure_entry_advanced_form``): each load's ``case_id_<tag>``, each computed datum's id, and
+    each root open action's ``case_id_new_<type>_<i>``."""
+    ids = [f"case_id_{load.get('case_tag')}" for load in loads if load.get("case_tag")]
+    ids += [datum.get("datum_id") for datum in form.get("arbitrary_datums") or [] if isinstance(datum, dict)]
+    ids += [
+        f"case_id_new_{action.get('case_type')}_{i}"
+        for i, action in enumerate(opens)
+        if not action.get("repeat_context")
+    ]
+    return [value for value in ids if value]
+
+
+def _aligned(at):
+    """Whether the form's menu sits under another menu, whose first form's datums HQ aligns the form's own to
+    (``EntriesHelper.add_parent_datums``)."""
+    module = at.nearest("AdvancedModule", "Module")
+    return isinstance(module, dict) and bool(module.get("root_module_id"))
+
+
+def _aligned_entry_ids(app, module, form, loads, opens):
+    """The session ids of an advanced form's entry once HQ aligns it to its root's first form, in HQ's order, or
+    None where the root's datums are not followed here (``_root_selection_datums``) or a load chooses from a lookup
+    table. HQ's datums are each load's (``case_id_<tag>``; one selected in a mode of its own loads no case type and
+    asks for no selection) and each computed datum's (``get_datum_meta_assertions_advanced``), aligned to the
+    root's (``add_parent_datums``): a datum whose id a root datum holds, as first read, is renamed
+    ``<id>_<case type>``; a root datum that asks for no selection joins the entry under its own id; and each that
+    asks for one takes the child's next datum where both load one case type, which takes the root's id. Each root
+    open action's new case id follows, unaligned (``get_new_case_id_datums_meta``)."""
+    root = app.root(module)
+    parents = _root_selection_datums(app, root) if root is not None else []
+    if parents is None:
+        return None
+    datums = []
+    for load in loads:
+        if _from_fixture(load):
+            return None
+        auto = _auto_selected(load) and (load["auto_select"].get("mode") or None)
+        tag = load.get("case_tag")
+        datums.append({"id": f"case_id_{tag}", "type": None if auto else load.get("case_type"), "action": True})
+    for datum in form.get("arbitrary_datums") or []:
+        if isinstance(datum, dict) and datum.get("datum_id"):
+            datums.append({"id": datum.get("datum_id"), "type": None, "action": False})
+    by_id = {datum["id"]: datum for datum in datums}
+    joined = []
+    remaining = list(datums)
+    for parent_id, parent_type, selects in parents:
+        if parent_id in by_id:
+            renamed = by_id[parent_id]
+            renamed["id"] = f"{renamed['id']}_{renamed['type']}"
+        if not selects:
+            joined.append(parent_id)
+            continue
+        if remaining and remaining[0]["action"] and remaining[0]["type"] == parent_type:
+            remaining[0]["id"] = parent_id
+            joined.append(remaining.pop(0)["id"])
+    ids = joined + [datum["id"] for datum in remaining]
+    ids += [
+        f"case_id_new_{action.get('case_type')}_{i}"
+        for i, action in enumerate(opens)
+        if not action.get("repeat_context")
+    ]
+    return ids
+
+
+def opening_values_sharing_a_session_name(use, manifest):
+    """``forms-and-case-writes/opening-values-sharing-a-physical-session-name``: an advanced form two of whose
+    opening values (a load, a computed datum, a root open action's new case) take one session id. Read from the ids
+    before alignment, and in a menu under another from the ids once HQ aligns them (``_aligned_entry_ids``), where
+    alignment may rename a load onto another's id; None where that alignment is not followed here."""
+    at, form = _form(use)
+    if form is None or form.get("doc_type") != "AdvancedForm":
+        return False if form is not None else None
+    loads, opens = _advanced_lists(form)
+    ids = _opening_ids(form, loads, opens)
+    if len(set(ids)) < len(ids):
+        return True
+    if not _aligned(at):
+        return False
+    module = at.app.module_of(form)
+    aligned = _aligned_entry_ids(at.app, module, form, loads, opens) if module is not None else None
+    if aligned is None:
+        return None
+    return len(set(aligned)) < len(aligned)
+
+
+def automatic_connection_renamed_by_parent(use, manifest):
+    """``forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent``: a load selected in the
+    ``case`` mode from an earlier load, in a form whose menu sits under another, where alignment may give that
+    earlier load the root's id while the connection still names ``case_id_<tag>``. A form in a menu of its own
+    holds none; under another menu, whether the earlier load keeps its id is the alignment's: None there."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    loads, _ = _advanced_lists(form)
+    connected = any(
+        isinstance(load.get("auto_select"), dict) and load["auto_select"].get("mode") == "case" for load in loads
+    )
+    if not connected:
+        return False
+    return None if _aligned(at) else False
 
 
 def _slash_property_on_indexed_load(at, form, loads, opens, action, index):
@@ -3391,6 +3560,20 @@ def _reads_through(load, opens):
     )
 
 
+def basic_or_shadow_parent(use, manifest):
+    """``forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform``: a shadow form whose
+    ``shadow_parent_form_id`` names a basic form or another shadow form, which HQ's form settings never offer
+    (``ShadowForm.get_shadow_parent_options`` lists advanced forms alone). A parent the app does not hold is
+    ``shadow-parent-form-id-missing-or-dangling``'s; a use of any other form is in no such class."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    if form.get("doc_type") != "ShadowForm":
+        return False
+    parent = at.app.forms_by_id.get(form.get("shadow_parent_form_id"))
+    return parent is not None and parent.get("doc_type") in ("Form", "ShadowForm")
+
+
 def shadow_parent_tag_not_repeated(use, manifest):
     """``forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent``: a mirror form
     whose ``extra_actions`` leave out the tag of a source form's load the source XForm reads or writes through
@@ -3499,6 +3682,116 @@ def usercase_preload_other(use, manifest):
     if False in verdicts:
         return True
     return None if None in verdicts else False
+
+
+def source_only_record_load(use, manifest):
+    """``forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value``: a record load
+    Nova can hold neither as an ordered opening assignment nor as the question's own default, read where Nova's
+    reader draws the line on a read of the app as it stands (``caseManagement/preloads.ts``,
+    ``advancedActions.ts::readLoadPreloads``). A ``usercase_preload`` the next row holds (beside an active
+    ``usercase_update`` that writes, each path a question outside any repeat, each property a worker-record read
+    spells) into a question that takes no default value: a Hidden Value its bind calculates, or a group or
+    repeat. And a ``case_preload`` or load ``preload`` whose property spells, with its trailing newline, a case
+    child the plain spelling of which HQ's build refuses (``_unemittable``), which no assignment can name: into
+    a question taking no default value, or (a ``case_preload``) through an index other than ``parent``, or (a
+    load) in a repeat or through any index. A label is the picker's row, and a repeat a ``case_preload`` fills
+    none of, so neither is this class. Which load an earlier read of the app had already folded into a default is
+    the history of a bring-in, not the export's; on a read of the export as it stands the reader holds every
+    other load as an assignment. A path naming a node Nova's generated nodes take (``nova_``) is left open, as
+    in ``usercase_preload_other``."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    actions = _actions(form)
+    load = at.nearest("LoadUpdateAction")
+    if load is not None:
+        preload = load.get("preload") or {}
+        kind = "load"
+    elif _in_actions(at, form, "usercase_preload"):
+        preload = (actions.get("usercase_preload") or {}).get("preload") or {}
+        kind = "usercase"
+    elif _in_actions(at, form, "case_preload"):
+        preload = (actions.get("case_preload") or {}).get("preload") or {}
+        kind = "own"
+    else:
+        return False
+    if not isinstance(preload, dict) or not preload:
+        return False
+    xform = at.app.xform(form)
+    if xform is None:
+        return None
+    if kind == "usercase":
+        update = actions.get("usercase_update") or {}
+        if not (_active(update) and update.get("update")):
+            return False
+        if any(_usercase_read(property_name) is None for property_name in preload.values()):
+            return False
+        verdicts = {_usercase_question(xform, path) for path in preload}
+        if False in verdicts:
+            return False
+        if None in verdicts:
+            return None
+        defaults = {_takes_no_default(xform, _absolute(xform, path)) for path in preload}
+        return True if True in defaults else None if None in defaults else False
+    unsure = False
+    for path, property_name in preload.items():
+        if not isinstance(property_name, str) or not _unemittable(property_name):
+            continue
+        absolute = _absolute(xform, path)
+        if absolute is None or xform.node(absolute) is None or _is_label(xform, absolute):
+            continue
+        *indices, _name = property_name[:-1].split("/")
+        if kind == "own":
+            if xform.in_repeat(absolute):
+                continue
+            if any(index != "parent" for index in indices):
+                return True
+        elif indices or xform.in_repeat(absolute):
+            return True
+        verdict = _takes_no_default(xform, absolute)
+        if verdict:
+            return True
+        unsure = unsure or verdict is None
+    return None if unsure else False
+
+
+def _unemittable(property_name):
+    """Whether a preloaded property spells, with the one trailing newline HQ's grammar admits, a case child Nova
+    names (``preloads.ts::preloadReadOf``) whose plain spelling HQ's build refuses
+    (``preloads.ts::hqBuildRefusesProperty``, ``name`` for ``case_name``): no opening assignment can spell it."""
+    if not property_name.endswith("\n") or HQ_PROPERTY_PATH.fullmatch(property_name) is None:
+        return False
+    name = property_name[:-1].split("/")[-1]
+    if name not in CASE_CHILD_ELEMENTS and (name in ("name", "owner_id") or name in HQ_CASE_RESERVED_WORDS):
+        return False
+    plain = "name" if name == "case_name" else name
+    return HQ_PROPERTY_PATH.fullmatch(plain) is None or plain in HQ_CASE_RESERVED_WORDS
+
+
+def _absolute(xform, path):
+    """A preload path as the absolute path of the main instance's node it names, or None."""
+    if not isinstance(path, str) or not path or xform.data_root is None:
+        return None
+    root = f"/{_local(xform.data_root)}"
+    if path.startswith("/"):
+        return path if path.startswith(f"{root}/") else None
+    return f"{root}/{path}"
+
+
+def _takes_no_default(xform, path):
+    """Whether a question takes no default value Nova can give it (``preloads.ts::holdsDefault``): a group or a
+    repeat, or a node no control names whose bind calculates it (a Hidden Value). None for a node whose name
+    Nova's generated nodes take."""
+    node = xform.node(path) if path else None
+    if node is None or isinstance(node, tuple):
+        return None
+    if _local(node).startswith("nova_"):
+        return None
+    controls = xform.question_controls(path)
+    if controls:
+        return _local(controls[0]) in ("group", "repeat")
+    bind = xform.bind(path)
+    return bind is not None and bind.get("calculate") is not None
 
 
 def _usercase_read(property_name):
@@ -4113,6 +4406,25 @@ def _select_chain(app, module):
     return list(reversed(chain))
 
 
+def _advanced_selection_datums(app, module, target):
+    """The datums HQ's link editor offers for an advanced target form (``get_datums_meta_for_form_generic``, which
+    for an advanced form reads ``get_datum_meta_assertions_advanced``): each load that asks for a selection (one
+    selected in a mode of its own asks for none), under its id once HQ aligns it to its root
+    (``_aligned_load_datums``). None where a load chooses from a lookup table or shows CommCare Supply's product,
+    or the root's datums are not followed here."""
+    loads, _ = _advanced_lists(target)
+    if any(_from_fixture(load) or load.get("show_product_stock") for load in loads):
+        return None
+    aligned = _aligned_load_datums(app, module, loads)
+    if aligned is None:
+        return None
+    return {
+        aligned[id(load)]
+        for load in loads
+        if not (_auto_selected(load) and load["auto_select"].get("mode"))
+    }
+
+
 def _selection_datums(app, link):
     """The datums HQ's link editor offers for a form link's target (``views/forms.py::_get_form_datums``: the
     target form's datums that require a selection, ``EntriesHelper.get_datums_meta_for_form_generic``), where
@@ -4126,6 +4438,14 @@ def _selection_datums(app, link):
     datums need HQ's suite."""
     target = app.forms_by_id.get(link.get("form_id"))
     module = app.module_of(target) if target is not None else None
+    if (
+        target is not None
+        and module is not None
+        and module.get("doc_type") == "AdvancedModule"
+        and target.get("doc_type") == "AdvancedForm"
+        and not (module.get("search_config") or {}).get("data_registry")
+    ):
+        return _advanced_selection_datums(app, module, target)
     if target is None or module is None or (module.get("doc_type") or "Module") != "Module":
         return None
     if (target.get("doc_type") or "Form") != "Form" or (module.get("search_config") or {}).get("data_registry"):
@@ -4436,13 +4756,13 @@ def native_filter_unbound_value(use, manifest):
 
 
 # The keys of HQ's search index Nova reads as a record's own information
-# (``lib/commcare/suite/case-search/requestOrder.ts::RECORD_KEYS``), and the names Nova reserves for a case's own facts
+# (``lib/commcare/suite/case-search/requestOrder.ts::SERVER_ORDER_RECORD_KEYS``), and the names Nova reserves for a case's own facts
 # or as CommCare HQ's reserved words (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``:
-# the SaveToCase set with the block's own rows and the two location keys).
+# the SaveToCase set with the block's own action rows).
 SERVER_ORDER_RECORD_KEYS = frozenset(
     {"@case_id", "@owner_id", "@case_type", "@status", "name", "case_name", "external_id", "date_opened", "last_modified"}
 )
-CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id", "location_id", "hq_user_id"})
+CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id"})
 
 
 def _order_key_reserved(key):
@@ -7342,8 +7662,8 @@ def attachment_in_save_to_case(use, manifest):
 
 # The names a SaveToCase block's ``update`` row may hold that Nova reserves for a case's own facts or as a word in
 # ``case-reserved-words.json`` (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``,
-# less the block's own rows ``case_type``, ``case_name`` and ``owner_id`` and the two
-# ``update-keys-location-id-hq-user-id`` holds); ``proof/ci/__tests__/manifestReaders.test.ts`` holds it to that set.
+# less the block's own rows ``case_type``, ``case_name`` and ``owner_id``); ``proof/ci/__tests__/manifestReaders.test.ts``
+# holds it to that set.
 SAVE_TO_CASE_RESERVED_UPDATE_KEYS = frozenset(
     {
         "actions",
@@ -7496,9 +7816,8 @@ HQ_PROPERTY = re.compile(r"[a-zA-Z][\w-]*\n?")
 def _no_worker_property(key):
     """Whether the worker's record takes no write to ``key`` (``lib/commcare/reader/worldEntities.ts::
     holdsWorkerRecordWrite``): a key HQ's user-case sync writes over, or a name no worker property takes. The two
-    keys HQ's server stores apart are ``update-keys-location-id-hq-user-id``'s."""
-    if key in ("location_id", "hq_user_id"):
-        return False
+    ``hq_user_id`` HQ's sync writes over, and ``location_id``, a worker property's slug, the record holds in its
+    location column (``update-keys-location-id-hq-user-id``)."""
     lowered = key.lower()
     return (
         key in USERCASE_BUILT_IN_KEYS
@@ -7638,14 +7957,6 @@ def supply_point_datum(use, manifest):
     (``_supply_point_read``)."""
     reads, computed = _supply_point_read(use, manifest)
     return reads if not reads else (None if computed is None else not computed)
-
-
-def supply_point_computed_datum(use, manifest):
-    """``expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed``: an expression
-    reading the session's ``data/supply_point_id`` in an advanced form one of whose computed datums has that id
-    (``_supply_point_read``), which HQ's build writes before its own CommTrack datum."""
-    reads, computed = _supply_point_read(use, manifest)
-    return reads if not reads else computed
 
 
 def _supply_point_read(use, manifest):
@@ -10352,11 +10663,6 @@ def _in_reference_details(at):
 # was (``manifest_usage.standing``).
 
 
-# The update keys CommCare HQ's server stores apart from a case's properties wherever a case block's ``<update>``
-# holds them (``form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._apply_update_action``:
-# ``location_id`` becomes the case's own column, ``hq_user_id`` is copied to its external id;
-# ``lib/commcare/reader/caseManagement/basicActions.ts::isServerDivertedKey``).
-SERVER_DIVERTED_KEYS = frozenset({"location_id", "hq_user_id"})
 # HQ's property grammar with parents (``helpers/validators.py::validate_property``, which
 # ``IndexedFormBaseValidator.check_case_properties`` runs on every written key; ``basicActions.ts::HQ_PROPERTY_PATH``),
 # matched whole: Python's ``re.match`` of a pattern ending in ``$`` takes one newline before the end, which the
@@ -10492,39 +10798,6 @@ def _written_properties(at):
     return found
 
 
-def _save_to_case_row(use):
-    """The name of the row of a SaveToCase node's own ``case/update`` an instance-content use sits on, or None."""
-    form, element = _data_node(use)
-    if form is None or element is None:
-        return None
-    update = element.getparent()
-    case = update.getparent() if update is not None else None
-    if update is None or update.tag != f"{{{CASE}}}update" or case is None or case.tag != f"{{{CASE}}}case":
-        return None
-    held = form.holder(element)
-    if held is None or held[0] != "save-to-case" or case.getparent() is not held[1]:
-        return None
-    return _local(element)
-
-
-def location_or_external_id_key(use, manifest):
-    """``forms-and-case-writes/update-keys-location-id-hq-user-id``: a write of ``location_id`` or ``hq_user_id``,
-    which HQ's server stores apart from the case's properties: an action's key whose last step names one (a basic
-    update's, through ``parent`` or ``host`` too, the worker's record's, a child case's, a load's or an open
-    action's), and a row of a SaveToCase node's own ``case/update`` that names one, on any case
-    (``basicActions.ts::isServerDivertedWrite``, ``saveToCase.ts::refusedRowKey``). A key whose question is an
-    upload names an attachment instead (``xform.py::XFormCaseBlock.add_case_updates`` over ``is_attachment``), the
-    upload question's class, which reads the form's body. A HELD-NEW class's reader reads only the use and the
-    objects that hold it, so this one takes such a key too, where Nova's reader claims it as the upload's."""
-    at = _json(use)
-    if at is not None:
-        written = _written_properties(at)
-        return None if written is None else any(name in SERVER_DIVERTED_KEYS for name in written)
-    if _xml(use, "xform") is None:
-        return None
-    return _save_to_case_row(use) in SERVER_DIVERTED_KEYS
-
-
 def non_ascii_core_name_key(use, manifest):
     """``forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character``: an action's key whose written
     property is Nova's reader's ``non-ascii`` class (``_non_ascii_core_name``): every character after the ASCII
@@ -10655,24 +10928,6 @@ def max_select_value_above_100(use, manifest):
 
 # The characters Core trims from the end of a line it reads of an app strings file: every one up to U+0020.
 CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
-
-
-def case_tag_with_a_hyphen(use, manifest):
-    """``forms-and-case-writes/case-tag-holding-a-hyphen``: a load's or an open action's ``case_tag`` that holds
-    ``-`` and passes every check the advanced Case Management page makes of a tag (``EDITOR_TAG``, no ``/``), on an
-    action that is not an auto-selected load (``lib/commcare/reader/caseManagement/advancedActions.ts::tagFinding``,
-    which no auto-selected load's tag is read by). A blank tag, one with ``/`` and one the page refuses are other
-    classes'. A shadow form's ``extra_actions`` are read by no tag check: Nova's reader refuses a shadow form whole
-    (``lib/commcare/reader/structure.ts``)."""
-    at = _json(use)
-    if at is None or at.key != "case_tag" or at.scope[-1][0] not in ADVANCED_ACTIONS:
-        return None
-    if at.nearest("ShadowForm") is not None:
-        return False
-    action, tag = at.owner, at.value
-    if at.scope[-1][0] == "LoadUpdateAction" and action.get("auto_select") is not None:
-        return False
-    return isinstance(tag, str) and "/" not in tag and EDITOR_TAG.fullmatch(tag) is not None and "-" in tag
 
 
 # Nova's XML name for a link's and a tile grouping's identifier (``lib/domain/expression/types.ts::
@@ -11277,6 +11532,12 @@ VALUE_CLASSES = {
     "forms-and-case-writes/a-load-or-open-action-s-case-tag-containing-which-the-advanced": tag_with_slash,
     "forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action": blank_tag,
     "forms-and-case-writes/case-tag-of-a-non-auto-select-action-failing-actions-js": tag_failing_editor_check,
+    "forms-and-case-writes/case-actions-using-the-same-tag": case_actions_using_the_same_tag,
+    "forms-and-case-writes/worker-record-selection-with-another-case-type": worker_mode_with_another_type,
+    "forms-and-case-writes/automatic-choice-with-an-unknown-mode": unknown_auto_mode,
+    "forms-and-case-writes/automatic-table-choice-without-its-table-or-column": table_choice_without_its_source,
+    "forms-and-case-writes/opening-values-sharing-a-physical-session-name": opening_values_sharing_a_session_name,
+    "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent": automatic_connection_renamed_by_parent,
     "forms-and-case-writes/loadupdateaction-preload-or-case-properties-property-with-on-a": (
         slash_property_on_indexed_load
     ),
@@ -11308,6 +11569,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": (
         shadow_parent_tag_not_repeated
     ),
+    "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform": basic_or_shadow_parent,
     "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat": relationship_question_in_repeat,
     "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an": (
         question_relationship_to_open_action
@@ -11324,6 +11586,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/update-key-with-any-other-index-segment-or-user-where-the": unrecognized_index_key,
     "forms-and-case-writes/an-update-key-with-an-index-segment-on-a-form-that-opens-its": index_key_on_opened_case,
     "forms-and-case-writes/any-other-usercase-preload": usercase_preload_other,
+    "forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value": source_only_record_load,
     "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module": (
         multi_select_top_level
     ),
@@ -11492,9 +11755,6 @@ VALUE_CLASSES = {
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,
     "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": supply_point_datum,
-    "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed": (
-        supply_point_computed_datum
-    ),
     "expressions-and-data/session-data-datum-the-entry-does-not-supply": datum_not_supplied,
     "expressions-and-data/var-in-a-form-expression": var_in_form,
     "expressions-and-data/here-in-a-form": here_in_form,
@@ -11540,9 +11800,7 @@ VALUE_CLASSES = {
     "expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp": av1_mov_avi_theora_h263,
     "forms-and-case-writes/form-filter-using-fixture-value": fixture_value,
     # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
-    "forms-and-case-writes/update-keys-location-id-hq-user-id": location_or_external_id_key,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
-    "forms-and-case-writes/case-tag-holding-a-hyphen": case_tag_with_a_hyphen,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,

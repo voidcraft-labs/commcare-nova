@@ -175,10 +175,14 @@ import {
 	ownRecordValue,
 	parseLanguageTag,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
+import { sharedEntryValues } from "@/lib/domain/formEntryCases";
+import type { FormOpeningAssignment } from "@/lib/domain/forms";
 import {
 	searchConditionOf,
 	searchContentWithoutInputs,
 } from "@/lib/domain/searchConditions";
+import type { FormEntryChange } from "./formEntryMutations";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //
@@ -456,6 +460,9 @@ const FORM_PATCH_SKIP = new Set<string>([
 	"name",
 	"order",
 	"caseOperations",
+	"caseSelections",
+	"shadowOf",
+	"computedDatums",
 	// Links diff granularly (`diffFormLinks`); the form patch never carries
 	// the whole array.
 	"formLinks",
@@ -464,6 +471,10 @@ const FORM_PATCH_SKIP = new Set<string>([
 	// A held placement is written by `holdPlacements` alone, never by a form
 	// patch.
 	"ownClosePlacement",
+	"heldSelectionTags",
+	"heldBasicOpening",
+	// Starting values diff granularly (`diffOpeningAssignments`).
+	"openingAssignments",
 ]);
 
 // ── Field media diff ─────────────────────────────────────────────────
@@ -757,6 +768,18 @@ function* diffGranularSteps(
 	const listedFormLinkRemoves: Mutation[] = [];
 	const media: Mutation[] = [];
 	const orders: Mutation[] = [];
+	// A form that starts keeping its own opening choices takes them first,
+	// from `prev`: its derived choices follow its menu, its type and its case
+	// changes (the worker's record), which later steps of the batch change,
+	// and `diffEntrySupplies` edits the list `prev` derives.
+	const entryMaterializations: Mutation[] = [];
+	// A shared entry's choices read its parent's, so they are edited around
+	// every form's own: its left-out choices leave before a parent drops one
+	// (else the entry's replacement row already dangles and is no choice to
+	// remove), and its restored, edited and moved ones arrive after a parent
+	// gains one (else there is nothing to restore), whatever the forms' order.
+	const sharedEntryLeaving: Mutation[] = [];
+	const sharedEntryArriving: Mutation[] = [];
 	// Granular collection edits — case-list columns / search-inputs /
 	// case-list metadata + select options — keyed by item uuid so concurrent
 	// edits to different items merge.
@@ -1123,6 +1146,40 @@ function* diffGranularSteps(
 			});
 		}
 		updates.push(...diffCaseOperations(prevForm, nextForm, uuid));
+		if (
+			prevForm.caseSelections === undefined &&
+			nextForm.caseSelections !== undefined
+		)
+			entryMaterializations.push({
+				kind: "updateForm",
+				uuid,
+				patch: {},
+				entryChange: { operation: "use-form-choices" },
+			});
+		const supplies = diffEntrySupplies(prev, next, prevForm, nextForm);
+		if (nextForm.shadowOf === undefined) updates.push(...supplies);
+		else {
+			const choiceOf = (m: Mutation) =>
+				m.kind === "updateForm" &&
+				m.entryChange !== undefined &&
+				(m.entryChange.operation.endsWith("-choice") ||
+					m.entryChange.operation === "change-shared-form");
+			const reparented = supplies.some(
+				(m) =>
+					m.kind === "updateForm" &&
+					m.entryChange?.operation === "change-shared-form",
+			);
+			for (const m of supplies) {
+				if (!choiceOf(m)) updates.push(m);
+				else if (
+					!reparented &&
+					m.kind === "updateForm" &&
+					m.entryChange?.operation === "remove-choice"
+				)
+					sharedEntryLeaving.push(m);
+				else sharedEntryArriving.push(m);
+			}
+		}
 		const otherwise = diffFormOtherwise(prevForm, nextForm, uuid);
 		updates.push(
 			...otherwise.beforeLinks,
@@ -1257,7 +1314,8 @@ function* diffGranularSteps(
 	fieldStructure.push(...formStructure.rest, ...fieldTree.rest);
 	orders.push(...moduleStructure.reorders);
 
-	// Phase order (see the function header): app scalars → root births and
+	// Phase order (see the function header): opening choices a form starts
+	// keeping, materialized over `prev` → app scalars → root births and
 	// promotions → child births and form births → form/field evacuations →
 	// removed children that block a surviving root's demotion → remaining
 	// module relocations → ordinary removes → field/form structural rest →
@@ -1271,6 +1329,7 @@ function* diffGranularSteps(
 	const priorLanguages = new Set(beforeLanguages.languageOrder);
 	const awaitingLanguage: Mutation[] = [];
 	const structural: Mutation[] = [
+		...entryMaterializations,
 		...appLevel,
 		...listedFormLinkRemoves,
 		...rootModuleAdds,
@@ -1284,7 +1343,9 @@ function* diffGranularSteps(
 		...fieldStructure,
 		...renames,
 		...converts,
+		...sharedEntryLeaving,
 		...updates,
+		...sharedEntryArriving,
 		...media,
 		...collections,
 		...orders,
@@ -1733,7 +1794,12 @@ function unheldModule(module: Module): Module {
  * alone writes a hold.
  */
 function unheldForm(form: Form): Form {
-	const { ownClosePlacement: _held, ...rest } = cloneEntity(form);
+	const {
+		ownClosePlacement: _held,
+		heldSelectionTags: _selectionTags,
+		heldBasicOpening: _basicOpening,
+		...rest
+	} = cloneEntity(form);
 	if (rest.caseOperations === undefined) return rest;
 	return {
 		...rest,
@@ -1782,6 +1848,13 @@ function placementTargetsOf(
 		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			const form = ownRecordValue(doc.forms, formUuid);
 			if (form === undefined) continue;
+			for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {}))
+				add({
+					target: "form-selection",
+					formUuid,
+					selectionUuid: uuid as Uuid,
+					placement: { kind: "selection-tag", tag },
+				});
 			for (const operation of form.caseOperations ?? []) {
 				add({
 					target: "case-operation",
@@ -1794,6 +1867,11 @@ function placementTargetsOf(
 				target: "own-close",
 				formUuid,
 				placement: form.ownClosePlacement ?? null,
+			});
+			add({
+				target: "basic-opening",
+				formUuid,
+				placement: form.heldBasicOpening ?? null,
 			});
 			const walk = (parentUuid: Uuid): void => {
 				for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
@@ -1829,7 +1907,16 @@ function diffPlacementHolds(
 ): Mutation[] {
 	const before = placementTargetsOf(replayed);
 	const holds: PlacementHoldEntry[] = [];
-	for (const [key, entry] of placementTargetsOf(next)) {
+	const after = placementTargetsOf(next);
+	for (const [key, entry] of before) {
+		if (
+			entry.target === "form-selection" &&
+			!after.has(key) &&
+			ownRecordValue(next.forms, entry.formUuid)
+		)
+			holds.push({ ...entry, placement: null });
+	}
+	for (const [key, entry] of after) {
 		if (deepEqual(before.get(key)?.placement ?? null, entry.placement))
 			continue;
 		holds.push(cloneEntity(entry));
@@ -2768,6 +2855,183 @@ function diffFormOtherwise(
 			: [],
 		afterLinks: [set],
 	};
+}
+
+/**
+ * A form's opening choices and computed values, granularly: a return to the
+ * menu's choices, else the removals, adds with their landing anchor and
+ * per-slot patches, then the moves that turn the previous sequence into the
+ * next one, for each collection. The choices are edited against the list
+ * `doc` derives, which a form starting to keep its own took at the head of
+ * the batch.
+ */
+function diffEntrySupplies(
+	doc: BlueprintDoc,
+	nextDoc: BlueprintDoc,
+	before: Form,
+	after: Form,
+): Mutation[] {
+	const changes: FormEntryChange[] = [];
+	const newParent =
+		after.shadowOf && after.shadowOf.form !== before.shadowOf?.form
+			? nextDoc.forms[after.shadowOf.form]
+			: undefined;
+	if (before.caseSelections !== undefined && after.caseSelections === undefined)
+		changes.push({ operation: "use-menu-choices" });
+	else if (after.shadowOf || after.caseSelections !== undefined) {
+		if (newParent)
+			changes.push({
+				operation: "change-shared-form",
+				parentFormUuid: newParent.uuid,
+			});
+		// A form that starts keeping its own choices took them from `doc` at
+		// the head of the batch (`entryMaterializations`), so these edits
+		// read the list `doc` derives. A second entry moved to another parent
+		// starts from that parent's choices plus its own extra ones.
+		const old = newParent
+			? [
+					...formCaseSelections(nextDoc, newParent.uuid),
+					...(before.shadowOf?.selections.filter((row) => row.kind === "add") ??
+						[]),
+				]
+			: formCaseSelections(doc, before.uuid);
+		const next = formCaseSelections(nextDoc, after.uuid);
+		for (const row of old)
+			if (!next.some((other) => other.uuid === row.uuid))
+				changes.push({ operation: "remove-choice", uuid: row.uuid });
+		for (const [i, row] of next.entries()) {
+			const existing = old.find((other) => other.uuid === row.uuid);
+			if (!existing) {
+				if (
+					after.shadowOf?.selections.some(
+						(choice) =>
+							choice.kind === "replace" && choice.selection === row.uuid,
+					)
+				) {
+					changes.push(
+						{
+							operation: "restore-shared-choice",
+							uuid: row.uuid,
+							after: next[i - 1]?.uuid ?? null,
+						},
+						{
+							operation: "edit-choice",
+							uuid: row.uuid,
+							patch: { source: row.source, caseType: row.caseType },
+						},
+					);
+					continue;
+				}
+				changes.push({
+					operation: "add-choice",
+					value: row,
+					after: next[i - 1]?.uuid ?? null,
+				});
+				continue;
+			}
+			const patch = propertyPatch(existing, row, new Set(["uuid"]));
+			if (Object.keys(patch).length)
+				changes.push({ operation: "edit-choice", uuid: row.uuid, patch });
+		}
+		changes.push(
+			...sequenceMovesTo(
+				arrivalsProjected(
+					old.map((row) => row.uuid),
+					next.map((row) => row.uuid),
+				),
+				next.map((row) => row.uuid),
+			).map((move) => ({ operation: "move-choice" as const, ...move })),
+		);
+	}
+	const old = newParent
+		? sharedEntryValues(newParent, after.uuid, before.computedDatums)
+		: (before.computedDatums ?? []);
+	const next = after.computedDatums ?? [];
+	for (const row of old)
+		if (!next.some((other) => other.uuid === row.uuid))
+			changes.push({ operation: "remove-value", uuid: row.uuid });
+	for (const [i, row] of next.entries()) {
+		const existing = old.find((other) => other.uuid === row.uuid);
+		if (!existing) {
+			changes.push({
+				operation: "add-value",
+				value: row,
+				after: next[i - 1]?.uuid ?? null,
+			});
+			continue;
+		}
+		const patch = propertyPatch(existing, row, new Set(["uuid"]));
+		if (Object.keys(patch).length)
+			changes.push({ operation: "edit-value", uuid: row.uuid, patch });
+	}
+	changes.push(
+		...sequenceMovesTo(
+			arrivalsProjected(
+				old.map((row) => row.uuid),
+				next.map((row) => row.uuid),
+			),
+			next.map((row) => row.uuid),
+		).map((move) => ({ operation: "move-value" as const, ...move })),
+	);
+	changes.push(
+		...diffOpeningAssignments(
+			before.openingAssignments ?? [],
+			after.openingAssignments ?? [],
+		),
+	);
+	return changes.map((entryChange) => ({
+		kind: "updateForm",
+		uuid: after.uuid,
+		patch: {},
+		entryChange,
+	}));
+}
+
+/**
+ * A form's starting values from records, granularly: removals, adds with
+ * their landing anchor, edits, then the moves that turn the sequence into the
+ * next one. An edit that changes a value's record also moves it beside that
+ * record's others (`formEntryMutations.ts`), which no projection of the
+ * earlier order foresees, so a diff holding one places every value in turn.
+ */
+function diffOpeningAssignments(
+	prev: readonly FormOpeningAssignment[],
+	next: readonly FormOpeningAssignment[],
+): FormEntryChange[] {
+	const changes: FormEntryChange[] = [];
+	const prevByUuid = new Map(prev.map((row) => [row.uuid, row]));
+	const nextUuids = new Set(next.map((row) => row.uuid));
+	for (const row of prev)
+		if (!nextUuids.has(row.uuid))
+			changes.push({ operation: "remove-assignment", uuid: row.uuid });
+	for (const [i, row] of next.entries())
+		if (!prevByUuid.has(row.uuid))
+			changes.push({
+				operation: "add-assignment",
+				value: cloneEntity(row),
+				after: next[i - 1]?.uuid ?? null,
+			});
+	let sourceMoved = false;
+	for (const row of next) {
+		const earlier = prevByUuid.get(row.uuid);
+		if (earlier === undefined || deepEqual(earlier, row)) continue;
+		if (!deepEqual(earlier.source, row.source)) sourceMoved = true;
+		const { uuid, ...value } = cloneEntity(row);
+		changes.push({ operation: "edit-assignment", uuid, value });
+	}
+	const order = next.map((row) => row.uuid);
+	const moves = sourceMoved
+		? order.map((uuid, i) => ({ uuid, after: order[i - 1] ?? null }))
+		: sequenceMovesTo(
+				arrivalsProjected(
+					prev.filter((row) => nextUuids.has(row.uuid)).map((row) => row.uuid),
+					order,
+				),
+				order,
+			);
+	for (const move of moves)
+		changes.push({ operation: "move-assignment", ...move });
+	return changes;
 }
 
 /**

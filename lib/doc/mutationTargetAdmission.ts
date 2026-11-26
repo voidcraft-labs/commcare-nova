@@ -23,6 +23,7 @@ import {
 	translationEntryIntegrityIssue,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import {
 	reboundLanguageCodes,
 	translationSourceFingerprintsEqual,
@@ -69,6 +70,7 @@ export function mutationTargetsInvalid(
 			(m) =>
 				(m.kind === "setModuleMedia" && m.caseListItem === true) ||
 				(m.kind === "setFormMedia" && m.registrationOf !== undefined) ||
+				(m.kind === "updateForm" && m.entryChange !== undefined) ||
 				m.kind === "addEntryPoint" ||
 				m.kind === "updateEntryPoint" ||
 				m.kind === "removeEntryPoint" ||
@@ -100,6 +102,49 @@ export function mutationTargetsInvalid(
 					mutationTargetsInvalid(current, [
 						{ ...mutation, registrationOf: undefined },
 					])
+				)
+					return true;
+			} else if (mutation.kind === "updateForm" && mutation.entryChange) {
+				const form = ownRecordValue(current.forms, mutation.uuid);
+				if (!form) return true;
+				const change = mutation.entryChange;
+				const members: readonly { readonly uuid: string }[] =
+					change.operation.endsWith("-value")
+						? (form.computedDatums ?? [])
+						: change.operation.endsWith("-assignment")
+							? (form.openingAssignments ?? [])
+							: formCaseSelections(current, form.uuid);
+				if (change.operation === "restore-shared-choice") {
+					// A restored choice is one of the parent's this entry left out.
+					const parent = form.shadowOf?.form;
+					if (
+						parent === undefined ||
+						members.some((row) => row.uuid === change.uuid) ||
+						!formCaseSelections(current, parent).some(
+							(row) => row.uuid === change.uuid,
+						)
+					)
+						return true;
+				} else if (
+					"uuid" in change &&
+					!members.some((row) => row.uuid === change.uuid)
+				)
+					return true;
+				if (change.operation === "change-shared-form") {
+					const parent = ownRecordValue(current.forms, change.parentFormUuid);
+					if (!form.shadowOf || !parent || parent.shadowOf) return true;
+				}
+				const added =
+					"value" in change && "uuid" in change.value
+						? change.value.uuid
+						: undefined;
+				if (added !== undefined && members.some((row) => row.uuid === added))
+					return true;
+				if (
+					"after" in change &&
+					change.after != null &&
+					(("uuid" in change && change.uuid === change.after) ||
+						!members.some((row) => row.uuid === change.after))
 				)
 					return true;
 			} else if (mutation.kind === "addEntryPoint") {
@@ -1537,6 +1582,13 @@ export function mutationTargetsInvalid(
 				// concatenates its steps, and a later step can take back a move
 				// an earlier one made.
 				let projected: BlueprintDoc | undefined;
+				const current = () =>
+					(projected ??=
+						admittedPrefix.length === 0
+							? doc
+							: produce(doc, (draft) => {
+									applyMutations(draft, admittedPrefix);
+								}));
 				const heldTargets = new Set<string>();
 				for (const hold of m.holds) {
 					const key = placementTargetKey(hold);
@@ -1550,17 +1602,20 @@ export function mutationTargetsInvalid(
 							fieldKinds.get(hold.fieldUuid) !== "repeat"
 						)
 							return true;
-						projected ??=
-							admittedPrefix.length === 0
-								? doc
-								: produce(doc, (draft) => {
-										applyMutations(draft, admittedPrefix);
-									});
-						const field = ownRecordValue(projected.fields, hold.fieldUuid);
+						const field = ownRecordValue(current().fields, hold.fieldUuid);
 						if (field?.kind !== "repeat" || field.repeat_mode !== "query_bound")
 							return true;
 					} else {
 						if (!forms.has(hold.formUuid)) return true;
+						if (
+							hold.target === "form-selection" &&
+							hold.placement !== null &&
+							!formCaseSelections(current(), hold.formUuid).some(
+								(row) => row.uuid === hold.selectionUuid,
+							)
+						)
+							return true;
+
 						if (
 							hold.target === "case-operation" &&
 							!caseOperationsByForm.get(hold.formUuid)?.has(hold.operationUuid)

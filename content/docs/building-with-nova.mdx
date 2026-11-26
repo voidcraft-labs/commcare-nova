@@ -64,6 +64,11 @@ The app remains unfinished while those checks are pending. Continue resumes the
 review with its earlier evidence; reloading the page keeps the same checkpoint.
 Direct editing and Preview become available when the build finishes.
 
+In **Form settings**, **Submit button in Web Apps** lets you give the last action
+a name that fits the visit, such as “Send referral”. You can translate that
+wording in **Languages**. Android uses its own finish button.
+
+
 ## Files in a conversation
 
 You can attach a document or image to a request or a question reply. Nova reads
@@ -685,9 +690,10 @@ kind of value its expression works out to, so it needs to fit the property's
 kind when the property or another question already sets it. Values of
 different kinds saved to one property, from different questions or from the
 branches of one hidden value, are kept as text when each is text, a choice, a
-number or a date: a number is kept as its digits and a date as `2024-05-01`,
-exactly as a phone saves them. That doesn't work when one of them is a date
-and time, a time or a location, or when a question opens showing the property
+number, a date or a location: a number is kept as its digits, a date as
+`2024-05-01` and a location as its four numbers, exactly as a phone saves them.
+That doesn't work when one of them is a date and time or a time, or when a
+question opens showing the property
 as a number, a date, a time or a location, since that question would stop on
 the other values; Nova names that question so you can change it. When a choice
 question opens showing a case property, a fixed value saved into that property

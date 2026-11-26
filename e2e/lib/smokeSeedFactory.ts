@@ -77,6 +77,8 @@ import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitInteg
 import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
+import { independentChoicesBlueprint } from "../../proof/targeted/documents/independentFormChoices";
+import { sharedVisitsBlueprint } from "../../proof/targeted/documents/sharedVisitEntries";
 import { APP_NOTICES_SEED, appNoticesEntries } from "./appNoticesSeed";
 import { seedBringIn } from "./bringInSeed";
 import {
@@ -84,6 +86,7 @@ import {
 	CASE_CHANGES_SEED,
 	caseChangesRoute,
 	caseWriteFieldRoute,
+	caseWritesFollowupOperationsRoute,
 	identityProjectionRoute,
 } from "./caseChangesSeed";
 import {
@@ -1147,6 +1150,8 @@ export async function createSmokeBuilders(
 					route: caseChangesRoute(caseChangesAppId),
 					identityProjectionRoute: identityProjectionRoute(caseChangesAppId),
 					followupWriteRoute: caseWriteFieldRoute(caseChangesAppId, "followup"),
+					followupOperationsRoute:
+						caseWritesFollowupOperationsRoute(caseChangesAppId),
 					registrationWriteRoute: caseWriteFieldRoute(
 						caseChangesAppId,
 						"registration",
@@ -1401,6 +1406,62 @@ export async function createSmokeBuilders(
 					opensCaseId: opens.caseId,
 				},
 			};
+		},
+		"shared-form-entries": async () => {
+			const appId = await seedRuntimeApp(
+				"Shared visits",
+				sharedVisitsBlueprint,
+			);
+			const people = ["Ada", "Bea", "Chen"] as const;
+			for (const name of people) {
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: "person",
+						case_name: name,
+						status: "open",
+						properties: {},
+					},
+				});
+			}
+			const doc = sharedVisitsBlueprint(appId);
+			const entry = Object.values(doc.forms).find(
+				(form) => form.name === "Follow a referral",
+			);
+			if (!entry?.shadowOf)
+				throw new Error("The referral must open the shared visit.");
+			return {
+				appId,
+				people,
+				entryUuid: entry.uuid,
+				parentUuid: entry.shadowOf.form,
+			};
+		},
+		"independent-form-choices": async () => {
+			const appId = await seedRuntimeApp(
+				"Visit two people",
+				independentChoicesBlueprint,
+			);
+			const people = [
+				"Ada",
+				"Bea",
+				"Chen",
+				"Dara",
+				"Standalone list only",
+			] as const;
+			for (const [position, name] of people.entries()) {
+				await caseStore.insert({
+					appId,
+					row: {
+						case_id: `${appId}-person-${position + 1}`,
+						case_type: "person",
+						case_name: name,
+						status: "open",
+						properties: {},
+					},
+				});
+			}
+			return { appId, people };
 		},
 		"menu-held-case": async () => {
 			const seed = MENU_HELD_CASE_SEED;

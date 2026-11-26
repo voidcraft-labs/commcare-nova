@@ -123,6 +123,8 @@ export const sessionContextSchema = z.strictObject({
 });
 export type SessionContextRef = z.infer<typeof sessionContextSchema>;
 export const datumRefSchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("form-selection"), selection: uuidSchema }),
+	z.strictObject({ kind: z.literal("entry-value"), datum: uuidSchema }),
 	z.strictObject({ kind: z.literal("selected-case"), module: uuidSchema }),
 	z.strictObject({ kind: z.literal("new-case") }),
 	z.strictObject({
@@ -133,13 +135,27 @@ export const datumRefSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("tile-group-parents"), module: uuidSchema }),
 ]);
 export type DatumRef = z.infer<typeof datumRefSchema>;
-export type FormLinkDatumName = Extract<DatumRef, { kind: "selected-case" }>;
-export const formLinkDatumNameSchema = z.strictObject({
-	kind: z.literal("selected-case"),
-	module: uuidSchema,
-});
+/** A form link can bind a manual choice of the destination or a menu's single selection. */
+export const formLinkDatumNameSchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("selected-case"), module: uuidSchema }),
+	z.strictObject({ kind: z.literal("form-selection"), selection: uuidSchema }),
+]);
+export type FormLinkDatumName = z.infer<typeof formLinkDatumNameSchema>;
+/** A physical target exposes its stable form choice before a legacy menu alias. */
+export function formLinkSelectionName(
+	refs: readonly DatumRef[],
+): FormLinkDatumName | undefined {
+	return (
+		refs.find((ref) => ref.kind === "form-selection") ??
+		refs.find((ref) => ref.kind === "selected-case")
+	);
+}
 export function datumRefKey(datum: DatumRef): string {
 	switch (datum.kind) {
+		case "form-selection":
+			return `form-selection:${datum.selection}`;
+		case "entry-value":
+			return `entry-value:${datum.datum}`;
 		case "selected-case":
 		case "tile-group-parents":
 			return `${datum.kind}:${datum.module}`;
@@ -1119,6 +1135,12 @@ export type FieldExpressionSlotRef = {
 		| "lookup_options_source";
 };
 export type FormExpressionSlotRef =
+	| {
+			readonly entity: "form";
+			readonly uuid: Uuid;
+			readonly slot: "form_selection_source" | "form_entry_value";
+			readonly member: { readonly supplyUuid: Uuid };
+	  }
 	| {
 			readonly entity: "form";
 			readonly uuid: Uuid;
