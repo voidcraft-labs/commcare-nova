@@ -527,6 +527,7 @@
 		"hq-questions/save-to-case-live-id",
 		"hq-questions/save-to-case-open-condition",
 		"hq-questions/save-to-case-reserved-key",
+		"hq-questions/save-to-case-type-expression",
 		"hq-questions/save-to-case-user-type",
 		"hq-questions/save-to-case-without-role",
 		"hq-questions/second-default",
