@@ -24,7 +24,11 @@ import {
 } from "@/lib/publish/webApps";
 import * as appRemoteChangeModule from "../appRemoteChange";
 import { appRemoteChange } from "../appRemoteChange";
-import { normalizeHqAppSource } from "../hqSourceBaseline";
+import {
+	hqDiscardDigest,
+	normalizeHqAppSource,
+	removedHqFiles,
+} from "../hqSourceBaseline";
 import * as remoteChangesModule from "../remoteChanges";
 import {
 	BASELINE_UNKNOWN_SENTENCE,
@@ -562,32 +566,22 @@ const SAMPLED_FUNCTIONS: Readonly<Record<string, () => readonly string[]>> = {
 	],
 };
 
-/**
- * Every line and note `appRemoteChange` builds: a removed file with and
- * without its CommCare HQ file id, a list too long to show whole with and
- * without a usable pair, and a first and a next publish's required review.
- */
-function sampleAppRemoteChange(): readonly string[] {
-	const files = (n: number) =>
-		Object.fromEntries(
-			Array.from({ length: n }, (_, i) => [
+function remoteAppInput(fileCount: number) {
+	const current = normalizeHqAppSource({
+		doc_type: "Application",
+		modules: [],
+		_attachments: {},
+		multimedia_map: Object.fromEntries(
+			Array.from({ length: fileCount }, (_, i) => [
 				`jr://file/commcare/image/photo-${i}.png`,
 				i === 0
 					? { media_type: "CommCareImage" }
 					: { media_type: "CommCareImage", multimedia_id: `file${i}` },
 			]),
-		);
-	const read = (n: number) => {
-		const current = normalizeHqAppSource({
-			doc_type: "Application",
-			modules: [],
-			_attachments: {},
-			multimedia_map: files(n),
-		});
-		if ("malformed" in current) throw new Error(current.malformed);
-		return current;
-	};
-	const input = {
+		),
+	});
+	if ("malformed" in current) throw new Error(current.malformed);
+	return {
 		authority: {
 			actor: "editor",
 			role: "editor",
@@ -610,18 +604,25 @@ function sampleAppRemoteChange(): readonly string[] {
 		languageNames: "target" as const,
 		mediaChanged: 0,
 		published: [],
+		current,
 	};
+}
+
+/**
+ * Every line and note `appRemoteChange` builds: a removed file with and
+ * without its CommCare HQ file id, a list too long to show whole with and
+ * without a usable pair, and a first and a next publish's required review.
+ */
+function sampleAppRemoteChange(): readonly string[] {
 	const changes = [
 		appRemoteChange({
-			...input,
-			current: read(2),
+			...remoteAppInput(2),
 			baseline: null,
 			canBringIn: true,
 		}),
 		...[true, false].map((canBringIn) =>
 			appRemoteChange({
-				...input,
-				current: read(21),
+				...remoteAppInput(21),
 				baseline: null,
 				canBringIn,
 			}),
@@ -629,8 +630,7 @@ function sampleAppRemoteChange(): readonly string[] {
 		...[true, false].flatMap((canBringIn) =>
 			[undefined, []].map((unverifiedNextChanges) =>
 				appRemoteChange({
-					...input,
-					current: read(0),
+					...remoteAppInput(0),
 					baseline: {
 						origin: "unread",
 						mediaFiles: null,
@@ -672,6 +672,78 @@ describe("a removed-file change", () => {
 			expect(lines).toContain(line);
 		expect(lines.join(" ")).not.toMatch(/jr:\/\/|file1”/);
 	});
+	it.each([
+		{ files: 19, location: false, media: 0, hidden: false, overflow: false },
+		{ files: 18, location: true, media: 1, hidden: false, overflow: true },
+		{ files: 19, location: true, media: 0, hidden: true, overflow: true },
+		{ files: 20, location: false, media: 0, hidden: true, overflow: true },
+	])(
+		"requires full review when the summary hides a file ($files files, location $location, media $media)",
+		({ files, location, media, hidden, overflow }) => {
+			const legacyLanguageRemoval =
+				"Publishing would remove Ganda (lug) from this app in CommCare HQ.";
+			const fixture = remoteAppInput(files);
+			const input = {
+				...fixture,
+				baseline: {
+					origin: "cutover" as const,
+					source: fixture.current.normalized,
+					ownership: {
+						addOns: [],
+						profileProperties: [],
+						profileCustomProperties: [],
+						autoGpsCapture: false,
+					},
+					mediaFiles: null,
+				},
+				canBringIn: true,
+				locationChange: location
+					? "Automatic location for every form will change from on to off"
+					: undefined,
+				mediaChanged: media,
+				legacyLanguageRemoval,
+			};
+			const shown = appRemoteChange(input);
+			if (!shown) throw new Error("Expected the app's change");
+			expect(shown.parts[0]).toBe(legacyLanguageRemoval);
+			expect(
+				shown.parts.filter((line) => line.startsWith("Publishing removes ")),
+			).toHaveLength(hidden ? 18 : files);
+			if (overflow) expect(shown.parts.at(-1)).toBe("and 2 more");
+			expect(shown.requiresReview).toBe(hidden ? true : undefined);
+			const discard = {
+				kind: shown.kind,
+				novaResourceId: shown.novaResourceId,
+				observedDigest: shown.observedDigest,
+			};
+			expect(
+				decideRemoteChanges({ observed: [shown], discards: [discard] }).proceed,
+			).toBe(!hidden);
+			if (hidden) {
+				const removed = removedHqFiles(input.current.normalized, {
+					published: input.published,
+					recorded: null,
+				});
+				const complete = {
+					...discard,
+					observedDigest: hqDiscardDigest(
+						input.authority,
+						input.current.digest,
+						removed,
+						"complete",
+					),
+				};
+				const reviewed = appRemoteChange({ ...input, discards: [complete] });
+				if (!reviewed) throw new Error("Expected the reviewed change");
+				expect(reviewed.parts).toEqual(shown.parts);
+				expect(reviewed.observedDigest).toBe(complete.observedDigest);
+				expect(
+					decideRemoteChanges({ observed: [reviewed], discards: [complete] })
+						.proceed,
+				).toBe(true);
+			}
+		},
+	);
 });
 
 describe("the copy", () => {
