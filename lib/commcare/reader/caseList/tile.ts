@@ -625,6 +625,12 @@ export function readTile(
 				cursor.refuse("index_identifier", T.groupIdentifierOutside, {
 					name: identifier,
 				});
+				claimRestUnderFinding(
+					ctx,
+					cursor,
+					{ code: T.groupIdentifierOutside.entry, place: cursor.place },
+					(key) => key === "header_rows",
+				);
 				ok = false;
 			} else {
 				config.grouping = {
