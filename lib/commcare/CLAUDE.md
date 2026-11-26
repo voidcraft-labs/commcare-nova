@@ -655,6 +655,14 @@ Geocoder as confirmed, since HQ's form builder offers the appearance on
 every plan. Missing or
 unverified required capabilities block before writes.
 
+Android case-list lookup's fixed text arguments and ordered response names emit
+as the short detail's callout in HQ JSON and local suite XML. The writer accepts
+an action only with a label and nonempty argument and response lists. The
+publish probe accepts either project-space lookup toggle and reports missing
+only when both are confirmed off. The reader holds the corresponding literal
+XPath shape. A browser Preview without a verified result channel leaves the
+list unfiltered by the companion and points the worker to the Android app.
+
 `planPrivileges.ts::requiredPlanPrivileges` derives, from the document, what
 the publish pushes, and the attachment target the emitter is handed (a capture
 saved as a link is a case write only where there is a link to write), the plan

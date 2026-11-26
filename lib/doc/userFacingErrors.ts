@@ -1322,6 +1322,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		det(e, "reason", "") === "order-fields"
 			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab orders its rows by a field it can't use. You can open Edit tabs and choose its ordering fields again.`
 			: `The Details tabs of ${q(modName(e))} no longer match the fields shown in Details. You can open Edit tabs and save the tabs again.`,
+	CASE_LIST_DEVICE_LOOKUP_INVALID: (e) => e.message,
 	CASE_LIST_LOAD_BEHAVIOR_INVALID: (e) => {
 		const subject =
 			e.details?.columnLabel !== undefined

@@ -1679,6 +1679,20 @@ export function projectCaseListForHq(
 		pair.short.multi_select = true;
 		pair.short.max_select_value = caseListConfig.selection.maximum;
 	}
+	const deviceLookup = caseListConfig?.deviceLookup;
+	if (deviceLookup !== undefined) {
+		pair.short.lookup_enabled = true;
+		pair.short.lookup_action = deviceLookup.action;
+		pair.short.lookup_name = deviceLookup.label;
+		pair.short.lookup_autolaunch = deviceLookup.automatic === true;
+		pair.short.lookup_extras = deviceLookup.extras.map(({ name, value }) => ({
+			key: name,
+			value: hqXPath(w.str(value)),
+		}));
+		pair.short.lookup_responses = deviceLookup.responses.map((key) => ({
+			key,
+		}));
+	}
 	// The list's own texts, which HQ's build writes as `m<N>_no_items_text`
 	// (under `USH_EMPTY_CASE_LIST_TEXT`) and `m<N>_select_text` in every
 	// language (`app_strings.py::_create_module_details_app_strings`).

@@ -49,6 +49,7 @@ import {
 	CaseAvailabilityComposer,
 	type CaseAvailabilityComposerProps,
 } from "./CaseAvailabilityComposer";
+import { CaseListDeviceLookupSetting } from "./CaseListDeviceLookupSetting";
 import {
 	CaseListWordingSetting,
 	type CaseListWordingSlot,
@@ -119,6 +120,9 @@ export interface CaseListCanvasProps {
 		next: CaseSelection | undefined,
 		origin?: HTMLElement,
 	) => void;
+	readonly onDeviceLookupChange: (
+		next: CaseListConfig["deviceLookup"] | null,
+	) => CommitOutcome;
 	readonly onWordingChange: (
 		slot: CaseListWordingSlot,
 		next: string | null,
@@ -161,6 +165,7 @@ export function CaseListCanvas({
 	onTileGroupingChange,
 	onCaseSelectionChange,
 	onWordingChange,
+	onDeviceLookupChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
 	const platforms = useDeclaredPlatforms();
@@ -213,6 +218,12 @@ export function CaseListCanvas({
 						several={config.selection?.kind === "multiple"}
 						canEdit={canEdit}
 						onChange={onWordingChange}
+					/>
+					<CaseListDeviceLookupSetting
+						disabled={caseType === undefined || tile?.namedSlots !== undefined}
+						value={config.deviceLookup}
+						canEdit={canEdit}
+						onChange={onDeviceLookupChange}
 					/>
 					{caseType !== undefined && (
 						<RegisterFromListSetting moduleUuid={moduleUuid} />

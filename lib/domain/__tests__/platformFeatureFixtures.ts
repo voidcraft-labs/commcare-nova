@@ -451,6 +451,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"automaticSubmissionText",
 		),
 	},
+	"case-list-android-lookup": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.deviceLookup = {
+						action: "org.nova.proof.CASE_LOOKUP",
+						label: "Find a visit",
+						extras: [{ name: "mode", value: "lookup" }],
+						responses: ["visit"],
+					};
+				},
+			}),
+		without: () => caseApp(),
+		use: slotUse(
+			"case-list-android-lookup",
+			MODULE_OWNER,
+			"caseListConfig.deviceLookup",
+		),
+	},
 	"case-list-icon-actions": {
 		with: () =>
 			caseApp({
