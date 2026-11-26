@@ -128,7 +128,7 @@ COUNT_WITH_SESSION = (
 
 def test_the_hq_search_button_counts_restored_cases_without_loading_new_instances(hq, core_runner, tmp_path):
     from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
-    from proof.core.artifacts import BASIC_RESTORE
+    from proof.core.artifacts import SESSION_RESTORE
     from proof.core.test_session import person_cases
     from proof.observe.build import arrange
 
@@ -148,7 +148,7 @@ def test_the_hq_search_button_counts_restored_cases_without_loading_new_instance
         return arrange(files, tmp_path / name)
 
     def restore(ids):
-        return person_cases(BASIC_RESTORE.read_bytes(), ids).replace(
+        return person_cases(SESSION_RESTORE.read_bytes(), ids).replace(
             b"<case_type>person</case_type>", b"<case_type>client</case_type>"
         )
 
@@ -174,8 +174,10 @@ def test_the_hq_search_button_counts_restored_cases_without_loading_new_instance
     one = lists(walk(counted, ["one"]))
     two = lists(walk(counted, ["one", "two"]))
     assert one and two, (one, two)
-    assert all(not step.get("actions") for step in one), one
-    assert any(step.get("actions") for step in two), two
+    assert {row["caseId"] for step in one for row in step["rows"]} == {"one"}, repr(one)
+    assert {row["caseId"] for step in two for row in step["rows"]} == {"one", "two"}, repr(two)
+    assert all(not step.get("actions") for step in one), repr(one)
+    assert any(step.get("actions") for step in two), repr(two)
     blocked = walk(undeclared, ["one", "two"])
     refused = [
         step["error"] for run in blocked["runs"] for step in run["trace"] if "error" in step
