@@ -169,9 +169,11 @@ A generated operation's condition controls whether its block is submitted.
 For an authored case change, a close condition independently controls its
 close action. A present childless case block records the submitted case ID
 in the receipt and advances the server-side timestamp of a separately
-authorized existing row; it does not supply a device patch. An actual empty
-update still loads the case and advances the device timestamp. A signed
-opening that never held that case refuses a recognized update or close.
+authorized existing row. It supplies no device patch. HQ can make an
+untyped case when a childless block names an unknown id, so Preview
+refuses that target. A recognized empty update still loads the case and
+advances the device timestamp. A signed opening that never held the case
+refuses a recognized authored update or close.
 Vellum only retains an update element when it holds properties, so the
 runtime distinction alone does not make a physical empty update editable.
 

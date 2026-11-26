@@ -191,3 +191,12 @@ def test_hq_records_childless_and_empty_update_blocks_as_form_history(hq, core_r
             ]
             assert len(transactions) == 1
             assert transactions[0].client_date == current.modified_on
+
+
+        unseen = source.replace("<!--case-block-->", _case("unseen-case", ""))
+        unseen = unseen.replace("form-effect", "form-effect-unseen")
+        observed = operations.process_case_blocks(state, unseen.encode())
+        assert observed.refusal is None
+        untyped = observed.touched["unseen-case"]
+        assert untyped.is_creation
+        assert untyped.case.type == ""

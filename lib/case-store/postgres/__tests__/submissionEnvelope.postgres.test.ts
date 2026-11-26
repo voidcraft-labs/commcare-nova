@@ -1234,6 +1234,22 @@ describe("ordered selected-case batches", () => {
 			currentOwnerIds: [ACTOR],
 			lookupRows: [],
 		};
+		await expect(
+			submit(
+				store,
+				request(
+					{
+						...close,
+						target: { kind: "expression", expr: term(literal("unknown-case")) },
+					},
+					opening,
+				),
+			),
+		).rejects.toMatchObject({
+			rejection: { kind: "target", reason: "not-found-or-out-of-scope" },
+		});
+		expect(await patientRow(store, "unknown-case")).toBeUndefined();
+
 		const childlessRequest = request(close, opening);
 		const childlessClaim = {
 			...childlessRequest,

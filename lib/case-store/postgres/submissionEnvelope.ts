@@ -1791,22 +1791,19 @@ async function resolveOperationProgram(
 						operation.caseType;
 					const row = evaluated === "" ? undefined : knownRows.get(evaluated);
 					if (childlessClose) {
-						if (
-							evaluated === "" ||
-							evaluated.length > MAX_AUTHORED_CASE_ID_LENGTH
-						)
+						if (!row || evaluated.length > MAX_AUTHORED_CASE_ID_LENGTH)
 							throw new SubmissionRejectedError({
 								kind: "target",
 								operationUuid: operation.uuid,
 								slot: "target",
 								reason: "not-found-or-out-of-scope",
 							});
-						// A childless block needs the submitted id but Core does
-						// not load it. Only a row we separately authorized can
-						// receive the server-side timestamp.
+						// Core does not load a childless block's ID. HQ still
+						// records a transaction and can create an untyped row
+						// for an unknown ID. Accept only an authorized row.
 						return {
 							caseId: evaluated,
-							snapshotCaseType: row?.caseType,
+							snapshotCaseType: row.caseType,
 							mergesExisting: false,
 						};
 					}
