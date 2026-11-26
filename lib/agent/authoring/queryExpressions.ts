@@ -17,6 +17,7 @@ import {
 	caseTypeNameSchema,
 	conditionSchema,
 	type Expression,
+	isExpression,
 	type Literal,
 	locationRowFieldSchema,
 	propertyRefSchema,
@@ -673,8 +674,8 @@ function compiler(bindings: QueryBindings) {
 			const rows = value(args[0]);
 			let rowBindings = bindings;
 			if (rows.kind === "table-rows") {
-				rowBindings = bindings.forTable(rows.tableId);
-			} else if (rows.kind === "cases") {
+				rowBindings = bindings.forTable(String(rows.tableId));
+			} else if (rows.kind === "cases" && isExpression(rows)) {
 				const row = expressionRowScope(rows, bindings.typeContext);
 				rowBindings = bindings.forDeviceRecords(
 					row?.kind === "case" ? row.caseType : undefined,
