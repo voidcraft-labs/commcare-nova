@@ -10,7 +10,12 @@ import { DatePicker } from "@/components/shadcn/date-picker";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { plainColumn, proseText, simpleSearchInputDef } from "@/lib/domain";
+import {
+	plainColumn,
+	proseText,
+	type SearchInputDef,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { eq, input, literal } from "@/lib/domain/expression";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import {
@@ -54,7 +59,23 @@ const hiddenField = new URLSearchParams(window.location.search).has("hidden");
 const unmessaged = new URLSearchParams(window.location.search).has(
 	"unmessaged",
 );
-const inputs = [
+const addressUuid = testUuid("search-address");
+const addressPicker = new URLSearchParams(window.location.search).has(
+	"address",
+);
+const inputs: SearchInputDef[] = [
+	...(addressPicker
+		? [
+				{
+					kind: "address" as const,
+					type: "address" as const,
+					uuid: addressUuid,
+					name: "address",
+					label: "Find an address",
+					excludeFromRequest: true as const,
+				},
+			]
+		: []),
 	simpleSearchInputDef(
 		testUuid("search-barcode"),
 		"barcode",
@@ -77,6 +98,13 @@ const inputs = [
 		"case_name",
 		{
 			...(platform !== undefined && { hint: "First or last name" }),
+			...(addressPicker && {
+				addressReceiver: {
+					kind: "address" as const,
+					source: addressUuid,
+					parts: ["us_state" as const, "city" as const],
+				},
+			}),
 			...(searchesForBlank && { allowBlank: true as const }),
 			...(unmessaged && { required: { noMessage: true as const } }),
 		},

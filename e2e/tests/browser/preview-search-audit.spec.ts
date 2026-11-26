@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-search-client";
@@ -456,5 +457,63 @@ test("Web Apps searches with a hidden field's starting value without drawing it,
 			.toEqual({ region: "south" });
 	} finally {
 		await peer.close();
+	}
+});
+
+test("A chosen address fills Search through its linked field and never sends the address", async ({
+	page,
+}) => {
+	const peer = await componentPeer(
+		"e2e/lib/preview-search-client.tsx",
+		[],
+		{
+			"@googlemaps/js-api-loader": resolve(
+				"e2e/lib/preview-geopoint-google-peer.ts",
+			),
+		},
+		{ "process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY": '"synthetic-key"' },
+	);
+	try {
+		await page.route(`${peer.origin}/geopoint-peer/**`, async (route) => {
+			const path = new URL(route.request().url()).pathname;
+			await route.fulfill({
+				json: path.endsWith("/suggestions")
+					? [{ id: "visit-road", label: "18 Visit Road" }]
+					: {
+							label: "18 Visit Road, Example Town",
+							lat: -1.9,
+							lng: 35.12,
+							addressComponents: [
+								{ longText: "Example Town", types: ["locality"] },
+							],
+						},
+			});
+		});
+		await page.goto(`${peer.origin}/?platform=web-apps&address`);
+		const address = page.getByRole("combobox", { name: "Find an address" });
+		const name = page.getByRole("textbox", { name: "Patient name" });
+		await address.fill("Visit Road");
+		await page.getByRole("option", { name: "18 Visit Road" }).click();
+		await expect(name).toHaveValue("Example Town");
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect(page.getByLabel("Submitted search")).toHaveText(
+			'{"case_name":"Example Town"}',
+		);
+		await page.getByRole("button", { name: "Clear the address" }).click();
+		await expect(name).toHaveValue("");
+		await page.goto(`${peer.origin}/?platform=android&address`);
+		await expect(address).toHaveCount(0);
+		await expect(name).toBeEditable();
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewSearchAudit?.dispose());
+		} finally {
+			try {
+				await page.close();
+			} finally {
+				await peer.close();
+			}
+		}
 	}
 });
