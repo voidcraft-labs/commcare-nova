@@ -606,3 +606,50 @@ describe("a Save to Case update of the worker's record beside another update of 
 		);
 	});
 });
+
+/**
+ * A date-and-time question named straight by the worker's record's key: HQ's
+ * build binds the leaf untyped, so a device keeps the day there, while Nova's
+ * worker properties carry no type and Nova saves a date and time there as its
+ * moment. The reading refuses it under the entry that keeps a day in no
+ * shape Nova keeps, rather than reading a write Nova would export as the
+ * moment.
+ */
+describe("a date and time saved straight to the worker's record", () => {
+	it("is refused in the load auto-selected by usercase", async () => {
+		const doc = advancedApp();
+		let retyped = 0;
+		const body = exportedBody(doc, {
+			xml: (xml) => {
+				const bind = /<bind [^>]*nodeset="\/data\/name"[^>]*\/>/.exec(xml)?.[0];
+				if (bind === undefined) return xml;
+				retyped += 1;
+				return xml.replace(
+					bind,
+					bind.replace(/type="[^"]*"/, 'type="xsd:dateTime"'),
+				);
+			},
+		});
+		expect(retyped).toBe(1);
+		const outcome = await readHqApp(
+			await inputFor(body, {
+				resolver: matchingResolver(
+					doc.appId,
+					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+				),
+				knownCaseTypes: knownCaseTypesOf(doc),
+			}),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(
+			outcome.kind === "account"
+				? outcome.findings.map((one) => [one.code, one.detail.name])
+				: [],
+		).toEqual([
+			[
+				"forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
+				WRITTEN,
+			],
+		]);
+	});
+});

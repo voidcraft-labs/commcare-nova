@@ -10,13 +10,16 @@
  * holds the write, and the document read back exports the same update. A
  * moment still goes through its sibling into a `datetime` property, a day
  * beside a moment of one property is a pair of writers no one type holds,
- * and a day saved as the case's external id is refused under its own entry.
+ * and a day saved as the case's external id or to the worker's record (no
+ * catalogued type, where Nova saves the moment) is refused under its own
+ * entry.
  *
  * Plausible failures: the export keeping the sibling for a day (Nova then
  * saves the moment's text to a date property), the reading typing the
  * property `datetime` (the write then comes back through the sibling), a
  * day and a moment read into one property the gate refuses, and a day as an
- * external id held as a date property.
+ * external id or a worker property held as a write Nova exports as the
+ * moment.
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
@@ -33,6 +36,10 @@ type Modules = {
 		unique_id: string;
 		actions: {
 			update_case: { update: Record<string, Record<string, unknown>> };
+			usercase_update: {
+				update: Record<string, Record<string, unknown>>;
+				condition: Record<string, unknown>;
+			};
 		};
 	}[];
 }[];
@@ -160,6 +167,34 @@ describe("a date-and-time question saved straight to a case", () => {
 			}),
 		};
 		const outcome = await read(asExternalId);
+		expect(
+			outcome.kind === "account" ? outcome.findings.map((one) => one.code) : [],
+		).toContain(`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`);
+	});
+	it("to the worker's record is refused under its own entry", async () => {
+		const body = exportedBody(visits("date"));
+		// HQ's build binds the usercase leaf untyped too, so a device keeps the
+		// day there; Nova's worker properties are text and would get the moment.
+		const toWorker = {
+			...body,
+			modules: produce(body.modules as Modules, (draft) => {
+				const form = draft[0]?.forms[0];
+				if (form === undefined) throw new Error("The menu keeps its form.");
+				form.actions.usercase_update.update.last_seen = {
+					question_path: "/data/seen",
+					update_mode: "always",
+					doc_type: "ConditionalCaseUpdate",
+				};
+				form.actions.usercase_update.condition = {
+					type: "always",
+					question: null,
+					answer: null,
+					operator: "=",
+					doc_type: "FormActionCondition",
+				};
+			}),
+		};
+		const outcome = await read(toWorker);
 		expect(
 			outcome.kind === "account" ? outcome.findings.map((one) => one.code) : [],
 		).toContain(`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`);

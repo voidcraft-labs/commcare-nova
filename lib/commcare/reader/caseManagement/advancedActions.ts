@@ -1086,8 +1086,13 @@ function readProperties(
 			continue;
 		}
 		// A date-and-time question's day is saved straight only to a `date`
-		// property of the action's own case, which the catalog types.
-		if (via !== undefined && read.value.day === true) {
+		// property of the action's own case, which the catalog types: the
+		// worker's record is no catalogued type, and Nova saves a date and time
+		// there as its moment.
+		if (
+			(via !== undefined || claims.worker !== undefined) &&
+			read.value.day === true
+		) {
 			r.ctx.accounting.finding(BASIC_CLAIMS.datetimeStraight, r.form.place, {
 				name: key,
 			});
