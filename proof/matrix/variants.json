@@ -35172,6 +35172,42 @@
 		]
 	},
 	{
+		"id": "hq-questions/save-to-case-conditional-owner-aliased-create",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-owner-condition-on-an-aliased-create",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_conditional_owner_aliased_create"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-update-owner-condition",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-update-owner-condition",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_update_owner_condition"
+		}
+	},
+	{
 		"id": "hq-questions/save-to-case-reserved-key",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts",

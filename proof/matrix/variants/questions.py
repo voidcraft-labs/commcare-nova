@@ -1942,6 +1942,35 @@ def save_to_case_owner_condition(authoring, app_id):
     )
 
 
+def save_to_case_conditional_owner_aliased_create(authoring, app_id):
+    """The case can already exist when its conditional owner leaf is absent."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-conditional-owner-aliased-create",
+        (STC_OWNER_BIND, STC_OWNER_BIND[: -len("/>")] + ' relevant="/data/age &gt; 5"/>', 1),
+        (STC_ID_SETVALUE, STC_ID_SETVALUE.replace('uuid()', "'household-01'"), 1),
+    )
+
+
+def save_to_case_update_owner_condition(authoring, app_id):
+    """The same conditional facet on a targeted update has its own standing."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-update-owner-condition",
+        (STC_CREATE + STC_UPDATE, '<update><head/><owner_id/></update>', 1),
+        (STC_TYPE_BIND, '', 1),
+        (STC_NAME_BIND, '', 1),
+        (
+            STC_OWNER_BIND,
+            STC_OWNER_BIND.replace('/create/owner_id', '/update/owner_id')[: -len("/>")] + ' relevant="/data/age &gt; 5"/>',
+            1,
+        ),
+        (STC_ID_SETVALUE, f'<bind nodeset="{MAKE}/@case_id" calculate="&apos;household-01&apos;"/>', 1),
+    )
+
+
 def save_to_case_create_and_close(authoring, app_id):
     """The create's block also closing the case it creates."""
     _save_to_case(
