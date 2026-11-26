@@ -291,6 +291,8 @@ function ConfiguredFormEntry({
 										module: screen.moduleUuid,
 										evidence: result.evidence,
 									},
+									activityNotice:
+										result.activityNotice ?? stored?.activityNotice,
 									next: result.next,
 								},
 							}
@@ -448,6 +450,7 @@ function ConfiguredFormEntry({
 						...opening,
 						projection: result.projection,
 						binding: { ...opening.binding, evidence: result.evidence },
+						activityNotice: result.activityNotice,
 						next: result.next,
 					},
 				});

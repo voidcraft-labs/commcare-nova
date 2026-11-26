@@ -2754,3 +2754,17 @@ The same authorized Project/destination catalog carries `caseListMap`, the team�
 A form's completed search holds its answers and Results together. A separately opened form reads the original answers from its own query manager. Both pass raw answer keys to a single search-instance projection at form entry. A signed range opening belongs to the admitted worker, app language and resolved time zone. A resize keeps the opening and its already evaluated dates.
 
 A completed search's server order (`completedSearchRequest.ts`: the filters' orders, then `requestOrder`) reaches the store as HQ's index keys, and `case-store/postgres/searchPopulation.ts` compares each as HQ's index does before the cap: exact text by binary keyword order, numbers as doubles, dates by the index's date reading, missing values first ascending and last descending. A value whose reading is uncertain stops the search only where it could change which records arrive or an order the app observes. A list's own sort reorders only what arrived. A search's own owner exclusion is evaluated with the Search answers and leaves those owners out of the server population before the cap; it replaces the shared assigned-case rule for the search only (`caseDataBinding.ts`, `serverSearchRead.ts`), and a browse keeps the worker's restore and the shared rule.
+
+
+### Recent Web Apps form activity
+
+A complete signed Web Apps opening evaluates the activity key, title and
+window through the same engine that initializes the worker’s form. The server
+evaluates before any answer or validation. The signed projection holds the
+worker’s entry and a keyed digest of the app, ordinary form and evaluated key,
+so a shadow shares the original form’s activity. The Preview notice uses the
+prior worker’s event only when the opening’s restore includes its selected
+records. The worker’s first successful restore establishes the comparison
+time, measured at the start of the read. A submission writes its event inside
+the transaction that completes its receipt. Replays return the receipt
+without writing a fresh event. Android ignores these settings.

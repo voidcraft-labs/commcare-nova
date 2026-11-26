@@ -10960,10 +10960,9 @@
 		"item": "a question text (label, hint, help, validation message, repeat add caption or choice label) whose itext id is `Pragma-Volatility-Key`, or `Pragma-Volatility-Entity-Title` or `Pragma-Volatility-Window` in a form with a `Pragma-Volatility-Key` text, where HQ's build keeps the entry: no other itext entry has identical values in every language and form under an id that sorts before it, which HQ's build merges it into, keeping the first id and pointing every reference there (`XForm.normalize_itext`, run on every build by `FormBase.add_stuff_to_xform`; executed) (Vellum lets an author set a text's itext id, `javaRosa/itextWidget.js::iTextIDWidget`)",
 		"surfaceKeys": ["xform:model/itext/translation/text@id"],
 		"valueClass": "pragma-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the form's Web Apps activity notice (its key, title and window), which needs Preview to keep each worker's opens and submissions of the form for the evaluated key and show the notice another worker reads",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form’s Web Apps activity notice keeps the key, optional title and optional interval as the identities of their form texts",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (`FormSession.getPragma`) / IGNORED",

@@ -34134,15 +34134,13 @@
 		"id": "hq-questions/pragma-question-text",
 		"base": "hq-questions",
 		"entry": "questions/a-question-text-label-hint-help-validation-message-repeat-add",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "weight"
-		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/activityKeyText/carrier/role",
+				"value": "field-label"
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "pragma_question_text"

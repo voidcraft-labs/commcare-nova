@@ -39,7 +39,7 @@ import {
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
-import { itextIdFor } from "@/lib/commcare/xform/itextIds";
+import { itextIdFor, itextProseSlot } from "@/lib/commcare/xform/itextIds";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
@@ -88,12 +88,19 @@ import type {
 } from "@/lib/domain/expression/types";
 import { fieldHasWorkerControl } from "@/lib/domain/fieldForm";
 import { formRootName } from "@/lib/domain/formAnswerRoot";
+import type { FormBehaviorRole } from "@/lib/domain/forms";
+import { resolveAppLanguage } from "@/lib/domain/localization";
 import {
 	effectiveQueryRepeatPlacement,
 	type QueryRepeatPlacement,
 } from "@/lib/domain/queryRepeatPlacement";
 import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
+import { filledProse } from "@/lib/domain/translationFill";
+import {
+	itextUnitTranslationId,
+	snapshotTranslationUnits,
+} from "@/lib/domain/translationUnits";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import {
 	type QuestionMessage,
@@ -945,6 +952,34 @@ export class FormEngine {
 
 	/** Structured-clone projection for one evaluation: the world's instances
 	 * on its first request, then only the values and relevance that changed. */
+	/** Resolve the text Core reads as a pragma at the initialized form root. */
+	async readBehaviorText(
+		role: FormBehaviorRole,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<string | null> {
+		const carrier = this.printDoc.forms[this.inputFormUuid]?.[role]?.carrier;
+		if (!carrier) return null;
+		const unitId = itextUnitTranslationId(carrier);
+		const unit = snapshotTranslationUnits(this.printDoc).get(unitId);
+		if (!unit) return null;
+		const language = resolveAppLanguage(
+			this.printDoc.localization,
+			this.presentationLanguage ?? undefined,
+		);
+		const template = filledProse(this.printDoc, unit, language);
+		const slot = itextProseSlot(carrier);
+		const parts: string[] = [];
+		for (const part of template.parts)
+			parts.push(
+				part.kind === "text"
+					? part.text
+					: xpathToString(
+							await evaluateAsync(this.expressions.prose(part, slot), "/"),
+						),
+			);
+		return parts.join("");
+	}
+
 	workerInstances(
 		path: string,
 		world?: FormEngineWorkerWorld,

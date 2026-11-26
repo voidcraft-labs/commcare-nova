@@ -1,3 +1,4 @@
+import { recordWebFormActivity } from "@/lib/db/previewWebActivity";
 import { submittedActivityFacts } from "@/lib/domain/connectSubmissionFacts";
 import { CaptureSubmissionRejectedError } from "../errors";
 // lib/case-store/postgres/store.ts
@@ -2586,6 +2587,19 @@ export class PostgresCaseStore implements CaseStore {
 				blueprintDigest: args.submissionReceipt.blueprintDigest,
 				caseDatabasePatch,
 			};
+			if (args.webActivity !== undefined)
+				await recordWebFormActivity(
+					trx,
+					{
+						appId: args.appId,
+						projectId: this.requireProjectId(),
+						actorId: this.requireActorUserId(),
+						workerId: this.requireOwnerId(),
+					},
+					args.submissionReceipt.entryKey,
+					args.webActivity,
+					"submitted",
+				);
 			await completeSubmissionReceipt(trx, {
 				appId: args.appId,
 				projectId: this.requireProjectId(),

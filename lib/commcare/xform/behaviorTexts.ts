@@ -36,6 +36,9 @@ export function formBehaviorTextIssue(
 ): FormBehaviorTextIssue | undefined {
 	const form = doc.forms[formUuid];
 	if (!form || !formBehaviorRoles.some((role) => form[role])) return undefined;
+	for (const role of ["activityTitleText", "activityWindowText"] as const)
+		if (form[role] && !form.activityKeyText)
+			return { reason: "activity-without-key", role };
 	const structure = formStructure(doc, formUuid);
 	if (!structure) return undefined;
 	const ordinary = ordinaryFormItextUnits(structure);

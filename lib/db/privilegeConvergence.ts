@@ -141,6 +141,8 @@ export interface PublicTablePolicy {
 }
 
 const RUNTIME_READ_WRITE_TABLES = [
+	"preview_form_activity",
+	"preview_web_restores",
 	"app_test_sessions",
 	"case_indices",
 	"case_type_schemas",
