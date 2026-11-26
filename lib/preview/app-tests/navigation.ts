@@ -1,10 +1,12 @@
-import { workerWording } from "@/lib/doc/localizationWorkspace";
+import {
+	workerLocalizedValues,
+	workerWording,
+} from "@/lib/doc/localizationWorkspace";
 import {
 	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
 	formLaunch,
-	localizeTranslationUnit,
 	type MenuScreen,
 	type MenuScreenEntry,
 	menuFormUuidsOf,
@@ -12,7 +14,6 @@ import {
 	moduleDestination,
 	moduleIsBareCaseList,
 	screenChoosesCaseFirst,
-	snapshotTranslationUnits,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -186,15 +187,7 @@ function appTestBadge(
 		entry,
 		platform: state.platform,
 		selectedCase,
-		localizedValues: {
-			get: (id) => {
-				const unit = snapshotTranslationUnits(context.doc).get(id);
-				return (
-					unit &&
-					localizeTranslationUnit(context.doc, context.language, unit).effective
-				);
-			},
-		},
+		localizedValues: workerLocalizedValues(context.doc, context.language),
 	});
 	return badge ? { badge } : {};
 }

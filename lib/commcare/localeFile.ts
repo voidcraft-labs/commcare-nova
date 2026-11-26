@@ -112,6 +112,8 @@ export function outputLocaleRole(unit: TranslationUnit): TranslationUnitRole {
 	switch (unit.generated?.role) {
 		case "menuTitle":
 			return "module-name";
+		case "menuBadgeText":
+			return "menu-badge";
 		case "formTitle":
 		case "registrationMenuTitle":
 			return "form-name";

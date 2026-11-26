@@ -24217,10 +24217,23 @@
 	{
 		"id": "hq-menus/translation-overrides-a-menu-badge",
 		"base": "hq-menus",
+		"entry": "application-and-settings/translations-generated-wording",
+		"change": { "op": "named", "name": "translation_overrides_a_menu_badge" },
+		"holds": [
+			{
+				"key": ["module", { "$menu": 2 }],
+				"pointer": "/badge",
+				"value": { "kind": "text", "text": "New" }
+			}
+		]
+	},
+	{
+		"id": "hq-menus/translation-overrides-a-form-badge",
+		"base": "hq-menus",
 		"entry": "application-and-settings/translations-generated-key-anything-else",
 		"standing": "not-yet",
 		"place": { "kind": "app" },
-		"change": { "op": "named", "name": "translation_overrides_a_menu_badge" }
+		"change": { "op": "named", "name": "translation_overrides_a_form_badge" }
 	},
 	{
 		"id": "hq-menus/badge-future-form-answer",

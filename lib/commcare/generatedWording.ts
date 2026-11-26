@@ -135,6 +135,7 @@ export function generatedWordingKeys(
 		}
 		if (!hidden) {
 			register(`modules.${menu}`, moduleUuid, "menuTitle");
+			register(`modules.${menu}.badge`, moduleUuid, "menuBadgeText");
 			register(`case_list_form.${menu}`, moduleUuid, "registerButton");
 			register(`case_lists.${menu}`, moduleUuid, "caseListEntry");
 			register(selectTextLocaleId(m), moduleUuid, "selectCase");

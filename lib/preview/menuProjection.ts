@@ -25,6 +25,7 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	type ModuleHierarchySource,
@@ -481,7 +482,9 @@ export function previewEntryBadge(args: {
 	const text =
 		badge.kind === "text"
 			? ((args.localizedValues.get(
-					makeTranslationUnitId(ref.entity, ref.uuid, "badge"),
+					ref.entity === "module" && !args.authoring
+						? generatedWordingId(ref.uuid, "menuBadgeText")
+						: makeTranslationUnitId(ref.entity, ref.uuid, "badge"),
 				) as string | undefined) ?? badge.text)
 			: navigationBadgeValue({
 					...args,

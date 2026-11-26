@@ -47,6 +47,7 @@ import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
 import { bindAppTestAction } from "@/lib/preview/app-tests/addresses";
 import { projectColumnDisplay } from "@/lib/preview/columnDisplay";
 import { columnOutputWording } from "@/lib/preview/localizedCaseProperties";
+import { previewEntryBadge } from "@/lib/preview/menuProjection";
 import { workerDetailTabTitle } from "@/lib/preview/workerModule";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
 import { readHqApp } from "../index";
@@ -110,6 +111,85 @@ it("keeps source and secondary wording on the exact generated output", async () 
 		[submit]: "Guardar visita",
 		[header]: "Age",
 	});
+});
+
+it("keeps a menu badge override separate from its ordinary badge in the editor and the worker", async () => {
+	const source = localizationWireFixture("bilingual");
+	const uuid = source.moduleOrder[0];
+	const raw = exportedBody({
+		...source,
+		modules: {
+			...source.modules,
+			[uuid]: { ...source.modules[uuid], badge: { kind: "text", text: "New" } },
+		},
+	});
+	const modules = raw.modules as ReturnType<typeof expandDoc>["modules"];
+	const text = { en: "New", es: "Nuevo" };
+	modules[0].custom_icons = [
+		{ doc_type: "CustomIcon", form: "badge", text, xpath: null },
+	];
+	const entries = raw.translations as Record<string, Record<string, string>>;
+	const key = "modules.m0.badge";
+	entries.en[key] = "Urgent";
+	const read = async (body: ReturnType<typeof exportedBody>) => {
+		const result = readHqApp(
+			await inputFor(body, {
+				appStrings: (doc) => localAppStringTable(doc, []),
+			}),
+			{ claims: "full" },
+		);
+		if (result.kind !== "read") throw Error(JSON.stringify(result.findings));
+		expect([...result.claims.records()]).toContainEqual(
+			expect.objectContaining({
+				entry: "application-and-settings/translations-generated-wording",
+				at: `/translations/en/${key}`,
+			}),
+		);
+		return result.draft.doc;
+	};
+	const adopted = await read(raw);
+	for (const doc of [adopted, await read(exportedBody(adopted))]) {
+		const moduleUuid = doc.moduleOrder[0];
+		const wire = expandDoc(doc);
+		expect(doc.modules[moduleUuid].badge).toEqual({
+			kind: "text",
+			text: "New",
+		});
+		expect(wire.modules[0].custom_icons).toMatchObject([{ text }]);
+		expect(wire.translations?.en[key]).toBe("Urgent");
+		expect(wire.translations?.es[key]).toBeUndefined();
+		const strings = localAppStringTable(doc, []).languages;
+		expect(strings.en[key]).toBe("Urgent");
+		expect(strings.es[key]).toBe("Nuevo");
+		const preview = (
+			language: string,
+			platform: "web-apps" | "android",
+			authoring: boolean,
+		) =>
+			previewEntryBadge({
+				doc,
+				entry: { kind: "menu", moduleUuid },
+				platform,
+				authoring,
+				localizedValues: workerLocalizedValues(doc, language),
+				session: { context: {}, user: {}, userPropertySlugs: {} },
+				lookup: { kind: "idle" },
+			});
+		expect(preview("eng", "web-apps", true)).toBe("New");
+		expect(preview("eng", "web-apps", false)).toBe("Urgent");
+		expect(preview("eng", "android", false)).toBe("Urg..");
+		expect(preview("spa", "web-apps", false)).toBe("Nuevo");
+	}
+	entries.en[key] = `\${visit_count}`;
+	const unsafe = readHqApp(
+		await inputFor(raw, { appStrings: (doc) => localAppStringTable(doc, []) }),
+		{ claims: "full" },
+	);
+	if (unsafe.kind !== "account")
+		throw Error("The badge must keep literal text.");
+	expect(unsafe.findings.map((finding) => finding.code)).toContain(
+		"application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills",
+	);
 });
 
 it("keeps separate tab wording through adoption, a source change and publishing", async () => {

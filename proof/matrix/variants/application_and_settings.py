@@ -87,6 +87,31 @@ def translation_overrides_a_menu_badge(authoring, app_id):
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Urgent"
 
 
+def translation_overrides_a_form_badge(authoring, app_id):
+    """A command badge also reads its own effective generated locale."""
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+
+    key = "forms.m2f0.badge"
+    ops.set_json(authoring, app_id, "/modules/2/forms/0/custom_icons", [
+        {"doc_type": "CustomIcon", "form": "badge", "text": {"en": "New"}, "xpath": ""},
+    ])
+    with authoring.step("variant:plain-form-badge"):
+        app = operations.held_app(authoring.state, app_id)
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "New"
+        suite = etree.fromstring(app.create_suite())
+        assert suite.xpath(f"//command/display/text[@form='badge']/locale[@id='{key}']")
+    translations = dict(app.translations)
+    translations["en"] = {**translations.get("en", {}), key: "Urgent"}
+    ops.set_json(authoring, app_id, "/translations", translations)
+    with authoring.step("variant:overridden-form-badge"):
+        app = operations.held_app(authoring.state, app_id)
+        assert app.get_module(2).get_form(0).custom_icons[0].text["en"] == "New"
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Urgent"
+
+
 def every_form_deleted(authoring, app_id):
     """The first menu's case list offered as a menu item of its own (``case_list``, shown, labelled), and then each
     of its forms deleted through the form's own delete (``views/forms.py::delete_form``), which takes the form out

@@ -286,3 +286,21 @@ def test_web_apps_displays_the_full_badges_formplayer_returns(
     response = next(menu for menu in menus if len(menu.get("commands") or ()) == len(expected))
     assert [command.get("badgeText") or "" for command in response["commands"]] == expected
     evidence("badges", {"formplayer": response["commands"], "webApps": forms["commands"]})
+
+
+def test_generated_menu_badge_is_used_in_the_web_apps_release(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.formplayer.apps import override_menu_badge
+
+    with webapps_hq.project(webapps_documents["targeted-menu-badges"]) as project:
+        with project.released(formplayer_runner, change=override_menu_badge) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Field rounds"), *steps.arrive(any_screen=True), steps.SCREEN,
+            ])
+    assert run.page_errors == [] and run.dialogs == []
+    (home,) = run.screens
+    assert [(command["text"], command["badge"]) for command in home["commands"]] == [
+        ("Visit forms", "Urgent"), ("Notes", ""),
+    ]
+    evidence("generated-menu-badge", home)

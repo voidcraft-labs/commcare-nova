@@ -272,6 +272,12 @@ def with_missing_media(holder, *, delete_file=True):
     return change
 
 
+def override_menu_badge(stored):
+    """The same generated badge key HQ reads beside the menu's own wording."""
+    assert stored["modules"][0]["custom_icons"][0]["text"]["en"] == "New"
+    stored.setdefault("translations", {}).setdefault("en", {})["modules.m0.badge"] = "Urgent"
+
+
 def generated_menu_icon(holder, scenario):
     """A released locale replaces the ordinary Visits icon with the Remarks image."""
     from lxml import etree
