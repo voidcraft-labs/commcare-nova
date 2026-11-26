@@ -274,9 +274,13 @@ def test_shared_forms_keep_their_route_and_the_links_respect_each_routes_conditi
     assert menus["Visits"] == {
         "kind": "commands",
         "title": "Visits",
-        "commands": ["Archive", "Visit notes", "Check supplies"],
+        "commands": ["Archive", "Visit notes", "Check supplies", "Register a site"],
     }
-    assert menus["Clinic"] == {"kind": "commands", "title": "Clinic", "commands": ["Visit notes", "Check supplies"]}
+    assert menus["Clinic"] == {
+        "kind": "commands",
+        "title": "Clinic",
+        "commands": ["Visit notes", "Check supplies", "Register a site"],
+    }
     assert entered["visit"] == entered["clinic_visit"] == {"kind": "form", "title": "Visit notes", "commands": []}
     assert entered["private_notes"] == {"kind": "form", "title": "Private notes", "commands": []}
     assert entered["clinic_private"] == menus["Clinic"]
