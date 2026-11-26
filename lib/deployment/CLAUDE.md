@@ -749,8 +749,10 @@ as every request deletes one it does not keep, and every request discards what i
 `finally`. Those writes come before `room.beginWrites()`: they are temporary
 objects no surface lists, under the bucket's `pending/` lifecycle rule. A file
 past `HQ_MEDIA_STREAM_MAX_BYTES` (1 GiB), or a picture past
-`WHOLE_PICTURE_MAX_BYTES` (64 MiB), is the `too-large` circumstance at its
-path. A publish sends such a file alone in its bulk upload
+`WHOLE_PICTURE_MAX_BYTES` (64 MiB), is the `media-file-too-large`
+circumstance at its path (fix in HQ), whose name is the path and the bound it
+passed; `too-large` is the app source's own size alone, which the panel and
+`read_hq_changes` lead with. A publish sends such a file alone in its bulk upload
 (`uploadBatches.ts`), with the upload's and HQ's task's deadlines lengthened by
 its size (`client.ts::uploadAppMediaBundle`).
 

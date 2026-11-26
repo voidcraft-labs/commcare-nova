@@ -1033,6 +1033,19 @@ describe("an account a page at a time", () => {
 		});
 	});
 
+	it("leads with the account's count where its one finding is a file past what Nova reads, as the panel does", () => {
+		const file = circumstanceFinding(
+			"media-file-too-large",
+			{ kind: "media", path: "jr://file/commcare/video/visit.mp4" },
+			{
+				name: "jr://file/commcare/video/visit.mp4 (over 1 GB, the most Nova reads of a video)",
+			},
+		);
+		expect(
+			describeHqChangesReview(account([file], 0), HEAD, FIRST_PAGE),
+		).toMatchObject({ kind: "account", message: cannotBringInLead(1) });
+	});
+
 	it("links no place into CommCare HQ where the deployment names no app there", () => {
 		const served = describeHqChangesReview(account([longest(0)]), HEAD, {
 			...FIRST_PAGE,

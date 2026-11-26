@@ -701,6 +701,20 @@ export function hqMediaRefusalEntry(
 	return null;
 }
 
+const KIND_NOUN: Readonly<Record<MediaKind, string>> = {
+	image: "a picture",
+	audio: "a sound",
+	video: "a video",
+};
+
+/** A bound in whole gigabytes where it is one or more, else in megabytes. */
+function sizeWords(bytes: number): string {
+	const gib = 1024 * 1024 * 1024;
+	return bytes >= gib
+		? `${Math.round(bytes / gib)} GB`
+		: `${Math.round(bytes / 1024 / 1024)} MB`;
+}
+
 /** What the verdicts of a plan's files found. */
 export interface MediaVerdictFindings {
 	readonly findings: readonly Finding[];
@@ -755,12 +769,17 @@ export function mediaFindings(input: {
 				 * `HQ_MEDIA_STREAM_MAX_BYTES`, or a picture sharp would read whole past
 				 * `WHOLE_PICTURE_MAX_BYTES`. A file past its kind's upload cap alone comes in
 				 * (`expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
-				 * HELD). The bound is Nova's, as the app source's is. */
+				 * HELD). The bound is Nova's; the file is the one thing to change, so the finding
+				 * names it and the bound it passed. */
 				log.warn(
 					"[bring-in:media] a media file was past what Nova reads of one file",
 					{ mediaKind: verdict.mediaKind, capBytes: verdict.capBytes },
 				);
-				findings.push(circumstanceFinding("too-large", place, {}));
+				findings.push(
+					circumstanceFinding("media-file-too-large", place, {
+						name: `${path} (over ${sizeWords(verdict.capBytes)}, the most Nova reads of ${KIND_NOUN[verdict.mediaKind]})`,
+					}),
+				);
 				break;
 			case "refused": {
 				const entry = hqMediaRefusalEntry(

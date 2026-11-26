@@ -32,7 +32,11 @@ import {
 	USE_HQ_VERSION_ACTION,
 	USE_HQ_VERSION_HELPER,
 } from "@/lib/publish/hqChangesCopy";
-import type { CircumstanceFinding, Finding } from "@/lib/publish/hqFindings";
+import {
+	type CircumstanceFinding,
+	circumstanceFinding,
+	type Finding,
+} from "@/lib/publish/hqFindings";
 import {
 	bothListsText,
 	cardDriftReference,
@@ -1056,6 +1060,31 @@ describe("something Nova can't hold, and the stops", () => {
 			lead: CANNOT_BRING_IN_TOO_LARGE_LEAD,
 			tooLarge,
 		});
+	});
+
+	it("draws one file past what Nova reads as the account's item, with the file named, never as the app's size", () => {
+		const file = circumstanceFinding(
+			"media-file-too-large",
+			{ kind: "media", path: "jr://file/commcare/video/visit.mp4" },
+			{
+				name: "jr://file/commcare/video/visit.mp4 (over 1 GB, the most Nova reads of a video)",
+			},
+		);
+		const view = panelView(
+			answered({
+				kind: "account",
+				findings: [file],
+				more: 0,
+				counts: { notYet: 0, never: 0, fixInHq: 1 },
+			}),
+			PUBLISH,
+		);
+		expect(view.body).toMatchObject({
+			kind: "account",
+			lead: cannotBringInLead(1),
+			tooLarge: null,
+		});
+		expect(view.drawsItem).toBe(true);
 	});
 
 	it("says CommCare HQ's version takes more checking than Nova gives one app, with the finding's block and no Check again", () => {

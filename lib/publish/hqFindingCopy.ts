@@ -833,6 +833,11 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "The app points at {name}, and CommCare HQ has no file there, so the app can't show or play it either.",
 		next: "You can upload the file again in CommCare HQ, or remove it from the app there, then check again.",
 	},
+	"media-file-too-large": {
+		title: "This file is larger than Nova reads",
+		body: "The app points at {name}, and Nova reads no file that large. That limit is Nova's, not the app's.",
+		next: "You can save a smaller copy of it in CommCare HQ, then check again.",
+	},
 	"media-not-played-where-app-runs": {
 		title: "A media file doesn't play where this app runs",
 		body: "The app points at {name}, and no platform that can run the rest of this app plays that file's format.",

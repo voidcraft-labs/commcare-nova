@@ -794,11 +794,29 @@ describe("mediaFindings", () => {
 					capBytes: 64 * 1024 * 1024,
 				},
 				{
-					code: "too-large",
-					standing: "not-yet",
+					code: "media-file-too-large",
+					standing: "fix-in-hq",
 					place: { kind: "media", path: "jr://file/a.png" },
 					subject: null,
-					detail: {},
+					detail: {
+						name: "jr://file/a.png (over 64 MB, the most Nova reads of a picture)",
+					},
+				},
+			],
+			[
+				{
+					kind: "over-limit",
+					mediaKind: "video",
+					capBytes: 1024 * 1024 * 1024,
+				},
+				{
+					code: "media-file-too-large",
+					standing: "fix-in-hq",
+					place: { kind: "media", path: "jr://file/a.png" },
+					subject: null,
+					detail: {
+						name: "jr://file/a.png (over 1 GB, the most Nova reads of a video)",
+					},
 				},
 			],
 			[
@@ -1037,7 +1055,7 @@ describe("mediaFindings", () => {
 			runsOn: ["web-apps", "android"],
 		});
 		expect(out.findings.map((finding) => finding.code)).toEqual([
-			"too-large",
+			"media-file-too-large",
 			`${E}image-tiff-heif`,
 		]);
 		expect(out.complete).toBe(true);
