@@ -687,15 +687,15 @@ describe("a completed search's snapshot", () => {
 			["ignored-child", "note", "closed", null],
 		] as const;
 		for (const [id, type, status, source] of rows) {
-			await sql`insert into cases(app_id, project_id, case_id, case_type, status, properties)
-				values (${APP_ID},${PROJECT},${id},${type},${status},${JSON.stringify(source ? { care_record: source } : {})}::jsonb)`.execute(
+			await sql`insert into cases(app_id, project_id, case_id, case_type, case_name, status, properties)
+				values (${APP_ID},${PROJECT},${id},${type},${id},${status},${JSON.stringify(source ? { care_record: source } : {})}::jsonb)`.execute(
 				dbHandle.db,
 			);
 		}
 		// A malformed imported edge can point to a different Project; membership
 		// and each target hop use the authorized app and Project.
-		await sql`insert into cases(app_id,project_id,case_id,case_type,status)
-			values (${APP_ID},'elsewhere','private','visit','open')`.execute(
+		await sql`insert into cases(app_id,project_id,case_id,case_type,case_name,status)
+			values (${APP_ID},'elsewhere','private','visit','Private','open')`.execute(
 			dbHandle.db,
 		);
 		for (const [child, ancestor, name, type] of [
