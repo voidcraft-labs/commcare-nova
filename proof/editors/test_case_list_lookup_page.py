@@ -112,4 +112,4 @@ def test_the_current_editor_requires_a_lookup_button_name(hq, editor_driver):
         answers.check()
         assert not run["pageErrors"], run["pageErrors"]
         assert not any(exchange.method == "POST" and exchange.path == save_path for exchange in answers.exchanges)
-        assert operations.held_app(state, app_id).modules[0].case_details.short.lookup_name == ""
+        assert operations.held_app(state, app_id).modules[0].case_details.short.lookup_name is None
