@@ -73,7 +73,7 @@ it("reads Nova's export of either order as the canonical one", async () => {
 });
 
 it("preserves named Results positions and Details cells when an off-list twin swaps identities", async () => {
-	const offListTwin = {
+	const offListTwin: Column = {
 		...plainColumn(uuid(21), "case_name", "Details only"),
 		visibleInList: false,
 		notOnList: true,
