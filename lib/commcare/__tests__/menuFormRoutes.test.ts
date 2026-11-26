@@ -15,8 +15,8 @@ import {
 	moduleIsCaseFirst,
 	moduleUuidOfForm,
 } from "@/lib/domain";
-import { implicitFormSelectionId } from "@/lib/domain/advancedEntryDatums";
 import { eq, literal, prop } from "@/lib/domain/expression";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { menuScreenEntries } from "@/lib/domain/menuScreens";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
 import { compileCcz } from "../compiler";
