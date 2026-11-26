@@ -334,7 +334,9 @@ kept entry is recorded with no surface key, and so is a claim that takes the
 value whole under an allowing entry with a value class, which the stage chose
 by the value it read (`no-sort-elements` for a list holding `sort_elements:
 []`), so a stage claims under such an entry only a value of its class; any
-other claim at a default records nothing (`accounting.ts::claimAtDefault`). A reading also settles, with no surface key but a file's class, what it met that
+other claim at a default records nothing (`accounting.ts::claimAtDefault`). A relation finding can locate the
+effective default it depends on. Its full claim log records the JSON pointer with no surface key
+(`accounting.ts::findingAt`). A reading also settles, with no surface key but a file's class, what it met that
 no key of the source holds: the app's id and save counter, its project space's
 profile properties, each table it holds (its tag and HQ's ids), each held file
 (its format, the media suite resource HQ's build writes for it and its `jr://file/`
@@ -377,7 +379,9 @@ for an app Nova already holds, `knownCaseTypes`, the case type each index of a
 type reaches, consulted only where the app itself fixes none (no child link,
 no parent selection, no open action's index), and the type its catalog
 declares for each property, which no print carries and every read of the
-property lowers by, and `knownLanguageCodes`, the
+property lowers by. For a positioned case change, the field's name is the
+submitted wrapper. The matched operation's Nova id comes from
+`knownPositionedCaseOperationIds`. The reader also takes `knownLanguageCodes`, the
 language each wire code it stored names, which a re-read takes before
 `languageIdentityForHqCode`. The app's first language (HQ's `langs[0]`) is its default. The
 reading's source language, whose text the document's own slots hold, is the
@@ -652,6 +656,14 @@ capability probes `CASE_SEARCH_ADVANCED`, and the `geocoder` plan feature
 Geocoder as confirmed, since HQ's form builder offers the appearance on
 every plan. Missing or
 unverified required capabilities block before writes.
+
+Android case-list lookup's fixed text arguments and ordered response names emit
+as the short detail's callout in HQ JSON and local suite XML. The writer accepts
+an action only with a label and nonempty argument and response lists. The
+publish probe accepts either project-space lookup toggle and reports missing
+only when both are confirmed off. The reader holds the corresponding literal
+XPath shape. A browser Preview without a verified result channel leaves the
+list unfiltered by the companion and points the worker to the Android app.
 
 `planPrivileges.ts::requiredPlanPrivileges` derives, from the document, what
 the publish pushes, and the attachment target the emitter is handed (a capture
@@ -956,9 +968,13 @@ and a link identifier (`questionId.ts::stopsFormBuilder`), and as a property
 name a block in a form's source writes
 (`CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP`). It reads a Save to Case
 block's `close` and `create` as the block's own action at any depth inside
-`<case>`, so a link identifier may be neither and a written property may not
-be `close`. A property a basic action alone writes is not refused: HQ's build
-adds that block and the source never holds it.
+`<case>`. A link can use either name when the same source block already has
+the matching direct action. The reader checks the raw block's direct children.
+The validator uses the planned Save to Case placement and the same action
+shape as the emitter, including whether the form's own close shares the
+block. The basic and advanced Case Management name rules are unchanged.
+A Save to Case write may not use the property name `close`. HQ's build
+adds the basic Case Management block outside the form's authored source.
 
 `xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`, which `xform/appearance.ts::fieldAppearance` writes from `UPLOAD_APPEARANCE_BY_CAPTURE_KIND`; an Image field can also hold a positive `maxDimension`. The upload writes it as `jr:imageDimensionScaledMax="<pixels>px"`. Android scales JPEG and PNG files before enforcing its upload limit. Web Apps sends the original file.
 
@@ -989,11 +1005,21 @@ Reference-capable label/hint text is a typed `ProseTemplate`; only explicit atom
 
 ### Form behavior pragmas
 
-A form behavior (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `validateChangedAnswersText`) is written as its carrier text under the pragma id (`xform/itextIds.ts::behaviorWireIds`: `Pragma-Submit-Automatically`, `Pragma-Suppress-Autosync`, `Pragma-Skip-Full-Form-Validation`), once per language, with every sharing slot's control reading that id (`fieldTextIds`, `builder.ts::addItext`). Formplayer reads each by presence (`FormSession.setAutoSubmitFlag` and its siblings). HQ's build merges itext groups equal in every language and form under the lexically first id (`xform.py::normalize_itext`), so `behaviorTexts.ts::formBehaviorTextIssue` refuses a setting an earlier equal text would absorb (`FORM_BEHAVIOR_TEXT_INVALID`, its sentence in `behaviorTextCopy.ts`). The reader takes a pragma HQ keeps (`reader/xform/itext.ts::pragmaClaim`, `X.pragmaPresence`) as the form's behavior, the first referencing slot its carrier; the activity notice's key, title and window and the saved-form descriptor stay refused.
+A form behavior (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `validateChangedAnswersText`) is written as its carrier text under the pragma id (`xform/itextIds.ts::behaviorWireIds`: `Pragma-Submit-Automatically`, `Pragma-Suppress-Autosync`, `Pragma-Skip-Full-Form-Validation`), once per language, with every sharing slot's control reading that id (`fieldTextIds`, `builder.ts::addItext`). Formplayer reads each by presence (`FormSession.setAutoSubmitFlag` and its siblings). HQ's build merges itext groups equal in every language and form under the lexically first id (`xform.py::normalize_itext`), so `behaviorTexts.ts::formBehaviorTextIssue` refuses a setting an earlier equal text would absorb (`FORM_BEHAVIOR_TEXT_INVALID`, its sentence in `behaviorTextCopy.ts`). The reader takes a pragma HQ keeps (`reader/xform/itext.ts::pragmaClaim`, `X.pragmaPresence`) as the form's behavior, the first referencing slot its carrier. The activity notice uses the same binding for `Pragma-Volatility-Key`, `Pragma-Volatility-Entity-Title` and `Pragma-Volatility-Window` (`X.pragmaActivity`). Formplayer fills their localized prose against the initialized form root. A title or window without a referenced key that survives HQ’s build is inert. The saved-form descriptor uses the same identity and collision rules under `Pragma-Form-Descriptor` (`X.pragmaFormDescriptor`) and runs on Android save.
 
 ### Markdown itext
 
-A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`, and a help text unless its question holds `plainHelp`; a form holding `plainText` writes none and carries `vellum:ignore="markdown"`. A hint and a validation message never write one: no runtime reads it. CommCare holds markdown per text across every language, so no setting is per language. A question's extended text, QR code and spoken text (`lib/domain/labelForms.ts`) are written after the label's markdown form as its `long`, `qrcode` and `tts` forms, in every language, wherever the field holds them, a blank one included (`xform/builder.ts::addItext`); the reader holds them back on a question's label (`reader/xform/prose.ts::readLabelTexts`), refuses one the form's default language lacks, leaves a `long` form on any other text not yet held (both runtimes show it in place of a group's label, a hint, a help text, a validation message its alert names, or a choice: `FormEntryCaption.getQuestionText`, `FormEntryPrompt.getSelectItemText`), and drops a `qrcode` or `tts` form on any other text as inert. A question label's inline video (`label_media.videoInline`) is written as its `video-inline` form after the label's other media (`multimedia/itextMedia.ts`), which HQ's `xform.py::video_references` collects beside `video`, so its file ships; the reader holds it as the label's media (`reader/xform/media.ts`, one file, a file per language, and the media refusals), and leaves one on any other text not yet held (`prose.ts::heldMediaForm`): Android asks a question's label alone for it.
+Group, repeat and section labels can carry localized `extended_text`. Both
+workers use the long caption where the label has no Markdown form. Core
+always reads the long title when it generates repeat add and delete captions.
+For inline video outside question labels, the reader records the exact itext
+recipient, language and wire form as unshown. First-publish review removes
+that reference and keeps shared files or mappings wherever a held slot still
+uses them.
+
+A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`. Help uses `plainHelp`. A form holding `plainText` writes no Markdown forms and carries `vellum:ignore="markdown"`. Hints and validation messages have no Markdown form. Ordinary and extended wording have separate translated prose slots. The writer places extended wording on the same text's `long` form for labels, hints, help, validation messages and inline choices. It uses the selected long wording to compose protected validation messages. Core's ordinary reader prefers the long form. Android asks for explicit Markdown first on formatted help, ordinary choices and headers. Custom repeat action captions read the default value, while generated repeat actions use the title's long form. Only a question label holds `qrcode` and `tts`.
+
+A question label's inline video (`label_media.videoInline`) writes `video-inline` beside ordinary media. HQ collects both kinds, so their files ship. Android renders inline video in a question's label pane. Formplayer sends no inline video. The importer accounts for unused inline video on other text in the first-publish review and keeps a file referred to by any live media slot. A blank Android help element kept alive solely by an inline-video form remains a separate admission boundary because removing the element also removes the help button.
 
 `xform/builder.ts::buildLabelNodes` protects authored whitespace-only runs with
 outputs that carry no Vellum shadow. Core's `XFormParser::getXMLDocument` removes
@@ -1540,6 +1566,14 @@ records of its type. Its forms' manual lists retain their configured filter.
 
 ### Authored case-operation emission
 
+A create with a calculated type keeps the empty type metadata Vellum writes.
+A fixed concatenation must resolve to the declared operation type. An imported
+conditional can choose between two distinct declared types for a fresh case
+when the saved scalar property shapes agree and no other case change consumes
+the result. The generated guard writes the resolved create type to the same
+case. Preview resolves it inside the submission transaction before writing
+the case or its properties.
+
 A write to an effective datetime property, by the operation's destination type
 after retyping, is an untyped leaf whose calculate is
 `xform/datetimeCaseValue.ts::datetimeCaseValue` of the value: the moment as
@@ -1577,7 +1611,7 @@ checks the stored text on both local CCZ and HQ-regenerated forms
 (`CaseOperationRuntimeTest`, and `StoredInstantRuntimeTest` in every device
 zone).
 
-Typed `Form.caseOperations` take the placement `planPlacements` gives them, emitted by `casePlacementPlan.ts`: a basic slot or an advanced action is HQ's form actions, and `xform/caseOps.ts` writes every Save to Case placement into the authored XForm source, so HQ upload and local `.ccz` compilation consume the same cx2 blocks; it is not another `FormActions` post-process. The question-name gate refuses names used by HQ’s form designer or by a receiver on a platform the app runs on (`lib/domain/questionId.ts`, `lib/domain/submittedAnswerName.ts`). Each generated node is named `nova_`, then its purpose and its owner's id, by `lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`, which suffixes on a collision with an authored sibling; the containers are groups (`nova_operations`, `nova_condition_<operation>`), and guards are update-only Save to Case blocks. Each Save to Case block is a Vellum-recognizable `SaveToCase` wrapper carrying `vellum:case_type`. A leaf of a case block carries no `type` and no `constraint`. Singular operations live in the form root container, which is prepended before authored fields. Repeated operations are appended into the referenced repeat's exact iteration template after its authored children. Because CommCare Core executes case blocks in XML document order and a repeated effect cannot leave that template, the only representable cross-scope sequence is root followed by repeat scopes in post-order field traversal; `lib/doc/caseOperationOrder.ts` is the shared validator/planner proof of that constraint. On local compilation, the blocks of HQ's basic `FormActions` are spliced where HQ's build writes them ("Repeat-context subcase splice" below), and an advanced form's by `xform/advancedCaseBlocks.ts` ("Advanced modules" below): the form's own `case` (an advanced form's root `case_<tag>` blocks) after the authored field tree, so it executes after every Save to Case block. Where a form's own close cannot share the own arm's place, it takes a block of its own and `close_case.condition` is `never`: `nova_close` inside the group `nova_condition_close`, whose `relevant` is the close condition, or in a several-case form a close-only block of each selected case, `nova_close_selected_cases`, in that row's `nova_operations` group: inside the row's `nova_condition_close` group, whose `relevant` is the close condition, where the form closes under one (Save to Case shape `selected-cases/selected-case/operations/condition/block`), and directly in the operations group where it closes every selected case (`selected-cases/selected-case/operations/block`). No bind is written on a close-only block's `case/close`. A row whose condition group is not relevant submits no block (Core leaves a non-relevant node and its children out of the submission, `XFormSerializingVisitor::serializeNode` over `TreeElement::setRelevant`'s inheritance), so CommCare HQ sees no case block for a case the condition leaves open and records no transaction for it (`casexml/apps/case/xform.py::_extract_case_blocks`); a bind on `case/close` would leave the block, with no action in it, and HQ would move the case's `modified_on` and record a transaction for it (`backends/sql/update_strategy.py::SqlCaseUpdateStrategy.update_from_case_update`, over `_apply_case_update` and `add_transaction_for_form`). A held place whose length is not the shape's is an inexpressible hold (`HELD_PLACEMENT_INEXPRESSIBLE`, reason `block-shape`), and the plan places the block at its shape. The rolling type proof includes the basic blocks as final consumers: a write of the own arm and every basic child's parent index require the session case to retain the module type. A write-free close block needs only the case id and remains type-agnostic. The proof keeps every transition rather than only the latest nominal type, so a conditional restore cannot hide the branch where the case still has the prior transitioned type.
+Typed `Form.caseOperations` take the placement `planPlacements` gives them, emitted by `casePlacementPlan.ts`: a basic slot or an advanced action is HQ's form actions, and `xform/caseOps.ts` writes every Save to Case placement into the authored XForm source, so HQ upload and local `.ccz` compilation consume the same cx2 blocks; it is not another `FormActions` post-process. The question-name gate refuses names used by HQ’s form designer or by a receiver on a platform the app runs on (`lib/domain/questionId.ts`, `lib/domain/submittedAnswerName.ts`). Each generated node is named `nova_`, then its purpose and its owner's id, by `lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`, which suffixes on a collision with an authored sibling; the containers are groups (`nova_operations`, `nova_condition_<operation>`), and guards are update-only Save to Case blocks. Each Save to Case block is a Vellum-recognizable `SaveToCase` wrapper carrying `vellum:case_type`. A create brought in with a concatenation of literal strings uses its fixed case type for the catalog and execution. Its retained calculation is written as a calculation with blank type metadata, so HQ's save references describe the same app. A leaf of a case block carries no `type` and no `constraint`. Singular operations live in the form root container, which is prepended before authored fields. Repeated operations are appended into the referenced repeat's exact iteration template after its authored children. Because CommCare Core executes case blocks in XML document order and a repeated effect cannot leave that template, the only representable cross-scope sequence is root followed by repeat scopes in post-order field traversal; `lib/doc/caseOperationOrder.ts` is the shared validator/planner proof of that constraint. On local compilation, the blocks of HQ's basic `FormActions` are spliced where HQ's build writes them ("Repeat-context subcase splice" below), and an advanced form's by `xform/advancedCaseBlocks.ts` ("Advanced modules" below): the form's own `case` (an advanced form's root `case_<tag>` blocks) after the authored field tree, so it executes after every Save to Case block. Where a form's own close cannot share the own arm's place, it takes a block of its own and `close_case.condition` is `never`: `nova_close` inside the group `nova_condition_close`, whose `relevant` is the close condition, or in a several-case form a close-only block of each selected case, `nova_close_selected_cases`, in that row's `nova_operations` group: inside the row's `nova_condition_close` group, whose `relevant` is the close condition, where the form closes under one (Save to Case shape `selected-cases/selected-case/operations/condition/block`), and directly in the operations group where it closes every selected case (`selected-cases/selected-case/operations/block`). No bind is written on a close-only block's `case/close`. A row whose condition group is not relevant submits no block (Core leaves a non-relevant node and its children out of the submission, `XFormSerializingVisitor::serializeNode` over `TreeElement::setRelevant`'s inheritance), so CommCare HQ sees no case block for a case the condition leaves open and records no transaction for it (`casexml/apps/case/xform.py::_extract_case_blocks`); a bind on `case/close` would leave the block, with no action in it, and HQ would move the case's `modified_on` and record a transaction for it (`backends/sql/update_strategy.py::SqlCaseUpdateStrategy.update_from_case_update`, over `_apply_case_update` and `add_transaction_for_form`). A held place whose length is not the shape's is an inexpressible hold (`HELD_PLACEMENT_INEXPRESSIBLE`, reason `block-shape`), and the plan places the block at its shape. The rolling type proof includes the basic blocks as final consumers: a write of the own arm and every basic child's parent index require the session case to retain the module type. A write-free close block needs only the case id and remains type-agnostic. The proof keeps every transition rather than only the latest nominal type, so a conditional restore cannot hide the branch where the case still has the prior transitioned type.
 
 `placement.ts::planPlacements(doc, formUuid)` gives every operation and a form's own close its placement: a hold first, then the simplest placement that can express it, by the closed eligibility conditions of `placement.ts`. Which of the own arm and the creates take a basic slot is the domain's one answer, `lib/domain/basicCaseSlots.ts::basicCaseSlots`, because the entry's session values read it too: HQ gives a registration's new case its `case_id_new_<type>_0` datum only where `open_case` is active, and a child its datum only as a basic subcase outside a repeat (`suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta`), so `entryDatumSupplies` and `planFormCaseWire`'s datums cannot disagree. HQ's build appends a basic slot's element by name beside whatever the parent holds (`subcase_<i>`, `commcare_usercase`; `xform.py::XForm._create_casexml`, `_add_usercase`), where a question of that name would share its bind and its path with the case block, so an unheld slot whose element an authored name takes is not eligible (`basicCaseSlots.ts::appendedNameTaken`, reason `appended-name-taken`) and its change takes Save to Case; a held slot keeps its name, and `HELD_BLOCK_PATH_TAKEN` refuses the question, offering the next free id. A registration whose own arm takes Save to Case opens no case and requires none in HQ's terms, so its `update_case` is `never` like a survey's (HQ's build raises `CaseError` for an active update there, `xform.py::XForm._create_casexml`, which the HQ JSON oracle's `HQJSON_UPDATE_WITHOUT_CASE` holds), and neither HQ's build nor the local archive writes its form-level `case` block. It therefore supplies no `new-case` datum: the checker refuses a read of that case or the cases above it (`SESSION_DATUM_NOT_SUPPLIED`, reason `own-case-save-to-case`), its own close block and its operations read its block's id, and it cannot be a menu's case list registration form (`CASE_LIST_REGISTRATION_NOT_REGISTRATION`, since HQ's build admits a case-list form only with `open_case` active, `FormBase.is_registration_form`). HQ counts `open_case` and every root subcase of the list's type and admits exactly one (`Form.get_registration_actions`), so a form that also creates a same-type child at its root is refused too (reason `several-registrations`), for both arms. `casePlacementPlan.ts::planFormCaseWire` turns those placements into everything the wire needs (the basic or advanced form actions, the Save to Case blocks, their generated nodes, the entry's datums, the local blocks), so the action list, the datum list and the block paths cannot disagree. The own case's change is independent of every other operation's: no other operation writes, retypes or closes what the own arm writes (`validator/rules/caseOperations.ts`, `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case` and `CASE_OPERATION_CLOSES_OWN_CASE`), so the own arm means the same wherever its block runs.
 
@@ -1599,7 +1633,7 @@ The operation export corpus starts from strictly admitted documents and emits ac
 
 A condition has two spellings, by what HQ's form builder keeps. A conditional create carries it as `relevant` on `<block>/case`, the builder's Open Case Condition. A conditional update or close sits inside the group `nova_condition_<operation id>`, whose bind carries `relevant`, because the builder writes no bind for a block's own node. Every guard of a conditional operation, a create's included, sits inside that group: a guard that ran while its create did not would update a case that does not exist. Write conditions stay child relevance. A consumer of an earlier conditional create automatically inherits that create's relevance (transitively): if the producer does not execute, no target/link/value may leak its preallocated UUID into an update-only block or dangling index. Conditional retypes participate in the same shared guard analysis: a later operation/link that requires the destination type inherits the transition condition, while a source-type consumer after the transition is rejected. The preview's operation-program fold (`lib/preview/engine/caseDataBindingHelpers.ts`) must use `caseOperationConditionalGuardUuids`, not treat an allocated id or declared retype as proof that the producer effect ran. The validator dry-runs these same emitters after type checking so a schema-valid but nonportable expression cannot reach compilation.
 
-Operation assignment typing follows storage direction, not the symmetric comparison table: exact representations, integer-to-decimal, text/single-select strings, and a number or a date into a text property (a case block leaf has no `type`, so Core submits the text `Recalculate.wrapData` holds) are portable, and so is a single choice into a multi-select property (one choice is a list holding it alone: the device stores both as their values' text, and the case store lifts the choice into a one-element list, `postgres/submissionEnvelope.ts::storageValueFromEvaluation`); decimal-to-int, any other scalar-to-multi-select, null-as-clear, and any incompatible branch are not. A direct multi-select form answer may write a multi-select property, but concat/coercion cannot turn its Nova JSON array into CommCare's token string implicitly. `concat` is the explicit boolean-to-text boundary; boolean primitives hidden under numeric/date coercion remain rejected. Generic writes admit the standard `external_id` scalar and route it outside JSONB; `case_name` stays owned by the dedicated name/rename facets. Retype has a second parity gate: only `planCaseRetype(...).wirePortable` plans emit, meaning every existing JSON property retains the exact same type and no value needs conversion or parking. CommCare's wire changes only `case_type`; source-only or converted values would otherwise remain lexically present on device while Nova changed its active projection. Scalar case metadata such as `case_name` and `external_id` is outside that JSON plan and survives normally.
+Operation assignment typing follows storage direction, not the symmetric comparison table: exact representations, integer-to-decimal, text/single-select strings, and a number or a date into a text property (a case block leaf has no `type`, so Core submits the text `Recalculate.wrapData` holds) are portable, and so is a single choice into a multi-select property (one choice is a list holding it alone: the device stores both as their values' text, and the case store lifts the choice into a one-element list, `postgres/submissionEnvelope.ts::storageValueFromEvaluation`); decimal-to-int, any other scalar-to-multi-select, null-as-clear, and any incompatible branch are not. A direct multi-select form answer may write a multi-select property, but concat/coercion cannot turn its Nova JSON array into CommCare's token string implicitly. `concat` is the explicit boolean-to-text boundary; boolean primitives hidden under numeric/date coercion remain rejected. Generic writes admit the standard `external_id` scalar and route it outside JSONB; `case_name` stays owned by the dedicated name/rename facets. Retype has a second parity gate: only `planCaseRetype(...).wirePortable` plans emit, meaning each existing JSON value can remain unchanged. Identical property types and a date becoming text preserve the existing JSON value. Other type changes and source-only properties require conversion or parking. CommCare's wire changes only `case_type`; source-only or converted values would otherwise remain lexically present on device while Nova changed its active projection. Scalar case metadata such as `case_name` and `external_id` is outside that JSON plan and survives normally.
 
 These case-operation wire facts were verified against `commcare-core`
 `CaseXmlParser.java` at `130df00962a289381a8e0936c3ea5d3f53d96f73`, Vellum
@@ -2197,9 +2231,14 @@ because every Nova-uploaded module carries a `search_config` shell, which is
 what its `non-unique instance name` checks key on: `FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE`
 (inline needs a case datum on every entry), `FORMS_READ_SEARCH_NO_BUTTON_DISPLAY_CONDITION`
 (there is no action for `relevant` to gate), and
-`FORMS_READ_SEARCH_UNIQUE_INSTANCE` (no submenu under, and no parent-select from, a
-menu whose forms read the search; such a CHILD of an ordinary parent-select source
-is fine). `FORMS_READ_SEARCH_WITH_LIST_FIRST` refuses the pair HQ reads as no
+`FORMS_READ_SEARCH_UNIQUE_INSTANCE` (navigation and selection parents using inline search need distinct effective
+results names from their child, even when the child has no Search action).
+An ordinary Search action keeps its own remote-request instance. An inline
+query stores into `results:<menu searchResultsName or inline>`. Its input
+instance is `search-input:<result id>`. Forms bind prompts by UUID, with an
+explicit supplier menu UUID for a parent's query. HQ first aligns entry datums
+and then inserts the queries before their physical selections. The reader
+and emitter derive the same supplier identities from that entry. `FORMS_READ_SEARCH_WITH_LIST_FIRST` refuses the pair HQ reads as no
 inline search. The setter tool refuses a workflow on an owner-only config
 because there is no search to open on.
 
@@ -2443,8 +2482,7 @@ which keeps its directory; the media suite writes each file's own
 `./<dir>/<name>`, HQ's `media_resources` rule, which CommCare Android installs
 at `<dir>/<name>` where `jr://file/<dir>/<name>` reads it), and the `.ccz` and
 the bulk upload name the file at that path.
-`readHqAppSource` reads `build_profiles` so that a publish can refuse to leave
-a profile naming a language the app no longer has (`targetBuildProfiles.ts`).
+`readHqAppSource` preserves the name, key, ordered languages and target worker for each installation profile. The reader refuses a selected profile without a usable first language. The emitter includes the full destination-bound map on create, including the initial shell. HQ ignores the map on update. The Releases page owns the browser save. A named device package carries the profile ID and exactly its selected locales, including each form’s itext. A private practice installation is built by its project space. The released-build probe checks the selected ID, suite, locales and restore length. The separate working-app probe asks only for the selected suite, whose generator validates a practice worker. The working app’s profile and restore URLs would start a build.
 Which of the two a publish does, and what happens to it
 afterwards, lives in `lib/deployment`:
 this package owns the HTTP calls, that one owns the lifecycle, the ownership
@@ -2591,7 +2629,7 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 - Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
-- A Save to Case question at an authored position, a late flag column, a search filter the case list does not share on a menu whose forms do not read the search, a preload held at the end of the load, saving only a changed answer anywhere but a follow-up form's own update, an advanced tag or an index name with a hyphen (each a manifest HELD-NEW row the reader raises).
+- A Save to Case question whose position or guards the form cannot preserve, a late flag column, a search filter the case list does not share on a menu whose forms do not read the search, a preload held at the end of the load, saving only a changed answer anywhere but a follow-up form's own update, an advanced tag or an index name with a hyphen (each a manifest HELD-NEW row the reader raises).
 
 ### Named entry points
 
@@ -2660,17 +2698,18 @@ group's first case and passes it for every body icon (`menus/views.js::iconClick
 nothing, so an app that runs on Android holds none. HQ's Case List editor offers
 only forms whose XForm makes `Pragma-Submit-Automatically` a question's label
 (`views/modules.py::_form_endpoint_options`, `Form.is_auto_submitting_form`);
-that answer comes from `lib/domain/automaticSubmission.ts`, and while Nova has no
-automatic submission no form qualifies and the gate refuses every icon action
-(`CASE_LIST_ICON_ACTION_INVALID`, an app rule, since an edit to another menu's
-form can strand it). The HQ JSON writes the short detail's column as
+`xform/behaviorTexts.ts` checks that exact text role, and
+`CASE_LIST_ICON_ACTION_INVALID` rechecks it when another menu's form changes.
+Preview submits a tapped action through the same authorized form opening and
+submission used by the form itself, then returns to the current Results. The HQ JSON writes the short detail's column as
 `clickable-icon` with the destination's current `endpoint_action_id`; the suite
 writes `template form="clickable-icon"` and `<endpoint_action endpoint_id=…
 background="true"/>` after the template (`xml_models.py::Field.ORDER`), and in a
 named tile after the cell's template as `icon_text_grid.xml` does. The case
 detail keeps the image. The project space needs `CASE_LIST_CLICKABLE_ICON`
-beside the deep links' `SESSION_ENDPOINTS`. The reader still refuses an HQ
-clickable icon as HELD-NEW (`menus-and-case-lists/16-clickable-icon-…`).
+beside the deep links' `SESSION_ENDPOINTS`. The reader keeps an actionable icon
+on Results and checks its destination once the form and selection arguments
+have been resolved.
 
 ### Manual links into Search
 
@@ -2686,6 +2725,15 @@ manual query may only retain an existing source selection under the same datum.
 at both shared mutation gates. Ordinary list destinations retain manual values.
 
 Parent-record selection is explicit on `Module.parentCaseModuleUuid`. Both the HQ `parent_select` and shared session-datum projection read that identity; catalog ancestry and structural menu nesting do not infer it. Flat modules may contain child records and unparented records of the same type. Parent selectors follow direct non-extension child indexes; an advanced menu's chained load follows the one index name `advancedChainIndex` gives ("Advanced modules" above). The existing target-specific HQ refusal for a multiple-parent selector remains; Preview and local CCZ retain their supported union semantics.
+
+### Basic writes through a user connection
+
+A basic follow-up can save a property through the selected case's literal
+`user` connection when the catalog declares one ordinary destination type.
+The wire keeps the `user/<property>` update key. The case store resolves the
+same connection against the form's opening snapshot and refuses the
+submission if the connection is absent. HQ's Case Management editor needs
+the worker-records plan feature to keep this key.
 
 ### Ordinary datetime case writes
 
@@ -2714,6 +2762,17 @@ status use attributes; external ID remains Core's copied child property.
 `StandardCaseReadsRuntimeTest` executes all supported metadata reads in the exact
 CCZ against native Case instances, including a closed parent.
 
+## Android case-list companion request values
+
+A case-list lookup sends fixed text and the typed active worker username or ID
+before any case is chosen. Local suites and HQ JSON lower those reads through
+the same session-context path as other typed expressions. The reader accepts
+these two preselection fields from native source and retains its unsupported
+finding for other calculations. A plain case list can hold a translated
+confidence heading. Its wire template keys the companion's scores by the
+existing case ID. Android displays those scores for matching cases in the
+device's eligible list. The browser Preview has no companion return channel.
+
 ## Case-backed question choices
 
 `caseOptions.ts::caseOptionsNodeset` lowers the typed cases source to a standard
@@ -2728,7 +2787,9 @@ record scope, and the same earlier/current-or-enclosing-repeat answer rule as
 lookup filters. It dry-runs `toWire` to reject unsupported relation shapes before commit. This adds no report instance or arbitrary nodeset
 source. Core's ItemSetUtils::populateDynamicChoices evaluates the nodeset in the
 question context and the label/value in each candidate context; CaseInstanceTreeElement
-reads local case storage. The native case-choice family checks CCZ and HQ-regenerated
+reads local case storage. A single-select `available-cases` source uses the
+bare worker casedb or one `@status = 'open'` predicate, with exact case IDs and
+names in both paths. The native case-choice family checks CCZ and HQ-regenerated
 forms with duplicate names, changed earlier answers and final-only attendance effects.
 
 Vellum's `src/itemset.js::Itemset.itemsetData.validationFunc` requires the
@@ -2810,3 +2871,11 @@ A control-less leaf holds its answer type by the class Core reads (`XFormParser.
 A form has two orders. The primary instance, expressions, generated siblings and HQ case question paths follow the submitted groups in `lib/domain/submissionLayout.ts`. Body controls follow the worker's screen groups from `fieldOrder`. A saved Vellum question can sit under a different group on screen within the same enclosing repeat. The reader joins the controls to their data nodes before minting identities, so a wording change keeps both orders, including intervening hidden values.
 
 The first element of the model's unnamed instance is the submitted answer envelope. Vellum's `parseDataTree` retains its tag and `setFormID` binds `#form` to it. HQ's `XForm.resolve_path` prefixes relative question paths with that tag. The reader retains the root on the form, and the compiler, generated case and metadata writers, expression printers and attachment references take their structural paths from that form. Secondary instances keep their own names.
+
+The named installation reader uses `ApplicationResource.dehydrate(extras=true)` against a specific build ID. Validate the envelope and stored domain, working app, build, version, released state and complete selected profile. Inspect lengths at exact `external_blobs["files/<key>/…"]` paths. Keep only the verdict; the raw application and blob identifiers are private. A cold named download, including HEAD, calls `create_build_files` and saves the build. The named working suite validates the chosen account. The ordinary working suite lists the enabled forms independently of which attachments were stored. Only an unchanged working save equal to the identified build version binds its generated form inventory. Preparing an actual nonempty named restore depends separately on the build’s effective practice privilege.
+
+An Android app question emits one head action whose ID is its question ID. Ordinary questions can invoke that action by UUID and keep their own bind types. The target form owns its input expressions and result destinations. The writer lowers inputs before collecting secondary instances and prints destination paths from the current document. On read, the question ID must agree with the definition Vellum will attach to the mug. A print question, quick action and unmapped definition keep their separate findings. Publishing selects HQ's built-in or custom action privilege from the action string.
+
+### Generated navigation media
+
+A generated icon or spoken-label override keeps its resolved Project asset beside the carrier's ordinary language map. The current menu or form position supplies the generated locale key. HQ only packages an asset when its ordinary media surfaces discover it in the build languages, so Nova admits an override when an ordinary menu or form carries that file in the same language. An override cannot activate a media locale when the selected installation uses no ordinary file for it. Local archives and Preview apply the locale override after selecting the ordinary language files.

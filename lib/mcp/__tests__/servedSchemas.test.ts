@@ -405,10 +405,19 @@ it("tells a client what an upload records and what a move offer asks of the user
 	);
 });
 
-it("tells a client what a build profile's stop asks of it, right after the unreadable source's", () => {
-	expect(served("upload_app_to_hq").description).toContain(
-		"If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If an application profile of the app on CommCare HQ includes a language the app no longer has, the call returns `hq_build_profile_language_missing` before sending the app's content: relay the `message` and its `url`, and upload again once the user has changed the profile there.",
-	);
+it("tells a client what to do for unreadable source and installation profile stops", () => {
+	const { description } = served("upload_app_to_hq");
+	const instructions = [
+		"If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged.",
+		"If an installation profile needs an edit in the project space, show the complete hq_installation_profile_review message and its review_url. Follow any Read the next part choice until the complete review has been disclosed. Use the replacement_choices labels to browse Nova installations and their matching installations in the project space. Send the chosen navigation token to see that page. Ask the user to confirm the exact destination ID, languages and worker before sending a binding choice. Ask the user to confirm a newly selected practice worker before sending confirm_installation_profiles with the returned confirmation.",
+		"If an application profile of the app on CommCare HQ includes a language the app no longer has, the call returns `hq_build_profile_language_missing` before sending the app's content: relay the `message` and its `url`, and upload again once the user has changed the profile there.",
+	];
+	let previous = -1;
+	for (const instruction of instructions) {
+		const position = description?.indexOf(instruction) ?? -1;
+		expect(position, instruction).toBeGreaterThan(previous);
+		previous = position;
+	}
 });
 
 it("tells a client what the two stops over data CommCare HQ manages ask of it, right after the drift stop's", () => {

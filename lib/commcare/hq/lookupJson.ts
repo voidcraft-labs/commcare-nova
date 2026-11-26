@@ -53,7 +53,10 @@ import "server-only";
 
 import { recordFromEntries } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
-import { HQ_LOOKUP_DETAIL_MAX_BYTES } from "./bounds";
+import {
+	HQ_LOOKUP_DETAIL_MAX_BYTES,
+	HQ_LOOKUP_EDIT_PROBE_MAX_BYTES,
+} from "./bounds";
 import { withHqRequestDeadline } from "./deadline";
 import {
 	type CommCareApiError,
@@ -68,6 +71,7 @@ import {
 	writeMayHaveLanded,
 } from "./http";
 import { isHqObject } from "./readCollection";
+import { readHqJson } from "./readJson";
 
 /** CommCare HQ's own id of a table or a row: a UUID's hex, no hyphens. */
 const REMOTE_ID = /^[a-f0-9]{32}$/;
@@ -75,7 +79,7 @@ const REMOTE_ID = /^[a-f0-9]{32}$/;
 const SORT_KEY_MIN = -2_147_483_648;
 const SORT_KEY_MAX = 2_147_483_647;
 /** One write's whole exchange, as the workbook upload's own deadline. */
-const WRITE_DEADLINE_MS = 60_000;
+export const HQ_LOOKUP_JSON_WRITE_DEADLINE_MS = 60_000;
 
 /** A table's definition as the JSON resource takes it. */
 export interface HqLookupJsonDefinition {
@@ -113,6 +117,34 @@ export type HqLookupJsonWrite<T> =
 
 function root(domain: string): string {
 	return `${hqDomainPath(domain)}/api`;
+}
+
+/** HQ's lookup JSON resources authenticate API access. The device-log
+ * reader independently requires edit_data on both the user and a role-scoped
+ * API key. An empty, filtered, one-row read checks that permission without
+ * fetching a device record or starting an HQ job. */
+export async function checkHqLookupJsonWrite(
+	creds: CommCareCredentials,
+	domain: string,
+	cancel?: AbortSignal,
+): Promise<"confirmed" | "denied" | "unavailable"> {
+	if (!isValidDomainSlug(domain)) return "unavailable";
+	const response = await readHqJson(
+		creds,
+		`${root(domain)}/device-log/v1/?limit=1&device_id=00000000000000000000000000000000`,
+		"lookup data permission",
+		{ maxBytes: HQ_LOOKUP_EDIT_PROBE_MAX_BYTES, deadlineMs: 10_000, cancel },
+	);
+	if ("success" in response)
+		return !response.edgeRefusal &&
+			(response.status === 401 || response.status === 403)
+			? "denied"
+			: "unavailable";
+	return isHqObject(response.data) &&
+		Array.isArray(response.data.objects) &&
+		response.data.objects.length === 0
+		? "confirmed"
+		: "unavailable";
 }
 
 function validSortKey(value: number): boolean {
@@ -232,7 +264,7 @@ async function write<T>(
 			}
 			return { kind: "applied", value };
 		},
-		WRITE_DEADLINE_MS,
+		HQ_LOOKUP_JSON_WRITE_DEADLINE_MS,
 		cancel,
 	);
 }

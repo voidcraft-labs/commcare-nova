@@ -119,6 +119,7 @@ export type ValidityClass =
 export const VALIDITY_CLASS_BY_CODE = {
 	// ── App-level ────────────────────────────────────────────────────
 	MENU_FORM_SOURCE_INVALID: "soundness",
+	ANDROID_APP_ANSWER_INVALID: "soundness",
 	ENTRY_POINT_INVALID: "soundness",
 	CASE_LIST_ICON_ACTION_INVALID: "soundness",
 	FORM_BEHAVIOR_TEXT_INVALID: "soundness",
@@ -206,6 +207,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_DETAIL_TAB_ROWS_INVALID: "soundness",
 	CASE_DETAIL_TABS_INVALID: "soundness",
 	CASE_LIST_LOAD_BEHAVIOR_INVALID: "soundness",
+	CASE_LIST_DEVICE_LOOKUP_INVALID: "soundness",
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: "soundness",
 	CASE_LIST_MAPPING_CONDITION: "soundness",
 	CASE_LIST_CALCULATED_SORT_TYPE_ERROR: "soundness",
@@ -230,9 +232,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_TYPE_ERROR: "soundness",
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_NOT_ON_DEVICE: "soundness",
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: "soundness",
+	CASE_SEARCH_GROUP_FIELD_NAME_COLLISION: "soundness",
 	CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER: "soundness",
 	CASE_SEARCH_FILTER_INVALID: "soundness",
 	CASE_LIST_SEARCH_INPUT_NAME_RESERVED: "soundness",
+	PROJECT_SEARCH_REQUEST: "soundness",
 	CASE_LIST_BARE_SEARCH_INPUT_REF: "soundness",
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: "soundness",
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: "soundness",
@@ -258,6 +262,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_CLOSED_ON_NOT_ON_DEVICE: "soundness",
 	MULTI_SELECT_PERSISTENT_TILE: "soundness",
 	MULTI_SELECT_NO_BATCH_CONSUMER: "soundness",
+	MULTI_SELECT_SEARCH_ON_CLEAR: "soundness",
 	// Tile geometry and coverage are soundness: a cell off the grid, two
 	// cells on one square, or a shown field with nowhere to sit each
 	// produce a layout the running app draws differently from the one the
@@ -407,6 +412,12 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// A root field and a Connect block of one form would be two elements of
 	// one name in the form's data root.
 	CASE_OPERATION_DUPLICATE_UUID: "soundness",
+	CASE_OPERATION_OWNER_CONDITION_INVALID: "soundness",
+	CASE_OPERATION_CLOSE_CONDITION_INVALID: "soundness",
+	CASE_OPERATION_CLOSE_ACTION_REQUIRED: "soundness",
+	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: "soundness",
+	CASE_OPERATION_TYPE_CHOICE_INVALID: "soundness",
+	CASE_CHANGE_POSITION_INVALID: "soundness",
 	CASE_OPERATION_INVALID_ID: "soundness",
 	CASE_OPERATION_DUPLICATE_ID: "soundness",
 	CASE_OPERATION_INVALID_FACETS: "soundness",

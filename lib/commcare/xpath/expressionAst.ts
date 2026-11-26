@@ -275,22 +275,38 @@ export function bindFormSyntax(
 			node.namespace === "search" ||
 			node.namespace === "case"
 		) {
-			if (node.segments.length !== 1)
+			if (
+				node.segments.length !== 1 &&
+				!(node.namespace === "search" && node.segments.length === 2)
+			)
 				refuse("unknown-hashtag", node, RECORD_REFERENCE_SHAPE);
-			const property = node.segments[0];
+			const property = node.segments[node.segments.length - 1];
 			if (node.namespace === "user")
 				return term(formUserProperty(scope, property, "worker-record"), node);
 			if (node.namespace === "search") {
 				const matches =
-					ctx.form?.searchInputs.filter((input) => input.name === property) ??
-					[];
+					ctx.form?.searchInputs.filter(
+						(input) =>
+							input.name === property &&
+							input.supplierId ===
+								(node.segments.length === 2 ? node.segments[0] : undefined),
+					) ?? [];
 				if (matches.length !== 1)
 					refuse(
 						"unknown-search-input",
 						node,
 						`This menu's search has no field called ${property}.`,
 					);
-				return term({ kind: "input", searchInputUuid: matches[0].uuid }, node);
+				return term(
+					{
+						kind: "input",
+						searchInputUuid: matches[0].uuid,
+						...(matches[0].supplier !== undefined && {
+							supplier: matches[0].supplier,
+						}),
+					},
+					node,
+				);
 			}
 			const selected = scope.authoring?.selectedCaseType;
 			if (selected === undefined)

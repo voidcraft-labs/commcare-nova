@@ -88,6 +88,7 @@ import {
 	hqExpressionField,
 } from "../../suite/case-list/orderPlanOptions";
 import { emitSearchFilterValue } from "../../suite/case-search/nativeFilters";
+import { projectSearchValue } from "../../suite/case-search/projectSearch";
 import { searchPromptWire } from "../../suite/case-search/searchPrompts";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
@@ -767,11 +768,13 @@ function formEmission(
 	const mod = doc.modules[moduleUuid];
 	const links = linkContextOf(doc, naming);
 	const own = selectedCaseSessionDatum(doc, links, moduleUuid, formUuid);
-	const searchAnswers =
-		moduleFormsReadSearch(mod) ||
+	const searchAnswers = searchAnswersOf(
+		doc,
+		moduleUuid,
 		afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid
-			? searchAnswersOf(doc, moduleUuid)
-			: undefined;
+			? undefined
+			: formUuid,
+	);
 	let datumId: WireTermBindings["datumId"];
 	const bindings: WireTermBindings = {
 		formCaseProperty: formCasePropertyRead({
@@ -789,6 +792,9 @@ function formEmission(
 			? {}
 			: {
 					searchInputInstanceId: searchAnswers.instanceId,
+					searchAnswerInstances: searchAnswers.answers,
+					searchResultInstances: searchAnswers.instances,
+					searchResultInstance: searchAnswers.resultsInstanceId,
 					searchInputNames: searchAnswers.names,
 				}),
 		datumId: (ref) => {
@@ -1287,6 +1293,18 @@ function printSlotWith(
 						rewrites,
 					),
 				);
+			case "project_search_parameter":
+				return text(
+					projectSearchValue(
+						expression,
+						ref.member.parameterUuid,
+						expressions,
+						naming,
+						searchInstanceOf(mod),
+						caseListStepDatumId(doc, ref.uuid, "chainId"),
+						rewrites,
+					),
+				);
 			case "search_button_display_condition":
 				return hq(
 					projectSearchButtonCondition(
@@ -1607,7 +1625,7 @@ function printSlotWith(
 					? (field.optionsSource as SelectOptionsSource | undefined)
 					: undefined;
 			const path = projection.path({ kind: "field", uuid: ref.uuid });
-			if (choices === undefined || choices.kind === "inline" || !path)
+			if ((choices?.kind !== "cases" && choices?.kind !== "lookup") || !path)
 				throw new Error(
 					`The question ${ref.uuid} takes no choices from a table or from cases.`,
 				);
@@ -1668,7 +1686,7 @@ function searchInstanceOf(
 ): `search-input:${string}` | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
-	const wire = searchWireShape(config);
+	const wire = searchWireShape(config, mod?.searchResultsName);
 	return wire === undefined ? undefined : searchInputInstanceId(wire);
 }
 

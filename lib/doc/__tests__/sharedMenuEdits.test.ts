@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	REGISTER,
 	ROUTE,
@@ -21,13 +22,20 @@ import {
 } from "@/lib/doc/sharedMenuHierarchy";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	calculatedColumn,
+	idMappingColumn,
 	makeTranslationUnitId,
+	projectLocalizedModule,
 	resolveTranslationUnitValue,
+	simpleSearchInputDef,
+	tileCell,
 	translationUnitsById,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/expression";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import { input, literal, term } from "@/lib/domain/expression";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
+import { previewCaseListOrderLocale } from "@/lib/preview/engine/caseListOrder";
 
 function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 	const verdict = mutationCommitVerdict(
@@ -237,6 +245,184 @@ it("starts a listed child with its source child's localized navigation files", (
 			effectiveAppLocalization(after.localization),
 		),
 	).toEqual({ icon, audioLabel });
+});
+
+it("gives a listed child's detail, search and wording settings their own identities", () => {
+	const before: BlueprintDoc = {
+		...apply(twoMenus(), [{ kind: "removeModule", uuid: ROUTE }]),
+		localization: {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "fra"],
+			wireCodes: { eng: "en", fra: "fr" },
+			translations: { fra: {} },
+		},
+	};
+	const scaffold = caseListModuleMutations(before, {
+		caseType: "patient",
+		name: "Neighborhood",
+		parentModuleUuid: SOURCE,
+	});
+	const text = testUuid("appointment-word");
+	const row = {
+		uuid: testUuid("patient-name-rule"),
+		value: "Dana",
+		label: "Seen",
+	};
+	const mapping = idMappingColumn(
+		testUuid("mapping"),
+		"case_name",
+		"Status",
+		[row],
+		{ visibleInList: false },
+	);
+	const calculation = calculatedColumn(
+		testUuid("calculation"),
+		"When",
+		{
+			kind: "case-text",
+			textUuid: text,
+		},
+		{ visibleInList: false, notOnList: true },
+	);
+	calculation.texts = [{ uuid: text, label: "Morning" }];
+	const config = caseListConfig([{ field: "case_name", header: "Patient" }]);
+	config.columns.push(mapping, calculation);
+	config.listColumnOrder.push(mapping.uuid, calculation.uuid);
+	config.detailColumnOrder.push(mapping.uuid, calculation.uuid);
+	const [name] = config.columns;
+	const tab = {
+		uuid: testUuid("visits-tab"),
+		title: "Visits",
+		startColumnUuid: name.uuid,
+	};
+	const search = simpleSearchInputDef(
+		testUuid("search-name"),
+		"patient_name",
+		"Patient name",
+		"text",
+		"case_name",
+	);
+	config.detailTabs = [tab];
+	config.detailTile = {
+		cells: Object.fromEntries(
+			config.columns.map(({ uuid }, i) => [uuid, tileCell(0, i, 4, 1)]),
+		),
+	};
+	config.calculatedSorts = [
+		{
+			uuid: testUuid("arrival-order"),
+			direction: "asc",
+			priority: 0,
+			expression: term(literal(1)),
+			label: "Arrival order",
+		},
+	];
+	config.searchInputs = [search];
+	config.searchFilters = [
+		{
+			uuid: testUuid("search-filter-name"),
+			target: { kind: "record-name" },
+			value: term(input(search.uuid)),
+		},
+	];
+	const source = apply(
+		before,
+		scaffold.mutations.map((mutation) =>
+			mutation.kind === "addModule" &&
+			mutation.module.uuid === scaffold.moduleUuid
+				? {
+						...mutation,
+						module: {
+							...mutation.module,
+							caseListConfig: config,
+							caseSearchConfig: {},
+						},
+					}
+				: mutation,
+		),
+	);
+	const units = translationUnitsById(source);
+	const localizedSource = apply(
+		source,
+		[
+			[makeTranslationUnitId("detail-tab", tab.uuid, "title"), "Visites"],
+			[caseMappingTextUnit(mapping.uuid, row, "mapping"), "Vu"],
+			[
+				makeTranslationUnitId(
+					"column",
+					calculation.uuid,
+					"calculation-text",
+					text,
+				),
+				"Matin",
+			],
+			[
+				makeTranslationUnitId(
+					"case-sort",
+					config.calculatedSorts[0].uuid,
+					"label",
+				),
+				"Ordre d'arrivée",
+			],
+		].map(([unitId, value]): Mutation => {
+			const unit = units.get(unitId);
+			if (!unit) throw new Error(`Missing source unit ${unitId}`);
+			return {
+				kind: "setTranslation",
+				language: "fra",
+				unitId,
+				entry: {
+					value,
+					sourceFingerprint: unit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			};
+		}),
+	);
+	const listing = listedFormMenuMutations(localizedSource, {
+		menuUuid: SOURCE,
+	});
+	if (!listing.ok) throw new Error(listing.message);
+	const result = apply(localizedSource, listing.mutations);
+	const id = sharedChildUuid(listing.moduleUuid, scaffold.moduleUuid);
+	const child = projectLocalizedModule(result, "fra", id)?.caseListConfig;
+	if (!child) throw new Error("The listed child needs its own settings.");
+	const [childName, childMapping, childCalculation] = child.columns;
+	if (
+		childMapping.kind !== "id-mapping" ||
+		childCalculation.kind !== "calculated"
+	)
+		throw new Error("The listed child lost its columns.");
+	expect(child.listColumnOrder).toEqual(child.columns.map(({ uuid }) => uuid));
+	expect(child.detailTabs?.[0]).toMatchObject({
+		title: "Visites",
+		startColumnUuid: childName.uuid,
+	});
+	expect(child.detailTile?.cells).toEqual(
+		Object.fromEntries(
+			child.columns.map(({ uuid }, i) => [uuid, tileCell(0, i, 4, 1)]),
+		),
+	);
+	expect(childMapping.mapping[0]).toMatchObject({ label: "Vu" });
+	const word = childCalculation.texts?.[0];
+	if (!word) throw new Error("The listed child's calculation needs its word.");
+	expect(
+		previewCaseListOrderLocale(result, "patient", "fra").calculationText(
+			childCalculation,
+			word,
+		),
+	).toBe("Matin");
+	expect(childCalculation.expression).toEqual({
+		kind: "case-text",
+		textUuid: childCalculation.texts?.[0].uuid,
+	});
+	expect(child.calculatedSorts?.[0]?.label).toBe("Ordre d'arrivée");
+	expect(child.searchFilters?.[0]).toMatchObject({
+		value: term(input(child.searchInputs[0].uuid)),
+	});
 });
 
 it("keeps reviewed wording, stale drafts and active worker fallbacks distinct in a listed child", () => {

@@ -1,5 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
-import { openBuilder } from "../../lib/pageLoads";
+import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
 
 test("case choice sources stage atomically and Preview filters choices when an earlier answer changes", {
 	tag: "@seed:case-choices",
@@ -71,6 +71,53 @@ test("case choice sources stage atomically and Preview filters choices when an e
 	await expect(
 		main.getByRole("checkbox", { name: "West member", exact: true }),
 	).not.toBeChecked();
+});
+
+test("sets open-only choices when changing to all restored case types", {
+	tag: "@seed:case-choices",
+}, async ({ page, scenario }) => {
+	const { caseChoices } = seedFor(scenario, "case-choices");
+	await openBuilder(page, caseChoices.routes.clinic);
+	const source = page.getByRole("combobox", {
+		name: "Where the choices come from",
+	});
+	const scope = page.getByRole("combobox", { name: "Cases to offer" });
+	const chooseOpen = async () => {
+		await source.click();
+		await page
+			.getByRole("option", { name: "All available cases", exact: true })
+			.click();
+		await expect(scope).toHaveText("All available cases");
+		await scope.click();
+		await page
+			.getByRole("option", { name: "Open cases only", exact: true })
+			.click();
+		await expect(scope).toHaveText("Open cases only");
+	};
+
+	await chooseOpen();
+	await page.getByRole("button", { name: "Cancel", exact: true }).click();
+	await expect(source).toHaveText("Cases available to the worker");
+
+	await chooseOpen();
+	const saved = page.waitForResponse((response) => {
+		const request = response.request();
+		const body = request.postData() ?? "";
+		return (
+			request.method() === "PUT" &&
+			new URL(response.url()).pathname.startsWith("/api/apps/") &&
+			body.includes('"kind":"available-cases","status":"open"')
+		);
+	});
+	await page
+		.getByRole("button", { name: "Use these cases", exact: true })
+		.click();
+	const committed = await saved;
+	expect(committed.ok()).toBe(true);
+	await committed.finished();
+	await reloadBuilder(page);
+	await expect(source).toHaveText("All available cases");
+	await expect(scope).toHaveText("Open cases only");
 });
 
 test(

@@ -1767,6 +1767,15 @@ function collectScopeXPaths(root: Element, includeRoot = true): string[] {
 				attributes.add("exclude");
 				attributes.add("required");
 				break;
+			case "extra":
+				// A suite lookup evaluates each argument in the entry that opens
+				// its case list. The reserved parsing switch is configuration.
+				if (
+					parentName === "lookup" &&
+					getAttributeValue(element, "key") !== "force_xpath_parsing"
+				)
+					attributes.add("value");
+				break;
 			case "action":
 				attributes.add("relevant");
 				attributes.add("auto_launch");

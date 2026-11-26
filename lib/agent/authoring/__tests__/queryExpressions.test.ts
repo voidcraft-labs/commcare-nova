@@ -590,6 +590,8 @@ it("reads back every widened record arm by the call shape it parses from", () =>
 		);
 	}
 	const conditions = [
+		"count(device-records(record-type() = 'Client')) > 1",
+		"count(cases('Client')) > 1",
 		"record-type() = 'visit'",
 		"record-type() != 'visit'",
 		"record-type() = literal('visit')",

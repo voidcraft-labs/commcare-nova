@@ -1,3 +1,4 @@
+import type { CompletedFormSearch } from "./xpathInstances";
 // lib/preview/engine/entrySessionData.ts
 //
 // The session one form entry holds: `instance('commcaresession')/session/data`.
@@ -73,12 +74,14 @@ export interface EntrySessionInput {
 	readonly entryChoices?: readonly PreviewEntryChoice[];
 	readonly heldEntryValues?: Readonly<Record<string, string>>;
 	readonly openedEntryKey?: string;
+	readonly resumedCheckpoint?: import("./formEngine").FormEngineEntryCheckpoint;
 	readonly openingLookup?: PreviewLookupData;
 	/** The menu's case selections, keyed by the module that chose them. */
 	readonly menuSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 	/** What the search of the form's search-first module returned, which
 	 *  the session holds on its query step for the whole entry. */
 	readonly searchResults?: SearchResultsSnapshot;
+	readonly searches?: readonly CompletedFormSearch[];
 	/** What the worker typed into the case list's filter before choosing the
 	 *  case: Core writes `session/data/stringquery` for a step that carries a
 	 *  non-empty last query (`SessionInstanceBuilder.addUserQueryData`). */
@@ -119,6 +122,7 @@ export interface EntrySessionData {
 	/** What the entry's search returned, which its form and its links read
 	 *  as `results:inline`. */
 	readonly searchResults?: SearchResultsSnapshot;
+	readonly searches?: readonly CompletedFormSearch[];
 }
 
 /**
@@ -411,6 +415,7 @@ export function entrySessionData(
 		...(Object.keys(resolvedEntryValues).length && { resolvedEntryValues }),
 		selectedCases,
 		...(newCaseId === undefined ? {} : { newCaseId }),
+		...(args.searches === undefined ? {} : { searches: args.searches }),
 		...(args.searchResults === undefined
 			? {}
 			: { searchResults: args.searchResults }),

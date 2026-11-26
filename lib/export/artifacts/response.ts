@@ -22,7 +22,9 @@ export async function compileDownloadResponse(input: {
 		}),
 		{
 			signal: input.signal,
-			protected: prepared.assignmentWitness !== undefined,
+			protected:
+				prepared.assignmentWitness !== undefined ||
+				(prepared.jsonLookupTables?.length ?? 0) > 0,
 		},
 	);
 	const headers = new Headers(input.headers);

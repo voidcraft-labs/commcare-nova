@@ -22,6 +22,7 @@ import {
 	today,
 } from "@/lib/domain/expression/builders";
 import { NO_SEARCH_SCREEN_TITLE, plainColumn } from "@/lib/domain/modules";
+import { searchEmissionFixture } from "../../../__tests__/searchEmissionFixture";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	type AppJson,
@@ -47,6 +48,40 @@ function doc(search: object = {}) {
 		search,
 	});
 }
+
+it("reconciles renamed and moved HQ heading rows through their fields", async () => {
+	const fixture = searchEmissionFixture("grouped-prompts");
+	const first = await readLists(fixture);
+	expect(closedCodes(first)).toEqual([]);
+	const prior = listOf(first);
+	const edited = await readLists(fixture, {
+		edit: (app) => {
+			const search = app.modules[0]?.search_config;
+			const rows = search?.properties;
+			if (!search || !Array.isArray(rows) || rows.length !== 4)
+				throw new Error("The fixture needs two Search headings");
+			const moved = [...rows.slice(2), ...rows.slice(0, 2)];
+			search.properties = moved.map((row, index) => {
+				const group_key = index < 2 ? "group_header_0" : "group_header_2";
+				return {
+					...row,
+					group_key,
+					...(index % 2 === 0 && { name: group_key }),
+				};
+			});
+		},
+	});
+	expect(closedCodes(edited)).toEqual([]);
+	const current = listOf(edited);
+	expect(current.searchInputGroups).toEqual(
+		[...(prior.searchInputGroups ?? [])].reverse(),
+	);
+	expect(
+		current.searchInputs.map((input) => [input.name, input.group]),
+	).toEqual(
+		[...prior.searchInputs].reverse().map((input) => [input.name, input.group]),
+	);
+});
 
 describe("a search's settings", () => {
 	it("reads a title with text, and a subtitle", async () => {
@@ -502,39 +537,46 @@ describe("a search's settings", () => {
 		expect(codes(reading)).toEqual([]);
 	});
 
-	it("raises `include_all_related_cases` stored where no field reads a related case", async () => {
+	it("keeps an explicit hierarchy where no field reads a related case", async () => {
 		const reading = await readLists(doc(), {
 			edit: (app) => {
 				const config = app.modules[0]?.search_config;
 				if (config !== undefined) config.include_all_related_cases = true;
 			},
 		});
-		expect(codes(reading)).toContain(
-			"case-search/include-all-related-cases-authored-without-relation-reads",
-		);
+		expect(codes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({ relatedRecords: "hierarchy" });
 	});
 
-	const instances: [string, string][] = [
-		[
-			"patients",
-			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-		],
+	it.each(["patients", "Client_Étage2"])(
+		"keeps the editor-safe search name %s",
+		async (name) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					app.modules[0].search_config.instance_name = name;
+				},
+			});
+			expect(codes(reading)).toEqual([]);
+			expect(reading.ctx.draft.modules[0]?.module.searchResultsName).toBe(name);
+		},
+	);
+
+	it.each([
 		[
 			"my_casedb",
 			"case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
 		],
-	];
-	for (const [name, entry] of instances)
-		it(`raises the results instance \`${name}\` by its row`, async () => {
-			const reading = await readLists(doc(), {
-				edit: (app) => {
-					const config = app.modules[0]?.search_config;
-					if (config !== undefined) config.instance_name = name;
-				},
-				firstPassOnly: true,
-			});
-			expect(codes(reading)).toContain(entry);
+		["3patients", "case-search/results-name-outside-the-search-editor"],
+		["bad-name", "case-search/results-name-outside-the-search-editor"],
+	])("identifies why the name %s cannot be brought in", async (name, entry) => {
+		const reading = await readLists(doc(), {
+			edit: (app) => {
+				app.modules[0].search_config.instance_name = name;
+			},
+			firstPassOnly: true,
 		});
+		expect(codes(reading)).toContain(entry);
+	});
 
 	/** Two searching menus of patients, the second under the first, each with its own field. */
 	function twoMenus() {
@@ -709,7 +751,7 @@ describe("a search's settings", () => {
 			expect(second).not.toContain(
 				"unrecognized:schema:CaseSearch.instance_name",
 			);
-			expect(codes(reading)).toContain(
+			expect(codes(reading)).not.toContain(
 				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
 			);
 		});
@@ -750,7 +792,7 @@ describe("a search's settings", () => {
 						? `unrecognized:${(one.detail as { name?: string }).name ?? ""}`
 						: one.code,
 				);
-			expect(all).toContain(
+			expect(all).not.toContain(
 				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
 			);
 			expect(all).not.toContain(
@@ -835,7 +877,9 @@ describe("a search's default filters", () => {
 		expect(codes(sort)).toContain(sortKey);
 		expect(codes(sort)).not.toContain(runtime);
 		const type = await keyed("case_type", "'patient'");
-		expect(codes(type)).toContain(typeKey);
+		expect(listOf(type).searchFilters).toMatchObject([
+			{ kind: "request-record-type", caseType: "patient" },
+		]);
 		expect(codes(type)).not.toContain(runtime);
 	});
 
@@ -845,9 +889,8 @@ describe("a search's default filters", () => {
 			"'parent/name'",
 			"name",
 		);
-		expect(codes(reading)).toContain(
+		expect(closedCodes(reading)).toEqual([
 			"case-search/an-x-commcare-custom-related-case-property-entry-together-with",
-		);
-		expect(codes(reading)).not.toContain(sortKey);
+		]);
 	});
 });

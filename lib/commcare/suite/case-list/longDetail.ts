@@ -69,6 +69,7 @@ import {
 import { caseColumnRestingKey } from "@/lib/domain/caseListOrder";
 import { detailTabForColumn, detailTabSpans } from "@/lib/domain/detailTabs";
 import { detailColumnRowScope } from "@/lib/domain/expression/detailRowScope";
+import { detailTabWordingId } from "@/lib/domain/generatedWording";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { moduleExpressionContexts } from "../../expressionContext";
 import { detailTabVariableNames } from "../../formLinkProjection";
@@ -310,6 +311,7 @@ export function buildLongDetail(args: {
 		children = spans.map(({ tab, start, end }, index) => {
 			const locale = `m${moduleIndex}.${target}_long.tab.${index + 1}.title`;
 			strings[locale] = tab.title;
+			wordingUnits[locale] = detailTabWordingId(tab.uuid, target === "search");
 			translationUnits[locale] = makeTranslationUnitId(
 				"detail-tab",
 				tab.uuid,

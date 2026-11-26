@@ -82,6 +82,7 @@ interface DeepLocation {
 export type DeepValidationError =
 	| (DeepLocation & {
 			kind: "field-xpath";
+			ref: import("@/lib/domain/expression/types").FieldExpressionSlotRef;
 			fieldUuid: Uuid;
 			fieldId: string;
 			surface: XPathSurface;
@@ -169,6 +170,7 @@ export function validateBlueprintDeep(
 								: {
 										...loc,
 										kind: "field-xpath",
+										ref,
 										fieldUuid,
 										fieldId: field.id,
 										surface: ref.slot,
@@ -181,13 +183,13 @@ export function validateBlueprintDeep(
 					doc,
 				)) {
 					const option =
-						slot === "option_label" &&
+						(slot === "option_label" || slot === "option_extended_text") &&
 						"optionsSource" in field &&
 						field.optionsSource.kind === "inline"
 							? field.optionsSource.options[indices[0]]
 							: undefined;
 					let ref: ProseSlotRef;
-					if (slot === "option_label") {
+					if (slot === "option_label" || slot === "option_extended_text") {
 						if (option === undefined)
 							throw new Error(
 								"The prose registry returned a missing option member.",

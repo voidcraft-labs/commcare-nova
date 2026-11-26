@@ -45,7 +45,11 @@ import {
 } from "../menuProjection";
 import { previewPinnedCaseTile } from "../pinnedCaseTile";
 import { previewPlatformRules } from "../platform";
-import { projectWorkerColumn, projectWorkerModule } from "../workerModule";
+import {
+	projectWorkerColumn,
+	projectWorkerModule,
+	workerDetailTabTitle,
+} from "../workerModule";
 import type { AppTestContext } from "./context";
 import { readingSurface } from "./dataRefusal";
 import { AppTestActionError } from "./errors";
@@ -97,13 +101,18 @@ export async function appTestDetails(
 		result.kind === "row"
 			? availableDetailTabs(caseListConfig, fields, result.row.calculated)
 			: undefined;
+	const localized = workerLocalizedValues(context.doc, context.language);
 	const active =
 		tabs?.find(({ tab }) => tab.uuid === screen.tabUuid) ?? tabs?.[0];
 	return {
 		result,
 		tabs: tabs?.map(({ tab }) => ({
 			uuid: tab.uuid,
-			title: tab.title,
+			title: workerDetailTabTitle(
+				tab,
+				searched && !moduleFormsReadSearch(mod),
+				localized,
+			),
 			selected: active?.tab.uuid === tab.uuid,
 		})),
 		fields:
@@ -275,6 +284,7 @@ export async function appTestFormCaseContext(
 					detail.row.calculated,
 				)
 			: undefined;
+	const localized = workerLocalizedValues(context.doc, context.language);
 	const active =
 		tabs?.find((span) => span.tab.uuid === screen.contextTabUuid) ?? tabs?.[0];
 	return {
@@ -285,7 +295,7 @@ export async function appTestFormCaseContext(
 			unavailable: detail.kind !== "row",
 			tabs: tabs?.map(({ tab }) => ({
 				uuid: tab.uuid,
-				title: tab.title,
+				title: workerDetailTabTitle(tab, false, localized),
 				selected: tab.uuid === active?.tab.uuid,
 			})),
 			fields:
