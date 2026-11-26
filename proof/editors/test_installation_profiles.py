@@ -71,12 +71,18 @@ def test_blank_and_repeated_names_can_be_distinguished_without_replacing_profile
             {"until": "pages/ready", "arg": {"bar": bar}},
             {"click": "a[href='#profiles-tab']"},
             {"waitFor": """() => {
-                const inputs = Array.from(document.querySelectorAll("#profiles-tab tbody tr input"));
-                if (inputs.length !== 3) return false;
-                inputs.forEach((input, index) => {
-                    input.value = ["Outreach", "District", "Office"][index];
-                    input.dispatchEvent(new Event("change", {bubbles:true}));
-                });
+                const rows = Array.from(document.querySelectorAll("#profiles-tab tbody tr"));
+                const names = new Map(rows.map(row => [
+                    row.querySelector('input[type="hidden"]')?.value,
+                    row.querySelector('input.form-control'),
+                ]));
+                if (names.size !== 3 || names.get("north")?.value !== "Team" ||
+                    names.get("south")?.value !== "Team" || names.get("office")?.value !== "") return false;
+                for (const [key, value] of Object.entries({north: "Outreach", south: "District", office: "Office"})) {
+                    const input = names.get(key);
+                    input.value = value;
+                    input.dispatchEvent(new Event("change", {bubbles: true}));
+                }
                 return true;
             }"""},
             {"click": f"{bar} > .btn:not(.disabled)"},
@@ -85,7 +91,9 @@ def test_blank_and_repeated_names_can_be_distinguished_without_replacing_profile
         ], answer=answers)
         answers.check()
         assert definitions() == before
-        assert {p.name for p in operations.held_app(state, app_id).build_profiles.values()} == {"Outreach","District","Office"}
+        assert {key: profile.name for key, profile in operations.held_app(state, app_id).build_profiles.items()} == {
+            "north": "Outreach", "south": "District", "office": "Office",
+        }
 
 
 def test_native_default_and_matching_profile_label_select_distinct_installations(hq, editor_driver):

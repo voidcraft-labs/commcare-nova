@@ -133,11 +133,17 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
         assert "district" in operations.served_lookup_tables(state)
         created = operations.held_app(state, app_id)
         assert created.get_practice_user_id("visits") == worker
-        # Make and release HQ's ordinary build. HQ prepares only its default
-        # installation here. Never fetch a named URL before the cold read.
+        from corehq.apps.app_manager.tasks import create_build_files_for_all_app_profiles
+
+        # HQ's release schedules profile generation on a background queue.
+        # The harness runs Celery eagerly, so hold that job across the API
+        # reads and first named download, then run the job HQ scheduled.
         with build_seams():
             build = webapps_hq._make_build(state, created)
-        webapps_hq._release(state, app_id, build._id)
+        with patch.object(create_build_files_for_all_app_profiles, "delay") as queued:
+            webapps_hq._release(state, app_id, build._id)
+        queued.assert_called_once_with(state.domain, build._id)
+
         def snapshot():
             stored = operations.held_app(state, build._id).to_json()
             return stored["_rev"], stored["external_blobs"]
@@ -147,7 +153,8 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
             assert answer.status == 200
             return json.loads(answer.body)
         before = snapshot()
-        assert not any(path.startswith("files/visits/") for path in before[1])
+        assert "files/profile.ccpr" in before[1]
+        assert not any(path.startswith(("files/visits/", "files/office/")) for path in before[1])
         cold = detail()
         assert cold["id"] == cold["_id"] == build._id
         assert cold["domain"] == state.domain and cold["is_released"]
@@ -174,9 +181,16 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
         assert snapshot() == before
         with build_seams(), hq_redis.shared(None), state.committing():
             ordinary = offline_download(state, build, None)
+            assert snapshot() == before
             archive = offline_download(state, build, "visits")
+            after = snapshot()
+            assert after[0] != before[0]
+            assert "files/visits/profile.ccpr" in after[1]
+            assert not any(path.startswith("files/office/") for path in after[1])
+            assert offline_download(state, build, "visits") == archive
             targeted = offline_download(state, build, "visits", targeted=True)
             normal_targeted = offline_download(state, build, None, targeted=True)
+            assert snapshot() == after
         for files in [ordinary, archive, targeted, normal_targeted]:
             assert {path for path in files if path.startswith("modules-") and "/forms-" in path} == forms
         for path in forms:
@@ -188,8 +202,6 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
         assert all(ordinary[name] for name in ["profile.ccpr", "media_suite.xml", *forms])
         assert not etree.fromstring(ordinary["profile.ccpr"]).get("buildProfileID")
         assert etree.fromstring(archive["profile.ccpr"]).get("buildProfileID") == "visits"
-        after = snapshot()
-        assert after[0] != before[0]
         named = detail()
         assert named["external_blobs"] == after[1]
         assert snapshot() == after
@@ -202,10 +214,13 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
         assert ordinary["profile.ccpr"] == materialized.fetch_attachment("files/media_profile.ccpr")
         restore = selected.get("visits/practice_user_restore.xml")
         assert bool(restore) is practice_allowed
+        assert archive.get("practice_user_restore.xml") == restore
+        assert targeted.get("practice_user_restore.xml") == restore
+        assert "practice_user_restore.xml" not in ordinary
+        assert "practice_user_restore.xml" not in normal_targeted
         assert all(named["external_blobs"]["files/"+path]["content_length"] == len(content)
                    for path, content in selected.items())
         assert "files/practice_user_restore.xml" not in after[1]
-        assert not any(path.startswith("files/office/") for path in after[1])
         assert etree.fromstring(selected["visits/profile.ccpr"]).get("buildProfileID") == "visits"
         suite = etree.fromstring(selected["visits/suite.xml"])
         assert suite.xpath("/suite/locale/@language") == ["default", "fra"]
@@ -218,6 +233,16 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
             if "/forms-" in path:
                 form = etree.fromstring(content)
                 assert form.xpath("//*[local-name()='translation']/@lang") == ["fra"]
+        with build_seams(), hq_redis.shared(None), state.committing():
+            create_build_files_for_all_app_profiles(*queued.call_args.args)
+            warmed = snapshot()
+            assert warmed[0] != after[0]
+            assert "files/office/profile.ccpr" in warmed[1]
+            assert {path: warmed[1][path] for path in after[1]} == after[1]
+            assert detail()["external_blobs"] == warmed[1]
+            assert offline_download(state, build, None) == ordinary
+            assert offline_download(state, build, "visits") == archive
+            assert snapshot() == warmed
         # The ordinary API update excludes the whole map. The authorized
         # page preserves the original key on a rename and allocates a new one.
         proposed = {**source, "build_profiles": {}}
