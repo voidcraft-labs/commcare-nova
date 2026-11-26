@@ -1384,7 +1384,10 @@ def holders(
                 and any(tuple(unescaped(place)) == owner[:-1] for place in where) else None
             )
         elif change.change == LEGACY_SEARCH_GROUP_WORDING:
-            score = 4 if _search_group_wording_pair(difference, where, siblings) else None
+            score = (
+                1 + len(unescaped(difference.at))
+                if _search_group_wording_pair(difference, where, siblings) else None
+            )
         elif change.change == LEGACY_RELATED_CASE_TEXT:
             owner = _legacy_related_case_text_location(difference)
             score = (

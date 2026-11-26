@@ -1672,6 +1672,16 @@ def test_legacy_search_group_wording_requires_the_exact_source_pair_and_owning_r
 
     paired = compare(a, b)
     assert held(paired) == [f"/translations/en/{old}", f"/translations/en/{new}"]
+    sibling_old = "search_property.m0.unrelated"
+    sibling_new = "search_property.m0.group_header_42"
+    with_siblings = compare(
+        app("g", old, extra={sibling_old: wording}),
+        app("group_header_0", new, extra={sibling_new: wording}),
+    )
+    assert held(with_siblings, {
+        change: (*places, f"/app/translations/en/{sibling_old}", f"/app/translations/en/{sibling_new}"),
+    }) == held(paired)
+
     assert not held(paired, {change: changes.EVERYWHERE})
     assert not held(paired, {change: places[:2]})
     required = {

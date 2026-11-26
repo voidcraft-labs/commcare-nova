@@ -353,6 +353,22 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 		`/translations/en/${oldKey}`,
 		`/translations/en/${currentKey}`,
 	]);
+	const canonical = readHqApp(
+		await inputFor(exportedBody(before.draft.doc), {
+			appStrings: (doc) => localAppStringTable(doc, []),
+		}),
+		{ claims: "full" },
+	);
+	if (canonical.kind !== "read")
+		throw Error(JSON.stringify(canonical.findings));
+	expect(
+		canonical.draft.facts.sameStateRewrites.some(
+			(row) => row.register === changes,
+		),
+	).toBe(false);
+	expect(
+		localAppStringTable(canonical.draft.doc, []).languages.en[currentKey],
+	).toBe("Find a client");
 	(body.translations as Record<string, Record<string, string>>).en[currentKey] =
 		"Other saved words";
 	const conflict = await read();
