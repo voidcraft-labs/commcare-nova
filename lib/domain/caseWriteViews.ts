@@ -19,9 +19,9 @@ import { entryOperationCaseType } from "./advancedEntryDatums";
 // are derived once per document object: documents are replaced, never
 // changed in place.
 
-import type { BlueprintDoc } from "./blueprint";
+import type { BlueprintDoc, CaseType } from "./blueprint";
 import { resolveRelationDestination } from "./expression/relationDestination";
-import type { Expression } from "./expression/types";
+import type { Expression, RelationStep } from "./expression/types";
 import { formOfField } from "./fieldForm";
 import {
 	type CaseOperation,
@@ -30,10 +30,55 @@ import {
 	caseWriteKeyOf,
 	type FormType,
 	operationCaseType,
+	RESERVED_CASE_OPERATION_TYPES,
 	sameCaseWriteKey,
 } from "./forms";
 import { entityTargetKey, indexedReferencingSlots } from "./referenceIndex";
 import type { Uuid } from "./uuid";
+
+/** The basic linked write whose native case block remains even when no answer is present. */
+export function isParentUserWritePath(
+	via: readonly RelationStep[] | undefined,
+): boolean {
+	return (
+		via?.length === 2 &&
+		via[0].identifier === "parent" &&
+		via[1].identifier === "user"
+	);
+}
+
+/** HQ follows each literal index without type filtering. Both steps must
+ * have one declared destination without relying on a qualifier. */
+export function parentUserWriteCaseTypes(
+	via: readonly RelationStep[] | undefined,
+	origin: string,
+	caseTypes: readonly CaseType[],
+): readonly [intermediate: string, terminal: string] | undefined {
+	if (!via || !isParentUserWritePath(via)) return undefined;
+	const parent = resolveRelationDestination(
+		{ kind: "ancestor", via: [{ identifier: "parent" }] },
+		origin,
+		caseTypes,
+	);
+	if (!parent.ok) return undefined;
+	const user = resolveRelationDestination(
+		{ kind: "ancestor", via: [{ identifier: "user" }] },
+		parent.caseType,
+		caseTypes,
+	);
+	if (!user.ok) return undefined;
+	const types = [origin, parent.caseType, user.caseType];
+	if (
+		new Set(types).size !== types.length ||
+		types.some((type) => RESERVED_CASE_OPERATION_TYPES.has(type)) ||
+		(via[0].throughCaseType !== undefined &&
+			via[0].throughCaseType !== parent.caseType) ||
+		(via[1].throughCaseType !== undefined &&
+			via[1].throughCaseType !== user.caseType)
+	)
+		return undefined;
+	return [parent.caseType, user.caseType];
+}
 
 /** Which value of its operation a write saves. */
 export type FieldCaseWriteSlot = "name" | "owner" | "write";

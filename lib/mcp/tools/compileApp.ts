@@ -1,3 +1,5 @@
+import { installationDownloadIssue } from "@/lib/commcare/installationProfiles";
+import { resolvedLanguageEnglishName } from "@/lib/domain/languageRegistry/names";
 /**
  * `nova.compile_app` — produce CommCare artifacts for an app the caller can view.
  *
@@ -47,6 +49,8 @@ import {
 	resolveDownloadTarget,
 } from "@/lib/deployment/downloadTarget";
 import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
+import { installationArchiveIssue, uuidSchema } from "@/lib/domain";
+import { projectSearchDependencies } from "@/lib/domain/projectSearches";
 import { compileExportSpec } from "@/lib/export/artifacts/access";
 import { EXPORT_RESOURCE_BYTES } from "@/lib/export/artifacts/range";
 import { deliverExport } from "@/lib/export/artifacts/store";
@@ -99,7 +103,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an app you can view. Files above 1 MiB return a download resource. Read its parts with resources/read on this connection. `format: "json"` returns the CommCare HQ import file, a base64-encoded zip holding the app JSON, its media and Project data when it has them, and a README with the manual import steps; the steps also come first as a `nova_manual_import_guide` text block. The import file works in any project space, so it takes no `domain`. `format: "ccz"` returns the mobile app file base64-encoded, made for one project space the app is already published to: it signs workers in there and sends their forms there. Pass `domain` (and `server` when two servers hold that name) to choose among several; an app published nowhere has no CCZ yet. An app that runs in Web Apps only has no CCZ. `_meta["nova/target"]` names the project space and HQ app a CCZ is made for. A download checks no project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile; when the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact. Check one actual destination with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
+				'Compile an app you can view. Files above 1 MiB return a download resource. Read its parts with resources/read on this connection. `format: "json"` returns the CommCare HQ import file, a base64-encoded zip holding the app JSON, its media and Project data when it has them, and a README with the manual import steps; the steps also come first as a `nova_manual_import_guide` text block. Portable import files need no `domain`. Apps using project-supplied searches require their chosen server and project space. `format: "ccz"` returns the mobile app file base64-encoded, made for one project space the app is already published to: it signs workers in there and sends their forms there. Pass `domain` (and `server` when two servers hold that name) to choose among several; an app published nowhere has no CCZ yet. An app that runs in Web Apps only has no CCZ. `_meta["nova/target"]` names the project space and HQ app a CCZ is made for. A download checks no project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile; when the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact. Check one actual destination with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
 			inputSchema: z.object({
 				private_data: z
 					.boolean()
@@ -107,18 +111,23 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					.describe(
 						"Include verified worker assignments in the import file for the named server and domain. Requires Project editor access and nova.projects.data.export.",
 					),
+				installation_profile_uuid: uuidSchema
+					.optional()
+					.describe(
+						"Installation profile to use for a mobile app file. Leave it out for all app languages. A profile that uses a practice worker is built on CommCare HQ.",
+					),
 				server: z
 					.enum(COMMCARE_SERVER_IDS)
 					.optional()
 					.describe(
-						"CommCare server of the project space a CCZ is for, when the app is published to more than one. For the import file it only scopes attachment links.",
+						"CommCare server of the project space a CCZ is for, when the app is published to more than one. Required in both formats for a search supplied by a project space.",
 					),
 				domain: z
 					.string()
 					.min(1)
 					.optional()
 					.describe(
-						'Project space a CCZ is for, by name, when the app is published to more than one. Not taken for `format: "json"`.',
+						"Project space a CCZ is for, by name, when the app is published to more than one. An app using external searches requires its destination for both formats.",
 					),
 				app_id: z
 					.string()
@@ -157,6 +166,12 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * manifest resolves only the ids the app's own blueprint references,
 				 * filtered to the project. */
 				const mode = COMPILE_EXPORT_MODE_BY_FORMAT[args.format];
+				if (args.installation_profile_uuid !== undefined) {
+					if (mode !== "ccz")
+						throw new McpInvalidInputError(
+							"An import file includes the entire app. A profile can be selected for a mobile app file.",
+						);
+				}
 				const grant = ctx.grant;
 				/* A CCZ is made for one project space this app is published
 				 * to, and the import file for none: a reached deployment only
@@ -191,6 +206,12 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							assignmentAccess.target,
 						),
 					);
+				if (
+					projectSearchDependencies(doc).size &&
+					args.domain !== undefined &&
+					args.server !== undefined
+				)
+					assertScope(ctx, SCOPES.hqRead, "compile_app");
 				const download = await resolveDownloadTarget(
 					{
 						appId,
@@ -199,6 +220,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						actorUserId: access.actorUserId,
 					},
 					{
+						compiledAtSeq: app.mutation_seq,
 						format: args.format,
 						...(args.server !== undefined && { server: args.server }),
 						...(assignmentAccess && {
@@ -216,6 +238,20 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							...downloadRefusalLines(download).map((line) => `- ${line}`),
 						].join("\n"),
 					);
+				}
+				if (download.format === "ccz" && args.installation_profile_uuid) {
+					const issue =
+						installationDownloadIssue(
+							doc,
+							args.installation_profile_uuid,
+							download.identity,
+						) ??
+						installationArchiveIssue(
+							doc,
+							args.installation_profile_uuid,
+							resolvedLanguageEnglishName,
+						);
+					if (issue) throw new McpInvalidInputError(issue);
 				}
 				const { attachmentTarget } = download;
 				const boundary = await prepareExportBoundary({
@@ -277,7 +313,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 									appId,
 									prepared,
 									authorizedTarget,
-									sanitizeFilename(app.app_name) + "." + format,
+									`${sanitizeFilename(app.app_name)}.${format}`,
 								),
 							};
 						},
@@ -295,7 +331,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 								: {
 										format,
 										artifact: file.artifact,
-										resource: "nova://exports/" + file.artifact.id + "/bytes/0",
+										resource: `nova://exports/${file.artifact.id}/bytes/0`,
 										partBytes: EXPORT_RESOURCE_BYTES,
 									},
 						),
@@ -303,6 +339,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				}
 				const hasMedia = assets.size > 0;
 				const projectSpaceCompatibility =
+					download.compatibility ??
 					projectSpaceCompatibilityForDownload(preparedDoc);
 				const projectSpaceCompatibilityContent = compatibilityContent(
 					projectSpaceCompatibility,
@@ -340,6 +377,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * Only a media-bearing app passes the manifest, so a
 						 * media-free app expands media-OFF. */
 						const hqJson = expandDoc(preparedDoc, {
+							...(download.identity && { identity: download.identity }),
 							attachmentTarget,
 							...(hasMedia && { assets }),
 							...(lookupNaming && { lookupNaming }),
@@ -402,6 +440,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							download.runtimeTarget,
 							download.identity,
 							{
+								installationProfileUuid: args.installation_profile_uuid,
 								emptyCaseListText: download.target.emptyCaseListText,
 								earlierHqApps: download.target.earlierHqApps,
 								adopted: download.target.adopted,

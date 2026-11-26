@@ -27,6 +27,7 @@ import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { relationDestinationCaseType } from "@/lib/domain/expression/rewrite";
 import type { Expression, Term } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import {
 	type ProjectSpaceAdvisoryUse,
 	type ProjectSpaceCapabilityUse,
@@ -46,7 +47,7 @@ import { addressSearchFormReasons } from "./planPrivileges";
 import { sameTypeBasicChildCases } from "./sameTypeChildCases";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
 import { readSearchFilterTarget } from "./suite/case-search/nativeFilters";
-import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
+import { includeSearchHierarchy } from "./suite/case-search/relatedCaseProjection";
 import {
 	searchInputIsSingleDate,
 	searchInputSuppressesAutoMatch,
@@ -60,6 +61,7 @@ export type HqPrivateFeatureFlagId =
 	| "deep-links"
 	| "case-search-base"
 	| "advanced-case-search"
+	| "project-search"
 	| "commcare-connect"
 	| "attachment-links"
 	| "no-matches-registration"
@@ -71,6 +73,8 @@ export type HqPrivateFeatureFlagId =
 	| "empty-case-list-text"
 	| "case-list-optimizations"
 	| "case-list-icon-actions"
+	| "case-list-lookup"
+	| "case-list-biometric-lookup"
 	| "custom-case-tiles"
 	| "calculated-case-order"
 	| "save-only-edited-answers"
@@ -93,6 +97,7 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"deep-links": "SESSION_ENDPOINTS",
 	"case-search-base": "SYNC_SEARCH_CASE_CLAIM",
 	"advanced-case-search": "CASE_SEARCH_ADVANCED",
+	"project-search": "CASE_SEARCH_ENDPOINTS",
 	"commcare-connect": "COMMCARE_CONNECT",
 	"attachment-links": "VIEW_FORM_ATTACHMENT",
 	"no-matches-registration": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
@@ -104,6 +109,8 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"empty-case-list-text": "USH_EMPTY_CASE_LIST_TEXT",
 	"case-list-optimizations": "CASE_LIST_OPTIMIZATIONS",
 	"case-list-icon-actions": "CASE_LIST_CLICKABLE_ICON",
+	"case-list-lookup": "CASE_LIST_LOOKUP",
+	"case-list-biometric-lookup": "BIOMETRIC_INTEGRATION",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
 	"calculated-case-order": "SORT_CALCULATION_IN_CASE_LIST",
 	"save-only-edited-answers": "SAVE_ONLY_EDITED_FORM_FIELDS",
@@ -144,6 +151,8 @@ export interface HqProjectSpaceCapabilityProbePlan {
 	readonly featureFlags: readonly HqPrivateFeatureFlagRequirement[];
 	/** Flags the project space must have off. */
 	readonly featureFlagsOff: readonly HqPrivateFeatureFlagRequirement[];
+	/** When supplied, at least one of these flags must be on. */
+	readonly featureFlagsAny?: readonly HqPrivateFeatureFlagRequirement[];
 	readonly runtimeProbes: readonly HqProjectSpaceRuntimeProbe[];
 }
 
@@ -151,6 +160,8 @@ export interface HqProjectSpaceAdvisoryProbePlan {
 	readonly advisory: ProjectSpaceAdvisoryUse;
 	readonly featureFlags: readonly HqPrivateFeatureFlagRequirement[];
 	readonly featureFlagsOff: readonly HqPrivateFeatureFlagRequirement[];
+	/** When supplied, at least one of these flags must be on. */
+	readonly featureFlagsAny?: readonly HqPrivateFeatureFlagRequirement[];
 	readonly runtimeProbes: readonly HqProjectSpaceRuntimeProbe[];
 }
 
@@ -181,6 +192,11 @@ export function advancedCaseSearchReasons(module: Module): string[] {
 		);
 	if (config.requestOrder !== undefined)
 		reasons.push("Search chooses which matches to send in a set order.");
+	if (effectiveCaseSearchConfig(module)?.relatedRecordIdProperty) {
+		reasons.push(
+			"A search includes the record named by a property of each match.",
+		);
+	}
 	if (inputs.some((input) => searchInputDefault(input) !== undefined)) {
 		reasons.push("A Search field starts with a suggested value.");
 	}
@@ -231,7 +247,7 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 		...list.searchInputs.flatMap((input) => {
 			if (input.kind !== "simple" || searchInputSuppressesAutoMatch(input))
 				return [];
-			const target = readSearchFilterTarget(input.name);
+			const target = readSearchFilterTarget(searchInputRequestKey(input));
 			return target ? [target] : [];
 		}),
 	];
@@ -251,7 +267,13 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 	) {
 		reasons.push("A Search filter looks at related cases.");
 	}
-	if (searchNeedsSupportingCases(list, expressions)) {
+	if (
+		includeSearchHierarchy(
+			list,
+			expressions,
+			effectiveCaseSearchConfig(module)?.relatedRecords,
+		)
+	) {
 		reasons.push("A case list shows values from related cases.");
 	}
 	if (
@@ -469,6 +491,7 @@ export function projectSpaceCompatibilityProbePlan(
 ): HqProjectSpaceCompatibilityProbePlan {
 	const reasonsByCapability = new Map<string, Set<string>>();
 	let advancedSearchRequired = false;
+	let hasSearchAction = false;
 	const addReason = (id: string, reason: string): void => {
 		const reasons = reasonsByCapability.get(id) ?? new Set<string>();
 		reasons.add(reason);
@@ -495,7 +518,24 @@ export function projectSpaceCompatibilityProbePlan(
 	}
 
 	for (const module of Object.values(doc.modules)) {
+		if (module.searchResultsName !== undefined) {
+			advancedSearchRequired = true;
+			addReason(
+				"case-search",
+				`“${module.name}” names its search results so forms can distinguish them from other searches.`,
+			);
+		}
+		if (
+			module.caseListConfig?.additionalCaseTypes?.length &&
+			moduleCaseTypeForActions(doc, module.uuid)
+		) {
+			addReason(
+				"mixed-record-case-lists",
+				"A case list offers more than one record type.",
+			);
+		}
 		if (effectiveCaseSearchConfig(module) === undefined) continue;
+		hasSearchAction = true;
 		addReason(
 			"case-search",
 			"The app searches for cases that may not already be available.",
@@ -504,6 +544,16 @@ export function projectSpaceCompatibilityProbePlan(
 		 * module's search does: a module that has cases
 		 * (`moduleCaseTypeForActions`, the gate `expandDoc` reads). */
 		const searchLands = moduleCaseTypeForActions(doc, module.uuid) !== "";
+		const config = effectiveCaseSearchConfig(module);
+		if (searchLands && config?.projectSearch) {
+			const name =
+				doc.appSettings.projectSearches?.[config.projectSearch.searchUuid]
+					?.name;
+			addReason(
+				"project-search",
+				`“${module.name}” uses the search “${name ?? module.name}” supplied by this project space. Its results can change whenever the project space updates it.`,
+			);
+		}
 		const advancedReasons = searchLands
 			? advancedCaseSearchReasons(module)
 			: [];
@@ -557,6 +607,11 @@ export function projectSpaceCompatibilityProbePlan(
 			addReason(
 				"case-list-optimizations",
 				`The ${module.name} case list loads some values faster on phones.`,
+			);
+		if (module.caseListConfig?.deviceLookup !== undefined)
+			addReason(
+				"case-list-android-lookup",
+				`The ${module.name} case list opens another Android app to look up cases.`,
 			);
 		if (caseContextLine(module.caseListConfig?.contextAboveForm))
 			addReason(
@@ -647,18 +702,22 @@ export function projectSpaceCompatibilityProbePlan(
 		capabilities.push({
 			capability: projectSpaceCapabilityUse("case-search", [...searchReasons]),
 			featureFlags: [
-				HQ_PRIVATE_FEATURE_FLAGS["case-search-base"],
+				...(hasSearchAction
+					? [HQ_PRIVATE_FEATURE_FLAGS["case-search-base"]]
+					: []),
 				...(advancedSearchRequired
 					? [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]]
 					: []),
 			],
 			featureFlagsOff: [],
-			runtimeProbes: ["case-search"],
+			runtimeProbes: hasSearchAction ? ["case-search"] : [],
 		});
 	}
 
 	for (const [capability, flags] of [
+		["mixed-record-case-lists", ["advanced-case-search"]],
 		["multi-select-case-lists", ["advanced-case-search"]],
+		["project-search", ["project-search"]],
 		["related-case-search", ["related-case-lookups"]],
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
 		["case-form-context", ["case-form-context"]],
@@ -682,6 +741,23 @@ export function projectSpaceCompatibilityProbePlan(
 			runtimeProbes: [],
 		});
 	}
+	const deviceLookupReasons = reasonsByCapability.get(
+		"case-list-android-lookup",
+	);
+	if (deviceLookupReasons) {
+		capabilities.push({
+			capability: projectSpaceCapabilityUse("case-list-android-lookup", [
+				...deviceLookupReasons,
+			]),
+			featureFlags: [],
+			featureFlagsOff: [],
+			featureFlagsAny: [
+				HQ_PRIVATE_FEATURE_FLAGS["case-list-lookup"],
+				HQ_PRIVATE_FEATURE_FLAGS["case-list-biometric-lookup"],
+			],
+			runtimeProbes: [],
+		});
+	}
 	const noMatchesReasons = reasonsByCapability.get(
 		"registration-after-empty-search",
 	);
@@ -701,12 +777,14 @@ export function projectSpaceCompatibilityProbePlan(
 	 * the privilege, which no API key reads, is the `geocoder` plan feature a
 	 * person confirms (`planPrivileges.ts::requiredPlanPrivileges`). An app
 	 * that runs only on Android meets no condition. */
-	for (const { condition, uses } of targetConditionUses(doc)) {
-		if (condition.capability !== "address-search") continue;
+	const addressUses = targetConditionUses(doc).flatMap(({ condition, uses }) =>
+		condition.capability === "address-search" ? uses : [],
+	);
+	if (addressUses.length > 0) {
 		capabilities.push({
 			capability: projectSpaceCapabilityUse(
 				"address-search",
-				addressSearchFormReasons(doc, uses),
+				addressSearchFormReasons(doc, addressUses),
 			),
 			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]],
 			featureFlagsOff: [],

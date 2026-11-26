@@ -18,15 +18,19 @@ export const NEVER_RELEVANT = w.call("false", []);
  * detail shows), so the instance exists; an explicit comparison because
  * `Action.isRelevant` string-compares the evaluated result to "true".
  */
-export const NO_MATCHES_RELEVANCY = w.eq(
-	w.call("count", [
-		w.instance(resultsInstance("results:inline"), [
-			w.step("results"),
-			w.step("case"),
+export function noMatchesRelevancy(instance: `results:${string}`) {
+	return w.eq(
+		w.call("count", [
+			w.instance(resultsInstance(instance), [
+				w.step("results"),
+				w.step("case"),
+			]),
 		]),
-	]),
-	w.num(0),
-);
+		w.num(0),
+	);
+}
+
+export const NO_MATCHES_RELEVANCY = noMatchesRelevancy("results:inline");
 
 /** The inline search's answers instance, `search-input:<storage>`
  *  (`VirtualInstances.makeSearchInputInstanceID`). */

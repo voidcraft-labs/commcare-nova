@@ -55,6 +55,7 @@ import {
 	keptListUnreadSentence,
 	keptRefreshSentence,
 } from "@/lib/publish/keptValues";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -214,6 +215,7 @@ export function registerRefreshDeployment(
 					projectId: access.projectId,
 					role: access.role,
 					actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(ctx, "refresh_deployment", args),
 				};
 				if (args.kept_values === true) {
 					return jsonResult(

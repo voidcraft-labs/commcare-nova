@@ -143,7 +143,11 @@ function formReadsLocations(
 			continue;
 		if (!declaresLocations(expressions.lower(expression, ref), "xform"))
 			continue;
-		if (ref.slot !== "case_operation_owner") return "reads";
+		if (
+			ref.slot !== "case_operation_owner" &&
+			ref.slot !== "case_operation_later_owner"
+		)
+			return "reads";
 		owner = true;
 	}
 	for (const fieldUuid of descendantFieldUuids(doc, formUuid))

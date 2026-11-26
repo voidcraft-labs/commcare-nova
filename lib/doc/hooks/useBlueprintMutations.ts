@@ -195,6 +195,7 @@ import {
 	listedFormMenuMutations,
 	listedFormVisibilityMutation,
 } from "../scaffolds";
+import { offerSearchNameMutations } from "../searchResultsNaming";
 import {
 	changeListedMenuSource,
 	withListedMenuHierarchy,
@@ -1838,6 +1839,12 @@ export function createBlueprintMutations(
 									patch.caseType,
 								)
 							: caseTypeCatalogMutations(doc, retirement, patch.caseType)),
+						...(patch.parentCaseModuleUuid !== undefined &&
+						!Object.hasOwn(patch, "searchResultsName")
+							? offerSearchNameMutations(doc, uuid, {
+									parentCaseModuleUuid: patch.parentCaseModuleUuid,
+								})
+							: []),
 						...moduleMutations,
 					]),
 				);
@@ -1938,7 +1945,10 @@ export function createBlueprintMutations(
 					return NOOP_REJECTION;
 				}
 				return toOutcome(
-					guardedApply([{ kind: "moveModule", uuid, ...placement }]),
+					guardedApply([
+						...offerSearchNameMutations(get(), uuid, placement),
+						{ kind: "moveModule", uuid, ...placement },
+					]),
 				);
 			},
 

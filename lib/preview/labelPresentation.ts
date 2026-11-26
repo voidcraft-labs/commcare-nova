@@ -71,6 +71,27 @@ function shownString(
 	return resolved ?? project(template);
 }
 
+/** The caption the worker reads. Repeat action captions use the long title
+ *  without the markdown preference, as Core's getRepeatText does. */
+export function presentedLabelText(
+	field: Field | undefined,
+	showsAsTyped: boolean,
+	state: LabelResolution,
+): ShownLabelText | undefined {
+	if (!field) return undefined;
+	const label = "label" in field ? field.label : undefined;
+	const extended = showsAsTyped ? heldText(field, "extended_text") : undefined;
+	return extended !== undefined
+		? {
+				slot: "extended_text",
+				template: extended,
+				resolved: state.resolvedLabelTexts?.extended_text,
+			}
+		: label !== undefined
+			? { slot: "label", template: label, resolved: state.resolvedLabel }
+			: undefined;
+}
+
 export function labelPresentation(
 	field: Field,
 	labelShowsAsTyped: boolean,
@@ -81,20 +102,7 @@ export function labelPresentation(
 	state: LabelResolution,
 	project: (template: ProseTemplate) => string,
 ): LabelPresentation {
-	const label = "label" in field ? field.label : undefined;
-	const extended = labelShowsAsTyped
-		? heldText(field, "extended_text")
-		: undefined;
-	const text: ShownLabelText | undefined =
-		extended !== undefined
-			? {
-					slot: "extended_text",
-					template: extended,
-					resolved: state.resolvedLabelTexts?.extended_text,
-				}
-			: label !== undefined
-				? { slot: "label", template: label, resolved: state.resolvedLabel }
-				: undefined;
+	const text = presentedLabelText(field, labelShowsAsTyped, state);
 	const media = "label_media" in field ? field.label_media : undefined;
 	const inlineVideo =
 		rules.labelInlineVideo === "played" ? media?.videoInline : undefined;

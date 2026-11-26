@@ -21,6 +21,7 @@
  * external id or a worker property held as a write Nova exports as the
  * moment.
  */
+import { readFileSync } from "node:fs";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -31,6 +32,7 @@ import {
 } from "@/lib/commcare/__tests__/placementFixture";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type {
 	BlueprintDoc,
@@ -115,8 +117,15 @@ describe("a date-and-time question saved straight to a case", () => {
 		expect(source(body)).not.toContain("nova_datetime_");
 	});
 
-	it("is exported to a date-and-time property through its sibling", () => {
-		const body = exportedBody(visits("datetime"));
+	it("is exported to a date-and-time property through its sibling and can still split", () => {
+		const doc = visits("datetime");
+		const question = Object.values(doc.fields).find(
+			(field) => field.id === "seen",
+		);
+		if (question === undefined)
+			throw new Error("The form asks when the visit started");
+		expect(planDatetimeSplit(doc, question.uuid)).toMatchObject({ ok: true });
+		const body = exportedBody(doc);
 		expect(update(body.modules).seen_on?.question_path).toBe(
 			"/data/nova_datetime_seen",
 		);
@@ -282,4 +291,88 @@ describe("one date and time saved to a property of the same name on two cases", 
 				"host/visited": "/data/seen",
 			});
 		});
+});
+
+describe("a date-and-time answer copied through a single parent index", () => {
+	function parentWrite(property: string, savesOwn = true) {
+		const envelope = JSON.parse(
+			readFileSync("proof/hq-apps/hq-case-management/app-source.json", "utf8"),
+		) as { body: string };
+		const body = JSON.parse(envelope.body) as Record<string, unknown>;
+		const form = (body.modules as Modules)[1].forms[0];
+		if (!savesOwn) delete form.actions.update_case.update.status_note;
+		const files = body._attachments as Record<string, string>;
+		const key = `${form.unique_id}.xml`;
+		files[key] = files[key].replace('type="xsd:string"', 'type="xsd:dateTime"');
+		form.actions.update_case.update[`parent/${property}`] = {
+			question_path: "/data/status_note",
+			update_mode: "always",
+			doc_type: "ConditionalCaseUpdate",
+		};
+		return body;
+	}
+
+	it("reads and emits the parent day without conflating it with the loaded case", async () => {
+		const result = await read(parentWrite("visit_day"));
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const doc = result.draft.doc;
+		const declaration = result.draft.declaration;
+		expect(declaration.kind).toBe("choices");
+		if (declaration.kind !== "choices")
+			throw new Error("The source can still run on Android");
+		expect(
+			declaration.choices.map(({ runsOnlyOn, split }) => ({
+				runsOnlyOn,
+				split,
+			})),
+		).toEqual([{ runsOnlyOn: "android", split: false }]);
+		const question = Object.values(doc.fields).find(
+			(field) => field.id === "status_note",
+		);
+		if (question === undefined)
+			throw new Error("The reader keeps the question");
+		expect(planDatetimeSplit(doc, question.uuid)).toMatchObject({
+			ok: false,
+			reason: "saves-straight-to-date",
+		});
+		const property = (type: string, name: string) =>
+			doc.caseTypes
+				?.find((entry) => entry.name === type)
+				?.properties.find((entry) => entry.name === name);
+		expect(property("household", "visit_day")?.data_type).toBe("date");
+		expect(property("member", "visit_day")).toBeUndefined();
+		expect(property("member", "status_note")?.data_type).toBe("date");
+		const output = exportedBody(doc);
+		expect(
+			(output.modules as Modules)[1].forms[0].actions.update_case.update,
+		).toMatchObject({
+			status_note: { question_path: "/data/status_note" },
+			"parent/visit_day": { question_path: "/data/status_note" },
+		});
+	});
+
+	it("withholds the split when the only Date destination is the parent", async () => {
+		const result = await read(parentWrite("visit_day", false));
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const declaration = result.draft.declaration;
+		if (declaration.kind !== "choices")
+			throw new Error("The source can still run on Android");
+		expect(
+			declaration.choices.map(({ runsOnlyOn, split }) => ({
+				runsOnlyOn,
+				split,
+			})),
+		).toEqual([{ runsOnlyOn: "android", split: false }]);
+	});
+
+	it("holds a parent day and an own-case moment for the same destination apart", async () => {
+		const result = await read(parentWrite("seen_at"));
+		expect(
+			result.kind === "account"
+				? result.findings.map((finding) => finding.code)
+				: [],
+		).toContain(`${F}/any-other-mixed-writer-pair`);
+	});
 });

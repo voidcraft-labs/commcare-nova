@@ -51,4 +51,5 @@ export {
 export * from "./session";
 export * from "./types";
 export * from "./wireIdentity";
+export { androidAppRequest } from "./xform/androidAppRequest";
 export * from "./xml";

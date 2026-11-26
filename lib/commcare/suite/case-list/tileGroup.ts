@@ -30,9 +30,8 @@
 // validates it loosely: `DetailGroupParser::parse` runs
 // `XPathParseTool.parseXPath` and nothing else. Nova narrows it to a
 // case index by construction — see `caseTileGroupingSchema` for why —
-// and the identifier's XML-element-name grammar is what makes this
-// builder total. There is no escaping step because no input can need
-// one.
+// and the grouping name is a single case-index path step. The
+// name can include a hyphen, as Core's XPath lexer accepts it within a name.
 
 import type { Element } from "domhandler";
 import { type WireElementContext, xel } from "@/lib/commcare/elementBuilders";

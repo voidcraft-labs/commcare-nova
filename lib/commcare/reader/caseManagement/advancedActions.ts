@@ -13,6 +13,7 @@
  */
 
 import {
+	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -37,9 +38,9 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/expression/builders";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { XML_NCNAME_PATTERN } from "@/lib/domain/xmlName";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -535,6 +536,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
+	dottedOpenIndexReference: take(
+		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
+		"schema:CaseIndex.reference_id",
+	),
 	openIndexOwnOrLater: refuse(
 		`${F}/advancedopencaseaction-case-indices-naming-its-own-or-a-later`,
 		"schema:AdvancedOpenCaseAction.case_indices",
@@ -554,6 +559,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	/** An index to an earlier open action in a repeat, from an open action in the same repeat. */
 	openIndexInsideRepeat: take(
 		`${F}/an-advanced-open-action-indexed-to-an-open-action-that-has-a-equal`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	openIndexInvalidXml: refuse(
+		`${F}/index-identifier-invalid-xml-local-name`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
 	openIndexName: refuse(
@@ -2416,8 +2425,13 @@ function readOrdinaryAdvancedActions(
 				const namesOpen = openIndex !== undefined && loadIndex === undefined;
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
-				if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
-					I.refuseWhole(ADVANCED_CLAIMS.openIndexName, { name: identifier });
+				if (!ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(identifier)) {
+					I.refuseWhole(
+						XML_NCNAME_PATTERN.test(identifier)
+							? ADVANCED_CLAIMS.openIndexName
+							: ADVANCED_CLAIMS.openIndexInvalidXml,
+						{ name: identifier },
+					);
 					r.ok = false;
 					return;
 				}
@@ -2536,9 +2550,20 @@ function readOrdinaryAdvancedActions(
 						parentType: read.targetType,
 						relationship,
 					});
-				for (const key of ["reference_id", "relationship"])
-					if (I.used(key))
-						consume(I.take(key, ADVANCED_CLAIMS.openIndices, (value) => value));
+				if (I.used("reference_id")) {
+					const claim = identifier.includes(".")
+						? ADVANCED_CLAIMS.dottedOpenIndexReference
+						: ADVANCED_CLAIMS.openIndices;
+					consume(I.take("reference_id", claim, (value) => value));
+				}
+				if (I.used("relationship"))
+					consume(
+						I.take(
+							"relationship",
+							ADVANCED_CLAIMS.openIndices,
+							(value) => value,
+						),
+					);
 			});
 		}
 		// HQ's build refuses an open action with no name (`case_name required`,

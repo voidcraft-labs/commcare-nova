@@ -116,3 +116,22 @@ export function listIconChoices(
 		label: entryPointTargetLabel(doc, destination.target),
 	}));
 }
+
+/** A displayed list action has precisely the one selection filled by the row. */
+export function listIconSelectionModule(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	column: Column,
+): Uuid | undefined {
+	if (
+		column.kind !== "image-map" ||
+		!column.entryPointUuid ||
+		column.visibleInList === false
+	)
+		return undefined;
+	const module = doc.modules[moduleUuid];
+	if (!module) return undefined;
+	return listIconDestinations(doc, module, column).find(
+		(destination) => destination.entryPointUuid === column.entryPointUuid,
+	)?.selection.moduleUuid;
+}

@@ -43,6 +43,7 @@ import { useCanEdit, useSetActiveFieldId } from "@/lib/session/hooks";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import { FieldIdentitySection } from "./FieldIdentitySection";
 import { FieldPlatformNotes } from "./FieldInspectorBody";
+import { TextEditor } from "./fields/TextEditor";
 
 /** A page's platform note: how a platform the app runs on pages a form. */
 const PAGE_NOTE: readonly PlatformFeatureId[] = ["question-pages"];
@@ -54,6 +55,18 @@ interface SectionInspectorBodyProps {
 export function SectionInspectorBody({ field }: SectionInspectorBodyProps) {
 	const setActiveFieldId = useSetActiveFieldId();
 	const canEdit = useCanEdit();
+	const { updateField } = useBlueprintMutations();
+	const title = (
+		<TextEditor<SectionField, "extended_text">
+			field={field}
+			keyName="extended_text"
+			label="Extended text"
+			value={field.extended_text}
+			onChange={(value) =>
+				updateField(field.uuid, "section", { extended_text: value })
+			}
+		/>
+	);
 
 	const handleFocus = useCallback(
 		(e: React.FocusEvent) => {
@@ -73,6 +86,7 @@ export function SectionInspectorBody({ field }: SectionInspectorBodyProps) {
 			{canEdit ? (
 				<>
 					<FieldIdentitySection field={field} />
+					{title}
 					<FieldPlatformNotes fieldUuid={field.uuid} keep={PAGE_NOTE} />
 					<PageSection sectionUuid={field.uuid} />
 					<DeleteSectionRow sectionUuid={field.uuid} />
@@ -81,6 +95,7 @@ export function SectionInspectorBody({ field }: SectionInspectorBodyProps) {
 				<>
 					<div aria-disabled className="space-y-4 pointer-events-none">
 						<FieldIdentitySection field={field} />
+						{title}
 						<FieldPlatformNotes fieldUuid={field.uuid} keep={PAGE_NOTE} />
 						<PageSection sectionUuid={field.uuid} />
 					</div>

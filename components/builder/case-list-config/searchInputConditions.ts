@@ -37,7 +37,7 @@ export function withSearchInputCondition(
 	slot: SearchConditionSlot,
 	predicate: Expression,
 ): SearchInputDef {
-	if (input.kind === "hidden") return input;
+	if (input.kind === "hidden" || input.kind === "address") return input;
 	switch (slot) {
 		case "match":
 			return input.kind === "advanced" ? { ...input, predicate } : input;

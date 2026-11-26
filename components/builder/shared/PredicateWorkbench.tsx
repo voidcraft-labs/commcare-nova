@@ -52,6 +52,7 @@ import {
 } from "./cards/ChildPredicateEditor";
 import { firstComparisonDefault } from "./cards/comparisonSeed";
 import { SearchInputMenu } from "./cards/WhenInputPresentCard";
+import { replaceComparisonSubject } from "./comparisonModel";
 import { editorAxesOf } from "./editorAxes";
 import {
 	buildValidityIndex,
@@ -103,7 +104,10 @@ import {
 	type StableListOperation,
 	useStableListIdentity,
 } from "./useStableListIdentity";
-import { workbenchExpressionAdmission } from "./workbenchAdmission";
+import {
+	workbenchExpressionAdmission,
+	workbenchRuleAdmission,
+} from "./workbenchAdmission";
 
 /** The structural shapes the Add-condition menu offers, beside its one
  *  comparison leaf. Exported so the per-carrier invariant tests can
@@ -533,16 +537,29 @@ export function PredicateWorkbench({
 			}),
 		);
 	};
-	const updateFocusedExpression = (next: Expression) => {
-		// Re-check inside the callback: TypeScript does not retain the JSX
-		// branch's discriminant narrowing across an event-handler closure.
-		if (location.node.family !== "expression") return;
-		onChange(
-			replaceRuleNodeAtPath(value, activePath, {
-				family: "expression",
-				value: next,
-			}),
-		);
+	const focusedExpressionChange = (next: Expression) => {
+		const parent = location.trail.at(-2);
+		const comparison = parent?.node.value;
+		if (
+			editContext !== undefined &&
+			parent !== undefined &&
+			activePath.at(-1) === "left" &&
+			(comparison?.kind === "eq" ||
+				comparison?.kind === "neq" ||
+				comparison?.kind === "lt" ||
+				comparison?.kind === "lte" ||
+				comparison?.kind === "gt" ||
+				comparison?.kind === "gte")
+		) {
+			return replaceRuleNodeAtPath(value, parent.path, {
+				family: "predicate",
+				value: replaceComparisonSubject(comparison, next, editContext),
+			});
+		}
+		return replaceRuleNodeAtPath(value, activePath, {
+			family: "expression",
+			value: next,
+		});
 	};
 
 	const restoreAfterRemoval = (
@@ -701,7 +718,13 @@ export function PredicateWorkbench({
 							<ExpressionPicker
 								key={`expression:${serializePath(activePath)}`}
 								value={location.node.value}
-								onChange={updateFocusedExpression}
+								onChange={(next) => onChange(focusedExpressionChange(next))}
+								admitReplacement={(next) =>
+									workbenchRuleAdmission(
+										focusedExpressionChange(next),
+										expressionContext,
+									)
+								}
 								path={activePath}
 								constraint={location.constraint}
 								presentation={location.presentation}

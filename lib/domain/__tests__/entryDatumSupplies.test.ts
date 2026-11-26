@@ -4,6 +4,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	entryDatumSupplies,
 	formLinkTargetSupplies,
+	loadedSearchModules,
 	rootSelectionAlignment,
 } from "../entryDatumSupplies";
 import {
@@ -53,6 +54,55 @@ function selectionDoc() {
 }
 
 describe("entry datums at their evaluation points", () => {
+	it("two searches sharing a name across a non-searching selection expose no unambiguous source", () => {
+		const middle = testUuid("datum-middle");
+		const doc = buildDoc({
+			caseTypes: [
+				{ name: "town", properties: [] },
+				{ name: "home", parent_type: "town", properties: [] },
+				{ name: "member", parent_type: "home", properties: [] },
+			],
+			modules: [
+				{
+					uuid: ROOT,
+					name: "Towns",
+					caseType: "town",
+					caseSearchConfig: { formsReadSearch: true },
+					forms: [{ uuid: ROOT_FORM, name: "Town", type: "followup" }],
+				},
+				{
+					uuid: middle,
+					name: "Homes",
+					caseType: "home",
+					parentCaseModuleUuid: ROOT,
+					forms: [{ name: "Home", type: "followup" }],
+				},
+				{
+					uuid: CHILD,
+					name: "Members",
+					caseType: "member",
+					parentCaseModuleUuid: middle,
+					caseSearchConfig: { formsReadSearch: true },
+					forms: [{ uuid: CHILD_FORM, name: "Visit", type: "followup" }],
+				},
+			],
+		});
+		doc.modules[middle].searchResultsName = "Homes";
+		const entry = { kind: "form", module: CHILD, form: CHILD_FORM } as const;
+		expect(loadedSearchModules(entryDatumSupplies(doc, entry))).toEqual([]);
+		const named = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[CHILD]: { ...doc.modules[CHILD], searchResultsName: "Members" },
+			},
+		};
+		expect(loadedSearchModules(entryDatumSupplies(named, entry))).toEqual([
+			ROOT,
+			CHILD,
+		]);
+	});
+
 	it("supplies a selection to a case-first form menu after selection", () => {
 		const doc = selectionDoc();
 		const selected = {

@@ -30,19 +30,24 @@ import type { Uuid } from "./uuid";
 export const generatedWordingRoles = {
 	caseRows: "Case list wording",
 	caseDetails: "Case detail wording",
+	caseDetailTabTitle: "Case detail tab title",
 	searchRows: "Search results wording",
 	searchDetails: "Search result detail wording",
+	searchDetailTabTitle: "Search result detail tab title",
 	registrationMenuTitle: "Registration menu title",
 	caseTitle: "Case details title",
 	appDisplayName: "App name workers see",
 	homescreenTitle: "Home screen title",
 	menuTitle: "Menu title",
+	menuBadgeText: "Menu badge wording",
 	formTitle: "Form menu label",
+	formBadgeText: "Form badge wording",
 	submitButton: "Submit button",
 	caseListEntry: "Case list menu label",
 	registerButton: "Registration button",
 	selectCase: "Case selection button",
 	emptyList: "Empty case list",
+	lookupResultHeading: "Lookup results heading",
 	searchButton: "Search button",
 	searchTitle: "Search screen title",
 	searchDescription: "Search screen description",
@@ -66,6 +71,13 @@ export function generatedWordingId(
 	...slot: string[]
 ): TranslationUnitId {
 	return makeTranslationUnitId("generated", owner, role, ...slot);
+}
+
+export function detailTabWordingId(tabUuid: Uuid, search: boolean) {
+	return generatedWordingId(
+		tabUuid,
+		search ? "searchDetailTabTitle" : "caseDetailTabTitle",
+	);
 }
 
 /** One view's own description of an image rule. A saved-value row from before
@@ -184,6 +196,18 @@ export function generatedWordingUnits(
 		const path = [doc.appName, mod.name];
 		const name = makeTranslationUnitId("module", moduleUuid, "name");
 		add(false, owner, moduleUuid, "menuTitle", path, mod.name, name);
+		const badge = mod.badge?.kind === "text" ? mod.badge.text : undefined;
+		add(
+			badge === undefined,
+			owner,
+			moduleUuid,
+			"menuBadgeText",
+			path,
+			badge ?? "",
+			badge === undefined
+				? undefined
+				: makeTranslationUnitId("module", moduleUuid, "badge"),
+		);
 		const search = effectiveCaseSearchConfig(mod);
 		const noCases = !mod.caseListConfig && !mod.caseType;
 		// A list's own text is the default its per-output wording follows.
@@ -209,6 +233,18 @@ export function generatedWordingUnits(
 			ownText?.emptyText === undefined
 				? undefined
 				: caseListWordingUnitId(moduleUuid, "empty"),
+		);
+		const lookupHeading = ownText?.deviceLookup?.resultHeading;
+		add(
+			lookupHeading === undefined,
+			owner,
+			moduleUuid,
+			"lookupResultHeading",
+			path,
+			lookupHeading ?? "",
+			lookupHeading === undefined
+				? undefined
+				: caseListWordingUnitId(moduleUuid, "lookup"),
 		);
 		{
 			const slot =
@@ -249,6 +285,28 @@ export function generatedWordingUnits(
 				registration?.label ??
 					(registration && doc.forms[registration.formUuid]?.name) ??
 					"",
+				base,
+			);
+		}
+		for (const tab of mod.caseListConfig?.detailTabs ?? []) {
+			const base = makeTranslationUnitId("detail-tab", tab.uuid, "title");
+			const tabPath = [...path, "Details", tab.title];
+			add(
+				false,
+				owner,
+				tab.uuid,
+				"caseDetailTabTitle",
+				tabPath,
+				tab.title,
+				base,
+			);
+			add(
+				!search || search.formsReadSearch === true,
+				owner,
+				tab.uuid,
+				"searchDetailTabTitle",
+				tabPath,
+				tab.title,
 				base,
 			);
 		}
@@ -431,6 +489,20 @@ export function generatedWordingUnits(
 				formPath,
 				form.name,
 				makeTranslationUnitId("form", formUuid, "name"),
+			);
+			const badge = form.badge?.kind === "text" ? form.badge.text : undefined;
+			add(
+				badge === undefined ||
+					(registration?.kind === "after-empty-search" &&
+						registration.formUuid === formUuid),
+				formOwner,
+				formUuid,
+				"formBadgeText",
+				formPath,
+				badge ?? "",
+				badge === undefined
+					? undefined
+					: makeTranslationUnitId("form", formUuid, "badge"),
 			);
 			// A form's own submit wording is the default the worker wording overrides,
 			// as HQ's app translations override a form's `submit_label`.

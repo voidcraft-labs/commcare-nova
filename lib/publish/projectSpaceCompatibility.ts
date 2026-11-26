@@ -18,6 +18,8 @@ export type ProjectSpaceCapabilityId =
 	| "commcare-connect"
 	| "attachment-links"
 	| "registration-after-empty-search"
+	| "project-search"
+	| "mixed-record-case-lists"
 	| "multi-select-case-lists"
 	| "related-case-search"
 	| "case-tiles"
@@ -27,6 +29,7 @@ export type ProjectSpaceCapabilityId =
 	| "empty-case-list-text"
 	| "case-list-optimizations"
 	| "case-list-icon-actions"
+	| "case-list-android-lookup"
 	| "save-only-edited-answers"
 	| "same-type-child-links"
 	| "address-search";
@@ -78,6 +81,18 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		description:
 			"Lets a case list offer a form for its selected parent or a registration form when a search finds no matches.",
 	},
+	"project-search": {
+		id: "project-search",
+		label: "Search supplied by the project space",
+		description:
+			"Lets workers search using a service managed by this project space.",
+	},
+	"mixed-record-case-lists": {
+		id: "mixed-record-case-lists",
+		label: "Several record types in one list",
+		description:
+			"Lets workers choose from more than one kind of record in the same list.",
+	},
 	"multi-select-case-lists": {
 		id: "multi-select-case-lists",
 		label: "Choosing several cases at once",
@@ -112,6 +127,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Faster case list loading",
 		description:
 			"Lets a phone keep some case list values between visits or work them out after the list shows.",
+	},
+	"case-list-android-lookup": {
+		id: "case-list-android-lookup",
+		label: "Case lookup with an Android app",
+		description:
+			"Lets a worker open another Android app and use its answer to search a case list.",
 	},
 	"case-list-icon-actions": {
 		id: "case-list-icon-actions",
@@ -465,6 +486,8 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"commcare-connect",
 	"attachment-links",
 	"registration-after-empty-search",
+	"project-search",
+	"mixed-record-case-lists",
 	"multi-select-case-lists",
 	"related-case-search",
 	"case-tiles",
@@ -474,6 +497,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"empty-case-list-text",
 	"case-list-optimizations",
 	"case-list-icon-actions",
+	"case-list-android-lookup",
 	"save-only-edited-answers",
 	"same-type-child-links",
 	"address-search",

@@ -538,6 +538,15 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
     "entry,variant_id,key,artifact,where,standing,member",
     [
         (
+            "menus-and-case-lists/detail-auto-select-multi-select", "hq-plain/auto-select-on-a-multi-select-list",
+            "schema:Detail.auto_select", "app.json", "/modules/0/case_details/short/auto_select", HELD, None,
+        ),
+        (
+            parity.LOCATION_WRITE, "hq-case-management/location-id-write",
+            "schema:UpdateCaseAction.update", "app.json",
+            "/modules/1/forms/0/actions/update_case/update", HELD, "location_id",
+        ),
+        (
             parity.HYPHEN_TAG, "hq-advanced/tag-with-a-hyphen",
             "schema:LoadUpdateAction.case_tag", "app.json",
             "/modules/1/forms/0/actions/load_update_cases/1/case_tag", HELD, None,
@@ -552,9 +561,21 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
             "session-path:session/data/*", "form:1.0",
             "/h:html/h:head[1]/model[1]/bind[3]/@relevant", HELD, None,
         ),
+        (
+            parity.PARENT_FOLLOW_UP, "hq-case-management/registration-by-a-parent-follow-up",
+            "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
+        (
+            parity.CHILD_REGISTRATION, "hq-case-management/registration-of-a-child-case",
+            "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
+        (
+            parity.ADVANCED_REGISTRATION, "hq-case-lists/registration-on-an-advanced-list",
+            "schema:AdvancedModule.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
     ],
 )
-def test_retained_advanced_source_fact(
+def test_retained_variants_decide_the_specific_source_fact(
     monkeypatch, entry, variant_id, key, artifact, where, standing, member
 ):
     from types import SimpleNamespace

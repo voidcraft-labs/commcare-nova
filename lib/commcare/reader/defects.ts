@@ -115,6 +115,7 @@ const PARSE_ISSUE_CODES = Object.keys({
 	"row-leaves-record": true,
 	"unknown-hashtag": true,
 	"unknown-search-input": true,
+	"search-answer-unloaded": true,
 	"search-results-unexcluded": true,
 	"search-results-remote": true,
 	"unknown-table": true,

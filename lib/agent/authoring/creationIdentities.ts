@@ -10,6 +10,7 @@ export type CreationEntityKind =
 	| "case_list_column"
 	| "case_list_sort"
 	| "search_input"
+	| "search_input_group"
 	| "case_operation"
 	| "worker_property"
 	| "user_type"
@@ -106,6 +107,7 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 		spec(["columns", "*", "columnUuid"], "case_list_column"),
 	],
 	configureCaseList: [
+		spec(["searchGroups", "*", "groupUuid"], "search_input_group", true),
 		spec(["calculatedSorts", "*", "sortUuid"], "case_list_sort", true),
 		spec(["columns", "*", "columnUuid"], "case_list_column"),
 		spec(["searchInputs", "*", "searchInputUuid"], "search_input"),

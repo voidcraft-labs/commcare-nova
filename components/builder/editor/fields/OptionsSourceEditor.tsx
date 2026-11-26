@@ -67,6 +67,7 @@ export function OptionsSourceEditor<
 	F extends SingleSelectField | MultiSelectField,
 >({ field, value, onChange }: FieldEditorComponentProps<F, "optionsSource">) {
 	const modeId = useId();
+	const caseStatusId = useId();
 	const valueColumnSelectId = useId();
 	const labelColumnSelectId = useId();
 	const sortColumnSelectId = useId();
@@ -100,9 +101,9 @@ export function OptionsSourceEditor<
 	const completeSource =
 		active.kind === "lookup" ? completeLookupSource(active, table) : active;
 	const expressionContext = useExpressionSlotContext(
-		completeSource === undefined || completeSource.kind === "inline"
-			? undefined
-			: { entity: "field", uuid: field.uuid, slot: "lookup_options_source" },
+		completeSource?.kind === "cases" || completeSource?.kind === "lookup"
+			? { entity: "field", uuid: field.uuid, slot: "lookup_options_source" }
+			: undefined,
 		completeSource === undefined
 			? undefined
 			: {
@@ -199,6 +200,8 @@ export function OptionsSourceEditor<
 								if (selected === INLINE) return "Options in this question";
 								if (selected === "cases")
 									return "Cases available to the worker";
+								if (selected === "available-cases")
+									return "All available cases";
 								const selectedTable = tables.find(
 									(candidate) => candidate.id === selected,
 								);
@@ -216,6 +219,11 @@ export function OptionsSourceEditor<
 					<SelectContent>
 						<SelectItem value={INLINE}>Options in this question</SelectItem>
 						<SelectItem value="cases">Cases available to the worker</SelectItem>
+						{field.kind === "single_select" ? (
+							<SelectItem value="available-cases">
+								All available cases
+							</SelectItem>
+						) : null}
 						{/* Keep a missing saved identity represented. Base UI otherwise
 						 * treats catalog removal as a value change and restores the initial
 						 * inline option, which would incorrectly stage a new source. */}
@@ -327,6 +335,68 @@ export function OptionsSourceEditor<
 						setRejection(null);
 					}}
 				/>
+			) : active.kind === "available-cases" ? (
+				<div className="space-y-3">
+					<p className="text-sm text-nova-text-secondary">
+						Choose from cases restored for the worker across all case types.
+						Choices show case names and save case IDs.
+					</p>
+					<div className="space-y-2">
+						<Label htmlFor={caseStatusId}>Cases to offer</Label>
+						<Select
+							items={{
+								all: "All available cases",
+								open: "Open cases only",
+								closed: "Closed cases only",
+							}}
+							value={active.status ?? "all"}
+							onValueChange={(selection) => {
+								if (
+									selection !== "all" &&
+									selection !== "open" &&
+									selection !== "closed"
+								)
+									return;
+								const next: typeof active = {
+									kind: "available-cases",
+									...(selection !== "all" && { status: selection }),
+								};
+								if (draft?.kind === "available-cases") setDraft(next);
+								else commit(next);
+							}}
+						>
+							<SelectTrigger id={caseStatusId} disabled={!canEdit}>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All available cases</SelectItem>
+								<SelectItem value="open">Open cases only</SelectItem>
+								<SelectItem value="closed">Closed cases only</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					{draft?.kind === "available-cases" ? (
+						<div className="flex justify-end gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setDraft(null);
+									setRejection(null);
+								}}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="button"
+								disabled={!canEdit}
+								onClick={() => commit(active)}
+							>
+								Use these cases
+							</Button>
+						</div>
+					) : null}
+				</div>
 			) : table === undefined ? (
 				catalog.kind === "ready" ? (
 					<p

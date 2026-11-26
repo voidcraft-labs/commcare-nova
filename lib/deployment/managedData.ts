@@ -158,7 +158,11 @@ import {
 	provisionalLookupBinding,
 } from "./reading/projectData/lookupTables";
 import { planManagedPlaces } from "./reading/projectData/places";
-import type { DeploymentScope, DeploymentTargetKey } from "./store";
+import type {
+	DeploymentScope,
+	DeploymentTargetKey,
+	HqManagementGrant,
+} from "./store";
 import type { CanonicalLookupTable, ResourceBaseline } from "./types";
 
 /**
@@ -621,6 +625,7 @@ async function refreshTable(
 		| { readonly mode: "refresh" }
 		| { readonly mode: "adopt"; readonly reviewed: ManagedTableReviewed },
 	at: Date,
+	grant?: HqManagementGrant | null,
 ): Promise<ManagedRefreshReceipt> {
 	const canonical = canonicalLookupTable(table, rows);
 	const base = {
@@ -637,19 +642,21 @@ async function refreshTable(
 	};
 	/* The member's role is read again on the write's own transaction: a
 	 * demotion or a removal during the read of CommCare HQ stops the write. */
-	return withAppTx(async (tx) =>
-		refreshManagedLookupTableInTransaction(
+	return withAppTx(async (tx) => {
+		await grant?.(tx);
+		const authorized = await authorizeLookupWriteInTransaction(
 			tx,
-			await authorizeLookupWriteInTransaction(
-				tx,
-				scope,
-				write.mode === "refresh" ? "edit" : "delete",
-			),
+			scope,
+			write.mode === "refresh" ? "edit" : "delete",
+		);
+		return refreshManagedLookupTableInTransaction(
+			tx,
+			authorized,
 			write.mode === "refresh"
 				? { ...base, mode: "refresh" }
 				: { ...base, mode: "adopt", reviewed: write.reviewed },
-		),
-	);
+		);
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -701,6 +708,7 @@ export interface ManagedTablesReRead {
  * as it is, since it is then Nova's to publish.
  */
 export async function reReadManagedTablesForPublish(input: {
+	readonly grant?: HqManagementGrant | null;
 	readonly requireHqImport: (() => void) | null;
 	readonly access: {
 		readonly appId: string;
@@ -880,6 +888,7 @@ export async function reReadManagedTablesForPublish(input: {
 				rows,
 				{ mode: "refresh" },
 				at,
+				input.grant,
 			);
 			/* A newer refresh landed while this publish read CommCare HQ: the
 			 * copy holds that read, and this one changed nothing. */
@@ -1274,7 +1283,7 @@ export async function inspectManagedLookupWorker(
 		username: grant.creds.username,
 	};
 	if (localPart) {
-		const username = localPart + "@" + origin.domain + ".commcarehq.org";
+		const username = `${localPart}@${origin.domain}.commcarehq.org`;
 		const result = await findHqMobileWorkers(grant.creds, origin.domain, [
 			username,
 		]);
@@ -2218,9 +2227,11 @@ export async function refreshManagedPlacesFromRead(
 	origin: { readonly server: string; readonly domain: string },
 	hqPlaces: readonly HqLocation[],
 	at: Date,
+	grant?: HqManagementGrant | null,
 ): Promise<ManagedPlacesOutcome> {
 	try {
 		return await withAppTx(async (tx: Transaction<AppDatabase>) => {
+			await grant?.(tx);
 			const app = await loadAppInTransaction(tx, scope.appId);
 			if (app === null) {
 				return placesRefused("not-found", NO_MANAGED_PLACES);

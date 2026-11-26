@@ -40,6 +40,12 @@ afresh when you come back.
 
 The page's address names the app, so you can keep it or send it to a teammate.
 
+Nova keeps extended wording on form labels, hints, help, validation messages,
+and choices. You can edit it alongside the ordinary wording in the field panel.
+For an inline choice, open the menu beside the choice to add extended text. Use
+Preview to see which wording workers get on each platform.
+
+
 ## When Nova can bring it in
 
 Nova shows you one review before anything is created.
@@ -50,6 +56,8 @@ forms, questions, languages and case types.
 **Where workers use this app**: Nova proposes where the app runs from what it
 uses and from its Web App setting in CommCare HQ. You can choose differently
 here or later in App settings.
+
+**Searches supplied by this project space** lists each search ID, the menus that use it, the values they send and the fields their screens read. Your source project space continues to decide which cases workers can find. When you publish to another project space, you can connect each search to the ID your administrator provides there.
 
 **Lookup tables** and **Places**: the tables and places the app reads come in as
 copies that CommCare HQ keeps managing. [Project data](/docs/project-data) and
@@ -113,12 +121,15 @@ that use `int()` or `substr()`.
 Two more things are listed with where they sit, since Nova would save or find
 something different from what CommCare HQ does today:
 
-- A hidden value that works out a date and time, saved straight to a case
-  property, or a date and time question saved straight as a case's name,
-  owner or external ID, or to the mobile worker's own record. CommCare HQ keeps
-  only the day there. A date and time question saved straight to any other
-  property comes in: Nova makes that property a date and keeps the day, as
-  CommCare does.
+- A date and time question saved straight as a case's name, owner or external
+  ID, or to the mobile worker's own record. CommCare keeps only the day in
+  these writes. Nova can bring in a direct write to an ordinary case property
+  when its writers all give it a day. This includes a basic follow-up that
+  always saves the answer to an ordinary property on the selected case's
+  parent. This uses the Date and Time question on Android. A hidden value
+  that reads the current date and time can also save
+  the day to a Date property on the case a basic follow-up opens. Other
+  hidden date and time calculations may still appear in the review.
 - A search filter Nova would keep as part of the case list's filter, in a menu
   whose forms read its search, where the phone would read it differently from
   CommCare HQ's search. A filter that compares a case property with `!=` or
