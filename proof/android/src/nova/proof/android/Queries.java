@@ -1,6 +1,7 @@
 package nova.proof.android;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Intent;
 import android.view.View;
 import android.widget.Button;
@@ -22,6 +23,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
+import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.shadows.ShadowToast;
 import org.w3c.dom.Document;
@@ -102,6 +104,13 @@ final class Queries {
         RemoteQuerySessionManager manager = manager(activity);
         if (manager == null) {
             query.put("opened", false);
+            Dialog alert = ShadowDialog.getLatestDialog();
+            if (alert != null && alert.isShowing()) {
+                TextView message = alert.findViewById(R.id.dialog_message);
+                if (message != null) {
+                    query.put("openingError", message.getText().toString());
+                }
+            }
             return false;
         }
         query.put("opened", true);

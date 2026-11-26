@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from contextlib import contextmanager
 from pathlib import Path
-import os
 
 import pytest
 from lxml import etree
@@ -112,15 +112,14 @@ def _record(request, result):
 def test_formplayer_search_default_reads_only_its_request(hq, formplayer_runner, request, has_sibling):
     from proof.formplayer import apps
     from proof.formplayer.walk import screen_kind
-    from proof.formplayer.webapps import FormplayerRefused
 
     with _released(has_sibling, formplayer_runner) as served, served.run("navigation-lookup"):
         web = apps.web(formplayer_runner, served)
         if not has_sibling:
-            with pytest.raises(FormplayerRefused) as refusal:
-                web.navigate(["0"])
-            _record(request, {"error": str(refusal.value)})
-            assert MISSING in str(refusal.value), refusal.value
+            refusal = web.navigate(["0"])
+            _record(request, {"response": refusal})
+            assert refusal.get("status") == "error", refusal
+            assert MISSING in refusal["exception"], refusal
             assert served.hq.searches == []
             return
 
@@ -157,8 +156,9 @@ def test_android_search_default_reads_only_its_request(hq, request, has_sibling)
             step["query"] for walk in search_walks for step in walk.get("steps", []) if "query" in step
         ]
         if not has_sibling:
-            assert not any(query.get("opened") for query in queries), search_walks
-            assert MISSING in json.dumps(search_walks, ensure_ascii=False).replace('\\"', '"'), search_walks
+            assert queries, search_walks
+            for query in queries:
+                assert query["opened"] is False and MISSING in query.get("openingError", ""), query
             assert served.hq.searches == []
             return
 
