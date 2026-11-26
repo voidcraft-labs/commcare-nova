@@ -104,6 +104,7 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					{
 						kind: "secret",
 						id: "address",
+						uuid: IDS.address,
 						label: "Private meeting place",
 						addressLookup: true,
 						sendTopics: ["meeting-location"],
@@ -117,6 +118,7 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					{
 						kind: "hidden",
 						id: "recorded_city",
+						uuid: IDS.addressCityCopy,
 						calculate: "/data/questions/city",
 					},
 					{

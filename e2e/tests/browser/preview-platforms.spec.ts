@@ -1445,8 +1445,8 @@ test("Web Apps address search commits only the current choice and updates the fo
 			name: "Private meeting place",
 		});
 		const city = page.locator('[data-instance-path$="/city"] input');
-		const cityCopy = () => answer(page, "/data/questions/recorded_city");
-		const storedAddress = () => answer(page, "/data/questions/address");
+		const cityCopy = () => answer(page, PLATFORM_IDS.addressCityCopy);
+		const storedAddress = () => answer(page, PLATFORM_IDS.address);
 		const choose = async (query: string, choice: string) => {
 			await address.fill(query);
 			await page.getByRole("option", { name: choice, exact: true }).click();
