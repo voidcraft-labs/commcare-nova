@@ -7146,6 +7146,7 @@ export async function finishDeploymentContentWrite(
 			)
 				return false;
 			if (row.content_generation !== generation) {
+				if (!hasRemoteWrite) return false;
 				const ids = admitted?.writeIds ?? [];
 				const currentGeneration = row.content_generation;
 				if (currentGeneration && ids.length) {

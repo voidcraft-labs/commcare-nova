@@ -609,6 +609,16 @@ describe("two publishes of one HQ app", () => {
 		const evidence = await readEntryPointEvidence(birth.scope, TARGET);
 		expect(evidence.manifest).toBeNull();
 		expect(evidence.generation).not.toBe(generation);
+		await expect(
+			finishDeploymentContentWrite(
+				birth.scope,
+				TARGET,
+				generation,
+				manifest,
+				fence,
+			),
+		).resolves.toBe(false);
+		expect(await readEntryPointEvidence(birth.scope, TARGET)).toEqual(evidence);
 		expect(
 			await finishDeploymentContentWrite(
 				birth.scope,
@@ -1706,6 +1716,21 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 				TARGET,
 				generation,
 				null,
+				fence,
+			),
+		).resolves.toBe(false);
+		await expect(
+			finishDeploymentContentWrite(
+				birth.scope,
+				TARGET,
+				generation,
+				{
+					generation,
+					remoteAppId: HQ_APP,
+					sourceSequence: 3,
+					entries: [],
+					dependencies: [],
+				},
 				fence,
 			),
 		).rejects.toMatchObject({ code: "not_found" });
