@@ -178,28 +178,6 @@ export const createModuleTool = {
 				: [];
 			const mutations: Mutation[] = [
 				...(case_type ? declareCaseTypeMutations(doc, case_type) : []),
-				...addModuleMutations({
-					uuid: moduleUuid,
-					name,
-					...(parentModuleUuid !== undefined && { parentModuleUuid }),
-					...(parentCaseModuleUuid !== undefined && { parentCaseModuleUuid }),
-					...(case_type && { caseType: case_type }),
-					...(case_list_menu_item !== undefined && {
-						caseListMenuItem: caseListMenuItemFromInput(case_list_menu_item),
-					}),
-					...(purpose != null && { purpose }),
-					...(columns.length > 0 && {
-						caseListConfig: {
-							columns,
-							listColumnOrder: columns.map((column) => column.uuid),
-							detailColumnOrder: columns.map((column) => column.uuid),
-							searchInputs: [],
-						},
-					}),
-				}),
-				...(case_type && !doc.caseTypes?.some((type) => type.name === case_type)
-					? [{ kind: "declareCaseType" as const, caseType: case_type }]
-					: []),
 				...(shared?.mutations ??
 					addModuleMutations({
 						uuid: moduleUuid,
