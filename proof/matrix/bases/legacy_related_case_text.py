@@ -14,6 +14,8 @@ from proof.matrix.registry import Base
 
 
 def build(authoring) -> str:
+    from corehq.apps.app_manager.models import MappingItem
+
     from proof.checks.compare.app_strings import parse_app_strings
     from proof.hq import operations
 
@@ -26,7 +28,7 @@ def build(authoring) -> str:
 
     legacy = _column(
         "parent/village", "Parent village", format="translatable-enum",
-        enum=[{"doc_type": "MappingItem", "key": "north", "value": {"en": "North village"}, "alt_text": {}}],
+        enum=[MappingItem(key="north", value={"en": "North village"})],
     )
     ops.set_json(authoring, app_id, "/modules/0/case_details/short/columns/-", legacy)
     with authoring.step("native-legacy-related-wording"):
