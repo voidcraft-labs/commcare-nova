@@ -7426,6 +7426,7 @@ def _held_new():
         "case-search/prompt-key-matching-a-direct-parent-property": (
             refused("app", search(name="parent/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             accepted("app", search(name="host/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            accepted("app", search(name="parent/parent/village", label={"en": "Village"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             accepted("app", search(name="parent/location_id", label={"en": "Location"}), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             accepted("app", search(name="parent/village", label={"en": "Village"}, input_="date"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
         ),

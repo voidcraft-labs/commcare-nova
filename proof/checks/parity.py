@@ -68,6 +68,7 @@ from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     _guarded_lookup_count,
+    direct_parent_text_prompt_key,
     itemset_literal_row_index,
     save_to_case_before_optional_own_update,
     save_to_case_retype_property_types,
@@ -78,6 +79,7 @@ CHECK = "parity"
 ARTIFACT = "claims@A"
 ALLOWING = frozenset({"HELD", "TARGET-OWNED", "INERT"})
 HQ_BUILD_REASON = "not-hq-buildable"
+DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
 
 
@@ -514,6 +516,15 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
         found = source_uses(source, held, keep_expressions=bool({SUPPLY_POINT, LOOKUP_COUNT}.intersection(entries)))
         decided, _ = decided_uses(found, held)
         decided.extend(_forms_variant_uses(found, held, entries))
+        if DIRECT_PARENT_PROMPT in entries:
+            entry = _entries_by_id(held)[DIRECT_PARENT_PROMPT]
+            # Ordinary HELD classes share the same standing. Record this
+            # affirmative stored shape, not an allowance for the whole key.
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:CaseSearchProperty.name" and direct_parent_text_prompt_key(use, held)
+            )
         return decided
 
     base, variant = decisions(base_source), decisions(variant_source)
@@ -598,6 +609,8 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "fix-in-hq", refused
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
+    if standing == manifest_usage.HELD and DIRECT_PARENT_PROMPT in resting and len(resting) == 1:
+        return record.standing == "held", record.entry == DIRECT_PARENT_PROMPT
     if standing == manifest_usage.HELD and decided.at is not None:
         return record.standing == "held", record.entry in resting and record.at == decided.at
     if standing == manifest_usage.HELD:

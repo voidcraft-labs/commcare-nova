@@ -39328,6 +39328,22 @@
 		}
 	},
 	{
+		"id": "hq-search/field-named-by-a-nested-parent-path",
+		"base": "hq-search",
+		"entry": "case-search/prompt-key-outside-nova-s-name-grammar",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1/name",
+			"value": "parent/parent/village"
+		}
+	},
+	{
 		"id": "hq-search/field-named-include-closed",
 		"base": "hq-search",
 		"entry": "case-search/a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys",

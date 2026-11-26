@@ -648,6 +648,7 @@
 		"hq-search/field-hint",
 		"hq-search/field-matching-the-owner",
 		"hq-search/date-field-named-by-a-parent-path",
+		"hq-search/field-named-by-a-nested-parent-path",
 		"hq-search/field-named-by-a-parent-path",
 		"hq-search/field-named-include-closed",
 		"hq-search/field-validation",
