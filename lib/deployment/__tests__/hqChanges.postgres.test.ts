@@ -3837,7 +3837,10 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			appId: FIXTURE_REMOTE_APP_ID as string,
 		},
 		confirm = CONFIRM_ALL,
-		readInstallationSourceAgain = false,
+		options: {
+			readonly readInstallationSourceAgain?: boolean;
+			readonly stopsBeforeRemoteReads?: boolean;
+		} = {},
 	) {
 		const sourcePath = `/a/${destination.domain}/apps/source/${destination.appId}/`;
 		const importPath = `/a/${destination.domain}/apps/api/import_app/`;
@@ -3849,32 +3852,34 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		/** The app JSON each import carried. */
 		const imported: Record<string, unknown>[] = [];
 		return withHqPeer(saves, FIXTURE_HOST, async (peer) => {
-			peer
-				.get(FIXTURE_HOST)
-				.intercept({
-					path: (path) => path.startsWith(PROJECT_SPACES),
-					method: "GET",
-				})
-				.reply((request) => {
-					const objects =
-						request.path === PROJECT_SPACES
-							? [{ domain_name: destination.domain, project_name: "Clinic" }]
-							: [];
-					return {
-						statusCode: 200,
-						data: JSON.stringify({
-							meta: { next: null, total_count: objects.length },
-							objects,
-						}),
-					};
-				})
-				.persist();
-			serveAnswer(
-				peer,
-				sourcePath,
-				source,
-				readInstallationSourceAgain ? 2 : 1,
-			);
+			if (!options.stopsBeforeRemoteReads) {
+				peer
+					.get(FIXTURE_HOST)
+					.intercept({
+						path: (path) => path.startsWith(PROJECT_SPACES),
+						method: "GET",
+					})
+					.reply((request) => {
+						const objects =
+							request.path === PROJECT_SPACES
+								? [{ domain_name: destination.domain, project_name: "Clinic" }]
+								: [];
+						return {
+							statusCode: 200,
+							data: JSON.stringify({
+								meta: { next: null, total_count: objects.length },
+								objects,
+							}),
+						};
+					})
+					.persist();
+				serveAnswer(
+					peer,
+					sourcePath,
+					source,
+					options.readInstallationSourceAgain ? 2 : 1,
+				);
+			}
 			if (accepts && !(readBack instanceof TargetPeer))
 				serveAnswer(peer, sourcePath, readBack);
 			if (accepts)
@@ -4884,6 +4889,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			undefined,
 			undefined,
 			[],
+			{ stopsBeforeRemoteReads: true },
 		);
 		expect(
 			pending.outcome,
@@ -4914,7 +4920,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			undefined,
 			undefined,
 			CONFIRM_ALL,
-			true,
+			{ readInstallationSourceAgain: true },
 		);
 		expect(
 			published.outcome,
