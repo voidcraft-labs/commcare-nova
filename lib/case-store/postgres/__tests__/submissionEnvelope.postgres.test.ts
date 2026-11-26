@@ -52,7 +52,10 @@ import {
 	SubmissionRejectedError,
 } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
-import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
+import {
+	buildIsolatedDb,
+	setupPerTestDatabase,
+} from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
 import type {
@@ -3176,6 +3179,171 @@ describe("the form's own case", () => {
 		});
 		expect((await patientRow(store, caseId))?.case_name).toBe("Amina");
 	});
+
+	it("refuses a resumed entry when a concurrent save took the new ID its form also reads", async () => {
+		const caseId = "registration-after-form-open";
+		const store = makeStore();
+		expect(await patientRow(store, caseId)).toBeUndefined();
+		const winner = receiptFor({
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
+		});
+		const resumed = receiptFor({
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
+		});
+		const creation = (
+			name: string,
+			operations: EnvelopeCaseOperation[] = [],
+		): CaseOperationProgram => ({
+			...ownProgram(
+				"registration",
+				[ownOp({ name: term(literal(name)) }), ...operations],
+				{
+					formFields: [[KEY_FIELD, caseId]],
+				},
+			),
+			entryCaseKeys: new Map([[OWN_UUID, "new-case"]]),
+			suppliedCaseIds: new Map([[OWN_UUID, caseId]]),
+		});
+		const raced = buildIsolatedDb<Database>(dbHandle.uri);
+		const gate = new Client({ connectionString: dbHandle.uri });
+		let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+		try {
+			await gate.connect();
+			const scope = `nova-form-attachment-entry:${APP_ID}:${ACTOR}:${resumed.entryKey}`;
+			await gate.query("SELECT pg_advisory_lock(hashtextextended($1,0))", [
+				scope,
+			]);
+			const otherStore = makeStore(PROJECT_A, ACTOR, ACTOR, raced.db);
+			pending = Promise.allSettled([
+				submit(otherStore, {
+					appId: APP_ID,
+					ordinary: { kind: "registration" },
+					operations: creation("Resumed form", [
+						envOp(
+							operation({
+								target: {
+									kind: "expression",
+									expr: term(formField(KEY_FIELD)),
+								},
+								writes: literalWrites({ notes: "Should not be saved" }),
+							}),
+							{
+								expressionSnapshotTypes: {
+									target: "patient",
+									links: new Map(),
+								},
+							},
+						),
+					]),
+					submissionReceipt: resumed,
+				}),
+			]);
+			await vi.waitFor(async () => {
+				const waiters = await gate.query<{ count: number }>(`
+					SELECT count(*)::int AS count FROM pg_stat_activity
+					WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
+				`);
+				expect(waiters.rows[0]?.count).toBe(1);
+			});
+			const first = await submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "registration" },
+				operations: creation("Concurrent winner"),
+				submissionReceipt: winner,
+			});
+			expect(first.primaryCaseIds).toEqual([caseId]);
+			const saved = await patientRow(store, caseId);
+			await gate.query("SELECT pg_advisory_unlock(hashtextextended($1,0))", [
+				scope,
+			]);
+
+			const [other] = await pending;
+			expect(other).toMatchObject({
+				status: "rejected",
+				reason: {
+					rejection: { kind: "new-case", reason: "case-id-taken", caseId },
+				},
+			});
+			expect(await patientRow(store, caseId)).toEqual(saved);
+			const receipts = await dbHandle.pool.query(
+				"SELECT entry_key FROM form_submission_intents WHERE app_id = $1",
+				[APP_ID],
+			);
+			expect(receipts.rows).toEqual([{ entry_key: winner.entryKey }]);
+		} finally {
+			try {
+				await gate.end();
+				await pending;
+			} finally {
+				await raced.destroy();
+			}
+		}
+	});
+
+	it.each(["before", "after"] as const)(
+		"refuses a new entry ID that equals a keyed create %s it in the same submission",
+		async (placement) => {
+			const store = makeStore();
+			const key = "same-envelope";
+			const caseId = `${PINNED_VECTOR_PREFIX}${key}`;
+			const named = envOp(
+				operation({
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: term(literal("Named visit")),
+				}),
+			);
+			const keyed = envOp(
+				operation({
+					uuid: VECTOR_OP_UUID,
+					id: "keyed_visit",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new", idFrom: KEY_FIELD },
+					name: term(literal("Keyed visit")),
+				}),
+			);
+			const operations =
+				placement === "before" ? [keyed, named] : [named, keyed];
+			const refused = await rejection(
+				submit(store, {
+					appId: APP_ID,
+					ordinary: { kind: "none" },
+					operations: {
+						...rootProgram(operations, {
+							formFields: [[KEY_FIELD, key]],
+							sessionCaseId: null,
+						}),
+						entryCaseKeys: new Map([[OP_A, "new-child-case:visit"]]),
+						suppliedCaseIds: new Map([[OP_A, caseId]]),
+					},
+				}),
+			);
+			expect(refused.rejection).toEqual({
+				kind: "new-case",
+				reason: "case-id-taken",
+				caseId,
+			});
+			expect(
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "visit",
+				}),
+			).toEqual([]);
+			expect(
+				(
+					await dbHandle.pool.query(
+						"SELECT entry_key FROM form_submission_intents WHERE app_id = $1",
+						[APP_ID],
+					)
+				).rows,
+			).toEqual([]);
+		},
+	);
 
 	it("creates every case the entry gives a datum under its own minted id, an advanced open action's extension included", async () => {
 		// An advanced registration: its own case and two visits made as its
