@@ -40301,27 +40301,8 @@
 			"name": "Active clients"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/1/search_config/default_properties/-",
-			"value": {
-				"property": "x_commcare_custom_related_case_property",
-				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "'parent/name'"
-			}
-		},
-		"second": {
-			"entry": "case-search/an-x-commcare-custom-related-case-property-entry-together-with",
-			"standing": "fix-in-hq",
-			"place": {
-				"kind": "search",
-				"menu": 1,
-				"name": "Active clients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/1/search_config/custom_related_case_property",
-				"value": "name"
-			}
+			"op": "named",
+			"name": "related_record_id_sent_twice"
 		}
 	},
 	{

@@ -374,6 +374,23 @@ def inline_search_on_display_only_menu(authoring, app_id):
     _set_each(authoring, app_id, ("/modules/0/search_config/inline_search", True))
 
 
+def related_record_id_sent_twice(authoring, app_id):
+    """Set both spellings of the one key, producing a single invalid Search request."""
+    _set_each(
+        authoring,
+        app_id,
+        (
+            "/modules/1/search_config/default_properties/-",
+            {
+                "property": "x_commcare_custom_related_case_property",
+                "doc_type": "DefaultCaseSearchProperty",
+                "defaultValue": "'parent/name'",
+            },
+        ),
+        ("/modules/1/search_config/custom_related_case_property", "name"),
+    )
+
+
 # Search fields ------------------------------------------------------------------------------------------------------
 
 
