@@ -10662,78 +10662,6 @@ def live_create_id(use, manifest):
     return _creates(holder) and not form.in_repeat(form.paths[holder])
 
 
-def write_and_close(use, manifest):
-    """A Close Condition on a SaveToCase block that also changes the case."""
-    form, bind, close = _bind(use)
-    if form is None:
-        return None
-    if bind is None or close is None or isinstance(close, tuple) or close.tag != f"{{{CASE}}}close":
-        return False
-    case = close.getparent()
-    holder = case.getparent()
-    return (
-        holder.get(f"{{{VELLUM}}}role") == "SaveToCase"
-        and any(case.find(f"{{{CASE}}}{facet}") is not None for facet in ("create", "update", "index"))
-    )
-
-
-def exact_create_id(use, manifest):
-    """The create's authored ready action or repeat-row bind supplies a case ID."""
-    form, setvalue = _setvalue(use)
-    if form is not None and setvalue is not None:
-        target = _target(form, setvalue)
-        holder = _save_to_case_create_id(form, setvalue, target)
-        if holder is None or form.in_repeat(form.paths[holder]) or setvalue.get("event") != "xforms-ready":
-            return False
-        value = (setvalue.get("value") or "").strip()
-        if value in ("", "''", '""', "uuid()"):
-            return False
-        if form.node(value) is not None:
-            return any(
-                step.get("ref") == value and step.get("event") == "xforms-ready"
-                and (step.get("value") or "").strip() not in ("", "''", '""')
-                for step in setvalue.itersiblings(preceding=True)
-                if step.tag == f"{{{XFORMS}}}setvalue"
-            )
-        return True
-    form, bind, target = _bind(use)
-    if form is None:
-        return None
-    if bind is None or not isinstance(target, tuple) or target[1] != "case_id":
-        return False
-    holder = target[0].getparent()
-    if holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase" or not _creates(holder):
-        return False
-    value = (bind.get("calculate") or "").strip()
-    if "nova-case-v1:" in value:
-        return None  # The derived-key envelope has a separate judgment.
-    return form.in_repeat(form.paths[holder]) and bool(value) and value != "uuid()"
-
-
-def conditioned_create_owner(use, manifest):
-    """Fresh create has its own relevance on the owner leaf."""
-    form, bind, node = _bind(use)
-    if form is None:
-        return None
-    if bind is None or node is None or isinstance(node, tuple) or not bind.get("relevant"):
-        return False
-    create = node.getparent()
-    if node.tag != f"{{{CASE}}}owner_id" or create is None or create.tag != f"{{{CASE}}}create":
-        return False
-    case = create.getparent()
-    holder = case.getparent() if case is not None else None
-    if holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase":
-        return False
-    id_path = f"{form.paths[holder]}/case/@case_id"
-    id_bind = form.bind(id_path)
-    if id_bind is not None:
-        return (id_bind.get("calculate") or "").strip() == "uuid()"
-    return any(
-        setvalue.get("ref") == id_path and (setvalue.get("value") or "").strip() == "uuid()"
-        for setvalue in form.model.findall(f"{{{XFORMS}}}setvalue")
-    )
-
-
 def conditioned_aliased_create_owner(use, manifest):
     """An authored ID can reuse an existing case when the create owner is absent."""
     form, bind, node = _bind(use)
@@ -10752,11 +10680,11 @@ def conditioned_aliased_create_owner(use, manifest):
     id_bind = form.bind(id_path)
     if id_bind is not None:
         value = (id_bind.get("calculate") or "").strip()
-        return form.in_repeat(form.paths[holder]) and value not in ("", "uuid()")
+        return form.in_repeat(form.paths[holder]) and value not in ("", "''", '""', "uuid()")
     return any(
         step.get("ref") == id_path
         and step.get("event") == "xforms-ready"
-        and (step.get("value") or "").strip() not in ("", "uuid()")
+        and (step.get("value") or "").strip() not in ("", "''", '""', "uuid()")
         for step in form.model.findall(f"{{{XFORMS}}}setvalue")
     )
 
@@ -12591,9 +12519,6 @@ VALUE_CLASSES = {
     "questions/a-default-value-s-setvalue-whose-event-does-not-match-where-the": default_event_mismatching_placement,
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
 
-    "questions/savetocase-case-id-expression-on-a-create": exact_create_id,
-    "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under": write_and_close,
-    "questions/savetocase-owner-id-condition": conditioned_create_owner,
     "questions/savetocase-owner-condition-on-an-aliased-create": conditioned_aliased_create_owner,
     "questions/savetocase-update-owner-condition": conditioned_unsupported_update_owner,
     "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,

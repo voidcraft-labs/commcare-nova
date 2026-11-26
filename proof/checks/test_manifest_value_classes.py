@@ -5989,59 +5989,20 @@ CASE_PROPERTY_COLLISION_FORM = _form(
 
 
 def _save_to_case_effects():
-    bind_relevant = "xform:model/bind@relevant"
-    bind_calculate = "xform:model/bind@calculate"
-    setvalue = "xform:setvalue@value"
     role = "{http://example.org/t}op[1]/@vellum:role"
     create = "<create><owner_id/></create>"
-    create_owner = "/data/op/case/create/owner_id"
-    case_id = "/data/op/case/@case_id"
-
-    def block(actions, model="", *, in_repeat=False):
-        data = (
-            f'<op vellum:role="SaveToCase" vellum:case_type="patient">'
-            f'<case xmlns="{CASE_NS}" case_id="" date_modified="" user_id="">{actions}</case></op>'
-        )
-        if in_repeat:
-            return _form(
-                data=f'<rows jr:template="">{data}</rows><rows>{data}</rows>',
-                model=model.replace("/data/op/", "/data/rows/op/"),
-                body='<group><repeat nodeset="/data/rows"/></group>',
-            )
-        return _form(data=data, model=model)
-
-    def ready(value):
-        return f'<setvalue ref="{case_id}" event="xforms-ready" value="{value}"/>'
-
-    def calculate(value):
-        return f'<bind nodeset="{case_id}" calculate="{value}"/>'
 
     def with_link(name, actions):
-        return block(
-            f'{actions}<index><{name} case_type="household" relationship="child"/></index>',
-            f'<bind nodeset="/data/op/case/index/{name}" calculate="\'household-01\'"/>',
+        return _form(
+            data=(
+                f'<op vellum:role="SaveToCase" vellum:case_type="patient">'
+                f'<case xmlns="{CASE_NS}" case_id="" date_modified="" user_id="">{actions}'
+                f'<index><{name} case_type="household" relationship="child"/></index></case></op>'
+            ),
+            model=f'<bind nodeset="/data/op/case/index/{name}" calculate="\'household-01\'"/>',
         )
 
-    close_condition = '<bind nodeset="/data/op/case/close" relevant="true()"/>'
-    owner_condition = f'<bind nodeset="{create_owner}" calculate="\'team\'" relevant="true()"/>'
-    relevance = "bind[1]/@relevant"
-    calculation = "bind[1]/@calculate"
-    ready_value = "setvalue[1]/@value"
     return {
-        "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under": [
-            refused("form", block("<update/><close/>", close_condition), bind_relevant, relevance),
-            accepted("form", block("<close/>", close_condition), bind_relevant, relevance),
-        ],
-        "questions/savetocase-case-id-expression-on-a-create": [
-            refused("form", block(create, ready("'patient-01'")), setvalue, ready_value),
-            accepted("form", block(create, ready("uuid()")), setvalue, ready_value),
-            refused("form", block(create, calculate("'patient-01'"), in_repeat=True), bind_calculate, calculation),
-            accepted("form", block(create, calculate("uuid()"), in_repeat=True), bind_calculate, calculation),
-        ],
-        "questions/savetocase-owner-id-condition": [
-            refused("form", block(create, owner_condition + ready("uuid()")), bind_relevant, relevance),
-            accepted("form", block(create, owner_condition + ready("'patient-01'")), bind_relevant, relevance),
-        ],
         "questions/savetocase-link-name-changes-actions-on-save": [
             refused("form", with_link("close", create), ROLE, role),
             refused("form", with_link("create", "<update/>"), ROLE, role),
