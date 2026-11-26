@@ -13,7 +13,6 @@ import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
-	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
 	effectiveCaseTypes,
@@ -709,9 +708,7 @@ describe("case-operation activation and identity", () => {
 		const error = errorsFor([updateWithLink("parent.link")]).find(
 			(candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID",
 		);
-		expect(error?.message).toContain(
-			CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
-		);
+		expect(error?.message).toContain("requires an Advanced open action");
 	});
 
 	it("keeps repeated operations on an explicit in-form repeat", () => {

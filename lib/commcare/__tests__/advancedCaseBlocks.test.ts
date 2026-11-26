@@ -328,7 +328,7 @@ describe("addAdvancedCaseBlocks", () => {
 		]);
 	});
 
-	it.each(["parent", "my-parent"])(
+	it.each(["parent", "my-parent", "my.parent"])(
 		"keeps the %s index, the target's case type and relationship, and the load's own datum",
 		(identifier) => {
 			const { data, binds } = inject(

@@ -12765,6 +12765,7 @@ CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
 
 # Case-operation links and tile grouping use the same portable connection name.
 CASE_OPERATION_LINK_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*")
+ADVANCED_OPEN_INDEX_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*")
 
 
 def _index_identifier(index):
@@ -12774,9 +12775,27 @@ def _index_identifier(index):
     return reference if isinstance(reference, str) and reference != "" else "parent"
 
 
+def _dotted_open_index_to_first_choice(at, form, loads, opens, action, index):
+    """The retained open names the first manually chosen record by a dotted child index."""
+    if at.key != "reference_id" or index is None or not loads or _is_load(action, loads):
+        return False
+    identifier = _index_identifier(index)
+    return (
+        "." in identifier
+        and ADVANCED_OPEN_INDEX_IDENTIFIER.fullmatch(identifier) is not None
+        and index.get("relationship", "child") == "child"
+        and index.get("tag") == loads[0].get("case_tag")
+        and not _auto_selected(loads[0])
+        and not _from_fixture(loads[0])
+    )
+
+
+dotted_open_index_to_first_choice = _advanced_reader(_dotted_open_index_to_first_choice)
+
+
 def index_identifier_outside_an_xml_name(use, manifest):
     """``forms-and-case-writes/index-identifier-outside-an-xml-element-name``: an advanced open action's index whose
-    identifier (``_index_identifier``) is outside Nova's case operation link identifier grammar
+    identifier (``_index_identifier``) is outside the Advanced open-action index grammar
     (``advancedActions.ts``, ``openIndexName``). A load's index is another class's."""
     at = _json(use)
     if at is None:
@@ -12789,7 +12808,7 @@ def index_identifier_outside_an_xml_name(use, manifest):
         indices = [at.owner]
     else:
         return None
-    return any(CASE_OPERATION_LINK_IDENTIFIER.fullmatch(_index_identifier(index)) is None for index in indices)
+    return any(ADVANCED_OPEN_INDEX_IDENTIFIER.fullmatch(_index_identifier(index)) is None for index in indices)
 
 
 def _custom_short_tile_group(use):

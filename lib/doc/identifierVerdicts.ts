@@ -36,6 +36,8 @@ import {
 	MAX_CASE_TYPE_LENGTH,
 } from "@/lib/commcare/constants";
 import {
+	ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE,
+	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	authoredCasePropertyNameSchema,
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
@@ -595,21 +597,28 @@ export function isReservedCaseOperationProperty(property: string): boolean {
  * HQ's form builder can't open a form with, and unique within its operation.
  * The candidate validator checks whether a link called `close` or `create`
  * changes the actions of its actual Save to Case block.
+ * An Advanced-name candidate goes to that same validator for its placement.
  */
 export function caseOperationLinkIdentifierVerdict(
 	identifier: string,
 	taken: ReadonlySet<string>,
 	offer: FreeNameOffer = "free-here",
+	allowAdvancedCandidate = false,
 ): CaseOperationIdVerdict {
 	const trimmed = identifier.trim();
 	if (trimmed.length === 0) {
 		return { ok: false, code: "empty", userMessage: "Name this connection." };
 	}
-	if (identifier !== trimmed || !isCaseOperationLinkIdentifier(trimmed)) {
+	const valid = allowAdvancedCandidate
+		? ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(trimmed)
+		: isCaseOperationLinkIdentifier(trimmed);
+	if (identifier !== trimmed || !valid) {
 		return {
 			ok: false,
 			code: "illegal_format",
-			userMessage: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
+			userMessage: allowAdvancedCandidate
+				? ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE
+				: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 		};
 	}
 	if (trimmed.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH) {

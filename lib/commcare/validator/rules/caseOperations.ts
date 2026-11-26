@@ -31,6 +31,7 @@ import {
 	sameCaseOperationTargetIdentity,
 } from "@/lib/doc/caseOperationOrder";
 import {
+	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	type BlueprintDoc,
 	CASE_FACET_OF_ONLY_IF_CHANGED,
 	CASE_LOADING_FORM_TYPES,
@@ -929,12 +930,29 @@ function validateLinks(
 	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
 	errors: ValidationError[],
 ): void {
+	const links = operation.links ?? [];
+	if (links.length === 0) return;
 	const linkIds = new Set<string>();
-	const allLinkIds = new Set(
-		(operation.links ?? []).map((link) => link.identifier),
-	);
-	for (const link of operation.links ?? []) {
-		const invalidLinkFormat = !isCaseOperationLinkIdentifier(link.identifier);
+	const allLinkIds = new Set(links.map((link) => link.identifier));
+	let plan: ReturnType<typeof planPlacements> | undefined;
+	const placementsOfForm = () =>
+		(plan ??= planPlacements(ctx.doc, ctx.formUuid));
+	let advancedOpen: boolean | undefined;
+	for (const link of links) {
+		const standardName = isCaseOperationLinkIdentifier(link.identifier);
+		const advancedName =
+			!standardName &&
+			ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(link.identifier);
+		if (advancedName)
+			advancedOpen ??=
+				placementsOfForm().advanced?.opens.some(
+					(open) => open.operationUuid === operation.uuid,
+				) === true;
+		const validFormat = standardName || (advancedName && advancedOpen === true);
+		const formatMessage = advancedName
+			? "A connection name with a period requires an Advanced open action. Keep the change in that action or choose a name without a period."
+			: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE;
+		const invalidLinkFormat = !validFormat;
 		const linkTooLong =
 			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH;
 		const duplicateLink = linkIds.has(link.identifier);
@@ -945,11 +963,12 @@ function validateLinks(
 					operation,
 					"CASE_OPERATION_LINK_INVALID",
 					invalidLinkFormat
-						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE}`
+						? `Link identifier "${link.identifier}" is invalid. ${formatMessage}`
 						: linkTooLong
 							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
 							: `Link identifier "${link.identifier}" is used more than once by this operation.`,
 					{
+						linkIdentifier: link.identifier,
 						reason: (invalidLinkFormat
 							? "format"
 							: linkTooLong
@@ -962,7 +981,7 @@ function validateLinks(
 		const linkNameProblem = invalidLinkFormat
 			? undefined
 			: caseOperationLinkNameProblem(link.identifier, (action) => {
-					const { placements } = planPlacements(ctx.doc, ctx.formUuid);
+					const { placements } = placementsOfForm();
 					if (placements.get(operation.uuid)?.placement.kind !== "save-to-case")
 						return false;
 					return saveToCaseActions(

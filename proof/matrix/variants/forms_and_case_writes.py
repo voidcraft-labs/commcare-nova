@@ -149,8 +149,7 @@ def open_member_with_parent_index(authoring, app_id):
     ])
 
 
-def open_visitor_with_hyphenated_index(authoring, app_id):
-    """Use the distinct connection for a type whose menu has no existing child chain."""
+def _open_visitor_with_index(authoring, app_id, reference):
     from proof.matrix.bases.hq_advanced import _source
 
     _pages.new_case_module(authoring, app_id, name="Visitors", case_type="visitor")
@@ -161,9 +160,18 @@ def open_visitor_with_hyphenated_index(authoring, app_id):
     ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
         _open(
             "open_member_0", "visitor", "/data/notes",
-            [{**_index("load_household0"), "reference_id": "my-parent"}],
+            [{**_index("load_household0"), "reference_id": reference}],
         ),
     ])
+
+def open_visitor_with_hyphenated_index(authoring, app_id):
+    """Use the distinct connection for a type whose menu has no existing child chain."""
+    _open_visitor_with_index(authoring, app_id, "my-parent")
+
+
+def open_visitor_with_dotted_index(authoring, app_id):
+    """Keep an exact dotted Advanced Case Management index."""
+    _open_visitor_with_index(authoring, app_id, "my.parent")
 
 
 def write_through_typed_user_index(authoring, app_id):

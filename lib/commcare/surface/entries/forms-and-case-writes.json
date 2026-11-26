@@ -5873,7 +5873,7 @@
 		],
 		"valueClass": "load-child-of-previous-load",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: each load after the first indexes the one before it, under the one index name the app's child links between the two case types use, `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`)",
+		"dispositionCell": "**HELD**: an explicit selection holds the exact name of the connection to the preceding load, including complete dotted names such as `my.parent`. An implicit selection derives its connection from the app's child links, using `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6167,7 +6167,7 @@
 		],
 		"valueClass": "auto-select-case-index",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection.",
+		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection, including complete dotted names such as `my.parent`.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6764,7 +6764,7 @@
 		],
 		"valueClass": "open-action-links",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. HQ's advanced editor saves names such as `my-parent` and the case transaction keeps that exact name.",
+		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. HQ's advanced editor saves names such as `my-parent` and `my.parent` and the case transaction keeps the exact name.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6786,7 +6786,7 @@
 		"id": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` outside `[a-zA-Z_][a-zA-Z0-9_-]*`",
+		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` outside the supported name grammar, including incomplete dotted names",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.tag",
@@ -6795,7 +6795,7 @@
 		],
 		"valueClass": "open-action-index-name-outside-xml-name",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a name outside Nova's case operation link identifier grammar (`isCaseOperationLinkIdentifier`)",
+		"dispositionCell": "**HELD-NEW**: a name outside the supported Advanced index grammar (`ADVANCED_CASE_INDEX_IDENTIFIER_REGEX`)",
 		"subject": "advanced-forms",
 		"owner": "forms-and-case-management",
 		"platforms": {

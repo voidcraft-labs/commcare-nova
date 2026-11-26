@@ -69,6 +69,7 @@ from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     _guarded_lookup_count,
     direct_parent_text_prompt_key,
+    dotted_open_index_to_first_choice,
     itemset_literal_row_index,
     save_to_case_before_optional_own_update,
     save_to_case_retype_property_types,
@@ -352,6 +353,7 @@ def source_uses(
 AUTOMATIC_MULTI = "menus-and-case-lists/detail-auto-select-multi-select"
 LOCATION_WRITE = "forms-and-case-writes/update-keys-location-id-hq-user-id"
 HYPHEN_TAG = "forms-and-case-writes/case-tag-holding-a-hyphen"
+DOTTED_OPEN_INDEX = "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many"
 SHADOW_LOAD = "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent"
 LOOKUP_COUNT = "expressions-and-data/companion-lookup-count"
 SUPPLY_POINT = "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed"
@@ -515,7 +517,7 @@ def _automatic_multiple_case_selection(use):
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
-        AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT,
+        AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, DOTTED_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
         OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
     }.intersection(entries)
@@ -563,6 +565,9 @@ def _forms_variant_uses(found, held, entries):
             if (isinstance(tag, str) and "-" in tag and CASE_TAG.fullmatch(tag)
                     and manifest_usage.standing(held, use)[0] == manifest_usage.HELD):
                 yield Decided(use, manifest_usage.HELD, (by_id[HYPHEN_TAG],))
+        if (DOTTED_OPEN_INDEX in wanted and use.key == "schema:CaseIndex.reference_id"
+                and dotted_open_index_to_first_choice(use, held)):
+            yield Decided(use, manifest_usage.HELD, (by_id[DOTTED_OPEN_INDEX],))
         if SHADOW_LOAD in wanted and use.key == "schema:ShadowForm":
             yield from _shadow_default_extra_actions(use, held, by_id[SHADOW_LOAD], places)
         if wanted.intersection(REGISTRATION_ENTRIES) and use.key in REGISTRATION_KEYS:

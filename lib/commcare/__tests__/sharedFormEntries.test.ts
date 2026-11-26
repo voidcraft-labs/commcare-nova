@@ -894,3 +894,82 @@ describe("what reads a shared entry's choice", () => {
 		);
 	});
 });
+
+it.each(["my-parent", "my.parent"])(
+	"a shared entry follows its own earlier choice through %s",
+	(identifier) => {
+		const { doc, parent, morning, helper } = sharedEntries();
+		const valid = produce(doc, (draft) => {
+			draft.forms[parent].caseOperations = [
+				{ uuid: testUuid("own-household"), id: "household", action: "own" },
+			];
+		});
+		const row: FormCaseSelection = {
+			uuid: testUuid("related-household"),
+			tag: "related_household",
+			name: "The related household",
+			caseType: "household",
+			source: { kind: "index", selection: helper.uuid, identifier },
+		};
+		const result = mutationCommitVerdict(
+			valid,
+			[
+				{
+					kind: "updateForm",
+					uuid: morning,
+					patch: {},
+					entryChange: {
+						operation: "add-choice",
+						value: row,
+						after: helper.uuid,
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!result.ok) throw new Error(JSON.stringify(result.findings));
+		const expanded = expandDoc(result.nextDoc);
+		const menu = expanded.modules[0];
+		if (menu.doc_type !== "AdvancedModule")
+			throw new Error("Expected an advanced menu");
+		const alias = menu.forms.find(
+			(form) => form.unique_id === derivedUniqueId(morning),
+		);
+		if (alias?.doc_type !== "ShadowForm")
+			throw new Error("Expected a shared entry");
+		expect(alias.extra_actions.load_update_cases).toContainEqual(
+			expect.objectContaining({
+				case_tag: row.tag,
+				auto_select: expect.objectContaining({
+					mode: "case",
+					value_source: helper.tag,
+					value_key: identifier,
+				}),
+			}),
+		);
+
+		const pkg = compileCczParts(
+			expanded,
+			result.nextDoc.appName,
+			result.nextDoc,
+			{
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			},
+		);
+		const suite = readXmlEvidence(pkg.files["suite.xml"]);
+		const choices = xmlChildren(suite, "entry").flatMap((entry) =>
+			xmlChildren(entry, "session").flatMap((session) =>
+				xmlChildren(session, "datum"),
+			),
+		);
+		const lookup = onlyXml(
+			choices.filter((datum) => datum.attributes.id === `case_id_${row.tag}`),
+		);
+		expect(lookup.attributes.function).toContain(
+			`/session/data/case_id_${helper.tag}`,
+		);
+		expect(lookup.attributes.function.endsWith(`/index/${identifier}`)).toBe(
+			true,
+		);
+	},
+);
