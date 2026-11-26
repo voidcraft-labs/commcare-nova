@@ -1988,12 +1988,13 @@ def save_to_case_update_owner_condition(authoring, app_id):
 
 
 def save_to_case_create_and_close(authoring, app_id):
-    """The create's block also closing the case it creates."""
+    """A create that closes its new case only when the close condition holds."""
     _save_to_case(
         authoring,
         app_id,
         "save-to-case-create-and-close",
         (STC_UPDATE + "</case></make_household>", STC_UPDATE + "<close/></case></make_household>", 1),
+        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/close" relevant="/data/age &gt; 5"/>', 1),
     )
 
 
