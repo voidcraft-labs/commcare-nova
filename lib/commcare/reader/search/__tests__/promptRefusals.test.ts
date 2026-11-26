@@ -15,6 +15,8 @@ import { describe, expect, it } from "vitest";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { isVisibleSearchInput } from "@/lib/domain/modules";
+import { searchAddressReceiverCompatibility } from "../../../validator/rules/case-list/searchAddressReceiverCompatibility";
 import { runValidation } from "../../../validator/runner";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "../../index";
@@ -66,6 +68,19 @@ interface Case {
 
 const first = (body: JsonObject) => promptsOf(body)[0] as JsonObject;
 const third = (body: JsonObject) => promptsOf(body)[2] as JsonObject;
+
+function sharedAddress(body: JsonObject) {
+	const prompts = promptsOf(body);
+	prompts[0].receiver_expression = "home-region";
+	prompts[1].receiver_expression = "home-region";
+	prompts.unshift({
+		name: "home",
+		doc_type: "CaseSearchProperty",
+		label: { en: "Find an address" },
+		appearance: "address",
+		exclude: true,
+	});
+}
 
 const CASES: readonly Case[] = [
 	{
@@ -154,21 +169,6 @@ const CASES: readonly Case[] = [
 		findings: [
 			[
 				`${S}appearance-address-with-required-or-validations`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
-		title: "an address field",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.appearance = "address";
-		},
-		findings: [
-			[
-				`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
 				"search",
 				"case_name",
 			],
@@ -683,6 +683,96 @@ describe("a Search field Nova cannot hold", () => {
 		]);
 	});
 
+	it("keeps a grouped address picker linked to its receiving field", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompts = promptsOf(body);
+			for (const prompt of prompts) prompt.group_key = "g";
+			first(body).receiver_expression = "home-city";
+			prompts.unshift(
+				{ name: "g", label: { en: "Where" }, is_group: true, group_key: "g" },
+				{
+					name: "home",
+					doc_type: "CaseSearchProperty",
+					label: { en: "Find an address" },
+					appearance: "address",
+					exclude: true,
+					group_key: "g",
+				},
+			);
+		});
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		const [address, receiver] = config?.searchInputs ?? [];
+		expect(address).toMatchObject({
+			kind: "address",
+			group: config?.searchInputGroups?.[0].uuid,
+		});
+		expect(receiver).toMatchObject({
+			group: address?.group,
+			addressReceiver: {
+				kind: "address",
+				source: address?.uuid,
+				parts: ["city"],
+			},
+		});
+	});
+
+	it("keeps two text subscriptions but refuses sharing with a lookup choice at commit", async () => {
+		const { doc } = await documentOf(sharedAddress);
+		const module = doc.modules[doc.moduleOrder[0]];
+		const config = module.caseListConfig;
+		if (!config) throw new Error("Expected Search fields.");
+		const [picker, first, second, ...rest] = config.searchInputs;
+		if (
+			!isVisibleSearchInput(first) ||
+			!isVisibleSearchInput(second) ||
+			first.type !== "text" ||
+			second.type !== "text"
+		)
+			throw new Error("Expected text receivers.");
+		for (const receiver of [first, second])
+			expect(receiver.addressReceiver).toEqual({
+				kind: "address",
+				source: picker.uuid,
+				parts: ["region"],
+			});
+		expect(searchAddressReceiverCompatibility(module, module.uuid)).toEqual([]);
+		const tableId = "01890000-0000-7000-8000-000000000301" as LookupTableId;
+		const columnId = "01890000-0000-7000-8000-000000000302" as LookupColumnId;
+		const errors = searchAddressReceiverCompatibility(
+			{
+				...module,
+				caseListConfig: {
+					...config,
+					searchInputs: [
+						picker,
+						first,
+						{
+							kind: "simple",
+							uuid: second.uuid,
+							name: second.name,
+							label: second.label,
+							property: second.name,
+							type: "multi-select",
+							addressReceiver: second.addressReceiver,
+							options: {
+								kind: "lookup",
+								tableId,
+								valueColumnId: columnId,
+								labelColumnId: columnId,
+							},
+						},
+						...rest,
+					],
+				},
+			},
+			module.uuid,
+		);
+		expect(errors.map(({ code }) => code)).toEqual([
+			"CASE_LIST_SEARCH_ADDRESS_FIELD",
+			"CASE_LIST_SEARCH_ADDRESS_FIELD",
+		]);
+	});
+
 	it("places an unknown membership on the field without changing its sibling group", async () => {
 		expect(
 			await account((body) => {
@@ -775,6 +865,42 @@ describe("a Search field Nova cannot hold", () => {
 			prompt.input_ = "select1";
 			prompt.itemset = TABLE;
 		};
+
+		it("refuses each source field sharing a receive selector with a lookup choice", async () => {
+			const body = exportedBody(PROMPTS);
+			overTable(body);
+			promptsOf(body)[0].input_ = "select";
+			promptsOf(body)[0].itemset = { ...TABLE, label: "code", sort: "code" };
+			sharedAddress(body);
+			const told = withTable(await inputFor(body));
+			const outcome = readHqApp({
+				...told,
+				lookup: {
+					...told.lookup,
+					definitions: new Map([[TABLE_T.id, TABLE_T]]),
+				},
+			});
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "account") throw new Error("Expected a refusal.");
+			expect(
+				outcome.findings.map(({ code, standing, detail }) => [
+					code,
+					standing,
+					detail.name,
+				]),
+			).toEqual([
+				[
+					`${S}address-receiver-shared-with-a-choice-field`,
+					"fix-in-hq",
+					"case_name",
+				],
+				[
+					`${S}address-receiver-shared-with-a-choice-field`,
+					"fix-in-hq",
+					promptsOf(body)[2].name,
+				],
+			]);
+		});
 
 		it.each(["", "address"])(
 			"reads a lookup checkbox even with a stored %s appearance",

@@ -2,8 +2,10 @@ import AdmZip from "adm-zip";
 import { produce } from "immer";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
@@ -133,6 +135,56 @@ it("returns request-only records without offering them for selection or claiming
 	);
 });
 
+it("keeps a renamed and moved Search address receiver linked by identity", () => {
+	const doc = searchEmissionFixture("remote-address-picker");
+	const moduleUuid = doc.moduleOrder[0];
+	const config = doc.modules[moduleUuid].caseListConfig;
+	const [address, receiving] = config?.searchInputs ?? [];
+	if (address?.kind !== "address" || !receiving)
+		throw new Error("Expected an address and its receiving field.");
+	const edited = mutationCommitVerdict(
+		doc,
+		[
+			searchInputUpdateMutation(moduleUuid, address, {
+				...address,
+				name: "street_address",
+			}),
+			{
+				kind: "moveSearchInput",
+				moduleUuid,
+				uuid: address.uuid,
+				after: receiving.uuid,
+			},
+		],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!edited.ok) throw new Error(JSON.stringify(edited.findings));
+	const { suite, hq } = exported(edited.nextDoc);
+	const query = one(
+		one(onlyXml(xmlChildren(suite, "remote-request")), "session"),
+		"query",
+	);
+	const prompts = xmlChildren(query, "prompt");
+	expect(prompts.map((prompt) => prompt.attributes.key)).toEqual([
+		receiving.name,
+		"street_address",
+	]);
+	expect(prompts[0].attributes.receive).toBe("street_address-city");
+	expect(hq.modules[0].search_config.properties[0].receiver_expression).toBe(
+		"street_address-city",
+	);
+	expect(
+		mutationCommitVerdict(
+			edited.nextDoc,
+			[{ kind: "removeSearchInput", moduleUuid, uuid: address.uuid }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		),
+	).toMatchObject({
+		ok: false,
+		findings: [{ code: "CASE_LIST_SEARCH_ADDRESS_FIELD" }],
+	});
+});
+
 it("emits two localized headings and leaves headings out of the search request", () => {
 	const { suite, hq, zip } = exported(searchEmissionFixture("grouped-prompts"));
 	const query = one(one(entry(suite, "m0-f0"), "session"), "query");
@@ -221,7 +273,8 @@ it.each(
 			scenario !== "named-parent" &&
 			scenario !== "mixed-records" &&
 			scenario !== "grouped-prompts" &&
-			scenario !== "remote-grouped-prompts",
+			scenario !== "remote-grouped-prompts" &&
+			scenario !== "remote-address-picker",
 	),
 )("exports the complete Search session for %s", (scenario) => {
 	const { suite, hq, zip } = exported(searchEmissionFixture(scenario));
@@ -529,7 +582,11 @@ it.each(["inline", "remote"] as const)(
 		const config = module.caseListConfig;
 		if (config === undefined) throw new Error("Fixture has a case list");
 		const prompt = config.searchInputs[0];
-		if (prompt.kind === "hidden" || prompt.type === "date-range")
+		if (
+			prompt.kind === "hidden" ||
+			prompt.kind === "address" ||
+			prompt.type === "date-range"
+		)
 			throw new Error("Fixture has a visible text prompt");
 		const answer = input(prompt.uuid);
 		config.filter = whenInput(

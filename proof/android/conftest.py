@@ -47,6 +47,7 @@ DOCUMENTS = (
     "targeted-face-photo",
     "search-named-parent",
     "search-remote-grouped-prompts",
+    "search-remote-address-picker",
     "targeted-form-link-hidden-target",
     "targeted-forms-in-menu-above-one-case",
     "targeted-case-choice-values",

@@ -20,8 +20,10 @@ import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { sameLookupRead } from "@/lib/domain/lookupRead";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
+	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+	type SearchAddressReceiver,
 	type SearchInputLookupOptions,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
@@ -126,6 +128,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	),
 	barcode: take(
 		`${S}appearance-barcode-scan`,
+		"schema:CaseSearchProperty.appearance",
+	),
+	addressPicker: take(
+		`${S}address-picker-on-a-search-screen`,
 		"schema:CaseSearchProperty.appearance",
 	),
 	address: refuse(
@@ -310,12 +316,24 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}allow-blank-value-on-a-prompt-named-owner-id`,
 		"schema:CaseSearchProperty.allow_blank_value",
 	),
+	addressReceiver: take(
+		`${S}address-picker-receiver-on-a-search-screen`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
+	addressReceiverDuplicate: refuse(
+		`${S}address-receiver-shared-with-a-choice-field`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
 	receiver: refuse(
 		`${S}receiver-expression`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
 	receiverOther: refuse(
 		`${S}receiver-expression-on-a-prompt-whose-editor-appearance-is`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
+	receiverSingleChoice: refuse(
+		`${S}address-receiver-single-choice-lookup-position`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
 	blankReceiver: drop(
@@ -472,6 +490,64 @@ const RECEIVER_REFUSED_APPEARANCES = new Set([
 	"daterange",
 	"checkbox",
 ]);
+
+function receiverSelector(source: unknown): RegExpExecArray | null {
+	return typeof source === "string"
+		? /^([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*)$/.exec(
+				source,
+			)
+		: null;
+}
+
+function addressPartsHeld(parts: readonly string[]): boolean {
+	return parts.every((part) =>
+		(SEARCH_ADDRESS_PARTS as readonly string[]).includes(part),
+	);
+}
+
+/** Web Apps updates every DOM field with the same receive selector together.
+ * Only a group of plain text receivers can share it safely. */
+function addressReceiverDuplicates(
+	prompts: readonly JsonCursor[],
+	sourceNames: ReadonlySet<string>,
+): ReadonlySet<JsonCursor> {
+	const selectors = new Map<
+		string,
+		{ prompts: JsonCursor[]; hasChoice: boolean }
+	>();
+	for (const prompt of prompts) {
+		if (prompt.peek("is_group") === true || prompt.peek("hidden") === true)
+			continue;
+		const wire = receiverSelector(prompt.peek("receiver_expression"));
+		if (
+			!wire ||
+			!sourceNames.has(wire[1]) ||
+			!addressPartsHeld(wire[2].split("||"))
+		)
+			continue;
+		const input = prompt.peek("input_");
+		const appearance = editorAppearance(prompt);
+		const itemset = prompt.peek("itemset");
+		const choice =
+			appearance === "lookup_table_fixture" &&
+			isJsonObject(itemset) &&
+			typeof itemset.nodeset === "string" &&
+			itemset.nodeset !== "";
+		if (!choice && (appearance !== "" || Boolean(input))) continue;
+		const previous = selectors.get(wire[0]);
+		if (previous === undefined)
+			selectors.set(wire[0], { prompts: [prompt], hasChoice: choice });
+		else {
+			previous.prompts.push(prompt);
+			previous.hasChoice ||= choice;
+		}
+	}
+	return new Set(
+		[...selectors.values()].flatMap(({ prompts, hasChoice }) =>
+			hasChoice && prompts.length > 1 ? prompts : [],
+		),
+	);
+}
 
 /** Whether a prompt carries a widget: an itemset, an input type, or an appearance that gives one
  *  (a barcode scan, an address); a blank input type is none, and any other appearance dresses no
@@ -653,6 +729,15 @@ export function readSearchPrompts(
 				if (isJsonObject(rule)) scan(rule.test, false);
 		}
 	}
+	const sourceNames = new Set(
+		prompts
+			.filter((prompt) => canReadAddressPrompt(prompt, projectService))
+			.flatMap((prompt) => {
+				const name = prompt.peek("name");
+				return typeof name === "string" ? [name] : [];
+			}),
+	);
+	const receiverDuplicates = addressReceiverDuplicates(prompts, sourceNames);
 	const out: PromptReading[] = [];
 	for (const prompt of prompts) {
 		if (prompt.peek("is_group") === true) continue;
@@ -669,14 +754,68 @@ export function readSearchPrompts(
 			groupReading.memberships.get(prompt),
 			suiteSources,
 			projectService,
+			sourceNames,
+			receiverDuplicates.has(prompt),
 		);
 		if (reading !== undefined) out.push(reading);
 	}
+	const linkedPrompts = out.map((prompt): PromptReading => {
+		const input = prompt.input;
+		if (
+			input.kind === "address" ||
+			input.kind === "hidden" ||
+			input.addressReceiver?.kind !== "unsubscribed"
+		)
+			return prompt;
+		const configured = input.addressReceiver;
+		const source = out.find(
+			({ input }) =>
+				input.kind === "address" && input.name === configured.topic,
+		);
+		if (source === undefined) return prompt;
+		return {
+			...prompt,
+			input: {
+				...input,
+				addressReceiver: {
+					kind: "address",
+					source: source.uuid,
+					parts: configured.fields.split("||") as Array<
+						(typeof SEARCH_ADDRESS_PARTS)[number]
+					>,
+				},
+			},
+		};
+	});
 	return {
-		prompts: out,
+		prompts: linkedPrompts,
 		groups: groupReading.groups,
 		groupRefused: groupReading.refused,
 	};
+}
+
+function canReadAddressPrompt(
+	prompt: JsonCursor,
+	projectService: boolean,
+): boolean {
+	const required = prompt.peek("required");
+	const validations = prompt.peek("validations");
+	const itemset = prompt.peek("itemset");
+	return (
+		!projectService &&
+		typeof prompt.peek("name") === "string" &&
+		/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(prompt.peek("name"))) &&
+		prompt.peek("is_group") !== true &&
+		prompt.peek("appearance") === "address" &&
+		!prompt.peek("input_") &&
+		!prompt.peek("default_value") &&
+		prompt.peek("hidden") !== true &&
+		prompt.peek("allow_blank_value") !== true &&
+		!prompt.peek("receiver_expression") &&
+		(!isJsonObject(required) || !required.test) &&
+		(!Array.isArray(validations) || validations.length === 0) &&
+		(!isJsonObject(itemset) || !itemset.nodeset)
+	);
 }
 
 function readPrompt(
@@ -689,6 +828,8 @@ function readPrompt(
 	group: Uuid | undefined,
 	suiteSources: ReadonlyMap<string, string>,
 	projectService: boolean,
+	addressSources: ReadonlySet<string>,
+	receiverDuplicate: boolean,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
@@ -825,13 +966,36 @@ function readPrompt(
 		else if (prompt.used("group_key")) refuseWith("group_key", P.groupLayout);
 		else refuseWith("group_key", P.groupMissing);
 	}
-	if (holds("receiver_expression"))
-		refuseWith(
-			"receiver_expression",
-			RECEIVER_REFUSED_APPEARANCES.has(editorAppearance(prompt))
-				? P.receiverOther
-				: P.receiver,
-		);
+	const address = canReadAddressPrompt(prompt, projectService);
+	const inputType = editorAppearance(prompt);
+	const sourceReceiver = prompt.peek("receiver_expression");
+	let addressReceiver:
+		| Exclude<SearchAddressReceiver, { kind: "address" }>
+		| undefined;
+	if (holds("receiver_expression")) {
+		const wire = receiverSelector(sourceReceiver);
+		const parts = wire?.[2].split("||") ?? [];
+		const validSource = wire !== null && addressSources.has(wire[1]);
+		if (
+			RECEIVER_REFUSED_APPEARANCES.has(inputType) ||
+			prompt.peek("hidden") === true
+		)
+			refuseWith("receiver_expression", P.receiverOther);
+		else if (validSource && prompt.peek("input_") === "select1")
+			refuseWith("receiver_expression", P.receiverSingleChoice);
+		else if (wire === null || (validSource && !addressPartsHeld(parts)))
+			refuseWith("receiver_expression", P.receiver);
+		else if (receiverDuplicate)
+			refuseWith("receiver_expression", P.addressReceiverDuplicate);
+		else {
+			prompt.take("receiver_expression", P.addressReceiver, String).value;
+			addressReceiver = {
+				kind: "unsubscribed",
+				topic: wire[1],
+				fields: wire[2],
+			};
+		}
+	}
 	const hidden = prompt.peek("hidden") === true;
 	const exclude = prompt.peek("exclude") === true;
 	const checked = requires || prompt.used("validations");
@@ -882,7 +1046,7 @@ function readPrompt(
 			],
 			refuseWith("hidden", P.hiddenChecked),
 		);
-	} else if (appearance === "address" && !inputOverAddress)
+	} else if (appearance === "address" && !inputOverAddress && !address)
 		addressRefused = refuseWith(
 			"appearance",
 			checked ? P.addressRequired : P.address,
@@ -1222,7 +1386,10 @@ function readPrompt(
 		)
 			cover(prompt, ["appearance"], widgetRefusal);
 		if (!refusedHere("appearance")) {
-			if (appearance === "barcode_scan" && type === "text") {
+			if (address) {
+				prompt.take("appearance", P.addressPicker, String).value;
+				type = "address";
+			} else if (appearance === "barcode_scan" && type === "text") {
 				prompt.take("appearance", P.barcode, String).value;
 				type = "barcode";
 			} else if (appearance === "address" && inputOverAddress) {
@@ -1243,6 +1410,7 @@ function readPrompt(
 			if (
 				!projectService &&
 				!exclude &&
+				!address &&
 				!ATTRIBUTE_PROMPT_NAMES.has(name) &&
 				!authoredCasePropertyNameSchema.safeParse(name).success
 			)
@@ -1552,10 +1720,22 @@ function readPrompt(
 				value: pendingPlaceholder("value"),
 			}),
 		};
+	else if (type === "address")
+		entry = {
+			kind: "address",
+			type,
+			uuid,
+			name,
+			label: common.label,
+			...(group !== undefined && { group }),
+			...(hint !== "" && { hint }),
+			...(exclude && { excludeFromRequest: true }),
+		};
 	else {
 		const widget = {
 			...common,
 			type,
+			...(addressReceiver !== undefined && { addressReceiver }),
 			...(options !== undefined && { options }),
 			...(defaultIndex !== undefined && {
 				default: pendingPlaceholder("value"),

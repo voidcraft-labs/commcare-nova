@@ -356,6 +356,12 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/10-markdown-any-property-or-expression@android": model(
 		"link-column-raw-android",
 	),
+	"case-search/address-picker-on-a-search-screen@android": model(
+		"search-address-picker-android",
+	),
+	"case-search/address-picker-receiver-on-a-search-screen@android": model(
+		"search-address-picker-android",
+	),
 	"case-search/search-on-clear@android": model("desktop-search-on-clear"),
 	"case-search/default-value-on-a-date-range-input@android": model(
 		"starting-dates-android",

@@ -228,6 +228,7 @@ export interface SearchPromptWire {
 	readonly label: SearchPromptText;
 	readonly hint?: SearchPromptText;
 	readonly appearance?: string;
+	readonly receive?: string;
 	readonly hidden: boolean;
 	readonly input?: string;
 	/** On-device XPath for `@default`: a visible seed or a hidden value. */
@@ -255,6 +256,7 @@ export function searchPromptWire(
 	lookupNaming?: LookupWireNaming,
 	searchInputInstanceId?: `search-input:${string}`,
 	rewrites?: SearchPromptRewrites,
+	allInputs: readonly SearchInputDef[] = [],
 ): SearchPromptWire {
 	const emission: PromptEmissionContext = {
 		types: (slot) =>
@@ -264,6 +266,13 @@ export function searchPromptWire(
 		rewrites: (slot) => rewrites?.(slot),
 	};
 	const mapping = promptAttributeMapping(input);
+	const receiver = input.kind === "hidden" ? undefined : input.addressReceiver;
+	const receive =
+		receiver?.kind === "unsubscribed"
+			? `${receiver.topic}-${receiver.fields}`
+			: receiver === undefined
+				? undefined
+				: addressReceiveExpression(allInputs, receiver.source, receiver.parts);
 	// When `input.label` is empty the locale registers `input.name`
 	// — gives the runtime something readable to render rather than
 	// the locale id itself.
@@ -302,15 +311,30 @@ export function searchPromptWire(
 		...(mapping.appearance === undefined
 			? {}
 			: { appearance: mapping.appearance }),
+		...(receive === undefined ? {} : { receive }),
 		hidden: input.kind === "hidden" || input.hidden === true,
 		...(mapping.input === undefined ? {} : { input: mapping.input }),
 		...(defaultValue === undefined ? {} : { defaultValue }),
-		exclude: searchInputSuppressesAutoMatch(input),
+		exclude:
+			input.kind === "address"
+				? input.excludeFromRequest === true
+				: searchInputSuppressesAutoMatch(input),
 		allowBlank: input.kind !== "hidden" && input.allowBlank === true,
 		...(itemset === undefined ? {} : { itemset }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
 	};
+}
+
+function addressReceiveExpression(
+	inputs: readonly SearchInputDef[],
+	source: SearchInputDef["uuid"],
+	parts: readonly string[],
+): string | undefined {
+	const input = inputs.find((candidate) => candidate.uuid === source);
+	return input?.kind === "address"
+		? `${input.name}-${parts.join("||")}`
+		: undefined;
 }
 
 // ── Public surface ───────────────────────────────────────────────
@@ -371,6 +395,8 @@ export function buildSearchPrompts(
 			expressions,
 			lookupNaming,
 			searchInputInstanceId,
+			undefined,
+			searchInputs,
 		);
 		const displayChildren = [
 			register(composeSearchPropertyLocaleId(moduleId, wire.key), wire.label),
@@ -563,7 +589,9 @@ interface PromptEmissionContext {
  * (`hidden="true"` and no widget) for a system-generated value.
  */
 function promptAttributeMapping(input: SearchInputDef): PromptAttributeMapping {
-	return input.kind === "hidden" ? {} : PROMPT_ATTRIBUTE_MAPPINGS[input.type];
+	if (input.kind === "address") return { appearance: "address" };
+	if (input.kind === "hidden") return {};
+	return PROMPT_ATTRIBUTE_MAPPINGS[input.type];
 }
 
 /**
@@ -814,7 +842,9 @@ function composePromptAttributes(
 	wire: SearchPromptWire,
 ): Record<string, string> {
 	const attribs: Record<string, string> = { key: wire.key };
-	if (wire.appearance !== undefined) attribs.appearance = wire.appearance;
+	if (wire.appearance === "address") attribs.input = "address";
+	else if (wire.appearance !== undefined) attribs.appearance = wire.appearance;
+	if (wire.receive !== undefined) attribs.receive = wire.receive;
 	if (wire.hidden) attribs.hidden = "true";
 	if (wire.input !== undefined) attribs.input = wire.input;
 	if (wire.allowBlank) attribs.allow_blank_value = "true";

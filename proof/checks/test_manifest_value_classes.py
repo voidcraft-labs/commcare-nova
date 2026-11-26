@@ -4078,6 +4078,22 @@ def _search_and_menus():
             refused("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[1]/@input"),
             accepted("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[2]/@input"),
         ),
+        "case-search/address-receiver-single-choice-lookup-position": tuple(
+            make(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("district", input_=input_, receiver_expression=receiver),
+                    _prompt("home", appearance="address", exclude=True),
+                ])),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{prompts}/receiver_expression",
+            )
+            for make, input_, receiver in (
+                (refused, "select1", "home-region"),
+                (accepted, "select", "home-region"),
+                (accepted, "select1", "away-region"),
+            )
+        ),
         "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": tuple(
             make(
                 "app",
@@ -4101,6 +4117,62 @@ def _search_and_menus():
                     },
                 ),
             )
+        ),
+        "case-search/address-receiver-shared-with-a-choice-field": tuple(
+            make(
+                "app",
+                search(_search_module(properties=fields)),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{config}/properties/1/receiver_expression",
+            )
+            for make, fields in (
+                (refused, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("district", receiver_expression="home-city", input_="select",
+                            itemset={"doc_type": "Itemset", "nodeset": "instance('places')/rows/place"}),
+                ]),
+                (accepted, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("other_town", receiver_expression="home-city"),
+                ]),
+                (accepted, [
+                    _prompt("home", appearance="address"),
+                    _prompt("town", receiver_expression="home-city"),
+                    _prompt("district", receiver_expression="home-region", input_="select",
+                            itemset={"doc_type": "Itemset", "nodeset": "instance('places')/rows/place"}),
+                ]),
+            )
+        ),
+        # HQ's build reads these three only on a search the menu offers; on one it does not, each is part of the
+        # search configuration HQ stores and builds nothing of.
+        "case-search/case-search-endpoint-id": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id="visits")),
+                "schema:CaseSearch.case_search_endpoint_id",
+                f"{config}/case_search_endpoint_id",
+            ),
+            accepted(
+                "app",
+                search(_search_module(case_search_endpoint_id="visits")),
+                "schema:CaseSearch.case_search_endpoint_id",
+                f"{config}/case_search_endpoint_id",
+            ),
+            # a default filter is the endpoint's parameter beside an id, and its own key's with none
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("dob", "'x'")], case_search_endpoint_id="visits")),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("dob", "'x'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
         ),
         "case-search/search-button-label-any-other-value": (
             refused(

@@ -46,7 +46,7 @@ import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { type RefObject, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
@@ -112,10 +112,12 @@ import {
 	isSelectSearchInputType,
 	type LookupOptionsSource,
 	multiSelectSearchInputRefusal,
+	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_INPUT_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
+	type SearchAddressReceiver,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputRequired,
@@ -224,6 +226,11 @@ export interface SearchInputEditorProps {
 	/** Opens one of this field's conditions in the center-canvas workbench:
 	 *  the custom match, the required condition, or the check rule. */
 	readonly onEditCondition: (slot: SearchConditionSlot) => void;
+	readonly addressRemovalReview?: {
+		readonly sourceLabel: string;
+		readonly token: number;
+		readonly onReturn: () => void;
+	};
 }
 
 /** Placeholder a fresh check carries until the author writes the real one. */
@@ -336,6 +343,34 @@ export function SearchInputEditor(props: SearchInputEditorProps) {
 			</div>
 		);
 	}
+	if (props.value.kind === "address") {
+		const input = props.value;
+		return (
+			<div className="space-y-5">
+				{props.moduleUuid && <ControlWording owner={input.uuid} />}
+				<FieldRow label="Label">
+					<BlurCommitTextInput
+						value={input.label}
+						onCommit={(label) => props.onChange({ ...input, label })}
+						ariaLabel="Address search label"
+					/>
+				</FieldRow>
+				<FieldRow label="Hint">
+					<BlurCommitTextInput
+						value={input.hint ?? ""}
+						onCommit={(hint) =>
+							props.onChange({ ...input, hint: hint.trim() || undefined })
+						}
+						ariaLabel="Address search hint"
+					/>
+				</FieldRow>
+				<SearchInputPlatformNotes
+					moduleUuid={props.moduleUuid}
+					inputUuid={input.uuid}
+				/>
+			</div>
+		);
+	}
 	return <VisibleSearchInputEditor {...props} value={props.value} />;
 }
 
@@ -344,7 +379,168 @@ interface VisibleSearchInputEditorProps
 	readonly value: VisibleSearchInputDef;
 }
 
+function AddressFillSetting({
+	inputs,
+	receiver,
+	onChange,
+	review,
+}: {
+	readonly inputs: readonly SearchInputDef[];
+	readonly receiver: SearchAddressReceiver | undefined;
+	readonly onChange: (receiver: SearchAddressReceiver | undefined) => void;
+	readonly review?: SearchInputEditorProps["addressRemovalReview"];
+}) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const reviewToken = review?.token;
+	useEffect(() => {
+		if (reviewToken === undefined) return;
+		const frame = requestAnimationFrame(() => triggerRef.current?.focus());
+		return () => cancelAnimationFrame(frame);
+	}, [reviewToken]);
+	const addresses = inputs.filter((input) => input.kind === "address");
+	if (addresses.length === 0 && receiver === undefined && review === undefined)
+		return null;
+	const linked = receiver?.kind === "address" ? receiver : undefined;
+	const source = addresses.find((input) => input.uuid === linked?.source);
+	const label = source?.label || source?.name;
+	return (
+		<FieldRow
+			label="Fill from an address"
+			hint="Workers can still edit the answer in Web Apps."
+		>
+			{review && (
+				<p className="text-[12px] text-nova-text-muted">
+					Choose No address field or another address field to remove the link to{" "}
+					{review.sourceLabel}.
+				</p>
+			)}
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					ref={triggerRef}
+					render={<Button type="button" variant="outline" />}
+				>
+					{label ??
+						(receiver?.kind === "unsubscribed"
+							? receiver.topic
+							: "No address field")}
+				</DropdownMenuTrigger>
+				<DropdownMenuContent>
+					<DropdownMenuRadioGroup
+						value={source?.uuid ?? ""}
+						onValueChange={(choice) => {
+							const selected = addresses.find((input) => input.uuid === choice);
+							onChange(
+								selected === undefined
+									? undefined
+									: {
+											kind: "address",
+											source: selected.uuid,
+											parts: linked?.parts ?? ["city"],
+										},
+							);
+						}}
+					>
+						<DropdownMenuRadioItem value="" closeOnClick>
+							No address field
+						</DropdownMenuRadioItem>
+						{addresses.map((input) => (
+							<DropdownMenuRadioItem
+								key={input.uuid}
+								value={input.uuid}
+								closeOnClick
+							>
+								{input.label || input.name}
+							</DropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			{review && (
+				<Button
+					type="button"
+					variant="outline"
+					className="h-auto min-h-11 whitespace-normal break-words"
+					onClick={review.onReturn}
+				>
+					Back to {review.sourceLabel} search field
+				</Button>
+			)}
+			{linked?.parts.map((part, index) => (
+				<DropdownMenu key={part}>
+					<DropdownMenuTrigger
+						render={<Button type="button" variant="outline" />}
+					>
+						{index === 0 ? "Address part" : "If unavailable"} ·{" "}
+						{part.replaceAll("_", " ")}
+					</DropdownMenuTrigger>
+					<DropdownMenuContent>
+						<DropdownMenuRadioGroup
+							value={part}
+							onValueChange={(choice) => {
+								const selected = SEARCH_ADDRESS_PARTS.find(
+									(value) => value === choice,
+								);
+								const parts =
+									selected === undefined
+										? linked.parts.filter((_, position) => position !== index)
+										: linked.parts.map((value, position) =>
+												position === index ? selected : value,
+											);
+								if (parts.length > 0) onChange({ ...linked, parts });
+							}}
+						>
+							{index > 0 && (
+								<DropdownMenuRadioItem value="">
+									Remove fallback
+								</DropdownMenuRadioItem>
+							)}
+							{SEARCH_ADDRESS_PARTS.filter(
+								(candidate) =>
+									candidate === part || !linked.parts.includes(candidate),
+							).map((value) => (
+								<DropdownMenuRadioItem key={value} value={value}>
+									{value.replaceAll("_", " ")}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			))}
+			{linked && linked.parts.length < SEARCH_ADDRESS_PARTS.length && (
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={<Button type="button" variant="ghost" />}
+					>
+						Add fallback
+					</DropdownMenuTrigger>
+					<DropdownMenuContent>
+						<DropdownMenuRadioGroup
+							value=""
+							onValueChange={(choice) => {
+								const part = SEARCH_ADDRESS_PARTS.find(
+									(value) => value === choice,
+								);
+								if (part !== undefined)
+									onChange({ ...linked, parts: [...linked.parts, part] });
+							}}
+						>
+							{SEARCH_ADDRESS_PARTS.filter(
+								(value) => !linked.parts.includes(value),
+							).map((value) => (
+								<DropdownMenuRadioItem key={value} value={value}>
+									{value.replaceAll("_", " ")}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			)}
+		</FieldRow>
+	);
+}
+
 function VisibleSearchInputEditor({
+	addressRemovalReview,
 	moduleUuid,
 	value,
 	index,
@@ -970,6 +1166,21 @@ function VisibleSearchInputEditor({
 					</FieldRow>
 				)}
 
+				{value.hidden !== true &&
+					(value.type === "text" || value.type === "multi-select") && (
+						<AddressFillSetting
+							inputs={siblings}
+							receiver={value.addressReceiver}
+							review={addressRemovalReview}
+							onChange={(addressReceiver) => {
+								const { addressReceiver: _previous, ...input } = value;
+								onChange({
+									...input,
+									...(addressReceiver === undefined ? {} : { addressReceiver }),
+								});
+							}}
+						/>
+					)}
 				{value.kind === "simple" && (
 					<FieldRow label="Case information">
 						<BindingPicker
@@ -2105,7 +2316,13 @@ function rebuildRow(
 	const allowBlank =
 		"allowBlank" in patch ? patch.allowBlank : value.allowBlank;
 	const hidden = "hidden" in patch ? patch.hidden : value.hidden;
+	const addressReceiver =
+		hidden !== true &&
+		(type === "text" || type === "select" || type === "multi-select")
+			? value.addressReceiver
+			: undefined;
 	const visible = {
+		...(addressReceiver === undefined ? {} : { addressReceiver }),
 		...(hint === undefined ? {} : { hint }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),

@@ -336,6 +336,7 @@ export const searchEmissionScenarios = [
 	"mixed-records",
 	"grouped-prompts",
 	"remote-grouped-prompts",
+	"remote-address-picker",
 	"registration-link",
 	"hidden-link",
 	"automatic",
@@ -396,6 +397,24 @@ export function searchEmissionFixture(
 					"case_name",
 				),
 				group: second,
+			},
+		];
+	}
+
+	if (scenario === "remote-address-picker") {
+		const source = testUuid("remote-search-address");
+		config.searchInputs = [
+			{
+				kind: "address",
+				type: "address",
+				uuid: source,
+				name: "home",
+				label: "Find an address",
+				excludeFromRequest: true,
+			},
+			{
+				...nameInput(),
+				addressReceiver: { kind: "address", source, parts: ["city"] },
 			},
 		];
 	}

@@ -381,7 +381,9 @@
 		"hq-new-app/smart-lang-display",
 		"hq-new-app/vellum-case-management-off"
 	],
-	"hq-nova-then-builder": ["hq-nova-then-builder/close-on-a-survey"],
+	"hq-nova-then-builder": [
+		"hq-nova-then-builder/close-on-a-survey"
+	],
 	"hq-owner-rules": [],
 	"hq-places": [],
 	"hq-plain": [
@@ -621,6 +623,8 @@
 		"hq-saved-pages/tile-cell-bordered-and-shaded"
 	],
 	"hq-search": [
+		"hq-search/address-choice-shares-its-receiver-with-text",
+		"hq-search/address-fills-a-single-choice-by-position",
 		"hq-search/another-case-type-searched",
 		"hq-search/blank-answer-searched-for",
 		"hq-search/blank-searched-for-beside-the-owner",

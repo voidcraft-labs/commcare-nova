@@ -687,3 +687,27 @@ def test_grouped_search_uses_plain_ordered_fields_on_android(android_documents, 
         assert field_labels == ["Name", "Record name"]
         assert "Personal details" not in platform["display"]
         assert "Case details" not in platform["display"]
+
+
+def test_android_shows_a_linked_search_receiver_as_an_ordinary_field(android_documents, hq, android_walk_evidence):
+    from proof.android import observe
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    document = android_documents["search-remote-address-picker"]
+    command = "search_command.m0"
+    observations = {}
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command], views=True)
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            query = next(step["query"] for step in answer["walks"][command]["steps"] if "query" in step)
+            assert query["opened"], (label, query)
+            observations[label] = {"prompts": list(query["prompts"]), "display": _texts(query["controls"])}
+
+    android_walk_evidence(observations)
+    for observed in observations.values():
+        assert observed["prompts"] == ["first_name"]
+        assert "Name" in observed["display"] and "Find an address" not in observed["display"]

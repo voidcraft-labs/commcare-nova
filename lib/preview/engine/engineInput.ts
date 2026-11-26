@@ -6,6 +6,7 @@ import {
 	caseScalarTextGuards,
 	caseSelectionCardinality,
 	isContainer,
+	isSearchAnswerInput,
 	type LanguageTag,
 	moduleUuidOfForm,
 	orderedCaseOperations,
@@ -112,9 +113,9 @@ export function buildEngineInput(
 		userProperties: doc.userProperties,
 		...(module?.caseListConfig
 			? {
-					searchInputs: module.caseListConfig.searchInputs.map(
-						({ uuid, name }) => ({ uuid, name }),
-					),
+					searchInputs: module.caseListConfig.searchInputs
+						.filter(isSearchAnswerInput)
+						.map(({ uuid, name }) => ({ uuid, name })),
 				}
 			: {}),
 	};
