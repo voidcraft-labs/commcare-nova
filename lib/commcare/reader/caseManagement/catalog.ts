@@ -1158,7 +1158,7 @@ export function catalogAsRead(
 			for (const type of module.caseListConfig?.additionalCaseTypes ?? [])
 				noteType(draft, type);
 			for (const filter of module.caseListConfig?.searchFilters ?? [])
-				if (filter.kind === "request-record-type")
+				if ("kind" in filter && filter.kind === "request-record-type")
 					noteType(draft, filter.caseType);
 			const search = module.caseSearchConfig;
 			if (
