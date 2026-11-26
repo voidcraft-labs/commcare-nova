@@ -10,6 +10,7 @@ import { expect, it, vi } from "vitest";
 import { rehydrateChangeSet } from "@/lib/agent/change-set/runtime";
 import { loadChangeSet } from "@/lib/agent/change-set/store";
 import { readReleasedFoldSnapshot } from "@/lib/case-store/migrations/20261208000000_connect_activity_roles";
+import { retainedSourceBody } from "@/lib/commcare/reader/__tests__/readerInput";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
 import { OWNERSHIP } from "@/lib/deployment/__tests__/adoptedBirth";
@@ -141,22 +142,18 @@ async function releasedTarget(appId: string) {
 		})
 		.execute();
 	const source = JSON.stringify({
-		doc_type: "Application",
+		...retainedSourceBody("shell/app-source"),
 		name: "Clinic",
 		modules: [
 			{
 				doc_type: "Module",
 				unique_id: hqMenu,
+				case_type: "patient",
+				name: { en: "Clinic" },
+				forms: [],
 				search_config: { instance_name: "ClinicSearch" },
 			},
 		],
-		_attachments: {},
-		profile: {},
-		langs: ["en"],
-		build_spec: { version: "2.57.0" },
-		build_profiles: {},
-		translations: {},
-		add_ons: {},
 		use_grid_menus: true,
 		auto_gps_capture: true,
 	});
