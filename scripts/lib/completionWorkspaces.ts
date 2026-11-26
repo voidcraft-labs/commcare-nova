@@ -430,7 +430,7 @@ export async function installPrivateWorkspaces(
 			WHERE id=${entry.id} AND status='open' AND base_seq IS NOT DISTINCT FROM ${entry.sourceSeq}::bigint AND base_snapshot_digest=${entry.sourceBaseDigest}`.execute(
 				tx,
 			);
-		if (result.numAffectedRows !== 1n)
+		if (result.numAffectedRows !== BigInt(1))
 			throw new Error("The original private base moved during conversion.");
 	}
 }
