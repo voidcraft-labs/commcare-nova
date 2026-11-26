@@ -1,3 +1,4 @@
+import { CONNECT_XMLNS } from "../../xform/connectActivity";
 /**
  * The join of a form's model and body, as HQ's form builder makes it
  * (Vellum `parser.js`): every data node takes one `NodeRole`, in this order,
@@ -18,18 +19,22 @@
  */
 
 import { type Element, isTag } from "domhandler";
+import { type FieldKind, isCaptureFieldKind } from "@/lib/domain/fields";
 import {
 	questionIdProblem,
 	RESERVED_QUESTION_IDS,
 } from "@/lib/domain/questionId";
 import { NO_ENTRIES } from "@/lib/domain/records";
+import { answerRequiresAndroid } from "@/lib/domain/submittedAnswerName";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { type SourceTable, tableOf } from "../../sourceKeys";
+import { hiddenAnswerTypeOf } from "../../xform/bindType";
 import {
 	elementNamespace,
 	isElement,
 	JAVAROSA_NS,
 	splitName,
+	VELLUM_NS,
 } from "../../xmlNamespaces";
 import type { Accounting } from "../accounting";
 import type { Claim } from "../claims";
@@ -51,6 +56,7 @@ import {
 	wrapsRepeat,
 } from "./body";
 import { type KindSites, X } from "./claims";
+import { connectRoleSite } from "./connect";
 import {
 	absolutePath,
 	type CaseRegionContainer,
@@ -81,7 +87,11 @@ import {
 } from "./model";
 import { type CaseChoicesProposal, readChoices } from "./options";
 import { intentIdsOf, ODK_NS, type ParsedXForm } from "./parse";
-import type { StandingRefusal } from "./refusals";
+import {
+	type FormRefusals,
+	refuseBindLogic,
+	type StandingRefusal,
+} from "./refusals";
 import { type RepeatRead, readRepeat, settleRepeatCount } from "./repeats";
 
 /** The intent class of CommCare's print action, which the form builder reads as its print
@@ -117,6 +127,8 @@ export interface JoinInput {
 	readonly setvalues: readonly SetvalueFacts[];
 	readonly controls: ReadControls;
 	readonly cursor: XmlCursor;
+	/** The refusals the form's cursor has made, whose binds a refused block refuses with it. */
+	readonly refusals: FormRefusals;
 	readonly accounting: Accounting;
 	readonly formPlace: FormPlace;
 	readonly lookup: ReaderLookupCatalog;
@@ -168,6 +180,7 @@ export interface JoinedForm {
 	/** Reads a candidate the case management stage did not settle as generated: the node becomes
 	 *  the Hidden Value it is, with the claims any Hidden Value takes. */
 	settleField(node: DataNode): DraftField;
+	attachActivity(node: DataNode, activity: Record<string, unknown>): DraftField;
 }
 
 /**
@@ -200,7 +213,7 @@ function controlFact(tag: ControlNode["tag"]): FieldKindFacts["control"] {
 }
 
 /** The node's namespace differs from its parent's by a default declaration of its own. */
-function ownNamespace(node: DataNode, parsed: ParsedXForm): boolean {
+export function ownNamespace(node: DataNode, parsed: ParsedXForm): boolean {
 	if (!Object.hasOwn(node.element.attribs, "xmlns")) return false;
 	if (splitName(node.element.name).prefix !== "") return false;
 	const parent = node.element.parent;
@@ -287,13 +300,49 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (node.role === "SaveToCase") under(node, { kind: "case-region" });
 		else if (block !== undefined) under(node, { kind: "connect", block });
 		else if (node.role === "ConnectWorkAreaUpdate") {
-			cursor.refuseSubtree(
+			const [update] = node.children;
+			const leaves = [
+				"work_area_id",
+				"status",
+				"reason",
+				"additional_details",
+				"photo_evidence",
+			];
+			const forwardingLosesPhoto =
+				node.children.length === 1 &&
+				update?.name === "work_area_update" &&
+				elementNamespace(update.element, parsed.scope(update.element)) ===
+					CONNECT_XMLNS &&
+				update.element.attribs.id === node.name &&
+				update.children.length === leaves.length &&
+				update.children.every(
+					(child, index) =>
+						child.name === leaves[index] &&
+						elementNamespace(child.element, parsed.scope(child.element)) ===
+							CONNECT_XMLNS &&
+						child.children.length === 0,
+				);
+			const refusal: StandingRefusal = {
+				claim: forwardingLosesPhoto
+					? X.connectWorkAreaPhotoNotForwarded
+					: X.connectWorkAreaUpdate,
+				place: placeOf(node),
+			};
+			cursor.refuseSubtreeAt(
 				node.element,
-				X.connectWorkAreaUpdate,
-				placeOf(node),
+				connectRoleSite(node.element, parsed.scope) ?? {
+					element: node.element,
+				},
+				refusal.claim,
+				refusal.place,
 			);
+			// The update is refused whole: its nodes, and what each node's bind
+			// says it does (the expressions the form builder writes on its leaves).
 			const cover = (at: DataNode) => {
 				covered.add(at);
+				const bind = input.binds.get(at);
+				if (bind !== undefined)
+					refuseBindLogic(cursor, input.refusals, bind.element, refusal);
 				for (const child of at.children) cover(child);
 			};
 			cover(node);
@@ -347,14 +396,47 @@ export function joinForm(input: JoinInput): JoinedForm {
 		standIn: boolean,
 		slots: Readonly<Record<string, unknown>> = {},
 	): DraftField => {
+		const bind = input.binds.get(node)?.element;
+		const dataLock = attributeNameIn(node.element, parsed, VELLUM_NS, "lock");
+		const bindLock =
+			bind === undefined
+				? undefined
+				: attributeNameIn(bind, parsed, VELLUM_NS, "lock");
+		const locked =
+			(kind === "hidden" &&
+				dataLock !== undefined &&
+				node.element.attribs[dataLock] === "all") ||
+			(bind !== undefined &&
+				bindLock !== undefined &&
+				bind.attribs[bindLock] === "all");
+		for (const [element, attribute, site] of [
+			[node.element, dataLock, "node"],
+			[bind, bindLock, "bind"],
+		] as const) {
+			if (element === undefined || attribute === undefined) continue;
+			if (locked && element.attribs[attribute] === "all")
+				cursor.take({ element, attribute }, X.vellumLock[site]).value;
+			else
+				cursor.refuse(
+					{ element, attribute },
+					X.unrecognizedLock[site],
+					placeOf(node),
+				);
+		}
 		const field: DraftField = {
 			node,
 			kind,
 			id: node.name,
 			parent,
+			dataParent: parent,
 			standIn,
 			uuid: undefined,
-			field: { kind, id: node.name, ...slots },
+			field: {
+				kind,
+				id: node.name,
+				...slots,
+				...(locked && { lockedInHq: true }),
+			},
 			control,
 			place: placeOf(node),
 			expressions: [],
@@ -375,7 +457,14 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (problem === undefined) {
 			accounting.claimEntry(
 				{ element: node.element },
-				X.questionId.top.entry,
+				answerRequiresAndroid(
+					node.name,
+					elementNamespace(node.element, parsed.scope(node.element)),
+				)
+					? X.androidAnswer.entry
+					: node.name.toLowerCase() === "script"
+						? X.questionIdReserved.entry
+						: X.questionId.top.entry,
 				key,
 				placeOf(node),
 			);
@@ -386,9 +475,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 			problem === "reserved-name" &&
 			RESERVED_QUESTION_IDS.anyCase.has(lowered) &&
 			lowered !== "meta";
-		const refusal = reservedAnyCase
-			? X.questionIdReserved
-			: X.questionIdGrammar;
+		const refusal = reservedAnyCase ? X.submittedCase : X.questionIdGrammar;
 		accounting.claimEntry(
 			{ element: node.element },
 			refusal.entry,
@@ -400,8 +487,12 @@ export function joinForm(input: JoinInput): JoinedForm {
 	};
 
 	/** Claims what stands on a field's data node whatever its kind. */
-	const claimNode = (node: DataNode) => {
-		if (ownNamespace(node, parsed))
+	const claimNode = (
+		node: DataNode,
+		holdsNamespace = false,
+		kind?: FieldKind,
+	) => {
+		if (ownNamespace(node, parsed) && !holdsNamespace)
 			cursor.refuse(
 				{ element: node.element, attribute: "xmlns" },
 				X.dataNodeXmlns,
@@ -409,7 +500,9 @@ export function joinForm(input: JoinInput): JoinedForm {
 			);
 		if (node.children.length === 0 && !javaTrimEmpty(node.text))
 			accounting.findingAtNode(
-				X.defaultDataValue,
+				kind !== undefined && isCaptureFieldKind(kind)
+					? X.captureDefaultDataValue
+					: X.defaultDataValue,
 				placeOf(node),
 				{ element: node.element },
 				dataNodeKey(node),
@@ -471,10 +564,10 @@ export function joinForm(input: JoinInput): JoinedForm {
 		let row: FieldKindRow | undefined = fieldKindOf(facts);
 
 		// A trigger whose appearance is not exactly `minimal` is a label only where its
-		// appearance leaves Android's widget no acknowledge; any other is the kind row's refusal.
+		// appearance leaves Android's widget no acknowledge. Otherwise it is a confirmation.
 		if (
 			control?.tag === "trigger" &&
-			row?.kind === undefined &&
+			row?.sites === X.kind.acknowledge &&
 			control.appearance !== undefined
 		) {
 			const verdict = classifyAppearance(
@@ -491,7 +584,17 @@ export function joinForm(input: JoinInput): JoinedForm {
 			}
 		}
 		const stood = idFinding(node);
-		claimNode(node);
+		const namespace =
+			row?.kind === "hidden" && ownNamespace(node, parsed)
+				? node.element.attribs.xmlns
+				: undefined;
+		const holdsNamespace = namespace !== undefined && namespace.length > 0;
+		if (holdsNamespace)
+			cursor.take(
+				{ element: node.element, attribute: "xmlns" },
+				X.hiddenNamespace,
+			).value;
+		claimNode(node, holdsNamespace, row?.kind);
 		if (row === undefined) return make(node, parent, control, "hidden", true);
 		if (row.kind === undefined || row.sites === undefined) {
 			const claim =
@@ -558,8 +661,19 @@ export function joinForm(input: JoinInput): JoinedForm {
 			control,
 			row.kind,
 			stood,
-			row.slots ?? NO_ENTRIES,
+			holdsNamespace
+				? { ...row.slots, answerNamespace: namespace }
+				: (row.slots ?? NO_ENTRIES),
 		);
+		// A text or date-and-time class is one Nova's automatic type can write;
+		// whether it does here needs the bound document's writes and calculate,
+		// so `afterBinding.ts::settleHiddenAnswerTypes` decides it. Every other
+		// class, an absent type among them, is the author's choice.
+		if (row.kind === "hidden") {
+			const answerType = hiddenAnswerTypeOf(bind?.type);
+			if (answerType !== "text" && answerType !== "datetime")
+				field.field.answerType = answerType;
+		}
 		if (bothSources)
 			field.bothSources = {
 				typeDeferred: bind?.type !== undefined && typeClaim === sites.type,
@@ -591,7 +705,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				if (claimed.respelled) respelledAppearances.push(node.path.join("/"));
 			}
 		}
-		if (control.tag === "upload") readImageDimension(control, row, place);
+		if (control.tag === "upload") readImageDimension(control, field, place);
 		if (control.tag === "select" || control.tag === "select1") {
 			const proposal = readChoices({
 				control,
@@ -613,7 +727,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 	/** `jr:imageDimensionScaledMax` on an upload. */
 	const readImageDimension = (
 		control: ControlNode,
-		row: FieldKindRow,
+		field: DraftField,
 		place: HqPlace,
 	) => {
 		const name = attributeNameIn(
@@ -628,19 +742,36 @@ export function joinForm(input: JoinInput): JoinedForm {
 		const digits = written.endsWith("px") ? written.slice(0, -2) : written;
 		// Core reads the value with `Integer.parseInt`, which takes one leading sign.
 		const number = /^[+-]?\d+$/.test(digits) ? Number(digits) : undefined;
-		const image = row.kind === "image";
+		const image = field.kind === "image";
+		let entry: string;
 		if (
 			number === undefined ||
 			number > 2147483647 ||
 			number < -2147483648 ||
 			(image && (number === 0 || number < -1))
-		)
+		) {
 			cursor.refuse(node, X.imageMaxDimensionInvalid, place, { name: written });
-		else if (image && number > 0)
-			cursor.refuse(node, X.imageMaxDimension, place, { name: written });
+			entry = X.imageMaxDimensionInvalid.entry;
+		} else if (image && number > 0) {
+			cursor.take(node, X.imageMaxDimension).value;
+			field.field.maxDimension = number;
+			entry = X.imageMaxDimension.entry;
+		}
 		// Any integer on another upload, and `-1` on an image, Android's own no-limit value
 		// (`ImageWidget`), the state with none.
-		else cursor.account(node, X.imageMaxDimensionElsewhere, place);
+		else {
+			cursor.account(node, X.imageMaxDimensionElsewhere, place);
+			entry = X.imageMaxDimensionElsewhere.entry;
+		}
+		// The extension parser's claim stands at the control (`xmlCursor.ts::recordedNode`);
+		// Core's parser also reads the attribute by name, a use of its own at the attribute.
+		accounting.claimEntry(
+			node,
+			entry,
+			"xform:upload@jr:imageDimensionScaledMax",
+			place,
+			{ name: written },
+		);
 	};
 
 	/** A control's field, by the nearest ancestor control that made a container field. */
@@ -850,6 +981,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				kind: "repeat",
 				id: node.name,
 				parent,
+				dataParent: dataParent(node),
 				standIn: false,
 				uuid: undefined,
 				field: {},
@@ -920,6 +1052,21 @@ export function joinForm(input: JoinInput): JoinedForm {
 			if (read.kind === "model-iteration") {
 				modelIterations.set(field, read);
 				roles.set(read.row, { kind: "query-row", repeat: field });
+				// The repeat's condition stands on its row's bind, where the
+				// form builder writes a model-iteration repeat's display
+				// condition and Nova's export writes it (`buildQueryRepeat`).
+				// One on the container's own bind is refused where the logic
+				// stage reads the container's bind (`logic.ts::readBindLogic`).
+				const rowRelevant = input.binds.get(read.row);
+				const condition = rowRelevant?.logic.relevant;
+				if (rowRelevant !== undefined && condition !== undefined)
+					field.expressions.push({
+						slot: "relevant",
+						text: condition,
+						at: { element: rowRelevant.element, attribute: "relevant" },
+						key: "xform:model/bind@relevant",
+						mode: XFORM,
+					});
 			}
 			if (read.kind === "count") counted.push({ field, control, read });
 			if (queryCounted && placement !== undefined)
@@ -940,25 +1087,48 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (made !== undefined) placed.push(made);
 	}
 
-	// A control's place and its node's place must agree, once every field a control makes
-	// is made: a data parent whose control stands later in the body is a field by now. The
-	// path that places the node is the control's `ref`, so the refusal stands there too.
+	// A control can draw a value kept under a different group in the same
+	// repeat row. Vellum compares the nearest repeat in each tree.
 	for (const made of placed) {
-		const expected = dataParent(made.node);
-		if (expected === made.parent) continue;
-		const crossing = repeatOf(expected) !== repeatOf(made.parent);
+		const parent = dataParent(made.node);
+		if (parent === made.parent) continue;
+		let dataRepeat = parent;
+		while (dataRepeat !== null && dataRepeat.kind !== "repeat")
+			dataRepeat = dataParent(dataRepeat.node);
+		const crossing = dataRepeat !== repeatOf(made.parent);
+		const control = made.control;
+		// The form designer's parser names a value kept at the form's root
+		// under a grouped question `#form`, which its own check of a data
+		// parent then reports as no valid path on every open
+		// (`parser.js::parseControlElement`, `baseSpecs.js::dataParent`); and
+		// it writes a group's own answers only under the group's place, so a
+		// group kept under another group loses them on its next save
+		// (`form.js::dataTree`).
 		const refusal = crossing
 			? X.dataParentCrossingRepeat
-			: X.dataParentOtherGroup;
-		const control = made.control;
-		if (control === undefined) accounting.finding(refusal, made.place);
-		else
-			accounting.findingAtNode(
-				refusal,
-				made.place,
-				{ element: control.element },
-				`xform:${control.tag}@ref`,
+			: parent === null
+				? X.dataParentAtFormRoot
+				: made.kind === "group" || made.kind === "repeat"
+					? X.dataParentOfAGroup
+					: undefined;
+		if (refusal !== undefined) {
+			made.dataParentRefused = true;
+			if (control === undefined) accounting.finding(refusal, made.place);
+			else
+				accounting.findingAtNode(
+					refusal,
+					made.place,
+					{ element: control.element },
+					`xform:${control.tag}@${control.tag === "repeat" ? "nodeset" : "ref"}`,
+				);
+		} else if (control !== undefined) {
+			const attribute = control.tag === "repeat" ? "nodeset" : "ref";
+			cursor.within(
+				{ element: control.element, attribute },
+				X.dataParentOtherGroup,
+				[`xform:${control.tag}@${attribute}`],
 			);
+		}
 	}
 
 	// The head's `odkx:intent`s an input's `intent:<id>` names: a callout question's own
@@ -1121,6 +1291,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 					: undefined,
 			parsed,
 			cursor,
+			accounting,
 			place: field.place,
 		});
 	}
@@ -1138,24 +1309,48 @@ export function joinForm(input: JoinInput): JoinedForm {
 		);
 		const byParent = new Map<DraftField | null, DraftField[]>();
 		for (const field of fields) {
+			field.dataParent = dataParent(field.node);
 			const list = byParent.get(field.parent) ?? [];
 			list.push(field);
 			byParent.set(field.parent, list);
 		}
+		// Each group's questions as the form designer's question tree holds
+		// them (`parser.js::parseControlTree`): its own values in the order they
+		// stand under it, then each question whose value stands under another
+		// group, as the parser reads it from the body; where the body shows the
+		// group's questions in another order than that (`merge`'s `fixOrder`),
+		// its questions in body order and then its values with no question.
 		const made = new Map<DraftField | null, readonly DraftField[]>();
 		for (const [parent, list] of byParent) {
-			const controlled = list.filter((field) => field.control !== undefined);
-			const byBody = [...controlled].sort(
-				(a, b) =>
-					(bodyOrder.get(a.control as ControlNode) ?? 0) -
-					(bodyOrder.get(b.control as ControlNode) ?? 0),
-			);
-			const agree = controlled.every((field, index) => byBody[index] === field);
+			const byBody = (a: DraftField, b: DraftField) =>
+				(bodyOrder.get(a.control as ControlNode) ?? 0) -
+				(bodyOrder.get(b.control as ControlNode) ?? 0);
+			const own = list.filter((field) => field.dataParent === parent);
+			const away = list
+				.filter(
+					(field) => field.dataParent !== parent && field.control !== undefined,
+				)
+				.sort(byBody);
+			const controls = list
+				.filter((field) => field.control !== undefined)
+				.sort(byBody);
+			const seen = new Set<DraftField>();
+			let reordered = false;
+			for (let read = 0, shown = 0; shown < controls.length; ) {
+				if (read < own.length) {
+					if (own[read] === controls[shown]) shown++;
+					seen.add(own[read]);
+					read++;
+				} else {
+					if (seen.has(controls[shown])) reordered = true;
+					shown++;
+				}
+			}
 			made.set(
 				parent,
-				agree
-					? list
-					: [...byBody, ...list.filter((field) => field.control === undefined)],
+				reordered
+					? [...controls, ...own.filter((field) => field.control === undefined)]
+					: [...own, ...away],
 			);
 		}
 		ordered = made;
@@ -1173,6 +1368,18 @@ export function joinForm(input: JoinInput): JoinedForm {
 		modelIterations,
 		generated,
 		generatedValues,
+		attachActivity(node, activity) {
+			const field = make(
+				node,
+				dataParent(node),
+				undefined,
+				"connect_activity",
+				false,
+				{ activity },
+			);
+			ordered = undefined;
+			return field;
+		},
 		settleField(node) {
 			const field = readQuestion(node, undefined, dataParent(node));
 			ordered = undefined;

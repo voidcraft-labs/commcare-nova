@@ -15,6 +15,8 @@ function referenceFieldsChanged(
 		if (
 			before === undefined ||
 			field.id !== before.id ||
+			field.submissionPlacement?.parent !==
+				before.submissionPlacement?.parent ||
 			field.kind !== before.kind ||
 			("label" in field ? field.label : undefined) !==
 				("label" in before ? before.label : undefined)
@@ -33,7 +35,9 @@ function referenceFormsChanged(
 	const currentEntries = Object.entries(current);
 	if (currentEntries.length !== Object.keys(previous).length) return true;
 	return currentEntries.some(
-		([uuid, form]) => previous[uuid]?.type !== form.type,
+		([uuid, form]) =>
+			previous[uuid]?.type !== form.type ||
+			previous[uuid]?.dataRootName !== form.dataRootName,
 	);
 }
 

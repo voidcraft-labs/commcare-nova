@@ -1,3 +1,5 @@
+import { submittedActivityFacts } from "@/lib/domain/connectSubmissionFacts";
+import { CaptureSubmissionRejectedError } from "../errors";
 // lib/case-store/postgres/store.ts
 //
 // `PostgresCaseStore` — the only implementation of the `CaseStore`
@@ -2547,6 +2549,12 @@ export class PostgresCaseStore implements CaseStore {
 						}),
 			});
 			if (replay !== undefined) return replay;
+			const activities =
+				args.connect === undefined
+					? undefined
+					: submittedActivityFacts(args.connect);
+			if (activities && "issue" in activities)
+				throw new CaptureSubmissionRejectedError(activities.issue);
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
 			const { deviceExternalIds, ...effects } = await executeSubmissionEnvelope(
@@ -2574,6 +2582,7 @@ export class PostgresCaseStore implements CaseStore {
 				...(args.submissionLocation !== undefined && {
 					submissionLocation: args.submissionLocation,
 				}),
+				...(activities ? { activities: activities.facts } : {}),
 				blueprintDigest: args.submissionReceipt.blueprintDigest,
 				caseDatabasePatch,
 			};

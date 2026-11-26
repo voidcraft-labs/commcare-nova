@@ -71,7 +71,7 @@ export interface SeedAppOptions {
 	recoverable_until?: Date | null;
 	module_count?: number;
 	form_count?: number;
-	connect_type?: "learn" | "deliver" | null;
+	connect_roles?: ("learn" | "deliver")[];
 	/** The credit-reservation marker, or null/omitted for none. */
 	reservation?: AppReservation | null;
 	/** The exclusive edit lease, or null/omitted for none. */
@@ -215,7 +215,7 @@ export function canonicalTestBlueprint(
 	const empty: BlueprintDoc = {
 		appId,
 		appName: APP_GENESIS_FALLBACK_NAME,
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
@@ -250,9 +250,16 @@ export function setupAppStateTestDb(
 		 * database a deploy of the previous revision leaves, so the test applies
 		 * the rest itself. Needs `authSchema: "migrated"`. */
 		caseStoreMigrationsBefore?: string;
+		/** With `caseStoreMigrationsBefore`: the earlier database with the Connect
+		 * roles column (`20261208000000_connect_activity_roles`) already applied
+		 * and every app written in the roles representation, as the release's
+		 * Connect conversion leaves it. A rehearsal of another cutover in one
+		 * representation starts here; the release composes the two. */
+		connectRolesApplied?: true;
 	} = {},
 ): AppStateTestDb {
 	const before = options.caseStoreMigrationsBefore;
+	const connectRolesApplied = options.connectRolesApplied === true;
 	if (before !== undefined && options.authSchema !== "migrated") {
 		throw new Error(
 			'setupAppStateTestDb: caseStoreMigrationsBefore needs authSchema: "migrated", which owns the template it prepares.',
@@ -285,6 +292,12 @@ export function setupAppStateTestDb(
 								},
 							}).migrateToLatest();
 							if (result.error !== undefined) throw result.error;
+							if (connectRolesApplied) {
+								const { up } = await import(
+									"@/lib/case-store/migrations/20261208000000_connect_activity_roles"
+								);
+								await db.transaction().execute((tx) => up(tx));
+							}
 						}
 						const [
 							{ getMigrations },
@@ -371,6 +384,15 @@ export function setupAppStateTestDb(
 		const owner = opts.owner ?? "owner-test";
 		const projectId = opts.project_id ?? "project-test";
 		const persistable = doc === null ? null : toPersistableDoc(doc);
+		const connectRoles = opts.connect_roles ?? persistable?.connectRoles ?? [];
+		const releasedRoles =
+			before !== undefined &&
+			!connectRolesApplied &&
+			before <= "20261208000000_connect_activity_roles";
+		if (releasedRoles && connectRoles.length > 1)
+			throw new Error(
+				"The selected historical schema stores only one Connect role.",
+			);
 		const formCount =
 			persistable?.moduleOrder.reduce(
 				(sum, moduleUuid) =>
@@ -389,7 +411,9 @@ export function setupAppStateTestDb(
 						project_id: projectId,
 						app_name: appName,
 						app_name_lower: appName.toLowerCase(),
-						connect_type: opts.connect_type ?? persistable?.connectType ?? null,
+						...(releasedRoles
+							? { connect_type: connectRoles[0] ?? null }
+							: { connect_roles: connectRoles }),
 						case_types:
 							persistable?.caseTypes == null
 								? null

@@ -35,6 +35,7 @@ import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeAuthoringHarness } from "../../__tests__/authoringHarness";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
+import { addFieldsTool } from "../addFields";
 import { editFieldTool } from "../editField";
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
@@ -607,7 +608,7 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 	});
 });
 
-/* --- Hidden value sources: exactly one of calculate / default_value ---- */
+/* --- Independent hidden value sources ---- */
 
 const HIDDEN = testUuid("77777777-7777-7777-7777-777777777777");
 
@@ -660,7 +661,7 @@ function valueSlotsOf(doc: BlueprintDoc): {
 
 const HIDDEN_ADDRESS = { moduleUuid: MOD, formUuid: FORM, fieldUuid: HIDDEN };
 
-describe("editField — a hidden field carries one value source", () => {
+describe("editField — a hidden field keeps independent value sources", () => {
 	it("setting calculate on a default-only hidden field clears the default in the same patch and says so", async () => {
 		const h = makeToolWorkspaceHarness(
 			makeValueSourceDoc({
@@ -681,17 +682,15 @@ describe("editField — a hidden field carries one value source", () => {
 		expect(valueSlotsOf(h.currentDoc())).toEqual({
 			kind: "hidden",
 			calculate: true,
-			default_value: false,
+			default_value: true,
 		});
 		expect(result.result).toMatchObject({
 			ok: true,
-			valueSource: { set: "calculate", cleared: "default_value" },
 		});
-		// ONE staged commit: the clear rides the same updateField patch.
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 	});
 
-	it("setting default_value on a calculate-only hidden field clears the calculate and says so", async () => {
+	it("setting default_value on a calculate-only hidden field keeps the calculation", async () => {
 		const h = makeToolWorkspaceHarness(
 			makeValueSourceDoc({
 				id: "stamp",
@@ -707,18 +706,15 @@ describe("editField — a hidden field carries one value source", () => {
 		expectAdmittedDoc(h.currentDoc());
 		expect(valueSlotsOf(h.currentDoc())).toEqual({
 			kind: "hidden",
-			calculate: false,
+			calculate: true,
 			default_value: true,
 		});
 		expect(result.result).toMatchObject({
 			ok: true,
-			valueSource: { set: "default_value", cleared: "calculate" },
 		});
 	});
 
-	it("converting text with a default to hidden while setting calculate lands calculate alone", async () => {
-		// The conversion carries the source's `default_value` across; without
-		// the normalization this one call would leave both slots on the field.
+	it("converting text with a default to hidden while setting calculate keeps both slots", async () => {
 		const h = makeToolWorkspaceHarness(
 			makeValueSourceDoc({
 				id: "stage",
@@ -739,11 +735,10 @@ describe("editField — a hidden field carries one value source", () => {
 		expect(valueSlotsOf(h.currentDoc())).toEqual({
 			kind: "hidden",
 			calculate: true,
-			default_value: false,
+			default_value: true,
 		});
 		expect(result.result).toMatchObject({
 			ok: true,
-			valueSource: { set: "calculate", cleared: "default_value" },
 		});
 	});
 
@@ -840,7 +835,17 @@ it("changes repeat modes without replacing its children or retaining the old mod
 	for (const repeat of [
 		{ mode: "user_controlled" as const },
 		{ mode: "count_bound" as const, count: term(literal(3)) },
-		{ mode: "query_bound" as const, ids_query: term(literal("")) },
+		{
+			mode: "query_bound" as const,
+			ids_query: term(literal("")),
+			when: "on-open" as const,
+		},
+		{
+			mode: "query_bound" as const,
+			ids_query: term(literal("a")),
+			when: "as-answers-change" as const,
+		},
+		{ mode: "query_bound" as const, ids_query: term(literal("a")), when: null },
 		{ mode: "user_controlled" as const },
 	]) {
 		const result = await h.runTool(editFieldTool, {
@@ -857,8 +862,14 @@ it("changes repeat modes without replacing its children or retaining the old mod
 		expect(current.fieldOrder[FIELD]).toEqual([AGE]);
 		if (repeat.mode !== "count_bound")
 			expect(current.fields[FIELD]).not.toHaveProperty("repeat_count");
-		if (repeat.mode !== "query_bound")
+		if (repeat.mode !== "query_bound") {
 			expect(current.fields[FIELD]).not.toHaveProperty("data_source");
+			expect(current.fields[FIELD]).not.toHaveProperty("rowTiming");
+		} else if (repeat.when === null) {
+			expect(current.fields[FIELD]).not.toHaveProperty("rowTiming");
+		} else {
+			expect(current.fields[FIELD]).toHaveProperty("rowTiming", repeat.when);
+		}
 	}
 });
 
@@ -1088,6 +1099,25 @@ describe("editField: field_list and plain_label", () => {
 	});
 });
 
+it("sets and clears the answer type through the shared hidden question editor and read", async () => {
+	const h = makeAuthoringHarness({}, makeHouseholdDoc());
+	const address = visitAddress(VISIT_HIDDEN);
+	expect(
+		await h.call("editField", {
+			...address,
+			updates: { kind: "hidden", answerType: "int" },
+		}),
+	).toMatchObject({ ok: true });
+	const read = await h.call("getField", address);
+	expect(read).toMatchObject({ field: { answerType: "int" } });
+	expect(
+		await h.call("editField", {
+			...address,
+			updates: { kind: "hidden", answerType: null },
+		}),
+	).toMatchObject({ ok: true });
+	expect(h.currentDoc().fields[VISIT_HIDDEN]).not.toHaveProperty("answerType");
+});
 describe("editField: a number keypad and a help text shown as typed", () => {
 	it("sets and clears keypad and plain_help, and a read sent back keeps both", async () => {
 		const h = makeAuthoringHarness({}, makeHouseholdDoc());
@@ -1192,4 +1222,82 @@ describe("editField: a choice shown as typed survives a read and edit", () => {
 			expect.not.objectContaining({ plainLabel: true }),
 		]);
 	});
+});
+
+it("locates a hidden assignment that a worker cannot use and accepts the repaired calculation", async () => {
+	const h = makeAuthoringHarness({}, makeHouseholdDoc());
+	const address = visitAddress(VISIT_HIDDEN);
+	for (const updates of [
+		{
+			kind: "hidden",
+			answerType: "boolean",
+			default_value: "'yes'",
+			calculate: null,
+		},
+		{ kind: "hidden", answerType: "boolean", calculate: "today()" },
+		{ kind: "hidden", answerType: "multi_select", calculate: "' blue green'" },
+	]) {
+		const result = await h.call("editField", { ...address, updates });
+		expect(result).not.toMatchObject({ ok: true });
+		expect(h.currentDoc().fields[VISIT_HIDDEN]).not.toHaveProperty(
+			"answerType",
+		);
+	}
+	expect(
+		await h.call("editField", {
+			...address,
+			updates: {
+				kind: "hidden",
+				answerType: "boolean",
+				calculate: "today() = today()",
+			},
+		}),
+	).toMatchObject({ ok: true });
+});
+
+it("creates a locked integration value and lets an authorized editor unlock it and change or clear its namespace", async () => {
+	const h = makeToolWorkspaceHarness(makeDoc());
+	const result = await h.runTool(addFieldsTool, {
+		moduleUuid: MOD,
+		formUuid: FORM,
+		fields: [
+			{
+				id: "service_value",
+				kind: "hidden",
+				answerNamespace: "urn:household:visit",
+				lockedInHq: true,
+			},
+		],
+	});
+	if ("error" in result.result) throw new Error(result.result.error);
+	const field = Object.values(h.currentDoc().fields).find(
+		(f) => f.id === "service_value",
+	);
+	if (field?.kind !== "hidden")
+		throw new Error("The integration value is missing");
+	expect(field).toMatchObject({
+		answerNamespace: "urn:household:visit",
+		lockedInHq: true,
+	});
+	const address = { moduleUuid: MOD, formUuid: FORM, fieldUuid: field.uuid };
+	const rejected = await h.runTool(editFieldTool, {
+		...address,
+		updates: {
+			kind: "hidden",
+			answerNamespace: "http://www.w3.org/2000/xmlns/",
+		},
+	});
+	expect(rejected.result).toHaveProperty("error");
+	expect(h.currentDoc().fields[field.uuid]).toMatchObject({
+		answerNamespace: "urn:household:visit",
+	});
+	const cleared = await h.runTool(editFieldTool, {
+		...address,
+		updates: { kind: "hidden", answerNamespace: null, lockedInHq: null },
+	});
+	if ("error" in cleared.result) throw new Error(cleared.result.error);
+	expect(h.currentDoc().fields[field.uuid]).not.toHaveProperty(
+		"answerNamespace",
+	);
+	expect(h.currentDoc().fields[field.uuid]).not.toHaveProperty("lockedInHq");
 });

@@ -6,6 +6,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import { projectFormExpression } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -21,7 +22,9 @@ import {
 	matchAll,
 	term,
 } from "@/lib/domain/expression/builders";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { assertAdmittedDoc } from "./admittedDoc";
+import { holdFixture } from "./placementHoldFixture";
 
 const M = testUuid("fields-module");
 const F = testUuid("fields-form");
@@ -104,6 +107,123 @@ function calculatedText(doc: BlueprintDoc): string {
 	return projection.text;
 }
 describe("field topology and identity", () => {
+	it("states the submitted row change in both directions and follows the same row on a rename", () => {
+		const { doc, formUuid } = holdFixture();
+		doc.forms[formUuid].dataRootName = "visit";
+		const repeat = Object.values(doc.fields).find(
+			(field) => field.kind === "repeat" && field.id === "visits",
+		);
+		const child = Object.values(doc.fields).find(
+			(field) => field.id === "visit_note",
+		);
+		if (
+			repeat?.kind !== "repeat" ||
+			repeat.repeat_mode !== "query_bound" ||
+			!child
+		)
+			throw new Error("Expected the visits repeat and note.");
+		doc.publishedQuestions = [repeat.uuid, child.uuid];
+		const remove: Mutation = {
+			kind: "updateField",
+			uuid: repeat.uuid,
+			targetKind: "repeat",
+			patch: { repeat_mode: "user_controlled" },
+		};
+		const toQuery: Mutation = {
+			kind: "updateField",
+			uuid: repeat.uuid,
+			targetKind: "repeat",
+			patch: { repeat_mode: "query_bound", data_source: repeat.data_source },
+		};
+		const controlled = commit(doc, [remove]);
+		const expected = (from: string, to: string) => [
+			{
+				subject: {
+					kind: "submitted-question",
+					formUuid,
+					fieldUuid: child.uuid,
+				},
+				from: { answerPath: from },
+				to: { answerPath: to },
+				reason: { source: "submitted-question" },
+			},
+		];
+		const flat = "/visit/visits/visit_note";
+		const row = "/visit/visits/item/visit_note";
+		expect(withIdentityMoves(doc, [remove]).moves).toEqual(expected(row, flat));
+		expect(
+			withIdentityMoves(doc, [
+				{ kind: "convertField", uuid: repeat.uuid, toKind: "group" },
+			]).moves,
+		).toEqual(expected(row, flat));
+		expect(withIdentityMoves(controlled, [toQuery]).moves).toEqual(
+			expected(flat, row),
+		);
+		expect(
+			withIdentityMoves(doc, [
+				{
+					kind: "updateField",
+					uuid: child.uuid,
+					targetKind: "text",
+					patch: { id: "comment" },
+				},
+			]).moves,
+		).toEqual(expected(row, "/visit/visits/item/comment"));
+	});
+
+	it("names each published answer whose address changes and keeps screen-only edits quiet", () => {
+		const fresh = fixture();
+		const doc = { ...fresh, publishedQuestions: [Q("group"), Q("child")] };
+		const rename: Mutation = {
+			kind: "updateField",
+			uuid: Q("group"),
+			targetKind: "group",
+			patch: { id: "member" },
+		};
+		expect(withIdentityMoves(fresh, [rename]).moves).toEqual([]);
+		expect(
+			withIdentityMoves(doc, [rename]).moves.map((move) => [
+				move.subject,
+				move.from,
+				move.to,
+			]),
+		).toEqual([
+			[
+				{ kind: "submitted-question", formUuid: F, fieldUuid: Q("group") },
+				{ answerPath: "/data/group" },
+				{ answerPath: "/data/member" },
+			],
+			[
+				{ kind: "submitted-question", formUuid: F, fieldUuid: Q("child") },
+				{ answerPath: "/data/group/child" },
+				{ answerPath: "/data/member/child" },
+			],
+		]);
+		const rootMoves = withIdentityMoves(doc, [
+			{ kind: "updateForm", uuid: F, patch: { dataRootName: "visit" } },
+		]).moves;
+		expect(rootMoves.map(({ from, to }) => [from, to])).toEqual([
+			[{ answerPath: "/data/group" }, { answerPath: "/visit/group" }],
+			[
+				{ answerPath: "/data/group/child" },
+				{ answerPath: "/visit/group/child" },
+			],
+		]);
+		const move: Mutation = {
+			kind: "moveField",
+			where: "screen",
+			uuid: Q("child"),
+			toParentUuid: F,
+			after: Q("b"),
+		};
+		expect(withIdentityMoves(doc, [move]).moves).toEqual([]);
+		expect(
+			withIdentityMoves(commit(doc, [move]), [
+				{ ...move, where: "submission", after: null },
+			]).moves.map((m) => m.to),
+		).toEqual([{ answerPath: "/data/child" }]);
+	});
+
 	it("inserts at named, first and append anchors under both forms and groups", () => {
 		const next = commit(fixture(), [
 			{
@@ -302,6 +422,97 @@ describe("field topology and identity", () => {
 		});
 		expect(next.fieldParent[children[0]]).toBe(groupPlan.cloneUuid);
 		expect(duplicateFieldMutations(next, Q("gone"))).toBeUndefined();
+	});
+	it("carries ordinary answers on screen moves and keeps explicitly placed answers in their groups", () => {
+		const source = commit(fixture(), [
+			{
+				kind: "moveField",
+				uuid: Q("a"),
+				where: "submission",
+				toParentUuid: Q("group"),
+				after: null,
+			},
+		]);
+		expect(
+			submissionLayout(F, source.fields, source.fieldOrder).children.get(
+				Q("group"),
+			),
+		).toEqual([Q("child"), Q("a")]);
+		const moved = commit(source, [
+			{ kind: "moveField", uuid: Q("child"), toParentUuid: F, after: Q("b") },
+		]);
+		expect(
+			submissionLayout(F, moved.fields, moved.fieldOrder).children.get(
+				Q("group"),
+			),
+		).toEqual([Q("a")]);
+		expect(
+			submissionLayout(F, moved.fields, moved.fieldOrder).children.get(F),
+		).toEqual([Q("b"), Q("child"), Q("group")]);
+		const together = commit(moved, [
+			{
+				kind: "moveField",
+				uuid: Q("a"),
+				toParentUuid: Q("group"),
+				after: null,
+			},
+		]);
+		expect(together.fields[Q("a")].submissionPlacement).toBeUndefined();
+		expect(
+			submissionLayout(F, together.fields, together.fieldOrder).children.get(
+				Q("group"),
+			),
+		).toEqual([Q("a")]);
+	});
+
+	it("refuses to place a grouped question's answer at the form root", () => {
+		const verdict = mutationCommitVerdict(
+			fixture(),
+			[
+				{
+					kind: "moveField",
+					uuid: Q("child"),
+					where: "submission",
+					toParentUuid: F,
+					after: null,
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			verdict.ok ? [] : verdict.findings.map((finding) => finding.code),
+		).toContain("FIELD_SUBMISSION_PLACEMENT");
+	});
+
+	it("duplicates a screen while keeping its explicitly placed answer under the same external group", () => {
+		const source = commit(fixture(), [
+			{
+				kind: "addField",
+				parentUuid: F,
+				field: {
+					uuid: Q("receiving"),
+					id: "receiving",
+					kind: "group",
+					label: proseText("Receiving"),
+				},
+			},
+			{
+				kind: "moveField",
+				uuid: Q("child"),
+				where: "submission",
+				toParentUuid: Q("receiving"),
+				after: null,
+			},
+		]);
+		const clone = duplicateFieldMutations(source, Q("group"));
+		if (!clone) throw new Error("Missing duplicate");
+		const result = commit(source, clone.mutations);
+		const [child] = result.fieldOrder[clone.cloneUuid];
+		const layout = submissionLayout(F, result.fields, result.fieldOrder);
+		expect(result.fields[child].id).toBe("child_2");
+		expect(layout.children.get(Q("receiving"))).toEqual([Q("child"), child]);
+		expect(layout.children.get(clone.cloneUuid)).toEqual([]);
+		expect(result.fieldParent[child]).toBe(clone.cloneUuid);
 	});
 });
 describe("field content and patch admission", () => {

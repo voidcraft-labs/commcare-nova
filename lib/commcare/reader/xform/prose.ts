@@ -1,3 +1,4 @@
+import { isCaptureFieldKind } from "@/lib/domain/fields";
 /**
  * A form's text, read by the slot that references it, and, once
  * the expression stage bound the source language's outputs, its translations.
@@ -62,6 +63,7 @@ import { bindCarriesConstraint } from "../../xform/constraintMessage";
 import { isConsumerWhitespace } from "../../xform/consumerWhitespace";
 import {
 	elementNamespace,
+	JAVAROSA_NS,
 	type NamespaceScope,
 	splitName,
 	XFORMS_NS,
@@ -457,12 +459,7 @@ export interface SlotText {
 	/** The outputs of the slot's own value registered for the expression stage, in part order. */
 	readonly registered: readonly SourceOutput[];
 	/** Whether the slot holds media Nova reads (a question's label and help, a choice). */
-	readonly media:
-		| "label_media"
-		| "help_media"
-		| "option_media"
-		| "unheld"
-		| "refused";
+	readonly media: "label_media" | "help_media" | "option_media" | "unheld";
 	/** Every value of each form but the default, by language: what the media reader reads. */
 	readonly forms: ReadonlyMap<LanguageTag, ReadonlyMap<string, Element>>;
 	/** Set where the text holds a finding that leaves its translations unread. */
@@ -573,6 +570,8 @@ const OPTIONAL_TEXT: ReadonlySet<ItextOwner["slot"]> = new Set([
 	"hint",
 	"help",
 	"validate_msg",
+	"addFirstLabel",
+	"addLabel",
 ]);
 
 /**
@@ -638,6 +637,8 @@ const FILL_SLOT_OF: SourceTable<TextSlot | LabelTextSlot> = tableOf({
 	"field-help": "help",
 	"field-validation-message": "validate_msg",
 	...LABEL_TEXT_SLOT_OF_ROLE,
+	"field-first-add-label": "addFirstLabel",
+	"field-add-label": "addLabel",
 });
 
 /** Writes a form text's source value into its slot: a question's label, hint, help text or
@@ -948,14 +949,41 @@ export function readText(input: ReadTextInput): FormText {
 					),
 				);
 			}
+		if (field.kind === "repeat" && control !== undefined) {
+			for (const child of control.element.children.filter(isTag)) {
+				if (elementNamespace(child, scope(child)) !== JAVAROSA_NS) continue;
+				const tag = splitName(child.name).local;
+				if (tag !== "addCaption" && tag !== "addEmptyCaption") continue;
+				references.push(
+					reference(
+						input,
+						{
+							field,
+							slot: tag === "addEmptyCaption" ? "addFirstLabel" : "addLabel",
+						},
+						place,
+						child,
+						(c) => {
+							c.take({ element: child }, X.addCaptions[tag]).value;
+							claimRef(
+								c,
+								child,
+								X.addCaptions[
+									tag === "addEmptyCaption"
+										? "addEmptyCaptionRef"
+										: "addCaptionRef"
+								],
+							);
+						},
+					),
+				);
+			}
+		}
 		if (control !== undefined && tag !== undefined) {
 			let alert: Element | undefined;
 			for (const child of xformsChildren(control.element, scope)) {
 				if (child.local === "hint") {
-					if (!fieldKindDeclaresKey(field.kind, "hint")) {
-						cursor.refuseSubtree(child.element, X.hintOnLabel[tag], place);
-						continue;
-					}
+					const hint = field.kind === "label" ? X.hintOnLabel : X.hint;
 					references.push(
 						reference(
 							input,
@@ -963,26 +991,16 @@ export function readText(input: ReadTextInput): FormText {
 							place,
 							child.element,
 							(c) => {
-								c.take({ element: child.element }, X.hint[tag]).value;
-								claimRef(c, child.element, X.hint[`${tag}Ref`]);
+								c.take({ element: child.element }, hint[tag]).value;
+								claimRef(c, child.element, hint[`${tag}Ref`]);
 							},
 						),
 					);
 				} else if (child.local === "help") {
-					if (!fieldKindDeclaresKey(field.kind, "help")) {
-						// A help that shows no text in any language and holds media is help media,
-						// the one thing it carries; any other is help text. Its text stands under the
-						// same refusal (`itext.ts::settleItext`).
-						const media = helpMediaOnly(input, child.element);
-						cursor.refuseSubtree(
-							child.element,
-							media === undefined
-								? X.helpOnCapture[tag]
-								: X.helpMediaOnCapture[media],
-							place,
-						);
-						continue;
-					}
+					const help =
+						field.kind === "label" || isCaptureFieldKind(field.kind)
+							? X.helpOnCapture
+							: X.help;
 					// A help text that holds its own content and no `ref` is the text Core shows
 					// (`FormEntryPrompt.localizeText` reads the inner text where the element names
 					// no text id), a text CommCare HQ's form builder loses on load
@@ -1001,8 +1019,8 @@ export function readText(input: ReadTextInput): FormText {
 							place,
 							child.element,
 							(c) => {
-								c.take({ element: child.element }, X.help[tag]).value;
-								claimRef(c, child.element, X.help[`${tag}Ref`]);
+								c.take({ element: child.element }, help[tag]).value;
+								claimRef(c, child.element, help[`${tag}Ref`]);
 							},
 						),
 					);
@@ -1220,18 +1238,12 @@ function readValidationMessage(
 	// A refused message is refused whole: the bind's message and the control's alert, and the
 	// text they name (`itext.ts::settleItext`), stand under one finding.
 	const refuseMessage = (
-		claim:
-			| typeof X.messageOnCapture
-			| typeof X.messageWithoutConstraint
-			| typeof X.literalConstraintMsg,
+		claim: typeof X.messageWithoutConstraint | typeof X.literalConstraintMsg,
 	) => {
 		if (messageNode !== undefined) cursor.refuse(messageNode, claim, place);
 		if (held !== undefined) cursor.refuseSubtree(held, claim, place);
 	};
-	if (!fieldKindDeclaresKey(field.kind, "validate_msg")) {
-		refuseMessage(X.messageOnCapture);
-		return;
-	}
+
 	if (
 		bind?.logic.constraint === undefined &&
 		(messageNode !== undefined || held !== undefined)
@@ -1265,33 +1277,18 @@ function readValidationMessage(
 		place,
 		id,
 		claim: (c) => {
-			if (messageNode !== undefined) c.take(messageNode, X.constraintMsg).value;
+			if (messageNode !== undefined) {
+				const kind = field.kind;
+				c.take(
+					messageNode,
+					kind === "label" || kind === "geopoint" || isCaptureFieldKind(kind)
+						? X.messageOnCapture
+						: X.constraintMsg,
+				).value;
+			}
 			claimAlert(c);
 		},
 	});
-}
-
-/** The first media kind a help element's text holds where the text shows nothing in any
- *  language (each language's default value blank, holding no output); undefined where it shows
- *  a text, holds no media or names no text. */
-function helpMediaOnly(
-	input: ReadTextInput,
-	help: Element,
-): "image" | "audio" | "video" | undefined {
-	const ref = help.attribs.ref;
-	if (ref === undefined) return undefined;
-	const reference = itextReference(ref);
-	if (reference.kind === "other") return undefined;
-	const values = input.itext.values(reference.id);
-	if (values === undefined) return undefined;
-	let media: "image" | "audio" | "video" | undefined;
-	for (const forms of values.values()) {
-		const value = forms.get("default");
-		if (value !== undefined && holdsContent(value)) return undefined;
-		for (const kind of ["image", "audio", "video"] as const)
-			if (media === undefined && forms.has(kind)) media = kind;
-	}
-	return media;
 }
 
 /** Whether an element holds content Core reads as its text: a child element, or a text node
@@ -1369,7 +1366,7 @@ function mediaHolding(owner: ItextOwner): SlotText["media"] {
 				? "label_media"
 				: "unheld";
 	if (owner.slot === "help")
-		return fieldKindDeclaresKey(kind, "help_media") ? "help_media" : "refused";
+		return fieldKindDeclaresKey(kind, "help_media") ? "help_media" : "unheld";
 	return "unheld";
 }
 
@@ -1380,7 +1377,7 @@ function writesMedia(
 	forms: ReadonlyMap<LanguageTag, ReadonlyMap<string, Element>>,
 ): boolean {
 	const holding = mediaHolding(owner);
-	if (holding === "unheld" || holding === "refused") return false;
+	if (holding === "unheld") return false;
 	for (const held of forms.values())
 		for (const form of held.keys()) if (heldMediaForm(owner, form)) return true;
 	return false;
@@ -2073,6 +2070,8 @@ const ROLE_OF: Readonly<
 	hint: "field-hint",
 	help: "field-help",
 	validate_msg: "field-validation-message",
+	addFirstLabel: "field-first-add-label",
+	addLabel: "field-add-label",
 };
 
 /** The translation unit of a slot, where its field and option have their UUIDs. */

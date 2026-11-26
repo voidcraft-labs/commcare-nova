@@ -77,6 +77,7 @@ export async function GET(
 				blueprint: app.blueprint,
 				baseSeq: snapshot.baseSeq,
 				recordedHolds: snapshot.recordedHolds,
+				publishedQuestions: snapshot.publishedQuestions,
 			}),
 			{ headers: { "Cache-Control": "private, no-store" } },
 		);

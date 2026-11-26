@@ -82,6 +82,7 @@ const ISSUES: Readonly<Record<FormParseIssueCode, true>> = {
 };
 
 const CODES: Readonly<Record<CheckErrorCode, true>> = {
+	"capture-default-not-blank": true,
 	"unknown-property": true,
 	"unknown-search-input": true,
 	"unknown-form-field": true,
@@ -182,6 +183,10 @@ function refs(): readonly SlotContextRef[] {
 			case "hint":
 			case "help":
 			case "validate_msg":
+			case "assessment_user_score":
+			case "deliver_entity_id":
+			case "deliver_entity_name":
+			case "deliver_work_area_id":
 				all.push({ entity: "field", uuid: FIELD as never, slot });
 				break;
 			case "option_label":
@@ -195,9 +200,6 @@ function refs(): readonly SlotContextRef[] {
 			case "form_display_condition":
 			case "form_open_condition":
 			case "form_close_condition":
-			case "assessment_user_score":
-			case "deliver_entity_id":
-			case "deliver_entity_name":
 				all.push({ entity: "form", uuid: FORM as never, slot });
 				break;
 			case "form_link_condition":
