@@ -437,6 +437,14 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 		}),
 	).rejects.toMatchObject({ code: "managed_in_hq" });
 	const final = await getLookupTable(projectScope, tableId);
-	expect(final.hq).toEqual(initial.hq);
+	if (!initial.hq || !final.hq)
+		throw new Error("Both reads need the HQ source.");
+	const { refreshedAt: firstReadAt, ...initialSource } = initial.hq;
+	const { refreshedAt: lastReadAt, ...finalSource } = final.hq;
+	expect(Date.parse(lastReadAt)).toBeGreaterThanOrEqual(
+		Date.parse(firstReadAt),
+	);
+	expect(finalSource).toEqual(initialSource);
+	expect(final.tableRevision).toBe(initial.tableRevision);
 	expect(final.rows).toEqual(initial.rows);
 }, 45_000);
