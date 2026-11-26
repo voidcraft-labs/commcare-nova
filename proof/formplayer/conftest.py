@@ -46,6 +46,7 @@ DOCUMENTS = (
     "targeted-invalid-question-ids",
     "targeted-lookup-reserved-tags",
     "targeted-label-content",
+    "targeted-web-form-activity",
     "targeted-media-slots",
     "targeted-multi-select-destinations",
     "targeted-save-to-case-read",

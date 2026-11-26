@@ -196,6 +196,7 @@ import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
 import { tileRowBound } from "./documents/tileRowBound";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
+import { webFormActivity } from "./documents/webFormActivity";
 import { workerMessages } from "./documents/workerMessages";
 import { workerRecordColumns } from "./documents/workerRecordColumns";
 
@@ -207,6 +208,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchHqCompile,
 	validatedBarcodeSecret,
 	workerMessages,
+	webFormActivity,
 	labelSort,
 	customTile,
 	closeConditions,
