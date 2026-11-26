@@ -927,3 +927,64 @@ it("reads a form without listing each of its texts again, and names a behavior's
 		carrier: { field: note?.uuid, role: "field-hint" },
 	});
 });
+
+it("admits a delivery in each row a worker adds where the row asks for a recipient ID no other row repeats, as its refusal says", async () => {
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Visits", forms: [{ name: "Round", type: "survey" }] },
+		]),
+	);
+	await h.call("updateApp", { runs_only_on: "android" });
+	await h.call("configureConnect", { roles: ["deliver"] });
+	const fields = (validate?: { expr: string; msg: string }) => ({
+		moduleUuid: "Visits",
+		formUuid: "Round",
+		fields: [
+			{
+				kind: "repeat",
+				id: "visits",
+				label: "Visits",
+				repeat: { mode: "user_controlled" },
+			},
+			{
+				kind: "text",
+				id: "recipient_id",
+				parentUuid: "visits",
+				label: "Recipient ID",
+				required: "true()",
+				...(validate && { validate }),
+			},
+			{
+				kind: "connect_activity",
+				id: "visit",
+				parentUuid: "visits",
+				activity: {
+					kind: "delivery",
+					name: "Visit",
+					entityId: "../../../recipient_id",
+				},
+			},
+		],
+	});
+	const refused = await makeAuthoringHarness({}, h.currentDoc()).call(
+		"addFields",
+		fields(),
+	);
+	expect(refused).toMatchObject({
+		error: expect.stringContaining(
+			"string-length(join('|', distinct-values(#form/<repeat>[true()]/<id>)))",
+		),
+	});
+	await h.call(
+		"addFields",
+		fields({
+			expr: "string-length(join('|', #form/visits[true()]/recipient_id)) = string-length(join('|', distinct-values(#form/visits[true()]/recipient_id)))",
+			msg: "Each visit needs its own recipient ID.",
+		}),
+	);
+	const visit = Object.values(h.currentDoc().fields).find(
+		(item) => item.id === "visit",
+	);
+	expect(visit?.kind).toBe("connect_activity");
+});

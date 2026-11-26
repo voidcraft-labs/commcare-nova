@@ -609,8 +609,10 @@ record their deliveries in the same opportunity.
 
 Use `add_fields` to place a Connect activity beside its questions, including
 inside a group or repeat. Learning modules take whole hours, including zero.
-Assessments record an integer score. A delivery can use the person or place ID,
-name and work area ID from the current row. An assigned task identifies an open
+Assessments record an integer score. In rows a query lists, a delivery can use
+the row's person or place ID, name and work area ID. In a repeat the worker adds
+rows to, each row asks for a recipient ID no other row repeats; the `activity`
+setting of `add_fields` describes that rule. An assigned task identifies an open
 assignment. Keep the question ID when editing a published activity because
 Connect uses it to recognize submissions.
 

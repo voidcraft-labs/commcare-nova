@@ -1183,7 +1183,7 @@ function connectValidation(
 					validationError(
 						"CONNECT_DUPLICATE_DELIVERY",
 						"field",
-						`One submission can deliver "${first.field.id}" twice to the same entity at ${paths.join(" and ")}. You can use a unique entity for each visit or submit separate forms.`,
+						`One submission can deliver "${first.field.id}" twice to the same recipient at ${paths.join(" and ")}. You can submit separate forms, or, in a repeat the worker adds rows to, ask in each row for a recipient ID no other row repeats: a required text question with no condition or default whose validation is string-length(join('|', #form/<repeat>[true()]/<id>)) = string-length(join('|', distinct-values(#form/<repeat>[true()]/<id>))), which the delivery's recipient reads as ../../../<id>.`,
 						at,
 						detail,
 					),
