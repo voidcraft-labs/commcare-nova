@@ -1,5 +1,6 @@
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { targetedDocument, targetedUuid } from "../build";
+import { answerHeld } from "./echo";
 
 const id = "targeted-web-form-activity";
 const uuid = (name: string) => targetedUuid(id, name);
@@ -72,6 +73,15 @@ export function webFormActivity() {
 		rows: [
 			"Web Apps activity notice uses initialized field values and the worker's restore",
 		],
-		expected: {},
+		expected: {
+			intent: [
+				answerHeld(
+					"activity-initial-record",
+					form,
+					"/data/record",
+					"Northern clinic",
+				),
+			],
+		},
 	});
 }
