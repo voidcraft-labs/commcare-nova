@@ -1,27 +1,37 @@
 """HQ's advanced Case Management editor and native index names."""
 
 import base64
+from contextlib import ExitStack
 from copy import deepcopy
 
 import pytest
 from lxml import etree
 
+from proof.connect import hq as connect_hq
 from proof.core.artifacts import TEMPLATE_RESTORE, XFORMS
 from proof.core.client import load_answer_table
 from proof.core.test_session import form_step, person_cases, screens
 from proof.editors import compare, pages
 from proof.editors.conftest import ADVANCED_APP, publish_hq_app
 from proof.editors.hq import HQAnswers, editor_build
+from proof.formplayer import hq as formplayer_hq
+from proof.formplayer.client import HqRequest
 from proof.hq import operations
+from proof.hq import redis as hq_redis
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 from proof.hq.test_case_processing import _case, _create, _submission
+from proof.hq.test_publish import _ask
+from proof.observe import casedata
 from proof.observe.build import arrange
 from proof.observe.sessions import admitted, unmarked_submission
 
 CASE = "http://commcarehq.org/case/transaction/v2"
 PARENT = "chosen-clinic"
 CHILD_NAME = "One requisition"
+SYNTHETIC_DATE = "2025-12-01T08:00:00.000Z"
+NEIGHBOR = "unrelated-requisition"
+OTHER_WORKER_CASE = "another-worker-requisition"
 LOOKUP_FORM = f"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="{XFORMS}">
     <h:head><h:title>Read a case index</h:title><model>
       <instance><data xmlns="http://example.org/check-index"/></instance>
@@ -35,6 +45,30 @@ def _restore():
     case = root.find(f"{{{CASE}}}case[@case_id='{PARENT}']")
     case.find(f"{{{CASE}}}create/{{{CASE}}}case_type").text = "clinic"
     return etree.tostring(root)
+
+
+def _worker_database(*cases):
+    return casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), cases)
+
+
+def _worker_case(case_id, case_type, name, *, owner=None, indices=()):
+    return casedata.CaseRecord(
+        case_id, case_type, name, owner or casedata.USER_ID,
+        SYNTHETIC_DATE, SYNTHETIC_DATE, None, (), indices,
+    )
+
+
+def _authenticated_restore(state, app_id, worker, device):
+    credentials = base64.b64encode(
+        f"{worker.username}:{formplayer_hq.PASSWORD}".encode(),
+    ).decode("ascii")
+    request = HqRequest(
+        "GET", f"/a/{state.domain}/phone/restore/{app_id}/",
+        f"version=2.0&device_id={device}", (("Authorization", f"Basic {credentials}"),), b"",
+    )
+    status, body = _ask(state, request, device)
+    assert status == 200, status
+    return body
 
 
 def _edit_connections(editor_driver, state, app_id, form_id, reference, bindings):
@@ -58,11 +92,11 @@ def _edit_connections(editor_driver, state, app_id, form_id, reference, bindings
 
 @pytest.mark.parametrize(
     "reference",
-    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent"],
-    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore"],
+    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent", "métrique"],
+    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore", "accented"],
 )
 def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner, tmp_path, reference):
-    with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record):
+    with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record), ExitStack() as mobile:
         app_id = publish_hq_app(state, ADVANCED_APP)
         app = operations.held_app(state, app_id)
         form = app.modules[1].forms[1]
@@ -88,12 +122,25 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
         assert link.get("case_type") == "clinic"
         bind, = emitted.xpath("//*[local-name()='bind'][contains(@nodeset, $path)]", path=f"/index/{reference}")
         assert bind.get("calculate").endswith("/case_id_load_clinic0")
+        worker = None
+        initial = _restore()
+        if not reference.isascii():
+            mobile.enter_context(hq_redis.shared(None))
+            mobile.enter_context(state.committing())
+            hq_redis.flush()
+            database = _worker_database(_worker_case(PARENT, "clinic", "Chosen clinic"))
+            formplayer_hq.default_roles(state)
+            worker = formplayer_hq.create_worker(state, database)
+            formplayer_hq.save_cases(state, database, worker)
+            initial = _authenticated_restore(state, app_id, worker, "advanced-before-create")
+            assert etree.fromstring(initial).find(f"{{{CASE}}}case[@case_id='{PARENT}']") is not None
+
         with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
             assert admission["admitted"], admission["problems"]
             table = load_answer_table()
             table["novaKinds"]["requisition-name"] = [CHILD_NAME]
             trace = core_runner.session(
-                admission["app"], restore=_restore(), answer_table=table,
+                admission["app"], restore=initial, answer_table=table,
                 question_kinds={"/data/req_name": "requisition-name"},
             )
 
@@ -125,14 +172,50 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
         link, = child.indices
         assert (link.identifier, link.referenced_id, link.referenced_type) == (reference, PARENT, "clinic")
 
-        # A separate form reads the relation after the created transaction has
-        # been restored. The creating form only needs the session's parent ID
-        # and does not declare casedb.
-        restore = etree.fromstring(_restore())
-        restore.append(transaction)
+        if worker is None:
+            restore = etree.fromstring(initial)
+            restore.append(transaction)
+            read_restore = etree.tostring(restore, encoding="utf-8")
+        else:
+            from corehq.form_processor.models import CommCareCase
+
+            # Post the instance Core actually generated from the initial
+            # worker restore, and let HQ store it for the fresh device.
+            request = connect_hq.device_request(
+                connect_hq.receiver_url(state.domain, app_id),
+                worker.username, formplayer_hq.PASSWORD, submission,
+            )
+            status, _ = _ask(state, request, "advanced-submit-index")
+            assert status == 201, status
+            saved = CommCareCase.objects.get_case(case_id, state.domain)
+            assert (saved.case_id, saved.owner_id, saved.name) == (case_id, worker.user_id, CHILD_NAME)
+            saved_index, = saved.indices
+            assert (saved_index.identifier, saved_index.referenced_id) == (reference, PARENT)
+            formplayer_hq.save_cases(state, _worker_database(
+                _worker_case(
+                    NEIGHBOR, "requisition", "Unrelated requisition",
+                    indices=(("parent", "clinic", PARENT, "child"),),
+                ),
+                _worker_case(
+                    OTHER_WORKER_CASE, "requisition", "Unavailable requisition",
+                    owner="another-worker",
+                    indices=((reference, "clinic", PARENT, "child"),),
+                ),
+            ), worker)
+            read_restore = _authenticated_restore(state, app_id, worker, "advanced-fresh-after-create")
+            restored = etree.fromstring(read_restore)
+            restored_case = restored.find(f"{{{CASE}}}case[@case_id='{case_id}']")
+            assert restored_case is not None
+            restored_link, = restored_case.find(f"{{{CASE}}}index")
+            assert (etree.QName(restored_link).localname, restored_link.text) == (reference, PARENT)
+            assert restored.find(f"{{{CASE}}}case[@case_id='{NEIGHBOR}']") is not None
+            assert restored.find(f"{{{CASE}}}case[@case_id='{OTHER_WORKER_CASE}']") is None
+
+        # A separate form reads the relation after the transaction has been
+        # restored. The creating form needs only the session's selected ID.
         found = core_runner.evaluate(
             formBase64=base64.b64encode(LOOKUP_FORM).decode(),
-            restoreBase64=base64.b64encode(etree.tostring(restore, encoding="utf-8")).decode(),
+            restoreBase64=base64.b64encode(read_restore).decode(),
             expressions=[f"instance('casedb')/casedb/case[@case_id = '{case_id}']/index/{reference}"],
             instances=["casedb"],
         )
@@ -165,11 +248,13 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
         assert chosen.case_index.reference_id == reference
         assert automatic.auto_select.value_key == reference
 
-        other = deepcopy(transaction)
-        other.set("case_id", "unrelated-requisition")
-        other.find(f"{{{CASE}}}create/{{{CASE}}}case_name").text = "Unrelated requisition"
-        other.find(f"{{{CASE}}}index")[0].tag = f"{{{CASE}}}parent"
-        restore.append(other)
+        if worker is None:
+            other = deepcopy(transaction)
+            other.set("case_id", NEIGHBOR)
+            other.find(f"{{{CASE}}}create/{{{CASE}}}case_name").text = "Unrelated requisition"
+            other.find(f"{{{CASE}}}index")[0].tag = f"{{{CASE}}}parent"
+            restore.append(other)
+            read_restore = etree.tostring(restore, encoding="utf-8")
         rebuilt = compare.build(state, app_id, record)
         assert not rebuilt.errors, rebuilt.errors
         suite = etree.fromstring(rebuilt.files["suite.xml"])
@@ -180,7 +265,7 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
         assert backing.get("function").endswith(f"/index/{reference}")
         with admitted(core_runner, arrange(rebuilt.files, tmp_path / "related")) as admission:
             assert admission["admitted"], admission["problems"]
-            trace = core_runner.session(admission["app"], restore=etree.tostring(restore))
+            trace = core_runner.session(admission["app"], restore=read_restore)
         followup, = (
             run for run in trace["runs"]
             if (step := form_step(run)) and step.get("xmlns") == receive.xmlns
