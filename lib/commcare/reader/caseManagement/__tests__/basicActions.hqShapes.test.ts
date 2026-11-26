@@ -14,6 +14,7 @@ import {
 	clockKeepingJoin,
 	INSTANT_TEXT_PATTERN,
 } from "@/lib/domain/expression/datePattern";
+import { hiddenWriterVerdicts } from "@/lib/domain/expression/inference";
 import { proseText } from "@/lib/domain/prose";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
@@ -399,6 +400,22 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			throw new Error("Expected basic Case Management.");
 		expect(plan.actions.update_case.update.seen_on?.question_path).toBe(
 			"/data/seen",
+		);
+
+		const stamp = Object.values(held.fields).find(({ id }) => id === "seen");
+		if (stamp === undefined) throw new Error("Missing hidden clock.");
+		const withOpening = produce(held, (draft) => {
+			draft.forms[form.uuid].openingAssignments = [
+				{
+					uuid: testUuid("direct-hidden-day-opening"),
+					field: stamp.uuid,
+					source: { kind: "own" },
+					property: "seen_on",
+				},
+			];
+		});
+		expect(hiddenWriterVerdicts(withOpening)[0]?.findings).toContainEqual(
+			expect.objectContaining({ reason: "type", type: "datetime" }),
 		);
 	});
 
