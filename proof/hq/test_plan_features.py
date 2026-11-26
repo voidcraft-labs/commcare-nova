@@ -66,6 +66,7 @@ NOVA_LABELS = {
     "case_sharing_groups": "Case Sharing via Groups",
     "form_link_workflow": "Link to other forms in End of Form Navigation",
     "save_to_case": "Save to Case",
+    "locked_admin_questions": "Locked Admin Questions",
     "locations": "Locations",
     "data_forwarding": "Data Forwarding",
     "app_dependencies": "App Dependencies",

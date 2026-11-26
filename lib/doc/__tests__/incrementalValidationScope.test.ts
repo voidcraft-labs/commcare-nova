@@ -58,7 +58,7 @@ import {
 	U as MOVE_U,
 	moveFixture,
 	PATIENTS,
-	PATIENTS_NAMED,
+	PATIENTS_BY_ENTERED_ID,
 } from "./placementMoveFixture";
 
 /** `buildDoc`, with the own case every case form holds first. */
@@ -1522,7 +1522,7 @@ describe("scoped commits over held placements", () => {
 			kind: "updateField",
 			uuid: MOVE_U("visits"),
 			targetKind: "repeat",
-			patch: { data_source: { ids_query: PATIENTS_NAMED } },
+			patch: { data_source: { ids_query: PATIENTS_BY_ENTERED_ID } },
 		} as Mutation;
 		const refused = expectCommitParity(doc, [strand]);
 		expect(refused.ok ? [] : refused.findings.map((f) => f.code)).toContain(

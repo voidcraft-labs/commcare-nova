@@ -128,13 +128,16 @@ export function formPositionsOf(source: HqAppSource): FormPositions {
 	return { byXmlns, byReadId, all };
 }
 
-/** The place of a data node of the form at `position`, `dataPath` absolute (`/data/...`). */
+/** A question in the first-publish vocabulary, independent of the name of the
+ * submission envelope. The reader proof compares the envelope name itself at
+ * its own slot and uses `data` as the stable kind for a node. */
 export function nodePlace(position: FormPosition, dataPath: string): string {
 	return placeOf(
 		"form",
 		position,
 		"xform",
-		...dataPath.split("/").filter((step) => step !== ""),
+		"data",
+		...dataPath.split("/").slice(2),
 	);
 }
 

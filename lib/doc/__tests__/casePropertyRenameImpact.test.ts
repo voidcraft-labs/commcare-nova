@@ -21,7 +21,7 @@ function fixture(): BlueprintDoc {
 	const doc: BlueprintDoc = {
 		appId: "impact-app",
 		appName: "Impact",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{

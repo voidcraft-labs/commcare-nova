@@ -5190,7 +5190,7 @@
 	{
 		"id": "d70-reserved-question-names-vellum-reserved-name-warning",
 		"defect": 70,
-		"part": "question names HQ's editors warn about",
+		"part": "question names HQ's editors warn about where workers cannot submit them: case, and registration in Web Apps",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
 		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form parsing. It is recommended to pick a different Question ID.",
@@ -5200,7 +5200,7 @@
 	{
 		"id": "d70-reserved-question-names-vellum-again-reserved-name-warning",
 		"defect": 70,
-		"part": "question names HQ's editors warn about",
+		"part": "question names HQ's editors warn about where workers cannot submit them: case, and registration in Web Apps",
 		"check": "proof4",
 		"artifact": "editor:vellum again@*",
 		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form parsing. It is recommended to pick a different Question ID.",

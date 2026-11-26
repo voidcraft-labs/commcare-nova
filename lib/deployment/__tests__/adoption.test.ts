@@ -797,7 +797,7 @@ describe("adoptedAppBaselineWrite", () => {
 		expect(write.firstPublish).toEqual({ kind: "set", list: stored });
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,

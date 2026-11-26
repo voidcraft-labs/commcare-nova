@@ -120,6 +120,12 @@ export interface PreviewPlatformRules {
 	 *  gravity draws at the top, so `top` and `bottom` both draw there
 	 *  (`proof/android/test_case_lists.py` reads each cell's gravity). */
 	readonly tileVerticalAlign: "as-authored" | "middle-only";
+	/** Formplayer reads a form's Web Apps behavior texts by presence
+	 *  (`FormSession.setAutoSubmitFlag`, `setSuppressAutosyncFlag`,
+	 *  `setSkipValidation`, `setVolatilityIndicators`): a form submits as soon
+	 *  as it opens, skips its sync, or rechecks only changed answers. CommCare
+	 *  Android reads none of these texts. */
+	readonly webAppsFormPragmas: boolean;
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
 	readonly linkColumnInList: "link" | "raw-text";
@@ -260,6 +266,8 @@ export interface PreviewPlatformRules {
 	/** Web Apps `question.html` renders the hint through `markdown.render`;
 	 *  Android `QuestionWidget::addHintText` as plain text. */
 	readonly hint: "markdown" | "plain";
+	/** HQ submits OK for info questions. Android reads a checkbox on an interactive message. */
+	readonly messageConfirmation: "automatic" | "checkbox";
 	/** Label markdown. Both runtimes format the label Core hands them with
 	 *  its values already substituted (`FormEntryCaption.getSpecialFormQuestionText`
 	 *  → `FormDef.fillTemplateString`), so a value's own formatting shows.
@@ -591,6 +599,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileGrouping: "grouped",
 		tileBorderShading: true,
 		tileVerticalAlign: "as-authored",
+		webAppsFormPragmas: true,
 		linkColumnInList: "link",
 		detailTile: "laid-out",
 		searchOnlyTileCell: "hidden",
@@ -619,6 +628,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hint: "markdown",
 		readsCaseImageDescriptions: true,
 		caseLocationDetail: "text",
+		messageConfirmation: "automatic",
 		labelMarkdown: Object.freeze({
 			singleNewline: "break",
 			html: "literal",
@@ -692,6 +702,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileGrouping: "flat",
 		tileBorderShading: false,
 		tileVerticalAlign: "middle-only",
+		webAppsFormPragmas: false,
 		linkColumnInList: "raw-text",
 		detailTile: "rows",
 		searchOnlyTileCell: "drawn",
@@ -720,6 +731,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hint: "plain",
 		readsCaseImageDescriptions: false,
 		caseLocationDetail: "show-address",
+		messageConfirmation: "checkbox",
 		labelMarkdown: Object.freeze({
 			singleNewline: "space",
 			html: "dropped",
