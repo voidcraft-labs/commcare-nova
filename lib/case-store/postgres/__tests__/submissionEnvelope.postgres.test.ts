@@ -1250,7 +1250,7 @@ describe("ordered selected-case batches", () => {
 		expect(childless.caseDatabasePatch?.rows).toEqual([]);
 		const afterChildless = await patientRow(store, SESSION_CASE_ID);
 		expect(afterChildless?.status).toBe("open");
-		expect(afterChildless?.modified_on.getTime()).toBeGreaterThan(
+		expect(afterChildless?.modified_on?.getTime()).toBeGreaterThan(
 			older.getTime(),
 		);
 		expect(await store.applySubmission(childlessClaim)).toEqual(childless);
@@ -1269,7 +1269,7 @@ describe("ordered selected-case batches", () => {
 		expect((await patientRow(store, SESSION_CASE_ID))?.modified_on).toEqual(
 			afterChildless?.modified_on,
 		);
-		if (!activeClaim.operations || !afterChildless)
+		if (!activeClaim.operations || !afterChildless?.modified_on)
 			throw new Error("Expected case and program");
 		// Retry the same claim with the signed device row restored.
 		const recovered = await store.applySubmission({
@@ -1288,7 +1288,7 @@ describe("ordered selected-case batches", () => {
 		expect(recovered.operations[0]).not.toHaveProperty("childlessBlock");
 		expect(recovered.caseDatabasePatch?.rows[0]?.status).toBe("closed");
 		expect(
-			recovered.caseDatabasePatch?.rows[0]?.modified_on.getTime(),
+			recovered.caseDatabasePatch?.rows[0]?.modified_on?.getTime(),
 		).toBeGreaterThan(afterChildless.modified_on.getTime());
 
 		const irrelevantUpdate = await submit(
@@ -1309,9 +1309,9 @@ describe("ordered selected-case batches", () => {
 			properties: { notes: "original" },
 		});
 		expect(
-			irrelevantUpdate.caseDatabasePatch?.rows[0]?.modified_on.getTime(),
+			irrelevantUpdate.caseDatabasePatch?.rows[0]?.modified_on?.getTime(),
 		).toBeGreaterThan(
-			recovered.caseDatabasePatch?.rows[0]?.modified_on.getTime() ?? 0,
+			recovered.caseDatabasePatch?.rows[0]?.modified_on?.getTime() ?? 0,
 		);
 
 		const writtenAndClosed = await submit(
