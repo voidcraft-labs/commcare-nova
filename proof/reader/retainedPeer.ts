@@ -228,7 +228,9 @@ function answerFor(
 		);
 		if (read === undefined) return undefined;
 		const body =
-			read.base64 === undefined ? "" : Buffer.from(read.base64, "base64");
+			read.base64 === undefined
+				? Buffer.alloc(0)
+				: Buffer.from(read.base64, "base64");
 		const kind = Object.hasOwn(KIND_OF_MEDIA_TYPE, mediaType)
 			? KIND_OF_MEDIA_TYPE[mediaType as keyof typeof KIND_OF_MEDIA_TYPE]
 			: undefined;
