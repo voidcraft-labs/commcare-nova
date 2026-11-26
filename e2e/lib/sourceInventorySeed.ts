@@ -62,7 +62,7 @@ export async function seedSourceInventory(
 	};
 	const canonical = canonicalLookupTable(hqTable, null);
 	const key = "unusable synthetic connection";
-	await (await getAppDb())
+	const { connection_epoch: connectionEpoch } = await (await getAppDb())
 		.insertInto("user_settings")
 		.values({
 			user_id: actorId,
@@ -74,7 +74,8 @@ export async function seedSourceInventory(
 			]),
 			updated_at: new Date(),
 		})
-		.execute();
+		.returning("connection_epoch")
+		.executeTakeFirstOrThrow();
 	await withAppTx(async (tx) =>
 		createManagedLookupTablesInTransaction(
 			tx,
@@ -101,7 +102,7 @@ export async function seedSourceInventory(
 	};
 	const candidate = {
 		...origin,
-		keyDigest: canonicalJsonDigest(key),
+		connectionEpoch,
 		canonicalDefinition: lookupDefinitionDigest(hqTable),
 		definitionDigest: canonicalJsonDigest(hqTable),
 	};

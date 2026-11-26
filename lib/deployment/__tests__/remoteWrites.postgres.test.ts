@@ -844,9 +844,15 @@ async function planned(
 		})
 		.onConflict((c) => c.column("user_id").doNothing())
 		.execute();
+	const { connection_epoch: epoch } = await h
+		.db()
+		.selectFrom("user_settings")
+		.select("connection_epoch")
+		.where("user_id", "=", OWNER)
+		.executeTakeFirstOrThrow();
 	const connectionDigest = hqConnectionDigest(
 		"publisher",
-		"fixture-ciphertext",
+		epoch,
 		TARGET.server,
 		TARGET.domain,
 	);
