@@ -357,8 +357,8 @@ def held_media(document, a_map, b_map, held_paths, suites=(None, None)) -> list[
 
 
 
-def _preserved_search_group_wording(a, b):
-    """Identify locale differences only when both source snapshots keep the same heading and member run."""
+def preserved_search_group_wording(a, b):
+    """Each preserved (menu, row, language, old key, new key) from the two actual source snapshots."""
 
     def groups(module):
         search = module.get("search_config")
@@ -407,8 +407,7 @@ def _preserved_search_group_wording(a, b):
                     continue
                 wording = source.get(old)
                 if isinstance(wording, str) and wording.strip() and target.get(new) == wording:
-                    prefix = f"/translations/{pointer_token(code)}"
-                    found.update((f"{prefix}/{old}", f"{prefix}/{new}"))
+                    found.add((str(menu), str(index), code, old, new))
     return found
 
 def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None)) -> list[Difference]:
@@ -416,7 +415,11 @@ def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None))
     a, b = by_position(a), by_position(b)
     walk = _Walk(document, _languages(a, b), frozenset(held_paths))
     walk.compare(a, b)
-    rekeyed = _preserved_search_group_wording(a, b)
+    rekeyed = {
+        f"/translations/{pointer_token(language)}/{key}"
+        for _, _, language, old, new in preserved_search_group_wording(a, b)
+        for key in (old, new)
+    }
     return [
         replace(row, path=SEARCH_GROUP_WORDING_PATH) if row.at in rekeyed else row
         for row in walk.found

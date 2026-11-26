@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from proof.checks import changes
@@ -19,27 +18,60 @@ class Move:
         return f"search_property.m{self.menu}.{key}"
 
 
-def _moves(places):
-    locales = set()
-    groups = set()
+def _owners(places):
     for place in places:
         steps = changes.unescaped(place)
-        if len(steps) == 4 and steps[:2] == ["app", "translations"]:
-            key = re.fullmatch(r"search_property\.m([0-9]+)\.([A-Za-z][A-Za-z0-9_-]*)", steps[-1])
-            if key:
-                locales.add((steps[2], *key.groups()))
-        elif (len(steps) == 6 and steps[0] == "menu" and steps[2:4] == ["search_config", "properties"]
-              and steps[4].isdigit() and steps[-1] == "group_key"):
-            groups.add((steps[1], steps[4]))
-    for menu, row in groups:
-        new = f"group_header_{row}"
-        old_keys = {
-            key for language, position, key in locales
-            if position == menu and not changes.POSITIONAL_SEARCH_GROUP_KEY.fullmatch(key)
-            and (language, menu, new) in locales
-        }
-        for old in old_keys:
-            yield Move(menu, row, old, new)
+        if (len(steps) == 6 and steps[0] == "menu" and steps[2:4] == ["search_config", "properties"]
+                and steps[1].isdigit() and steps[4].isdigit() and steps[-1] == "group_key"):
+            yield steps[1], steps[4]
+
+
+def source_sites(document, records, configuration):
+    """The old and new key belong to one exact heading in the actual read and the published HQ source."""
+    from proof.checks import observations, source
+
+    change = changes.LEGACY_SEARCH_GROUP_WORDING
+    authored = getattr(document, "hq_authored", False)
+    if authored:
+        places = dict(document.first_publish_places).get(change) or ()
+    elif change in document.next_publish:
+        places = document.legacy_search_group_wording_places
+    else:
+        return changes.NO_SITES
+    owners = dict.fromkeys(_owners(places))
+    if not owners:
+        return changes.NO_SITES
+    before = observations.api_reads(records, configuration, "a", "authored" if authored else "saved")
+    after = observations.api_reads(records, configuration, "b", "published")
+    apps = [
+        observations.answer_json(read["source"]) if read and read["source"].get("status") == 200 else None
+        for read in (before, after)
+    ]
+    if all(isinstance(app, dict) for app in apps):
+        pairs = {}
+        for menu, row, language, old, new in source.preserved_search_group_wording(*apps):
+            if (menu, row) in owners:
+                pairs.setdefault((menu, row, old, new), set()).add(language)
+        for (menu, row, old, new), languages in pairs.items():
+            owners[menu, row] = (old, new, *sorted(languages))
+    return changes.Sites(search_groups=owners)
+
+
+def _moves(places, sites):
+    captured = {tuple(changes.unescaped(place)) for place in places}
+    for menu, row in _owners(places):
+        source = sites.search_groups.get((menu, row))
+        if not source:
+            continue
+        old, new, *languages = source
+        if not any(
+            {("app", "translations", language, old), ("app", "translations", language, new)} <= captured
+            for language in languages
+        ):
+            continue
+        prefix = f"search_property.m{menu}."
+        if old.startswith(prefix) and new == f"{prefix}group_header_{row}":
+            yield Move(menu, row, old[len(prefix):], new[len(prefix):])
 
 
 def _changed(row, before, after):
@@ -189,7 +221,7 @@ def _formplayer(difference, rows, sites, move):
 def holds(difference, places, siblings, sites):
     rows = [row for row in siblings if row.check == difference.check and row.document == difference.document]
     if difference.check == "proof2":
-        return any(_build(difference, rows, sites, move) for move in _moves(places))
+        return any(_build(difference, rows, sites, move) for move in _moves(places, sites))
     if difference.artifact in ("formplayer@B", "formplayer@local.ccz"):
-        return any(_formplayer(difference, rows, sites, move) for move in _moves(places))
+        return any(_formplayer(difference, rows, sites, move) for move in _moves(places, sites))
     return False

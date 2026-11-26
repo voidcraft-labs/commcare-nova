@@ -456,7 +456,8 @@ class Sites:
     - ``served``: a concrete (artifact, observation pointer) in a submitted repeat's case-name writer or a served
       reader, located by its own navigation,
       submitted instance, or question binding on the side that produced it;
-    - ``media``: each media resource of a built media suite by the media path it installs (``jr://file/...``).
+    - ``media``: each media resource of a built media suite by the media path it installs (``jr://file/...``);
+    - ``search_groups``: one pair of legacy/current locale keys and its witnessed languages by actual source menu/row.
     """
 
     runs: Mapping = field(default_factory=dict)
@@ -466,6 +467,7 @@ class Sites:
     builds: Mapping = field(default_factory=dict)
     media: Mapping = field(default_factory=dict)
     served: Mapping = field(default_factory=dict)
+    search_groups: Mapping = field(default_factory=dict)
 
     def as_json(self):
         """The sites as the ``changes`` check's evidence writes them, each map a list of ``[key, value]``
@@ -488,7 +490,7 @@ class Sites:
         return cls(**{name: {read(key): read(held) for key, held in value.get(name) or ()} for name in SITE_MAPS})
 
 
-SITE_MAPS = ("runs", "steps", "choices", "cases", "builds", "media", "served")
+SITE_MAPS = ("runs", "steps", "choices", "cases", "builds", "media", "served", "search_groups")
 NO_SITES = Sites()
 
 

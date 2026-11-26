@@ -8,6 +8,7 @@ from proof.checks.differences import Difference
 
 OLD, NEW, TITLE = "g", "group_header_0", "Find a client"
 OLD_LOCALE, NEW_LOCALE = (f"search_property.m0.{key}" for key in (OLD, NEW))
+SOURCES = {("0", "0"): (OLD_LOCALE, NEW_LOCALE, "en")}
 PLACES = {
     changes.LEGACY_SEARCH_GROUP_WORDING: (
         "/menu/0/search_config/properties/0/group_key",
@@ -43,11 +44,13 @@ def test_build_move_needs_the_right_group_prompt_and_equal_locale_strings():
     ]
     anchor = (suite, "remote-request[1]")
     prompt = (*anchor, "session[1]", "query[1]", "prompt[1]")
-    sites = changes.Sites(builds={
-        anchor: ("menu", "0"), prompt: ("menu", "0", "search_config", "properties", "1", "validations", "name"),
-    })
+    sites = changes.Sites(
+        builds={anchor: ("menu", "0"), prompt: ("menu", "0", "search_config", "properties", "1", "validations", "name")},
+        search_groups=SOURCES,
+    )
     assert _held(rows, sites) == rows
-    assert not _held(rows, changes.Sites(builds={**sites.builds, anchor: ("menu", "1")}))
+    assert not _held(rows, replace(sites, builds={**sites.builds, anchor: ("menu", "1")}))
+    assert not _held(rows, replace(sites, search_groups={}))
     assert not _held(rows[1:], sites)
     assert not _held(rows[:2] + rows[3:], sites)
     assert _held([*rows[:4], replace(rows[4], after="Different words"), *rows[5:]], sites) == rows[:3]
@@ -55,6 +58,25 @@ def test_build_move_needs_the_right_group_prompt_and_equal_locale_strings():
     assert _held([*rows[:5], *alternate_hint], sites) == rows[:5]
     assert _held(rows[:4] + rows[5:], sites) == rows[:3]
     assert not _held(rows, sites, {changes.LEGACY_SEARCH_GROUP_WORDING: ("",)})
+
+    other, other_current = "search_property.m0.south", "search_property.m0.group_header_2"
+    combined = {changes.LEGACY_SEARCH_GROUP_WORDING: (
+        *PLACES[changes.LEGACY_SEARCH_GROUP_WORDING],
+        "/menu/0/search_config/properties/2/group_key",
+        f"/app/translations/en/{other}",
+        f"/app/translations/en/{other_current}",
+    )}
+    bad_sites = changes.Sites(
+        builds={anchor: ("menu", "0"), prompt: ("menu", "0", "search_config", "properties", "3", "validations", "name")},
+        search_groups={**SOURCES, ("0", "2"): (other, other_current, "en")},
+    )
+    crossed = [
+        replace(row, at=row.at.replace("group_header_0", "group_header_2"),
+                after={"group_header_0": "group_header_2", NEW_LOCALE: other_current}.get(row.after, row.after))
+        for row in rows
+    ]
+    assert not _held(crossed, bad_sites, combined)
+
 
 
 def _query(group, title, *, command="search_command.m0", nested=False):
@@ -70,6 +92,7 @@ def _query(group, title, *, command="search_command.m0", nested=False):
 def _compared(before, after):
     rows = served.formplayer_differences(before, after, check="proof3", document="search", artifact="formplayer@B")
     sites = changes.merged_sites(
+        changes.Sites(search_groups=SOURCES),
         changes.Sites(served=formplayer_places.locations(
             [row for row in rows if row.kind != "added"], before, {}, before=True,
         )),
@@ -93,3 +116,20 @@ def test_formplayer_move_needs_the_same_query_id_heading_text_and_prompt_members
             _query(OLD, TITLE, command="search_command.m1", nested=nested),
             _query(NEW, TITLE, command="search_command.m1", nested=nested),
         ))
+
+def test_same_text_cannot_move_a_heading_to_another_groups_key_in_the_same_query():
+    second, second_new = "south", "group_header_2"
+    group = {"search_property.m0." + key for key in (second, second_new)}
+    both = {changes.LEGACY_SEARCH_GROUP_WORDING: (
+        *PLACES[changes.LEGACY_SEARCH_GROUP_WORDING],
+        "/menu/0/search_config/properties/2/group_key",
+        *(f"/app/translations/en/{key}" for key in sorted(group)),
+    )}
+    sources = {**SOURCES, ("0", "2"): (
+        "search_property.m0." + second, "search_property.m0." + second_new, "en",
+    )}
+    rows, sites = _compared(_query(OLD, TITLE), _query(second_new, TITLE))
+    assert len(rows) == 3 and not _held(rows, replace(sites, search_groups=sources), both)
+
+    rows, sites = _compared(_query(second, TITLE), _query(second_new, TITLE))
+    assert len(rows) == 3 and _held(rows, replace(sites, search_groups=sources), both) == rows
