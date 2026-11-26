@@ -4615,7 +4615,7 @@
 			"media-code:corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip"
 		],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only. An app's media total bounds no reading (every export streams its files), and a file past its kind's cap streams from HQ into the receiving Project's staging and is judged there by range (`lib/deployment/reading/projectData/mediaStore.ts`, `lib/media/validate.ts::validateSniffedMediaBody`), up to 1 GiB a file and 64 MiB for a picture sharp reads whole; a publish sends such a file alone in its bulk upload",
+		"dispositionCell": "**HELD**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only. An app's media total bounds no reading (every export streams its files), and a file past its kind's cap streams from HQ into the receiving Project's staging and is judged there by range (`lib/deployment/reading/projectData/mediaStore.ts`, `lib/media/validate.ts::validateSniffedMediaBody`), up to 1 GiB a file and 64 MiB for a picture sharp reads whole; a publish sends such a file alone in its bulk upload, which bounds no file's bytes (HQ stores a 1 GiB sound and a 64 MiB picture through it, `proof/hq/test_media_bounds.py`). The base `hq-large-media` holds a picture and a sound each one byte past its cap through the round trip: read, first publish (the picture again through HQ's bulk upload at Nova's path, the sound kept and settled by its streamed digest), read back and walked by Core and Formplayer",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
