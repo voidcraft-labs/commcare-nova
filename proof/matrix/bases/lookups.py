@@ -5,7 +5,8 @@
 2. Four global lookup tables made with HQ's own models
    (``fixtures/models.py::LookupTable``, ``LookupTableRow``), as HQ's
    table page saves them: ``districts`` and ``villages``, whose rows name a
-   district through the indexed ``district`` field on ``villages``; ``crop-types``, a tag holding a hyphen; and ``seasons``.
+   district through its indexed ``district`` field; ``crop-types``, a tag
+   holding a hyphen; and ``seasons``.
 3. A survey menu "Farm survey" (``views/modules.py::new_module``) whose one
    form's source is written by HQ's own form writer
    (``xform_builder.py::XFormBuilder``) and uploaded on the form page: a
@@ -88,10 +89,7 @@ def make_tables(authoring, tables):
                 domain=state.domain,
                 tag=table["tag"],
                 is_global=True,
-                fields=[
-                    TypeField(name=name, properties=[], is_indexed=False)
-                    for name in table["fields"]
-                ],
+                fields=[TypeField(name=name, properties=[], is_indexed=False) for name in table["fields"]],
                 item_attributes=[],
             )
             for sort_key, row in enumerate(table["rows"]):
@@ -142,22 +140,10 @@ def declare_instance(xform, instance_id, src):
 
     model = xform._etree.xpath("./h:head/x:model", namespaces=xform.ns)[0]
     instances = model.findall(f"{{{xform.ns['x']}}}instance")
-    instances[-1].addnext(
-        etree.Element(f"{{{xform.ns['x']}}}instance", id=instance_id, src=src)
-    )
+    instances[-1].addnext(etree.Element(f"{{{xform.ns['x']}}}instance", id=instance_id, src=src))
 
 
-def lookup_select(
-    xform,
-    name,
-    label,
-    tag,
-    *,
-    label_field="name",
-    value_field="id",
-    condition=None,
-    instance_id=None,
-):
+def lookup_select(xform, name, label, tag, *, label_field="name", value_field="id", condition=None, instance_id=None):
     """A select ``name`` whose choices are the rows of the table ``tag``, written as HQ's form builder writes
     one: ``XFormBuilder``'s question (its data node, its ``xsd:string`` bind and its label's itext), its control a
     ``select1`` holding an ``itemset`` over ``instance('item-list:<tag>')/<tag>_list/<tag>`` (filtered by
@@ -168,9 +154,7 @@ def lookup_select(
     xform.new_question(name, label, "string")
     # XFormBuilder makes its controls with lxml's ``E``, which names no namespace; the form's own default
     # namespace is theirs once the source is written out, so the control is found, and the itemset made, so too.
-    control = xform._etree.xpath(
-        f'./h:body/input[@ref="/data/{name}"]', namespaces=xform.ns
-    )[0]
+    control = xform._etree.xpath(f'./h:body/input[@ref="/data/{name}"]', namespaces=xform.ns)[0]
     control.tag = "select1"
     source_id = f"item-list:{tag}" if instance_id is None else instance_id
     nodeset = f"instance('{source_id}')/{tag}_list/{tag}"
@@ -188,9 +172,7 @@ def survey_source(name):
     xform = XFormBuilder(name)
     xform.new_question("farmer_name", "Farmer's name", "string")
     lookup_select(xform, "district", "District", "districts")
-    lookup_select(
-        xform, "village", "Village", "villages", condition="district = /data/district"
-    )
+    lookup_select(xform, "village", "Village", "villages", condition="district = /data/district")
     lookup_select(xform, "crop", "Main crop", "crop-types")
     # In the order of their ids, as HQ's form builder and Nova both write a form's instances.
     for tag in sorted(("districts", "villages", "crop-types", "seasons")):
@@ -199,18 +181,14 @@ def survey_source(name):
 
 
 def build(authoring) -> str:
-    app_id = _pages.new_app(authoring)
-    _pages.rename_app(authoring, app_id, NAME)
-    make_tables(
-        authoring, [dict(table, fields=list(table["fields"])) for table in TABLES]
-    )
-    # Keep table and row identities from the existing base as a member indexing a held field would.
     from corehq.apps.fixtures.models import LookupTable
 
+    app_id = _pages.new_app(authoring)
+    _pages.rename_app(authoring, app_id, NAME)
+    make_tables(authoring, [dict(table, fields=list(table["fields"])) for table in TABLES])
+    # Changing the held field preserves the table and row identities.
     with authoring.step("build:index-village-district", b"villages:district"):
-        villages = LookupTable.objects.get(
-            domain=authoring.state.domain, tag="villages"
-        )
+        villages = LookupTable.objects.get(domain=authoring.state.domain, tag="villages")
         for field in villages.fields:
             if field.name == "district":
                 field.is_indexed = True
