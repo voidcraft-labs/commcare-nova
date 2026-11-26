@@ -4532,7 +4532,7 @@
 		"id": "questions/connect-estimate-outside-receiver-range",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a learning module with an estimate the form editor or Connect cannot keep",
+		"item": "a learning module with an estimate the form editor or Connect cannot keep, or with no name or description",
 		"surfaceKeys": [
 			"mug:ConnectLearnModule",
 			"vellum-plugin:commcareConnect",
@@ -4540,12 +4540,12 @@
 		],
 		"valueClass": "connect-estimate-outside-receiver-range",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime: The form editor saves hours as decimal digits and Connect stores them in a signed 32-bit integer.",
+		"dispositionCell": "**REFUSED**: broken at runtime: The form editor saves hours as decimal digits and Connect stores them in a signed 32-bit integer, and its module sync stores a name and description that are never empty (`app_xml.py::get_element_text` reads an empty element as none).",
 		"subject": "connect-blocks",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
-				"named": "The form editor saves hours as decimal digits and Connect stores them in a signed 32-bit integer."
+				"named": "The form editor saves hours as decimal digits and Connect stores them in a signed 32-bit integer, and its module sync stores a name and description that are never empty (`app_xml.py::get_element_text` reads an empty element as none)."
 			}
 		],
 		"platforms": {

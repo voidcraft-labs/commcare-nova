@@ -21,7 +21,12 @@ export const connectActivitySchema = z.discriminatedUnion("kind", [
 	z.strictObject({
 		kind: z.literal("learning-module"),
 		name: unitName,
-		description: z.string(),
+		// Connect stores a module's description in a column that is never
+		// empty, and reads an empty element as none (`get_element_text`).
+		description: z.string().min(1, {
+			error:
+				"A learning module needs a description. You can add a sentence about what workers learn.",
+		}),
 		// Vellum keeps leading zeroes in the hours cell. An ordinary numeric
 		// edit has one spelling; a brought-in cell may carry another.
 		estimatedHours: z.union([

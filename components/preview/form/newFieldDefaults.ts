@@ -41,7 +41,7 @@ export function newConnectActivity(
 				activity: {
 					kind,
 					name: "New learning module",
-					description: "",
+					description: "What workers learn in this module",
 					estimatedHours: 0,
 				},
 			};

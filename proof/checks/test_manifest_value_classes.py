@@ -6257,7 +6257,7 @@ def _connect_activities():
         key, where = point(name, own, leaf)
         return refused("form", bad, key, where), accepted("form", good, key, where)
 
-    def lesson(estimate, identifier="lesson", description=""):
+    def lesson(estimate, identifier="lesson", description="About"):
         return _form(
             block(
                 "lesson",
@@ -6283,7 +6283,7 @@ def _connect_activities():
     malformed = _form(block("area", "ConnectWorkAreaUpdate", "work_area", ""))
     long = "a" * 51
     long_module = _form(
-        block(long, "ConnectLearnModule", "module", "<name>M</name><description/><time_estimate>0</time_estimate>")
+        block(long, "ConnectLearnModule", "module", "<name>M</name><description>About</description><time_estimate>0</time_estimate>")
     )
     long_delivery = _form(
         block(long, "ConnectDeliverUnit", "deliver", "<name>D</name><entity_id/><entity_name/><work_area_id/>")
@@ -6343,7 +6343,7 @@ def _connect_activities():
             <bind nodeset="{item}/activity/deliver/entity_id" calculate="../../../{member}"/>"""
         return _form(data, model, body)
 
-    module_content = "<name>Visit</name><description/><time_estimate>0</time_estimate>"
+    module_content = "<name>Visit</name><description>About</description><time_estimate>0</time_estimate>"
     delivered = "<name>Visit</name><entity_id/><entity_name/><work_area_id/>"
     common = block("delivery", "ConnectDeliverUnit", "deliver", delivered) + block(
         "task", "ConnectTask", "task", "<name>Call</name><description/>"
@@ -6453,8 +6453,9 @@ def _connect_activities():
         "questions/connect-value-that-the-editor-clears": pair(
             "visit", "deliver", "entity_id", unit("stable"), unit("")
         ),
-        "questions/connect-estimate-outside-receiver-range": pair(
-            "lesson", "module", "time_estimate", lesson("2147483648"), lesson("0000")
+        "questions/connect-estimate-outside-receiver-range": (
+            *pair("lesson", "module", "time_estimate", lesson("2147483648"), lesson("0000")),
+            *pair("lesson", "module", "description", lesson("2", description=""), lesson("2")),
         ),
         "questions/connect-block-text-read-as-an-instance": pair(
             "lesson",

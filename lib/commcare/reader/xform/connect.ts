@@ -108,6 +108,10 @@ export const C = defineClaims("xform", {
 		Q("connect-estimate-outside-receiver-range"),
 		NESTED,
 	),
+	"connect-module-text-outside-receiver-range": refuse(
+		Q("connect-estimate-outside-receiver-range"),
+		NESTED,
+	),
 	"connect-learn-module": take(Q("connect-learn-module"), TOP),
 	"connect-learn-module-nested": take(Q("connect-learn-module"), NESTED),
 	"connect-assessment": take(Q("connect-assessment"), TOP),
@@ -388,6 +392,23 @@ export function readConnectBlocks(
 		if (block !== "assessment") slots.name = elementText(leaf("name").element);
 		if (block === "learn_module" || block === "task")
 			slots.description = elementText(leaf("description").element);
+		// Connect stores a module's name and description in columns that are never empty, and
+		// reads an empty element as none (`app_xml.py::get_element_text`), which fails its sync.
+		if (block === "learn_module") {
+			const blank = (["name", "description"] as const).find(
+				(name) => slots[name] === "",
+			);
+			if (blank !== undefined) {
+				refuseBlock(
+					C["connect-module-text-outside-receiver-range"],
+					undefined,
+					{
+						element: leaf(blank).element,
+					},
+				);
+				continue;
+			}
+		}
 		if (block === "learn_module") {
 			const estimate = wholeNumber(elementText(leaf("time_estimate").element));
 			if (estimate === undefined) {

@@ -7900,10 +7900,14 @@ def connect_missing_score(use, manifest):
 
 
 def connect_estimate_outside_column(use, manifest):
-    form, leaf = _connect_leaf(use, {"ConnectLearnModule"}, {"time_estimate"})
+    form, leaf = _connect_leaf(use, {"ConnectLearnModule"}, {"time_estimate", "name", "description"})
     if leaf is None:
         return False
     text = leaf.text or ""
+    # Connect's module sync reads an empty element as None (`app_xml.py::get_element_text`) into
+    # a column that is never null (`LearnModule.name`, `.description`).
+    if _local(leaf) != "time_estimate":
+        return text == ""
     # Vellum keeps the string, and the receiver writes a PostgreSQL nonnegative integer.
     significant = text.lstrip("0") or "0"
     return (

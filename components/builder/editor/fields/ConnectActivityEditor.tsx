@@ -102,6 +102,7 @@ export function ConnectActivityEditor({
 					label="Description"
 					value={value.description}
 					multiline
+					required={value.kind === "learning-module"}
 					onChange={(description) =>
 						change((current) =>
 							"description" in current

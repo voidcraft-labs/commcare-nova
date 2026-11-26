@@ -222,6 +222,16 @@ describe("each refusal row", () => {
 			Q("connect-assessment-without-score"),
 		],
 		[
+			"a lesson with no description, which Connect cannot store",
+			withBlocks(learnModule("lesson", { description: "" })),
+			Q("connect-estimate-outside-receiver-range"),
+		],
+		[
+			"a lesson with no name",
+			withBlocks(learnModule("lesson", { name: "" })),
+			Q("connect-estimate-outside-receiver-range"),
+		],
+		[
 			"a lesson whose hours exceed Connect's storage",
 			withBlocks(learnModule("lesson", { estimate: "2147483648" })),
 			Q("connect-estimate-outside-receiver-range"),

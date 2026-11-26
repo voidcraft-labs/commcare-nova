@@ -749,6 +749,13 @@ describe("Builder mutation commands", () => {
 		} as never);
 		expect(stale.ok).toBe(false);
 		expect(store.getState().peekCommandBatches()).toEqual([]);
+		// Connect cannot store a module with no description.
+		expect(
+			mutations.inline.updateField(LESSON, "connect_activity", {
+				activity: { ...activity, description: "" },
+			}).ok,
+		).toBe(false);
+		expect(store.getState().peekCommandBatches()).toEqual([]);
 		expect(
 			mutations.inline.updateField(LESSON, "connect_activity", { activity }),
 		).toEqual({ ok: true });
