@@ -4862,7 +4862,10 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 					await h
 						.db()
 						.updateTable("user_settings")
-						.set({ commcare_api_key: "another-ciphertext" })
+						.set({
+							commcare_api_key: "another-ciphertext",
+							connection_epoch: crypto.randomUUID(),
+						})
 						.where("user_id", "=", ACTOR)
 						.execute();
 				},

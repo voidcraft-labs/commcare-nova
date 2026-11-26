@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
+import { copyAssetObjectIfAbsent, deleteAsset } from "@/lib/storage/media";
 /**
  * `read_hq_changes` and `bring_in_hq_changes` through the real SDK client
  * and server, over real Postgres, with an app brought in through the
@@ -129,7 +129,18 @@ vi.mock("@/lib/deployment/hqChanges", async (importOriginal) => {
 });
 vi.mock("@/lib/storage/media", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/storage/media")>()),
-	uploadAssetBytes: vi.fn(),
+	stageAssetBytes: vi.fn(
+		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+			gcsObjectKey,
+			generation: "1",
+			checksum: "staged",
+		}),
+	),
+	copyAssetObjectIfAbsent: vi.fn(async () => ({
+		destinationGeneration: "1",
+		replay: false,
+	})),
+	deleteAssetGeneration: vi.fn(async () => undefined),
 	deleteAsset: vi.fn(),
 }));
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
@@ -176,6 +187,8 @@ beforeEach(() => {
 	observed.stages.length = 0;
 	observed.reviewOptions.length = 0;
 	observed.bringInOptions.length = 0;
+	vi.mocked(copyAssetObjectIfAbsent).mockClear();
+	vi.mocked(deleteAsset).mockClear();
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
 });
@@ -323,10 +336,11 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 				.persist();
 			await withTools(async (client) => {
 				const listed = await readChanges(client, appId);
-				vi.mocked(uploadAssetBytes).mockImplementationOnce(async () => {
+				vi.mocked(copyAssetObjectIfAbsent).mockImplementationOnce(async () => {
 					await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${MEMBER}`.execute(
 						h.db(),
 					);
+					return { destinationGeneration: "1", replay: false };
 				});
 				expect(
 					await call(client, "bring_in_hq_changes", {
@@ -335,13 +349,17 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 						review_digest: listed.review_digest,
 						discard_nova_changes: false,
 						table_choices: {},
+						owner_rule_choices: {},
 					}),
 				).toMatchObject({
 					isError: true,
 					body: { error_type: "permission_denied" },
 				});
-				expect(uploadAssetBytes).toHaveBeenCalled();
-				expect(deleteAsset).toHaveBeenCalled();
+				expect(copyAssetObjectIfAbsent).toHaveBeenCalledOnce();
+				expect(deleteAsset).toHaveBeenCalledWith(
+					vi.mocked(copyAssetObjectIfAbsent).mock.lastCall?.[0]
+						.destinationGcsObjectKey,
+				);
 				expect(await head(appId)).toEqual(before);
 				expect(
 					await h.db().selectFrom("media_assets").select("id").execute(),
