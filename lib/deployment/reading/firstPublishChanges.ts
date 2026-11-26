@@ -1576,6 +1576,18 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/*/columns/*/enum/*/alt_text",
 		],
 	},
+	/** A unique active legacy heading keeps its wording at the current group key. */
+	"legacy-search-group-wording-rekeyed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("legacy-search-group-wording-rekeyed"),
+		at: {
+			kinds: ["app"],
+			places: (facts) =>
+				recordedPlaces(facts, "legacy-search-group-wording-rekeyed"),
+		},
+		paths: ["/translations/*/*"],
+	},
 	/** A search's filter kept as one with the case list's, recorded by `search/rows.ts`. */
 	"search-filter-joined-to-list": {
 		touchesWorkers: false,

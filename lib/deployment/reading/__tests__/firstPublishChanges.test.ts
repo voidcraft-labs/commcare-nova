@@ -42,6 +42,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { constraintMessageFixture } from "@/lib/commcare/__tests__/constraintMessageFixture";
 import { buildShape } from "@/lib/commcare/__tests__/formLinkDocArbitrary";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { searchEmissionFixture } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { EMISSION_REWRITES } from "@/lib/commcare/emissionRewrites";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
@@ -3013,6 +3014,24 @@ const PAIRS: Readonly<
 		onMenu((menu) => {
 			menu.case_details.short.max_select_value = -1;
 		}),
+	),
+	"legacy-search-group-wording-rekeyed": editedPair(
+		() => searchEmissionFixture("grouped-prompts"),
+		{
+			...onMenu((menu) => {
+				const properties = menu.search_config.properties as Record<
+					string,
+					unknown
+				>[];
+				properties[0].name = "g";
+				properties[0].group_key = "g";
+				properties[1].group_key = "g";
+			}),
+			root: {
+				translations: { en: { "search_property.m0.g": "Find a client" } },
+			},
+		},
+		{ appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE) },
 	),
 	// A row that reads no field on a menu whose forms read the search.
 	"search-filter-joined-to-list": editedPair(

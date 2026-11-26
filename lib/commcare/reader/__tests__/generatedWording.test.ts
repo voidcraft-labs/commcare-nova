@@ -16,6 +16,7 @@ import {
 	VISIT,
 } from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
+import { searchEmissionFixture } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { emissionPlan } from "@/lib/commcare/emissionPlan";
@@ -311,6 +312,53 @@ it("keeps Search group worker wording on the route’s group when menus and grou
 	).toBeUndefined();
 	expect(wire.translations?.en["search_property.m1.group_header_2"]).toBe(
 		"Find a client",
+	);
+});
+
+it("rekeys only a unique live legacy Search heading and records both source positions", async () => {
+	const oldKey = "search_property.m0.g";
+	const currentKey = "search_property.m0.group_header_0";
+	const changes = "legacy-search-group-wording-rekeyed";
+	const source = searchEmissionFixture("grouped-prompts");
+	const body = exportedBody(source);
+	const menus = body.modules as ReturnType<typeof expandDoc>["modules"];
+	menus[0].search_config.properties[0].name = "g";
+	menus[0].search_config.properties[0].group_key = "g";
+	menus[0].search_config.properties[1].group_key = "g";
+	body.translations = { en: { [oldKey]: "Find a client" } };
+	const read = async () =>
+		readHqApp(
+			await inputFor(body, {
+				appStrings: (doc) => localAppStringTable(doc, []),
+			}),
+			{ claims: "full" },
+		);
+	const before = await read();
+	if (before.kind !== "read") throw Error(JSON.stringify(before.findings));
+	const printed = expandDoc(before.draft.doc);
+	expect(printed.translations?.en[oldKey]).toBeUndefined();
+	expect(printed.translations?.en[currentKey]).toBe("Find a client");
+	expect(printed.modules[0].search_config.properties[0].label).toEqual({
+		en: "Personal details",
+	});
+	expect(
+		localAppStringTable(before.draft.doc, []).languages.en[currentKey],
+	).toBe("Find a client");
+	expect(
+		before.draft.facts.sameStateRewrites
+			.filter((item) => item.register === changes)
+			.map((item) => item.path),
+	).toEqual([`/translations/en/${oldKey}`, `/translations/en/${currentKey}`]);
+	(body.translations as Record<string, Record<string, string>>).en[currentKey] =
+		"Other saved words";
+	const conflict = await read();
+	if (conflict.kind !== "account")
+		throw Error("Two stored values need a placed finding");
+	expect(conflict.findings).toContainEqual(
+		expect.objectContaining({
+			code: "application-and-settings/translations-generated-key-anything-else",
+			detail: { name: oldKey },
+		}),
 	);
 });
 

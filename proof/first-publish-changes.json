@@ -1263,6 +1263,24 @@
 		]
 	},
 	{
+		"change": "legacy-search-group-wording-rekeyed",
+		"placeKinds": ["app"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/*",
+				"kind": "removed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/*",
+				"kind": "added"
+			}
+		]
+	},
+	{
 		"change": "link-held-case-guards-added",
 		"placeKinds": ["form"],
 		"rows": [

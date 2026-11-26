@@ -1559,27 +1559,76 @@ function keyTarget(
 	};
 }
 
-/** The source row must have the same key as the output Nova projects. HQ can
- * load old group names that its Case List editor respells from the row order. */
+/** A stored group's heading locale before HQ's editor respells it by row. */
 function sourceSearchGroupKey(
 	module: DraftModule | undefined,
 	key: string,
-): "canonical" | "respelt" | undefined {
+	codes: readonly string[],
+):
+	| {
+			readonly canonical: boolean;
+			readonly destination?: string;
+			readonly unit?: TranslationUnitId;
+	  }
+	| undefined {
 	if (!module) return;
-	const prefix = searchGroupLocaleId(`m${module.index}`, "");
+	const menu = `m${module.index}`;
+	const prefix = searchGroupLocaleId(menu, "");
 	if (!key.startsWith(prefix)) return;
 	const config = module.json.peek("search_config");
 	if (!isJsonObject(config) || !Array.isArray(config.properties)) return;
 	const group = key.slice(prefix.length);
-	const index = config.properties.findIndex(
+	const rows = config.properties;
+	const index = rows.findIndex(
 		(row: unknown) =>
 			isJsonObject(row) &&
 			row.is_group === true &&
 			row.group_key === group &&
 			row.name === group,
 	);
-	if (index >= 0)
-		return group === `group_header_${index}` ? "canonical" : "respelt";
+	if (index < 0) return;
+	const canonicalKey = `group_header_${index}`;
+	if (group === canonicalKey) return { canonical: true };
+	const legacy = { canonical: false };
+	// The bounded alias is a plain heading name. Positional-looking keys
+	// can still identify a different heading, and punctuated names can
+	// coincide with a prompt's hint, required message or validation.
+	if (
+		!/^[A-Za-z][A-Za-z0-9_-]*$/.test(group) ||
+		/^group_header_[0-9]+$/.test(group)
+	)
+		return legacy;
+	const row = rows[index];
+	const labels =
+		isJsonObject(row) && isJsonObject(row.label) ? row.label : undefined;
+	// Preserve explicit ordinary labels in all build languages. Missing or
+	// blank ordinary labels can also consume the default table's override.
+	if (
+		!labels ||
+		!codes.every((code) => {
+			const label = labels[code];
+			return (
+				typeof label === "string" &&
+				holdText(label) === label &&
+				hqDeviceText(label).trim() !== ""
+			);
+		})
+	)
+		return legacy;
+	const groupPosition = rows
+		.slice(0, index)
+		.filter(
+			(row: unknown) => isJsonObject(row) && row.is_group === true,
+		).length;
+	const typed =
+		module.module.caseListConfig?.searchInputGroups?.[groupPosition];
+	return typed === undefined
+		? legacy
+		: {
+				...legacy,
+				destination: searchGroupLocaleId(menu, canonicalKey),
+				unit: generatedWordingId(typed.uuid, "searchGroupHeading"),
+			};
 }
 
 /** Whether what a key names read: its menu and its form have drafts. A key naming a position
@@ -1780,6 +1829,8 @@ function decideGeneratedKeys(
 	const units = snapshotTranslationUnits(doc);
 	const classified: HeldGeneratedKey[] = [];
 	const verdicts = new Map<string, GeneratedKeyVerdict>();
+	const moved = new Map<HeldTranslationKey, string>();
+	const stored = new Set(reading.generatedKeys.map((one) => one.key));
 	for (const { held, target } of left) {
 		if (typeof held.value !== "string" || !readWhole(ctx, held.key, target))
 			continue;
@@ -1791,16 +1842,42 @@ function decideGeneratedKeys(
 		const readsGroup =
 			own !== undefined &&
 			units.get(own)?.generated?.role === "searchGroupHeading";
-		const sourceGroup = sourceSearchGroupKey(target.module, held.key);
-		// Refuse a live legacy override pending exact respelling evidence. A key
-		// not used by the source can't be made live by the normalized projection.
-		if (sourceGroup === "respelt" || (readsGroup && !sourceGroup)) {
-			verdicts.set(
-				`${held.language}\u0000${held.key}`,
-				sourceGroup && held.value !== ""
-					? { kind: "not-yet" }
-					: { kind: "inert" },
-			);
+		const sourceGroup = sourceSearchGroupKey(
+			target.module,
+			held.key,
+			reading.languages.codes,
+		);
+		if (sourceGroup && !sourceGroup.canonical) {
+			const destination = sourceGroup.destination;
+			// A stored value under the new key can have independent intent even
+			// while the saved query cannot see it. Leave that collision for review.
+			if (
+				destination !== undefined &&
+				sourceGroup.unit !== undefined &&
+				target.position?.menu === target.module?.index &&
+				!stored.has(destination) &&
+				table.wordingUnits?.[destination] === sourceGroup.unit &&
+				holdText(held.value) === held.value &&
+				hqDeviceText(held.value).trim() !== ""
+			) {
+				classified.push({
+					language: held.language,
+					key: held.key,
+					id: destination,
+					value: held.value,
+				});
+				moved.set(held, destination);
+			} else {
+				verdicts.set(
+					`${held.language}\u0000${held.key}`,
+					held.value === "" ? { kind: "inert" } : { kind: "not-yet" },
+				);
+			}
+			continue;
+		}
+		// A key unused in the source cannot take over a normalized heading.
+		if (readsGroup && !sourceGroup) {
+			verdicts.set(`${held.language}\u0000${held.key}`, { kind: "inert" });
 			continue;
 		}
 		classified.push({
@@ -1873,6 +1950,14 @@ function decideGeneratedKeys(
 				).value;
 				ctx.translations.set(verdict.unit, "text", new Map([[tag, wording]]));
 				ctx.translations.own(verdict.unit, tag);
+				const movedTo = moved.get(held);
+				if (movedTo !== undefined)
+					for (const key of [held.key, movedTo])
+						ctx.facts.sameStateRewrites.push({
+							entry: CLAIMS.generatedWording.entry,
+							path: `${held.json.pointer}/${pointerToken(key)}`,
+							register: "legacy-search-group-wording-rekeyed",
+						});
 				const byCode = worded.get(verdict.unit) ?? new Map<string, string>();
 				byCode.set(held.language, wording);
 				worded.set(verdict.unit, byCode);
