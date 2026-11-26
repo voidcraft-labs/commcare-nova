@@ -974,10 +974,7 @@ export class FormEngine {
 				part.kind === "text"
 					? part.text
 					: xpathToString(
-							await evaluateAsync(
-								this.expressions.prose(part, slot),
-								this.rootPath,
-							),
+							await evaluateAsync(this.expressions.prose(part, slot), "/"),
 						),
 			);
 		return parts.join("");
