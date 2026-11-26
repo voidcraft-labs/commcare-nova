@@ -7530,7 +7530,11 @@ def _held_new():
             accepted("app", own_update("aª"), update_map, updates),
         ),
         "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
-            refused("app", opened("métrique"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("me\u0301trique"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("Équipe"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("mét·rique"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("métrique"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("mé-trique"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my/parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my..parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my."), reference, f"{opens}/0/case_indices/0/reference_id"),

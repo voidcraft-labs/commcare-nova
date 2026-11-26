@@ -5873,7 +5873,7 @@
 		],
 		"valueClass": "load-child-of-previous-load",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: an explicit selection holds the exact name of the connection to the preceding load, including names with periods after the first character such as `my.parent`. An implicit selection derives its connection from the app's child links, using `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`).",
+		"dispositionCell": "**HELD**: an explicit selection holds the exact name of the connection to the preceding load, including periods after the first character and Latin-1 letters, as in `my.parent`, `métrique`, and `Équipe`. An implicit selection derives its connection from the app's child links, using `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6167,7 +6167,7 @@
 		],
 		"valueClass": "auto-select-case-index",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection, including names with periods after the first character such as `my.parent`.",
+		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection, including periods after the first character and Latin-1 letters, as in `my.parent`, `métrique`, and `Équipe`.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6764,7 +6764,7 @@
 		],
 		"valueClass": "open-action-links",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. HQ's advanced editor saves names such as `my-parent` and `my.parent` and the case transaction keeps the exact name.",
+		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. HQ's advanced editor saves names such as `my-parent`, `my.parent`, `métrique`, and `Équipe`. The case transaction and a fresh worker restore keep the exact name.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

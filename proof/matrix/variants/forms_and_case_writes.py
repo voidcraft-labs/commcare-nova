@@ -180,8 +180,18 @@ def open_visitor_with_repeated_dot_index(authoring, app_id):
 
 
 def open_visitor_with_accented_index(authoring, app_id):
-    """Exhibit a valid XML name outside the current portable Advanced name class."""
+    """Preserve the exact composed accent the worker's named index reads."""
     _open_visitor_with_index(authoring, app_id, "métrique")
+
+
+def open_visitor_with_leading_accented_index(authoring, app_id):
+    """Preserve a capital accented initial letter on the Advanced connection."""
+    _open_visitor_with_index(authoring, app_id, "Équipe")
+
+
+def open_visitor_with_decomposed_index(authoring, app_id):
+    """Keep the adjacent valid XML name outside the verified XPath grammar."""
+    _open_visitor_with_index(authoring, app_id, "me\u0301trique")
 
 
 def write_through_typed_user_index(authoring, app_id):

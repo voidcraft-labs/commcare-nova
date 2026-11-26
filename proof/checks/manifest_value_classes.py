@@ -12765,7 +12765,7 @@ CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
 
 # Case-operation links and tile grouping use the same portable connection name.
 CASE_OPERATION_LINK_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*")
-ADVANCED_OPEN_INDEX_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_.-]*")
+ADVANCED_OPEN_INDEX_IDENTIFIER = re.compile(r"[a-zA-Z_À-ÖØ-öø-ÿ][a-zA-Z0-9_.À-ÖØ-öø-ÿ-]*")
 
 
 def _index_identifier(index):
@@ -12775,13 +12775,13 @@ def _index_identifier(index):
     return reference if isinstance(reference, str) and reference != "" else "parent"
 
 
-def _dotted_open_index_to_first_choice(at, form, loads, opens, action, index):
-    """The retained open names the first manually chosen record by a dotted child index."""
+def _extended_open_index_to_first_choice(at, form, loads, opens, action, index):
+    """The retained open names the first manually chosen record by an exact Advanced-only child index."""
     if at.key != "reference_id" or index is None or not loads or _is_load(action, loads):
         return False
     identifier = _index_identifier(index)
     return (
-        "." in identifier
+        CASE_OPERATION_LINK_IDENTIFIER.fullmatch(identifier) is None
         and ADVANCED_OPEN_INDEX_IDENTIFIER.fullmatch(identifier) is not None
         and index.get("relationship", "child") == "child"
         and index.get("tag") == loads[0].get("case_tag")
@@ -12790,7 +12790,7 @@ def _dotted_open_index_to_first_choice(at, form, loads, opens, action, index):
     )
 
 
-dotted_open_index_to_first_choice = _advanced_reader(_dotted_open_index_to_first_choice)
+extended_open_index_to_first_choice = _advanced_reader(_extended_open_index_to_first_choice)
 
 
 def _open_indexes_for_name(use):
