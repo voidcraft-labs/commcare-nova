@@ -1177,16 +1177,19 @@ export class FormEngine {
 		);
 	}
 
+	/** Core commits a blank answer to a question that is not required, so the
+	 *  instance then holds nothing to compare a later answer with; a blank
+	 *  required answer is refused and never committed. */
 	private recordAcceptedAnswer(state: FieldState, updates: EngineStoreState) {
-		if (
-			!this.checksChangedAnswersOnly() ||
-			!state.valid ||
-			state.keypadRefused ||
-			!state.value
-		)
+		if (!this.checksChangedAnswersOnly() || !state.valid || state.keypadRefused)
 			return;
-		if (state.acceptedAnswer !== state.value)
-			updates[state.path] = { ...state, acceptedAnswer: state.value };
+		const accepted = state.value
+			? state.value
+			: state.required
+				? state.acceptedAnswer
+				: undefined;
+		if (state.acceptedAnswer !== accepted)
+			updates[state.path] = { ...state, acceptedAnswer: accepted };
 	}
 
 	private acceptUnchangedOnSubmit(

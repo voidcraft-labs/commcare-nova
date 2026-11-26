@@ -81,6 +81,19 @@ describe("checking only changed answers", () => {
 		expect(engine.validateAll()).toBe(false);
 	});
 
+	it("checks an answer again once it was cleared, as the cleared answer is the one held", () => {
+		const engine = answered(engineOn(webAppsDevice(), true));
+		engine.setValue("/data/start", "1");
+		engine.touch("/data/start");
+		engine.setValue("/data/finish", "");
+		engine.touch("/data/finish");
+		engine.setValue("/data/start", "9");
+		engine.touch("/data/start");
+		engine.setValue("/data/finish", "5");
+		engine.touch("/data/finish");
+		expect(engine.validateAll()).toBe(false);
+	});
+
 	it("still asks for a blank required answer", () => {
 		const engine = answered(engineOn(webAppsDevice(), true));
 		engine.setValue("/data/note", "");
