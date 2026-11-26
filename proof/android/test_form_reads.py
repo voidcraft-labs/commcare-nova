@@ -838,3 +838,44 @@ def test_android_sorts_filtered_case_choices_by_text_and_keeps_ties(android_docu
             (instance,) = sent
             root = etree.fromstring(instance)
             assert _child(root, "sorted").text == ordered_ids[0]
+
+
+
+def test_android_replaces_a_saved_case_choice_after_its_row_stops_matching(android_documents, hq):
+    from proof.observe import casedata
+
+    def database(old_region, new_region, modified):
+        return casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), tuple(
+            casedata.CaseRecord(
+                case_id, "clinic", name, casedata.USER_ID,
+                "2025-12-01T08:00:00.000Z", modified, None, (("region", region),),
+            )
+            for case_id, name, region in (
+                ("old-clinic", "Original clinic", old_region),
+                ("new-clinic", "Replacement clinic", new_region),
+            )
+        ))
+
+    initial = database("north", "south", "2025-12-01T08:00:00.000Z")
+    changed = database("south", "north", "2025-12-02T08:00:00.000Z")
+    with _served(android_documents["targeted-case-choice-reopen"], database=initial) as (served, archive):
+        answer, sent = _app(
+            served, archive, "case-choice-reopen", commands=[], controls=True,
+            save_incomplete=FORM, first_screen_choice="old-clinic",
+            reopen=True, reopen_restore=casedata.restore(changed, served.unit.domain),
+            questions={"/data/clinic": ["1"]},
+        )
+    saved = answer["savedIncomplete"]
+    assert _child(etree.fromstring(saved["instance"]), "clinic").text == "old-clinic"
+    assert saved["reopenRestore"].split(": ", 1)[0] == "DOWNLOAD_SUCCESS", saved["reopenRestore"]
+    reopened = saved["reopened"]
+    assert reopened["screen"] == FORM_ENTRY, reopened
+    assert reopened["form"]["saved"]["finishing"] is True, reopened
+    (opening,) = [
+        question for screen in reopened["form"]["screens"] for question in screen["questions"]
+        if question["reference"] == "/data/clinic[1]"
+    ]
+    assert opening["answer"] is None
+    assert opening["control"]["choices"] == [{"value": "new-clinic", "label": "Replacement clinic", "index": 0}]
+    (submitted,) = sent
+    assert _child(etree.fromstring(submitted), "clinic").text == "new-clinic"

@@ -186,7 +186,10 @@ import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
 import { sharedVisitEntries } from "./documents/sharedVisitEntries";
 import { sortBlanks } from "./documents/sortBlanks";
-import { sortedCaseChoices } from "./documents/sortedCaseChoices";
+import {
+	caseChoiceReopen,
+	sortedCaseChoices,
+} from "./documents/sortedCaseChoices";
 import { independentCaseOrder, sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
 import {
@@ -346,6 +349,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectLearnHyphenIds,
 	androidAppAnswers,
 	sortedCaseChoices,
+	caseChoiceReopen,
 	numberKeypad,
 	questionCalendar,
 	savedFormDescriptor,
