@@ -91,14 +91,28 @@ describe("collectAttachmentReferences", () => {
 				id: "image",
 				kind: "image",
 				label: proseText("Portrait"),
-				default_value: "'portrait.jpg'",
 			},
 		]);
+		const path = "/data/image";
+		const legacy = new FormEngine(form);
+		legacy.setValue(path, "portrait.jpg");
+		const checkpoint = legacy.entryCheckpoint();
+		// A checkpoint from before the admission rule can already hold a
+		// filename that came from an initial value without a staged file.
+		const { captureFileName: _filename, ...initialImage } =
+			checkpoint.state[path];
 		const engine = new FormEngine(form);
+		engine.restoreEntryCheckpoint({
+			...checkpoint,
+			state: {
+				...checkpoint.state,
+				[path]: { ...initialImage, edited: false },
+			},
+		});
 		expect(engine.getState("/data/blank").value).toBe("");
-		expect(engine.getState("/data/image").value).toBe("portrait.jpg");
+		expect(engine.getState(path).value).toBe("portrait.jpg");
 		expect(referenceNames(engine)).toEqual([]);
-		engine.setValue("/data/image", "portrait.jpg");
+		engine.setValue(path, "portrait.jpg");
 		expect(referenceNames(engine)).toEqual(["portrait.jpg"]);
 		const resumed = new FormEngine(form);
 		resumed.restoreEntryCheckpoint(engine.entryCheckpoint());

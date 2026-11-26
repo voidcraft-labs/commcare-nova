@@ -62,10 +62,11 @@ it("requires removal of a submitted activity before turning its role off and adm
 	).toEqual(["name", "visit"]);
 });
 
-it("refuses a learning module's answer placed out of the group that kept it apart from another of its name", () => {
+it("refuses moving a learning module into the same submission as another of its name", () => {
 	const choice = testUuid("placed-choice");
 	const groupA = testUuid("placed-group-a");
 	const groupB = testUuid("placed-group-b");
+	const details = testUuid("placed-details");
 	const introA = testUuid("placed-intro-a");
 	const module = (uuid: string) =>
 		f({
@@ -112,6 +113,12 @@ it("refuses a learning module's answer placed out of the group that kept it apar
 								relevant: "#form/track = 'b'",
 								children: [module(testUuid("placed-intro-b"))],
 							}),
+							f({
+								kind: "group",
+								uuid: details,
+								id: "details",
+								children: [f({ kind: "text", id: "note", label: "Notes" })],
+							}),
 						],
 					},
 				],
@@ -127,7 +134,8 @@ it("refuses a learning module's answer placed out of the group that kept it apar
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		).ok,
 	).toBe(true);
-	const moved = mutationCommitVerdict(
+	// HQ will not keep a grouped question's answer at the form root.
+	const atRoot = mutationCommitVerdict(
 		doc,
 		[
 			{
@@ -140,9 +148,17 @@ it("refuses a learning module's answer placed out of the group that kept it apar
 		],
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
-	expect(moved.ok).toBe(false);
-	if (moved.ok) return;
-	expect(moved.findings.map((finding) => finding.code)).toContain(
-		"CONNECT_REPEATED_LEARNING_MODULE",
+	expect(atRoot.ok ? [] : atRoot.findings.map(({ code }) => code)).toContain(
+		"FIELD_SUBMISSION_PLACEMENT",
 	);
+	// Moving the question itself to the unguarded Details group has an
+	// ordinary HQ placement, but can send both learning modules.
+	const inDetails = mutationCommitVerdict(
+		doc,
+		[{ kind: "moveField", uuid: introA, toParentUuid: details, after: null }],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(
+		inDetails.ok ? [] : inDetails.findings.map(({ code }) => code),
+	).toEqual(["CONNECT_REPEATED_LEARNING_MODULE"]);
 });

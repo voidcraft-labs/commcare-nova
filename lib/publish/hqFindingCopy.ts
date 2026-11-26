@@ -274,13 +274,9 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"This form's case management is set up in a way Nova can't hold yet.",
 	},
-	"form-settings": {
-		"not-yet": "This uses a form setting, which Nova can't hold yet.",
-	},
+	"form-settings": {},
 	"form-answer-addresses": {},
-	"form-source": {
-		"not-yet": "A form's source here is built in a way Nova can't hold yet.",
-	},
+	"form-source": {},
 	"hand-written-content": {
 		never:
 			"This uses hand-written XML or settings that no CommCare HQ page edits, which Nova doesn't bring in.",
