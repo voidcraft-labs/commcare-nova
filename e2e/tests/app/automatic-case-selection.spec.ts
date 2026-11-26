@@ -38,9 +38,11 @@ test("automatically selects the whole case datum and submits one atomic close", 
 	await openMenu("All batch cases");
 
 	await preview.getByRole("button", { name: "Close group" }).click();
-	await expect(
-		preview.getByRole("heading", { name: "Close group" }),
-	).toBeVisible();
+	await expect(preview.getByRole("textbox", { name: "Form name" })).toHaveValue(
+		"Close group",
+	);
+	const submit = preview.getByRole("button", { name: "Submit", exact: true });
+	await expect(submit).toBeEnabled();
 	const db = new Client({ connectionString: process.env.NOVA_DB_LOCAL_URL });
 	await db.connect();
 	try {
@@ -52,7 +54,7 @@ test("automatically selects the whole case datum and submits one atomic close", 
 				)
 			).rows.map((row) => row.case_id);
 		expect(await saved()).toEqual([]);
-		await preview.getByRole("button", { name: "Submit", exact: true }).click();
+		await submit.click();
 		await expect.poll(saved).toEqual(caseIds.toSorted());
 	} finally {
 		await db.end();
