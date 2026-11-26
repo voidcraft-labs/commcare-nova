@@ -609,9 +609,17 @@ function readDefaultFilters(
 						: undefined;
 
 			const finding = manifestFindingOf(claim, row.place, detail);
-			if (beside !== undefined && !coveredSettings.has(beside)) {
-				accounting.cover({ json: cursor, key: beside }, finding);
+			if (claim === C.relatedTwice && beside !== undefined) {
+				if (!coveredSettings.has(beside))
+					accounting.cover({ json: cursor, key: beside }, finding);
 				coveredSettings.add(beside);
+			} else if (beside !== undefined) {
+				accounting.findingAt(
+					claim,
+					row.place,
+					`${cursor.pointer}/${beside}`,
+					detail,
+				);
 			}
 			accounting.cover({ json: row, key: "defaultValue" }, finding);
 			addName(property, row);
