@@ -3271,6 +3271,10 @@ describe("loadCasesAction", () => {
 		);
 		vi.stubEnv("BETTER_AUTH_SECRET", "synthetic-range-opening-test");
 		vi.useFakeTimers({ toFake: ["Date"] });
+		const projectLookup = vi.spyOn(
+			await import("@/lib/lookup/service"),
+			"getLookupFixtureData",
+		);
 		try {
 			vi.setSystemTime(new Date("2024-05-02T12:00:00Z"));
 			const target = {
@@ -3298,7 +3302,7 @@ describe("loadCasesAction", () => {
 				},
 				tables,
 			);
-			expect(getLookupFixtureDataMock).not.toHaveBeenCalled();
+			expect(projectLookup).not.toHaveBeenCalled();
 			revision = 2;
 			vi.setSystemTime(new Date("2024-05-03T12:00:00Z"));
 			const request = {
@@ -3384,6 +3388,7 @@ describe("loadCasesAction", () => {
 				await readCasesForSavedRange({ ...request, inputValues: mixed }),
 			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
 		} finally {
+			projectLookup.mockRestore();
 			vi.useRealTimers();
 			vi.unstubAllEnvs();
 		}
