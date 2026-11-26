@@ -9617,35 +9617,36 @@ def _contains_unguarded_lookup_count(tree):
     return any(_contains_unguarded_lookup_count(child) for child in tree)
 
 
-def lookup_count_outside_one_supplier(use, manifest):
-    """The guarded scalar form read is the only lookup-count spelling Nova publishes."""
+def guarded_lookup_count_in_one_frame(use, manifest):
+    """Positive evidence for a guarded count and its one built lookup frame."""
     document, text = _expression_at(use)
-    if not isinstance(document, Form) or text is None:
-        return True
+    if text is None:
+        return None
     tree = expression_tree(text)
-    if tree is None or _contains_unguarded_lookup_count(tree):
-        return True
+    if tree is None:
+        return None
+    if not isinstance(document, Form) or _contains_unguarded_lookup_count(tree):
+        return False
     entries = _form_entries(document)
     if not entries:
-        # This use may come from an editor-only carrier without a suite. The source
-        # reader still proves entry attribution before accepting it into Nova.
-        return False
+        # An editor-only carrier can prove the guard, but not its entry frame.
+        return None
     for entry in entries:
         suite = entry.getparent()
         selected = [datum for _, datum in _session_ids(entry) if datum.get("nodeset")]
         if len(selected) != 1:
-            return True
+            return False
         detail_id = selected[0].get("detail-select")
         if not detail_id or not any(
             _local(detail) == "detail" and detail.get("id") == detail_id
             and any(_local(child) == "lookup" for child in _children(detail))
             for detail in _children(suite)
         ):
-            return True
+            return False
     for suite in document.entry_suites:
         if sum(entry.getparent() is suite for entry in entries) > 1:
-            return True
-    return False
+            return False
+    return True
 
 
 def _own_case_property(tree):
@@ -13270,7 +13271,6 @@ VALUE_CLASSES = {
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
     "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,
-    "expressions-and-data/session-data-fingerprintquery": lookup_count_outside_one_supplier,
     "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
     "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
@@ -13287,4 +13287,11 @@ VALUE_CLASSES = {
     "questions/ordinary-answer-in-stock-namespace": ordinary_stock_answer,
     "questions/submitted-namespace-the-form-designer-cannot-keep": namespace_the_designer_cannot_keep,
     "application-and-settings/build-profiles-invalid-language-subset": invalid_profile_languages,
+}
+
+
+# A positive class may need an observation beyond the use at its own source.
+# It grants HELD only when that observation establishes the supported class.
+POSITIVE_VALUE_CLASSES = {
+    "expressions-and-data/companion-lookup-count": guarded_lookup_count_in_one_frame,
 }

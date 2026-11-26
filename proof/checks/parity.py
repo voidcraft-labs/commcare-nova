@@ -148,11 +148,11 @@ def _new_without_reader(held, key) -> bool:
     )
 
 
-def decides(held, use, standing) -> bool:
+def decides(held, use, standing, entries=()) -> bool:
     """Whether the lane's check decides a use of this standing (the module's docstring)."""
     if use.key.startswith("parser:") or standing in (manifest_usage.UNDECIDED, manifest_usage.SOURCE):
         return False
-    if standing == manifest_usage.HELD and _new_without_reader(held, use.key):
+    if standing == manifest_usage.HELD and not entries and _new_without_reader(held, use.key):
         return False
     return True
 
@@ -258,7 +258,7 @@ def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
         standing, entries = manifest_usage.standing(held, use)
         decided.extend(_generated_case_title(use, held))
         decided.extend(_generated_detail_tab_title(use, held))
-        if decides(held, use, standing):
+        if decides(held, use, standing, entries):
             decided.append(Decided(use, standing, tuple(entries)))
             if standing == manifest_usage.HELD:
                 decided.extend(_project_languages(use, held))

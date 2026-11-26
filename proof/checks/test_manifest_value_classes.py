@@ -72,6 +72,13 @@ def test_every_reader_reads_a_refused_or_held_new_entry_that_names_a_value_class
     assert [key for key in classes.VALUE_CLASSES if entries[key].refused_by_hq_build()] == []
 
 
+def test_each_positive_reader_has_a_held_value_class(manifest):
+    entries = {entry.id: entry for held in manifest.entries.values() for entry in held}
+    for key in classes.POSITIVE_VALUE_CLASSES:
+        entry = entries[key]
+        assert entry.disposition == "HELD" and entry.value_class
+
+
 SOURCE_FAMILIES_FILE = Path(__file__).parent / "fixtures" / "source-families.json"
 SOURCE_FAMILIES = json.loads(SOURCE_FAMILIES_FILE.read_text(encoding="utf-8"))["families"]
 ALLOWING = ("HELD", "TARGET-OWNED", "INERT")
@@ -1152,6 +1159,8 @@ class Shape:
     # How many uses of the key sit there: one, but where the expression reads the key more than once (a guard and
     # the read it guards), each read is a use and each takes the verdict.
     uses: int = 1
+    # Builds linked to the form when a positive class needs its entry frame.
+    entry_suites: tuple[bytes, ...] = ()
     # Whether the app JSON is the one HQ made (``App.authored``), which a class only Nova's reader settles there reads.
     authored: bool = False
     # Whether Nova's reader read that app (``App.read``): a corpus document's, which a class only that reader
@@ -8155,11 +8164,25 @@ def _lookup_count_shapes():
     wrong_guard = _form(data="<count/>", model=(
         f'<bind nodeset="/data/count" calculate="if(count({path}) &gt; 0, number({path}[1]), &apos;&apos;)"/>'
     ))
+    lookup = '<detail id="visits"><lookup action="org.example.LOOKUP"/></detail>'
+    select = '<datum id="case_id" nodeset="case" value="./@case_id" detail-select="visits"/>'
+
+    def suite(*selections):
+        return (
+            f'<suite version="1">{lookup}<entry><form>http://example.org/t</form>'
+            f'<session>{"".join(selections)}</session></entry></suite>'
+        ).encode()
+
+    site = "bind[1]/@calculate"
     return {
-        "expressions-and-data/session-data-fingerprintquery": (
-            refused("form", raw, key, "bind[1]/@calculate", readings=True),
-            refused("form", wrong_guard, key, "bind[1]/@calculate", readings=True, uses=2),
-            accepted("form", guarded, key, "bind[1]/@calculate", readings=True, uses=2),
+        "expressions-and-data/companion-lookup-count": (
+            accepted("form", raw, key, site, readings=True),
+            accepted("form", wrong_guard, key, site, readings=True, uses=2),
+            unsettled("form", guarded, key, site, readings=True, uses=2),
+            accepted("form", guarded, key, site, readings=True, uses=2,
+                     entry_suites=(suite(select.replace("case_id", "parent_id"), select),)),
+            refused("form", guarded, key, site, readings=True, uses=2,
+                    entry_suites=(suite(select),)),
         ),
     }
 
@@ -8226,7 +8249,7 @@ def test_every_reader_has_a_refused_shape_and_an_accepted_one_beside_it():
     """Every reader the registry holds has its shapes here, and every set of shapes a reader: one the reader places in
     its class and one beside it that it places outside (or, where the export cannot settle the class, one it leaves
     open), so a reader that places every use outside its class, or every use inside it, fails."""
-    assert sorted(set(classes.VALUE_CLASSES) ^ set(SHAPES)) == []
+    assert sorted(set(classes.VALUE_CLASSES | classes.POSITIVE_VALUE_CLASSES) ^ set(SHAPES)) == []
     unconsulted = {entry_id for entry_id, shapes in SHAPES.items() if not all(shape.named for shape in shapes)}
     assert unconsulted == set(UNCONSULTED)
     for entry_id, shapes in SHAPES.items():
@@ -8256,6 +8279,8 @@ def _shape_uses(shape, manifest, readings=None):
     for document in found.documents:
         if isinstance(document, (classes.App, classes.Form, classes.Runtime)):
             document.case_types = shape.case_types
+        if isinstance(document, classes.Form) and shape.entry_suites:
+            document.entry_suites = tuple(etree.fromstring(suite) for suite in shape.entry_suites)
     if readings is not None:
         manifest_usage.read_observed(found, manifest, readings)
     return found
@@ -8273,7 +8298,7 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
         # A key the entry should name and does not is a gap listed in UNCONSULTED; one it names now moves its shape.
         assert named is shape.named, f"{entry_id} {'does not name' if shape.named else 'now names'} {shape.key}"
         for use in uses:
-            verdict = classes.VALUE_CLASSES[entry_id](use, manifest)
+            verdict = manifest.readers[entry_id](use, manifest)
             assert verdict is shape.verdict, f"{entry_id} reads {shape.key} at {shape.where} as {verdict}"
             if not named:
                 continue
@@ -8281,8 +8306,14 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
             kind, held = manifest_usage.standing(manifest, use)
             if shape.verdict and entry.disposition == "HELD-NEW":
                 assert kind == manifest_usage.HELD_NEW and entry in held, f"{entry_id} stands {kind} at {shape.where}"
-            elif shape.verdict and entry.disposition == "HELD":
-                assert kind == manifest_usage.HELD, f"{entry_id} stands {kind} at {shape.where}"
+            elif entry_id in classes.POSITIVE_VALUE_CLASSES:
+                expected = {
+                    True: manifest_usage.HELD,
+                    False: manifest_usage.HELD_NEW,
+                    None: manifest_usage.UNDECIDED,
+                }
+                assert kind == expected[shape.verdict], f"{entry_id} stands {kind} at {shape.where}"
+                assert (entry in held) == (shape.verdict is not False)
             elif shape.verdict:
                 refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
                 assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
