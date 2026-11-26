@@ -290,6 +290,7 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/a-case-write-name-or-preload-on-a-question-the-picker-does-not`,
 		"schema:ConditionalCaseUpdate.question_path",
 	),
+	hiddenDay: take(`${F}/a-datetime-question-saved-straight-to-a-case`, null),
 	datetimeStraight: refuse(
 		`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`,
 		null,
@@ -958,7 +959,7 @@ export function questionValue(
 	// question's is a write of its day to a `date` property, which Nova saves
 	// straight too (`ruleSets.ts::isAnswerWriteAssignable`). An explicit
 	// hidden clock on a basic follow-up has its own typed source node and
-	// writes only its day. A standard case value is not a date property.
+	// writes the day on an ordinary date property.
 	if (boundDateTime(form, field)) {
 		if (
 			!allowHiddenDay ||
@@ -1419,6 +1420,8 @@ function pathClaimOf(
 	keyClaim: Claim<"take"> | undefined,
 ): Claim<"take"> | "join" {
 	if (read.value.link) return BASIC_CLAIMS.captureLink;
+	if (read.value.day === true && read.value.field.kind === "hidden")
+		return BASIC_CLAIMS.hiddenDay;
 	if (read.datetimeSibling)
 		return read.value.field.kind === "hidden"
 			? "join"
