@@ -394,17 +394,18 @@ def related_record_id_sent_twice(authoring, app_id):
 # Search fields ------------------------------------------------------------------------------------------------------
 
 
-def fields_grouped(authoring, app_id):
-    """Clients' six Search fields put in one group of its search screen, the group's own entry last."""
-    _set_each(
-        authoring,
-        app_id,
-        (
-            "/modules/0/search_config/properties/-",
-            {**_field("g", "Group"), "is_group": True, "group_key": "g"},
-        ),
-        *((f"/modules/0/search_config/properties/{index}/group_key", "g") for index in range(6)),
-    )
+def fields_with_ungrouped_prompt(authoring, app_id):
+    """Keep a real group's header and fields, then place a field outside it."""
+    from proof.hq import operations
+
+    module = operations.held_app(authoring.state, app_id).get_module(0)
+    key = "group_header_0"
+    rows = [
+        {**_field(key, "Group"), "is_group": True, "group_key": key},
+        *({**field.to_json(), "group_key": key} for field in module.search_config.properties),
+        _field("region", "Region"),
+    ]
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
 
 
 # Registration after an empty search ---------------------------------------------------------------------------------

@@ -24,6 +24,7 @@ import { filledProse, translationFillSource } from "./translationFill";
 import {
 	caseListWordingUnitId,
 	localizeTranslationUnit,
+	searchInputGroupLabelUnitId,
 	snapshotTranslationUnits,
 	type TranslationUnit,
 } from "./translationUnits";
@@ -200,6 +201,8 @@ export function projectLocalizedModule(
 				return next;
 			},
 		);
+		for (const group of list.searchInputGroups ?? [])
+			group.label = text(searchInputGroupLabelUnitId(group.uuid), group.label);
 		localized.caseListConfig.searchInputs =
 			localized.caseListConfig.searchInputs.map((input) => {
 				const next = {

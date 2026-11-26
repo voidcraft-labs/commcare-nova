@@ -640,3 +640,52 @@ def test_web_apps_opens_the_form_with_both_named_search_answers(
         assert result["caseLists"] == [[f"row-{parent.case_id}"], [f"row-{child.case_id}"]]
         assert result["names"] == ["MemberLookup", "FamilyLookup"]
         assert result["answers"] == ["North/West"]
+
+
+def test_web_apps_keeps_grouped_search_headings_and_answers_after_hq_save(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["search-grouped-prompts"]
+    headings = """() => [...document.querySelectorAll('.search-query-group-header-label')]
+        .map(label => label.textContent.trim())"""
+    collapse_second = """async () => {
+        const content = document.getElementById('group-group_header_2');
+        const closed = new Promise(resolve => content.addEventListener('hidden.bs.collapse', resolve, {once: true}));
+        document.querySelector('[data-bs-target="#group-group_header_2"]').click();
+        await closed;
+        return getComputedStyle(content).display === 'none';
+    }"""
+    observed = {}
+    with webapps_hq.project(document) as project:
+        for name, saves in (("published", ()), ("saved", ((pages.CASE_LIST, project.module_id(0)),))):
+            with project.released(formplayer_runner, saves=saves, driver=editor_driver, label=name) as release:
+                opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+                path = [
+                    *opening,
+                    {"eval": headings},
+                    *steps.type_prompt(0, "North"),
+                    *steps.type_prompt(1, "River"),
+                    {"eval": collapse_second},
+                    *steps.run_search(),
+                    steps.SCREEN,
+                ]
+                run = Session(release, editor_driver).run(path)
+                sent = [
+                    entry["inputs"]
+                    for request in _menu_requests(run)
+                    if request["searched"]
+                    for entry in request["queryData"].values()
+                    if isinstance(entry, dict) and entry.get("execute")
+                ]
+                observed[name] = {
+                    "headings": run.value(len(opening)),
+                    "collapsed": run.value(len(opening) + 1 + 2 * len(steps.type_prompt(0, ""))),
+                    "inputs": sent,
+                    "pageErrors": run.page_errors,
+                }
+    evidence("grouped-search-headings", observed)
+    for side in observed.values():
+        assert side["headings"] == ["Personal details", "Case details"]
+        assert side["collapsed"] is True
+        assert side["inputs"] == [{"first_name": "North", "case_name": "River"}]
+        assert side["pageErrors"] == []

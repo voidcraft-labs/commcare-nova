@@ -1437,6 +1437,22 @@ function promptDifference(
 	ours: JsonObject,
 	firstValidation: Readonly<Record<string, string>> | undefined,
 ): string | undefined {
+	const storedGroup = stored.is_group === true;
+	if (storedGroup !== (ours.is_group === true))
+		return "schema:CaseSearchProperty.is_group";
+	if (storedGroup)
+		return sameTexts(
+			codes,
+			source,
+			"search-input-group-label",
+			stored.label,
+			ours.label,
+		)
+			? undefined
+			: "schema:CaseSearchProperty.label";
+	// Group keys change with row placement in the Case List editor. The
+	// first pass already proved every field belongs to its preceding heading.
+
 	for (const key of PROMPT_PLAIN_KEYS)
 		if (!(BLANK(stored[key]) && BLANK(ours[key])) && stored[key] !== ours[key])
 			return `schema:CaseSearchProperty.${key}`;

@@ -1500,6 +1500,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_NOT_ON_DEVICE: (e) =>
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} uses a date calculation the device can't run. Use a whole date with seconds, minutes, hours, days, or weeks.`,
+	CASE_SEARCH_GROUP_FIELD_NAME_COLLISION: (e) =>
+		`CommCare reserves the Search field name ${q(det(e, "inputName", ""))} for a heading. You can rename the field under More settings.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
 	PROJECT_SEARCH_REQUEST: (e) => {

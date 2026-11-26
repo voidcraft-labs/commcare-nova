@@ -12,6 +12,7 @@ import type {
 	BlueprintDoc,
 	LookupTableId,
 	SearchInputDef,
+	SearchInputGroup,
 	Uuid,
 } from "@/lib/domain";
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
@@ -25,7 +26,10 @@ import {
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { SearchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
-import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
+import {
+	searchInputGroupLabelUnitId,
+	type TranslationUnitRole,
+} from "@/lib/domain/translationUnits";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -335,13 +339,22 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	 *  a check that shows CommCare's sentence (`readPrompt`). */
 	requiredNoMessage: take(NO_MESSAGE, "schema:Assertion.text"),
 	validationNoMessage: take(NO_MESSAGE, "schema:Assertion.text"),
-	group: refuse(`${S}is-group-group-key`, "schema:CaseSearchProperty.is_group"),
+	group: take(`${S}is-group-group-key`, "schema:CaseSearchProperty.is_group"),
+	groupName: take(`${S}is-group-group-key`, "schema:CaseSearchProperty.name"),
+	groupLabel: take(`${S}is-group-group-key`, "schema:CaseSearchProperty.label"),
+	groupLayout: refuse(
+		`${S}search-group-layout-unreadable`,
+		"schema:CaseSearchProperty.group_key",
+	),
+	groupHeading: refuse(
+		`${S}search-group-heading-unreadable`,
+		"schema:CaseSearchProperty.label",
+	),
 	groupMissing: refuse(
 		`${S}groups-present-and-an-input-without-group-key`,
 		"schema:CaseSearchProperty.group_key",
 	),
-	/** A member's `group_key` beside groups: the group's own finding (`readPrompt`). */
-	groupKey: refuse(
+	groupKey: take(
 		`${S}is-group-group-key`,
 		"schema:CaseSearchProperty.group_key",
 	),
@@ -478,13 +491,122 @@ function carriesWidget(prompt: JsonCursor): boolean {
  * what the settle needs. A prompt that raised a finding is read as far as the finding leaves it
  * (`PromptReading.refused`); a group's own entry, which is no field, has no reading.
  */
+/** Read physical heading rows separately from the fields that send answers. */
+function readSearchGroups(
+	ctx: ReadContext,
+	module: DraftModule,
+	prompts: readonly JsonCursor[],
+	place: HqPlace,
+) {
+	const groups: SearchInputGroup[] = [];
+	const hasFields = prompts.some((row) => row.peek("is_group") !== true);
+	const memberships = new Map<JsonCursor, Uuid>();
+	const keys = new Set<string>();
+	let refused = false;
+	for (const [index, row] of prompts.entries()) {
+		if (row.peek("is_group") !== true) continue;
+		const key = row.peek("group_key");
+		if (
+			typeof key !== "string" ||
+			!key ||
+			!hasFields ||
+			keys.has(key) ||
+			row.peek("name") !== key
+		) {
+			row.refuseWhole(P.groupLayout, { name: String(key ?? "") });
+			refused = true;
+			continue;
+		}
+		keys.add(key);
+		const codes = appCodes(ctx);
+		const copy = promptText(
+			ctx,
+			row.peek("label"),
+			codes,
+			"search-input-group-label",
+		);
+		const label = sourceText(ctx, copy.texts);
+		if (copy.held === undefined || !label) {
+			row.refuseWhole(P.groupHeading, { name: key });
+			refused = true;
+			continue;
+		}
+		const members: JsonCursor[] = [];
+		for (let next = index + 1; next < prompts.length; next++) {
+			const member = prompts[next];
+			if (member.peek("is_group") === true) break;
+			if (member.peek("group_key") !== key) {
+				refused = true;
+				continue;
+			}
+			members.push(member);
+		}
+		const names = members.flatMap((member) => {
+			const name = member.peek("name");
+			return typeof name === "string" ? [name] : [];
+		});
+		const uuid = ctx.accounting.identity(
+			ctx.identities.claim(
+				externalKey.searchInputGroup(module.uniqueId, names, groups.length),
+				`${module.uniqueId}/search/groups/${index}`,
+			),
+			place,
+			"schema:CaseSearchProperty.group_key",
+		);
+		if (uuid === undefined) {
+			refused = true;
+			continue;
+		}
+		row.take("is_group", P.group, Boolean).value;
+		row.take("name", P.groupName, String).value;
+		row.take("group_key", P.groupKey, String).value;
+		row.take("label", P.groupLabel, languageMap).value;
+		ctx.translations.set(
+			searchInputGroupLabelUnitId(uuid),
+			"text",
+			translatedTexts(ctx, copy.texts),
+		);
+		groups.push({ uuid, label });
+		if (key !== `group_header_${index}`) {
+			for (const owningRow of [row, ...members])
+				sameState(
+					ctx,
+					P.groupKey.entry,
+					`${owningRow.pointer}/group_key`,
+					"list-settings-respelled",
+				);
+			sameState(
+				ctx,
+				P.groupName.entry,
+				`${row.pointer}/name`,
+				"list-settings-respelled",
+			);
+		}
+		for (const member of members) memberships.set(member, uuid);
+	}
+	const grouped = prompts.some(
+		(row) => row.peek("is_group") === true || row.used("group_key"),
+	);
+	return {
+		groups,
+		memberships,
+		refused:
+			refused ||
+			(grouped &&
+				prompts.some(
+					(row) => row.peek("is_group") !== true && !memberships.has(row),
+				)),
+		grouped,
+	};
+}
+
 export function readSearchPrompts(
 	ctx: ReadContext,
 	module: DraftModule,
 	config: JsonCursor,
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
 	projectService = false,
-): readonly PromptReading[] {
+) {
 	const place = searchPlace(module);
 	const prompts = config.list(
 		"properties",
@@ -492,9 +614,7 @@ export function readSearchPrompts(
 		P.order,
 		() => place,
 	);
-	const grouped = prompts.some(
-		(prompt) => prompt.peek("is_group") === true || prompt.used("group_key"),
-	);
+	const groupReading = readSearchGroups(ctx, module, prompts, place);
 	// Each of these texts is emitted into the same remote request. Exclude
 	// group headings and gated defaults, which need their own target facts.
 	const suiteSources = new Map<string, string>();
@@ -530,19 +650,25 @@ export function readSearchPrompts(
 	}
 	const out: PromptReading[] = [];
 	for (const prompt of prompts) {
+		if (prompt.peek("is_group") === true) continue;
 		const reading = readPrompt(
 			ctx,
 			module,
 			prompt,
 			place,
 			defaultFilterNames,
-			grouped,
+			groupReading.grouped,
+			groupReading.memberships.get(prompt),
 			suiteSources,
 			projectService,
 		);
 		if (reading !== undefined) out.push(reading);
 	}
-	return out;
+	return {
+		prompts: out,
+		groups: groupReading.groups,
+		groupRefused: groupReading.refused,
+	};
 }
 
 function readPrompt(
@@ -552,23 +678,13 @@ function readPrompt(
 	place: HqPlace,
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
 	grouped: boolean,
+	group: Uuid | undefined,
 	suiteSources: ReadonlyMap<string, string>,
 	projectService: boolean,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
 	const named = { name: name };
-	// A group's own entry is no field: HQ's build makes it a group of the search screen
-	// (`remote_requests.py::build_query_prompt_groups`), which Nova holds no slot for. It is one
-	// finding, naming the group's key, as each member's `group_key` names it, and covers every key
-	// the entry holds.
-	if (prompt.peek("is_group") === true) {
-		const groupKey = prompt.peek("group_key");
-		prompt.refuseWhole(P.group, {
-			name: typeof groupKey === "string" ? groupKey : name,
-		});
-		return undefined;
-	}
 	// Each refusal is the one finding for its cause, at the key that holds it, and the reading
 	// goes on: every other key of the prompt is read as it would be, or, where the refusal leaves
 	// nothing to read it into, stands under that finding (`cover`), so the close names none of
@@ -696,14 +812,9 @@ function readPrompt(
 		for (const pointer of defaultFilterNames.get(name) ?? [])
 			ctx.accounting.findingAt(P.nameShared, place, pointer, named);
 	}
-	// Beside a group, a member's `group_key` names its group, whose own entry's finding it is; a
-	// member with none is a finding of its own.
 	if (grouped) {
-		const groupKey = prompt.peek("group_key");
-		if (prompt.used("group_key"))
-			refuseWith("group_key", P.groupKey, prompt, {
-				name: String(groupKey),
-			});
+		if (group !== undefined) prompt.take("group_key", P.groupKey, String).value;
+		else if (prompt.used("group_key")) refuseWith("group_key", P.groupLayout);
 		else refuseWith("group_key", P.groupMissing);
 	}
 	if (holds("receiver_expression"))
@@ -1401,6 +1512,7 @@ function readPrompt(
 	const common = {
 		uuid,
 		name,
+		...(group !== undefined && { group }),
 		label: sourceText(ctx, label),
 		...(hint !== "" && { hint }),
 		...(required !== undefined && {
@@ -1425,6 +1537,7 @@ function readPrompt(
 			uuid,
 			name,
 			label: common.label,
+			...(group !== undefined && { group }),
 			kind: "hidden",
 			...(projectService && !exclude && { sendAnswer: true as const }),
 			...(defaultIndex !== undefined && {

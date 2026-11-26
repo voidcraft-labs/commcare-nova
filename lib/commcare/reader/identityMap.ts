@@ -1,3 +1,4 @@
+import { searchInputGroupsWithMembers } from "@/lib/domain";
 import {
 	type LookupRead,
 	lookupReadType,
@@ -358,6 +359,17 @@ export function externalIdentityMap(
 					filter.uuid,
 				);
 			}
+			for (const [position, group] of searchInputGroupsWithMembers(
+				config,
+			).entries())
+				add(
+					externalKey.searchInputGroup(
+						uniqueId,
+						group.inputs.map(({ name }) => name),
+						position,
+					),
+					group.uuid,
+				);
 			for (const input of config.searchInputs)
 				add(externalKey.searchInput(uniqueId, input.name), input.uuid);
 		}

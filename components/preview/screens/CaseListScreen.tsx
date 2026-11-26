@@ -127,6 +127,7 @@ import {
 	orderedColumns,
 	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
+	searchInputGroupLabelUnitId,
 	searchScreenTitleText,
 	visibleSearchInputs,
 } from "@/lib/domain";
@@ -848,7 +849,11 @@ export function CaseListScreen({
 	 * prompts the platform draws decide whether a worker has a Search screen
 	 * to fill in: Web Apps draws no field marked hidden, Android draws it
 	 * (`drawnSearchInputs`). */
-	const hasSearchInputs = visibleSearchInputs(searchRun.drawnInputs).length > 0;
+	const hasSearchInputs =
+		visibleSearchInputs(searchRun.drawnInputs).length > 0 ||
+		(platformRules.searchFieldGroups &&
+			(config?.searchInputGroups?.length ?? 0) > 0 &&
+			(config?.searchInputs.length ?? 0) > 0);
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
 	/* CommCare evaluates this predicate on the case-list Search action, before
 	 * the prompt screen exists. Preview's combined Search + Results composition
@@ -3365,6 +3370,13 @@ export function CaseListScreen({
 							landmarkLabel={title ?? undefined}
 							scopeKey={moduleUuid}
 							searchInputs={config?.searchInputs ?? []}
+							searchInputGroups={config?.searchInputGroups?.map((group) => ({
+								...group,
+								label:
+									(localizedValues.get(
+										searchInputGroupLabelUnitId(group.uuid),
+									) as string | undefined) ?? group.label,
+							}))}
 							filter={config?.filter}
 							caseType={caseType}
 							session={searchSession}

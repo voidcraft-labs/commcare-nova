@@ -67,6 +67,11 @@ function nestedModuleIdentities(
 			kind: "caseDetailTab" as const,
 			ownerUuid: module.uuid,
 		})),
+		...(module.caseListConfig?.searchInputGroups ?? []).map((group) => ({
+			uuid: group.uuid,
+			kind: "searchInputGroup" as const,
+			ownerUuid: module.uuid,
+		})),
 		...(module.caseListConfig?.columns ?? []).map((column) => ({
 			uuid: column.uuid,
 			kind: "caseListColumn" as const,
@@ -465,6 +470,14 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setCaseListMeta": {
 			const edit = mutation.patch.searchFilterEdit;
 			return [
+				...(mutation.patch.searchInputGroups ?? []).map((group) => ({
+					identity: {
+						uuid: group.uuid,
+						kind: "searchInputGroup" as const,
+						ownerUuid: mutation.uuid,
+					},
+					preserveIfOwnedBy: mutation.uuid,
+				})),
 				...(mutation.patch.detailTabs ?? []).map((tab) => ({
 					identity: {
 						uuid: tab.uuid,
@@ -731,8 +744,20 @@ export function mutationIdentityAdmissionIssue(
 		// Duplicate claims inside one payload are collisions. A later atomic
 		// replacement may still preserve identities continuously owned here.
 		const claimedInMutation = new Set<Uuid>();
-		const replacement = ownedIdentityReplacementBy(mutation);
-		if (replacement !== undefined) {
+		const replacements = [ownedIdentityReplacementBy(mutation)];
+		if (
+			mutation.kind === "setCaseListMeta" &&
+			mutation.patch.searchInputGroups !== undefined
+		)
+			replacements.push({
+				kind: "searchInputGroup",
+				ownerUuid: mutation.uuid,
+				retainedUuids: new Set(
+					(mutation.patch.searchInputGroups ?? []).map((group) => group.uuid),
+				),
+			});
+		for (const replacement of replacements) {
+			if (replacement === undefined) continue;
 			for (const identity of live.values()) {
 				if (
 					identity.kind === replacement.kind &&

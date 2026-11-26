@@ -189,6 +189,7 @@ export const CASE_LIST_KEY_PARTS = {
 	contextAboveForm: "case-details",
 	filter: "case-list",
 	searchInputs: "search",
+	searchInputGroups: "search",
 	searchFilters: "search",
 	searchCondition: "search",
 	selection: "case-list",

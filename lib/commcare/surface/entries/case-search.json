@@ -3555,6 +3555,8 @@
 		"item": "`is_group` + `group_key`",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.is_group",
+			"schema:CaseSearchProperty.name",
+			"schema:CaseSearchProperty.label",
 			"schema:CaseSearchProperty.group_key",
 			"parser:SessionDatumParser/group",
 			"parser:QueryGroupParser/group",
@@ -3564,10 +3566,9 @@
 			"parser:QueryPromptParser/prompt@group_key"
 		],
 		"valueClass": "grouped",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `searchInputGroups[]` with each input's group",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized Search headings and ordered groups. Android shows the fields in the same order.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -3580,6 +3581,60 @@
 		},
 		"emission": {
 			"cell": "group rows",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/search-group-layout-unreadable",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A Search group key that cannot identify the heading for its fields",
+		"surfaceKeys": ["schema:CaseSearchProperty.group_key"],
+		"valueClass": "search-group-layout-unreadable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the group or its members cannot be recovered as one ordered section.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "the group or its members cannot be recovered as one ordered section"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/search-group-heading-unreadable",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A Search heading with no localized label Nova can save",
+		"surfaceKeys": ["schema:CaseSearchProperty.label"],
+		"valueClass": "search-group-heading-unreadable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the heading has no representable localizable label.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "the heading has no representable localizable label"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

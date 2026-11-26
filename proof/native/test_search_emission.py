@@ -28,6 +28,8 @@ CORPORA = {
         "parent",
         "named-parent",
         "mixed-records",
+        "grouped-prompts",
+        "remote-grouped-prompts",
         "registration-link",
         "hidden-link",
         "automatic",
