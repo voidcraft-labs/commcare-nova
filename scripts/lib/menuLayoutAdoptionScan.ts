@@ -9,6 +9,8 @@ import {
 } from "@/lib/deployment/store";
 import { exportIdentityOf } from "@/lib/deployment/targetIdentity";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import type { MenuLayoutDecision } from "../migrations/step7-menu-layouts";
 import { planMenuLayoutAdoption } from "./menuLayoutAdoption";
 
 export async function scanMenuLayoutAdoptions(
@@ -37,6 +39,7 @@ export async function scanMenuLayoutAdoptions(
 			"d.server",
 			"d.domain",
 			"r.remote_id as remoteId",
+			"r.push_token as mappingToken",
 		])
 		.where("a.deleted_at", "is", null)
 		.where("d.state", "!=", "ended")
@@ -49,8 +52,23 @@ export async function scanMenuLayoutAdoptions(
 	for (const row of targets)
 		counts.set(row.appId, (counts.get(row.appId) ?? 0) + 1);
 	const outcomes = [];
+	const decisions: (MenuLayoutDecision & {
+		deploymentId: string;
+		remoteId: string;
+		mappingToken: string;
+		sourceDigest: string;
+		headSeq: number;
+	})[] = [];
 	for (const row of targets) {
-		const { appId, projectId, deploymentId, server, domain, remoteId } = row;
+		const {
+			appId,
+			projectId,
+			deploymentId,
+			server,
+			domain,
+			remoteId,
+			mappingToken,
+		} = row;
 		const identity = { appId, deploymentId };
 		if (!isCommCareServer(server)) {
 			outcomes.push({ ...identity, standing: "unreadable-destination" });
@@ -91,19 +109,56 @@ export async function scanMenuLayoutAdoptions(
 			wire,
 			sourceFromBaseline(baseline.source),
 		);
+		const standing =
+			plan.unresolved.length > 0
+				? "review"
+				: plan.mutations.length === 0
+					? "current"
+					: counts.get(appId) === 1
+						? "adopt"
+						: "multiple-targets";
+		if (standing === "adopt" && remoteId && mappingToken) {
+			decisions.push({
+				appId,
+				projectId,
+				deploymentId,
+				remoteId,
+				mappingToken,
+				sourceDigest: baseline.sourceDigest,
+				headSeq: stored.mutation_seq,
+				settings: plan.settings,
+				gridMenus: plan.gridMenus,
+			});
+		}
 		outcomes.push({
 			...identity,
 			standing:
-				plan.unresolved.length > 0
-					? "review"
-					: plan.mutations.length === 0
-						? "current"
-						: counts.get(appId) === 1
-							? "adopt"
-							: "multiple-targets",
+				standing === "adopt" && (!remoteId || !mappingToken)
+					? "unreadable-claim"
+					: standing,
 			mutations: plan.mutations.length,
 			unresolved: plan.unresolved.length,
 		});
 	}
-	return outcomes;
+	return { outcomes, decisions, digest: canonicalJsonDigest(decisions) };
+}
+
+/** Re-read the exact claims and revisions after the release transaction has
+ * fenced writers. The converter receives the same decisions this compares. */
+export async function checkMenuLayoutSourceFacts(
+	tx: Transaction<AppDatabase>,
+	reviewed: Pick<
+		Awaited<ReturnType<typeof scanMenuLayoutAdoptions>>,
+		"decisions" | "digest"
+	>,
+): Promise<void> {
+	const current = await scanMenuLayoutAdoptions(tx);
+	if (
+		current.digest !== reviewed.digest ||
+		canonicalJsonDigest(reviewed.decisions) !== reviewed.digest
+	) {
+		throw new Error(
+			"The retained menu layout sources changed. Scan the active deployments again.",
+		);
+	}
 }

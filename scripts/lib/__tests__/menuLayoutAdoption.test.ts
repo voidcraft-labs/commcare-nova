@@ -5,7 +5,9 @@ import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import { sourceFromBaseline } from "@/lib/deployment/hqChanges/baselineSource";
 import { legacyMenuLayoutLines } from "@/lib/deployment/legacyMenuLayouts";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { convertMenuLayouts } from "../../migrations/step7-menu-layouts";
 import { planMenuLayoutAdoption } from "../menuLayoutAdoption";
 
 const retainedAnswer = JSON.parse(
@@ -118,7 +120,7 @@ describe("adopting retained menu layouts", () => {
 
 	it("leaves a layout without a matching menu for publish review", () => {
 		const source = heldSource("none", false, "missing");
-		expect(planMenuLayoutAdoption(doc, identity, source)).toEqual({
+		expect(planMenuLayoutAdoption(doc, identity, source)).toMatchObject({
 			mutations: [],
 			unresolved: [{ kind: "menu", position: 2 }],
 		});
@@ -126,4 +128,39 @@ describe("adopting retained menu layouts", () => {
 			legacyMenuLayoutLines({ doc, identity, source, ownership: null }),
 		).toHaveLength(1);
 	});
+});
+
+it("applies the frozen layout to each stored version by identity and leaves private genesis alone", () => {
+	const source = heldSource("some", true, "follow-up");
+	const plan = planMenuLayoutAdoption(doc, identity, source);
+	const coordinate = { appId: doc.appId, projectId: "project" };
+	const decisions = [
+		{ ...coordinate, settings: plan.settings, gridMenus: plan.gridMenus },
+	];
+	const snapshot = toPersistableDoc(doc);
+	const converted = convertMenuLayouts(snapshot, decisions, coordinate);
+	const admitted = mutationCommitVerdict(
+		doc,
+		plan.mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!admitted.ok) throw new Error(JSON.stringify(admitted.findings));
+	expect(converted).toEqual(toPersistableDoc(admitted.nextDoc));
+	expect(snapshot.modules[followUp].menuLayout).toBeUndefined();
+	expect(convertMenuLayouts(converted, decisions, coordinate)).toEqual(
+		converted,
+	);
+	expect(
+		convertMenuLayouts(snapshot, decisions, {
+			...coordinate,
+			purpose: "private-genesis",
+		}),
+	).toBe(snapshot);
+	const historical = {
+		...snapshot,
+		modules: { [intake]: snapshot.modules[intake] },
+	};
+	const reference = convertMenuLayouts(historical, decisions, coordinate);
+	expect(reference.modules).toEqual(historical.modules);
+	expect(reference.appSettings).toEqual(converted.appSettings);
 });

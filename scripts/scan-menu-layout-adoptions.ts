@@ -14,7 +14,7 @@ const options = new Command()
 	.option("--app <appId>", "scope the scan to one app")
 	.option(
 		"--output <path>",
-		"write a new private JSON file with app and deployment IDs",
+		"write a new private JSON file with deployment evidence and planned layout choices",
 	)
 	.option(
 		"--prod",
@@ -27,26 +27,26 @@ if (options.prod) targetProdDb();
 runMain(async () => {
 	try {
 		const db = await getAppDb();
-		const outcomes = await db
+		const scan = await db
 			.transaction()
 			.setIsolationLevel("repeatable read")
 			.setAccessMode("read only")
 			.execute((tx) => scanMenuLayoutAdoptions(tx, options.app));
 		const counts: Record<string, number> = {};
-		for (const { standing } of outcomes)
+		for (const { standing } of scan.outcomes)
 			counts[standing] = (counts[standing] ?? 0) + 1;
 		console.log(
-			JSON.stringify({ deployments: outcomes.length, counts }, null, 2),
+			JSON.stringify(
+				{ deployments: scan.outcomes.length, counts, digest: scan.digest },
+				null,
+				2,
+			),
 		);
 		if (options.output !== undefined) {
-			await writeFile(
-				options.output,
-				`${JSON.stringify(outcomes, null, 2)}\n`,
-				{
-					flag: "wx",
-					mode: 0o600,
-				},
-			);
+			await writeFile(options.output, `${JSON.stringify(scan, null, 2)}\n`, {
+				flag: "wx",
+				mode: 0o600,
+			});
 		}
 	} finally {
 		await closeCaseStoreDatabase();

@@ -4,7 +4,11 @@ import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 
+import type { MenuLayoutDecision } from "../migrations/step7-menu-layouts";
+
 interface MenuLayoutAdoption {
+	readonly settings: MenuLayoutDecision["settings"];
+	readonly gridMenus: MenuLayoutDecision["gridMenus"];
 	readonly mutations: readonly Mutation[];
 	readonly unresolved: readonly (
 		| { readonly kind: "first-menu" | "form-menus" }
@@ -27,7 +31,7 @@ export function planMenuLayoutAdoption(
 		doc.appSettings.formMenuLayout !== undefined ||
 		doc.moduleOrder.some((uuid) => doc.modules[uuid]?.menuLayout !== undefined)
 	) {
-		return { mutations: [], unresolved: [] };
+		return { settings: {}, gridMenus: [], mutations: [], unresolved: [] };
 	}
 
 	const held = retainedMenuLayouts(source);
@@ -59,6 +63,7 @@ export function planMenuLayoutAdoption(
 		if (uniqueId !== null)
 			counts.set(uniqueId, (counts.get(uniqueId) ?? 0) + 1);
 	}
+	const gridMenus: MenuLayoutDecision["gridMenus"][number][] = [];
 	for (const { position, layout } of held.menus) {
 		const id = source.modules[position]?.uniqueId;
 		const uuid = id && counts.get(id) === 1 ? byId.get(id) : undefined;
@@ -66,6 +71,7 @@ export function planMenuLayoutAdoption(
 			unresolved.push({ kind: "menu", position });
 			continue;
 		}
+		gridMenus.push(uuid);
 		mutations.push({
 			kind: "updateModule",
 			uuid,
@@ -73,5 +79,5 @@ export function planMenuLayoutAdoption(
 		});
 	}
 
-	return { mutations, unresolved };
+	return { settings, gridMenus, mutations, unresolved };
 }
