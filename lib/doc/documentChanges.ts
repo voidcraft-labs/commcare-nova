@@ -195,6 +195,7 @@ export const CASE_LIST_KEY_PARTS = {
 	emptyText: "case-list",
 	selectButtonText: "case-list",
 	optimizations: "case-list",
+	deviceLookup: "case-list",
 	tile: "case-list",
 } as const satisfies Record<keyof CaseListConfig, MenuPart>;
 
