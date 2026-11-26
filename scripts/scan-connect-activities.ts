@@ -6,7 +6,7 @@
  * current document holds a set of roles (`apps.connect_roles`) and each block
  * as a `connect_activity` field at its place in the form. A row whose
  * `connect_roles` is NULL still holds the released shape and cannot be opened
- * until the reviewed conversion (`scripts/migrations/step7-connect-activities.mjs`)
+ * until the reviewed conversion (`lib/db/releasedConnectShape.mjs`)
  * has written it.
  *
  * For every such row, including deleted ones a restore can still reach, this

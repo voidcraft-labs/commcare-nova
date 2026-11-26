@@ -228,9 +228,11 @@ column is nullable while the released scalar `apps.connect_type` and the
 released per-form `connect` configuration still exist: a row whose
 `connect_roles` is NULL holds the released shape, fails the document's strict
 parse, and is converted only by the reviewed Connect conversion
-(`scripts/migrations/step7-connect-activities.mjs`, scanned read-only by
-`scripts/scan-connect-activities.ts`). The fold snapshot projects the released
-scalar for such a row and the roles for a converted one.
+(`lib/db/releasedConnectShape.mjs`, scanned read-only by
+`scripts/scan-connect-activities.ts`). The persisted reader decodes a released
+root through the same converter only where a caller hands it one (a migration
+replaying over the rows it was written for). The fold snapshot projects the
+released scalar for such a row and the roles for a converted one.
 `apps.app_settings` is a root column holding the document's `appSettings`
 object. The DDL leaves it nullable, and every row holds an object: genesis
 writes it, a `NULL` fails the strict parse, and
