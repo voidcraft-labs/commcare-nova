@@ -46,6 +46,7 @@ import {
 	type Expression,
 	effectiveFilterForEmission,
 } from "@/lib/domain/expression";
+import { requestedRecordTypes } from "@/lib/domain/modules";
 import { searchConditionOf } from "@/lib/domain/searchConditions";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import {
@@ -352,6 +353,7 @@ export function CaseAvailabilityComposer({
 					currentCaseType && (
 						<SearchFilters
 							moduleUuid={moduleUuid}
+							requestedTypes={requestedRecordTypes(currentCaseType, config)}
 							filters={config.searchFilters ?? []}
 							caseTypes={caseTypes}
 							currentCaseType={currentCaseType}

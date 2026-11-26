@@ -1,4 +1,10 @@
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	effectiveCaseSearchConfig,
+	type Module,
+	requestedRecordTypes,
+	type Uuid,
+} from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
 import {
@@ -28,8 +34,11 @@ export function nativeSearchFilters(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const filters = mod.caseListConfig?.searchFilters ?? [];
-	// An order names properties of the menu's record type, or a record
-	// attribute HQ's index holds (`case_search/const.py::INDEXED_METADATA_BY_KEY`).
+	const types = effectiveCaseTypes(doc);
+	const requested = mod.caseType
+		? requestedRecordTypes(mod.caseType, mod.caseListConfig)
+		: [];
+	// An order names a property of a requested record type or an indexed attribute (`case_search/const.py::INDEXED_METADATA_BY_KEY`).
 	const order = [
 		...(isOrdinaryCaseSearchConfig(mod.caseSearchConfig)
 			? (mod.caseSearchConfig.requestOrder ?? [])
@@ -37,9 +46,9 @@ export function nativeSearchFilters(
 		...filters.flatMap((row) => ("order" in row ? row.order : [])),
 	];
 	if (order.length > 0) {
-		const properties =
-			effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
-				?.properties ?? [];
+		const properties = types
+			.filter((type) => requested.includes(type.name))
+			.flatMap((type) => type.properties);
 		for (const term of order) {
 			const known =
 				CASE_NODE_ATTRIBUTE_PROPERTIES.has(term.property) ||
@@ -50,7 +59,7 @@ export function nativeSearchFilters(
 					validationError(
 						"CASE_SEARCH_FILTER_INVALID",
 						"module",
-						`Choose a property of ${mod.caseType} in place of “${term.property}” to order the matches.`,
+						`Choose a property from the records this search requests in place of “${term.property}” to order the matches.`,
 						{ moduleUuid, moduleName: mod.name },
 					),
 				);
@@ -73,10 +82,42 @@ export function nativeSearchFilters(
 	const names = new Set(
 		mod.caseListConfig?.searchInputs.map((input) => input.name),
 	);
+	const offered = new Set(
+		Object.values(doc.modules).map((menu) => menu.caseType),
+	);
+	for (const type of mod.caseListConfig?.additionalCaseTypes ?? []) {
+		if (type === mod.caseType || !offered.has(type))
+			errors.push(
+				validationError(
+					"CASE_SEARCH_FILTER_INVALID",
+					"module",
+					"Choose another record type with a menu in this app.",
+					{ moduleUuid, moduleName: mod.name },
+				),
+			);
+	}
+	const checkRelatedId = (property: string) => {
+		if (
+			!types.some(
+				(type) =>
+					requested.includes(type.name) &&
+					type.properties.some((p) => p.name === property),
+			)
+		) {
+			errors.push(
+				validationError(
+					"CASE_SEARCH_FILTER_INVALID",
+					"module",
+					"Choose a property on a record type in this search that holds the related record ID.",
+					{ moduleUuid, moduleName: mod.name },
+				),
+			);
+		}
+	};
+	const dedicatedProperty =
+		effectiveCaseSearchConfig(mod)?.relatedRecordIdProperty;
+	if (dedicatedProperty) checkRelatedId(dedicatedProperty);
 	for (const [index, filter] of filters.entries()) {
-		if (!("target" in filter)) continue;
-		const key = searchFilterKey(filter.target);
-		const parsed = readSearchFilterTarget(key);
 		const reject = (message: string, details: Record<string, string>) =>
 			errors.push(
 				validationError(
@@ -87,6 +128,34 @@ export function nativeSearchFilters(
 					{ index: String(index), filterUuid: filter.uuid, ...details },
 				),
 			);
+		if (!("target" in filter)) {
+			if (
+				filter.kind === "request-record-type" &&
+				!effectiveCaseTypes(doc).some((type) => type.name === filter.caseType)
+			) {
+				reject("Choose a record type in this app for the search request.", {
+					reason: "record-type",
+				});
+			}
+			if (filter.kind === "related-record-id") checkRelatedId(filter.property);
+			if (
+				filter.kind === "related-record-id" &&
+				(effectiveCaseSearchConfig(mod)?.relatedRecordIdProperty ||
+					filters.some(
+						(other) =>
+							other !== filter &&
+							"kind" in other &&
+							other.kind === "related-record-id",
+					))
+			) {
+				reject("Choose one property that holds the related record ID.", {
+					reason: "related-record-id",
+				});
+			}
+			continue;
+		}
+		const key = searchFilterKey(filter.target);
+		const parsed = readSearchFilterTarget(key);
 		if (names.has(key))
 			reject(
 				`Search filter ${index + 1} on "${mod.name}" sends "${key}", which a search field there already sends.`,

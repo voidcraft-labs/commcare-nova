@@ -502,16 +502,15 @@ describe("a search's settings", () => {
 		expect(codes(reading)).toEqual([]);
 	});
 
-	it("raises `include_all_related_cases` stored where no field reads a related case", async () => {
+	it("keeps an explicit hierarchy where no field reads a related case", async () => {
 		const reading = await readLists(doc(), {
 			edit: (app) => {
 				const config = app.modules[0]?.search_config;
 				if (config !== undefined) config.include_all_related_cases = true;
 			},
 		});
-		expect(codes(reading)).toContain(
-			"case-search/include-all-related-cases-authored-without-relation-reads",
-		);
+		expect(codes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({ relatedRecords: "hierarchy" });
 	});
 
 	it.each(["patients", "Client_Étage2"])(
@@ -843,7 +842,9 @@ describe("a search's default filters", () => {
 		expect(codes(sort)).toContain(sortKey);
 		expect(codes(sort)).not.toContain(runtime);
 		const type = await keyed("case_type", "'patient'");
-		expect(codes(type)).toContain(typeKey);
+		expect(listOf(type).searchFilters).toMatchObject([
+			{ kind: "request-record-type", caseType: "patient" },
+		]);
 		expect(codes(type)).not.toContain(runtime);
 	});
 

@@ -150,7 +150,7 @@ export function buildRestoreScope(
 	db: Kysely<Database>,
 	args: RestoreScopeArgs,
 ): RestoreScopeQuery {
-	const { appId, projectId, ownerIds } = args;
+	const { ownerIds } = args;
 
 	if (ownerIds.length === 0) {
 		// Not a state a caller can reach honestly: `personaOwnerIds` always
@@ -168,6 +168,30 @@ export function buildRestoreScope(
 		);
 	}
 
+	return buildLiveCaseScope(db, args, {
+		column: "seed.owner_id",
+		values: ownerIds,
+	});
+}
+
+/** HQ uses the same live-case algorithm for search, seeded by the IDs of
+ * the primary hits and explicit related records in this response. */
+export function searchRelatedLiveScope(
+	db: Kysely<Database>,
+	tenant: Pick<RestoreScopeArgs, "appId" | "projectId">,
+	caseIds: readonly string[],
+): RestoreScopeQuery {
+	return buildLiveCaseScope(db, tenant, {
+		column: "seed.case_id",
+		values: caseIds,
+	});
+}
+
+function buildLiveCaseScope(
+	db: Kysely<Database>,
+	{ appId, projectId }: Pick<RestoreScopeArgs, "appId" | "projectId">,
+	seed: { column: "seed.case_id" | "seed.owner_id"; values: readonly string[] },
+): RestoreScopeQuery {
 	const scoped = db
 		.withRecursive("avail(case_id, is_open)", (qb) =>
 			qb
@@ -178,7 +202,9 @@ export function buildRestoreScope(
 				.where("seed.app_id", "=", appId)
 				.where("seed.project_id", "=", projectId)
 				.where("seed.status", "is distinct from", CLOSED)
-				.where("seed.owner_id", "in", ownerIds)
+				.where(
+					sql<boolean>`${sql.ref(seed.column)} = any(${seed.values}::text[])`,
+				)
 				// Walk UP extension edges toward the host, carrying whether each
 				// host is itself open. The walk continues only FROM an open row,
 				// which is what makes a closed host terminate the chain rather than

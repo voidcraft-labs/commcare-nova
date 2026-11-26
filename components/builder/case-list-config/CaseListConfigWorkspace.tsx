@@ -134,6 +134,7 @@ import {
 import { formContextPatch } from "@/lib/domain/caseFormContext";
 import type { Expression } from "@/lib/domain/expression";
 import { resolveAppLanguage } from "@/lib/domain/localization";
+import { requestedRecordTypes } from "@/lib/domain/modules";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
@@ -3040,6 +3041,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 					: "Search action",
 				body: (
 					<SearchPanelInspectorBody
+						requestedTypes={requestedRecordTypes(args.caseType, config)}
 						moduleUuid={args.moduleUuid}
 						value={effectiveSearch}
 						onChange={args.onSearchConfigChange}

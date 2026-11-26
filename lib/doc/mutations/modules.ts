@@ -737,6 +737,10 @@ export function applyModuleMutation(
 					const row = rows.find((r) => r.uuid === edit.uuid);
 					if (row !== undefined) {
 						if (edit.operation === "edit") Object.assign(row, edit.patch);
+						else if (edit.operation === "replace")
+							config.searchFilters = rows.map((r) =>
+								r.uuid === edit.uuid ? edit.filter : r,
+							);
 						else if (edit.operation === "move")
 							config.searchFilters = spliceEntryAfter(rows, row, edit.after);
 						else {

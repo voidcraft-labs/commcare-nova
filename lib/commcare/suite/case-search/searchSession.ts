@@ -31,6 +31,7 @@ import {
 import type { DatumRef } from "@/lib/domain/expression/types";
 import {
 	isDedicatedOwnerFilter,
+	menuRecordTypes,
 	searchOwnerOverride,
 } from "@/lib/domain/modules";
 import type { ModuleExpressionContexts } from "../../expressionContext";
@@ -44,7 +45,7 @@ import {
 	projectSearchValues,
 	requiredProjectSearchId,
 } from "./projectSearch";
-import { searchNeedsSupportingCases } from "./relatedCaseProjection";
+import { includeSearchHierarchy } from "./relatedCaseProjection";
 import { requestOrderText } from "./requestOrder";
 import { buildSearchPrompts } from "./searchPrompts";
 import {
@@ -172,7 +173,10 @@ export function buildSearchSession(
 	// entry uses.
 	const datumNodeset = args.caseSearchConfig.projectSearch
 		? projectSearchResults(storageInstance)
-		: composeDatumNodeset(storageInstance, caseType);
+		: composeDatumNodeset(
+				storageInstance,
+				menuRecordTypes(caseType, caseListConfig),
+			);
 	const selection = caseListConfig.selection;
 	const multiple = selection?.kind === "multiple";
 	const datumEl = xel(
@@ -256,16 +260,18 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// quoted literal flows raw into the `ref` attribute; the
 	// serializer escapes the surrounding `'` characters once at render
 	// time (`&apos;`).
-	dataElements.push(
-		xel(
-			"data",
-			{
-				attributes: { key: "case_type" },
-				xpath: { ref: w.str(caseType) },
-			},
-			context,
-		),
-	);
+	for (const type of menuRecordTypes(caseType, caseListConfig)) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: "case_type" },
+					xpath: { ref: w.str(validateCaseType(type)) },
+				},
+				context,
+			),
+		);
+	}
 
 	// `_xpath_query` — one `<data>` element per composed clause: the
 	// unified filter's top-level conjuncts, every advanced-arm search
@@ -402,9 +408,25 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		);
 	}
 
+	if (!projectSearch && caseSearchConfig.relatedRecordIdProperty) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: "x_commcare_custom_related_case_property" },
+					xpath: { ref: w.str(caseSearchConfig.relatedRecordIdProperty) },
+				},
+				context,
+			),
+		);
+	}
 	if (
 		!projectSearch &&
-		searchNeedsSupportingCases(caseListConfig, args.expressions)
+		includeSearchHierarchy(
+			caseListConfig,
+			args.expressions,
+			caseSearchConfig.relatedRecords,
+		)
 	) {
 		dataElements.push(
 			xel(
@@ -569,7 +591,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
  */
 function composeDatumNodeset(
 	storageInstance: "results" | `results:${string}`,
-	caseType: string,
+	caseTypes: readonly string[],
 ): WireExpr {
 	// CCHQ pins the path segment to `/results/case` regardless of
 	// instance id — the instance discriminator is the colon suffix
@@ -577,7 +599,11 @@ function composeDatumNodeset(
 	return w.instance(resultsInstance(storageInstance), [
 		w.step("results"),
 		w.step("case", [
-			w.eq(w.context([w.attr("case_type")]), w.str(caseType)),
+			w.or(
+				...caseTypes.map((type) =>
+					w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(type))),
+				),
+			),
 			w.not(
 				w.eq(
 					w.context([w.step("commcare_is_related_case")]),

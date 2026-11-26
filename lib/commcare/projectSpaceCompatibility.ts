@@ -46,7 +46,7 @@ import { addressSearchFormReasons } from "./planPrivileges";
 import { sameTypeBasicChildCases } from "./sameTypeChildCases";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
 import { readSearchFilterTarget } from "./suite/case-search/nativeFilters";
-import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
+import { includeSearchHierarchy } from "./suite/case-search/relatedCaseProjection";
 import {
 	searchInputIsSingleDate,
 	searchInputSuppressesAutoMatch,
@@ -183,6 +183,11 @@ export function advancedCaseSearchReasons(module: Module): string[] {
 		);
 	if (config.requestOrder !== undefined)
 		reasons.push("Search chooses which matches to send in a set order.");
+	if (effectiveCaseSearchConfig(module)?.relatedRecordIdProperty) {
+		reasons.push(
+			"A search includes the record named by a property of each match.",
+		);
+	}
 	if (inputs.some((input) => searchInputDefault(input) !== undefined)) {
 		reasons.push("A Search field starts with a suggested value.");
 	}
@@ -253,7 +258,13 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 	) {
 		reasons.push("A Search filter looks at related cases.");
 	}
-	if (searchNeedsSupportingCases(list, expressions)) {
+	if (
+		includeSearchHierarchy(
+			list,
+			expressions,
+			effectiveCaseSearchConfig(module)?.relatedRecords,
+		)
+	) {
 		reasons.push("A case list shows values from related cases.");
 	}
 	if (
@@ -505,6 +516,15 @@ export function projectSpaceCompatibilityProbePlan(
 				`“${module.name}” names its search results so forms can distinguish them from other searches.`,
 			);
 		}
+		if (
+			module.caseListConfig?.additionalCaseTypes?.length &&
+			moduleCaseTypeForActions(doc, module.uuid)
+		) {
+			addReason(
+				"mixed-record-case-lists",
+				"A case list offers more than one record type.",
+			);
+		}
 		if (effectiveCaseSearchConfig(module) === undefined) continue;
 		hasSearchAction = true;
 		addReason(
@@ -681,6 +701,7 @@ export function projectSpaceCompatibilityProbePlan(
 	}
 
 	for (const [capability, flags] of [
+		["mixed-record-case-lists", ["advanced-case-search"]],
 		["multi-select-case-lists", ["advanced-case-search"]],
 		["project-search", ["project-search"]],
 		["related-case-search", ["related-case-lookups"]],

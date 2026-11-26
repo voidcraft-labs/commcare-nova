@@ -18806,16 +18806,22 @@
 		"id": "hq-case-management/search-without-the-related-cases-it-reads",
 		"base": "hq-case-management",
 		"entry": "case-search/include-all-related-cases-false-where-nova-s-relation-reads",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "named",
 			"name": "search_without_the_related_cases_it_reads"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseSearchConfig/relatedRecords",
+				"value": "details"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/seen-moment-a-hidden-date-and-time",
@@ -36984,8 +36990,8 @@
 	{
 		"id": "hq-search/another-case-type-searched",
 		"base": "hq-search",
-		"entry": "case-search/additional-case-types",
-		"standing": "not-yet",
+		"entry": "case-search/additional-record-type-without-menu",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 0,
@@ -37711,12 +37717,6 @@
 		"id": "hq-search/default-filter-naming-a-case-type",
 		"base": "hq-search",
 		"entry": "case-search/default-properties-entry-keyed-case-type",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -37725,7 +37725,19 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'household'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/caseType",
+				"value": "household"
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-naming-a-registry",
@@ -40125,33 +40137,45 @@
 		"id": "hq-search/related-case-property",
 		"base": "hq-search",
 		"entry": "case-search/custom-related-case-property",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/custom_related_case_property",
 			"value": "parent_id"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/relatedRecordIdProperty",
+				"value": "parent_id"
+			}
+		]
 	},
 	{
 		"id": "hq-search/related-cases-included",
 		"base": "hq-search",
 		"entry": "case-search/include-all-related-cases-authored-without-relation-reads",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/include_all_related_cases",
 			"value": true
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/relatedRecords",
+				"value": "hierarchy"
+			}
+		]
 	},
 	{
 		"id": "hq-search/related-property-twice",
@@ -40173,8 +40197,8 @@
 			}
 		},
 		"second": {
-			"entry": "case-search/custom-related-case-property",
-			"standing": "not-yet",
+			"entry": "case-search/an-x-commcare-custom-related-case-property-entry-together-with",
+			"standing": "fix-in-hq",
 			"place": {
 				"kind": "search",
 				"menu": 1,
@@ -40876,17 +40900,52 @@
 		"id": "hq-search/search-endpoint",
 		"base": "hq-search",
 		"entry": "case-search/case-search-endpoint-id",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/search_config/case_search_endpoint_id",
-			"value": 1
-		}
+			"pointer": "/modules/0/search_config",
+			"value": {
+				"doc_type": "CaseSearch",
+				"case_search_endpoint_id": 1,
+				"properties": [],
+				"default_properties": [
+					{
+						"doc_type": "DefaultCaseSearchProperty",
+						"property": "district",
+						"defaultValue": "'north'"
+					},
+					{
+						"doc_type": "DefaultCaseSearchProperty",
+						"property": "_xpath_query",
+						"defaultValue": "concat('region', '-north')"
+					}
+				],
+				"auto_launch": true,
+				"default_search": false,
+				"inline_search": false
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/projectSearch/defaults/0/name",
+				"value": "district"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/projectSearch/defaults/1/name",
+				"value": "_xpath_query"
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-input-in-the-results-detail",
@@ -42497,6 +42556,80 @@
 				],
 				"pointer": "/caseListConfig/detailTabs/1/rowSource/includeChildrenOfType",
 				"value": "member"
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/choose-another-menu-record-type",
+		"base": "hq-case-management",
+		"entry": "case-search/additional-case-types",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/additional_case_types",
+			"value": ["household"]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/additionalCaseTypes",
+				"value": ["household"]
+			}
+		]
+	},
+	{
+		"id": "hq-search/related-hierarchy-request",
+		"base": "hq-search",
+		"entry": "case-search/default-related-record-inclusion",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_include_all_related_cases",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'false'"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/target/kind",
+				"value": "include-related-records"
+			}
+		]
+	},
+	{
+		"id": "hq-search/related-record-id-request",
+		"base": "hq-search",
+		"entry": "case-search/default-related-record-id-property",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "x_commcare_custom_related_case_property",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'standing'"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/property",
+				"value": "standing"
 			}
 		]
 	}

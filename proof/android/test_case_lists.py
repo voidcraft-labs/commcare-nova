@@ -616,13 +616,19 @@ def test_android_displays_the_web_apps_icon_as_a_path_without_submitting(android
             listed = _list(served, observe.release_archive(served), "web-list-icon-on-android", "m0-f0", [])
             assert [_texts(row)[:2] for row in listed["rows"]] == [["First visit", path], ["Second visit", path]]
             assert not served.hq.submissions
-def test_android_keeps_named_search_results_without_prompt_answers(android_documents, hq):
-    """The actual search activities install both rows on the form's path. Neither installs its prompt answers."""
+def test_android_keeps_named_search_results_without_prompt_answers(android_documents, hq, evidence):
+    """An HQ release exposes named results on Android, and Android leaves both prompt instances absent."""
     from proof.android import observe
+    from proof.formplayer import hq as formplayer_hq
     from proof.observe import casedata
     from proof.observe.record import Blobs
+    from proof.rules.conftest import published
 
     document = android_documents["search-named-parent"]
+    # The form reads Search answers and declares Web Apps. Nova's Android
+    # download correctly refuses it. HQ's release lets us witness the device
+    # limit directly with the same search frame and the same XForm.
+    assert document.local_ccz is None
     database = casedata.document_case_database(document)
     parent = next(record for record in database.cases if record.case_type == "parent_case")
     child = next(record for record in database.cases if record.case_type == "patient")
@@ -632,18 +638,22 @@ def test_android_keeps_named_search_results_without_prompt_answers(android_docum
     database = replace(database, cases=(parent, child))
     family, member = "results:FamilyLookup", "results:MemberLookup"
     prompts = {family: {"first_name": "North"}, member: {"first_name": "West"}}
-    with _archives(document, database) as (served, archives):
-        for label, archive in archives.items():
-            blobs = Blobs()
-            result = observe.app(served, blobs, label=label, archive=archive, commands=["m0-f0"], search_answers=prompts)
-            answer = blobs.get_json(result["answer"])
-            assert answer["install"] == "Installed", answer
-            assert answer["completedSearches"] == [
-                {
-                    "query": query,
-                    "submitted": prompts[query],
-                    "sources": {family: True, member: query == member, f"search-input:{family}": False,
-                                f"search-input:{member}": False},
-                }
-                for query in (family, member)
-            ], (label, answer["walks"])
+    with (
+        published(document, None) as app,
+        formplayer_hq.serve(app.unit, document, app.app_id, database=database) as served,
+    ):
+        blobs = Blobs()
+        result = observe.app(served, blobs, label="hq", archive=observe.release_archive(served),
+                             commands=["m0-f0"], search_answers=prompts)
+        answer = blobs.get_json(result["answer"])
+        assert answer["install"] == "Installed", answer
+        evidence("named-searches-on-android", answer["completedSearches"])
+        assert answer["completedSearches"] == [
+            {
+                "query": query,
+                "submitted": prompts[query],
+                "sources": {family: True, member: query == member, f"search-input:{family}": False,
+                            f"search-input:{member}": False},
+            }
+            for query in (family, member)
+        ], answer["walks"]

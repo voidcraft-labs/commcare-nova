@@ -24,6 +24,7 @@ import {
 	findAuthoredBlueprintIdentity,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	otherRecordTypesSchema,
 	searchOpensOnList,
 	type TranslationUnitId,
 	type Uuid,
@@ -79,6 +80,12 @@ const configureSearchDisplaySchema = setCaseSearchDisplayBodySchema.partial();
 export const configureCaseListInputSchema = z
 	.strictObject({
 		...moduleAddressSchema.shape,
+		additionalCaseTypes: otherRecordTypesSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Other record types workers can choose on this menu. Each needs a menu in this app. Clear with null.",
+			),
 		columns: z
 			.array(columnInputSchema)
 			.min(1)
@@ -185,6 +192,7 @@ export const configureCaseListInputSchema = z
 			});
 		}
 		if (
+			input.additionalCaseTypes === undefined &&
 			input.columns === undefined &&
 			input.calculatedSorts === undefined &&
 			input.removeCalculatedSorts === undefined &&
@@ -460,6 +468,27 @@ export const configureCaseListTool = {
 						),
 					).mutations,
 				);
+			}
+			if (
+				input.additionalCaseTypes !== undefined &&
+				(workingModule.caseListConfig || input.additionalCaseTypes !== null)
+			) {
+				if (!workingModule.caseListConfig)
+					append([
+						{
+							kind: "updateModule",
+							uuid: moduleUuid,
+							patch: {},
+							ensureCaseListConfig: true,
+						},
+					]);
+				append([
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { additionalCaseTypes: input.additionalCaseTypes },
+					},
+				]);
 			}
 			if ("filter" in input) {
 				append([

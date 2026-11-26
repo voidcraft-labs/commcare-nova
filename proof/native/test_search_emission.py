@@ -27,6 +27,7 @@ CORPORA = {
         "multiple",
         "parent",
         "named-parent",
+        "mixed-records",
         "registration-link",
         "hidden-link",
         "automatic",

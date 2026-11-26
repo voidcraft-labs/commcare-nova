@@ -165,3 +165,24 @@ function activeCaseType(context: ExpressionContext): string | undefined {
 			? row.capturedCase?.caseType
 			: undefined;
 }
+
+/** A dedicated choice is independent of a default request row. The
+ * request row supplies its own device-time value. An explicit hierarchy is
+ * still printed when both settings were authored. */
+export function includeSearchHierarchy(
+	config: CaseListConfig,
+	expressions: ModuleExpressionContexts,
+	policy?: "details" | "hierarchy",
+): boolean {
+	if (
+		policy === undefined &&
+		config.searchFilters?.some(
+			(filter) =>
+				"target" in filter && filter.target.kind === "include-related-records",
+		)
+	)
+		return false;
+	return policy === undefined
+		? searchNeedsSupportingCases(config, expressions)
+		: policy === "hierarchy";
+}

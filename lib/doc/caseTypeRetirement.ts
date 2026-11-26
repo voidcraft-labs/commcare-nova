@@ -54,6 +54,7 @@ import {
 	MODULE_REFERENCE_SLOTS,
 	ownRecordValue,
 	type ProseTemplate,
+	readSlotStrings,
 	readSlotValues,
 	searchInputDefault,
 	searchInputOptions,
@@ -906,6 +907,21 @@ function collectModuleConfigReferences(
 				}
 				break;
 			}
+			case "search_request_type":
+			case "case_list_additional_type":
+				if (
+					readSlotStrings(mod, slot.path).some(
+						(value) => value.text === caseType,
+					)
+				)
+					out.push({
+						verbose: `the record list on ${where} uses "${caseType}"`,
+						concise: `the record list uses "${caseType}"`,
+					});
+				break;
+			case "search_request_related_property":
+			case "search_related_property":
+				break;
 			case "search_filter_property":
 			case "search_filter_ancestor_type": {
 				if (

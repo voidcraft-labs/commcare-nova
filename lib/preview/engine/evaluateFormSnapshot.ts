@@ -18,6 +18,7 @@ import {
 	formEntryRecord,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
+import { menuOffersRecordType } from "@/lib/domain/modules";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import type { PreviewEntryChoice } from "@/lib/session/types";
 import { previewPlatformRules } from "../platform";
@@ -229,7 +230,7 @@ async function runFormSnapshot(
 		);
 	for (const id of ids) {
 		const row = context.cases.rows.find((row) => row.case_id === id);
-		if (!row || row.case_type !== record.caseType)
+		if (!row || !menuOffersRecordType(module, row.case_type))
 			throw new FormEvaluationInputError(
 				"A selected record is unavailable to this worker or has a different type.",
 			);

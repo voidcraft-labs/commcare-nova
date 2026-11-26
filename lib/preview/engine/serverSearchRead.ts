@@ -338,7 +338,11 @@ export async function serverRecordsRead(
 											search.inputValues,
 											wire?.filterValues,
 											world.device.searchConfiguration,
-											{ doc: world.doc, caseType },
+											{
+												doc: world.doc,
+												caseType,
+												moduleUuid: request.moduleUuid,
+											},
 											search.defaultSearch,
 										),
 									}),

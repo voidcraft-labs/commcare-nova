@@ -25,6 +25,8 @@ type CaseSearchConfigPatch = NonNullable<
 >;
 
 const SETTINGS = [
+	"relatedRecordIdProperty",
+	"relatedRecords",
 	"excludedOwnerIds",
 	"searchScreenTitle",
 	"searchScreenSubtitle",

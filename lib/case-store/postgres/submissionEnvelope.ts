@@ -1489,7 +1489,28 @@ async function resolveOperationProgram(
 			);
 		}
 	}
-	const instances = expandPhysicalInstances(program, steps, ordinary);
+	const instances = expandPhysicalInstances(program, steps, ordinary).map(
+		(instance) => {
+			// HQ's own follow-up block writes the ID chosen by the datum. It
+			// does not assert or retype the selected record to the menu's primary type.
+			const row =
+				instance.sessionCaseId && sessions.get(instance.sessionCaseId);
+			if (
+				!row ||
+				!instance.envelope.own ||
+				instance.envelope.operation.action !== "update" ||
+				instance.envelope.operation.caseType === row.caseType
+			)
+				return instance;
+			return {
+				...instance,
+				envelope: {
+					...instance.envelope,
+					operation: { ...instance.envelope.operation, caseType: row.caseType },
+				},
+			};
+		},
+	);
 	const allocations = allocateCreateIdentities(
 		appId,
 		args.submissionReceipt.entryKey,
@@ -2633,7 +2654,8 @@ async function loadSelectedCaseAnchors(
 		}
 		if (
 			(ordinary.kind === "followup" || ordinary.kind === "close") &&
-			row.caseType !== ordinary.caseType
+			row.caseType !== ordinary.caseType &&
+			!ordinary.additionalCaseTypes?.includes(row.caseType)
 		) {
 			rejectSelection({
 				kind: "selection",

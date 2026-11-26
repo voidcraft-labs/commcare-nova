@@ -532,3 +532,67 @@ def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
             "ten", "two-late", "two-early", "none",
         ]
         assert set(ordered(first, second)) == {case[0] for case in cases}
+
+
+def test_mixed_search_keeps_only_its_requested_paths_and_searchable_child_types(hq):
+    """Run HQ's form-encoded request, search index and related-case reader against
+    real submissions. A closed supporting parent supplies the sibling detail's
+    terminal. A child can join the fixture independently of the tab's visibility."""
+    import hashlib
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.app_manager.models import Application, CaseSearchProperty, DetailColumn, DetailTab, Module
+    from corehq.apps.case_search.const import IS_RELATED_CASE
+    from corehq.apps.case_search.utils import _get_helper, get_unconfigured_endpoint_results
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        with hq_redis.shared(None), state.committing(), state.operation("mixed search", hashlib.sha256(b"mixed search").digest()):
+            app = Application.new_app(state.domain, "Outreach")
+            for record_type, tab_type in [("household", "visit"), ("referral", "task"), ("patient", "ignored")]:
+                menu = app.add_module(Module.new_module(record_type, "en"))
+                menu.case_type = record_type
+                if tab_type != "ignored":
+                    menu.search_config.properties = [CaseSearchProperty(name="note", label={"en": "Note"})]
+                menu.case_details.short.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
+                if record_type == "household":
+                    menu.case_details.short.columns[0].field = "parent/parent/name"
+                menu.case_details.long.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
+                menu.case_details.long.tabs = [DetailTab(starting_index=0, has_nodeset=True, nodeset_case_type=tab_type,
+                                                        nodeset="instance('casedb')/casedb/case", relevant="false()")]
+            app.save()
+            blocks = []
+            for case_id, kind, parent, target_type in [
+                ("terminal", "region", None, None), ("middle", "group", "terminal", "region"),
+                ("dynamic", "care", "middle", "group"), ("patient", "patient", None, None),
+                ("home", "household", None, None), ("referral", "referral", None, None),
+                ("visit", "visit", "dynamic", "care"), ("task", "task", "home", "household"),
+                ("ignored", "ignored", "patient", "patient"),
+            ]:
+                blocks.append(CaseBlock(case_id=case_id, create=True, case_type=kind, case_name=case_id, owner_id="another-worker",
+                                        index={"parent": (target_type, parent)} if parent else {},
+                                        update={"care_record": "dynamic"} if case_id == "patient" else {}))
+            blocks.extend(CaseBlock(case_id=case_id, close=True) for case_id in ["dynamic", "middle", "terminal", "visit", "task"])
+            submit_case_blocks([block.as_text() for block in blocks], state.domain, user_id="worker", device_id="proof")
+
+        def returned(*include):
+            pairs = [("case_type", kind) for kind in ["patient", "household", "referral"]]
+            pairs.append(("x_commcare_custom_related_case_property", "care_record"))
+            pairs.extend(("x_commcare_include_all_related_cases", value) for value in include)
+            request = operations.search_request_config(state, app._id, pairs)
+            results = get_unconfigured_endpoint_results(_get_helper(None, state.domain, request.case_types, None), request, app._id)
+            return {case.case_id: (case.case_json.get(IS_RELATED_CASE), case.closed) for case in results}
+
+        details = returned()
+        assert {case_id for case_id, (tag, _) in details.items() if not tag} == {"patient", "home", "referral"}
+        assert {case_id for case_id, value in details.items() if value == ("true", True)} == {
+            "dynamic", "terminal", "task", "visit"
+        }
+        assert "middle" not in details and "ignored" not in details
+        assert returned("") == details
+        # HQ tests truthiness after unwrapping only a singleton. It preserves
+        # the separate choices of a dedicated setting and ordered defaults.
+        for values in [("false",), ("", ""), ("true", "")]:
+            assert returned(*values)["ignored"][0] == "true"

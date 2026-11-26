@@ -1228,6 +1228,7 @@ export function compileCczParts(
 						: [],
 				projectedSessionDatums,
 				caseListFilter: mod.caseListConfig?.filter,
+				additionalCaseTypes: mod.caseListConfig?.additionalCaseTypes,
 				additionalInstances: commandInstances.declarations(),
 				...(hqForm.doc_type === "Form" && {
 					writesWorker: basicActionsWriteWorker(hqForm.actions),
