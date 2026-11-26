@@ -354,6 +354,7 @@ function ExpressionPickerBody({
 							isAuthorableExpressionKind(schema.kind, ctx),
 					)
 					.map((s) => {
+						const copy = expressionChoiceCopy(s, editCtx);
 						const typeAdmission = admitsValueExpressionKind(s.kind, constraint);
 						const contextAdmission = expressionSeedContextAdmission(
 							s.kind,
@@ -378,7 +379,8 @@ function ExpressionPickerBody({
 						const ruleAdmission =
 							candidate === undefined
 								? undefined
-								: ctx.admitExpressionChange?.(path, candidate);
+								: (admitReplacement?.(candidate) ??
+									ctx.admitExpressionChange?.(path, candidate));
 						const admitted =
 							typeAdmission.admitted &&
 							contextAdmission.admitted &&
@@ -426,9 +428,9 @@ function ExpressionPickerBody({
 									className="text-nova-text-muted"
 								/>
 								<span className="flex-1 text-left min-w-0">
-									<div className="break-words">{s.label}</div>
+									<div className="break-words">{copy.label}</div>
 									<div className="break-words text-xs text-nova-text-muted">
-										{admitted ? s.description : reason}
+										{admitted ? copy.description : reason}
 									</div>
 								</span>
 							</DropdownMenuItem>
@@ -465,8 +467,11 @@ function ExpressionPickerBody({
 						<AlertDialogHeader>
 							<AlertDialogTitle className="font-display tracking-tighter">
 								Use “
-								{pendingTermReplacement?.target.label ?? "a calculated value"}”
-								instead?
+								{pendingTermReplacement === null
+									? "a calculated value"
+									: expressionChoiceCopy(pendingTermReplacement.target, editCtx)
+											.label}
+								” instead?
 							</AlertDialogTitle>
 							<AlertDialogDescription className="text-left">
 								This replaces the saved {pendingTermSourceLabel} and removes its
@@ -520,7 +525,7 @@ function ExpressionPickerBody({
 	return (
 		<CardShell
 			icon={schema.icon}
-			label={schema.label}
+			label={expressionChoiceCopy(schema, ctx).label}
 			variant={variant}
 			onRemove={onRemove}
 			removeLabel={removeLabel}
@@ -530,6 +535,7 @@ function ExpressionPickerBody({
 			errors={operatorErrors}
 			kindAccent={
 				<KindReplaceMenu
+					admitReplacement={admitReplacement}
 					currentValue={value}
 					onChange={onChange}
 					path={path}
@@ -548,7 +554,27 @@ function ExpressionPickerBody({
 	);
 }
 
+function expressionChoiceCopy(
+	schema: Pick<
+		ExpressionCardSchema<CardValueKind>,
+		"kind" | "label" | "description"
+	>,
+	context: Pick<ExpressionEditContext, "expressionContext">,
+) {
+	if (
+		schema.kind === "count" &&
+		context.expressionContext.slot.slot === "search_button_display_condition"
+	) {
+		return {
+			label: "Count cases on this device",
+			description: "How many of the worker’s available cases match a condition",
+		};
+	}
+	return schema;
+}
+
 interface KindReplaceMenuProps {
+	readonly admitReplacement?: (next: Expression) => ExpressionChangeAdmission;
 	readonly currentValue: ExpressionOfKind<CardValueKind>;
 	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
@@ -736,6 +762,7 @@ export function defaultExpressionForSlot<K extends CardValueKind>(
  * the author chooses Replace. Cancel leaves the exact source object untouched.
  */
 function KindReplaceMenu({
+	admitReplacement,
 	currentValue,
 	onChange,
 	path,
@@ -779,8 +806,14 @@ function KindReplaceMenu({
 	const pendingSourceLabel =
 		pendingReplacement === null
 			? "saved value"
-			: expressionCardSchemas[pendingReplacement.source.kind].label;
-	const pendingTargetLabel = pendingReplacement?.target.label ?? "new value";
+			: expressionChoiceCopy(
+					expressionCardSchemas[pendingReplacement.source.kind],
+					editCtx,
+				).label;
+	const pendingTargetLabel =
+		pendingReplacement === null
+			? "new value"
+			: expressionChoiceCopy(pendingReplacement.target, editCtx).label;
 
 	const requestReplacement = (schema: ExpressionCardSchema<CardValueKind>) => {
 		const preserved = planPreservedExpressionReplacement(
@@ -831,6 +864,7 @@ function KindReplaceMenu({
 										isAuthorableExpressionKind(schema.kind, ctx),
 								)
 								.map((schema) => {
+									const copy = expressionChoiceCopy(schema, editCtx);
 									const isCurrent = schema.kind === currentKind;
 									const typeAdmission = isCurrent
 										? { admitted: true, reason: undefined }
@@ -861,7 +895,8 @@ function KindReplaceMenu({
 										? { admitted: true as const }
 										: candidate === undefined
 											? undefined
-											: ctx.admitExpressionChange?.(path, candidate);
+											: (admitReplacement?.(candidate) ??
+												ctx.admitExpressionChange?.(path, candidate));
 									const admitted =
 										typeAdmission.admitted &&
 										contextAdmission.admitted &&
@@ -895,7 +930,7 @@ function KindReplaceMenu({
 												}
 											/>
 											<span className="min-w-0 flex-1 text-left">
-												<div className="break-words">{schema.label}</div>
+												<div className="break-words">{copy.label}</div>
 												<div
 													className={`break-words text-xs ${
 														isCurrent
@@ -903,7 +938,7 @@ function KindReplaceMenu({
 															: "text-nova-text-muted"
 													}`}
 												>
-													{admitted ? schema.description : reason}
+													{admitted ? copy.description : reason}
 												</div>
 											</span>
 										</DropdownMenuItem>

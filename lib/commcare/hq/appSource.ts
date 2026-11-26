@@ -1,4 +1,3 @@
-import { nativeInstallationKey } from "./installationKey";
 import "server-only";
 
 /**
@@ -29,6 +28,11 @@ import { log } from "@/lib/logger";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
 import {
+	type HqBuildProfile,
+	readBuildProfiles,
+	unusableBuildProfileKey,
+} from "./buildProfiles";
+import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
@@ -44,6 +48,11 @@ import {
 import { readHqJson } from "./readJson";
 
 export { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
+export {
+	type HqBuildProfile,
+	readBuildProfiles,
+	unusableBuildProfileKey,
+} from "./buildProfiles";
 export {
 	HQ_MEDIA_TYPES,
 	type HqMediaMapItem,
@@ -67,18 +76,6 @@ export interface HqAppSourceForm {
 	readonly shadowParentReadId: string | null;
 	/** The XForm under this read's `<form id>.xml`, or null when absent. */
 	readonly attachment: string | null;
-}
-
-/** One entry of `build_profiles`. */
-export interface HqBuildProfile {
-	/** The profile's key in `build_profiles`. */
-	readonly id: string;
-	/** `name`; `""` where HQ holds no string. */
-	readonly name: string;
-	/** `langs`: the profile's language codes, its default first. */
-	readonly langs: readonly string[];
-	/** Only present when this destination binds a practice worker. */
-	readonly practiceWorkerId?: string;
 }
 
 export interface HqAppSourceModule {
@@ -507,63 +504,6 @@ function textOrNull(
 function docTypeOf(value: unknown, admitAny: boolean): string | null {
 	if (typeof value === "string") return value;
 	return admitAny ? null : "";
-}
-
-export function unusableBuildProfileKey(
-	value: unknown,
-	ordinaryLanguages: ReadonlySet<string>,
-	moduleCount: number,
-): boolean {
-	return (
-		isRecord(value) &&
-		Object.entries(value).some(([key, p]) => {
-			const languages =
-				isRecord(p) && Array.isArray(p.langs)
-					? p.langs.filter((lang): lang is string => typeof lang === "string")
-					: [];
-			return !nativeInstallationKey(
-				key,
-				ordinaryLanguages,
-				languages,
-				moduleCount,
-			);
-		})
-	);
-}
-
-/**
- * `build_profiles`, `models/applications.py::ApplicationBase.build_profiles`,
- * a `SchemaDictProperty(BuildProfile)` HQ serializes on every app: an object
- * whose every value holds a `langs` list of strings. Null where it is not.
- */
-export function readBuildProfiles(
-	value: unknown,
-	ordinaryLanguages?: ReadonlySet<string>,
-	moduleCount?: number,
-): readonly HqBuildProfile[] | null {
-	if (!isRecord(value)) return null;
-	const profiles: HqBuildProfile[] = [];
-	for (const [id, profile] of Object.entries(value)) {
-		if (
-			!isRecord(profile) ||
-			(profile.practice_mobile_worker_id != null &&
-				typeof profile.practice_mobile_worker_id !== "string") ||
-			!Array.isArray(profile.langs) ||
-			!profile.langs.every((lang) => typeof lang === "string") ||
-			!nativeInstallationKey(id, ordinaryLanguages, profile.langs, moduleCount)
-		)
-			return null;
-		profiles.push({
-			id,
-			name: typeof profile.name === "string" ? profile.name : "",
-			langs: profile.langs as string[],
-			...(typeof profile.practice_mobile_worker_id === "string" &&
-				profile.practice_mobile_worker_id !== "" && {
-					practiceWorkerId: profile.practice_mobile_worker_id,
-				}),
-		});
-	}
-	return profiles;
 }
 
 /**

@@ -253,7 +253,7 @@
 	},
 	"menus-and-case-lists/lookup-extras-key-value": {
 		"reason": "stated-by-its-part",
-		"note": "The relative XPath extra in hq-case-lists/named-callout is refused as one configuration under lookup-enabled-lookup-action. The fixed-text extras have their own retained variant."
+		"note": "Part 07, Case list callout (C5), accounts for the relative XPath extra in hq-case-lists/named-callout with its callout under lookup-enabled-lookup-action. Fixed text and worker account values have separate retained variants."
 	},
 	"menus-and-case-lists/unknown-module-doc-type": {
 		"reason": "hq-never-serves-the-value",
