@@ -45,7 +45,7 @@ export interface SourceFormFactoryWitness {
 }
 
 export interface ReaderInput {
-	/** Exact declarations for unresolved case detail reads of this source. */
+	/** Exact declarations for the detail and navigation scopes of this source. */
 	readonly suiteDetails?: import("../hq/suiteDetailSources").SuiteDetailSources;
 	readonly observeSuiteDetail?: (
 		details: readonly string[],

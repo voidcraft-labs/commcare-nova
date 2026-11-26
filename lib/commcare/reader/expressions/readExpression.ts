@@ -441,6 +441,7 @@ export function suiteReadSources(
 	const ids = requiredInstanceIds(pending);
 	if (
 		ids.size === 0 &&
+		pending.navigationSources === undefined &&
 		env.factories === undefined &&
 		invalidPreset === undefined
 	)
@@ -453,7 +454,7 @@ export function suiteReadSources(
 		slot === undefined
 			? { ok: true as const, text }
 			: interpolateHqXPath(text, slot);
-	const sources = instanceSourcesAfterScan(
+	const scanned = instanceSourcesAfterScan(
 		pending.suiteSources ?? new Map(),
 		{
 			rendered: runtime.ok ? runtime.text : "",
@@ -462,6 +463,17 @@ export function suiteReadSources(
 		env.factories,
 		invalidPreset,
 	);
+	// An actual declaration is stronger than guessing from this slot's
+	// spelling, including a declaration HQ did not put on this entry.
+	let sources = scanned;
+	if (pending.navigationSources) {
+		const resolved = new Map(scanned);
+		for (const [id, source] of pending.navigationSources) {
+			if (source === null) resolved.delete(id);
+			else resolved.set(id, source);
+		}
+		sources = resolved;
+	}
 	const missing = [...ids].find(
 		(id) => id.startsWith("item-list:") && !sources.has(id),
 	);

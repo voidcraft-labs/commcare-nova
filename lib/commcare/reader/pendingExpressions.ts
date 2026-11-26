@@ -55,6 +55,10 @@ export interface PendingExpression {
 	readonly slotText?: string | null;
 	/** Physical screens at which the worker evaluates this column. */
 	readonly suiteDetails?: readonly string[];
+	/** The menu contributions or entries actually evaluating this slot. */
+	readonly suiteNavigation?: readonly string[];
+	/** Direct declarations on the observed navigation scopes that evaluate this slot. */
+	readonly navigationSources?: ReadonlyMap<string, string | null>;
 	/** Additional declarations supplied by other inputs of the same physical entry. */
 	readonly suiteSources?: ReadonlyMap<string, string>;
 }

@@ -283,12 +283,16 @@ export function* readHqLookupTagsSteps(
 				for (const id of instanceIdsIn(raw.node)) ids.add(id);
 			}
 			const sources = instanceSourcesOf(doc, registration, env);
+			const scopes = registration.suiteNavigation ?? registration.suiteDetails;
 			for (const id of ids) {
 				if (
-					registration.suiteDetails?.length &&
-					(!sources?.has(id) || requiredInstanceIds(registration).has(id))
+					scopes?.length &&
+					(!sources?.has(id) ||
+						requiredInstanceIds(registration).has(id) ||
+						(registration.suiteNavigation !== undefined &&
+							(id.startsWith("item-list:") || id === "locations")))
 				)
-					input.observeSuiteDetail?.(registration.suiteDetails, id);
+					input.observeSuiteDetail?.(scopes, id);
 				if (discover && sources?.has(id)) {
 					const form =
 						registration.mode.target === "xform"
