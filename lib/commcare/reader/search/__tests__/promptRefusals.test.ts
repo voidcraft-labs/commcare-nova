@@ -563,6 +563,31 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
+	// HQ builds a check's text wherever any value of its map is a nonempty string
+	// (`models/base.py::has_text`), so a check blank in every language the app has, beside
+	// text under a language it no longer has, shows the worker a blank message; Nova's
+	// publish shows Core's own sentence, which the reading records as another message.
+	it("records that the worker reads another message where HQ shows a check's blank text", async () => {
+		const check = (text: JsonObject) => (body: JsonObject) => {
+			first(body).validations = [
+				{
+					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'case_name'], ''), '^[a-z]+$')",
+					text,
+				},
+			];
+		};
+		const seen = (respelled: readonly (readonly [string, string, string])[]) =>
+			respelled.filter(
+				([, path, register]) =>
+					path.endsWith("/validations/0/text") &&
+					register === "text-spaces-dropped",
+			);
+		const removed = await documentOf(check({ es: "", en: "", fr: "Invalide" }));
+		expect(seen(removed.respelled)).toHaveLength(1);
+		const blank = await documentOf(check({ es: "", en: "" }));
+		expect(seen(blank.respelled)).toEqual([]);
+	});
+
 	// `status`'s answer goes into the project space's search between quotes, which Nova's search
 	// guards itself, so Nova joins that guard to the field's check (`searchPrompts.ts::buildValidation`):
 	// with no message of its own, the stored check, Nova's guard and all, is its own finding.

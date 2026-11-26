@@ -717,6 +717,18 @@ function readPrompt(
 		validation?.kind === "checked" &&
 		validationRead?.held !== undefined &&
 		sourceText(ctx, validation.messages) === "";
+	// HQ builds a check's text wherever any value of its map is a nonempty string, the app's
+	// languages or not (`models/base.py::has_text`: `any(self.text.values())`), so a check blank
+	// in every language the app has, beside text under a language it no longer has, shows the
+	// worker a blank message, where Nova's publish of a check with no message shows Core's own
+	// sentence: the worker reads another message after the next publish.
+	const validationShownBlank =
+		validationBlank &&
+		isJsonObject(storedValidation) &&
+		isJsonObject(storedValidation.text) &&
+		Object.values(storedValidation.text).some(
+			(value) => typeof value === "string" && value !== "",
+		);
 	const readsRequired = requires && !hiddenRefused && !refusedHere("required");
 	const readsValidation = !hiddenRefused && !refusedHere("validations");
 
@@ -1186,7 +1198,7 @@ function readPrompt(
 			textClaim.entry,
 			whole !== undefined &&
 				validation.kind === "checked" &&
-				validation.workersSeeAnother
+				(validation.workersSeeAnother || validationShownBlank)
 				? { ...whole, workersSeeAnother: true }
 				: whole,
 		);
