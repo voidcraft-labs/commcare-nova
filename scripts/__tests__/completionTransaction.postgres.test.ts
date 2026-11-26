@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { sql } from "kysely";
 import { Migrator } from "kysely/migration";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { rehydrateChangeSet } from "@/lib/agent/change-set/runtime";
 import { loadChangeSet } from "@/lib/agent/change-set/store";
 import { readReleasedFoldSnapshot } from "@/lib/case-store/migrations/20261208000000_connect_activity_roles";
@@ -127,6 +127,7 @@ async function releasedTarget(appId: string) {
 		profile: {},
 		langs: ["en"],
 		build_spec: { version: "2.57.0" },
+		build_profiles: {},
 		translations: {},
 		add_ons: {},
 		use_grid_menus: true,
@@ -191,6 +192,7 @@ async function releasedWorkspace(appId: string, reader: CompletionMigration) {
 
 it("rolls back pending DDL and the first app when the second app refuses, then verifies a committed retry", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "nova-completion-"));
+	vi.stubEnv("NOVA_DB_LOCAL_URL", h.uri());
 	try {
 		const manifest = await artifacts(directory);
 		const released = await completionArtifacts(manifest);
@@ -302,6 +304,7 @@ it("rolls back pending DDL and the first app when the second app refuses, then v
 	) AS old_column`.execute(h.db());
 		expect(retired.rows).toEqual([{ old_column: false }]);
 	} finally {
+		vi.unstubAllEnvs();
 		await rm(directory, { recursive: true, force: true });
 	}
 }, 240_000);

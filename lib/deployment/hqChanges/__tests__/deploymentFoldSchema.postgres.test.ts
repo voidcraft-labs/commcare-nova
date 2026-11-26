@@ -280,13 +280,17 @@ async function installEarlierProjection() {
 			),
 		)
 		.execute(h.db());
+	await reinstateEarlierProjection();
+	return def;
+}
+
+async function reinstateEarlierProjection() {
 	await sql`CREATE OR REPLACE FUNCTION public.nova_current_app_change_fold_snapshot(text)
 		RETURNS jsonb LANGUAGE sql STABLE AS $f$
 		SELECT (doc - 'appName') || jsonb_build_object('visitTitle', doc->'appName')
 		FROM (SELECT public.witness_candidate_snapshot($1) AS doc) AS candidate $f$`.execute(
 		h.db(),
 	);
-	return def;
 }
 
 async function oldEdit(appId: string, title: string, seq: number) {
@@ -348,6 +352,9 @@ it.each([false, true])(
 		let seq = headSeq;
 		if (hasCertificate) {
 			await installCandidate();
+			// The Connect DDL installs its own fold projection. Continue this
+			// fixture's earlier title dialect until its horizon writer runs.
+			await reinstateEarlierProjection();
 			// A later old release issued a certificate for West in this same old
 			// dialect. East published again above that horizon.
 			seq = await writeHqRoundTripCaseWritesHorizon(
@@ -432,7 +439,10 @@ it.each([false, true])(
 		await expect(
 			scan(source, JSON.stringify({ ...JSON.parse(exact), appId: "other" })),
 		).rejects.toThrow("did not reproduce the saved app in this Project");
-		if (!hasCertificate) await installCandidate();
+		if (!hasCertificate) {
+			await installCandidate();
+			await reinstateEarlierProjection();
+		}
 		expect(await scan()).toEqual(receipt);
 		const write = (selected: typeof source) =>
 			h.withTransaction((tx) =>
