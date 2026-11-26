@@ -16628,19 +16628,45 @@
 		"id": "hq-case-management/edit-mode-on-a-registration",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-mode-edit-off-a-follow-up-form-s-own-update",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Households",
-			"name": "Registration Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/0/actions/update_case/update/head",
 			"value": {
 				"question_path": "/data/head_name",
+				"update_mode": "edit",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/onlyIfChanged",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/edit-mode-on-the-own-owner",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/update-mode-edit-on-a-case-s-name-or-owner",
+		"standing": "not-yet",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Members",
+			"name": "Followup Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/update_case/update/owner_id",
+			"value": {
+				"question_path": "/data/status_note",
 				"update_mode": "edit",
 				"doc_type": "ConditionalCaseUpdate"
 			}

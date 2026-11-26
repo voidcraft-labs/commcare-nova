@@ -308,7 +308,7 @@ describe("an advanced form's loads and open actions", () => {
 		).toEqual([]);
 	});
 
-	it("refuses a load's saved-if-changed write where the project space applies it, and reads it as saved every time where it does not", async () => {
+	it("reads a load's saved-if-changed write as onlyIfChanged where the project space applies it, and as saved every time where it does not", async () => {
 		const { doc } = memberFollowup();
 		const edit = (app: AppJson) => {
 			const loads = actionsOf(app).load_update_cases;
@@ -320,9 +320,16 @@ describe("an advanced form's loads and open actions", () => {
 			(properties.age as Record<string, unknown>).update_mode = "edit";
 		};
 		const applied = await readCases(doc, { edit, saveOnlyEditedApplied: true });
-		expect(findingCodes(applied)).toContain(
-			`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		expect(findingCodes(applied).filter((code) => code.startsWith(F))).toEqual(
+			[],
 		);
+		expect(
+			applied.forms
+				.flatMap((form) => form.form.caseOperations ?? [])
+				.flatMap((operation) => operation.writes ?? [])
+				.filter((write) => write.onlyIfChanged === true)
+				.map((write) => write.property),
+		).toEqual(["age"]);
 		const unapplied = await readCases(doc, {
 			edit,
 			saveOnlyEditedApplied: false,

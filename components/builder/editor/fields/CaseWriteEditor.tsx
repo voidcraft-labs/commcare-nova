@@ -501,7 +501,7 @@ function DestinationRow({
 		() =>
 			view !== undefined &&
 			view.slot === "write" &&
-			(view.destination === "own" || view.destination === "ancestor")
+			view.destination !== "other"
 				? onlyIfChangedDestination(view)
 				: undefined,
 		[view],

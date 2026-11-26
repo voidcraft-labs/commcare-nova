@@ -89,7 +89,7 @@ test("a follow-up's question saves to the case above it", {
 	).toBeVisible();
 });
 
-test("a registration's question can't save only changed answers", {
+test("a registration's question saves only an answer the worker gives", {
 	tag: "@seed:case-changes",
 }, async ({ scenario, page }) => {
 	const { caseChanges } = seedFor(scenario, "case-changes");
@@ -104,10 +104,17 @@ test("a registration's question can't save only changed answers", {
 	).toBeVisible({ timeout: 20_000 });
 
 	const onlyIfChanged = inspector.locator('[data-only-if-changed="off"]');
-	await expect(
-		onlyIfChanged.getByRole("switch", { name: "Save only if changed" }),
-	).toBeDisabled();
+	const toggle = onlyIfChanged.getByRole("switch", {
+		name: "Save only if changed",
+	});
+	await expect(toggle).toBeEnabled();
 	await expect(onlyIfChanged).toContainText(
-		"A new case has no earlier value to compare with.",
+		"A new case has no earlier value, so this saves the answer only when the worker gives one.",
 	);
+	await toggle.click();
+	await expect(
+		inspector
+			.locator('[data-only-if-changed="on"]')
+			.getByRole("switch", { name: "Save only if changed" }),
+	).toBeChecked({ timeout: 20_000 });
 });

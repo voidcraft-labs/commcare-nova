@@ -212,8 +212,12 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/conditionalcaseupdate-update-mode-edit`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
-	editNotHeld: refuse(
+	editElsewhere: take(
 		`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		"schema:ConditionalCaseUpdate.update_mode",
+	),
+	editNotHeld: refuse(
+		`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
 	editNotApplied: drop(
@@ -1389,7 +1393,9 @@ function readUpdate(
 	r: FormReading,
 	cursor: JsonCursor,
 	property: string,
-	own: boolean,
+	/** The row a write saved only when changed reads under: absent on a
+	 *  case's name or owner, which Nova saves every time. */
+	edit: Claim<"take"> | undefined,
 	pathClaim: Claim<"take">,
 	keyClaim?: Claim<"take">,
 ): {
@@ -1401,17 +1407,12 @@ function readUpdate(
 	let onlyIfChanged: true | undefined;
 	let ok = true;
 	if (cursor.peek("update_mode") === "edit") {
-		if (own) {
-			consume(
-				cursor.take("update_mode", BASIC_CLAIMS.editHeld, (value) => value),
-			);
+		// Without the flag HQ's build saves every time: a follow-up's own update
+		// keeps its row, respelled; anywhere else the mode is inert.
+		if (edit === BASIC_CLAIMS.editHeld || (edit !== undefined && r.applied)) {
+			consume(cursor.take("update_mode", edit, (value) => value));
 			if (r.applied) onlyIfChanged = true;
-			else
-				rewrite(
-					r.ctx,
-					BASIC_CLAIMS.editHeld.entry,
-					`${cursor.pointer}/update_mode`,
-				);
+			else rewrite(r.ctx, edit.entry, `${cursor.pointer}/update_mode`);
 		} else if (r.applied) {
 			cursor.refuse("update_mode", BASIC_CLAIMS.editNotHeld);
 			ok = false;
@@ -1581,7 +1582,14 @@ function readUpdateMap(
 			refuseEntry(cursor, BASIC_CLAIMS.workerKey, key);
 			continue;
 		}
-		const ownWrite = slot === "own" && loads && !facet && via === undefined;
+		// Every write of an update map is saved only when changed where HQ's
+		// build applies the mode (`XFormCaseBlock.add_case_updates`); the own
+		// case's name and owner are its facets, which Nova saves every time.
+		const edit = facet
+			? undefined
+			: slot === "own" && loads
+				? BASIC_CLAIMS.editHeld
+				: BASIC_CLAIMS.editElsewhere;
 		// The rows the own case's `update` names by its key: a key through the
 		// cases above the loaded one is its own row's.
 		const keyClaim = viaFacet
@@ -1601,7 +1609,7 @@ function readUpdateMap(
 									: property === "location_id" || property === "hq_user_id"
 										? BASIC_CLAIMS.locationOrWorkerKey
 										: BASIC_CLAIMS.asciiKey;
-		const read = readUpdate(r, cursor, property, ownWrite, pathClaim, keyClaim);
+		const read = readUpdate(r, cursor, property, edit, pathClaim, keyClaim);
 		if (!read.ok || read.value === undefined) continue;
 		// A date-and-time question's day is saved straight only to a `date`
 		// property of the action's own case, which the catalog types.
@@ -2400,7 +2408,7 @@ function readSubcases(
 				r,
 				cursor,
 				key,
-				false,
+				key === "owner_id" ? undefined : BASIC_CLAIMS.editElsewhere,
 				BASIC_CLAIMS.subcaseQuestionPath,
 			);
 			if (!read.ok || read.value === undefined) {
@@ -2419,7 +2427,14 @@ function readSubcases(
 				continue;
 			}
 			if (key === "owner_id") owner = read.value;
-			else writes.push({ property: key, value: read.value });
+			else
+				writes.push({
+					property: key,
+					value: read.value,
+					...(read.onlyIfChanged !== undefined && {
+						onlyIfChanged: read.onlyIfChanged,
+					}),
+				});
 		}
 		const closeStored = S.peek("close_condition");
 		const closeType = conditionType(closeStored);

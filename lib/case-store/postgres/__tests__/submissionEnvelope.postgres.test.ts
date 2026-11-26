@@ -1660,6 +1660,49 @@ describe("blank writes", () => {
 		expect(visits).toHaveLength(1);
 		expect(visits[0]?.properties).not.toHaveProperty("outcome");
 	});
+
+	it("a create's write saved only when changed saves a given answer and nothing for a blank one", async () => {
+		// HQ's `edit` compares the new case's casedb leaf, which a new case
+		// lacks, so its empty text differs from any answer but a blank one
+		// (`XFormCaseBlock.add_case_updates`).
+		const store = makeStore();
+		const create = (name: string, outcome: string) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram(
+					[
+						envOp(
+							operation({
+								uuid: OP_A,
+								action: "create",
+								caseType: "visit",
+								target: { kind: "new" },
+								name: term(literal(name)),
+								writes: [
+									{
+										property: "outcome",
+										value: term(literal(outcome)),
+										onlyIfChanged: true,
+									},
+								],
+							}),
+						),
+					],
+					{ sessionCaseId: null },
+				),
+			});
+		await create("Blank", "");
+		await create("Seen", "seen");
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
+		const byName = new Map(visits.map((row) => [row.case_name, row]));
+		expect(byName.get("Blank")?.properties).not.toHaveProperty("outcome");
+		expect(byName.get("Seen")?.properties.outcome).toBe("seen");
+	});
 });
 
 // ---------------------------------------------------------------

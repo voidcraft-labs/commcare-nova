@@ -648,7 +648,7 @@ function saveOnChild(
 	relationship: CaseOperationLink["relationship"],
 	property: string,
 	value: Expression,
-	facets: Pick<CaseOperationWrite, "condition"> = {},
+	facets: Pick<CaseOperationWrite, "condition" | "onlyIfChanged"> = {},
 ): string | undefined {
 	const { ctx } = draft;
 	const create = joinableChildCreate(ctx, draft.operations, caseType, repeat);
@@ -658,7 +658,11 @@ function saveOnChild(
 			create,
 			savedValueFor(create, property, value, facets),
 		);
-	if (property !== "case_name" || facets.condition !== undefined)
+	if (
+		property !== "case_name" ||
+		facets.condition !== undefined ||
+		facets.onlyIfChanged !== undefined
+	)
 		return saveNewCaseNameFirstMessage(caseType);
 	addOperation(draft, {
 		uuid: asUuid(uuidv4()),
@@ -686,9 +690,15 @@ function saveOnWorkerRecord(
 	draft: PlanDraft,
 	property: string,
 	value: Expression,
+	onlyIfChanged?: true,
 ): string | undefined {
 	const update = workerRecordUpdate(draft.operations);
-	const saved = savedValueFor({ action: "update" }, property, value);
+	const saved = savedValueFor(
+		{ action: "update" },
+		property,
+		value,
+		onlyIfChanged === undefined ? {} : { onlyIfChanged },
+	);
 	if (update !== undefined) return saveOn(draft, update, saved);
 	if (saved.slot !== "write") return undefined;
 	addOperation(draft, {
@@ -971,7 +981,12 @@ export function planFieldCaseWrite(
 			case "refused":
 				return { ok: false, message: resolved.message };
 			case "worker-record":
-				refusal = saveOnWorkerRecord(draft, destination.property, value);
+				refusal = saveOnWorkerRecord(
+					draft,
+					destination.property,
+					value,
+					destination.onlyIfChanged,
+				);
 				break;
 			case "child":
 				refusal = saveOnChild(
@@ -981,6 +996,9 @@ export function planFieldCaseWrite(
 					resolved.relationship,
 					destination.property,
 					value,
+					destination.onlyIfChanged === undefined
+						? {}
+						: { onlyIfChanged: destination.onlyIfChanged },
 				);
 				break;
 			case "own": {

@@ -1129,10 +1129,14 @@ function validateVia(
 }
 
 /**
- * Saving only an answer that changed: only the own arm of a follow-up or
- * close form holds it, while Case Management saves that arm (HQ's
- * `update_mode: "edit"`; Vellum's Save to Case block has no such setting,
- * `saveToCase.js`).
+ * Saving only an answer that changed: any write Case Management or an
+ * advanced form's actions save, as HQ's build applies `update_mode: "edit"`
+ * to every update map it writes (`xform.py::XFormCaseBlock.add_case_updates`,
+ * over the own update, the worker's record, a child case, a load and an open
+ * action). It compares the case's value with the answer, and a case the form
+ * creates holds none, so there a blank answer saves nothing. Vellum's Save to
+ * Case block has no such setting (`saveToCase.js`), so a change saved through
+ * one is refused.
  */
 function validateOnlyIfChanged(
 	ctx: OperationRuleContext,
@@ -1141,46 +1145,42 @@ function validateOnlyIfChanged(
 	errors: ValidationError[],
 ): void {
 	if (write.onlyIfChanged !== true) return;
-	const refuse = (
-		reason: "new-case" | "target" | "placement",
-		message: string,
-		extra?: Record<string, string>,
-	): void => {
-		errors.push(
-			opError(ctx, operation, "CASE_WRITE_ONLY_IF_CHANGED_INVALID", message, {
-				reason,
-				property: write.property,
-				...extra,
-			}),
-		);
-	};
-	if (
-		operation.action === "create" ||
-		(operation.action === "own" && ctx.form.type === "registration")
-	) {
-		refuse(
-			"new-case",
-			`${write.property} is saved to a case this form creates, so there's no earlier value to compare with. You can save it every time instead.`,
-		);
-		return;
-	}
-	if (operation.action !== "own") {
-		refuse(
-			"target",
-			`Only this form's own case can save just the answers that changed. You can save ${write.property} every time instead.`,
-		);
-		return;
-	}
-	const placement = ownSlotRefusal(ctx, operation);
-	if (placement !== undefined)
-		refuse(
-			"placement",
-			`This form's case is saved through Save to Case, which can't save only changed answers. ${placement.sentence} You can save ${write.property} every time, or change the form so Case Management can hold it.`,
+	const placement =
+		operation.action === "own"
+			? ownSlotRefusal(ctx, operation)
+			: savedThroughSaveToCase(ctx, operation);
+	if (placement === undefined) return;
+	errors.push(
+		opError(
+			ctx,
+			operation,
+			"CASE_WRITE_ONLY_IF_CHANGED_INVALID",
+			operation.action === "own"
+				? `This form's case is saved through Save to Case, which can't save only changed answers. ${placement.sentence} You can save ${write.property} every time, or change the form so Case Management can hold it.`
+				: `“${operation.id}” is saved through Save to Case, which can't save only changed answers. You can save ${write.property} every time instead.`,
 			{
-				ineligibility: placement.ineligibility,
-				placementSentence: placement.sentence,
+				reason: "placement",
+				property: write.property,
+				...(placement.ineligibility !== undefined && {
+					ineligibility: placement.ineligibility,
+					placementSentence: placement.sentence,
+				}),
 			},
-		);
+		),
+	);
+}
+
+/** A change other than the own arm that Nova saves through Save to Case. */
+function savedThroughSaveToCase(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+): { readonly ineligibility?: string; readonly sentence: string } | undefined {
+	const planned = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+		operation.uuid,
+	);
+	return planned?.placement.kind === "save-to-case"
+		? { sentence: "" }
+		: undefined;
 }
 
 /** Whether `target` is the form's own case as Nova can prove it: the loaded

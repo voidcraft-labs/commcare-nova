@@ -338,8 +338,12 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-preload-or-case-properties-property-with-on-a`,
 		"schema:LoadUpdateAction.preload",
 	),
-	editNotHeld: refuse(
+	editHeld: take(
 		`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		"schema:ConditionalCaseUpdate.update_mode",
+	),
+	editNotHeld: refuse(
+		`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
 	editNotApplied: drop(
@@ -639,6 +643,7 @@ interface AdvancedProposal {
 		readonly property: string;
 		readonly value: ProposedValue;
 		readonly via?: CaseWriteVia;
+		readonly onlyIfChanged?: true;
 	}[];
 	readonly condition?: ProposedCondition;
 	readonly forEach?: DraftField;
@@ -913,7 +918,12 @@ function readProperties(
 	 *  settles once its operation has an id. */
 	opens = false,
 ): {
-	writes: { property: string; value: ProposedValue; via?: CaseWriteVia }[];
+	writes: {
+		property: string;
+		value: ProposedValue;
+		via?: CaseWriteVia;
+		onlyIfChanged?: true;
+	}[];
 	name?: ProposedValue;
 	owner?: ProposedValue | "acting-user" | "unowned";
 	ownerNode?: OwnerNode;
@@ -1020,11 +1030,26 @@ function readProperties(
 			out.refused = true;
 			continue;
 		}
+		// Every write is saved only when changed where HQ's build applies the
+		// mode (`XFormCaseBlock.add_case_updates`); the action's own name and
+		// owner are its facets, which Nova saves every time.
+		let onlyIfChanged: true | undefined;
 		if (cursor.peek("update_mode") === "edit") {
-			if (r.applied) {
+			if (!r.applied)
+				cursor.drop("update_mode", ADVANCED_CLAIMS.editNotApplied);
+			else if (via === undefined && (key === "name" || key === "owner_id")) {
 				cursor.refuse("update_mode", ADVANCED_CLAIMS.editNotHeld);
 				r.ok = false;
-			} else cursor.drop("update_mode", ADVANCED_CLAIMS.editNotApplied);
+			} else {
+				consume(
+					cursor.take(
+						"update_mode",
+						ADVANCED_CLAIMS.editHeld,
+						(value) => value,
+					),
+				);
+				onlyIfChanged = true;
+			}
 		}
 		const path = consume(
 			cursor.take("question_path", claims.path, (value) => value),
@@ -1070,10 +1095,16 @@ function readProperties(
 				property: viaFacet && property === "name" ? "case_name" : property,
 				value: read.value,
 				via,
+				...(onlyIfChanged !== undefined && { onlyIfChanged }),
 			});
 		else if (key === "name") out.name = read.value;
 		else if (key === "owner_id") out.owner = read.value;
-		else out.writes.push({ property: key, value: read.value });
+		else
+			out.writes.push({
+				property: key,
+				value: read.value,
+				...(onlyIfChanged !== undefined && { onlyIfChanged }),
+			});
 	}
 	return out;
 }
@@ -3004,6 +3035,7 @@ export function writeAdvancedOperations(
 					property: write.property,
 					value,
 					...(write.via !== undefined && { via: write.via }),
+					...(write.onlyIfChanged !== undefined && { onlyIfChanged: true }),
 				});
 		}
 		const placement = {

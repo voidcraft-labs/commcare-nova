@@ -1294,8 +1294,10 @@ follow-up or close form, `via` saves to a case above this form's case instead,
 one link identifier per step such as `[{ "identifier": "parent" }]`, and
 `caseType` is then the type it reaches, where `case_name` and `owner_id` save
 that case's name and owner; `onlyIfChanged: true` saves only when the
-worker changed the answer from the case's value, and is refused where CommCare
-HQ keeps that change in a Save to Case block. On a follow-up or close form that
+worker changed the answer from the case's value, on any destination (on a case
+the form creates, which has no earlier value, it saves only an answer the
+worker gives), and is refused where CommCare HQ keeps that change in a Save to
+Case block. On a follow-up or close form that
 opens one case, a question saving to this form's case is given a `default_value`
 reading that case's value, which you can replace or remove.
 

@@ -258,20 +258,15 @@ function columnRelationSentence(e: ValidationError): string {
 
 function onlyIfChangedSentence(e: ValidationError): string {
 	const property = det(e, "property", "this value");
-	switch (det(e, "reason", "")) {
-		case "new-case":
-			return `${property} is saved to a case this form creates, so there's no earlier value to compare with. You can save it every time instead.`;
-		case "placement":
-			return [
-				"This form's case is saved through Save to Case, which can't save only changed answers.",
-				e.details?.placementSentence,
-				`You can save ${property} every time, or change the form so Case Management can hold it.`,
-			]
-				.filter((part) => part !== undefined && part.length > 0)
-				.join(" ");
-		default:
-			return `Only this form's own case can save just the answers that changed. You can save ${property} every time instead.`;
-	}
+	if (e.details?.placementSentence === undefined)
+		return `This change is saved through Save to Case, which can't save only changed answers. You can save ${property} every time instead.`;
+	return [
+		"This form's case is saved through Save to Case, which can't save only changed answers.",
+		e.details.placementSentence,
+		`You can save ${property} every time, or change the form so Case Management can hold it.`,
+	]
+		.filter((part) => part !== undefined && part.length > 0)
+		.join(" ");
 }
 
 const QUESTION_ID_PROBLEMS: ReadonlySet<string> = new Set<QuestionIdProblem>([

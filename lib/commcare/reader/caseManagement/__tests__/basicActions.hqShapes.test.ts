@@ -346,7 +346,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		expect(codes(reading)).toEqual([]);
 	});
 
-	it("with the flag on, refuses `edit` on a registration's update and on the name key", async () => {
+	it("with the flag on, reads `edit` on a registration's update as onlyIfChanged and refuses it on the name key", async () => {
 		const onUpdate = await readCases(app([registration]), {
 			saveOnlyEditedApplied: true,
 			edit: (json) => {
@@ -358,9 +358,10 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 				(update.notes as Record<string, unknown>).update_mode = "edit";
 			},
 		});
-		expect(codes(onUpdate)).toContain(
-			`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
-		);
+		expect(codes(onUpdate)).toEqual([]);
+		expect(
+			ownWrites(onUpdate).find((one) => one.property === "notes"),
+		).toMatchObject({ onlyIfChanged: true });
 		const onName = await readCases(app([visit]), {
 			saveOnlyEditedApplied: true,
 			edit: (json) => {
@@ -372,7 +373,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			},
 		});
 		expect(codes(onName)).toContain(
-			`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+			`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		);
 	});
 
@@ -476,13 +477,17 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		).toHaveLength(1);
 	});
 
-	it("with the flag on, refuses `edit` on the worker's record", async () => {
+	it("with the flag on, reads `edit` on the worker's record as onlyIfChanged", async () => {
 		const worker = await readCases(app([workerVisit]), {
 			saveOnlyEditedApplied: true,
 			edit: (json) => setUsercaseMode(json, "edit"),
 		});
-		expect(codes(worker)).toContain(
-			`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		expect(codes(worker)).toEqual([]);
+		const update = worker.forms[0]?.form.caseOperations?.find(
+			(one) => one.action === "update" && one.target.kind === "worker-record",
+		);
+		expect(update?.writes?.every((one) => one.onlyIfChanged === true)).toBe(
+			true,
 		);
 	});
 
@@ -834,7 +839,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			).toBe(false);
 		});
 
-		it("refuses an extension, a property key holding `/`, and `edit` with the flag on", async () => {
+		it("refuses an extension and a property key holding `/`, and reads `edit` with the flag on as onlyIfChanged", async () => {
 			const extension = await readCases(app([visit]), {
 				edit: child({ relationship: "extension" }),
 			});
@@ -869,8 +874,22 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					},
 				}),
 			});
-			expect(codes(edit)).toContain(
-				`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+			expect(codes(edit)).toEqual([]);
+			expect(
+				edit.forms[0]?.form.caseOperations?.find(
+					(one) => one.action === "create",
+				)?.writes,
+			).toMatchObject([{ property: "x", onlyIfChanged: true }]);
+			const owner = await readCases(app([visit]), {
+				saveOnlyEditedApplied: true,
+				edit: child({
+					case_properties: {
+						owner_id: { question_path: "/data/notes", update_mode: "edit" },
+					},
+				}),
+			});
+			expect(codes(owner)).toContain(
+				`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 			);
 		});
 	});
