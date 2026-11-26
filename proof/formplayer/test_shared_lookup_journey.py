@@ -1,7 +1,7 @@
 """The same native lookup choices survive an adopted app edit and a manual installation."""
 
-from dataclasses import replace
 import json
+from dataclasses import replace
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
 
@@ -125,6 +125,8 @@ def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
             selected_table = workbook([(name, items["headers"], items["rows"]) for name, items in sheets.items()])
         after_publish = _observe(unit, app_id, formplayer_runner, "source")
         assert {entry["xmlns"] for entry in after_publish.values()} == {original_entities[2]}
+        after_sibling = _observe(unit, sibling.get_id, formplayer_runner, "sibling")
+        assert {entry["xmlns"] for entry in after_sibling.values()} == {sibling_entities[2]}
 
     with ZipFile(document.edit.import_file) as archive:
         guide = archive.read("README.txt").decode()
@@ -149,4 +151,4 @@ def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
         after_manual = _observe(unit, imported.get_id, formplayer_runner, "manual")
         assert imported.get_id != app_id
         assert {entry["xmlns"] for entry in after_manual.values()} == {_identities(imported)[2]}
-    evidence("shared-table-workers", {"direct": after_publish, "manual": after_manual})
+    evidence("shared-table-workers", {"direct": after_publish, "sibling": after_sibling, "manual": after_manual})
