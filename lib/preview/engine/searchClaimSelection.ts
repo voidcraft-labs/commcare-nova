@@ -26,6 +26,7 @@ export const searchClaimSourceSchema = z.strictObject({
 	moduleUuid: uuidSchema,
 	caseIds: recordIds,
 	answers: workerAnswers,
+	defaultSearch: z.literal(true).optional(),
 });
 export type SearchClaimSource = z.infer<typeof searchClaimSourceSchema>;
 export const claimPriorSelectionsSchema = z.array(
@@ -59,7 +60,9 @@ async function selectionMembership(
 	if (searching && !effectiveCaseSearchConfig(mod))
 		throw new SearchChoiceUnavailable();
 	const keys = searchInputAnswerKeys(mod.caseListConfig?.searchInputs ?? []);
-	const answers = source.answers?.filter((input) => keys.has(input.name));
+	const answers = source.defaultSearch
+		? undefined
+		: source.answers?.filter((input) => keys.has(input.name));
 	const prepared = await serverRecordsRead(
 		world,
 		{ moduleUuid: source.moduleUuid, answers },
@@ -69,6 +72,7 @@ async function selectionMembership(
 		!prepared.read ||
 		prepared.refusal ||
 		searching !== prepared.searched ||
+		(source.defaultSearch === true && !prepared.search.defaultSearch) ||
 		(searching &&
 			(!prepared.search.hasSubmitted ||
 				!prepared.read.searchPopulation?.request)) ||

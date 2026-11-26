@@ -105,6 +105,7 @@ export interface PreviewCaseChoice {
 	 * menu or a parent selection. The server reconstructs and verifies it. */
 	readonly searchSource?: {
 		readonly moduleUuid: Uuid;
+		readonly defaultSearch?: true;
 		readonly answers: readonly { name: string; value: string }[];
 	};
 	readonly caseName?: string;

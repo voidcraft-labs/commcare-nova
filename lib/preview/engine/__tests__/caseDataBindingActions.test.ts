@@ -3564,7 +3564,7 @@ describe("countCasesOwnedByAction", () => {
 describe("claimSearchedCasesAction", () => {
 	/** A signed-in member previewing as a saved persona, with `store` as the
 	 *  Project store the action binds. */
-	async function asPersona(store: CaseStore) {
+	async function asPersona(store: CaseStore, defaultSearch = false) {
 		const personaUuid = testUuid("persona-claims");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
@@ -3572,6 +3572,18 @@ describe("claimSearchedCasesAction", () => {
 			user: { id: OWNER_A },
 			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const list = caseListConfig([{ field: "case_name", header: "Name" }]);
+		if (defaultSearch) {
+			list.searchInputs = [
+				simpleSearchInputDef(
+					testUuid("claim-client-name"),
+					"case_name",
+					"Name",
+					"text",
+					"case_name",
+				),
+			];
+		}
 		const doc = buildDoc({
 			caseTypes: [{ name: "client", properties: [] }],
 			modules: [
@@ -3579,10 +3591,8 @@ describe("claimSearchedCasesAction", () => {
 					uuid: testUuid("claim-menu"),
 					name: "Clients",
 					caseType: "client",
-					caseSearchConfig: {},
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
+					caseSearchConfig: defaultSearch ? { workflow: "skipToResults" } : {},
+					caseListConfig: list,
 					forms: [
 						{
 							name: "Visit",
@@ -3644,6 +3654,36 @@ describe("claimSearchedCasesAction", () => {
 			OWNER_A,
 			personaUuid,
 		);
+	});
+
+	it("replays the menu’s automatic search with the prompt omitted", async () => {
+		const claimCases = vi.fn<CaseStore["claimCases"]>().mockResolvedValueOnce({
+			created: ["chosen"],
+			alreadyClaimed: [],
+		});
+		const personaUuid = await asPersona(actionStore({ claimCases }), true);
+		const { claimSearchedCasesAction } = await import("../caseDataBinding");
+		expect(
+			await claimSearchedCasesAction({
+				appId: APP_ID,
+				caseIds: ["chosen"],
+				sources: [
+					{
+						moduleUuid: testUuid("claim-menu"),
+						caseIds: ["chosen"],
+						answers: [{ name: "case_name", value: "North" }],
+						defaultSearch: true,
+					},
+				],
+				prior: [],
+				personaUuid,
+			}),
+		).toMatchObject({ kind: "claimed", created: ["chosen"] });
+		const request =
+			claimCases.mock.calls[0]?.[0].fromSearches?.[0].query.searchPopulation
+				?.request;
+		expect(request?.parameters).toEqual([]);
+		expect(request?.unsentPrompts).toEqual(["case_name"]);
 	});
 
 	it("says a chosen case is gone when the store finds none by its id", async () => {

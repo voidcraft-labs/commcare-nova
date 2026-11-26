@@ -1645,6 +1645,9 @@ export function CaseListScreen({
 			activeSearchInputValues !== undefined && {
 				searchSource: {
 					moduleUuid,
+					...(submittedSearchOf(searchState)?.automatic === true && {
+						defaultSearch: true,
+					}),
 					answers: [...activeSearchInputValues].map(([name, value]) => ({
 						name,
 						value,

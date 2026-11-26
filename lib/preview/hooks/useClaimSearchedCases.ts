@@ -121,6 +121,7 @@ export function useClaimSearchedCases(): {
 					Uuid,
 					{
 						moduleUuid: Uuid;
+						defaultSearch?: true;
 						answers: { name: string; value: string }[];
 						caseIds: string[];
 					}
@@ -130,6 +131,7 @@ export function useClaimSearchedCases(): {
 					if (!source || !ids.includes(choice.caseId)) continue;
 					const group = bySource.get(source.moduleUuid) ?? {
 						moduleUuid: source.moduleUuid,
+						...(source.defaultSearch && { defaultSearch: true as const }),
 						answers: [...source.answers],
 						caseIds: [],
 					};
@@ -147,7 +149,10 @@ export function useClaimSearchedCases(): {
 							{
 								moduleUuid: module.uuid,
 								caseIds: selection.cases.map((row) => row.caseId),
-								...(source && { answers: [...source.answers] }),
+								...(source && {
+									answers: [...source.answers],
+									...(source.defaultSearch && { defaultSearch: true as const }),
+								}),
 							},
 						];
 					},

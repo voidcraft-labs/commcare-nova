@@ -82,7 +82,6 @@ import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { projectSearchOf, searchOwnerOverride } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
-import { getLookupFixtureData } from "@/lib/lookup/service";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	type CaseListSortChoice,
@@ -194,6 +193,7 @@ import type { ServerSearchWorld } from "./serverSearchRead";
 import { verifyFormOpening } from "./signedFormOpening";
 import type { ViewerLocation } from "./viewerLocation";
 import { workerLocationFixture } from "./workerLocationFixture";
+import { readPreviewLookup } from "./workerLookupScope";
 import type {
 	LoadCaseDatabaseSnapshotResult,
 	LoadSearchResultsSnapshotResult,
@@ -1188,7 +1188,7 @@ export async function claimSearchedCasesAction(args: {
 				),
 			},
 			lookup: tableIds.size
-				? await getLookupFixtureData(context.scope, [...tableIds])
+				? await readPreviewLookup(context.scope, [...tableIds])
 				: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
 			caseTypeSchemas: buildCaseTypeMap(doc),
 			timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
