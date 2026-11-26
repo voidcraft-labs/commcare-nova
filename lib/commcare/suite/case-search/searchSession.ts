@@ -29,13 +29,18 @@ import {
 	type WireStringSource,
 } from "@/lib/domain";
 import type { DatumRef } from "@/lib/domain/expression/types";
+import {
+	isDedicatedOwnerFilter,
+	searchOwnerOverride,
+} from "@/lib/domain/modules";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import { validateCaseType } from "../../identifierValidation";
 import type { LookupWireNaming } from "../../lookup/naming";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
 import { SEARCH_SELECTED_CASES_ID } from "./claim";
-import { emitSearchFilterValue, searchFilterKey } from "./nativeFilters";
+import { emitSearchRequestValue, searchRequestKey } from "./nativeFilters";
 import { searchNeedsSupportingCases } from "./relatedCaseProjection";
+import { requestOrderText } from "./requestOrder";
 import { buildSearchPrompts } from "./searchPrompts";
 import {
 	searchInputInstanceId,
@@ -282,15 +287,17 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		args.datumId,
 	);
 	for (const filter of caseListConfig.searchFilters ?? []) {
+		// The dedicated owner exclusion goes out after the default filters,
+		// where HQ writes `blacklisted_owner_ids_expression`.
+		if (isDedicatedOwnerFilter(filter)) continue;
 		dataElements.push(
 			xel(
 				"data",
 				{
-					attributes: { key: searchFilterKey(filter.target) },
+					attributes: { key: searchRequestKey(filter) },
 					xpath: {
-						ref: emitSearchFilterValue(
-							filter.value,
-							filter.uuid,
+						ref: emitSearchRequestValue(
+							filter,
 							args.expressions,
 							searchInputInstanceId(wire),
 							args.lookupNaming,
@@ -328,7 +335,34 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// CCHQ scopes this on `<query>`, not `<post>` — the post fires
 	// after case selection, by which point the filter has already
 	// gated the visible result set.
-	if (caseSearchConfig.excludedOwnerIds !== undefined) {
+	//
+	// The search's own exclusion replaces the shared rule here; one that sits
+	// among the default filters went out with them, and the shared rule then
+	// stays off so the key is never sent twice.
+	const override = searchOwnerOverride(caseListConfig);
+	if (override !== undefined && isDedicatedOwnerFilter(override)) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: EXCLUDED_OWNER_IDS_WIRE_KEY },
+					xpath: {
+						ref: emitSearchRequestValue(
+							override,
+							args.expressions,
+							searchInputInstanceId(wire),
+							args.lookupNaming,
+							args.datumId,
+						),
+					},
+				},
+				context,
+			),
+		);
+	} else if (
+		override === undefined &&
+		caseSearchConfig.excludedOwnerIds !== undefined
+	) {
 		const excludedOwnerIds = emitNormalizedExcludedOwnerIdsExpression(
 			caseSearchConfig.excludedOwnerIds,
 			args.expressions({ slot: "excluded_owner_ids" }),
@@ -354,6 +388,23 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 				{
 					attributes: { key: INCLUDE_ALL_RELATED_CASES_WIRE_KEY },
 					xpath: { ref: w.str("true") },
+				},
+				context,
+			),
+		);
+	}
+
+	// The dedicated order, where HQ writes `custom_sort_properties`: after
+	// the related-case keys, before the inline parent clause.
+	if (caseSearchConfig.requestOrder !== undefined) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: "commcare_sort" },
+					xpath: {
+						ref: w.str(requestOrderText(caseSearchConfig.requestOrder)),
+					},
 				},
 				context,
 			),

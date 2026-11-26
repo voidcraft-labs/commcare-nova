@@ -74,6 +74,7 @@ import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
+import { searchOwnerOverride } from "@/lib/domain/modules";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -654,11 +655,15 @@ async function prepareRunningCaseRead(
 		collectConfigLookupTableIds(args.caseListConfig),
 	);
 	const lookupTableSchemas = lookupDefinitions?.schemas;
-	const excludedLookupData = await loadExpressionLookupData(scope, [
-		args.excludedOwnerIdsExpression,
-	]);
+	// A search with its own owner exclusion sends that one instead of the
+	// shared rule (`searchOwnerOverride`); the assigned list keeps the rule.
+	const ownerRule =
+		searched && searchOwnerOverride(args.caseListConfig) !== undefined
+			? undefined
+			: args.excludedOwnerIdsExpression;
+	const excludedLookupData = await loadExpressionLookupData(scope, [ownerRule]);
 	const excludedTypes =
-		args.excludedOwnerIdsExpression === undefined
+		ownerRule === undefined
 			? undefined
 			: requireExpressionContext(
 					requireEnvironment().doc,
@@ -670,11 +675,11 @@ async function prepareRunningCaseRead(
 					excludedLookupData?.naming,
 				);
 	const excludedOwnerIds =
-		args.excludedOwnerIdsExpression === undefined || excludedTypes === undefined
+		ownerRule === undefined || excludedTypes === undefined
 			? undefined
 			: parseExcludedOwnerIds(
 					evaluatePreviewSearchExpression(
-						args.excludedOwnerIdsExpression,
+						ownerRule,
 						excludedTypes,
 						searchSession,
 						expressionInputValues,
@@ -683,11 +688,11 @@ async function prepareRunningCaseRead(
 					),
 				);
 	const authoredExcludedOwnerIds =
-		args.excludedOwnerIdsExpression === undefined || excludedTypes === undefined
+		ownerRule === undefined || excludedTypes === undefined
 			? undefined
 			: parseExcludedOwnerIds(
 					evaluatePreviewSearchExpression(
-						args.excludedOwnerIdsExpression,
+						ownerRule,
 						excludedTypes,
 						searchSession,
 						args.caseListConfig === undefined

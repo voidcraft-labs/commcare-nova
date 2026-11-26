@@ -7,22 +7,26 @@ import {
 	type CaseSearchRequest,
 	CaseSearchUnavailableError,
 } from "../searchRequest";
-import {
-	compileExpression,
-	compilePredicate,
-	expressionContextFor,
-	type PredicateCompileContext,
-} from "../sql";
+import { compilePredicate, type PredicateCompileContext } from "../sql";
 import {
 	compileRelationPath,
 	relationPathContextFrom,
 } from "../sql/compileRelationPath";
 import type { Database } from "../sql/database";
+import { indexedSearchDate } from "../sql/searchIndexedDate";
 import {
 	missingNativeProperty,
 	nativeRangeTruth,
+	nativeSearchPropertyText,
 	nativeSearchTruth,
 } from "./nativeSearchMatching";
+
+const JAVA_DOUBLE_TRIM = Array.from({ length: 32 }, (_, index) =>
+	String.fromCharCode(index + 1),
+).join("");
+const DECIMAL_MANTISSA = "([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?";
+const DECIMAL_NUMBER = `^[+-]?${DECIMAL_MANTISSA}$`;
+const OTHER_JAVA_NUMBER = `^[+-]?(${DECIMAL_MANTISSA}[dDfF]|0[xX][0-9a-fA-F.]+[pP][+-]?[0-9]+[dDfF]?|NaN|Infinity)$`;
 
 /** Conditions using the native term dictionary are resolved together with
  * the other request filters. An uncertain candidate cannot enter the WHERE
@@ -164,13 +168,62 @@ export async function searchPopulationIds(
 		(criterion, index) =>
 			sql`, ${criterionTruth(criterion, ctx)} as ${alias(index)}`,
 	);
-	const exprCtx = expressionContextFor(ctx);
+
+	const uncertainIndexValues: { index: number; key: string }[] = [];
 	for (const [index, sort] of order.entries()) {
-		const value = compileExpression(sort.expression, exprCtx);
-		const ordered =
-			sort.type === "text" ? sql`(${value})::text collate "C"` : value;
-		projections.push(sql`, ${ordered} as ${key(index)}`);
+		const value = nativeSearchPropertyText(sort.key);
+		let indexed: SqlExpression<unknown>;
+		switch (sort.type) {
+			case "text": {
+				// Elasticsearch's keyword mapper compares Java string length (UTF-16 units).
+				const supplemental = `[^${String.fromCodePoint(0x10000)}-${String.fromCodePoint(0x10ffff)}]`;
+				indexed = sql`(case when char_length(${value}) + char_length(regexp_replace(${value} collate "C", ${supplemental}, '', 'g')) <= 8191 then ${value} end) collate "C"`;
+				break;
+			}
+			case "number": {
+				// Java accepts leading and trailing ASCII controls in a floating-point
+				// string. PostgreSQL accepts a wider grammar, so use only the shared
+				// decimal spelling here. Keep unclear index values out of certified
+				// ordering if they could affect a worker's result.
+				const trimmed = sql`btrim(${value}, ${JAVA_DOUBLE_TRIM})`;
+				const decimal = sql`${trimmed} collate "C" ~ ${DECIMAL_NUMBER}`;
+				const valid = sql`pg_input_is_valid(${trimmed}, 'double precision')`;
+				const couldBeOtherNumber = sql`${trimmed} collate "C" ~ ${OTHER_JAVA_NUMBER}`;
+				// Elasticsearch distinguishes -0.0 from +0.0. The second key
+				// preserves this distinction when the database compares equal zeroes.
+				indexed = sql`case when ${decimal} and ${valid} then array[
+					(${trimmed})::double precision,
+					case when (${trimmed})::double precision = 0 and left(${trimmed},1) = '-' then -1 else 0 end
+				] end`;
+				uncertainIndexValues.push({ index, key: sort.key });
+				projections.push(
+					sql`, coalesce((${decimal} and not ${valid}) or ${couldBeOtherNumber},false) as ${sql.ref(`unknown_key_${index}`)}`,
+				);
+				break;
+			}
+			case "date": {
+				const date = indexedSearchDate(value);
+				indexed = date.instant;
+				uncertainIndexValues.push({ index, key: sort.key });
+				projections.push(
+					sql`, ${date.uncertain} as ${sql.ref(`unknown_key_${index}`)}`,
+				);
+				break;
+			}
+		}
+		projections.push(sql`, ${indexed} as ${key(index)}`);
 	}
+	const unknownKey =
+		uncertainIndexValues.length === 0
+			? sql`null::text`
+			: sql`case ${sql.join(
+					uncertainIndexValues.map(
+						({ index, key }) =>
+							sql`when ${sql.ref(`unknown_key_${index}`)} then ${key}::text`,
+					),
+					sql` `,
+				)} end`;
+
 	const sortOrder =
 		order.length === 0
 			? sql`(select null)`
@@ -202,6 +255,7 @@ export async function searchPopulationIds(
 		cutoff_tie: boolean;
 		order_tie: boolean;
 		exceeds_base: boolean;
+		unknown_key: string | null;
 	}>`with candidates as (
 		select c.case_id ${sql.join(projections, sql` `)} from (${candidates}) as c
 	), possible as materialized (
@@ -215,6 +269,7 @@ export async function searchPopulationIds(
 	)
 	select array(select case_id from boundary where position <= ${limit} order by position) as ids,
 		(select min(unknown_criterion) from possible) as unknown_criterion,
+		(select min(${unknownKey}) from possible) as unknown_key,
 		exists(select 1 from boundary where position > ${limit}) as exceeds_base,
 		exists(select 1 from boundary where position = ${limit + 1} and hit_rank <= ${limit}) as cutoff_tie,
 		exists(select 1 from boundary where position <= ${limit} and hit_rank < position) as order_tie`.execute(
@@ -261,6 +316,14 @@ export async function searchPopulationIds(
 		throw new CaseSearchUnavailableError({ kind: "result-limit-unavailable" });
 	if (request.readsHitScore && row.ids.length > 0)
 		throw new CaseSearchUnavailableError({ kind: "hit-score-unavailable" });
+	if (
+		row.unknown_key !== null &&
+		(row.exceeds_base || (request.readsHitOrder && row.ids.length > 1))
+	)
+		throw new CaseSearchUnavailableError({
+			kind: "indexed-value-unavailable",
+			field: row.unknown_key,
+		});
 	if (row.cutoff_tie)
 		throw new CaseSearchUnavailableError({ kind: "cutoff-order-unavailable" });
 	if (request.readsHitOrder && row.order_tie)

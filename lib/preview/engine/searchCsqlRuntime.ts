@@ -336,6 +336,7 @@ export async function evaluateSearchCsqlRuntime(
 	let unevaluated = false;
 	const filterValues: Record<string, string> = {};
 	for (const filter of world.caseListConfig.searchFilters ?? []) {
+		if (!("value" in filter)) continue;
 		const result = await piece(
 			emitSearchFilterValue(
 				filter.value,

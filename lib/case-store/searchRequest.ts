@@ -21,9 +21,11 @@ export interface CaseSearchRequest {
 	readonly relatedPaths?: readonly (readonly string[])[];
 	readonly configuration?: SearchConfigurationSelection;
 	/** Independent of the detail's sort. Exact indexed strings use binary
-	 * ordering, with missing first ascending and last descending. */
+	 * ordering, with missing first ascending and last descending. Each key is
+	 * the name HQ's search index holds the value under (`@status` is the
+	 * record's open or closed state, `status` a saved property). */
 	readonly order?: readonly {
-		readonly expression: Expression;
+		readonly key: string;
 		readonly type: "text" | "number" | "date";
 		readonly direction: "asc" | "desc";
 	}[];

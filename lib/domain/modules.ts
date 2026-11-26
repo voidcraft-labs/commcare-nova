@@ -2772,6 +2772,20 @@ export const searchFilterTargetSchema = z.discriminatedUnion("kind", [
 		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
 	}),
 	z.strictObject({ kind: z.literal("owner") }),
+	/**
+	 * Owners whose records the online search leaves out, named by the space
+	 * separated value (HQ's `commcare_blacklisted_owner_ids` request key,
+	 * `case_search/utils.py::CaseSearchQueryBuilder._apply_filter`). It applies
+	 * to the server search alone, never to the device list. `search-setting`
+	 * is the dedicated Case Search setting HQ's editor saves as
+	 * `blacklisted_owner_ids_expression`; without it the rule is one of the
+	 * default filters, in their order. Both send the same request key, so a
+	 * search holds one.
+	 */
+	z.strictObject({
+		kind: z.literal("excluded-owners"),
+		placement: z.literal("search-setting").optional(),
+	}),
 	z.strictObject({ kind: z.literal("project-space") }),
 	z.strictObject({
 		kind: z.literal("link"),
@@ -2780,12 +2794,67 @@ export const searchFilterTargetSchema = z.discriminatedUnion("kind", [
 ]);
 export type SearchFilterTarget = z.infer<typeof searchFilterTargetSchema>;
 
-export const searchFilterSchema = z.strictObject({
+/**
+ * The order the server chooses its matches in before it caps them: each term
+ * a property, how its indexed value compares (text, number or date) and a
+ * direction, the later terms breaking ties of the earlier
+ * (`case_search/utils.py::CaseSearchQueryBuilder._apply_sort`). The device
+ * list may still show the returned records in its own order.
+ */
+export const searchRequestOrderSchema = z
+	.array(
+		z
+			.strictObject({
+				property: authoredCasePropertyNameSchema,
+				/** The record name read by HQ's `name` key rather than `case_name`. */
+				recordName: z.literal(true).optional(),
+				comparison: z.enum(["text", "number", "date"]),
+				direction: z.enum(["ascending", "descending"]),
+				/** A default filter brought in from HQ that left these to HQ's
+				 *  defaults (text, ascending) keeps leaving them. */
+				implicitComparison: z.literal(true).optional(),
+				implicitDirection: z.literal(true).optional(),
+			})
+			.refine((term) => !term.recordName || term.property === "case_name", {
+				error: "Choose the record name.",
+			})
+			.refine(
+				(term) => !term.implicitComparison || term.comparison === "text",
+				{
+					error: "Choose a comparison for this property.",
+				},
+			)
+			.refine(
+				(term) => !term.implicitDirection || term.direction === "ascending",
+				{ error: "Choose a direction for this property." },
+			),
+	)
+	.min(1);
+export type SearchRequestOrder = z.infer<typeof searchRequestOrderSchema>;
+
+export const searchValueFilterSchema = z.strictObject({
 	uuid: uuidSchema,
 	target: searchFilterTargetSchema,
 	value: valueSchema,
 });
+/** An order among the default filters: HQ's `commcare_sort` request key, sent
+ *  in the filters' order and before the dedicated `requestOrder`. */
+export const searchOrderFilterSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("order"),
+	order: searchRequestOrderSchema,
+});
+export const searchFilterSchema = z.union([
+	searchValueFilterSchema,
+	searchOrderFilterSchema,
+]);
 export type SearchFilter = z.infer<typeof searchFilterSchema>;
+export type SearchValueFilter = z.infer<typeof searchValueFilterSchema>;
+export function searchFilterUsesValue(
+	filter: SearchFilter,
+): filter is SearchValueFilter {
+	return "target" in filter;
+}
 
 export const caseListConfigSchema = z
 	.strictObject({
@@ -3072,6 +3141,7 @@ export const ordinaryCaseSearchConfigSchema = z
 		// authoring vocabulary is `excludedOwnerIds`. The translation
 		// lives at `lib/commcare/suite/case-search/searchSession.ts`.
 		excludedOwnerIds: valueSchema.optional(),
+		requestOrder: searchRequestOrderSchema.optional(),
 
 		// Display labels for the search screen. The runtime renders the
 		// subtitle through a markdown formatter; the title is plain text.
@@ -3160,6 +3230,7 @@ export function caseSearchConfigHasAuthoredSettings(
 	if (isOwnerOnlyCaseSearchConfig(config)) return true;
 	return (
 		config.excludedOwnerIds !== undefined ||
+		config.requestOrder !== undefined ||
 		config.searchScreenTitle !== undefined ||
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||
@@ -3187,6 +3258,29 @@ export function isOrdinaryCaseSearchConfig(
 	config: CaseSearchConfig | undefined,
 ): config is OrdinaryCaseSearchConfig {
 	return config !== undefined && !isOwnerOnlyCaseSearchConfig(config);
+}
+
+/**
+ * The search's own owner exclusion, which replaces `excludedOwnerIds` for the
+ * online search alone: the assigned list keeps that rule. A search sends one
+ * `commcare_blacklisted_owner_ids` value, so one rule wins.
+ */
+export function searchOwnerOverride(
+	config: Pick<CaseListConfig, "searchFilters"> | undefined,
+): SearchValueFilter | undefined {
+	return config?.searchFilters?.find(
+		(row): row is SearchValueFilter =>
+			searchFilterUsesValue(row) && row.target.kind === "excluded-owners",
+	);
+}
+
+/** The owner exclusion HQ's editor holds as `blacklisted_owner_ids_expression`. */
+export function isDedicatedOwnerFilter(filter: SearchFilter): boolean {
+	return (
+		searchFilterUsesValue(filter) &&
+		filter.target.kind === "excluded-owners" &&
+		filter.target.placement === "search-setting"
+	);
 }
 
 /** The title a worker reads: the authored text, "Search" where none is
@@ -3225,6 +3319,7 @@ export function caseSearchConfigAfterFinalInputRemoval(
 	// The workflow and Forms read the search survive the last input: the
 	// menu keeps opening as the author chose.
 	const hasSearchActionSetting =
+		action.requestOrder !== undefined ||
 		action.searchButtonDisplayCondition !== undefined ||
 		action.workflow !== undefined ||
 		action.formsReadSearch !== undefined ||

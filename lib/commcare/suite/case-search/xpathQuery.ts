@@ -66,6 +66,7 @@ import {
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import { isDedicatedOwnerFilter } from "@/lib/domain/modules";
 import {
 	readsSearchField,
 	searchConditionOf,
@@ -138,7 +139,7 @@ export function xpathQueryRequestValues(
 	if (
 		clauses.length > 0 ||
 		caseListConfig.searchInputs.length > 0 ||
-		caseListConfig.searchFilters?.length
+		caseListConfig.searchFilters?.some((row) => !isDedicatedOwnerFilter(row))
 	) {
 		return clauses;
 	}

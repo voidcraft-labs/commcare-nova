@@ -924,7 +924,8 @@ function extractModuleEdges(
 			case "case-property-ref":
 				if (slot.slot === "search_filter_property") {
 					for (const filter of mod.caseListConfig?.searchFilters ?? []) {
-						if (filter.target.kind !== "property") continue;
+						if (!("target" in filter) || filter.target.kind !== "property")
+							continue;
 						const walk = searchFilterWalk(filter);
 						const destination = resolveRelationDestination(
 							walk,
@@ -959,6 +960,17 @@ function extractModuleEdges(
 						if (column.via !== undefined)
 							sink.edge(caseTypeTargetKey(caseType), slot.slot);
 					}
+				} else if (
+					slot.slot === "search_order_property" ||
+					slot.slot === "search_filter_order_property"
+				) {
+					// An order names a property of the menu's own record type.
+					if (mod.caseType !== undefined)
+						for (const entry of readSlotStrings(mod, slot.path))
+							sink.edge(
+								casePropertyTargetKey(mod.caseType, entry.text),
+								slot.slot,
+							);
 				} else {
 					for (const input of mod.caseListConfig?.searchInputs ?? []) {
 						if (input.kind !== "simple") continue;
@@ -1150,6 +1162,7 @@ function termEdges(
 
 /** The walk a search filter's target takes to the record it matches, if any. */
 function searchFilterWalk(filter: SearchFilter): RelationPath | undefined {
+	if (!("target" in filter)) return undefined;
 	const target = filter.target;
 	return "ancestors" in target && target.ancestors !== undefined
 		? { kind: "ancestor", via: target.ancestors }

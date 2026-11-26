@@ -16,13 +16,16 @@ import {
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
+import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import { moduleExpressionContexts } from "../../expressionContext";
 import {
 	projectCaseListForHq,
 	type SearchConfigRewrites,
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
-import { excludedOwnerClauseWritten } from "../../suite/case-list/nodesetFilter";
+import { emitExcludedOwnerFilterExpression } from "../../suite/case-list/nodesetFilter";
 import { searchGuardedFieldNames } from "../../suite/case-search/moduleXPathQuery";
+import { readDedicatedOrder } from "../../suite/case-search/requestOrder";
 import { normalizeSpace } from "../../suite/wire";
 import { rethrowWorkStop } from "../../workMeter";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
@@ -129,8 +132,8 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}search-button-label-any-other-value`,
 		"schema:CaseSearch.search_button_label",
 	),
-	ownerWithoutClause: refuse(
-		`${S}blacklisted-owner-ids-expression-without-that-clause`,
+	dormantOwners: drop(
+		`${S}owner-exclusion-in-a-dormant-search-setting`,
 		"schema:CaseSearch.blacklisted_owner_ids_expression",
 	),
 	includeDerived: derived(
@@ -173,7 +176,23 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}custom-related-case-property`,
 		"schema:CaseSearch.custom_related_case_property",
 	),
-	customSort: refuse(
+	sortTerm: take(
+		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearchCustomSortProperty",
+	),
+	sortProperty: take(
+		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearchCustomSortProperty.property_name",
+	),
+	sortComparison: take(
+		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearchCustomSortProperty.sort_type",
+	),
+	sortDirection: take(
+		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
+		"schema:CaseSearchCustomSortProperty.direction",
+	),
+	customSort: take(
 		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
 		"schema:CaseSearch.custom_sort_properties",
 	),
@@ -524,6 +543,13 @@ function offersOverRaw(config: unknown): boolean {
 function ownerSource(module: DraftModule): "config" | "filter" | undefined {
 	const config = module.json.peek("search_config");
 	if (storesOwners(config)) return "config";
+	if (
+		isJsonObject(config) &&
+		objectMembers(config.default_properties)?.some(
+			(row) => row.property === "commcare_blacklisted_owner_ids",
+		)
+	)
+		return "filter";
 	return offersOverRaw(config) ? undefined : "filter";
 }
 
@@ -608,7 +634,7 @@ function wrapperCall(
 
 /** The list inside the wrapper `suite/wire.ts::normalizeSpace` writes (found by re-emitting the
  *  wrapper and comparing syntax), or inside a whole-text `normalize-space(...)`; else the text. */
-function withoutNormalizeSpace(text: string): string {
+export function withoutNormalizeSpace(text: string): string {
 	const node = unwrap(parse(text));
 	const innerWrapper =
 		NORMALIZE_SPACE_WRAPPER?.kind === "call"
@@ -627,6 +653,62 @@ function withoutNormalizeSpace(text: string): string {
 		return text;
 	const inner = node.args[0] as FormSyntax;
 	return text.slice(inner.from, inner.to);
+}
+
+/** Register the availability clause on the assigned list independently from the search. */
+export function registerListOwner(
+	ctx: ReadContext,
+	module: DraftModule,
+): number | undefined {
+	const filter = filterWithOwnerClause(module);
+	if (!filter) return;
+	const short = caseListReadings(ctx).get(module.uuid)?.short;
+	const text = ownerListInFilter(filter);
+	const whole = listFilterWithoutOwnerClause(module, filter) === "";
+	const site = whole
+		? { json: short, key: "filter" }
+		: { json: module.json, key: "case_details" };
+	if (!site.json || text === undefined) return;
+	return ctx.pending.register(
+		{
+			ref: { entity: "module", uuid: module.uuid, slot: "excluded_owner_ids" },
+			text,
+			mode: { target: "hq-json", interpolation: "case" },
+			place: searchPlace(module),
+			key: "schema:CaseSearch.blacklisted_owner_ids_expression",
+			slotText: whole ? filter : null,
+		},
+		{ json: site.json, key: site.key },
+	);
+}
+
+/** Compare the actual list clause with the clause this shared expression prints when all Search answers are blank. */
+export function sharedOwnerRuleFits(
+	ctx: ReadContext,
+	module: DraftModule,
+	doc: BlueprintDoc,
+	candidate: Expression,
+): boolean {
+	const naming = readProjectionInputs(ctx).lookupNaming;
+	const expected = emitExcludedOwnerFilterExpression(
+		candidate,
+		moduleExpressionContexts(
+			doc,
+			module.uuid,
+			naming,
+		)({ slot: "excluded_owner_ids" }),
+		naming,
+	);
+	const filter = filterWithOwnerClause(module);
+	if (!filter || !expected) return !filter && !expected;
+	const clause = ownerClauseOf(parse(filter))?.clause;
+	return (
+		clause !== undefined &&
+		sameXPathValue(
+			filter.slice(clause.from, clause.to),
+			hqXPathText(new HqXPath(expected, "case")),
+		)
+	);
 }
 
 /** The stored list filter, where it holds the owner clause. */
@@ -735,23 +817,21 @@ export function readSearchSettings(
 				);
 		}
 	}
-	const register = (
-		slot: "excluded_owner_ids" | "search_button_display_condition",
-		key: string,
-	) => {
-		const stored = cursor.peek(key);
-		if (typeof stored !== "string" || stored.trim() === "") return undefined;
-		// The owner list is written inside `normalize-space(...)` (`suite/wire.ts::normalizeSpace`),
-		// which the projection writes again around the list it holds.
-		const text =
-			slot === "excluded_owner_ids" ? withoutNormalizeSpace(stored) : stored;
+	const registerButtonCondition = () => {
+		const key = "search_button_display_condition";
+		const text = cursor.peek(key);
+		if (typeof text !== "string" || text.trim() === "") return;
 		return ctx.pending.register(
 			{
-				ref: { entity: "module", uuid: module.uuid, slot },
+				ref: {
+					entity: "module",
+					uuid: module.uuid,
+					slot: "search_button_display_condition",
+				},
 				text,
 				mode: { target: "hq-json", interpolation: "none" },
 				place,
-				key: `schema:CaseSearch.${key}`,
+				key: "schema:CaseSearch.search_button_display_condition",
 			},
 			{ json: cursor, key },
 		);
@@ -764,56 +844,26 @@ export function readSearchSettings(
 	let ownersWithoutClause = false;
 	if (holdsText(cursor, "blacklisted_owner_ids_expression")) {
 		claimed.add("blacklisted_owner_ids_expression");
-		if (filter === undefined && offers)
+		if (offers)
 			// Nova's list writes no clause for an exclusion that reads a Search answer alone, which
 			// only the bound tree tells: `readOwnersWithoutClause`, once the menu's fields are drafted.
 			ownersWithoutClause = true;
-		else if (filter === undefined) {
-			cursor.refuse("blacklisted_owner_ids_expression", T.ownerWithoutClause);
-			ok = false;
-		} else {
-			owners = register(
-				"excluded_owner_ids",
-				"blacklisted_owner_ids_expression",
+		else {
+			// HQ creates no remote request for this menu. The stored Search
+			// setting says nothing about the cases on its assigned list.
+			cursor.drop("blacklisted_owner_ids_expression", T.dormantOwners);
+			sameState(
+				ctx,
+				T.dormantOwners.entry,
+				`${cursor.pointer}/blacklisted_owner_ids_expression`,
+				"list-settings-respelled",
 			);
-			if (owners !== undefined)
-				config.excludedOwnerIds = pendingPlaceholder("value");
 		}
-	} else if (
-		!offers &&
-		filter !== undefined &&
-		ownerSource(module) === "filter"
-	) {
-		// A menu that offers no search writes its exclusion as the list filter's clause alone,
-		// so the list is read from there. Where the clause is the whole filter its claims land on
-		// the filter; beside an authored operand, whose own registration claims the filter's
-		// grammar there, they land on the menu's `case_details`, which holds the filter, so no
-		// use of the grammar is claimed twice at one node.
-		const short = caseListReadings(ctx).get(module.uuid)?.short;
-		const text = ownerListInFilter(filter);
-		const whole = listFilterWithoutOwnerClause(module, filter) === "";
-		const site = whole
-			? { json: short, key: "filter" }
-			: { json: module.json, key: "case_details" };
-		if (short !== undefined && site.json !== undefined && text !== undefined) {
-			owners = ctx.pending.register(
-				{
-					ref: {
-						entity: "module",
-						uuid: module.uuid,
-						slot: "excluded_owner_ids",
-					},
-					text,
-					mode: { target: "hq-json", interpolation: "case" },
-					place,
-					key: "schema:CaseSearch.blacklisted_owner_ids_expression",
-					// HQ interpolates the filter whole, and the menu's `case_details` not at all.
-					slotText: whole ? filter : null,
-				},
-				{ json: site.json, key: site.key },
-			);
+	}
+	if (filter !== undefined && (!offers || ownerSource(module) === "filter")) {
+		owners = registerListOwner(ctx, module);
+		if (owners !== undefined)
 			config.excludedOwnerIds = pendingPlaceholder("value");
-		}
 	}
 	if (!offers) {
 		// A menu that offers no search still loads its results instance by name.
@@ -1063,10 +1113,7 @@ export function readSearchSettings(
 		cursor.refuse("search_button_label", T.buttonOther);
 		ok = false;
 	}
-	const buttonIndex = register(
-		"search_button_display_condition",
-		"search_button_display_condition",
-	);
+	const buttonIndex = registerButtonCondition();
 	if (buttonIndex !== undefined)
 		config.searchButtonDisplayCondition = pendingPlaceholder("condition");
 
@@ -1096,9 +1143,35 @@ export function readSearchSettings(
 		refuseInstanceName(ctx, cursor, T.instanceUnreserved, place);
 		ok = false;
 	}
+	if (cursor.used("custom_sort_properties")) {
+		const order = readDedicatedOrder(cursor.peek("custom_sort_properties"));
+		if (order === undefined) {
+			const detail = { name: "schema:CaseSearch.custom_sort_properties" };
+			ctx.accounting.circumstance("unrecognized", place, detail);
+			ctx.accounting.cover(
+				{ json: cursor, key: "custom_sort_properties" },
+				circumstanceFinding("unrecognized", place, detail),
+			);
+			ok = false;
+		} else {
+			const members = cursor.list(
+				"custom_sort_properties",
+				"CaseSearchCustomSortProperty",
+				T.customSort,
+			);
+			for (const row of members) {
+				row.takeClass(T.sortTerm).value;
+				row.take("property_name", T.sortProperty, String).value;
+				row.take("sort_type", T.sortComparison, String).value;
+				row.take("direction", T.sortDirection, String).value;
+			}
+			config.requestOrder = order;
+		}
+		claimed.add("custom_sort_properties");
+	}
 	const findings: [string, typeof T.additionalTypes][] = [
 		["custom_related_case_property", T.relatedProperty],
-		["custom_sort_properties", T.customSort],
+
 		["case_search_endpoint_id", T.endpoint],
 	];
 	for (const [key, claim] of findings)
@@ -1139,30 +1212,11 @@ export function ownersWithoutClauseRegistration(
 	if (typeof stored !== "string" || stored.trim() === "") return undefined;
 	return {
 		ref: { entity: "module", uuid: module.uuid, slot: "excluded_owner_ids" },
-		text: withoutNormalizeSpace(stored),
+		text: stored,
 		mode: { target: "hq-json", interpolation: "none" },
 		place: searchPlace(module),
 		key: "schema:CaseSearch.blacklisted_owner_ids_expression",
 	};
-}
-
-/**
- * A stored owner exclusion with no clause in the list filter: HQ applies it to the search's
- * results alone (`remote_requests.py`, the `x_commcare_blacklisted_owner_ids` query datum), and
- * so does Nova's print of an exclusion that reads a Search answer alone, which its list cannot
- * see (`nodesetFilter.ts::excludedOwnerClauseWritten`). `candidate` is the tree the reading
- * proposes for the stored text; it is registered and held where Nova's list writes no clause for
- * it, and the settle's projection then holds the whole search. Any other exclusion, or one the
- * reading cannot bind, is a search-only exclusion Nova cannot hold, refused under its entry.
- */
-export function holdsOwnersWithoutClause(
-	cursor: JsonCursor,
-	candidate: Expression | undefined,
-): boolean {
-	if (candidate !== undefined && !excludedOwnerClauseWritten(candidate))
-		return true;
-	cursor.refuse("blacklisted_owner_ids_expression", T.ownerWithoutClause);
-	return false;
 }
 
 /**
@@ -1584,6 +1638,13 @@ function searchDifference(
 	] as const)
 		if (!sameXPathValue(stored.peek(key), ours[key]))
 			return `schema:CaseSearch.${key}`;
+	if (
+		!sameJson(
+			readDedicatedOrder(stored.peek("custom_sort_properties")) ?? [],
+			readDedicatedOrder(ours.custom_sort_properties) ?? [],
+		)
+	)
+		return "schema:CaseSearch.custom_sort_properties";
 	// Each stored prompt with the pointer its reading's cursor has.
 	const promptsA = Array.isArray(stored.peek("properties"))
 		? (stored.peek("properties") as unknown[]).flatMap((one, index) =>

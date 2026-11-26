@@ -22,6 +22,7 @@ import type {
 	Module,
 	SearchFilterTarget,
 	SearchInputDef,
+	SearchRequestOrder,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -343,10 +344,19 @@ function summarizeCaseList(mod: Module): string | undefined {
 		lines.push("      search_filters:");
 		for (const filter of config.searchFilters)
 			lines.push(
-				`        - ${filter.uuid}: ${searchFilterTargetText(filter.target)}`,
+				`        - ${filter.uuid}: ${
+					"target" in filter
+						? searchFilterTargetText(filter.target)
+						: `order ${filter.order.map(orderTermText).join(", then ")}`
+				}`,
 			);
 	}
 	return lines.join("\n");
+}
+
+/** One term of a search's server order, as the SA reads it. */
+function orderTermText(term: SearchRequestOrder[number]): string {
+	return `${term.property} as ${term.comparison}, ${term.direction}`;
 }
 
 /** What one search filter matches, as the SA reads it. */
@@ -366,6 +376,10 @@ function searchFilterTargetText(target: SearchFilterTarget): string {
 			return `the record's ${target.attribute}${through}`;
 		case "owner":
 			return "the record's owner";
+		case "excluded-owners":
+			return target.placement === "search-setting"
+				? "owners left out of the online matches (search setting)"
+				: "owners left out of the online matches (default filter)";
 		case "project-space":
 			return "the project space";
 		case "link":
@@ -463,11 +477,12 @@ function formatSearchInput(input: SearchInputDef): string {
  *
  * Output shape:
  *
- *   `case_search: display={titleSet,subtitleSet,…} advanced={excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst|listFirstWithDefaultResults>[, forms read it]`
+ *   `case_search: display={titleSet,subtitleSet,…} advanced={requestOrder, excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst|listFirstWithDefaultResults>[, forms read it]`
  *
  * Display cluster summary: comma-separated list of the slot names that
  * are non-undefined; `none` when every slot is cleared. Advanced
- * cluster summary: the excluded-owners filter, or `none`. `workflow=`
+ * cluster summary: the server order and the excluded-owners rule that are
+ * set, or `none`. `workflow=`
  * is what the menu opens on, as `setCaseSearchAdvanced.searchWorkflow`
  * names it, followed by `forms read it` when the menu's forms read the
  * search. The one-liner stays at a fixed width to keep the prompt cheap.
@@ -490,10 +505,11 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 		setDisplaySlots.length === 0
 			? "display={none}"
 			: `display={${setDisplaySlots.join(", ")}}`;
-	const advancedSummary =
-		config.excludedOwnerIds === undefined
-			? "advanced={none}"
-			: "advanced={excludedOwnerIds}";
+	const advancedSlots = [
+		...(config.requestOrder !== undefined ? ["requestOrder"] : []),
+		...(config.excludedOwnerIds !== undefined ? ["excludedOwnerIds"] : []),
+	];
+	const advancedSummary = `advanced={${advancedSlots.length === 0 ? "none" : advancedSlots.join(", ")}}`;
 	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}${config.searchOnClear ? ", clearing runs a new search on desktop Web Apps" : ""}`;
 	return `    case_search: ${displaySummary} ${advancedSummary} ${workflowSummary}`;
 }

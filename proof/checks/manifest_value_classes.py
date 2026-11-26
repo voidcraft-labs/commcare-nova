@@ -9509,15 +9509,6 @@ def endpoint_on_an_offered_search(use, manifest):
     return offered and bool(config.get("case_search_endpoint_id"))
 
 
-def custom_sort_on_an_offered_search(use, manifest):
-    """``case-search/custom-sort-properties-property-name-sort-type-exact-date``: a search's custom sort, and each
-    of its rows and their keys, on a search the menu offers, where HQ's build writes the sort into the query
-    (``post_process/remote_requests.py``, ``RemoteRequestsHelper``). On a menu that offers none it is part of
-    the search configuration HQ stores and builds nothing of, the round trip's class."""
-    _, offered = _offered_search_config(use)
-    return offered
-
-
 def choice_value_with_both_quote_marks(use, manifest):
     """``questions/choice-value-holding-both-an-apostrophe-and-a-double-quote``: a choice's ``<value>`` whose text
     holds both ``'`` and ``"``, which no XPath string literal spells (``lib/domain/selectOptionValue.ts::
@@ -10093,7 +10084,6 @@ VALUE_CLASSES = {
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
-    "case-search/custom-sort-properties-property-name-sort-type-exact-date": custom_sort_on_an_offered_search,
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
     "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,

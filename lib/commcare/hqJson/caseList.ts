@@ -71,9 +71,11 @@ import {
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	imageMapShowsImages,
+	isDedicatedOwnerFilter,
 	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
+	searchOwnerOverride,
 	tileCellFor,
 } from "@/lib/domain";
 import {
@@ -114,10 +116,11 @@ import {
 import { SORT_DIRECTION_WIRE_MAP } from "../suite/case-list/sortKeys";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
 import {
-	emitSearchFilterValue,
-	searchFilterKey,
+	emitSearchRequestValue,
+	searchRequestKey,
 } from "../suite/case-search/nativeFilters";
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
+import { projectRequestOrder } from "../suite/case-search/requestOrder";
 import {
 	type RuntimeCsqlPromptValidation,
 	type SearchPromptAssertion,
@@ -977,7 +980,29 @@ function buildSearchConfigDocument(
 				rewrites?.({ slot: "search_button_display_condition" }),
 			);
 		}
-		if (caseSearchConfig.excludedOwnerIds !== undefined) {
+		if (caseSearchConfig.requestOrder !== undefined)
+			config.custom_sort_properties = projectRequestOrder(
+				caseSearchConfig.requestOrder,
+			);
+		// The search's own owner exclusion replaces the shared rule for the
+		// search; a default-filter one goes out among the default filters, and
+		// the shared rule then stays off the search so HQ never reads the key
+		// twice (`SearchCriteria._validate_multiple_terms`).
+		const override = searchOwnerOverride(caseListConfig);
+		if (override !== undefined && isDedicatedOwnerFilter(override)) {
+			config.blacklisted_owner_ids_expression = hqXPath(
+				emitSearchRequestValue(
+					override,
+					expressions,
+					inputInstanceId,
+					lookupNaming,
+					datumId,
+				),
+			);
+		} else if (
+			override === undefined &&
+			caseSearchConfig.excludedOwnerIds !== undefined
+		) {
 			config.blacklisted_owner_ids_expression = hqXPath(
 				emitNormalizedExcludedOwnerIdsExpression(
 					caseSearchConfig.excludedOwnerIds,
@@ -1017,19 +1042,20 @@ function buildSearchConfigDocument(
 		// A search with no input and no clause carries the zero-input
 		// sentinel, as the local suite's query does.
 		config.default_properties = [
-			...(caseListConfig.searchFilters ?? []).map((filter) => ({
-				property: searchFilterKey(filter.target),
-				defaultValue: hqXPath(
-					emitSearchFilterValue(
-						filter.value,
-						filter.uuid,
-						expressions,
-						inputInstanceId,
-						lookupNaming,
-						datumId,
+			...(caseListConfig.searchFilters ?? [])
+				.filter((row) => !isDedicatedOwnerFilter(row))
+				.map((filter) => ({
+					property: searchRequestKey(filter),
+					defaultValue: hqXPath(
+						emitSearchRequestValue(
+							filter,
+							expressions,
+							inputInstanceId,
+							lookupNaming,
+							datumId,
+						),
 					),
-				),
-			})),
+				})),
 			...projectDefaultProperties(
 				xpathQueryRequestValues(caseListConfig, xpathQueryEmission),
 			),

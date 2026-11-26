@@ -1045,7 +1045,8 @@ export function slotContext(
 		if (
 			slot.slot === "search_filter_value" &&
 			!module.caseListConfig?.searchFilters?.some(
-				(filter) => filter.uuid === slot.member.filterUuid,
+				(filter) =>
+					"target" in filter && filter.uuid === slot.member.filterUuid,
 			)
 		)
 			return undefined;

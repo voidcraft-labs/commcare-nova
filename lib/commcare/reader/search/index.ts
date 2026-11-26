@@ -25,6 +25,10 @@ import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import { searchButtonUndeclaredInstances } from "../../suite/case-search/buttonCondition";
 import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
+import {
+	readDedicatedOrder,
+	readRequestOrderText,
+} from "../../suite/case-search/requestOrder";
 import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
@@ -77,15 +81,17 @@ import {
 } from "./rows";
 import {
 	claimUndeclaredSearchKeys,
-	holdsOwnersWithoutClause,
 	holdsText,
 	hqAutoSelects,
 	ownersWithoutClauseRegistration,
 	readSearchSettings,
+	registerListOwner,
 	runtimeGuardEndings,
 	SETTING_CLAIMS,
 	settleSearchSettings,
+	sharedOwnerRuleFits,
 	spelledAsShown,
+	withoutNormalizeSpace,
 } from "./settings";
 import { offersSearch, readSearchWorkflow, searchPlace } from "./workflow";
 
@@ -131,6 +137,14 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}default-properties-entry-keyed-owner-id-case-id-commcare-project`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
+	defaultOrder: take(
+		`${S}default-filter-orders-the-records-the-search-sends`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	defaultOrderValue: take(
+		`${S}default-filter-orders-the-records-the-search-sends`,
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
 	sortKey: refuse(
 		`${S}default-properties-entry-keyed-commcare-sort-x-commcare-custom`,
 		"schema:DefaultCaseSearchProperty.property",
@@ -155,7 +169,7 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}default-properties-entry-keyed-x-commcare-data-registry`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
-	ownersKey: refuse(
+	ownersKey: take(
 		`${S}default-properties-entry-keyed-commcare-blacklisted-owner-ids`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
@@ -266,7 +280,7 @@ function keyFinding(
 	if (key === "x_commcare_custom_related_case_property" && relatedPropertySet)
 		return C.relatedTwice;
 	if (key === "commcare_blacklisted_owner_ids")
-		return ownersExpression ? C.ownersTwice : C.ownersKey;
+		return ownersExpression ? C.ownersTwice : undefined;
 	if (key === "case_type") return C.caseTypeKey;
 	if (key === "x_commcare_endpoint_id") return C.endpointKey;
 	if (key === "x_commcare_data_registry") return C.registryKey;
@@ -363,6 +377,33 @@ function readDefaultFilters(
 			return;
 		}
 		if (property !== "_xpath_query") {
+			if (property === "commcare_sort") {
+				const syntax = readFormSyntax(value);
+				const order =
+					syntax.ok && syntax.node?.kind === "string"
+						? readRequestOrderText(syntax.node.value)
+						: undefined;
+				if (order !== undefined) {
+					const occurrence = names.get(property)?.length ?? 0;
+					addName(property, row);
+					const uuid = accounting.identity(
+						ctx.identities.claim(
+							externalKey.searchFilter(module.uniqueId, property, occurrence),
+							`${module.uniqueId}/search/filter/${index}`,
+						),
+						row.place,
+						"schema:DefaultCaseSearchProperty.property",
+					);
+					if (!uuid) {
+						ok = false;
+						return;
+					}
+					row.take("property", C.defaultOrder, String).value;
+					row.take("defaultValue", C.defaultOrderValue, String).value;
+					filters.push({ uuid, kind: "order", order });
+					return;
+				}
+			}
 			// The row's value is the filter the refusal names, and stands under its finding.
 			const claim = keyFinding(
 				property,
@@ -388,13 +429,15 @@ function readDefaultFilters(
 					return;
 				}
 				const claim =
-					"ancestors" in target && target.ancestors
-						? C.ancestorKey
-						: target.kind === "record-name" ||
-								target.kind === "attribute" ||
-								target.kind === "property"
-							? C.plainKey
-							: C.projectKey;
+					target.kind === "excluded-owners"
+						? C.ownersKey
+						: "ancestors" in target && target.ancestors
+							? C.ancestorKey
+							: target.kind === "record-name" ||
+									target.kind === "attribute" ||
+									target.kind === "property"
+								? C.plainKey
+								: C.projectKey;
 				row.take("property", claim, String).value;
 				if (property === "owner_id")
 					accounting.claimEntry(
@@ -601,10 +644,15 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		// A property the search's rows read, and a simple Search field's, is a property of the
 		// catalog, as every expression's is.
 		const properties = [
-			...filters.filters.flatMap(({ target }) =>
-				target.kind === "property" && !target.ancestors
-					? [target.property]
-					: [],
+			...filters.filters.flatMap((row) =>
+				"order" in row
+					? row.order.map((term) => term.property)
+					: row.target.kind === "property" && !row.target.ancestors
+						? [row.target.property]
+						: [],
+			),
+			...(readDedicatedOrder(cursor.peek("custom_sort_properties")) ?? []).map(
+				(term) => term.property,
 			),
 			...filters.rows.flatMap((row) => searchRowProperties(row.text)),
 			...prompts.flatMap((prompt) =>
@@ -725,25 +773,72 @@ function readOwnersWithoutClause(
 			excludedOwnerIds: placeholder,
 		} as CaseSearchConfig;
 	});
-	const judged = readExpression(trial, registration, expressionEnvOf(ctx));
-	if (
-		!holdsOwnersWithoutClause(
-			cursor,
-			judged.kind === "refused" ? undefined : judged.candidate,
-		)
-	)
-		return false;
-	ctx.pending.register(registration, {
-		json: cursor,
-		key: "blacklisted_owner_ids_expression",
-	});
+	const inner = withoutNormalizeSpace(registration.text);
+	if (inner !== registration.text) {
+		const legacy = { ...registration, text: inner };
+		const judged = readExpression(trial, legacy, expressionEnvOf(ctx));
+		if (
+			judged.kind !== "refused" &&
+			sharedOwnerRuleFits(ctx, module, trial, judged.candidate)
+		) {
+			ctx.pending.register(legacy, {
+				json: cursor,
+				key: "blacklisted_owner_ids_expression",
+			});
+			ctx.writeDraft(() => {
+				const target = module.module as { caseSearchConfig?: CaseSearchConfig };
+				target.caseSearchConfig = {
+					...target.caseSearchConfig,
+					excludedOwnerIds: placeholder,
+				} as CaseSearchConfig;
+			});
+			return true;
+		}
+	}
+	const assigned = registerListOwner(ctx, module);
+	const uuid = ctx.accounting.identity(
+		ctx.identities.claim(
+			externalKey.searchFilter(
+				module.uniqueId,
+				"search-setting:excluded-owners",
+				0,
+			),
+			`${module.uniqueId}/search/excluded-owners`,
+		),
+		cursor.place,
+		registration.key,
+	);
+	if (!uuid) return false;
 	ctx.writeDraft(() => {
-		const target = module.module as { caseSearchConfig?: CaseSearchConfig };
-		target.caseSearchConfig = {
-			...(target.caseSearchConfig ?? {}),
-			excludedOwnerIds: placeholder,
-		} as CaseSearchConfig;
+		const list = module.module.caseListConfig as CaseListConfig;
+		if (assigned !== undefined) {
+			const target = module.module as { caseSearchConfig?: CaseSearchConfig };
+			target.caseSearchConfig = {
+				...target.caseSearchConfig,
+				excludedOwnerIds: placeholder,
+			} as CaseSearchConfig;
+		}
+		list.searchFilters = [
+			...(list.searchFilters ?? []),
+			{
+				uuid,
+				target: { kind: "excluded-owners", placement: "search-setting" },
+				value: placeholder,
+			},
+		];
 	});
+	ctx.pending.register(
+		{
+			...registration,
+			ref: {
+				entity: "module",
+				uuid: module.uuid,
+				slot: "search_filter_value",
+				member: { filterUuid: uuid },
+			},
+		},
+		{ json: cursor, key: "blacklisted_owner_ids_expression" },
+	);
 	return true;
 }
 

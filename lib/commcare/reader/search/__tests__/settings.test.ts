@@ -166,7 +166,7 @@ describe("a search's settings", () => {
 		);
 	});
 
-	it("refuses a stored owner exclusion the list filter holds no clause for, where Nova's list would", async () => {
+	it("holds a stored owner exclusion as a search setting when the list filter has no matching clause", async () => {
 		const reading = await readLists(
 			doc({ excludedOwnerIds: term(literal("abc")) }),
 			{
@@ -178,8 +178,10 @@ describe("a search's settings", () => {
 				},
 			},
 		);
-		expect(closedCodes(reading)).toEqual([
-			"case-search/blacklisted-owner-ids-expression-without-that-clause",
+		expect(codes(reading), JSON.stringify(reading.findings)).toEqual([]);
+		expect(searchOf(reading)?.excludedOwnerIds).toBeUndefined();
+		expect(listOf(reading).searchFilters).toMatchObject([
+			{ target: { kind: "excluded-owners", placement: "search-setting" } },
 		]);
 	});
 

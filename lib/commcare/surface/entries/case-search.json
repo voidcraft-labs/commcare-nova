@@ -217,6 +217,36 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/default-filter-orders-the-records-the-search-sends",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "A default filter that sets the order of records the search sends",
+		"surfaceKeys": [
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue"
+		],
+		"valueClass": "literal-server-sort",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: ordered property, comparison and direction choices in a default filter",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the same default-filter entry",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case",
 		"area": "case-search",
 		"section": "Case search",
@@ -418,10 +448,9 @@
 			"schema:DefaultCaseSearchProperty.defaultValue"
 		],
 		"valueClass": "blacklisted-owner-ids-key-alone",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a search-only owner exclusion, the concept `blacklisted_owner_ids_expression` also spells (below): HQ sends it as the same `<data key=\"commcare_blacklisted_owner_ids\">` query datum and applies it only to the server search (`_apply_filter` tests the key before `UNSEARCHABLE_KEYS`)",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a search-only owner exclusion among the ordered default filters",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -547,10 +576,9 @@
 			"schema:CaseSearchCustomSortProperty.direction"
 		],
 		"valueClass": "on-a-search-the-menu-offers",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.resultSort[]`",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the ordered properties, comparisons and directions the server uses to choose its matches",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server-side)",
@@ -1087,10 +1115,9 @@
 		"item": "`blacklisted_owner_ids_expression` without that clause, where Nova's list would write one",
 		"surfaceKeys": ["schema:CaseSearch.blacklisted_owner_ids_expression"],
 		"valueClass": "without-list-clause-alone",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a search-only owner exclusion: HQ never applies it to the device list",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a search-only owner exclusion: HQ never applies it to the device list",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -1105,6 +1132,26 @@
 		"emission": {
 			"cell": "printed",
 			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/owner-exclusion-in-a-dormant-search-setting",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "A stored owner exclusion in a menu that offers no Search",
+		"surfaceKeys": ["schema:CaseSearch.blacklisted_owner_ids_expression"],
+		"valueClass": "no-search-action",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ builds no search request for this menu. Its assigned list reads its own filter alone (RemoteRequestsHelper.update_suite).",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},

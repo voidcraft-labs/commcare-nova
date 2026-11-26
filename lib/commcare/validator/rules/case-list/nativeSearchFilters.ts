@@ -1,5 +1,11 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
+import { isOrdinaryCaseSearchConfig } from "@/lib/domain/modules";
+import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+} from "@/lib/domain/standardCaseProperties";
 import {
 	readSearchFilterTarget,
 	searchFilterKey,
@@ -19,10 +25,53 @@ export function nativeSearchFilters(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const filters = mod.caseListConfig?.searchFilters ?? [];
+	// An order names properties of the menu's record type, or a record
+	// attribute HQ's index holds (`case_search/const.py::INDEXED_METADATA_BY_KEY`).
+	const order = [
+		...(isOrdinaryCaseSearchConfig(mod.caseSearchConfig)
+			? (mod.caseSearchConfig.requestOrder ?? [])
+			: []),
+		...filters.flatMap((row) => ("order" in row ? row.order : [])),
+	];
+	if (order.length > 0) {
+		const properties =
+			effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
+				?.properties ?? [];
+		for (const term of order) {
+			const known =
+				CASE_NODE_ATTRIBUTE_PROPERTIES.has(term.property) ||
+				Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, term.property) ||
+				properties.some((property) => property.name === term.property);
+			if (!known)
+				errors.push(
+					validationError(
+						"CASE_SEARCH_FILTER_INVALID",
+						"module",
+						`Choose a property of ${mod.caseType} in place of “${term.property}” to order the matches.`,
+						{ moduleUuid, moduleName: mod.name },
+					),
+				);
+		}
+	}
+	// One `commcare_blacklisted_owner_ids` value per request: HQ refuses the
+	// key twice (`SearchCriteria._validate_multiple_terms`).
+	const ownerRows = filters.filter(
+		(row) => "target" in row && row.target.kind === "excluded-owners",
+	);
+	if (ownerRows.length > 1)
+		errors.push(
+			validationError(
+				"CASE_SEARCH_FILTER_INVALID",
+				"module",
+				"Choose one rule for the owners to leave out of Search, and name all of their IDs in it.",
+				{ moduleUuid, moduleName: mod.name },
+			),
+		);
 	const names = new Set(
 		mod.caseListConfig?.searchInputs.map((input) => input.name),
 	);
 	for (const [index, filter] of filters.entries()) {
+		if (!("target" in filter)) continue;
 		const key = searchFilterKey(filter.target);
 		const parsed = readSearchFilterTarget(key);
 		const reject = (message: string, details: Record<string, string>) =>

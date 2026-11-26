@@ -745,6 +745,8 @@ function collectModuleConfigReferences(
 				}
 				break;
 			}
+			case "search_order_property":
+			case "search_filter_order_property":
 			case "search_input_property":
 				// Contextual property names — they follow the module's own
 				// type and never name a type.
@@ -777,9 +779,10 @@ function collectModuleConfigReferences(
 				if (
 					slot.slot === "search_filter_ancestor_type" &&
 					list?.searchFilters?.some(
-						({ target }) =>
-							"ancestors" in target &&
-							target.ancestors?.some(
+						(filter) =>
+							"target" in filter &&
+							"ancestors" in filter.target &&
+							filter.target.ancestors?.some(
 								(step) => step.throughCaseType === caseType,
 							),
 					)
@@ -792,7 +795,10 @@ function collectModuleConfigReferences(
 			}
 			case "search_filter_value": {
 				for (const filter of list?.searchFilters ?? []) {
-					if (expressionRefsCaseType(filter.value, caseType))
+					if (
+						"value" in filter &&
+						expressionRefsCaseType(filter.value, caseType)
+					)
 						out.push({
 							verbose: `a search filter reads a "${caseType}" property`,
 							concise: `a search filter uses "${caseType}" information`,

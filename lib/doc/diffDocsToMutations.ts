@@ -2608,6 +2608,26 @@ function diffCaseListMeta(
 			});
 			continue;
 		}
+		// An order row has no target or value: its terms change in place, and a
+		// row that changes between an order and a value filter is a new row.
+		if (!("target" in row) || !("target" in old)) {
+			if (!("target" in row) && !("target" in old)) {
+				if (!deepEqual(old.order, row.order))
+					addFilterEdit({
+						operation: "edit",
+						uuid: row.uuid,
+						patch: { order: cloneEntity(row.order) },
+					});
+			} else {
+				addFilterEdit({ operation: "remove", uuid: old.uuid });
+				addFilterEdit({
+					operation: "add",
+					filter: cloneEntity(row),
+					after: predecessorIn(afterIds, row.uuid),
+				});
+			}
+			continue;
+		}
 		const changedTarget = !deepEqual(old.target, row.target);
 		const changedValue = !deepEqual(old.value, row.value);
 		if (changedTarget || changedValue)

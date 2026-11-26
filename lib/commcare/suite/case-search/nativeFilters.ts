@@ -1,11 +1,13 @@
 import type { ModuleExpressionContexts } from "@/lib/commcare/expressionContext";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
-import type { SearchFilterTarget } from "@/lib/domain/modules";
+import type { SearchFilter, SearchFilterTarget } from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
+import { requestOrderText } from "./requestOrder";
 import { isReservedSearchInputName } from "./reservedInputNames";
 
 const attributeKey = {
@@ -43,11 +45,18 @@ export function searchFilterKey(target: SearchFilterTarget): string {
 		}
 		case "owner":
 			return "owner_id";
+		case "excluded-owners":
+			return "commcare_blacklisted_owner_ids";
 		case "project-space":
 			return "commcare_project";
 		case "link":
 			return `indices.${target.identifier}`;
 	}
+}
+
+/** The request key a filter sends: an order is HQ's `commcare_sort`. */
+export function searchRequestKey(filter: SearchFilter): string {
+	return "target" in filter ? searchFilterKey(filter.target) : "commcare_sort";
 }
 
 export function readSearchFilterTarget(
@@ -60,6 +69,8 @@ export function readSearchFilterTarget(
 			return { kind: "record-name" };
 		case "owner_id":
 			return { kind: "owner" };
+		case "commcare_blacklisted_owner_ids":
+			return { kind: "excluded-owners" };
 		case "commcare_project":
 			return { kind: "project-space" };
 	}
@@ -114,4 +125,24 @@ export function emitSearchFilterValue(
 				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 		},
 	});
+}
+
+/** The value a filter sends: an order is its literal `commcare_sort` text. */
+export function emitSearchRequestValue(
+	filter: SearchFilter,
+	expressions: ModuleExpressionContexts,
+	instance: `search-input:${string}` | undefined,
+	naming: LookupWireNaming | undefined,
+	datumId: ((ref: DatumRef) => string | undefined) | undefined,
+) {
+	return "target" in filter
+		? emitSearchFilterValue(
+				filter.value,
+				filter.uuid,
+				expressions,
+				instance,
+				naming,
+				datumId,
+			)
+		: w.str(requestOrderText(filter.order));
 }

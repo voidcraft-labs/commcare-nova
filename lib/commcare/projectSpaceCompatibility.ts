@@ -163,6 +163,8 @@ export function advancedCaseSearchReasons(module: Module): string[] {
 		reasons.push(
 			"Clearing Search requests fresh results on a desktop Web Apps screen.",
 		);
+	if (config.requestOrder !== undefined)
+		reasons.push("Search chooses which matches to send in a set order.");
 	if (inputs.some((input) => searchInputDefault(input) !== undefined)) {
 		reasons.push("A Search field starts with a suggested value.");
 	}
@@ -207,7 +209,9 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 	const expressions = moduleExpressionContexts(doc, module.uuid);
 	const reasons: string[] = [];
 	const nativeTargets = [
-		...(list.searchFilters ?? []).map((row) => row.target),
+		...(list.searchFilters ?? []).flatMap((row) =>
+			"target" in row ? [row.target] : [],
+		),
 		...list.searchInputs.flatMap((input) => {
 			if (input.kind !== "simple" || searchInputSuppressesAutoMatch(input))
 				return [];

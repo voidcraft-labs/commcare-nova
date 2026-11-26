@@ -183,8 +183,30 @@ export function rewriteModuleCaseRefs(
 				}
 			}
 		}
+		if (
+			mod.caseType !== undefined &&
+			(slot.slot === "search_order_property" ||
+				slot.slot === "search_filter_order_property")
+		) {
+			const terms =
+				slot.slot === "search_order_property"
+					? mod.caseSearchConfig && "requestOrder" in mod.caseSearchConfig
+						? (mod.caseSearchConfig.requestOrder ?? [])
+						: []
+					: (mod.caseListConfig?.searchFilters ?? []).flatMap((row) =>
+							"order" in row ? row.order : [],
+						);
+			for (const term of terms) {
+				const next = resolveCaseProperty(mod.caseType, term.property);
+				if (next !== undefined && next !== term.property) {
+					term.property = next;
+					astRefsRewritten++;
+				}
+			}
+		}
 		if (slot.slot === "search_filter_property") {
 			for (const rule of mod.caseListConfig?.searchFilters ?? []) {
+				if (!("target" in rule)) continue;
 				const target = rule.target;
 				if (target.kind !== "property") continue;
 				const destination = resolveRelationDestination(

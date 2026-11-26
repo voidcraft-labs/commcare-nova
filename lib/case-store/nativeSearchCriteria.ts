@@ -41,10 +41,15 @@ export function resolveNativeSearchCriteria(
 				values.some((value) => value !== "" && !rangePrefix.test(value)))
 		)
 			throw invalid();
-		if (target.kind === "owner" && values.length > 1) throw invalid();
+		if (
+			(target.kind === "owner" || target.kind === "excluded-owners") &&
+			values.length > 1
+		)
+			throw invalid();
 		if (
 			target.kind === "record-id" ||
 			target.kind === "owner" ||
+			target.kind === "excluded-owners" ||
 			target.kind === "project-space"
 		) {
 			out.push({ kind: "native", parameter, fuzzy: false, projectSpace });

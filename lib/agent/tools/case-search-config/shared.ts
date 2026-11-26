@@ -48,6 +48,7 @@ import {
 	expressionReadsCaseData,
 	valueSchema,
 } from "@/lib/domain/expression";
+import { searchRequestOrderSchema } from "@/lib/domain/modules";
 
 const predicateInputSchema = conditionSchema as z.ZodType<Expression>;
 const valueExpressionInputSchema = valueSchema as z.ZodType<Expression>;
@@ -66,6 +67,7 @@ export const DISPLAY_SLOT_NAMES = [
  * two are stored under their own names (`ADVANCED_CONFIG_KEYS`).
  */
 export const ADVANCED_SLOT_NAMES = [
+	"requestOrder",
 	"excludedOwnerIds",
 	"searchWorkflow",
 	"formsReadSearch",
@@ -74,6 +76,7 @@ export const ADVANCED_SLOT_NAMES = [
 
 /** The stored `caseSearchConfig` keys the advanced cluster owns. */
 export const ADVANCED_CONFIG_KEYS = [
+	"requestOrder",
 	"excludedOwnerIds",
 	"workflow",
 	"formsReadSearch",
@@ -284,6 +287,12 @@ export function storedSearchWorkflow(
  * input boundary.
  */
 export const setCaseSearchAdvancedBodySchema = z.strictObject({
+	requestOrder: searchRequestOrderSchema
+		.nullable()
+		.optional()
+		.describe(
+			"The properties, comparisons and directions to use when the server selects the first matches. This dedicated setting needs advanced case search. Omit to keep it or use null to clear.",
+		),
 	excludedOwnerIds: globallyResolvedOwnerExpressionSchema
 		.nullable()
 		.describe(

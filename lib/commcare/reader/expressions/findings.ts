@@ -71,6 +71,14 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
 		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
+	"blacklisted-owner-ids-expression-without-that-clause": take(
+		"case-search/blacklisted-owner-ids-expression-without-that-clause",
+		"schema:CaseSearch.blacklisted_owner_ids_expression",
+	),
+	"default-properties-entry-keyed-commcare-blacklisted-owner-ids": take(
+		"case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
 	"native-filter-value-outside-screen-scope": refuse(
 		"case-search/native-filter-value-outside-screen-scope",
 		"schema:DefaultCaseSearchProperty.defaultValue",
@@ -1739,10 +1747,15 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		held: (doc, ref) => {
 			if (ref.entity !== "module" || ref.slot !== "search_filter_value")
 				return undefined;
-			const target = doc.modules[ref.uuid]?.caseListConfig?.searchFilters?.find(
+			const filter = doc.modules[ref.uuid]?.caseListConfig?.searchFilters?.find(
 				(f) => f.uuid === ref.member.filterUuid,
-			)?.target;
+			);
+			const target = filter && "target" in filter ? filter.target : undefined;
 			if (target === undefined) return undefined;
+			if (target.kind === "excluded-owners")
+				return target.placement === "search-setting"
+					? "case-search/blacklisted-owner-ids-expression-without-that-clause"
+					: "case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids";
 			if (
 				target.kind === "record-name" ||
 				(target.kind === "property" && !target.ancestors)
@@ -1752,7 +1765,23 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 				return "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p";
 			return "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project";
 		},
-		refused: () => "case-search/native-filter-value-outside-screen-scope",
+		refused: (doc, ref) => {
+			if (ref.entity === "module" && ref.slot === "search_filter_value") {
+				const filter = doc.modules[
+					ref.uuid
+				]?.caseListConfig?.searchFilters?.find(
+					(row) => row.uuid === ref.member.filterUuid,
+				);
+				if (
+					filter &&
+					"target" in filter &&
+					filter.target.kind === "excluded-owners" &&
+					filter.target.placement === "search-setting"
+				)
+					return "case-search/blacklisted-owner-ids-expression-outside-valueexpression";
+			}
+			return "case-search/native-filter-value-outside-screen-scope";
+		},
 	},
 	search_input_default: {
 		held(doc, ref) {

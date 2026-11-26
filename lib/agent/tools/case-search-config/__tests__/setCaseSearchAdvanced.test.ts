@@ -85,6 +85,33 @@ describe("setCaseSearchAdvanced", () => {
 		]);
 	});
 
+	it("sets the order of online matches and preserves it across a separate availability edit", async () => {
+		const h = makeCaseSearchFixture();
+		const order = [
+			{ property: "case_name", comparison: "text", direction: "descending" },
+		] as const;
+		const next = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: null,
+			searchWorkflow: "searchFirst",
+			formsReadSearch: null,
+			requestOrder: [...order],
+		});
+		expect(next.result).toMatchObject({
+			ok: true,
+			advancedSlotsSet: expect.arrayContaining(["requestOrder"]),
+		});
+		await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "u1" }),
+			searchWorkflow: "searchFirst",
+			formsReadSearch: null,
+		});
+		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toMatchObject({
+			requestOrder: order,
+		});
+	});
+
 	it("clears the excluded owner ids slot when null is passed", async () => {
 		// Seed a config with the slot populated, then null-clear it.
 		// The persisted shape must omit the cleared key rather than carry

@@ -520,6 +520,12 @@ export interface CaseSearchConfig<XPath = string> {
 	search_button_display_condition?: XPath;
 	default_properties: DefaultCaseSearchProperty<XPath>[];
 	blacklisted_owner_ids_expression?: XPath;
+	custom_sort_properties?: {
+		doc_type: "CaseSearchCustomSortProperty";
+		property_name: string;
+		sort_type: "exact" | "date" | "numeric";
+		direction: "ascending" | "descending";
+	}[];
 	title_label: LocalizedString | Record<string, never>;
 	description: LocalizedString | Record<string, never>;
 }

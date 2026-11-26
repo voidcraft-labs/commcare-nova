@@ -7,6 +7,7 @@
 // window, so a paged Results read and a form's unpaged search-results read
 // (`searchResultsSnapshot.ts`) both come from here.
 
+import { searchOwnerOverride } from "@/lib/domain/modules";
 import "server-only";
 import type { RestoreScope } from "@/lib/case-store";
 import type { BlueprintDoc, CaseType, LanguageTag, Uuid } from "@/lib/domain";
@@ -222,7 +223,13 @@ export async function serverRecordsRead(
 		refusal === undefined;
 	/* The assigned-case exclusion is the Results read's rule: its refusal
 	 * stops the list where Preview's Results read stops, and is the list's. */
-	if (readsResults && search.exclusionRefusal !== undefined)
+	const inheritedOwnerRule =
+		!searched || searchOwnerOverride(mod.caseListConfig) === undefined;
+	if (
+		readsResults &&
+		inheritedOwnerRule &&
+		search.exclusionRefusal !== undefined
+	)
 		throw new SurfacedDataRefusal(
 			new PreviewDataRefusal(search.exclusionRefusal),
 			"list",
@@ -271,8 +278,12 @@ export async function serverRecordsRead(
 							),
 						]),
 					),
-					excludedOwnerIds: search.excludedOwnerIds,
-					authoredExcludedOwnerIds: search.authoredExcludedOwnerIds,
+					excludedOwnerIds: inheritedOwnerRule
+						? search.excludedOwnerIds
+						: undefined,
+					authoredExcludedOwnerIds: inheritedOwnerRule
+						? search.authoredExcludedOwnerIds
+						: undefined,
 					...(searched
 						? {
 								searchPopulation: {

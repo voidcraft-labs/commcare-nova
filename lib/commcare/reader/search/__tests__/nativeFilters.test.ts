@@ -1,11 +1,11 @@
 import { expect, it } from "vitest";
 import { literal, term } from "@/lib/domain/expression/builders";
-import type { SearchFilter } from "@/lib/domain/modules";
+import type { SearchFilterTarget } from "@/lib/domain/modules";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import { codes, listOf, readLists } from "../../caseList/__tests__/listReading";
 
 it("reads two independent values of one native request key in order and keeps their identities after an HQ edit", async () => {
-	const targets: SearchFilter["target"][] = [
+	const targets: SearchFilterTarget[] = [
 		{ kind: "property", property: "notes" },
 		{ kind: "owner" },
 		{ kind: "property", property: "notes" },
@@ -27,9 +27,11 @@ it("reads two independent values of one native request key in order and keeps th
 		{ property: "indices.parent", defaultValue: "''" },
 	]);
 	const held = listOf(before).searchFilters ?? [];
-	expect(held.map(({ target, value }) => ({ target, value }))).toEqual(
-		filters.map(({ target, value }) => ({ target, value })),
-	);
+	expect(
+		held.map(
+			(row) => "target" in row && { target: row.target, value: row.value },
+		),
+	).toEqual(filters.map(({ target, value }) => ({ target, value })));
 	const after = await readLists(doc, {
 		edit: (app) => {
 			const rows = app.modules[0].search_config.default_properties as {
@@ -43,5 +45,7 @@ it("reads two independent values of one native request key in order and keeps th
 	expect(codes(after), JSON.stringify(after.findings)).toEqual([]);
 	const edited = listOf(after).searchFilters ?? [];
 	expect(edited.map((row) => row.uuid)).toEqual(held.map((row) => row.uuid));
-	expect(edited[2].value).toEqual(term(literal("booked")));
+	expect("value" in edited[2] && edited[2].value).toEqual(
+		term(literal("booked")),
+	);
 });

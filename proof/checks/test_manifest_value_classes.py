@@ -3541,26 +3541,6 @@ def _search_and_menus():
                 f"{config}/default_properties/0/property",
             ),
         ),
-        "case-search/custom-sort-properties-property-name-sort-type-exact-date": tuple(
-            make(
-                "app",
-                search(
-                    _search_module(
-                        **fields,
-                        custom_sort_properties=[
-                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "dob", "sort_type": "date"}
-                        ],
-                    )
-                ),
-                key,
-                f"{config}/{where}",
-            )
-            for make, fields in ((refused, {"default_properties": [_default("status", "'open'")]}), (accepted, {}))
-            for key, where in (
-                ("schema:CaseSearch.custom_sort_properties", "custom_sort_properties"),
-                ("schema:CaseSearchCustomSortProperty.property_name", "custom_sort_properties/0/property_name"),
-            )
-        ),
         "case-search/search-button-label-any-other-value": (
             refused(
                 "app",

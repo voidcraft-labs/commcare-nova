@@ -200,7 +200,7 @@ def _built_search(state, pairs):
 
     config = operations.search_request_config(state, "search-app", [("case_type", "patient"), *pairs])
     helper = _get_helper(None, state.domain, config.case_types, None)
-    return CaseSearchQueryBuilder(helper, config.case_types).build_query(config.criteria)
+    return CaseSearchQueryBuilder(helper, config.case_types).build_query(config.criteria, commcare_sort=config.commcare_sort)
 
 
 def test_the_zero_input_filter_makes_hq_build_a_search_that_matches_every_case(hq, core_runner):
@@ -490,3 +490,45 @@ def test_destination_day_and_native_range_read_the_index_at_a_dst_boundary(hq):
         with travel("2024-03-11T03:30:00Z", tick=False):
             assert matches("_xpath_query", "date_opened = today()") == equal
         assert matches("visit", "__range__2024-03-10__2024-03-10") == {"before", "start"}
+
+
+def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
+    """Run HQ's actual index and request parser. A string property can be
+    sorted as text, a number or a date. The second datum breaks ties left by
+    the first, and a single exclusion value can name two owners."""
+    import hashlib
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+
+    cases = [
+        ("none", "blue", "absent", "2024-06-12"),
+        ("two-early", "blue", "2", "2024-01-03"),
+        ("two-late", "blue", "2", "2024-09-03"),
+        ("ten", "blue", "10", "2023-01-03"),
+        ("excluded-a", "red", "1", "2024-01-01"),
+        ("excluded-b", "gold", "3", "2024-01-02"),
+    ]
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        with hq_redis.shared(None), state.committing():
+            with state.operation("sort and exclusion", hashlib.sha256(b"sort and exclusion").digest()):
+                blocks = [CaseBlock(case_id=key, create=True, case_name=key, case_type="patient",
+                                    owner_id=owner, update={"priority": value, "visit": date}).as_text()
+                          for key, owner, value, date in cases]
+                submit_case_blocks(blocks, state.domain, user_id="worker", device_id="proof")
+
+        def ordered(*controls):
+            query = _built_search(state, controls)
+            return [hit["_id"] for hit in query.run().raw_hits]
+
+        exclude = ("commcare_blacklisted_owner_ids", "red gold")
+        first = ("commcare_sort", "+priority:numeric")
+        second = ("commcare_sort", "-visit:date")
+        assert ordered(first, second, exclude) == ["none", "two-late", "two-early", "ten"]
+        assert ordered(second, first, exclude) == ["two-late", "none", "two-early", "ten"]
+        assert ordered(("commcare_sort", "+priority:exact,-visit:date"), exclude) == [
+            "ten", "two-late", "two-early", "none",
+        ]
+        assert set(ordered(first, second)) == {case[0] for case in cases}

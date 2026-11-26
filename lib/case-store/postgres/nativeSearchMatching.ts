@@ -64,6 +64,15 @@ export function nativeSearchTruth(
 	switch (target.kind) {
 		case "record-id":
 			return sql`c.case_id = any(${values}::text[])`;
+		case "excluded-owners": {
+			// HQ ignores a blank value, then splits the value on each space
+			// (`SearchCriteria.value_as_list`) and keeps every case whose owner
+			// is none of them (`case_search.blacklist_owner_id`).
+			const excluded = values.flatMap((value) =>
+				value === "" ? [] : value.split(" "),
+			);
+			return sql`not coalesce(c.owner_id = any(${excluded}::text[]),false)`;
+		}
 		case "owner":
 			return values.length === 1 && values[0] === ""
 				? sql`true`
@@ -202,4 +211,36 @@ export function nativeRangeTruth(
 				)
 			: missingNativeProperty(key);
 	return sql`(${within} or ${missing})`;
+}
+
+/** Raw text indexed under the property key before any numeric, date or exact projection. */
+export function nativeSearchPropertyText(key: string) {
+	switch (key) {
+		case "@case_id":
+			return sql`c.case_id`;
+		case "@case_type":
+			return sql`c.case_type`;
+		case "@owner_id":
+			return sql`c.owner_id`;
+		case "@status":
+			return sql`c.status`;
+		case "case_name":
+		case "name":
+			return sql`c.case_name`;
+		case "closed_on":
+		case "date_opened":
+		case "last_modified": {
+			const column =
+				key === "date_opened"
+					? "opened_on"
+					: key === "last_modified"
+						? "modified_on"
+						: "closed_on";
+			return sql`to_char(timezone('UTC', ${sql.ref(`c.${column}`)}), 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+		}
+		case "external_id":
+			return sql`coalesce(c.external_id,'')`;
+		default:
+			return sql`c.properties ->> ${key}`;
+	}
 }

@@ -61,6 +61,8 @@ import {
 	type SearchInputDef,
 	searchFilterSchema,
 	searchInputDefSchema,
+	searchOrderFilterSchema,
+	searchValueFilterSchema,
 	selectOptionSchema,
 	selectOptionsSourceSchema,
 	tileCellSchema,
@@ -353,6 +355,7 @@ function caseSearchConfigPatchSchemaFor(
 			workflow: configSchema.shape.workflow.nullable(),
 			formsReadSearch: configSchema.shape.formsReadSearch.nullable(),
 			searchOnClear: configSchema.shape.searchOnClear.nullable(),
+			requestOrder: configSchema.shape.requestOrder.nullable(),
 		})
 		.partial();
 }
@@ -1682,7 +1685,10 @@ function createMutationSchema({
 						z.strictObject({
 							operation: z.literal("edit"),
 							uuid: uuidSchema,
-							patch: searchFilterSchema.omit({ uuid: true }).partial(),
+							patch: z.union([
+								searchValueFilterSchema.omit({ uuid: true }).partial(),
+								searchOrderFilterSchema.pick({ order: true }),
+							]),
 						}),
 						z.strictObject({
 							operation: z.literal("move"),

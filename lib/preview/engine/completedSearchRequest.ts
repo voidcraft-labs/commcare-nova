@@ -13,9 +13,11 @@ import {
 	readSearchFilterTarget,
 	searchFilterKey,
 } from "@/lib/commcare/suite/case-search/nativeFilters";
+import { requestOrderKey } from "@/lib/commcare/suite/case-search/requestOrder";
 import { searchInputSuppressesAutoMatch } from "@/lib/commcare/suite/case-search/searchPrompts";
 import {
 	type BlueprintDoc,
+	effectiveCaseSearchConfig,
 	type Module,
 	moduleFormsReadSearch,
 	splitMultiSelectSearchAnswer,
@@ -41,11 +43,21 @@ export function completedSearchRequest(
 	configuration: SearchConfigurationSelection = {},
 	world?: { doc: BlueprintDoc; caseType: string },
 ): CaseSearchRequest {
+	// The default filters' orders reach HQ first, then the dedicated order
+	// (`remote_requests.py::_remote_request_query_datums`), and HQ sorts by
+	// every `commcare_sort` value in turn (`_parse_commcare_sort_properties`).
+	const order = [
+		...(module.caseListConfig?.searchFilters ?? []).flatMap((row) =>
+			"order" in row ? row.order : [],
+		),
+		...(effectiveCaseSearchConfig(module)?.requestOrder ?? []),
+	];
 	const parameters = new Map<
 		string,
 		CaseSearchParameter & { values: string[] }
 	>();
 	for (const filter of module.caseListConfig?.searchFilters ?? []) {
+		if (!("target" in filter)) continue;
 		const key = searchFilterKey(filter.target);
 		const value = filterValues?.[filter.uuid];
 		if (typeof value !== "string")
@@ -115,6 +127,16 @@ export function completedSearchRequest(
 		});
 	return {
 		parameters: [...parameters.values()],
+		...(order.length > 0 && {
+			order: order.map((entry) => ({
+				key: requestOrderKey(entry),
+				type: entry.comparison,
+				direction:
+					entry.direction === "ascending"
+						? ("asc" as const)
+						: ("desc" as const),
+			})),
+		}),
 		...(world && {
 			relatedPaths: searchDetailRelatedPaths(world.doc, [world.caseType]),
 		}),

@@ -163,6 +163,7 @@ describe("a completed search's snapshot", () => {
 						modified_on: opened,
 						properties: JSON.stringify({
 							district: index === SEARCH_RESULTS_CAP - 1 ? "south" : "north",
+							priority: String(index),
 						}),
 					};
 				}),
@@ -180,7 +181,7 @@ describe("a completed search's snapshot", () => {
 			maximum: SEARCH_RESULTS_CAP,
 			order: [
 				{
-					expression: term(prop("patient", "case_name")),
+					key: "case_name",
 					direction: "asc",
 					type: "text",
 				},
@@ -212,6 +213,25 @@ describe("a completed search's snapshot", () => {
 		expect(snapshot.totalMatches).toBe(500);
 		expect(snapshot.rows.at(-1)?.case_id).toBe("p-0499");
 		expect(snapshot.rows.some((row) => row.case_id === "p-0500")).toBe(false);
+		// The same raw strings have different last keys when sorted as numbers and text.
+		for (const [type, omitted] of [
+			["number", "p-0500"],
+			["text", "p-0099"],
+		] as const) {
+			const ranked = await readSearchResultsSnapshot(store, {
+				...query,
+				searchPopulation: {
+					...query.searchPopulation,
+					request: {
+						maximum: SEARCH_RESULTS_CAP,
+						order: [{ type, direction: "asc", key: "priority" }],
+					},
+				},
+			});
+			expect(ranked.rows).toHaveLength(SEARCH_RESULTS_CAP);
+			expect(ranked.rows.some((row) => row.case_id === omitted)).toBe(false);
+		}
+
 		expect(
 			(
 				await readSearchResultsSnapshot(store, {

@@ -24,8 +24,9 @@ import {
 	formFieldPath,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
+import { isDedicatedOwnerFilter } from "@/lib/domain/modules";
 import { planPlacements } from "../placement";
-import { searchFilterKey } from "../suite/case-search/nativeFilters";
+import { searchRequestKey } from "../suite/case-search/nativeFilters";
 import type { WireIdentity } from "../wireIdentity";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
 import {
@@ -110,7 +111,11 @@ export function externalIdentityMap(
 			}
 			const filterCounts = new Map<string, number>();
 			for (const filter of config.searchFilters ?? []) {
-				const key = searchFilterKey(filter.target);
+				// The dedicated owner exclusion is no default filter: its key
+				// names the setting, not its request key's place among them.
+				const key = isDedicatedOwnerFilter(filter)
+					? "search-setting:excluded-owners"
+					: searchRequestKey(filter);
 				add(
 					externalKey.searchFilter(
 						uniqueId,

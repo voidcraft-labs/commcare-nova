@@ -2587,3 +2587,5 @@ boundary for historical answers; source evidence is in
 
 
 A menu with `put_in_root` keeps its ordinary remote search and the independently gated form-entry claim. Both short detail actions are withheld as in HQ’s `details.py`. Effective inline search on the same menu is a build refusal. The search’s `search_on_clear` flag round-trips only without HQ’s short-list auto-select. Publishing requires advanced case search for this flag.
+
+A search request orders server hits before the server cap. Its default filters lower in stored order, followed by dedicated request settings in HQ's query-datum order. The local suite and HQ JSON use the same property/comparison/direction projection. Dedicated sort requires advanced search and an order among the default filters uses the ordinary editor. A search-specific owner exclusion overrides the inherited assigned-case rule, with one value in the request; the worker's assigned list keeps its own rule. The stage that reads the operand also owns the row's source placement.

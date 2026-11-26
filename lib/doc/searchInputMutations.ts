@@ -229,6 +229,7 @@ export function searchInputRemovalDependencies(
 	// (`nativeSearchFilters.ts`), so a removal that orphans a ref there would
 	// bounce off the commit gate without this entry.
 	for (const [index, filter] of (config.searchFilters ?? []).entries()) {
+		if (!("value" in filter)) continue;
 		const paths = nonEmptyPaths(
 			expressionInputPaths(filter.value, target.uuid),
 		);
