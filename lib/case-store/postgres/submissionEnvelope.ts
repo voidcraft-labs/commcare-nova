@@ -2096,7 +2096,7 @@ async function resolveOperationProgram(
 								where: "case-store.submissionEnvelope.resolveOperationProgram",
 								invariant: `operation \`${operation.uuid}\` targets the worker's record, which was not resolved`,
 								detail:
-									"The envelope resolves the worker's record whenever an operation targets it, before evaluation.",
+									"The envelope resolves the worker's record for an executing worker update before applying any effects.",
 							}),
 						);
 					}

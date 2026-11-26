@@ -79,7 +79,13 @@ Its owner must match the acting worker. Missing, closed, wrong-owner or duplicat
 records refuse; an ordinary case whose id equals the worker id is never a
 substitute. The resolved case id, which may be historical, also identifies the
 worker row in the transaction-captured device patch and durable replay. No
-submission reconstructs it from the acting user id or creates a missing record.
+submission reconstructs it from the acting user id or creates a missing record. A guarded root update
+checks its condition against the submitted answers and the signed case snapshot.
+When the guard holds, the row in that snapshot supplies the physical ID. The
+executor locks that same ID and checks the live worker mapping before applying
+any effect. An absent, closed or replaced row requires a fresh opening. A false
+condition skips target lookup and leaves the signed opening requirement in force.
+App Tests supplies the corresponding snapshot from its server-held journey state.
 
 Arithmetic operands are explicitly cast to `numeric`, including bound form answers, so PostgreSQL cannot select a text operator such as pg_trgm `%`. Declared integer division uses `trunc` to preserve the domain's truncation toward zero without imposing an int4/int8 limit on intermediate expressions. The committed form supplies `formFieldTypes` with its operation program; expressions retain the current case scope and lookup-column definitions. Native numeric precision and zero-division errors remain PostgreSQL behavior, independently of Core's floating-point runtime.
 
