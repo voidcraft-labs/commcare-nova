@@ -1598,16 +1598,37 @@ async function resolveOperationProgram(
 		}
 	}
 
-	// Resolve an executing worker update before any effects, as the device's
-	// hq_user_id join does. A historical case id is never reconstructed from
-	// the acting worker, and every read remains inside the bound app/Project.
+	// An irrelevant block supplies no target. Resolve an executing worker
+	// update before any effect and keep its physical identity from the
+	// signed restore where the conditional Save to Case selector ran.
 	let workerRecordCaseId: string | undefined;
-	if (
-		instances.some(
-			({ envelope }, index) =>
-				executing[index] && envelope.operation.target.kind === "worker-record",
+	const workerUpdate = instances.find(
+		({ envelope }, index) =>
+			executing[index] && envelope.operation.target.kind === "worker-record",
+	);
+	if (workerUpdate !== undefined) {
+		const conditioned = workerUpdate.envelope.operation.condition !== undefined;
+		const reopenWorker = () =>
+			new CaptureSubmissionRejectedError(
+				"The worker's record is missing or has changed. Reopen the form to load the current record.",
+			);
+		const restored = conditioned
+			? program.openingReads?.cases.rows.filter(
+					(row) =>
+						row.app_id === appId &&
+						row.case_type === USERCASE_CASE_TYPE &&
+						row.properties.hq_user_id === host.actingUserId,
+				)
+			: undefined;
+		const held = restored?.[0];
+		if (
+			conditioned &&
+			(restored?.length !== 1 ||
+				!held ||
+				held.status !== "open" ||
+				held.owner_id !== host.actingUserId)
 		)
-	) {
+			throw reopenWorker();
 		const rows = await trx
 			.selectFrom("cases")
 			.select(["case_id", "status", "owner_id"])
@@ -1619,6 +1640,14 @@ async function resolveOperationProgram(
 			.forUpdate()
 			.limit(2)
 			.execute();
+		if (
+			held &&
+			(rows.length !== 1 ||
+				rows[0].case_id !== held.case_id ||
+				rows[0].status !== "open" ||
+				rows[0].owner_id !== host.actingUserId)
+		)
+			throw reopenWorker();
 		if (rows.length > 1)
 			throw new Error("More than one worker record exists for this app.");
 		if (

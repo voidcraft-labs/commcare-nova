@@ -212,6 +212,7 @@ describe("engine → builder → executor acceptance", () => {
 		const form = testUuid("worker-condition-form");
 		const property = testUuid("worker-condition-property");
 		const workerCaseId = SECOND_SESSION_CASE;
+		const replacementId = SESSION_CASE;
 		const doc = buildDoc(
 			{
 				appId: APP_ID,
@@ -311,15 +312,61 @@ describe("engine → builder → executor acceptance", () => {
 		};
 		const entry = (last: number) =>
 			`11111111-1111-4111-8111-11111111111${last}`;
-		const skipped = await apply("keep", entry(1));
+		const audienceFor = (entryKey: string) => ({
+			app: APP_ID,
+			project: PROJECT,
+			actor: ACTOR,
+			worker: ACTOR,
+			session: "session",
+			persona: null,
+			device: webAppsDevice(),
+			module: doc.moduleOrder[0],
+			form,
+			entry: entryKey,
+			run: entry(7),
+			revision: 0,
+			blueprintDigest: "0".repeat(64),
+		});
+		const secret = "synthetic worker entry signing key";
+		const openingFor = async (
+			entryKey: string,
+			rows: Parameters<typeof openingCaseData>[0]["rows"],
+		) => {
+			const audience = audienceFor(entryKey);
+			const signed = await signFormOpening(secret, audience, {
+				cases: openingCaseData({ rows, indices: [] }),
+				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+				choices: [],
+				primaryCaseIds: [],
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+			});
+			return {
+				signed,
+				projection: await verifyFormOpening(secret, audience, signed),
+			};
+		};
+		const workerRows = () =>
+			store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "commcare-user",
+			});
+		const noWorker = await openingFor(entry(1), []);
+		const skipped = await apply("keep", entry(1), 0, noWorker.projection);
 		expect(skipped.operations).toEqual([
 			expect.objectContaining({ executed: false, caseId: "" }),
 		]);
 		expect(skipped.caseDatabasePatch?.rows).toEqual([]);
-		await expect(apply("keep", entry(2), 99)).rejects.toThrow(
-			"The form changed",
+		await expect(
+			apply("keep", entry(2), 99, (await openingFor(entry(2), [])).projection),
+		).rejects.toThrow("The form changed");
+		const absentAtOpening = (await openingFor(entry(3), [])).projection;
+		await expect(apply("save", entry(3), 0, absentAtOpening)).rejects.toThrow(
+			"worker's record is missing or has changed",
 		);
-		await expect(apply("save", entry(3))).rejects.toThrow(ACTOR);
 		await store.insert({
 			appId: APP_ID,
 			row: {
@@ -330,49 +377,32 @@ describe("engine → builder → executor acceptance", () => {
 				properties: { hq_user_id: ACTOR, visit_note: "before" },
 			},
 		});
-		const held = await apply("keep", entry(4));
+		// A newly synced row cannot become the target of that older form.
+		await expect(apply("save", entry(3), 0, absentAtOpening)).rejects.toThrow(
+			"worker's record is missing or has changed",
+		);
+		const before = await workerRows();
+		const held = await apply(
+			"keep",
+			entry(4),
+			0,
+			(await openingFor(entry(4), before)).projection,
+		);
 		expect(held.caseDatabasePatch?.rows).toEqual([]);
-		const [before] = await store.query({
-			reading: SEARCH_READING,
-			appId: APP_ID,
-			caseType: "commcare-user",
-		});
-		if (!before) throw new Error("Expected the worker's live row.");
-		const audience = {
-			app: APP_ID,
-			project: PROJECT,
-			actor: ACTOR,
-			worker: ACTOR,
-			session: "session",
-			persona: null,
-			device: webAppsDevice(),
-			module: doc.moduleOrder[0],
-			form,
-			entry: entry(6),
-			run: entry(7),
-			revision: 0,
-			blueprintDigest: "0".repeat(64),
-		};
-		const secret = "synthetic worker entry signing key";
-		const signed = await signFormOpening(secret, audience, {
-			cases: openingCaseData({ rows: [before], indices: [] }),
-			lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
-			choices: [],
-			primaryCaseIds: [],
-			datums: {},
-			resolvedEntries: {},
-			sessionData: {},
-			complete: true,
-		});
+		const { signed, projection: opening } = await openingFor(entry(6), before);
 		await expect(
 			verifyFormOpening(
 				secret,
-				{ ...audience, worker: "another-worker" },
+				{ ...audienceFor(entry(6)), worker: "another-worker" },
 				signed,
 			),
 		).rejects.toThrow();
-		const opening = await verifyFormOpening(secret, audience, signed);
-		const changed = await apply("save", entry(5));
+		const changed = await apply(
+			"save",
+			entry(5),
+			0,
+			(await openingFor(entry(5), before)).projection,
+		);
 		expect(changed.operations).toEqual([
 			expect.objectContaining({ executed: true, caseId: workerCaseId }),
 		]);
@@ -390,10 +420,40 @@ describe("engine → builder → executor acceptance", () => {
 		});
 		// Live now says "updated". The "check" condition is true only against
 		// the worker property retained by the authorized opening.
-		const fromOpening = await apply("check", audience.entry, 0, opening);
+		const fromOpening = await apply("check", entry(6), 0, opening);
 		expect(fromOpening.operations).toEqual([
 			expect.objectContaining({ executed: true, caseId: workerCaseId }),
 		]);
+		const earlier = (await openingFor(entry(8), before)).projection;
+		await sql`UPDATE cases
+			SET properties = jsonb_set(properties, '{hq_user_id}', to_jsonb('former-worker'::text))
+			WHERE app_id = ${APP_ID} AND project_id = ${PROJECT} AND case_id = ${workerCaseId}
+		`.execute(dbHandle.db);
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: replacementId,
+				case_type: "commcare-user",
+				case_name: "Replacement",
+				status: "open",
+				properties: { hq_user_id: ACTOR, visit_note: "replacement" },
+			},
+		});
+		await expect(apply("save", entry(8), 0, earlier)).rejects.toThrow(
+			"worker's record is missing or has changed",
+		);
+		const current = new Map(
+			(await workerRows()).map((row) => [
+				row.case_id,
+				row.properties.visit_note,
+			]),
+		);
+		expect(current).toEqual(
+			new Map([
+				[workerCaseId, "updated"],
+				[replacementId, "replacement"],
+			]),
+		);
 	});
 
 	it("submits a shared entry’s parent answers to the case selected by that entry", async () => {
