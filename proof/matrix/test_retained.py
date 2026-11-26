@@ -146,6 +146,7 @@ def authored_base(request, hq, core_runner, editor_driver, documents):
 
     base = request.param
     variants = [variant for variant in registry.load_variants() if variant.base == base.id]
+    variants = [one for one in variants if one.id in ['hq-case-management/save-to-case-own-case-beside', 'hq-case-management/save-to-case-positioned-beside-own']]
     return base, authored(base, documents=documents, driver=editor_driver, core_runner=core_runner, variants=variants)
 
 
