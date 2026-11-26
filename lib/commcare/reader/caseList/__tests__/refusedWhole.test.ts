@@ -8,6 +8,7 @@
  * (`details/bootstrap5/column.js::serialize`) beside the one change that makes the class.
  */
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { plainColumn } from "@/lib/domain/modules";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { patients, uuid } from "./fixtures";
@@ -140,6 +141,60 @@ describe("a refused column", () => {
 		it(`raises ${name} as one finding`, async () => {
 			expect(closedCodes(await readColumn(change, screen))).toEqual([entry]);
 		});
+
+	it("records the entire icon action when its deep link opens a registration form", async () => {
+		const entry = `${M}clickable-icon-with-an-unusable-form-endpoint`;
+		const image = "jr://file/commcare/image/register_household.png";
+		const reading = await readLists(
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				plainColumn(uuid(2), "notes", "Notes"),
+			]),
+			{
+				edit(app) {
+					app.cloudcare_enabled = true;
+					const module = app.modules[0];
+					const [registration] = module.forms as Array<Record<string, unknown>>;
+					registration.session_endpoint_id = "register_household";
+					Object.assign(module.case_details.short.columns[1], {
+						format: "clickable-icon",
+						endpoint_action_id: "register_household",
+						enum: [
+							{ doc_type: "MappingItem", key: "true()", value: { en: image } },
+						],
+					});
+				},
+				input: (input) => ({
+					...input,
+					media: {
+						...input.media,
+						resolve: (path) =>
+							path === image
+								? {
+										kind: "asset",
+										assetId: testMediaAssetId("registration icon"),
+										mediaKind: "image",
+									}
+								: input.media.resolve(path),
+					},
+				}),
+			},
+		);
+		expect(closedCodes(reading)).toEqual([entry]);
+		const records = [...reading.ctx.close().claims.records()].filter(
+			(record) => record.entry === entry && record.standing === "fix-in-hq",
+		);
+		const column = "/modules/0/case_details/short/columns/1";
+		expect(new Set(records.map(({ where, key }) => `${where} ${key}`))).toEqual(
+			new Set([
+				`${column}/format schema:DetailColumn.format`,
+				`${column}/endpoint_action_id schema:DetailColumn.endpoint_action_id`,
+				`${column}/enum schema:DetailColumn.enum`,
+				`${column}/enum/0/key schema:MappingItem.key`,
+				`${column}/enum/0/value schema:MappingItem.value`,
+			]),
+		);
+	});
 
 	it("keeps an explicit blank image rule and its place among the matches", async () => {
 		const reading = await readColumn({

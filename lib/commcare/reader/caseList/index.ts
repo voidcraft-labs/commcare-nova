@@ -1258,10 +1258,11 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 			const issue = listIconActionIssue(doc, mod, column);
 			if (issue) {
 				const site = joined.proposal.json;
+				// The bound destination decides the whole action, including the icon mapping.
 				ctx.accounting.findingAt(
 					COLUMN_CLAIMS.clickableIconUnavailable,
 					site.place,
-					`${site.pointer}/format`,
+					site.pointer,
 					{ name: String(site.peek("endpoint_action_id")) },
 				);
 			}
