@@ -343,7 +343,7 @@ def test_native_read_checks_lookup_edit_permission_and_the_api_keys_role(hq):
             name="lookup proof role scope",
             is_active=True,
             domain=state.domain,
-            role=no_data,
+            role_id=no_data.get_id,
         )
         narrowed = operations.ApiCredential(allowed.username, limited.plaintext_key)
         url = f"/a/{state.domain}/api/device-log/v1/?limit=1&device_id=00000000000000000000000000000000"
