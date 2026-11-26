@@ -10818,7 +10818,7 @@ def itemset_position_of_number(use, manifest):
     )
 
 
-def itemset_literal_row_index(use, manifest):
+def itemset_literal_row_index(use):
     """A bare numeric fixture row index works in Core and is outside Nova's boolean filter."""
     form, predicate = _lookup_itemset_predicate(use)
     if form is None:
@@ -12962,7 +12962,6 @@ VALUE_CLASSES = {
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
 
     "questions/itemset-position-called-on-a-number": itemset_position_of_number,
-    "questions/itemset-filter-outside-predicate": itemset_literal_row_index,
     "questions/savetocase-owner-condition-on-an-aliased-create": conditioned_aliased_create_owner,
     "questions/savetocase-update-owner-condition": conditioned_unsupported_update_owner,
     "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,

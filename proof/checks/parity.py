@@ -68,6 +68,7 @@ from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     _guarded_lookup_count,
+    itemset_literal_row_index,
     save_to_case_before_optional_own_update,
     save_to_case_retype_property_types,
 )
@@ -304,6 +305,8 @@ CHILD_REGISTRATION = (
     "menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case"
 )
 ADVANCED_REGISTRATION = "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form"
+ITEMSET_FILTER = "questions/itemset-filter-outside-predicate"
+ITEMSET_NODESETS = frozenset({"xform:select1/itemset@nodeset", "xform:select/itemset@nodeset"})
 OWN_CASE_BESIDE = "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it"
 DATE_TO_TEXT = "questions/a-savetocase-retype-that-keeps-a-date-as-text"
 RETYPE_CONVERTS = "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type"
@@ -458,7 +461,7 @@ def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT,
-        OWN_CASE_BESIDE, LOOKUP_COUNT, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
+        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
     }.intersection(entries)
     if not wanted:
         return
@@ -480,6 +483,10 @@ def _forms_variant_uses(found, held, entries):
                 and save_to_case_before_optional_own_update(use)):
             block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
             yield Decided(block, manifest_usage.HELD_NEW, (by_id[OWN_CASE_BESIDE],))
+        # This proves the literal retained shape alone. The inventory's
+        # broad outside-predicate class is not exhausted by a row ordinal.
+        if ITEMSET_FILTER in wanted and use.key in ITEMSET_NODESETS and itemset_literal_row_index(use):
+            yield Decided(use, manifest_usage.HELD_NEW, (by_id[ITEMSET_FILTER],))
         if LOCATION_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
             yield from _location_write_uses(use, by_id[LOCATION_WRITE])
         if HYPHEN_TAG in wanted and use.key in ADVANCED_TAG_KEYS:

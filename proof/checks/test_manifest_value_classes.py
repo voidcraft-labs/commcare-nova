@@ -6339,6 +6339,22 @@ def _data_binds_and_itext():
           <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
             <label ref="name"/><value ref="id"/></itemset></select1>""",
     )
+    positioned_itemsets = form(
+        data="<s/><t/>",
+        model='<instance id="items" src="jr://fixture/item-list:items"/>',
+        body="".join(
+            f'<{select} ref="/data/t"><itemset nodeset="instance(&apos;items&apos;)/items_list/items[{condition}]">'
+            f'<label ref="name"/><value ref="id"/></itemset></{select}>'
+            for select, condition in (
+                ("select1", "position(3) &lt; 3"),
+                ("select1", "position() &lt; 3"),
+                ("select1", "position(/data/s) &lt; 3"),
+                ("select1", "2"),
+                ("select1", "false() and position(3) &lt; 3"),
+                ("select", "position((-3))"),
+            )
+        ),
+    )
     # A lookup choice whose label or value reads two steps down the row (the first select), which the form editor's
     # lookup widget cannot keep, beside one that reads a field and an attribute of the row (the second).
     lookup_refs = form(
@@ -6805,6 +6821,12 @@ def _data_binds_and_itext():
                 "bind[1]/@readonly",
             ),
             accepted("form", _protected_form(), "xform:model/bind@readonly", "bind[2]/@readonly", readings=True),
+        ),
+        "questions/itemset-position-called-on-a-number": (
+            refused("form", positioned_itemsets, "xform:select1/itemset@nodeset", "select1[1]/itemset[1]/@nodeset"),
+            refused("form", positioned_itemsets, "xform:select/itemset@nodeset", "select[1]/itemset[1]/@nodeset"),
+            *(accepted("form", positioned_itemsets, "xform:select1/itemset@nodeset", f"select1[{i}]/itemset[1]/@nodeset")
+              for i in (2, 3, 4, 5)),
         ),
         "questions/itemset-label-jr-itext-field": (
             refused(
@@ -8311,6 +8333,30 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
 )
 def test_a_reader_places_each_shape_of_its_class(entry_id, manifest):
     _holds_its_shapes(entry_id, manifest)
+
+
+def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):
+    from proof.checks import parity
+
+    entry = "questions/itemset-filter-outside-predicate"
+    assert entry not in manifest.readers
+    source = _form(
+        data="<choice/>",
+        model='<instance id="items" src="jr://fixture/item-list:items"/>',
+        body="""
+          <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[2]">
+            <label ref="name"/><value ref="id"/></itemset></select1>
+          <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[last() - 1]">
+            <label ref="name"/><value ref="id"/></itemset></select1>
+        """,
+    )
+    shape = refused("form", source, "xform:select1/itemset@nodeset", "select1[1]/itemset[1]/@nodeset")
+    found = _shape_uses(shape, manifest)
+    assert list(parity._forms_variant_uses(found, manifest, set())) == []
+    decided, = parity._forms_variant_uses(found, manifest, {entry})
+    assert decided.standing == manifest_usage.HELD_NEW
+    assert [one.id for one in decided.entries] == [entry]
+    assert decided.use.where.endswith(shape.where)
 
 
 @pytest.fixture(scope="module")
