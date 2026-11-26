@@ -132,6 +132,61 @@ def test_an_owner_id_in_an_update_block_moves_the_case_to_the_new_owner(hq, core
     assert updated.case.case_json["visits"] == "2"
 
 
+def test_case_updates_keep_location_on_the_case_but_search_indexes_only_the_worker_property(hq, core_runner):
+    from corehq.pillows.case_search import _get_case_properties
+
+    changes = (
+        "<update><external_id>authored-id</external_id>"
+        "<location_id>district-7</location_id>"
+        "<hq_user_id>linked-worker</hq_user_id></update>"
+    )
+    with hq_check(CONFIGURATION) as (state, _):
+        accepted = operations.process_case_blocks(
+            state, _submission(_case("c-new", _create("person", "A") + changes))
+        )
+        assert accepted.refusal is None
+        case = accepted.touched["c-new"].case
+        assert case.location_id == "district-7"
+        assert "location_id" not in case.case_json
+        assert case.case_json["hq_user_id"] == "linked-worker"
+        assert case.external_id == "linked-worker"
+        indexed = {prop["key"]: prop["value"] for prop in _get_case_properties(case.to_json())}
+        assert indexed["hq_user_id"] == "linked-worker"
+        assert "location_id" not in indexed
+
+
+def test_search_follows_a_worker_property_but_does_not_follow_a_case_location(hq, core_runner):
+    from corehq.apps.case_search import utils
+    from corehq.apps.es.case_search import case_search_adapter
+
+    related_key = "x_commcare_custom_related_case_property"
+    changes = "<update><location_id>from-location</location_id><hq_user_id>from-worker</hq_user_id></update>"
+    with hq_check(CONFIGURATION) as (state, _):
+        accepted = operations.process_case_blocks(
+            state,
+            _submission(
+                _case("primary", _create("person", "A") + changes),
+                _case("from-location", _create("person", "B")),
+                _case("from-worker", _create("person", "C")),
+            ),
+        )
+        assert accepted.refusal is None
+        cases = {record_id: meta.case for record_id, meta in accepted.touched.items()}
+        case_search_adapter.bulk_index(list(cases.values()), refresh=True)
+        helper = utils.QueryHelper(state.domain)
+        hits = helper.get_base_queryset().case_ids(set(cases)).run().hits
+        searchable = {case.case_id: case for case in map(helper.wrap_case, hits)}
+        assert set(searchable) == set(cases)
+        primary_hit = searchable["primary"]
+        for property_name, expected in (("hq_user_id", ["from-worker"]), ("location_id", [])):
+            request = operations.search_request_config(
+                state, "proof-app", [("case_type", "person"), (related_key, property_name)]
+            )
+            assert request.custom_related_case_property == property_name
+            found = utils.get_expanded_case_results(helper, request.custom_related_case_property, [primary_hit])
+            assert [case.case_id for case in found] == expected
+
+
 def test_hq_create_first_changes_an_existing_alias_and_keeps_independent_effects(hq, core_runner):
     """Read the same two rows as Core's case-operation proof, including the cases it already holds."""
     prefix = "nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:"

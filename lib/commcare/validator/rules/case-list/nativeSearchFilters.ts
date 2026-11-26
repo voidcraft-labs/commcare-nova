@@ -7,12 +7,14 @@ import {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
+import { LOCATION_NOT_IN_SEARCH_MESSAGE } from "@/lib/domain/expression/typeChecker";
 import {
 	isOrdinaryCaseSearchConfig,
 	projectSpaceMatchingFits,
 } from "@/lib/domain/modules";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 } from "@/lib/domain/standardCaseProperties";
 import {
@@ -50,6 +52,18 @@ export function nativeSearchFilters(
 			.filter((type) => requested.includes(type.name))
 			.flatMap((type) => type.properties);
 		for (const term of order) {
+			if (isDeviceOnlyCaseProperty(term.property)) {
+				errors.push(
+					validationError(
+						"CASE_SEARCH_FILTER_INVALID",
+						"module",
+						LOCATION_NOT_IN_SEARCH_MESSAGE,
+						{ moduleUuid, moduleName: mod.name },
+						{ reason: "order-device-only", property: term.property },
+					),
+				);
+				continue;
+			}
 			const known =
 				CASE_NODE_ATTRIBUTE_PROPERTIES.has(term.property) ||
 				Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, term.property) ||
@@ -97,6 +111,18 @@ export function nativeSearchFilters(
 			);
 	}
 	const checkRelatedId = (property: string) => {
+		if (isDeviceOnlyCaseProperty(property)) {
+			errors.push(
+				validationError(
+					"CASE_SEARCH_FILTER_INVALID",
+					"module",
+					LOCATION_NOT_IN_SEARCH_MESSAGE,
+					{ moduleUuid, moduleName: mod.name },
+					{ reason: "related-record-id-device-only", property },
+				),
+			);
+			return;
+		}
 		if (
 			!types.some(
 				(type) =>
