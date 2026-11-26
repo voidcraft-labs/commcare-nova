@@ -3915,7 +3915,7 @@
 			"schema:CaseTileGroupConfig.index_identifier",
 			"schema:Detail.case_tile_group"
 		],
-		"valueClass": "identifier-an-xml-element-name",
+		"valueClass": "grouping-connection-name",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `tile.grouping {identifier, headerRows}`",
 		"slotChanges": [],
@@ -3941,7 +3941,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`case_tile_group.index_identifier` outside `[a-zA-Z_][a-zA-Z0-9_]*`",
+		"item": "`case_tile_group.index_identifier` outside `[A-Za-z_][A-Za-z0-9_-]*`",
 		"surfaceKeys": [
 			"parser:DetailGroupParser/group",
 			"parser:DetailGroupParser/group@function",
@@ -3952,9 +3952,9 @@
 			"schema:CaseTileGroupConfig.index_identifier",
 			"schema:Detail.case_tile_group"
 		],
-		"valueClass": "identifier-outside-xml-name",
+		"valueClass": "identifier-outside-grouping-connection-name",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a grouping index name Nova's `tile.grouping.identifier` cannot spell",
+		"dispositionCell": "**HELD-NEW**: a grouping index outside the case operation connection grammar",
 		"subject": "case-tiles",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -3964,6 +3964,30 @@
 		"emission": {
 			"cell": "omit",
 			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-tile-group-header-covers-all-cells",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A custom grouped tile whose header covers every placed cell",
+		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
+		"valueClass": "tile-group-header-covers-all-cells",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: no body fields remain for individual group members in Web Apps",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps draws the first member's header and has no fields left to show for other members"
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": {
+			"cell": "The gate requires a row below the heading (CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE)",
+			"markers": []
 		},
 		"gates": []
 	},

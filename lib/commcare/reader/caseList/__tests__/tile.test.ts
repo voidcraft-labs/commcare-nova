@@ -210,27 +210,57 @@ describe("tiles", () => {
 		).toEqual([undefined, "records"]);
 	});
 
-	it("reads a grouping by its identifier and header rows", async () => {
+	it("reads a hyphenated grouping with a separate header and body", async () => {
 		const name = plainColumn(uuid(1), "case_name", "Name", {
 			tile: tileCell(0, 0, 12, 1),
 		});
-		const doc = patients([name], {
-			list: {
-				tile: { grouping: { identifier: "parent", headerRows: 2 } },
+		const notes = plainColumn(uuid(2), "notes", "Notes", {
+			tile: tileCell(0, 1, 12, 1),
+		});
+		const doc = patients([name, notes], {
+			list: { tile: { grouping: { identifier: "my-parent", headerRows: 1 } } },
+		});
+		const reading = await readLists(doc, { firstPassOnly: false });
+		expect(closedCodes(reading)).toEqual([]);
+		expect(
+			reading.app.modules[0]?.case_details.short.case_tile_group,
+		).toMatchObject({
+			index_identifier: "my-parent",
+			header_rows: 1,
+		});
+		expect(listOf(reading).tile?.grouping).toEqual({
+			identifier: "my-parent",
+			headerRows: 1,
+		});
+	});
+
+	it("points to the heading when there is no body under a valid connection", async () => {
+		const name = plainColumn(uuid(1), "case_name", "Name", {
+			tile: tileCell(0, 0, 12, 1),
+		});
+		const notes = plainColumn(uuid(2), "notes", "Notes", {
+			tile: tileCell(0, 1, 12, 1),
+		});
+		const doc = patients([name, notes], {
+			list: { tile: { grouping: { identifier: "my-parent", headerRows: 1 } } },
+		});
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const short = app.modules[0].case_details.short;
+				short.columns = short.columns.slice(0, 1);
+				short.case_tile_group = {
+					doc_type: "CaseTileGroupConfig",
+					index_identifier: "my-parent",
+					header_rows: 2,
+				};
 			},
 		});
-		const reading = await readLists(doc);
-		expect(codes(reading)).toEqual([]);
-		const short = reading.app.modules[0]?.case_details.short;
-		// The source holds what HQ's Case List page writes for it.
-		expect(short?.case_tile_group).toMatchObject({
-			index_identifier: "parent",
-			header_rows: 2,
-		});
-		const read = comparableList(listOf(reading)) as { tile: unknown };
-		expect(read.tile).toEqual({
-			grouping: { identifier: "parent", headerRows: 2 },
-		});
+		expect(reading.findings).toMatchObject([
+			{
+				code: "menus-and-case-lists/case-tile-group-header-covers-all-cells",
+				place: { kind: "case-list", name: "Patients" },
+			},
+		]);
 	});
 
 	it("drops the cells of a list that is no tile", async () => {

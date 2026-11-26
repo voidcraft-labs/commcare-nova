@@ -1160,47 +1160,58 @@ def tile_cell_without_a_size(authoring, app_id):
 
 
 def tile_grouped_by_a_hyphenated_index(authoring, app_id):
-    """Follow-ups' list laid out as a tile, grouped by an index name holding a hyphen."""
+    """The original one-cell tile leaves no per-case body below its two-row heading."""
+    _tile_grouped_by_index(authoring, app_id, "my-parent", with_body=False)
+
+
+def tile_grouped_by_a_hyphenated_index_with_a_body(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "my-parent", with_body=True)
+
+
+def tile_grouped_by_an_invalid_index(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "-my-parent", with_body=True)
+
+
+def _tile_grouped_by_index(authoring, app_id, identifier, *, with_body):
+    header = {
+        "model": "case",
+        "field": "name",
+        "header": {"en": "Name"},
+        "format": "plain",
+        "useXpathExpression": False,
+        "grid_x": 0,
+        "grid_y": 0,
+        "enum": [],
+        "graph_configuration": {
+            "config": {},
+            "locale_specific_config": {},
+            "annotations": [],
+            "series": [],
+            "doc_type": "GraphConfiguration",
+        },
+        "late_flag": 30,
+        "time_ago_interval": 365.25,
+        "date_format": "%d/%m/%y",
+        "doc_type": "DetailColumn",
+        "width": 12,
+        "height": 1,
+        "horizontal_align": "left",
+        "vertical_align": "start",
+        "font_size": "medium",
+        "show_border": False,
+        "show_shading": False,
+    }
     _set_each(
         authoring,
         app_id,
         ("/modules/1/case_details/short/case_tile_template", "custom"),
         (
             "/modules/1/case_details/short/columns",
-            [
-                {
-                    "model": "case",
-                    "field": "name",
-                    "header": {"en": "Name"},
-                    "format": "plain",
-                    "useXpathExpression": False,
-                    "grid_x": 0,
-                    "grid_y": 0,
-                    "enum": [],
-                    "graph_configuration": {
-                        "config": {},
-                        "locale_specific_config": {},
-                        "annotations": [],
-                        "series": [],
-                        "doc_type": "GraphConfiguration",
-                    },
-                    "late_flag": 30,
-                    "time_ago_interval": 365.25,
-                    "date_format": "%d/%m/%y",
-                    "doc_type": "DetailColumn",
-                    "width": 12,
-                    "height": 1,
-                    "horizontal_align": "left",
-                    "vertical_align": "start",
-                    "font_size": "medium",
-                    "show_border": False,
-                    "show_shading": False,
-                }
-            ],
+            [header, {**header, "field": "notes", "header": {"en": "Notes"}, "grid_y": 1}] if with_body else [header],
         ),
         (
             "/modules/1/case_details/short/case_tile_group",
-            {"doc_type": "CaseTileGroupConfig", "header_rows": 2, "index_identifier": "my-parent"},
+            {"doc_type": "CaseTileGroupConfig", "header_rows": 1 if with_body else 2, "index_identifier": identifier},
         ),
     )
 

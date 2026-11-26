@@ -397,6 +397,35 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		]);
 	});
 
+	it("groups by the full hyphenated connection identifier", async () => {
+		const store = makeStore();
+		const { north, south } = await seed(store);
+		await dbHandle.db
+			.updateTable("case_indices")
+			.set({ identifier: "my-parent" })
+			.where("identifier", "=", "parent")
+			.execute();
+
+		const grouped = await store.queryGrouped({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: schemas(),
+			indexIdentifier: "my-parent",
+			sort: byName,
+			groupOffset: 0,
+			groupLimit: 10,
+		});
+		expect(grouped.groups.map((group) => group.key)).toEqual([
+			north,
+			south,
+			"",
+		]);
+		expect(
+			grouped.groups.map((group) => group.rows.map((row) => row.case_name)),
+		).toEqual([["Ada", "Cal"], ["Ben", "Dot"], ["Eve"]]);
+	});
+
 	it("counts the cases that carry no such index", async () => {
 		const store = makeStore();
 		await seed(store);

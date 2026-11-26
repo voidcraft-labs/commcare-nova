@@ -12710,13 +12710,8 @@ def multi_select_maximum_exceeds_java_int(use, manifest):
 CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
 
 
-# Case-operation links may include hyphens. Tile grouping still uses its separate XML name grammar.
+# Case-operation links and tile grouping use the same portable connection name.
 CASE_OPERATION_LINK_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*")
-
-
-# Nova's XML name for a tile grouping's identifier (``lib/domain/expression/types.ts::
-# XML_ELEMENT_NAME_PATTERN``), matched whole; it holds no ``-``.
-XML_ELEMENT_NAME = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 
 
 def _index_identifier(index):
@@ -12744,27 +12739,53 @@ def index_identifier_outside_an_xml_name(use, manifest):
     return any(CASE_OPERATION_LINK_IDENTIFIER.fullmatch(_index_identifier(index)) is None for index in indices)
 
 
-def tile_group_identifier_outside_an_xml_name(use, manifest):
-    """``menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name``: a case list's tile grouping
-    whose ``index_identifier`` holds text that is no XML name Nova writes (``XML_ELEMENT_NAME``), on the case list of
-    a menu with a case type whose tile is custom (``lib/commcare/reader/caseList/tile.ts``,
-    ``groupIdentifierOutside``). A grouping with no identifier groups nothing."""
+def _custom_short_tile_group(use):
     at = _json(use)
     if at is None:
-        return None
+        return None, None
     if at.key == "case_tile_group" and at.scope[-1][0] == "Detail":
         group = at.value
     elif at.scope[-1][0] == "CaseTileGroupConfig":
         group = at.owner
     else:
-        return None
+        return None, None
     detail, pair, module = at.nearest("Detail"), at.nearest("DetailPair"), at.nearest(*MODULES)
     if detail is None or pair is None or pair.get("short") is not detail or module is None:
-        return False
+        return at, None
     if not module.get("case_type") or detail.get("case_tile_template") != "custom" or not isinstance(group, dict):
+        return at, None
+    return at, (group, detail)
+
+
+def tile_group_identifier_outside_supported_connections(use, manifest):
+    """A name Nova's custom grouped tile cannot use as its connection. An empty name disables grouping."""
+    at, tile = _custom_short_tile_group(use)
+    if at is None:
+        return None
+    if tile is None:
         return False
-    identifier = group.get("index_identifier")
-    return isinstance(identifier, str) and identifier != "" and XML_ELEMENT_NAME.fullmatch(identifier) is None
+    identifier = tile[0].get("index_identifier")
+    return isinstance(identifier, str) and identifier != "" and CASE_OPERATION_LINK_IDENTIFIER.fullmatch(identifier) is None
+
+
+def tile_group_header_covers_all_cells(use, manifest):
+    """Web Apps draws the cells above the header boundary once, from the first member."""
+    at, tile = _custom_short_tile_group(use)
+    if at is None:
+        return None
+    if tile is None or at.key != "index_identifier":
+        return False
+    group, detail = tile
+    name = group.get("index_identifier")
+    header_rows = group.get("header_rows", 2)
+    if not isinstance(name, str) or CASE_OPERATION_LINK_IDENTIFIER.fullmatch(name) is None or type(header_rows) is not int:
+        return False
+    boxes = [
+        box for column in _columns(detail)
+        if _format(column) != "filter" and (box := _tile_box(column)) is not None
+        and _grid_fit(box, _offered_rows(detail, "short")) == "fits"
+    ]
+    return bool(boxes) and header_rows >= max(y + height for _, y, _, height in boxes)
 
 
 def column_hash_property(use, manifest):
@@ -13658,8 +13679,9 @@ VALUE_CLASSES = {
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
-        tile_group_identifier_outside_an_xml_name
+        tile_group_identifier_outside_supported_connections
     ),
+    "menus-and-case-lists/case-tile-group-header-covers-all-cells": tile_group_header_covers_all_cells,
     "menus-and-case-lists/column-reading-an-unknown-hash-property": column_hash_property,
     "questions/submitted-node-consumed-as-case": submitted_case_answer,
     "questions/question-lock-the-designer-cannot-represent": unsupported_question_lock,

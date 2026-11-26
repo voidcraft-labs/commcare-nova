@@ -173,6 +173,8 @@
 		"hq-case-lists/tile-cell-without-a-size",
 		"hq-case-lists/tile-cells-overlapping",
 		"hq-case-lists/tile-grouped-by-a-hyphenated-index",
+		"hq-case-lists/tile-grouped-by-a-hyphenated-index-with-a-body",
+		"hq-case-lists/tile-grouped-by-an-invalid-index",
 		"hq-case-lists/tile-taller-than-twelve-rows",
 		"hq-case-lists/time-since-in-fortnights",
 		"hq-case-lists/time-since-in-years",

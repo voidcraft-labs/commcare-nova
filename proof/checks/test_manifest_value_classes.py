@@ -5049,6 +5049,19 @@ def _search_and_menus():
                 f"{long_}/tabs/0/nodeset_case_type",
             ),
         ),
+        "menus-and-case-lists/case-tile-group-header-covers-all-cells": (
+            refused("app", columns(
+                _column(grid_x=0, grid_y=0, width=12, height=1),
+                case_tile_template="custom",
+                case_tile_group={"index_identifier": "my-group", "header_rows": 2},
+            ), "schema:CaseTileGroupConfig.index_identifier", f"{short}/case_tile_group/index_identifier"),
+            accepted("app", columns(
+                _column(grid_x=0, grid_y=0, width=12, height=1),
+                _column(grid_x=0, grid_y=1, width=12, height=1),
+                case_tile_template="custom",
+                case_tile_group={"index_identifier": "my-group", "header_rows": 1},
+            ), "schema:CaseTileGroupConfig.index_identifier", f"{short}/case_tile_group/index_identifier"),
+        ),
         "menus-and-case-lists/custom-tile-cell-outside-the-grid": (
             refused(
                 "app",
@@ -7541,20 +7554,20 @@ def _held_new():
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(
                 "app",
-                tile("my-group"),
+                tile("-my-group"),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
             accepted(
                 "app",
-                tile("my_group"),
+                tile("my-group"),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
             # A list with no custom tile groups nothing.
             accepted(
                 "app",
-                tile("my-group", template=None),
+                tile("-my-group", template=None),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),

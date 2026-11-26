@@ -14282,8 +14282,8 @@
 	{
 		"id": "hq-case-lists/tile-grouped-by-a-hyphenated-index",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/case-tile-group-header-covers-all-cells",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 1,
@@ -14292,6 +14292,33 @@
 		"change": {
 			"op": "named",
 			"name": "tile_grouped_by_a_hyphenated_index"
+		}
+	},
+	{
+		"id": "hq-case-lists/tile-grouped-by-a-hyphenated-index-with-a-body",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
+		"change": {
+			"op": "named",
+			"name": "tile_grouped_by_a_hyphenated_index_with_a_body"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/tile/grouping",
+				"value": { "identifier": "my-parent", "headerRows": 1 }
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/tile-grouped-by-an-invalid-index",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
+		"standing": "not-yet",
+		"place": { "kind": "case-list", "menu": 1, "name": "Follow-ups" },
+		"change": {
+			"op": "named",
+			"name": "tile_grouped_by_an_invalid_index"
 		}
 	},
 	{

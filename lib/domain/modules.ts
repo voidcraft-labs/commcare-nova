@@ -36,6 +36,7 @@ import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
 import { caseFormContextSchema } from "./caseFormContext";
 import { uniqueCaseMappingRows } from "./caseMappingRows";
+import { CASE_OPERATION_LINK_IDENTIFIER_REGEX } from "./caseOperationIdentifiers";
 import {
 	authoredCasePropertyNameSchema,
 	readCasePropertyNameSchema,
@@ -3194,27 +3195,18 @@ export function multiSelectSearchInputRefusal(
  * so Nova must not invent one — the authoring surface measures and
  * states the consequence instead.
  */
+/** The authored connection vocabulary. The whole name becomes one case-index
+ * path step in the group function and the selected-record companion. */
+export const caseTileGroupingIdentifierSchema = z
+	.string()
+	.regex(
+		CASE_OPERATION_LINK_IDENTIFIER_REGEX,
+		"Start with a letter or underscore. Use only letters, numbers, underscores, or hyphens.",
+	);
+
 export const caseTileGroupingSchema = z.strictObject({
-	/**
-	 * The case-index identifier whose target is the group key —
-	 * `parent` for the relationship a `CaseType.parent_type`
-	 * declares (`lib/commcare/xform/caseBlocks.ts` emits that
-	 * identifier literally), or the identifier an advanced case
-	 * operation's link carries.
-	 *
-	 * Drawn from the same XML-element-name vocabulary
-	 * `RelationStep.identifier` uses, for the same reason: it is
-	 * written straight into the emitted `string(./index/<id>)` path
-	 * step, so anything outside that class would emit an expression
-	 * the runtime cannot parse. Constraining it here is what makes
-	 * the emitter total — there is no escaping step anywhere.
-	 */
-	identifier: z
-		.string()
-		.regex(
-			XML_ELEMENT_NAME_PATTERN,
-			"A grouping connection name must start with a letter or underscore and contain only letters, digits, or underscores. It is written straight into the group's `string(./index/…)` path step, so characters outside that class emit an expression the runtime cannot parse.",
-		),
+	/** The index whose target is the group key, such as parent or my-parent. */
+	identifier: caseTileGroupingIdentifierSchema,
 	/**
 	 * Rows of the tile that form the group header, counted from the
 	 * top. Always stored and always emitted: the two sides default

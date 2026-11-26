@@ -2075,8 +2075,9 @@ and reports a dangling or incompatible source at the selection that needs repair
 ### Grouped case tiles
 
 A tile can also GROUP its cases: `caseListConfig.tile.grouping` carries an
-`identifier` (a case-index name) and `headerRows`, and the cases sharing that
-connection are shown together under one heading. Grouping lives INSIDE the tile
+`identifier` (a case-index name that uses the case operation connection grammar,
+including hyphens) and `headerRows`. Cases sharing that connection appear
+together under one heading. Grouping lives INSIDE the tile
 layout, so "a group on a detail with no tile" is unrepresentable rather than
 merely rejected, and turning the tile off clears the grouping in the same write.
 
