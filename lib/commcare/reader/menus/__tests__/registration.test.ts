@@ -271,6 +271,55 @@ describe("the hidden registration menu", () => {
 	});
 });
 
+describe("a list that always offers another menu's registration when its search finds nothing", () => {
+	/** Patients, whose forms read the search, offering Registration's form under the empty-search condition. */
+	function emptySearchAlways(): BlueprintDoc {
+		const doc = buildDoc({
+			modules: [
+				{ name: "Registration", caseType: "patient", forms: [register] },
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					caseSearchConfig: { formsReadSearch: true },
+					forms: [visit],
+				},
+			],
+		});
+		return produce(doc, (draft) => {
+			const host = Object.values(draft.modules).find(
+				(one) => one.name === "Patients",
+			);
+			if (host !== undefined)
+				host.caseListRegistrationForm = {
+					kind: "always",
+					formUuid: testUuid("reg"),
+					afterSubmit: "case-list",
+					showWhen: { kind: "empty-search" },
+				};
+		});
+	}
+
+	// CommCare HQ's own pages make this app: a registration form of a menu hidden by its
+	// display condition, offered on the case list of a menu whose search is inline, under
+	// the condition "the search found nothing" (`proof/matrix/bases/empty_search.py`).
+	it("reads the condition it took, and comes in", async () => {
+		const reading = await readMenusOf(emptySearchAlways());
+		expect(codesOf(reading)).toEqual([]);
+		expect(
+			moduleNamed(reading.doc as BlueprintDoc, "Patients")
+				.caseListRegistrationForm,
+		).toEqual({
+			kind: "always",
+			formUuid: formNamed(reading.doc as BlueprintDoc, "Register").uuid,
+			afterSubmit: "case-list",
+			showWhen: { kind: "empty-search" },
+		});
+	});
+});
+
 describe("a stored registration block, read by the first rule that matches", () => {
 	it("reads a blank form id beside a label as nothing", async () => {
 		const reading = await readMenusOf(always(), (app) => {

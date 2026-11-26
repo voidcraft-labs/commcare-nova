@@ -851,7 +851,7 @@ function readAlways(
 				"relevancy_expression",
 				REGISTRATION.relevancyHeld,
 				(value) => value,
-			);
+			).value;
 			showWhen = { kind: "empty-search" };
 		} else {
 			const index = ctx.pending.register(
