@@ -2545,27 +2545,24 @@ async function applyOperationEffects(
 			await applyLinkEffect(trx, host, appId, entry.caseId, link);
 		}
 
-		// Every emitted case block advances `@date_modified`, including a
-		// pure index write. A link-only update touches no other stamping
-		// path, so stamp it here; every other arm (create, writes,
-		// rename, owner, retype, a genuine close transition) already
-		// stamps. A re-close deliberately keeps its repair semantics. A
-		// one-case form's own case is named by its block whatever it
-		// writes, and HQ's case processing moves its `modified_on` for it;
-		// a several-case form's own arm stamps only what it writes.
+		// A recognized targeted action advances its timestamp even when
+		// every update leaf is irrelevant. The submitted update element
+		// remains present in Core, and a separate close can be idempotent.
+		// Preserve the existing own-case behavior: one selected case gets
+		// HQ's history timestamp; a several-case form stamps what it saves.
 		const writesNothing =
 			entry.writes.length === 0 &&
 			entry.preparedRename === undefined &&
 			entry.preparedOwner === undefined &&
 			(operation.retype === undefined ||
 				operation.retype === operation.caseType);
+		const own = entry.instance.envelope.own;
 		if (
-			(entry.closes && (operation.closeAfter || operation.closeCondition)) ||
-			(operation.action === "update" &&
-				writesNothing &&
-				!entry.closes &&
-				(entry.links.length > 0 ||
-					(entry.instance.envelope.own && oneCaseForm)))
+			writesNothing &&
+			(!own ||
+				(operation.action === "update" &&
+					!entry.closes &&
+					(entry.links.length > 0 || oneCaseForm)))
 		) {
 			await stampModified(trx, host, appId, entry.caseId);
 		}

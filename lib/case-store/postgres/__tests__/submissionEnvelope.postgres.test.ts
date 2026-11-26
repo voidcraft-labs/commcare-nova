@@ -1291,6 +1291,29 @@ describe("ordered selected-case batches", () => {
 			recovered.caseDatabasePatch?.rows[0]?.modified_on.getTime(),
 		).toBeGreaterThan(afterChildless.modified_on.getTime());
 
+		const irrelevantUpdate = await submit(
+			store,
+			request({
+				...close,
+				action: "update",
+				closeAfter: true,
+				closeCondition: predicate(false),
+				writes: literalWrites({ notes: "never saved" }).map((write) => ({
+					...write,
+					condition: predicate(false),
+				})),
+			}),
+		);
+		expect(irrelevantUpdate.caseDatabasePatch?.rows[0]).toMatchObject({
+			status: "closed",
+			properties: { notes: "original" },
+		});
+		expect(
+			irrelevantUpdate.caseDatabasePatch?.rows[0]?.modified_on.getTime(),
+		).toBeGreaterThan(
+			recovered.caseDatabasePatch?.rows[0]?.modified_on.getTime() ?? 0,
+		);
+
 		const writtenAndClosed = await submit(
 			store,
 			request({
