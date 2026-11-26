@@ -622,6 +622,13 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
         return
     _object_uses(cls, value, pointer, manifest, artifact, found, JsonAt(document, scope))
     for key, child in value.items():
+        if cls == "FormActionCondition" and key == "operator":
+            # HQ's action_relevance reads an operator only for "if". The basic
+            # case and worker updates read the action's activeness and its map
+            # without calling action_relevance, even for an "if" condition.
+            update = len(scope) > 1 and scope[-2][0] == "UpdateCaseAction"
+            if value.get("type", "never") in ("always", "never") or update:
+                continue
         at = f"{pointer}/{pointer_token(key)}"
         slot = JsonAt(document, scope, key)
         item = manifest.item(f"schema:{cls}.{key}")
