@@ -22,11 +22,10 @@ test("an author adds a tab of table records and reopens its saved layout", {
 		})
 		.click();
 	await tab.getByRole("combobox", { name: "Add a table field" }).click();
-	const firstColumn = page.getByRole("option").first();
-	const label = (await firstColumn.innerText()).trim();
-	await firstColumn.click();
+	const columnLabel = CASE_WORKSPACE_SEED.lookupValueColumnLabel;
+	await page.getByRole("option", { name: columnLabel, exact: true }).click();
 	await expect(
-		tab.getByRole("button", { name: `Remove ${label}`, exact: true }),
+		tab.getByRole("button", { name: `Remove ${columnLabel}`, exact: true }),
 	).toBeVisible();
 	const [saved] = await Promise.all([
 		page.waitForResponse(
@@ -46,6 +45,9 @@ test("an author adds a tab of table records and reopens its saved layout", {
 		reopened.getByRole("combobox", { name: "Records in this tab" }),
 	).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
 	await expect(
-		reopened.getByRole("combobox", { name: `Tab for ${label}`, exact: true }),
+		reopened.getByRole("combobox", {
+			name: `Tab for ${columnLabel}`,
+			exact: true,
+		}),
 	).toHaveText("Places to refer");
 });
