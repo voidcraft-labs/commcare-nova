@@ -65,6 +65,7 @@ const ISSUES: Readonly<Record<FormParseIssueCode, true>> = {
 	"row-leaves-record": true,
 	"unknown-hashtag": true,
 	"unknown-search-input": true,
+	"search-answer-unloaded": true,
 	"search-results-unexcluded": true,
 	"search-results-remote": true,
 	"unknown-table": true,

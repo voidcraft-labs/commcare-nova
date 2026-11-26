@@ -73,9 +73,13 @@ export function CaseOptionsEditor({
 	const project = useProseProjection();
 	const typeId = useId();
 	const labelId = useId();
+	const sortId = useId();
 	const type = caseTypes.find((type) => type.name === source.caseType);
 	const labelProperty = type?.properties.find(
 		(property) => property.name === source.labelProperty,
+	);
+	const sortProperty = type?.properties.find(
+		(property) => property.name === source.sortProperty,
 	);
 	const selectedType =
 		formContext &&
@@ -101,6 +105,7 @@ export function CaseOptionsEditor({
 		type?.properties.some(
 			(property) => property.name === source.labelProperty,
 		) &&
+		(source.sortProperty === undefined || sortProperty !== undefined) &&
 		(source.filter === undefined ||
 			checkExpression(source.filter, expressionContext).errors.length === 0);
 	return (
@@ -163,6 +168,40 @@ export function CaseOptionsEditor({
 					Each answer saves the record's unique ID. Labels are record data and
 					keep their saved wording in every app language.
 				</FieldDescription>
+			</Field>
+			<Field>
+				<FieldLabel htmlFor={sortId}>Order of the choices</FieldLabel>
+				<Select
+					value={source.sortProperty ?? "-"}
+					disabled={!canEdit}
+					onValueChange={(next) => {
+						if (next === "-") {
+							const { sortProperty: _old, ...remaining } = source;
+							onChange(remaining);
+						} else if (
+							next &&
+							type?.properties.some(({ name }) => name === next)
+						) {
+							onChange({ ...source, sortProperty: next });
+						}
+					}}
+				>
+					<SelectTrigger id={sortId} wrapValue>
+						<SelectValue>
+							{sortProperty
+								? propertyDisplayLabel(sortProperty, project)
+								: "Device record order"}
+						</SelectValue>
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="-">Device record order</SelectItem>
+						{type?.properties.map((property) => (
+							<SelectItem key={property.name} value={property.name}>
+								{propertyDisplayLabel(property, project)}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
 			</Field>
 			<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
 				{expressionContext === undefined ? (

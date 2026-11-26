@@ -56,6 +56,7 @@ export type HqPermissionNeed =
 	| "locations";
 
 interface HqFailureOf<K extends HqFailureKind> {
+	readonly installationProfileKeyUnusable?: boolean;
 	readonly kind: K;
 	readonly request: HqRequestKind;
 	/** The status HQ, its edge or the reader gave. */
@@ -128,7 +129,13 @@ export function classifyHqFailure(
 	if (error.cause === "too-large") return of("too-large");
 	if (error.cause === "browser-page" || (status >= 300 && status <= 399))
 		return of("browser-only");
-	if (error.cause === "malformed") return of("answer-unreadable");
+	if (error.cause === "malformed")
+		return {
+			...of("answer-unreadable"),
+			...(error.installationProfileKeyUnusable && {
+				installationProfileKeyUnusable: true,
+			}),
+		};
 	if (status === 401) {
 		/* `hqmedia/views.py::ViewMultimediaFile` asks no key, plan or
 		 * permission, so a 401 on a media file says nothing of the caller's. */
@@ -186,6 +193,8 @@ const PERMISSION_CIRCUMSTANCE: Readonly<
 
 /** The `READ_CIRCUMSTANCES` code a failed read of HQ is, by its kind and by what was asked. */
 export function hqReadCircumstance(failure: HqFailure): ReadCircumstance {
+	if (failure.installationProfileKeyUnusable)
+		return "installation-profile-key-unusable";
 	switch (failure.kind) {
 		case "gateway-refused":
 			return "hq-gateway-refused";

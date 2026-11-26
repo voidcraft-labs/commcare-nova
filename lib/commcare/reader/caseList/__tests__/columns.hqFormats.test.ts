@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
@@ -639,6 +639,20 @@ describe("CommCare HQ's column formats", () => {
 		);
 	});
 
+	it.each([
+		[101, "detail-max-select-value-above-100"],
+		[2_147_483_647, "detail-max-select-value-above-100"],
+		[2_147_483_648, "detail-max-select-value-above-2147483647"],
+	] as const)(
+		"distinguishes the Nova limit from Core's integer limit at %s",
+		async (maximum, entry) => {
+			const read = await readDetails((short) => {
+				Object.assign(short, { multi_select: true, max_select_value: maximum });
+			});
+			expect(closedCodes(read)).toContain(`${M}${entry}`);
+		},
+	);
+
 	// HQ's build writes no `max-select-value` for a null, and Core then takes 100
 	// (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`); a text HQ's model refuses as it wraps the app.
 	it("reads a null maximum of a multi-select list as 100, and a text maximum as no entry's", async () => {
@@ -936,7 +950,7 @@ describe("clickable icons", () => {
 			["short"],
 		);
 		expect(codes(reading)).toContain(
-			`${M}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+			`${M}clickable-icon-with-an-unusable-form-endpoint`,
 		);
 	});
 
@@ -1103,6 +1117,92 @@ describe("a detail's persistence switches", () => {
 });
 
 describe("a detail's callout and tabs", () => {
+	it("brings in fixed text lookup extras and keeps fallback response order", async () => {
+		const reading = await readDetails((short) => {
+			Object.assign(short, {
+				lookup_enabled: true,
+				lookup_action: "org.nova.proof.CASE_LOOKUP",
+				lookup_name: "Find a visit",
+				lookup_autolaunch: true,
+				lookup_extras: [
+					{ key: "mode", value: `concat("Worker's ", '"visit"')` },
+				],
+				lookup_responses: [{ key: "first" }, { key: "second" }],
+			});
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).deviceLookup).toEqual({
+			action: "org.nova.proof.CASE_LOOKUP",
+			label: "Find a visit",
+			automatic: true,
+			extras: [{ name: "mode", value: `Worker's "visit"` }],
+			responses: ["first", "second"],
+		});
+	});
+
+	it("brings in a lookup image through the Project media index", async () => {
+		const path = "jr://file/commcare/image/case-lookup.png";
+		const assetId = testMediaAssetId("case-lookup");
+		const read = await readLists(twoColumns(), {
+			edit: (app) => {
+				Object.assign(app.modules[0].case_details.short, {
+					lookup_enabled: true,
+					lookup_action: "org.example.SCAN",
+					lookup_name: "Scan",
+					lookup_image: path,
+					lookup_extras: [{ key: "mode", value: "'scan'" }],
+					lookup_responses: [{ key: "first" }],
+				});
+			},
+			input: (input) => ({
+				...input,
+				media: {
+					resolve: (ref) =>
+						ref === path
+							? { kind: "asset", assetId, mediaKind: "image" }
+							: { kind: "no-entry" },
+				},
+			}),
+		});
+		expect(closedCodes(read)).toEqual([]);
+		expect(listOf(read).deviceLookup?.icon).toBe(assetId);
+		expect(read.ctx.facts.mediaReferences).toContainEqual(
+			expect.objectContaining({
+				path,
+				assetId,
+				slot: "case_list_lookup_icon",
+				mediaKind: "image",
+			}),
+		);
+	});
+
+	it("keeps case-ID keyed confidence and its translated heading", async () => {
+		const reading = await readDetails((short, _long, app) => {
+			app.langs = ["en", "fr"];
+			Object.assign(short, {
+				lookup_enabled: true,
+				lookup_action: "org.example.MATCH",
+				lookup_name: "Find a match",
+				lookup_extras: [{ key: "mode", value: "'scan'" }],
+				lookup_responses: [{ key: "first" }],
+				lookup_display_results: true,
+				lookup_field_template: "@case_id",
+				lookup_field_header: { en: "Confidence", fr: "Confiance" },
+			});
+		}, false);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).deviceLookup?.resultHeading).toBe("Confidence");
+		expect(
+			reading.ctx.translations
+				.units()
+				.some(
+					(unit) =>
+						unit.unit.endsWith(":list-lookup-text") &&
+						[...unit.byLanguage.values()].includes("Confiance"),
+				),
+		).toBe(true);
+	});
+
 	it("raises a callout on the list as one finding, each of its keys claimed under it", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, {

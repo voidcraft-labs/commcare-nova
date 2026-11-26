@@ -9,6 +9,7 @@ import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
 	fieldKinds,
+	isSearchAnswerInput,
 	languageTag,
 	menuWithInheritedCaseSettings,
 	moduleUuidOfForm,
@@ -298,20 +299,22 @@ async function prepareInput<S extends z.ZodType>(args: {
 
 	if (toolName === "configureCaseList" || toolName === "addSearchInputs") {
 		const additions = records.parse(input.searchInputs ?? []);
-		const inputs: SearchInputDecl[] = additions.map((item) => ({
-			uuid: uuidSchema.parse(item.searchInputUuid),
-			name: z.string().parse(item.name),
-			data_type: searchType(item),
-		}));
+		const inputs: SearchInputDecl[] = additions
+			.filter((item) => item.kind !== "address")
+			.map((item) => ({
+				uuid: uuidSchema.parse(item.searchInputUuid),
+				name: z.string().parse(item.name),
+				data_type: searchType(item),
+			}));
 		root.inputs = [
 			...(moduleUuid
-				? (doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? []).map(
-						(item) => ({
+				? (doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [])
+						.filter(isSearchAnswerInput)
+						.map((item) => ({
 							uuid: item.uuid,
 							name: item.name,
 							data_type: searchInputRuntimeValueType(item),
-						}),
-					)
+						}))
 				: []),
 			...inputs,
 		];
@@ -335,19 +338,23 @@ async function prepareInput<S extends z.ZodType>(args: {
 		const uuid = uuidSchema.parse(input.searchInputUuid);
 		const current = doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
 		root.inputs = [
-			...current.map((item) => ({
-				uuid: item.uuid,
-				name: item.name,
-				data_type:
-					item.uuid === uuid
-						? searchType(replacement)
-						: searchInputRuntimeValueType(item),
-			})),
-			{
-				uuid,
-				name: z.string().parse(replacement.name),
-				data_type: searchType(replacement),
-			},
+			...current
+				.filter(isSearchAnswerInput)
+				.filter((item) => item.uuid !== uuid)
+				.map((item) => ({
+					uuid: item.uuid,
+					name: item.name,
+					data_type: searchInputRuntimeValueType(item),
+				})),
+			...(replacement.kind === "address"
+				? []
+				: [
+						{
+							uuid,
+							name: z.string().parse(replacement.name),
+							data_type: searchType(replacement),
+						},
+					]),
 		];
 	}
 	if (toolName === "addCaseOperations") {

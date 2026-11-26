@@ -8,9 +8,12 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import { submitFormAction } from "../caseDataBinding";
 import { blueprintRevisionDigest } from "../caseDataBindingClient";
-import { readFormOpeningAction } from "../formOpeningAction";
+import {
+	authorizeSavedFormReceiptRun,
+	readFormOpeningAction,
+} from "../formOpeningAction";
 import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
-import { webAppsDevice } from "./fixtures/previewDevices";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 const member = vi.hoisted(() => ({
 	id: "signed-entry-member",
@@ -42,6 +45,7 @@ async function openPracticeForm(
 		blueprint: ReturnType<typeof independentChoicesBlueprint>,
 	) => void,
 	withOpeningValues = false,
+	device = webAppsDevice(),
 ) {
 	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic signed opening secret");
 	await h.seedProjectMember(member.id, project, "owner");
@@ -75,7 +79,6 @@ async function openPracticeForm(
 			($1,$2,'protected-other-worker','person','Unavailable','open','another-worker','{"first_note":"outside this restore"}')`,
 		[app, project, member.id],
 	);
-	const device = webAppsDevice();
 	const context = await resolveAuthorizedPreviewContext({
 		appId: app,
 		required: "edit",
@@ -450,7 +453,7 @@ it("writes each chosen record and replays the committed receipt after the saved 
 			repeats: [],
 		},
 	};
-	const submit = (payload = mutation, run = request.run) =>
+	const submit = (payload = mutation) =>
 		submitFormAction(
 			payload,
 			app,
@@ -459,8 +462,6 @@ it("writes each chosen record and replays the committed receipt after the saved 
 			undefined,
 			undefined,
 			device,
-			undefined,
-			run,
 		);
 	expect((await submit({ ...mutation, caseIds: ["training-3"] })).kind).toBe(
 		"error",
@@ -502,14 +503,11 @@ it("writes each chosen record and replays the committed receipt after the saved 
 	).toBe("reopen");
 	expect(await reclaimExpiredFormOpeningData()).toBe(1);
 	expect(await submit()).toEqual(result);
-	expect(await submit(mutation, testUuid("replay-in-another-run"))).toEqual({
-		...result,
-		receiptOutsideRun: true,
-	});
 });
 
-it("opens the next form on the device its submission left, a case the restore no longer holds among it", async () => {
+it("carries the submission into its continuing device run even when the signed entry ran separately", async () => {
 	const otherWorker = testUuid("carry-other-worker");
+	const continuingRun = testUuid("carry-continuing-run");
 	const { pool, device, request, first, app, next, doc, module } =
 		await openPracticeForm(
 			3,
@@ -520,6 +518,7 @@ it("opens the next form on the device its submission left, a case the restore no
 				blueprint.personaOrder = [otherWorker];
 			},
 			true,
+			androidDevice(),
 		);
 	const second = await readFormOpeningAction(
 		{
@@ -542,27 +541,52 @@ it("opens the next form on the device its submission left, a case the restore no
 	if (opened.kind !== "opening") throw new Error("Could not finish choices");
 	const note = Object.values(doc.fields).find((field) => field.id === "note");
 	if (!note) throw new Error("Fixture is missing its visit note");
-	const result = await submitFormAction(
+	const resumed = await authorizeSavedFormReceiptRun(
 		{
-			kind: "followup" as const,
-			caseIds: ["training-2"],
-			entryKey: request.entry,
-			formUuid: request.form,
-			attachmentRefs: [],
-			formOpening: { run: request.run, module, evidence: opened.evidence },
-			operationAnswers: {
-				root: [{ fieldUuid: note.uuid, value: "Seen today" }],
-				repeats: [],
-			},
+			...request,
+			previous: opened.evidence,
+			restore: true,
+			resumeInto: continuingRun,
 		},
-		app,
-		request.blueprintDigest,
-		undefined,
-		undefined,
-		undefined,
 		device,
 	);
+	if (!resumed)
+		throw new Error("Could not authorize the saved entry's new device run");
+	const mutation = {
+		kind: "followup" as const,
+		caseIds: ["training-2"],
+		entryKey: request.entry,
+		formUuid: request.form,
+		attachmentRefs: [],
+		formOpening: { run: request.run, module, evidence: opened.evidence },
+		operationAnswers: {
+			root: [{ fieldUuid: note.uuid, value: "Seen today" }],
+			repeats: [],
+		},
+	};
+	const submit = (run: string, transition?: typeof resumed) =>
+		submitFormAction(
+			mutation,
+			app,
+			request.blueprintDigest,
+			undefined,
+			undefined,
+			undefined,
+			device,
+			undefined,
+			run,
+			transition,
+		);
+	expect(
+		(await submit(continuingRun, { ...resumed, to: request.run })).kind,
+	).not.toBe("followup");
+	const result = await submit(continuingRun, resumed);
 	expect(result.kind).toBe("followup");
+	expect(await submit(continuingRun, resumed)).toEqual(result);
+	expect(await submit(request.run)).toEqual({
+		...result,
+		receiptOutsideRun: true,
+	});
 	// The case leaves this worker's restore, as a case the entry closed does;
 	// the device keeps it until it syncs.
 	await pool.query(
@@ -579,6 +603,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	if (!review || !reviewMenu) throw new Error("Fixture is missing its review");
 	const following = {
 		...request,
+		run: continuingRun,
 		module: reviewMenu,
 		form: review.uuid,
 		entry: testUuid("following-entry"),
@@ -598,6 +623,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	expect(afterSubmission.projection.primaryCaseIds).toEqual(["training-2"]);
 	expect(afterSubmission.projection.submittedCaseIds).toContain("training-2");
 	for (const wrongScope of [
+		{ run: request.run },
 		{ run: testUuid("new-run") },
 		{ persona: otherWorker },
 	]) {
@@ -648,6 +674,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	const linkedChoices = await readFormOpeningAction(
 		{
 			...request,
+			run: continuingRun,
 			entry: testUuid("linked-entry-to-the-same-form"),
 			carried: [...opened.projection.choices],
 			afterSubmission: [request.entry],
@@ -668,6 +695,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	);
 	const newChoice = {
 		...request,
+		run: continuingRun,
 		entry: testUuid("new-choice-after-submission"),
 	};
 	const newChoiceOpening = await readFormOpeningAction(

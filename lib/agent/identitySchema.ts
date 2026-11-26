@@ -13,7 +13,11 @@ export type AuthorableIdentityFamily =
 	| "case-list-sort"
 	| "case-detail-tab"
 	| "case-mapping-row"
+	| "installation-profile"
+	| "project-search"
+	| "project-search-parameter"
 	| "search-input"
+	| "search-input-group"
 	| "worker-property"
 	| "user-type"
 	| "persona"
@@ -151,6 +155,7 @@ export function classifyIdentity(
 	)
 		return "form";
 	if (pointer.endsWith("/source/under/relationship/question")) return "field";
+	if (pointer.endsWith("/addressReceiver/source")) return "search-input";
 	if (tool === "edit_form_entry") {
 		if (
 			(property === "uuid" || property === "after") &&
@@ -163,6 +168,20 @@ export function classifyIdentity(
 		if (property === "table") return "lookup-table";
 		if (property === "column") return "lookup-column";
 	}
+	if (
+		(tool === "updateApp" || tool === "update_app") &&
+		pointer === "/installation_profile/uuid"
+	)
+		return "installation-profile";
+	if (tool === "configure_project_search") {
+		if (pointer === "/change/search/uuid" || pointer === "/change/uuid")
+			return "project-search";
+		if (pointer === "/change/parameters/*/uuid")
+			return "project-search-parameter";
+		if (pointer === "/change/fields/*/fieldUuid") return "search-input";
+	}
+	if (property === "question" && pointer.includes("/androidApp/"))
+		return "field";
 	if (property === "tableId") return "lookup-table";
 	if (tool.includes("lookup")) {
 		if (
@@ -331,6 +350,8 @@ export function classifyIdentity(
 	)
 		return "case-list-sort";
 	if (property === "tabUuid") return "case-detail-tab";
+	if (tool === "configure_case_list" && property === "groupUuid")
+		return "search-input-group";
 	if (property === "orderFields" && tool === "set_case_detail_tabs")
 		return "case-list-column";
 	if (property === "userPropertyUuid" || property === "workerPropertyUuid")

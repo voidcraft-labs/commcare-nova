@@ -44,7 +44,11 @@ import { retainedSourceBody } from "../../__tests__/readerInput";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import {
+	knownCaseTypesOf,
+	knownPositionedCaseOperationIdsOf,
+	readHqApp,
+} from "../../index";
 import type {
 	ReaderInput,
 	ReaderLookupCatalog,
@@ -167,6 +171,7 @@ async function caseDifference(
 			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 		),
 		knownCaseTypes: knownCaseTypesOf(doc),
+		knownPositionedCaseOperationIds: knownPositionedCaseOperationIdsOf(doc),
 		// A save of only the answers that changed is published only to a
 		// project space that applies it.
 		saveOnlyEditedApplied: true,

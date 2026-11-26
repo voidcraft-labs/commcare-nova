@@ -244,6 +244,39 @@ describe("suite wire parser checks and explicit static joins", () => {
 			"SUITE_MISSING_INSTANCE",
 		]);
 	});
+	it("resolves case-list lookup extras in every entry that loads the detail", () => {
+		const session =
+			'<session><datum id="d" nodeset="/x" value="./@id" detail-select="d"/></session>';
+		const detail = detailWire(
+			`${fieldWire()}<lookup action="org.example.LOOKUP"><extra key="worker" value="${expression}"/></lookup>`,
+		);
+		expect(
+			codes(suiteWire(fixture + detail + entryWire(declaration + session))),
+		).toEqual([]);
+		expect(codes(suiteWire(fixture + detail + entryWire(session)))).toEqual([
+			"SUITE_MISSING_INSTANCE",
+		]);
+		expect(
+			codes(
+				suiteWire(
+					fixture +
+						detail +
+						entryWire(declaration + session) +
+						entryWire(session, "second"),
+				),
+			),
+		).toEqual(["SUITE_MISSING_INSTANCE"]);
+		const parsingSwitch = detail.replace(
+			'key="worker"',
+			'key="force_xpath_parsing"',
+		);
+		expect(
+			codes(
+				suiteWire(fixture + parsingSwitch + entryWire(declaration + session)),
+			),
+		).toEqual(["SUITE_UNREAD_INSTANCE"]);
+	});
+
 	it("counts detail grouping and relevance as reads in each referring entry", () => {
 		const session =
 			'<session><datum id="d" nodeset="/x" value="./@id" detail-select="d"/></session>';

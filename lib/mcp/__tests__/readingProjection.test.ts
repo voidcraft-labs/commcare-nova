@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { hqPlaceUrl } from "@/lib/deployment/hqPlaceUrl";
 import type { AccountAnswer } from "@/lib/deployment/reading/answers";
@@ -244,10 +245,10 @@ const QUESTION: HqPlace = {
 
 function manifest(place: HqPlace, name?: string): ManifestFinding {
 	return {
-		code: "question-appearance-unsupported",
+		code: "questions/itemset-filter-outside-predicate",
 		standing: "not-yet",
 		place,
-		subject: "question-appearance",
+		subject: "question-choices",
 		detail: name === undefined ? {} : { name },
 	};
 }
@@ -777,7 +778,7 @@ describe("a review's lookup tables a page at a time", () => {
 		const shortTables = manyTables(250);
 		if (shortTables.kind !== "review")
 			throw new Error("Expected lookup tables");
-		const file = "/jr/media/" + 'Door "visits" \\ '.repeat(19000);
+		const file = `/jr/media/${'Door "visits" \\ '.repeat(19000)}`;
 		const files: string[] = [];
 		const tables: string[] = [];
 		const columns = Array.from(
@@ -803,7 +804,7 @@ describe("a review's lookup tables a page at a time", () => {
 		};
 		const caseTypes = Array.from(
 			{ length: 3500 },
-			(_, i) => "family_member_" + i,
+			(_, i) => `family_member_${i}`,
 		);
 		const tableText: string[] = [];
 		const receivedTypes: string[] = [];
@@ -869,7 +870,7 @@ describe("a review's lookup tables a page at a time", () => {
 	});
 
 	it("restarts from the first table when a Project name changes the pieces of its choices", () => {
-		const wide = "Project " + "x".repeat(48),
+		const wide = `Project ${"x".repeat(48)}`,
 			short = "Visits";
 		const answer = reviewAnswer();
 		if (answer.kind !== "review") throw new Error("Expected a review");
@@ -924,6 +925,207 @@ describe("a review's lookup tables a page at a time", () => {
 		}
 		expect(seen).toEqual(tables.map((t) => t.tag));
 	});
+	it("retains every project search detail across escaped names and table choices before issuing the birth digest", () => {
+		const text = '"\\🪴'.repeat(30000);
+		const base = review();
+		const answer = reviewAnswer({
+			...base,
+			projectSearches: [
+				{
+					searchUuid: testUuid("directory"),
+					name: text,
+					endpointId: 17,
+					menus: [
+						{
+							menuUuid: testUuid("followup"),
+							name: "Visits",
+							parameters: ["area"],
+							results: [{ name: "case_id", type: "text" }],
+						},
+					],
+				},
+			],
+		});
+		let page: string | null = null;
+		const fragments: string[] = [];
+		const tables: string[] = [];
+		let calls = 0;
+		do {
+			const start = pageFor(answer, page ? parseAccountPage(page) : null, {
+				project: FIRST_PAGE.project,
+				domain: KEY.domain,
+			});
+			if (!start || start.restarted)
+				throw new Error("The source review lost its place.");
+			const shown = describeReading(answer, KEY, { ...FIRST_PAGE, ...start });
+			const projection = shown.review;
+			if (!projection) throw new Error("Expected a review.");
+			const serialized = JSON.stringify({
+				content: [{ type: "text", text: JSON.stringify(shown) }],
+			});
+			expect(serialized.length).toBeLessThanOrEqual(100000);
+			for (const row of projection.project_search_details ?? [])
+				if (row.kind === "search") {
+					expect(row.endpointId).toBe(17);
+					fragments.push(row.text);
+				}
+			tables.push(...projection.tables.map((t) => t.tag));
+			page = projection.next_page;
+			expect(projection.review_digest).toBe(page === null ? DIGEST : null);
+			if (page) expect(page.includes(DIGEST)).toBe(false);
+			calls++;
+			if (calls > 30) throw new Error("The review did not finish.");
+		} while (page);
+		expect(calls).toBeGreaterThan(1);
+		expect(fragments.join("")).toBe(text);
+		expect(tables).toEqual(base.tables.map((t) => t.tag));
+	});
+	it("pages every named installation together with the lookup tables before initial adoption", () => {
+		const installations = Array.from({ length: 450 }, (_, i) => ({
+			key: `site-${i}`,
+			name: `Installation ${i} ${"Team ".repeat(50)}`,
+			languages: ["eng", "fra"],
+			requiresPracticeWorker: true,
+			worker: `practice-${i}`,
+		}));
+		const answer = reviewAnswer({ ...review(), installations });
+		const ids: string[] = [];
+		const tables: string[] = [];
+		let cursor: string | null = null;
+		let pages = 0;
+		do {
+			const parsed = cursor === null ? null : parseAccountPage(cursor);
+			const start = pageFor(answer, parsed, {
+				project: PROJECT,
+				domain: KEY.domain,
+			});
+			if (!start || start.restarted)
+				throw new Error("The reviewed installation changed across pages");
+			const body = describeReading(answer, KEY, { ...start, project: PROJECT });
+			expect(JSON.stringify(body).length).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+			if (!body.review) throw new Error("Missing adoption review");
+			expect(body.review.installations_total).toBe(installations.length);
+			for (const row of body.review.installations ?? [])
+				ids.push(row.profile_id);
+			for (const row of body.review.tables) tables.push(row.tag);
+			cursor = body.review.next_page;
+			pages++;
+		} while (cursor !== null);
+		expect(pages).toBeGreaterThan(1);
+		expect(ids).toEqual(installations.map((p) => p.key));
+		expect(tables).toEqual(review().tables.map((t) => t.tag));
+	});
+	it("discloses long destination identities completely before returning an adoption digest", () => {
+		const answer = reviewAnswer();
+		if (answer.kind !== "review") throw new Error("Expected a review");
+		const file = `/jr/media/${'Door "visits" \\ '.repeat(19000)}`;
+		const files: string[] = [];
+		const tables: string[] = [];
+		const key = "⌂".repeat(90_000);
+		const columns = Array.from(
+			{ length: 250 },
+			(_, i) => String(i).padStart(3, "0") + "x".repeat(117),
+		);
+		const shared = longTable(0);
+		if (!shared.choice) throw new Error("Expected table choice");
+		const table = {
+			...shared,
+			choice: {
+				...shared.choice,
+				options: {
+					...shared.choice.options,
+					"use-commcare-hq": {
+						offered: true as const,
+						goneColumns: columns.slice(0, 125),
+						retypedColumns: columns.slice(125),
+					},
+				},
+			},
+		};
+		const caseTypes = Array.from(
+			{ length: 3500 },
+			(_, i) => `family_member_${i}`,
+		);
+		const tableText: string[] = [];
+		const receivedTypes: string[] = [];
+
+		const input = {
+			...answer,
+			review: {
+				...answer.review,
+				tables: [table, ...answer.review.tables],
+				creates: { ...answer.review.creates, caseTypes },
+				runsOn: answer.review.runsOn.map((choice, i) => ({
+					...choice,
+					...(i === 0 && { removesFiles: [file] }),
+				})),
+				installations: [
+					{
+						key,
+						name: "Long installation",
+						languages: ["eng"],
+						worker: "worker",
+						requiresPracticeWorker: true,
+					},
+				],
+			},
+		};
+		let from = 0;
+		const chunks: string[] = [];
+		for (;;) {
+			const body = describeReading(input, KEY, { ...FIRST_PAGE, from });
+			expect(
+				JSON.stringify({
+					content: [{ type: "text", text: JSON.stringify(body) }],
+				}).length,
+			).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+			const next = body.review;
+			if (!next) throw new Error("Missing review");
+			for (const detail of next.publish_details ?? []) {
+				expect(detail.runs_only_on).toEqual(
+					answer.review.runsOn[0]?.runsOnlyOn,
+				);
+				files.push(detail.text);
+			}
+			tables.push(...next.tables.map((t) => t.tag));
+			receivedTypes.push(...next.creates.case_types);
+			for (const fragment of next.table_parts ?? []) {
+				expect(fragment.answers.map((option) => option.offered)).toEqual([
+					true,
+					false,
+				]);
+				expect(fragment.tag).toBe(table.tag);
+				tableText.push(fragment.text);
+			}
+			for (const piece of next.installation_parts ?? [])
+				chunks.push(piece.text);
+			if (!next.next_page) {
+				expect(next.review_digest).toBe(DIGEST);
+				break;
+			}
+			expect(next.review_digest).toBeNull();
+			const page = pageFor(input, parseAccountPage(next.next_page), {
+				project: PROJECT,
+				domain: KEY.domain,
+			});
+			if (!page || page.restarted) throw new Error("Expected a stable cursor");
+			from = page.from;
+		}
+		expect(files.join("")).toBe(file);
+		expect(receivedTypes).toEqual(caseTypes);
+		expect(JSON.parse(tableText.join(""))).toEqual(
+			tableProjection(table, PROJECT, KEY.domain),
+		);
+		for (const column of columns) expect(tableText.join("")).toContain(column);
+		expect(tables).toEqual(answer.review.tables.map((t) => t.tag));
+		expect(JSON.parse(chunks.join(""))).toEqual({
+			profile_id: key,
+			name: "Long installation",
+			languages: [{ language: "eng" }],
+			practice_worker_id: "worker",
+		});
+	});
+
 	it("cuts 2,000 tables at their longest into pages under the limit that give every table once", () => {
 		const answer = manyTables(2000);
 		const seen: string[] = [];
@@ -1043,6 +1245,7 @@ describe("mapReadingRefusal", () => {
 			}),
 		);
 		expect(tags).toEqual({
+			session_ended: "permission_denied",
 			no_project_access: "permission_denied",
 			invalid_input: "invalid_input",
 			name_missing: "invalid_input",

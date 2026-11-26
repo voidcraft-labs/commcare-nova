@@ -30,6 +30,7 @@ import {
 } from "@/lib/deployment/types";
 import { orderedOrganizationLevels } from "@/lib/domain";
 import { isPlanFeatureId, PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -118,6 +119,11 @@ export function registerWithdrawDeploymentConfirmation(
 					projectId: access.projectId,
 					role: access.role,
 					actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(
+						ctx,
+						"withdraw_deployment_confirmation",
+						args,
+					),
 				};
 				/* The deployment is found from the ledger, so withdrawing asks
 				 * CommCare HQ nothing and needs no key. */

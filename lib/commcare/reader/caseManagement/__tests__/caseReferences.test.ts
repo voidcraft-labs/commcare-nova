@@ -13,7 +13,6 @@
  * changes at the first publish with no word of it.
  */
 import { type Element, isTag } from "domhandler";
-import { appendChild, removeElement } from "domutils";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -80,8 +79,8 @@ function saveOf(json: AppJson): Record<string, { properties: string[] }> {
 	return references.save;
 }
 
-/** The source with the block `photo` moved to the form root, its binds and setvalues with it. */
-function movedToRoot(xml: string): string {
+/** A write named close is read by the Form Designer as an action. */
+function withCloseProperty(xml: string): string {
 	const document = parseXml(xml);
 	const all: Element[] = [];
 	const walk = (node: { children?: unknown[] }) => {
@@ -92,23 +91,14 @@ function movedToRoot(xml: string): string {
 			}
 	};
 	walk(document as { children?: unknown[] });
-	const data = all.find((one) => one.name === "data") as Element;
-	const block = all.find(
-		(one) =>
-			one.name === "photo" && one.attribs["vellum:role"] === "SaveToCase",
-	) as Element;
-	const from = "/data/nova_operations/photo";
-	removeElement(block);
-	appendChild(data, block);
-	for (const one of all)
-		for (const key of ["nodeset", "ref"]) {
-			const path = one.attribs[key];
-			if (
-				(one.name === "bind" || one.name === "setvalue") &&
-				path?.startsWith(from)
-			)
-				one.attribs[key] = `/data/photo${path.slice(from.length)}`;
-		}
+	const path = "/data/nova_operations/photo/case/update/caption";
+	const property = all.find((node) => node.name === "caption");
+	const bind = all.find(
+		(node) => node.name === "bind" && node.attribs.nodeset === path,
+	);
+	if (!property || !bind) throw new Error("Expected a case write to caption.");
+	property.name = "close";
+	bind.attribs.nodeset = "/data/nova_operations/photo/case/update/close";
 	return serializeXml(document);
 }
 
@@ -138,7 +128,7 @@ describe("case_references_data.save beside Save to Case blocks", () => {
 	});
 
 	it("raises only the block's finding for a form whose block is outside Nova's shape", async () => {
-		const reading = await readCases(app(), { editSource: movedToRoot });
+		const reading = await readCases(app(), { editSource: withCloseProperty });
 		const codes = reading.findings.map((one) => one.code);
 		expect(codes.filter((one) => one === OUTSIDE)).toHaveLength(1);
 		expect(codes).not.toContain(DIFFERING);

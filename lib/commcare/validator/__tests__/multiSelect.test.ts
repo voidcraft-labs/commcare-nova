@@ -931,3 +931,15 @@ describe("a translation that shows values of its own in a form over a set of cas
 		);
 	});
 });
+
+it("refuses Search on clear on a list that chooses every match automatically", () => {
+	const doc = directCollectionLinkDoc();
+	const mod = doc.modules[SOURCE_MODULE];
+	mod.caseListConfig = {
+		...multipleConfig(),
+		selection: { kind: "multiple", maximum: 10, autoSelect: true },
+	};
+	expect(codes(doc)).not.toContain("MULTI_SELECT_SEARCH_ON_CLEAR");
+	mod.caseSearchConfig = { searchOnClear: true };
+	expect(codes(doc)).toContain("MULTI_SELECT_SEARCH_ON_CLEAR");
+});

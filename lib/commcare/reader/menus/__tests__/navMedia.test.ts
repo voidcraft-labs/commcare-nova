@@ -24,8 +24,10 @@ import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain";
 import { effectiveAppLocalization, proseText } from "@/lib/domain";
 import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
+import { manifestFor } from "../../../__tests__/fixtureMediaManifest";
 import { localAppStringTable } from "../../../appStrings";
 import { expandDoc } from "../../../expander";
+import type { AssetManifest } from "../../../multimedia/assetWirePath";
 import {
 	readerInput,
 	retainedSourceBody,
@@ -38,10 +40,17 @@ import { type AppJson, formNamed, inSpanish, moduleNamed } from "./menuReading";
 
 const MENU_ICON = "jr://file/commcare/image/menu.png";
 const OTHER_ICON = "jr://file/commcare/image/other.png";
+const MENU_ICON_ALIAS = "jr://file/commcare/image/menu-alias.png";
 const FORM_AUDIO = "jr://file/commcare/audio/visit.mp3";
+const OTHER_AUDIO = "jr://file/commcare/audio/translated.mp3";
 
 const ASSETS: Readonly<Record<string, ReaderMediaResolution>> = {
 	[MENU_ICON]: {
+		kind: "asset",
+		assetId: testMediaAssetId("menu-icon"),
+		mediaKind: "image",
+	},
+	[MENU_ICON_ALIAS]: {
 		kind: "asset",
 		assetId: testMediaAssetId("menu-icon"),
 		mediaKind: "image",
@@ -50,6 +59,11 @@ const ASSETS: Readonly<Record<string, ReaderMediaResolution>> = {
 		kind: "asset",
 		assetId: testMediaAssetId("other-icon"),
 		mediaKind: "image",
+	},
+	[OTHER_AUDIO]: {
+		kind: "asset",
+		assetId: testMediaAssetId("other-audio"),
+		mediaKind: "audio",
 	},
 	[FORM_AUDIO]: {
 		kind: "asset",
@@ -118,8 +132,9 @@ function app(): BlueprintDoc {
 async function readWithMedia(
 	doc: BlueprintDoc,
 	edit: (app: AppJson) => void,
+	assets?: AssetManifest,
 ): Promise<ReturnType<typeof readHqApp>> {
-	const emitted = expandDoc(doc);
+	const emitted = expandDoc(doc, { assets });
 	const json = JSON.parse(
 		JSON.stringify({
 			...retainedSourceBody("shell/app-source"),
@@ -547,34 +562,270 @@ describe("an override of a generated media key in `translations`", () => {
 		);
 	});
 
-	it("refuses an override showing another file than the menu's in one language", async () => {
+	it("keeps a menu's generated icon and original map independently", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
-			(json.modules[0] as AppJson["modules"][number]).media_image = {
-				en: MENU_ICON,
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON };
+			(menu.forms[0] as Record<string, unknown>).media_image = {
+				en: OTHER_ICON,
 			};
 			overriding(json, { "modules.m0.icon": OTHER_ICON });
 		});
-		expect(findings(outcome)).toEqual([
-			"application-and-settings/translations-generated-key-anything-else",
-		]);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		const doc = outcome.draft.doc;
+		const menu = doc.modules[doc.moduleOrder[0]];
+		expect(menu.icon).toBe(testMediaAssetId("menu-icon"));
+		expect(menu.mediaByLanguage?.eng?.iconOverride).toBe(
+			testMediaAssetId("other-icon"),
+		);
+		const appLanguages = effectiveAppLocalization(doc.localization);
 		expect(
-			outcome.kind === "account"
-				? outcome.findings.map((one) => one.detail.name)
-				: [],
-		).toEqual(["modules.m0.icon"]);
+			navigationFilesInLanguage(menu, appLanguages.sourceLanguage, appLanguages)
+				.icon,
+		).toBe(testMediaAssetId("other-icon"));
+		expect(translationEntries(outcome)).toContain(
+			"translations-generated-navigation-file",
+		);
+		const assets = new Map(manifestFor(doc));
+		for (const [path, id] of [
+			[MENU_ICON, testMediaAssetId("menu-icon")],
+			[OTHER_ICON, testMediaAssetId("other-icon")],
+		] as const) {
+			const asset = assets.get(id);
+			if (asset)
+				assets.set(id, {
+					...asset,
+					wirePath: path.replace("jr://file/", ""),
+				});
+		}
+		const body = expandDoc(doc, { assets });
+		expect(body.modules[0].media_image.en).toBe(MENU_ICON);
+		expect(body.translations?.en["modules.m0.icon"]).toBe(OTHER_ICON);
 	});
 
-	it("refuses an override of a form's audio label naming another file", async () => {
+	it("reads the same document after publishing two paths mapped to the same strict asset", async () => {
+		const original = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON };
+			// The form carries the alternate path as an ordinary resource, so HQ can
+			// install both paths even though they own one media file.
+			(menu.forms[0] as Record<string, unknown>).media_image = {
+				en: MENU_ICON_ALIAS,
+			};
+			overriding(json, { "modules.m0.icon": MENU_ICON_ALIAS });
+		});
+		expect(findings(original)).toEqual([]);
+		if (original.kind !== "read") throw new Error("The source did not read.");
+		const doc = original.draft.doc;
+		const id = testMediaAssetId("menu-icon");
+		const assets = new Map(manifestFor(doc));
+		const asset = assets.get(id);
+		if (!asset) throw new Error("The source lost its icon.");
+		assets.set(id, { ...asset, wirePath: MENU_ICON.replace("jr://file/", "") });
+		const emitted = expandDoc(doc, { assets });
+		expect(emitted.modules[0].media_image.en).toBe(MENU_ICON);
+		const reread = await readWithMedia(doc, (json) => {
+			json.modules = JSON.parse(
+				JSON.stringify(emitted.modules),
+			) as AppJson["modules"];
+			json.translations = emitted.translations;
+		});
+		expect(findings(reread)).toEqual([]);
+		if (reread.kind !== "read") throw new Error("The export did not read.");
+		const own = (candidate: BlueprintDoc) =>
+			candidate.modules[candidate.moduleOrder[0]].mediaByLanguage?.eng
+				?.iconOverride;
+		expect(own(reread.draft.doc)).toBe(own(doc));
+		expect(own(doc)).toBeUndefined();
+		expect(translationEntries(original)).toContain(
+			"translations-generated-key-with-no-effect",
+		);
+	});
+
+	it("refuses a same-asset alias HQ does not package as an exact path", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			json.modules[0].media_image = { en: MENU_ICON };
+			overriding(json, { "modules.m0.icon": MENU_ICON_ALIAS });
+		});
+		expect(findings(outcome)).toEqual([
+			"application-and-settings/translations-generated-navigation-file-not-packaged",
+		]);
+	});
+
+	it("does not count a default-for-all fallback as a named language's package", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON, es: MENU_ICON };
+			const form = menu.forms[0] as Record<string, unknown>;
+			form.media_image = { en: OTHER_ICON };
+			form.use_default_image_for_all = true;
+			json.translations = { es: { "modules.m0.icon": OTHER_ICON } };
+		});
+		expect(findings(outcome)).toEqual([
+			"application-and-settings/translations-generated-navigation-file-not-packaged",
+		]);
+	});
+
+	it("keeps an override equal to the full-app fallback for a limited installation", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			json.langs = [...(json.langs as string[]), "fr"];
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON, es: OTHER_ICON };
+			(menu.forms[0] as Record<string, unknown>).media_image = {
+				fr: MENU_ICON,
+			};
+			json.translations = { fr: { "modules.m0.icon": MENU_ICON } };
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		const doc = outcome.draft.doc;
+		const menu = doc.modules[doc.moduleOrder[0]];
+		const localization = effectiveAppLocalization(doc.localization);
+		expect(menu.mediaByLanguage?.fra?.iconOverride).toBe(
+			testMediaAssetId("menu-icon"),
+		);
+		expect(
+			navigationFilesInLanguage(menu, "fra", localization, ["fra", "spa"]).icon,
+		).toBe(testMediaAssetId("menu-icon"));
+	});
+
+	it("counts media stored on a case list's ordinary menu item", async () => {
+		const outcome = await readWithMedia(caseListApp(), (json) => {
+			json.modules[0].media_image = { en: MENU_ICON };
+			listBlocks(json).item.media_image = { en: OTHER_ICON };
+			overriding(json, { "modules.m0.icon": OTHER_ICON });
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		expect(
+			outcome.draft.doc.modules[outcome.draft.doc.moduleOrder[0]]
+				.mediaByLanguage?.eng?.iconOverride,
+		).toBe(testMediaAssetId("other-icon"));
+	});
+
+	it("counts the exact path on a question's ordinary media in that language", async () => {
+		const doc = app();
+		const id = testMediaAssetId("other-icon");
+		const withMedia = produce(doc, (draft) => {
+			const field = Object.values(draft.fields)[0];
+			if (field?.kind !== "text") throw new Error("Missing question.");
+			field.label_media = { image: id };
+		});
+		const assets = new Map(manifestFor(withMedia));
+		const asset = assets.get(id);
+		if (!asset) throw new Error("Missing fixture image.");
+		assets.set(id, {
+			...asset,
+			wirePath: OTHER_ICON.replace("jr://file/", ""),
+		});
+		const outcome = await readWithMedia(
+			withMedia,
+			(json) => {
+				json.modules[0].media_image = { en: MENU_ICON };
+				overriding(json, { "modules.m0.icon": OTHER_ICON });
+			},
+			assets,
+		);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		expect(
+			outcome.draft.doc.modules[outcome.draft.doc.moduleOrder[0]]
+				.mediaByLanguage?.eng?.iconOverride,
+		).toBe(id);
+	});
+
+	it("keeps a form's generated spoken label on that form and locale", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
 			const menu = json.modules[0] as AppJson["modules"][number];
 			(menu.forms[0] as Record<string, unknown>).media_audio = {
 				en: FORM_AUDIO,
 			};
-			overriding(json, { "forms.m0f0.audio": OTHER_ICON });
+			menu.media_audio = { en: OTHER_AUDIO };
+			overriding(json, { "forms.m0f0.audio": OTHER_AUDIO });
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The form did not read.");
+		const doc = outcome.draft.doc;
+		const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+		expect(form.audioLabel).toBe(testMediaAssetId("form-audio"));
+		expect(form.mediaByLanguage?.eng?.audioLabelOverride).toBe(
+			testMediaAssetId("other-audio"),
+		);
+	});
+
+	it("refuses an override whose file HQ leaves out of the installation", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			json.modules[0].media_image = { en: MENU_ICON };
+			overriding(json, { "modules.m0.icon": OTHER_ICON });
 		});
 		expect(findings(outcome)).toEqual([
-			"application-and-settings/translations-generated-key-anything-else",
+			"application-and-settings/translations-generated-navigation-file-not-packaged",
 		]);
+	});
+
+	it.each([
+		[
+			"jr://file/commcare/image/unmapped.png",
+			"translations-generated-menu-icon-without-mapping",
+		],
+		[
+			"not-an-installation-file",
+			"translations-generated-navigation-file-not-packaged",
+		],
+		[
+			"http://example.invalid/menu-icon.png",
+			"translations-generated-navigation-file-not-packaged",
+		],
+	])(
+		"refuses an unpackaged generated literal even without a resolved asset (%s)",
+		async (path, entry) => {
+			const outcome = await readWithMedia(app(), (json) => {
+				json.modules[0].media_image = { en: MENU_ICON };
+				overriding(json, { "modules.m0.icon": path });
+			});
+			expect(findings(outcome)).toEqual([`application-and-settings/${entry}`]);
+			expect(outcome.claims.handOffs.map((ref) => ref.subject)).not.toContain(
+				path,
+			);
+			expect(translationEntries(outcome)).not.toContain(
+				"translations-generated-navigation-file",
+			);
+		},
+	);
+
+	it("hands an ordinary referenced path with a missing asset to the media plan", async () => {
+		const path = "jr://file/commcare/image/unmapped.png";
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON };
+			(menu.forms[0] as Record<string, unknown>).media_image = { en: path };
+			overriding(json, { "modules.m0.icon": path });
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		expect(outcome.draft.facts.pendingMedia).toContainEqual(
+			expect.objectContaining({
+				path,
+				pointer: "/translations/en/modules.m0.icon",
+			}),
+		);
+	});
+
+	it("refuses to keep a resolved override whose ordinary carrier was lost", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0];
+			menu.media_image = {
+				en: "jr://file/commcare/image/no-ordinary-file.png",
+			};
+			(menu.forms[0] as Record<string, unknown>).media_image = {
+				en: OTHER_ICON,
+			};
+			overriding(json, { "modules.m0.icon": OTHER_ICON });
+		});
+		expect(findings(outcome)).toContain(
+			"application-and-settings/translations-generated-navigation-file-not-packaged",
+		);
 	});
 
 	it("holds an override of media no language shows as inert: no screen reads the key", async () => {

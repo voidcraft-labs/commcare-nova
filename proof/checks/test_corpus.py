@@ -383,9 +383,14 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
         for role, entry in manifest["local"].items():
             assert entry["digest"] == _entries_digest(document.root / entry["path"]), (document.id, role)
         # The HQ import file, which no check reads and the HQ package's import-page tests do.
-        assert manifest["importFile"] == {
+        packages = {
             "import-file": {"path": "import-file.zip", "digest": _entries_digest(document.import_file)}
-        }, document.id
+        }
+        if document.edit is not None and document.edit.import_file is not None:
+            packages["edit-import-file"] = {
+                "path": "edit/import-file.zip", "digest": _entries_digest(document.edit.import_file)
+            }
+        assert manifest["importFile"] == packages, document.id
         if document.edit is not None:
             assert manifest["judge"]["batch"]["digest"] == _digest(document.root / "edit" / "batch.json")
     assert edited > 0, "some document's edit is published, so b_edit was compared"
@@ -919,7 +924,7 @@ def test_every_republish_over_a_persons_saves_was_sent_as_its_document_states():
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits, and one a base CommCare HQ made (``proof/hq-apps/``). Every pull request that adds or removes a
 # document writes the count its sources then give.
-FIXED_DOCUMENTS = 527
+FIXED_DOCUMENTS = 537
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
