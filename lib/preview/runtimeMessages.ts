@@ -321,6 +321,15 @@ const english = {
 	deviceHomeStart: "Start",
 	deviceHomeSaved: "Saved",
 	deviceHomeIncomplete: "Incomplete",
+	deviceHomeNoSaved: "No saved forms",
+	deviceHomeNoIncomplete: "No incomplete forms",
+	deviceHomeArchiveAccess: "Checking app access",
+	deviceHomeRemoveDraft: "Remove",
+	deviceHomeRemoveNamedDraft: "Remove {name}",
+	deviceHomeDraftChanged:
+		"This app changed since the form was saved. You can start another form from the app's home screen.",
+	deviceHomeDraftLanguage:
+		"This form was opened in another language. You can switch back to that language or start another form.",
 	deviceHomeSync: "Sync with server",
 	deviceHomeLastSync: "You last synced with the server: {time}",
 	deviceHomeLogOut: "Log out of CommCare",
@@ -329,6 +338,10 @@ const english = {
 	detailDone: "Done",
 	// Android's form screens (`form.entry.finish.button`, `repeat.dialog.*`).
 	finish: "Finish",
+	saveForLater: "Save for later",
+	savingForm: "Saving form",
+	saveIncompleteFailed:
+		"Couldn't save this form. You can check the answers and try again.",
 	repeatGoBack: "Go back",
 	repeatAddNew: "Add a new {label}?",
 	repeatAddAnother: "Add another {label}?",
@@ -704,11 +717,24 @@ const spanish: Record<RuntimeMessage, string> = {
 	deviceHomeStart: "Iniciar",
 	deviceHomeSaved: "Guardados",
 	deviceHomeIncomplete: "Incompletos",
+	deviceHomeNoSaved: "No hay formularios guardados",
+	deviceHomeNoIncomplete: "No hay formularios incompletos",
+	deviceHomeArchiveAccess: "Comprobando el acceso a la aplicación",
+	deviceHomeRemoveDraft: "Quitar",
+	deviceHomeRemoveNamedDraft: "Quitar {name}",
+	deviceHomeDraftChanged:
+		"La aplicación cambió desde que se guardó el formulario. Puede iniciar otro desde la pantalla de inicio de la aplicación.",
+	deviceHomeDraftLanguage:
+		"Este formulario se abrió en otro idioma. Puede volver a ese idioma o iniciar otro formulario.",
 	deviceHomeSync: "Sincronizar con el servidor",
 	deviceHomeLastSync: "Última sincronización con el servidor: {time}",
 	deviceHomeLogOut: "Cerrar sesión en CommCare",
 	detailDone: "Listo",
 	finish: "Terminar",
+	saveForLater: "Guardar para más tarde",
+	savingForm: "Guardando formulario",
+	saveIncompleteFailed:
+		"No se pudo guardar el formulario. Puede revisar las respuestas y volver a intentarlo.",
 	repeatGoBack: "Volver",
 	repeatAddNew: "¿Agregar un nuevo {label}?",
 	repeatAddAnother: "¿Agregar otro {label}?",

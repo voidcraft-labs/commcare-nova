@@ -1626,8 +1626,7 @@ export function FormScreen({
 			if (isCurrent())
 				setSubmitStatus({
 					kind: "error",
-					message:
-						"Couldn't save this form. You can check the answers and try again.",
+					message: runtimeMessage(language.language, "saveIncompleteFailed"),
 				});
 		} finally {
 			saveDraftInFlight.current = false;
@@ -4228,7 +4227,10 @@ export function FormScreen({
 										disabled={savingDraft || submitOffer.kind !== "offered"}
 										className={FORM_QUIET_ACTION_CLS}
 									>
-										{savingDraft ? "Saving form" : "Save for later"}
+										{runtimeMessage(
+											language.language,
+											savingDraft ? "savingForm" : "saveForLater",
+										)}
 									</button>
 								)}
 							<button
