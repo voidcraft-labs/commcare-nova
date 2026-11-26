@@ -22902,8 +22902,8 @@
 	{
 		"id": "hq-lookup-names/all-matching-zone-codes-in-form-condition",
 		"base": "hq-lookup-names",
-		"entry": "forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/navigation-condition-outside-typed-worker-context",
+		"standing": "never",
 		"place": {
 			"kind": "form",
 			"menu": 0,
