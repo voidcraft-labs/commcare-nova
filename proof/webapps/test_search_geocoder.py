@@ -5,7 +5,7 @@ from dataclasses import replace
 from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
-from proof.webapps.session import Session
+from proof.webapps.session import SMALL_SCREEN, Session
 from proof.webapps.test_question_display import ADDRESS
 from proof.webapps.test_search import _menu_requests
 
@@ -35,7 +35,15 @@ RECEIVERS = {
         const city = document.querySelector('input[data-receive="home-us_state||city"]');
         const district = document.querySelector('select[data-receive="home-region"]');
         if (!city || !district) throw Error("The address receivers are missing");
-        return {city: city.value, district: district.selectedOptions[0]?.textContent.trim() || ""};
+        return {
+            city: city.value,
+            district: district.selectedOptions[0]?.textContent.trim() || "",
+            address: JSON.parse(sessionStorage.geocoderValues || "{}").home || null,
+            addressDisplayed: document.querySelector('#home_mapbox input')?.value || "",
+            fields: [...document.querySelectorAll('.query-field')].map(field => ({
+                tag: field.tagName, id: field.id, receiver: field.dataset.receive || null,
+            })),
+        };
     }"""
 }
 TYPE_ADDRESS = {
@@ -78,7 +86,7 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
                 {"geocoderFixture": {"query": "Visit Road", "feature": PLACE}},
                 *opening, *select, RECEIVERS, CLEAR_ADDRESS, steps.SETTLE, RECEIVERS,
                 *select, *steps.run_search(), steps.SCREEN,
-            ])
+            ], viewport=SMALL_SCREEN)
     first = 1 + len(opening) + len(select)
     filled = run.value(first)
     cleared = run.value(first + 3)
@@ -88,7 +96,8 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
     ]
     evidence("search-address-broadcast", {"filled": filled, "cleared": cleared, "submitted": actual})
     assert run.page_errors == []
-    assert filled == {"city": "Example Town", "district": "Upper valley"}
+    assert filled["address"] == PLACE["place_name"], filled
+    assert (filled["city"], filled["district"]) == ("Example Town", "Upper valley"), filled
     assert cleared["city"] == "" and cleared["district"] != "Upper valley"
     assert len(actual) == 1
     assert actual[0]["village"] == "Example Town" and actual[0]["district"] == "d1"
