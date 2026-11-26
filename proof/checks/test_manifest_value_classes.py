@@ -3825,6 +3825,46 @@ def _search_and_menus():
                 f"{prompts}/hidden",
             ),
         ),
+        "case-search/search-group-layout-unreadable": (
+            refused(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="unknown"),
+                ])),
+                "schema:CaseSearchProperty.group_key",
+                f"{config}/properties/1/group_key",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.group_key",
+                f"{config}/properties/1/group_key",
+            ),
+        ),
+        "case-search/search-group-heading-unreadable": (
+            refused(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": ""}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("g", is_group=True, group_key="g", label={"en": "Group"}),
+                    _prompt("region", group_key="g"),
+                ])),
+                "schema:CaseSearchProperty.label",
+                f"{prompts}/label",
+            ),
+        ),
         "case-search/allow-blank-value-on-a-hidden-prompt": (
             refused(
                 "app",
@@ -3962,35 +4002,6 @@ def _search_and_menus():
                     },
                 ),
             )
-        ),
-        # HQ's build reads these three only on a search the menu offers; on one it does not, each is part of the
-        # search configuration HQ stores and builds nothing of.
-        "case-search/case-search-endpoint-id": (
-            refused(
-                "app",
-                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id="visits")),
-                "schema:CaseSearch.case_search_endpoint_id",
-                f"{config}/case_search_endpoint_id",
-            ),
-            accepted(
-                "app",
-                search(_search_module(case_search_endpoint_id="visits")),
-                "schema:CaseSearch.case_search_endpoint_id",
-                f"{config}/case_search_endpoint_id",
-            ),
-            # a default filter is the endpoint's parameter beside an id, and its own key's with none
-            refused(
-                "app",
-                search(_search_module(default_properties=[_default("dob", "'x'")], case_search_endpoint_id="visits")),
-                "schema:DefaultCaseSearchProperty.property",
-                f"{config}/default_properties/0/property",
-            ),
-            accepted(
-                "app",
-                search(_search_module(default_properties=[_default("dob", "'x'")])),
-                "schema:DefaultCaseSearchProperty.property",
-                f"{config}/default_properties/0/property",
-            ),
         ),
         "case-search/search-button-label-any-other-value": (
             refused(

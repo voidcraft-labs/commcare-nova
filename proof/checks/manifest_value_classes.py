@@ -5115,6 +5115,54 @@ def _prompt_reader(test):
     return reader
 
 
+def search_group_layout_unreadable(use, manifest):
+    """A group's header and member runs must let the Case List editor name an ordered section."""
+    at = _json(use)
+    if at is None:
+        return None
+    search = at.nearest("CaseSearch")
+    prompt = at.nearest("CaseSearchProperty")
+    if search is None or prompt is None:
+        return None
+    properties = [row for row in search.get("properties") or [] if isinstance(row, dict)]
+    has_fields = any(row.get("is_group") is not True for row in properties)
+    seen = set()
+    heading = None
+    for row in properties:
+        key = row.get("group_key")
+        if row.get("is_group") is True:
+            valid = isinstance(key, str) and bool(key) and row.get("name") == key and key not in seen and has_fields
+            if row is prompt:
+                return not valid
+            heading = key if valid else None
+            if valid:
+                seen.add(key)
+        elif row is prompt:
+            return bool(key) and key != heading
+    return None
+
+
+def search_group_heading_unreadable(use, manifest):
+    """An otherwise valid header must give the app's worker languages a visible label."""
+    at = _json(use)
+    if at is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if prompt is None or prompt.get("is_group") is not True:
+        return False
+    if search_group_layout_unreadable(use, manifest):
+        return False
+    labels = prompt.get("label")
+    if not isinstance(labels, dict):
+        return True
+    app = at.nearest("Application", "LinkedApplication") or {}
+    languages = app.get("langs") or ["en"]
+    stored = [labels.get(language) for language in languages]
+    if any(word is not None and not isinstance(word, str) for word in stored):
+        return True
+    return not any(word.strip() for word in stored if word)
+
+
 # The input types HQ's Case List page shows over an address appearance (``case_claim.js::_getAppearance`` tests them
 # last), which HQ's build also writes over the ``input="address"`` the appearance gives
 # (``remote_requests.py::build_query_prompts``): beside one, the prompt is no address field.
@@ -11851,31 +11899,6 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     return not _authored_property_name(name)
 
 
-def _offered_search_config(use):
-    """A use's ``CaseSearch`` object and whether its menu offers that search: ``util.py::module_offers_search``,
-    a search property or a default filter, read from the object itself; (None, None) outside one."""
-    at = _json(use)
-    config = None if at is None else at.nearest("CaseSearch")
-    if config is None:
-        return None, None
-    return config, bool(config.get("properties") or config.get("default_properties"))
-
-
-def endpoint_on_an_offered_search(use, manifest):
-    """``case-search/case-search-endpoint-id``: ``case_search_endpoint_id`` on a search the menu offers, the one
-    place HQ's build reads it (``util.py::module_uses_case_search_endpoint``, beside ``CASE_SEARCH_ENDPOINTS``),
-    and each default filter of such a search, which HQ's build sends the endpoint as a parameter of its key
-    (``remote_requests.py``, ``_remote_request_query_datums``). On a menu that offers none the id is part of the
-    search configuration HQ stores and builds nothing of, the round trip's class, and a default filter of a
-    search with no id is its own key's."""
-    config, offered = _offered_search_config(use)
-    if config is None:
-        return None
-    if use.key == "schema:CaseSearch.case_search_endpoint_id":
-        return offered
-    return offered and bool(config.get("case_search_endpoint_id"))
-
-
 def max_select_value_above_100(use, manifest):
     """``menus-and-case-lists/detail-max-select-value-above-100``: a ``max_select_value`` above 100 on the case list
     of a basic menu with a case type whose list selects several cases (``lib/commcare/reader/caseList/details.ts::
@@ -12647,6 +12670,8 @@ VALUE_CLASSES = {
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
+    "case-search/search-group-layout-unreadable": search_group_layout_unreadable,
+    "case-search/search-group-heading-unreadable": search_group_heading_unreadable,
     "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
     "case-search/allow-blank-value-on-a-prompt-named-owner-id": allow_blank_beside_the_owner,
     "case-search/validations-1": later_validations,
@@ -12822,7 +12847,6 @@ VALUE_CLASSES = {
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
-    "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
