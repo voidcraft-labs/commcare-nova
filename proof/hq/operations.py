@@ -938,6 +938,25 @@ def api_access_read(state, credential: ApiCredential) -> HqAnswer:
         return api_request(state, "GET", f"/a/{state.domain}/api/lookup_table/v1/?limit=1", credential=credential)
 
 
+def _working_suite_expressions(source):
+    """Source slots that can consume declarations from HQ's generated suite."""
+    for module in source.get("modules") or []:
+        forms = module.get("forms") or []
+        yield module.get("module_filter")
+        for form in forms:
+            yield form.get("form_filter")
+        for owner in (module, *forms):
+            icons = owner.get("custom_icons") or []
+            if icons and isinstance(icons[0], dict):
+                yield icons[0].get("xpath")
+        for screen in ("short", "long"):
+            columns = ((module.get("case_details") or {}).get(screen) or {}).get("columns") or []
+            for column in columns:
+                # HQ keeps null entries in the column list.
+                if isinstance(column, dict) and column.get("useXpathExpression"):
+                    yield column.get("field")
+
+
 def source_factory_answers(state, app_id, credential, source):
     """Actual source-project facts and working resources potentially consumed by the reader.
     The retained base keeps only requests the production reader made."""
@@ -948,20 +967,15 @@ def source_factory_answers(state, app_id, credential, source):
     if source.status != 200:
         return
     supplied = json.loads(source.body)
-    # A grouped reference can be supplied by another reached detail or entry
-    # member, independently of the project's locations flag. Capture the
-    # actual working suite; retain.py keeps only the requested answers.
-    # HQ keeps a null among a detail's columns (``hq-case-lists/null-among-the-columns``); it reads nothing.
-    detail_reads = any(
-        isinstance(column, dict) and
-        column.get("useXpathExpression") and
-        ("instance" in str(column.get("field")) or "&" in str(column.get("field")))
-        for module in supplied.get("modules") or []
-        for screen in ("short", "long")
-        for column in (((module.get("case_details") or {}).get(screen) or {}).get("columns") or [])
+    # Production resolves references on a reached detail, menu or form
+    # command from HQ's actual suite. The harness collects candidate answers;
+    # retain.py keeps only the requests the client made.
+    suite_reads = not supplied.get("use_custom_suite") and any(
+        isinstance(text, str) and ("instance" in text or "&" in text)
+        for text in _working_suite_expressions(supplied)
     )
     resources = set()
-    if detail_reads:
+    if suite_reads:
         for profile in (None, *(supplied.get("build_profiles") or {})):
             resources.add(("suite.xml", profile or ""))
     encoded = "&#" in source.body
