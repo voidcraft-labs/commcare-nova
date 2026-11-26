@@ -245,6 +245,9 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/lookup-case-id-confidence@web-apps": stated(
 		"case-list-android-lookup",
 	),
+	"menus-and-case-lists/lookup-case-property-confidence@web-apps": stated(
+		"case-list-android-lookup",
+	),
 	"menus-and-case-lists/lookup-name@web-apps": stated(
 		"case-list-android-lookup",
 	),
