@@ -54,6 +54,7 @@ DOCUMENTS = (
     "targeted-search-workflow",
     "targeted-several-case-close",
     "targeted-shared-visit-entries",
+    "targeted-searched-shared-visit",
     "targeted-submitted-groups",
     "targeted-validated-barcode-secret",
     "xpath-context",
