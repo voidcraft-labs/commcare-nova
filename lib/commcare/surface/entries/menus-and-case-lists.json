@@ -9030,6 +9030,30 @@
 		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
 	},
 	{
+		"id": "menus-and-case-lists/lookup-extra-relative-without-case-context",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Enabled Android lookup with an extra that is a bare relative field name",
+		"surfaceKeys": ["schema:Detail.lookup_extras"],
+		"valueClass": "bare-relative-field-name-before-case-selection",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Android evaluates the relative field name before the list opens. The session has no main instance, so the companion is never started.",
+		"subject": "case-list-callout",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android evaluates an ordinary callout's arguments while opening the unselected list. The session has no main instance, so Core raises on the relative field name before Android can send an Intent."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": {
+			"cell": "HQ forwards the XPath as stored; Android evaluates it when creating the case list's lookup action.",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-name",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

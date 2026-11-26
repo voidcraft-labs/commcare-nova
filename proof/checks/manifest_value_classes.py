@@ -6435,6 +6435,32 @@ def lookup_with_nonliteral_arguments(use, manifest):
     )
 
 
+def _bare_relative_lookup_extra(detail):
+    extras = detail["lookup_extras"]
+    if any(isinstance(extra, dict) and extra.get("key") == "force_xpath_parsing" for extra in extras):
+        return False
+    if not isinstance(detail.get("lookup_action"), str) or not isinstance(detail.get("lookup_name"), str):
+        return False
+    for extra in extras:
+        if not isinstance(extra, dict) or not isinstance(extra.get("key"), str):
+            continue
+        value = extra.get("value")
+        tree = expression_tree(value) if isinstance(value, str) else None
+        if tree and tree[:2] == ["path", "relative"] and not tree[3]:
+            steps = tree[4]
+            if (
+                len(steps) == 1 and steps[0][0] == "child" and steps[0][2] == 0
+                and not steps[0][1].endswith("*") and value.strip() == steps[0][1]
+            ):
+                return True
+    return False
+
+
+def lookup_extra_relative_without_case_context(use, manifest):
+    detail = _short_lookup(use)
+    return detail is not None and not _missing_lookup_arguments(detail) and _bare_relative_lookup_extra(detail)
+
+
 def lookup_with_result_column(use, manifest):
     """The active result columns outside the plain-list case-ID carrier."""
     detail = _short_lookup(use)
@@ -6466,6 +6492,8 @@ def lookup_outside_fixed_text(use, manifest):
     """The remaining active short-detail lookup settings beside a fixed-text action."""
     detail = _short_lookup(use)
     if detail is None or _missing_lookup_arguments(detail):
+        return False
+    if _bare_relative_lookup_extra(detail):
         return False
     extras = detail["lookup_extras"]
     return (
@@ -13273,6 +13301,7 @@ VALUE_CLASSES = {
     "expressions-and-data/session-data-fingerprintquery": lookup_count_outside_one_supplier,
     "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
     "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
+    "menus-and-case-lists/lookup-extra-relative-without-case-context": lookup_extra_relative_without_case_context,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
     "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
         lookup_with_result_column
