@@ -908,9 +908,7 @@ function readPrompt(
 						? lookupReadPath(sortText, "stored-xml")
 						: undefined;
 				const table =
-					source === undefined ||
-					source.undiscovered ||
-					instance !== `item-list:${source.tag}`
+					source === undefined || source.undiscovered
 						? undefined
 						: ctx.input.lookup.table(source.tag);
 				const valueColumn =
@@ -925,27 +923,26 @@ function readPrompt(
 					sort === undefined || !table
 						? undefined
 						: bindLookupRead(sort, table);
-				const nameRefusal =
-					source?.undiscovered && instance === `item-list:${source.tag}`
-						? undiscoveredLookupName(source.tag)
-						: table === undefined || source === undefined
-							? undefined
-							: (lookupNameRefusal(source.tag, "search_input_options", "tag") ??
-								[
-									{ read: label, bound: labelColumn },
-									{ read: value, bound: valueColumn },
-									{ read: sort, bound: sortColumn },
-								].flatMap(({ read, bound }) => {
-									if (read === undefined || bound === undefined) return [];
-									return lookupReadNames(read).flatMap((name) => {
-										const refusal = lookupNameRefusal(
-											name,
-											"search_input_options",
-											"column",
-										);
-										return refusal === undefined ? [] : [refusal];
-									});
-								})[0]);
+				const nameRefusal = source?.undiscovered
+					? undiscoveredLookupName(source.tag)
+					: table === undefined || source === undefined
+						? undefined
+						: (lookupNameRefusal(source.tag, "search_input_options", "tag") ??
+							[
+								{ read: label, bound: labelColumn },
+								{ read: value, bound: valueColumn },
+								{ read: sort, bound: sortColumn },
+							].flatMap(({ read, bound }) => {
+								if (read === undefined || bound === undefined) return [];
+								return lookupReadNames(read).flatMap((name) => {
+									const refusal = lookupNameRefusal(
+										name,
+										"search_input_options",
+										"column",
+									);
+									return refusal === undefined ? [] : [refusal];
+								});
+							})[0]);
 				if (nameRefusal !== undefined) {
 					const raised = refuseWith("nodeset", nameRefusal.claim, cursor, {
 						name: nameRefusal.name,
