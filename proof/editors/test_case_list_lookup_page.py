@@ -34,9 +34,12 @@ LOOKUP = {
 }
 
 
-def _lookup_case_list(state, editor_driver, *, name=LOOKUP["lookup_name"]):
+def _lookup_case_list(state, editor_driver, *, name=LOOKUP["lookup_name"], icon=None):
     app_id = _case_list_app(state, editor_driver)
     module = operations.held_app(state, app_id).modules[0]
+    lookup = {**LOOKUP, "lookup_name": name}
+    if icon is not None:
+        lookup["lookup_image"] = icon
     _hq(
         state,
         "edit_module_detail_screens",
@@ -47,7 +50,7 @@ def _lookup_case_list(state, editor_driver, *, name=LOOKUP["lookup_name"]):
             ("multi_select", json.dumps(False)),
             ("auto_select", json.dumps(False)),
             ("short", json.dumps([column.to_json() for column in module.case_details.short.columns])),
-            ("case_list_lookup", json.dumps({**LOOKUP, "lookup_name": name})),
+            ("case_list_lookup", json.dumps(lookup)),
         ],
     )
     held = operations.held_app(state, app_id).modules[0].case_details.short
@@ -80,6 +83,26 @@ def test_the_current_case_list_editor_offers_lookup_under_either_flag(hq, editor
         assert all(held[key] == value for key, value in LOOKUP.items() if key != "lookup_field_header")
         assert held["lookup_field_header"]["en"] == "Match"
         write_evidence(f"case-list-lookup-editor-{flag}", {"offered": offered, "posted": posted})
+
+
+def test_the_current_case_list_editor_keeps_the_uploaded_lookup_icon(hq, editor_driver):
+    from contextlib import nullcontext
+
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.bases import _pages
+
+    icon = "jr://file/commcare/image/case-lookup.png"
+    configuration = Configuration(privileges={"CLOUDCARE"}, flags={"CASE_LIST_LOOKUP"})
+    with hq_check(configuration) as (state, _):
+        app_id, module_id = _lookup_case_list(state, editor_driver, icon=icon)
+        authoring = Authoring(state, {}, "case-lookup-icon", operation=lambda *_: nullcontext())
+        _pages.upload_picture(authoring, app_id, icon)
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module_id)
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        fields = dict(parse_qsl((saved.save.body or b"").decode("utf-8"), keep_blank_values=True))
+        assert json.loads(fields["case_list_lookup"])["lookup_image"] == icon
+        held = operations.held_app(state, app_id).modules[0].case_details.short
+        assert held.lookup_image == icon
 
 
 def test_the_current_editor_requires_a_lookup_button_name(hq, editor_driver):

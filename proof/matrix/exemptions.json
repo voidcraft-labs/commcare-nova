@@ -255,10 +255,6 @@
 		"reason": "stated-by-its-part",
 		"note": "The relative XPath extra in hq-case-lists/named-callout is refused as one configuration under lookup-enabled-lookup-action. The fixed-text extras have their own retained variant."
 	},
-	"menus-and-case-lists/lookup-image-jr": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
 	"menus-and-case-lists/unknown-module-doc-type": {
 		"reason": "hq-never-serves-the-value",
 		"note": "CommCare HQ's wrap of a menu refuses an unknown doc_type (ModuleBase.wrap raises ValueError), so no app's source carries one; the row hq-menus/unknown-menu-type holds that outcome."

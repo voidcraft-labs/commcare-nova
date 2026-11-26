@@ -8989,7 +8989,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`caseListConfig.deviceLookup` writes the enabled action in both carriers. This class has no active result column or custom action image.",
+			"cell": "`caseListConfig.deviceLookup` writes the enabled action in both carriers. The optional action image has its own carrier, and this class has no active result column.",
 			"markers": []
 		},
 		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
@@ -9009,7 +9009,7 @@
 		],
 		"valueClass": "enabled-on-a-plain-or-custom-case-list-outside-fixed-text-setting",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: enabled lookup with an unsupported argument, action image or result column",
+		"dispositionCell": "**HELD-NEW**: enabled lookup with an unsupported argument or result column",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -9069,11 +9069,10 @@
 			"parser:CalloutParser/lookup@image",
 			"schema:Detail.lookup_image"
 		],
-		"valueClass": "on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.icon` (media asset)",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"valueClass": "project-image-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android lookup button can show an image from the app’s Project",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -9085,7 +9084,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`lookup_image`",
+			"cell": "`deviceLookup.icon` → `lookup_image` with the Project asset’s bundled path",
 			"markers": []
 		},
 		"gates": []

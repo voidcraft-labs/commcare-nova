@@ -122,7 +122,10 @@ import {
 import { projectColumnToDetail } from "../../hqJson/caseList";
 import { listIconEndpointId } from "../../listIconAction";
 import { commCareLocalization } from "../../localization";
-import type { AssetManifest } from "../../multimedia/assetWirePath";
+import {
+	type AssetManifest,
+	requireAssetRef,
+} from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
 import {
@@ -551,6 +554,7 @@ export function buildShortDetail(args: {
 				wire,
 				args.lookupNaming,
 				config.deviceLookup,
+				args.assets,
 			),
 			config,
 			config.columns.filter(
@@ -653,6 +657,7 @@ function buildDetailShell(
 	wire: WireElementContext,
 	lookupNaming?: LookupWireNaming,
 	deviceLookup?: CaseListDeviceLookup,
+	assets?: AssetManifest,
 ): Element {
 	const titleEl = el("title", {}, [
 		el("text", {}, [el("locale", { id: "cchq.case" })]),
@@ -665,6 +670,14 @@ function buildDetailShell(
 				{
 					action: deviceLookup.action,
 					name: deviceLookup.label,
+					...(deviceLookup.icon !== undefined &&
+						assets !== undefined && {
+							image: requireAssetRef(
+								deviceLookup.icon,
+								assets,
+								"case-list lookup icon",
+							),
+						}),
 					auto_launch: String(deviceLookup.automatic === true),
 				},
 				[
