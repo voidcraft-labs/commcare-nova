@@ -3526,6 +3526,7 @@ def _search_and_menus():
                 "schema:CaseSearchCustomSortProperty.property_name",
                 f"{config}/custom_sort_properties/0/property_name",
             ),
+        ),
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": (
             refused("app", search(_search_module(instance_name="Mycasedb2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
             accepted("app", search(_search_module(instance_name="MyCaseDB2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
@@ -7874,7 +7875,52 @@ def _connect_activities():
     }
 
 
+def _case_list_lookup_shapes():
+    valid = {
+        "lookup_enabled": True,
+        "lookup_action": "org.example.SCAN",
+        "lookup_name": "Scan a card",
+        "lookup_extras": [{"key": "mode", "value": "concat('open', ' visits')"}],
+        "lookup_responses": [{"key": "primary"}, {"key": "fallback"}],
+    }
+
+    def use(shape, key, *, detail="short", **changes):
+        app = _app([_detail_module(**{detail: {**valid, **changes}})])
+        return shape("app", app, f"schema:Detail.{key}", f"/case_details/{detail}/{key}")
+
+    dynamic = [{"key": "mode", "value": "properties/mode"}]
+    return {
+        "menus-and-case-lists/callout-with-no-extras-or-no-responses": (
+            use(refused, "lookup_extras", lookup_responses=[]),
+            use(accepted, "lookup_extras"),
+        ),
+        "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": (
+            use(refused, "lookup_action", detail="long"),
+            use(accepted, "lookup_action"),
+        ),
+        "menus-and-case-lists/lookup-enabled-lookup-action": (
+            use(refused, "lookup_action", lookup_extras=dynamic),
+            use(refused, "lookup_action", lookup_responses=[{"key": "repeat"}, {"key": "repeat"}]),
+            use(accepted, "lookup_action"),
+            use(accepted, "lookup_action", lookup_enabled=False, lookup_extras=dynamic),
+        ),
+        "menus-and-case-lists/lookup-extras-key-value": (
+            use(refused, "lookup_extras", lookup_extras=dynamic),
+            use(accepted, "lookup_extras"),
+        ),
+        "menus-and-case-lists/lookup-image-jr": (
+            use(refused, "lookup_image", lookup_image="jr://file/icon.png"),
+            use(accepted, "lookup_image", lookup_image="jr://file/icon.png", lookup_enabled=False),
+        ),
+        "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
+            use(refused, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=True),
+            use(accepted, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=False),
+        ),
+    }
+
+
 SHAPES = {
+    **_case_list_lookup_shapes(),
     **_connect_activities(),
     **_questions(),
     **_settings_and_forms(),
@@ -8181,7 +8227,6 @@ KNOWN_GAPS = frozenset(
         "forms-and-case-writes/unknown-form-doc-type",
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
         "menus-and-case-lists/attachment-name-with-any-other-format",
-        "menus-and-case-lists/callout-with-no-extras-or-no-responses",
         "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
         "menus-and-case-lists/detail-custom-variables-dict-non-empty",
         "menus-and-case-lists/detail-custom-xml-non-empty",
@@ -8189,7 +8234,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/fixture-select-active-true",
         "menus-and-case-lists/indicator-any-other-set-name",
         "menus-and-case-lists/indicator-call-center-name",
-        "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not",
         "menus-and-case-lists/module-lazy-load-case-list-fields-true",
         "menus-and-case-lists/parent-select-relationship-null-other",
         "menus-and-case-lists/report-context-tile-true",

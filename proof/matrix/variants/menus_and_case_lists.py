@@ -312,8 +312,7 @@ def multi_select_unbounded(authoring, app_id):
 
 
 def named_callout(authoring, app_id):
-    """Patients' list given a callout as HQ's Case List page saves one: an action, a name, an extra and a response,
-    which is one thing a person adds."""
+    """Patients' list with a lookup extra that reads a relative XPath rather than fixed text."""
     _set_each(
         authoring,
         app_id,
@@ -323,6 +322,28 @@ def named_callout(authoring, app_id):
         ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": "scan"}]),
         ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}]),
     )
+
+
+def fixed_text_callout(authoring, app_id):
+    """Patients' list with a named companion, literal text arguments and ordered fallback response names."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/lookup_enabled", True),
+        ("/modules/0/case_details/short/lookup_action", "org.example.SCAN"),
+        ("/modules/0/case_details/short/lookup_name", "Scan a card"),
+        ("/modules/0/case_details/short/lookup_extras", [
+            {"key": "mode", "value": "'scan'"},
+            {"key": "source", "value": "concat('home', ' visit')"},
+        ]),
+        ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}, {"key": "fallback"}]),
+    )
+
+
+def automatic_fixed_text_callout(authoring, app_id):
+    """The same companion configuration with automatic lookup enabled."""
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_autolaunch", True)
 
 
 def parent_selection_of_a_list_with_no_columns(authoring, app_id):
