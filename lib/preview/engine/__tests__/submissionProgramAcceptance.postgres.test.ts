@@ -294,8 +294,8 @@ describe("engine → builder → executor acceptance", () => {
 		}
 		const device = androidDevice();
 		for (const [visible, note] of [
-			[true, "Show the reminder"],
 			[false, "The reminder is hidden"],
+			[true, "Show the reminder"],
 		] as const) {
 			const entryKey = testUuid(`label-entry-${visible}`);
 			const audience = {
@@ -351,6 +351,10 @@ describe("engine → builder → executor acceptance", () => {
 				caseIds: [SESSION_CASE],
 				entryKey,
 			});
+			const label = mutation.operationAnswers?.root.find(
+				(answer) => answer.fieldUuid === U("note"),
+			);
+			expect(label).toMatchObject(visible ? { value: "OK" } : { absent: true });
 			const projection = validateCaptureSubmissionProjection(mutation);
 			const built = buildCaseOperationProgramFromDoc({
 				device,
@@ -382,7 +386,7 @@ describe("engine → builder → executor acceptance", () => {
 			});
 			expect(
 				rows.find((row) => row.case_id === SESSION_CASE)?.properties,
-			).toEqual({ seen: "OK", notes: note });
+			).toEqual({ seen: visible ? "OK" : "before", notes: note });
 			expect(rows.find((row) => row.case_id === unrelated)?.properties).toEqual(
 				{ seen: "unrelated" },
 			);
