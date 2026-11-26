@@ -87,6 +87,7 @@ DOCUMENTS = (
     "prompt-periods",
     "case-capture-query",
     "form-link-unconditional",
+    "hq-lookups",
     "case-operation-query",
     "case-choice-attendance",
     "case-list-inline",
