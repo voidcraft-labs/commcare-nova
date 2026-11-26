@@ -6584,9 +6584,8 @@
 		"surfaceKeys": ["schema:ConditionalCaseUpdate.question_path"],
 		"valueClass": "advanced-own-passive-label",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a root passive label without a starting value saves its submitted text to an ordinary property of the selected case. The last chosen load keeps the write and its tag. The widget supplies `OK` when shown. An irrelevant label leaves its previous value alone.",
-		"subject": "form-case-management",
-		"owner": "forms-and-case-management",
+		"dispositionCell": "**HELD**: a root passive label without a banner or starting value saves its submitted text to an ordinary property of the selected case. The last chosen load keeps the write and its tag. The widget supplies `OK` when shown. An irrelevant label leaves its previous value alone.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

@@ -657,7 +657,7 @@ def _advanced_own_label_write(use):
         for element in form_source.model.iter()
     ):
         return
-    return PASSIVE_LABEL_WRITE if control.get("appearance") == "minimal" else OTHER_ADVANCED_LABEL
+    return PASSIVE_LABEL_WRITE if control.get("appearance") in {"minimal", "selectable"} else OTHER_ADVANCED_LABEL
 
 
 def _forms_variant_uses(found, held, entries):

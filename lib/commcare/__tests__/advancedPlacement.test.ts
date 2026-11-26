@@ -539,15 +539,20 @@ describe("the advanced procedure", () => {
 				(finding) => finding.code,
 			),
 		).toEqual([]);
+		const withLabel = (variant: typeof label) => ({
+			...doc,
+			fields: { ...doc.fields, [label.uuid]: variant },
+		});
+		expect(placed(withLabel({ ...label, selectableText: true }))).toEqual(
+			placed(doc),
+		);
 		for (const variant of [
 			{ ...label, askForConfirmation: true as const },
 			{ ...label, default_value: term(literal("later")) },
+			{ ...label, banner: "good" as const },
+			{ ...label, banner: "hidden" as const },
 		]) {
-			const snapshot = {
-				...doc,
-				fields: { ...doc.fields, [label.uuid]: variant },
-			};
-			expect(placed(snapshot)?.kind).toBe("save-to-case");
+			expect(placed(withLabel(variant))?.kind).toBe("save-to-case");
 		}
 	});
 

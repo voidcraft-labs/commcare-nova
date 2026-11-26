@@ -425,6 +425,11 @@ def load_writes_an_interactive_label(authoring, app_id):
     _load_writes_a_label(authoring, app_id, "")
 
 
+def load_writes_a_banner(authoring, app_id):
+    """The selected member's load writes the value of a floating banner."""
+    _load_writes_a_label(authoring, app_id, ' appearance="floating-good"')
+
+
 def _load_writes_a_label(authoring, app_id, appearance):
     _change(
         authoring,

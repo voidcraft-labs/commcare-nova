@@ -1097,6 +1097,7 @@ function readProperties(
 			source.parent === null &&
 			source.dataParent === null &&
 			source.field.askForConfirmation !== true &&
+			source.field.banner === undefined &&
 			!source.expressions.some(
 				(expression) => expression.slot === "default_value",
 			)
