@@ -336,7 +336,10 @@ function suppliedAtEntry(
 		)
 			add({ kind: "new-case" });
 		if (saved !== undefined) {
-			if (savesToWorkerRecord(saved)) add({ kind: "worker-record" });
+			// The condition on a standalone Save to Case block uses the restore
+			// directly. Only the unconditional action can supply the entry datum.
+			if (savesToWorkerRecord(saved, "unconditional"))
+				add({ kind: "worker-record" });
 			if (
 				mod.caseType !== undefined &&
 				(form.type === "registration" ||

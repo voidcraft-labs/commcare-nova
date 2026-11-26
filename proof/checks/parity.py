@@ -72,6 +72,7 @@ from proof.checks.manifest_value_classes import (
     itemset_literal_row_index,
     save_to_case_before_optional_own_update,
     save_to_case_retype_property_types,
+    worker_record_save_to_case_shape,
 )
 from proof.observe.manifest import expression_tree
 
@@ -80,6 +81,8 @@ ARTIFACT = "claims@A"
 ALLOWING = frozenset({"HELD", "TARGET-OWNED", "INERT"})
 HQ_BUILD_REASON = "not-hq-buildable"
 DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
+CONDITIONAL_WORKER_UPDATE = "questions/savetocase-update-case-id-xpath"
+REPEATED_WORKER_UPDATE = "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat"
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
 
 
@@ -464,6 +467,7 @@ def _forms_variant_uses(found, held, entries):
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT,
         OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
+        CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE,
     }.intersection(entries)
     if not wanted:
         return
@@ -485,6 +489,13 @@ def _forms_variant_uses(found, held, entries):
                 and save_to_case_before_optional_own_update(use)):
             block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
             yield Decided(block, manifest_usage.HELD_NEW, (by_id[OWN_CASE_BESIDE],))
+        if wanted.intersection((CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE)) and use.key == "vellum-markup:model/instance//*@vellum:role":
+            shape = worker_record_save_to_case_shape(use)
+            block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
+            if shape == "condition" and CONDITIONAL_WORKER_UPDATE in wanted:
+                yield Decided(block, manifest_usage.HELD, (by_id[CONDITIONAL_WORKER_UPDATE],))
+            elif shape == "repeat" and REPEATED_WORKER_UPDATE in wanted:
+                yield Decided(block, manifest_usage.HELD_NEW, (by_id[REPEATED_WORKER_UPDATE],))
         # This proves the literal retained shape alone. The inventory's
         # broad outside-predicate class is not exhausted by a row ordinal.
         if ITEMSET_FILTER in wanted and use.key in ITEMSET_NODESETS and itemset_literal_row_index(use):

@@ -1762,6 +1762,9 @@ function workerRecordFindings(
 			);
 		} else if (operation.target.kind === "worker-record") first = operation;
 		for (const [facet, words] of WORKER_RECORD_FACETS) {
+			// Only the direct worker-record target can carry a root condition.
+			if (facet === "condition" && operation.target.kind === "worker-record")
+				continue;
 			const value = operation[facet];
 			if (value === undefined || (Array.isArray(value) && value.length === 0))
 				continue;

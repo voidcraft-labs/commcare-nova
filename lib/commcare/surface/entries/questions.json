@@ -3525,11 +3525,11 @@
 		"id": "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a SaveToCase update of `commcare-user` (the worker's record) in Nova's condition group (`nova_condition_`) or inside a repeat",
+		"item": "a SaveToCase update of `commcare-user` (the worker's record) inside a repeat",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "worker-record-update-on-a-condition-or-per-row",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an update of the worker's record that runs on a condition, or once for each row of a repeat: Nova keeps a form's writes of the worker's record in one update that runs once on every submission (`validator/rules/caseOperations.ts::workerRecordFindings`, reason `worker-record-facet`), as CommCare HQ's own `usercase_update` block does (`xform.py::XForm._add_usercase`); HQ's form builder takes such a block (`saveToCase.js` refuses only a create, a close or a link of `commcare-user`), and a device and HQ's server apply it as any block: one in a condition group that is not relevant is left out of the submission, and one in a repeat is applied once for each row",
+		"dispositionCell": "**HELD-NEW**: an update of the worker's record once for each row of a repeat. A device and HQ's server apply each submitted block to the same worker record. Nova keeps one root worker update per form while repeat iteration and same-record ordering remain unmodeled.",
 		"subject": "worker-record",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3840,7 +3840,7 @@
 		],
 		"valueClass": "savetocase-update",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseOperations[] {action: update, target: expression}`",
+		"dispositionCell": "**HELD**: `caseOperations[] {action: update, target: expression}` or one root update of the worker's record. When the worker update has its own condition, the block is submitted only when that condition holds.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

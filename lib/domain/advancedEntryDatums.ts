@@ -523,6 +523,10 @@ export function loadClause(
 ): AdvancedIneligibility | undefined {
 	if (operation.action !== "own" && operation.forEach !== undefined)
 		return "scope";
+	// A conditioned direct worker update must keep its conditional source
+	// block even when its authored condition is a constant match-all.
+	if (isWorkerRecordUpdate(operation) && operation.condition !== undefined)
+		return "write-condition";
 	const writes = operation.writes ?? [];
 	const values: Expression[] = [
 		...(operation.action === "own"

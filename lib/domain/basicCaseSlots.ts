@@ -638,7 +638,10 @@ export function usercaseSlotReasons(
 	const reasons: PlacementIneligibility[] = tagged(
 		valueReasons(f, slotValues(operation), { kind: "none" }),
 	);
-	if ((operation.writes ?? []).some((write) => write.condition !== undefined))
+	if (
+		operation.condition !== undefined ||
+		(operation.writes ?? []).some((write) => write.condition !== undefined)
+	)
 		reasons.push({ reason: "write-condition" });
 	return reasons;
 }

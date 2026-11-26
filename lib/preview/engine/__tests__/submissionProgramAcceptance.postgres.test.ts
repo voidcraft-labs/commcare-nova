@@ -98,13 +98,16 @@ const IDENTITY: ResolvedPreviewIdentity = {
 	usercase: { role: "supervisor" },
 };
 
-function makeStore(): CaseStore {
+function makeStore(checkAuthorizedSequence = false): CaseStore {
 	return new PostgresCaseStore({
 		projectId: PROJECT,
 		actorUserId: ACTOR,
 		ownerId: ACTOR,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
+		...(checkAuthorizedSequence && {
+			authorizeMutation: async () => ({ appMutationSeq: 0 }),
+		}),
 	});
 }
 
@@ -197,6 +200,133 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it("applies a root worker update only on the committed condition to the scoped row", async () => {
+		const field = testUuid("worker-condition-answer");
+		const form = testUuid("worker-condition-form");
+		const property = testUuid("worker-condition-property");
+		const workerCaseId = SECOND_SESSION_CASE;
+		const doc = buildDoc(
+			{
+				appId: APP_ID,
+				modules: [
+					{
+						name: "Worker notes",
+						forms: [
+							{
+								uuid: form,
+								name: "Review",
+								type: "survey",
+								fields: [f({ kind: "text", uuid: field, id: "decision" })],
+							},
+						],
+					},
+				],
+			},
+			(draft) => {
+				draft.userProperties = {
+					[property]: {
+						uuid: property,
+						slug: "visit_note",
+						label: "Visit note",
+					},
+				};
+				draft.userPropertyOrder = [property];
+				draft.forms[form].caseOperations = [
+					{
+						uuid: OP_ROOT,
+						id: "worker",
+						action: "update",
+						caseType: "commcare-user",
+						target: { kind: "worker-record" },
+						condition: eq(term(formField(field)), literal("save")),
+						writes: [
+							{ property: "visit_note", value: term(literal("updated")) },
+						],
+					},
+				];
+			},
+		);
+		const store = makeStore(true);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "commcare-user",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		const apply = (
+			decision: string,
+			entryKey: string,
+			expectedAppMutationSeq = 0,
+		) => {
+			const input = buildEngineInput(doc, form, null);
+			if (!input) throw new Error("Expected the worker survey");
+			const engine = new FormEngine(input);
+			engine.setValue("/data/decision", decision);
+			const mutation = engine.computeSubmissionMutation({ entryKey });
+			const projection = validateCaptureSubmissionProjection(mutation);
+			const built = buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation,
+				projection,
+				identity: IDENTITY,
+			});
+			return store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, {
+					...built,
+					submissionReceipt: {
+						...buildSubmissionReceiptIdentity({
+							appId: APP_ID,
+							identity: IDENTITY,
+							mutation,
+							projection,
+						}),
+						expectedAppMutationSeq,
+						blueprintDigest: "0".repeat(64),
+					},
+				}),
+			);
+		};
+		const entry = (last: number) =>
+			`11111111-1111-4111-8111-11111111111${last}`;
+		const skipped = await apply("keep", entry(1));
+		expect(skipped.operations).toEqual([
+			expect.objectContaining({ executed: false, caseId: "" }),
+		]);
+		expect(skipped.caseDatabasePatch?.rows).toEqual([]);
+		await expect(apply("keep", entry(2), 99)).rejects.toThrow(
+			"The form changed",
+		);
+		await expect(apply("save", entry(3))).rejects.toThrow(ACTOR);
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: workerCaseId,
+				case_type: "commcare-user",
+				case_name: "Worker",
+				status: "open",
+				properties: { hq_user_id: ACTOR, visit_note: "before" },
+			},
+		});
+		const held = await apply("keep", entry(4));
+		expect(held.caseDatabasePatch?.rows).toEqual([]);
+		const changed = await apply("save", entry(5));
+		expect(changed.operations).toEqual([
+			expect.objectContaining({ executed: true, caseId: workerCaseId }),
+		]);
+		expect(changed.caseDatabasePatch?.rows).toMatchObject([
+			{ case_id: workerCaseId },
+		]);
+		const [row] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "commcare-user",
+		});
+		expect(row?.properties).toEqual({
+			hq_user_id: ACTOR,
+			visit_note: "updated",
+		});
+	});
+
 	it("submits a shared entry’s parent answers to the case selected by that entry", async () => {
 		const doc = hydratePersistedBlueprint(sharedVisitEntries().doc);
 		const entry = Object.values(doc.forms).find(

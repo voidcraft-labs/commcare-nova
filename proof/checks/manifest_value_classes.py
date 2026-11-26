@@ -11059,6 +11059,33 @@ def _one_save_to_case_write(form, block, case):
     return name, _data_type(source_bind.get("type", "string") if source_bind is not None else "string")
 
 
+def worker_record_save_to_case_shape(use):
+    """An update-only worker block targeting the record selected from the case database."""
+    form, block = _form_element(use)
+    if (form is None or block not in form.paths or block.get(f"{{{VELLUM}}}role") != "SaveToCase"
+            or block.get(f"{{{VELLUM}}}case_type") != "commcare-user"):
+        return None
+    case = block.find(f"{{{CASE}}}case")
+    if case is None or [_local(node) for node in _children(case)] != ["update"]:
+        return None
+    path = form.paths[block]
+    case_id = form.bind(f"{path}/case/@case_id")
+    target = ("instance('casedb')/casedb/case[@case_type = 'commcare-user']"
+              "[hq_user_id = instance('commcaresession')/session/context/userid]/@case_id")
+    selected = expression_tree(target)
+    if selected is None or case_id is None or expression_tree(case_id.get("calculate") or "") != selected:
+        return None
+    if form.in_repeat(path):
+        return "repeat"
+    parent = block.getparent()
+    group = parent.getparent()
+    if (group.getparent() is not form.data_root or not _local(group).startswith("nova_operations")
+            or not _local(parent).startswith("nova_condition_") or len(form.save_to_case) != 1):
+        return None
+    guard = form.bind(form.paths[parent])
+    return "condition" if guard is not None and guard.get("relevant") else None
+
+
 def save_to_case_before_optional_own_update(use):
     """A direct update of the one case selected by a basic follow-up,
     authored before a Case Management update of the same row from an

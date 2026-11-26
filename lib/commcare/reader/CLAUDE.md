@@ -973,12 +973,10 @@ A change that holds one removes its line.
   (`caseManagement/saveToCase.ts::readBlock`). CommCare keeps a name and an external id as the case's
   own value, and the gate holds a link only in a property of its own
   (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
-- **A Save to Case update of the worker's record in a condition group or in a repeat**: one finding
-  at the block under
+- **A Save to Case update of the worker's record in a repeat**: one finding at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
-  (`caseManagement/saveToCase.ts::readBlock`). HQ's form builder takes both, and Nova keeps a form's
-  writes of the worker's record in one update that runs once on every submission (the gate's
-  `worker-record-facet`).
+  (`caseManagement/saveToCase.ts::readBlock`). One root worker update may have its own condition.
+  The reader keeps its condition group and the gate retains the repeat and duplicate restrictions.
 - **A Save to Case update of the worker's record beside another update of it in the same form**
   (CommCare HQ's `usercase_update`, an advanced form's load of the worker's record, or a second
   such block): one finding at the form under

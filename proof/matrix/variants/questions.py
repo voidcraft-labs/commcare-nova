@@ -2712,6 +2712,22 @@ def save_to_case_menu_case_in_survey(authoring, app_id):
     )
 
 
+def save_to_case_worker_under_condition(authoring, app_id):
+    """One root update of `commcare-user`, only when the submitted weight is positive."""
+    group = "/data/nova_operations/nova_condition_worker"
+    data, binds = _block(
+        "worker", "commcare-user", "<update><last_review/></update>", WORKER_CASE,
+        [("update/last_review", "calculate=\"'reviewed'\"")], group=group,
+    )
+    _change(
+        authoring, app_id, "save-to-case-worker-under-condition",
+        ("</data>", f"<nova_operations><nova_condition_worker>{data}</nova_condition_worker></nova_operations>\n</data>", 1),
+        (FIRST_SETVALUE, f'<bind nodeset="{group}" relevant="/data/weight &gt; 0"/>' + binds + FIRST_SETVALUE, 1),
+        ("</h:body>", f'<group ref="/data/nova_operations"><group ref="{group}"/></group>\n</h:body>', 1),
+        ("</instance>\n", "</instance>\n" + SESSION_INSTANCE + "\n", 1),
+    )
+
+
 def save_to_case_worker_in_repeat(authoring, app_id):
     """In each row of hq-questions' repeat ``members``, a Save to Case update of the worker's record
     (``commcare-user``) saving the row's ``member_name``."""

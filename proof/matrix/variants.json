@@ -36388,6 +36388,47 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-worker-under-condition",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-update-case-id-xpath",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_worker_under_condition"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/target/kind",
+				"value": "worker-record"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/condition/kind",
+				"value": "gt"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/0/property",
+				"value": "last_review"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-worker-in-repeat",
 		"base": "hq-questions",
 		"entry": "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat",

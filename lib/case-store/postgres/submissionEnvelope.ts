@@ -1326,32 +1326,6 @@ export async function executeSubmissionEnvelope(
 		args.operations === undefined
 			? []
 			: programSteps(args.operations, args.ordinary);
-	// Resolve the worker record before any effects, exactly as the device's
-	// hq_user_id join does. A historical case id is never reconstructed from
-	// the acting worker, and every read remains inside the bound app/Project.
-	let workerRecordCaseId: string | undefined;
-	if (steps.some((step) => step.operation.target.kind === "worker-record")) {
-		const rows = await trx
-			.selectFrom("cases")
-			.select(["case_id", "status", "owner_id"])
-			.where("app_id", "=", args.appId)
-			.where("project_id", "=", host.projectId)
-			.where("case_type", "=", USERCASE_CASE_TYPE)
-			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId)
-			.orderBy("case_id")
-			.forUpdate()
-			.limit(2)
-			.execute();
-		if (rows.length > 1)
-			throw new Error("More than one worker record exists for this app.");
-		if (
-			rows[0] === undefined ||
-			rows[0].status !== "open" ||
-			rows[0].owner_id !== host.actingUserId
-		)
-			throw new CaseNotFoundError(host.actingUserId);
-		workerRecordCaseId = rows[0].case_id;
-	}
 	const selectedCaseIds = validatedSelectedCaseIds(args);
 	const opening = args.operations?.openingReads;
 	const currentAccess =
@@ -1382,7 +1356,6 @@ export async function executeSubmissionEnvelope(
 			args.operations,
 			steps,
 			sessionAnchors,
-			workerRecordCaseId,
 		);
 		registeredCaseId = program.registeredCaseId;
 		for (const entry of program.resolved) {
@@ -1432,7 +1405,6 @@ async function resolveOperationProgram(
 	program: CaseOperationProgram,
 	steps: readonly ProgramStep[],
 	sessions: ReadonlyMap<string, SessionAnchor>,
-	workerRecordCaseId: string | undefined,
 ): Promise<{
 	readonly resolved: ResolvedInstance[];
 	/** The id a registration's own arm creates its case with, whether or not
@@ -1485,7 +1457,7 @@ async function resolveOperationProgram(
 					invariant:
 						"an operation's lookup definitions name unavailable tables",
 					detail:
-						"Every definition must resolve in the authorized Project before evaluation.",
+						"Every definition must resolve in the authorized Project before effects.",
 				}),
 			);
 		}
@@ -1624,6 +1596,38 @@ async function resolveOperationProgram(
 			}
 			executing[slot.instance] = passes;
 		}
+	}
+
+	// Resolve an executing worker update before any effects, as the device's
+	// hq_user_id join does. A historical case id is never reconstructed from
+	// the acting worker, and every read remains inside the bound app/Project.
+	let workerRecordCaseId: string | undefined;
+	if (
+		instances.some(
+			({ envelope }, index) =>
+				executing[index] && envelope.operation.target.kind === "worker-record",
+		)
+	) {
+		const rows = await trx
+			.selectFrom("cases")
+			.select(["case_id", "status", "owner_id"])
+			.where("app_id", "=", appId)
+			.where("project_id", "=", host.projectId)
+			.where("case_type", "=", USERCASE_CASE_TYPE)
+			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId)
+			.orderBy("case_id")
+			.forUpdate()
+			.limit(2)
+			.execute();
+		if (rows.length > 1)
+			throw new Error("More than one worker record exists for this app.");
+		if (
+			rows[0] === undefined ||
+			rows[0].status !== "open" ||
+			rows[0].owner_id !== host.actingUserId
+		)
+			throw new CaseNotFoundError(host.actingUserId);
+		workerRecordCaseId = rows[0].case_id;
 	}
 
 	// An executing authored-key create with a held key failure aborts
