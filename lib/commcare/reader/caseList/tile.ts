@@ -554,7 +554,6 @@ export function readTile(
 	const overlapsShort = overlappingCells(
 		joined.columns.flatMap((column) => placesCell(column) ?? []),
 	);
-	let occupiedRows = 0;
 	joined.columns.forEach((column, index) => {
 		if (column.short === undefined) return;
 		const cursor = shortColumns[column.short];
@@ -562,13 +561,6 @@ export function readTile(
 		if (placesCell(column) === undefined) {
 			dropCells(cursor);
 			return;
-		}
-		// Measure the geometry independently of refusals on the cell's style.
-		const box = storedBox(cursor);
-		if (box) {
-			const fit = gridFit(cursor, shortRows);
-			if (fit === "fits" || fit === "below-the-twelfth-row")
-				occupiedRows = Math.max(occupiedRows, tileCellBottomEdge(box));
 		}
 		const cell = readCell(
 			ctx,
@@ -601,6 +593,17 @@ export function readTile(
 		const validIdentifier =
 			caseTileGroupingIdentifierSchema.safeParse(identifier).success;
 		const headerRows = group.header_rows ?? 2;
+		// The source's placed geometry remains known when a column's style
+		// or format is independently refused.
+		let occupiedRows = 0;
+		for (const column of shortColumns) {
+			if (column.peek("format") === "filter") continue;
+			const box = storedBox(column);
+			if (box === undefined) continue;
+			const fit = gridFit(column, shortRows);
+			if (fit === "fits" || fit === "below-the-twelfth-row")
+				occupiedRows = Math.max(occupiedRows, tileCellBottomEdge(box));
+		}
 		if (
 			validIdentifier &&
 			!named &&

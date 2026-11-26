@@ -318,6 +318,28 @@ describe("tiles", () => {
 		]);
 	});
 
+	it("keeps the body's geometry when its column format is refused before layout is read", async () => {
+		const name = plainColumn(uuid(1), "case_name", "Name", {
+			tile: tileCell(0, 0, 12, 1),
+		});
+		const notes = plainColumn(uuid(2), "notes", "Notes", {
+			tile: tileCell(0, 1, 12, 1),
+		});
+		const reading = await readLists(
+			patients([name, notes], {
+				list: {
+					tile: { grouping: { identifier: "my-parent", headerRows: 1 } },
+				},
+			}),
+			{
+				edit: (app) => {
+					app.modules[0].case_details.short.columns[1].format = "picture";
+				},
+			},
+		);
+		expect(closedCodes(reading)).toEqual(["menus-and-case-lists/17-picture"]);
+	});
+
 	it("drops the cells of a list that is no tile", async () => {
 		const name = plainColumn(uuid(1), "case_name", "Name", {
 			tile: tileCell(0, 0, 6, 1),
