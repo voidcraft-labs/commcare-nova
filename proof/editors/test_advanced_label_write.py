@@ -1,5 +1,6 @@
 """The Advanced Case Management editor keeps a passive label as an ordinary field write."""
 
+import pytest
 from lxml import etree
 
 from proof.core.artifacts import TEMPLATE_RESTORE
@@ -119,3 +120,28 @@ def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(hq, cor
 
         ops.set_form_source(authoring, app_id, 1, 0, hide, what="hide the label source")
         read(False)
+
+
+@pytest.mark.reader("android")
+def test_android_confirms_a_passive_label_before_the_advanced_member_update(hq, editor_driver):
+    from proof.android import observe
+    from proof.formplayer import hq as forms_hq
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    with hq_check(BASE.configuration) as (unit, _):
+        _, app_id, _ = _authored_label(unit, editor_driver)
+        database = casedata.database_of_restore(_restore())
+        with forms_hq.serve(unit, None, app_id, database=database) as release:
+            blobs, sent, stored = Blobs(), [], []
+            result = observe.app(
+                release, blobs, label="advanced-passive-label", archive=observe.release_archive(release),
+                commands=["m1-f0"], questions={QUESTION: [], "/data/notes": [TEXT]},
+                views=True, sent=sent, stored=stored,
+            )
+            walk = blobs.get_json(result["answer"])["walks"]["m1-f0"]
+            assert len(sent) == 1, walk
+            _received(unit, sent[0])
+            (kept,) = stored
+            assert "raised" not in kept, kept
+            assert MEMBER in kept["cases"] and OTHER not in kept["cases"], kept
