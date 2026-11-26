@@ -198,6 +198,7 @@ import {
 	caseContextDetailIds,
 	caseContextLineDetail,
 } from "./suite/case-list/formContext";
+import { installationProfileKey } from "./wireIdentity";
 import { needsSingleGroup } from "./workerGroupsWire";
 import { w } from "./xpath/wire/builders";
 import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
@@ -209,6 +210,8 @@ import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
  *  bare `<text>` nav nodes — the same archive shape with no media
  *  artifacts). */
 export interface CompileOptions {
+	/** Device builds may install an ordered subset of the app languages. */
+	readonly installationProfileUuid?: Uuid;
 	/** The deployment the archive is made for: no archive is compiled without one. */
 	readonly runtimeTarget: RuntimeTarget;
 	assets?: AssetManifest;
@@ -442,7 +445,10 @@ export function compileCczParts(
 	);
 	const assets = opts.assets;
 	const lookupNaming = opts.lookupNaming;
-	const localization = commCareLocalization(authoredDoc);
+	const localization = commCareLocalization(
+		authoredDoc,
+		opts.installationProfileUuid,
+	);
 	const sequence = opts.compiledAtSeq ?? 1;
 	const archiveVersion = sequence + (opts.earlierHqApps ?? 0);
 	const emptyCaseListText = opts.emptyCaseListText === true;
@@ -480,6 +486,12 @@ export function compileCczParts(
 		facts,
 		seeds: opts.adopted === true ? "target" : "nova",
 		firstLanguage: localization.languages[0],
+		...(opts.installationProfileUuid && {
+			buildProfileId: installationProfileKey(
+				opts.installationProfileUuid,
+				opts.identity,
+			),
+		}),
 		sequence,
 		archiveVersion,
 		logoProperty: buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
@@ -637,6 +649,7 @@ export function compileCczParts(
 		});
 	});
 	const linkContext = formLinkProjectionContext(doc, {
+		projectSearchId: opts.identity?.projectSearchId,
 		expressionDoc: authoredDoc,
 		runtimeTarget: opts.runtimeTarget,
 		writesWorker: (formUuid) => {
@@ -848,6 +861,11 @@ export function compileCczParts(
 			const remoteRequestEmission =
 				caseSearchConfig && !formsReadSearch
 					? buildRemoteRequest({
+							projectSearchId:
+								caseSearchConfig.projectSearch &&
+								opts.identity?.projectSearchId?.(
+									caseSearchConfig.projectSearch.searchUuid,
+								),
 							runtimeTarget: opts.runtimeTarget,
 							module: { ...mod, caseSearchConfig },
 							moduleIndex: mIdx,
@@ -1774,6 +1792,7 @@ function generateProfile(input: {
 	readonly facts: TargetFacts | null;
 	readonly seeds: TargetFill;
 	readonly firstLanguage: string | undefined;
+	readonly buildProfileId?: string;
 	readonly sequence: number;
 	readonly archiveVersion: number;
 	readonly logoProperty?: Element;
@@ -1787,6 +1806,7 @@ function generateProfile(input: {
 			xmlns: "http://cihi.commcarehq.org/jad",
 			version: archiveVersion,
 			uniqueid: profileUniqueId(input.doc.appId, runtimeTarget),
+			...(input.buildProfileId && { buildProfileID: input.buildProfileId }),
 			requiredMajor: String(COMMCARE_VERSION_FLOOR.major),
 			requiredMinor: String(COMMCARE_VERSION_FLOOR.minor),
 			requiredMinimal: "0",

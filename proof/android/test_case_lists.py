@@ -88,7 +88,10 @@ def _list(served, archive, label, command, searches, **device):
     found = observe.app(served, blobs, label=label, archive=archive, commands=[command], searches=searches, **device)
     answer = blobs.get_json(found["answer"])
     assert answer["install"] == "Installed", answer["install"]
-    walk = answer["walks"][command]
+    return _first_list(answer["walks"][command])
+
+
+def _first_list(walk):
     raised = walk.get("raised") or {}
     assert "steps" in walk, f"the walk raised {raised.get('class')}: {raised.get('stack', '')[:3000]}"
     (first, *_) = [step["list"] for step in walk["steps"] if step["screen"] == LIST]
@@ -124,6 +127,38 @@ def test_a_saved_choice_and_its_label_show_in_default_order_on_both_exports(andr
             assert [_texts(row) for row in listed["rows"]] == [
                 ["Ana", "West", "a", "River zone", "Priority", "Visit Ana"], ["Cy", "past", "past", "Unassigned", "Routine", "Visit Cy"], ["Bea", "East", "z", "Routine", "Visit Bea"],
             ], name
+
+
+def test_reached_choice_columns_show_both_paths_in_each_android_language(android_documents, hq, evidence):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-reached-choice-columns"]
+    observations = {}
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            # Walking the worker's menu lets the Android harness choose each
+            # language through its own picker. Command-only reads skip that.
+            found = observe.app(served, blobs, label=label, archive=archive)
+            answer = blobs.get_json(found["answer"])
+            assert answer["install"] == "Installed", answer["install"]
+            heard = {"en": [], "fr": []}
+            for path, walk in answer["walks"].items():
+                locale = "fr" if "@language:fr" in path else "en"
+                if not any(step["screen"] == LIST for step in walk.get("steps", ())):
+                    continue
+                listed = _first_list(walk)
+                rows = [_texts(row) for row in listed["rows"]]
+                if rows not in heard[locale]:
+                    heard[locale].append(rows)
+            observations[label] = heard
+    evidence("android-reached-choice-columns", observations)
+    expected = {
+        "en": [[["Ada", "East bank", "West bank", "Hello!"], ["Bea", "Hello!"]]],
+        "fr": [[["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "Bonjour!"]]],
+    }
+    assert observations == {"hq": expected, "local": expected}
 
 
 def test_android_shows_signed_relative_dates_on_both_exports(android_documents, hq):

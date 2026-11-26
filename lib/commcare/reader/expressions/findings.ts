@@ -1922,6 +1922,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["search-button-display-condition-lifting-into-predicate"].entry,
 		C["search-button-display-condition-outside-predicate"].entry,
 	),
+	project_search_parameter: formSlot("case-search/case-search-endpoint-id"),
 	excluded_owner_ids: fixed(
 		C["blacklisted-owner-ids-expression-lifting-into-valueexpression"].entry,
 		C["blacklisted-owner-ids-expression-outside-valueexpression"].entry,
@@ -2592,7 +2593,8 @@ export function parseIssueEntry(
 			const queryBuild =
 				ref.entity === "module" &&
 				(ref.slot.startsWith("search_input_") ||
-					ref.slot === "excluded_owner_ids");
+					ref.slot === "excluded_owner_ids" ||
+					ref.slot === "project_search_parameter");
 			return entry === LEGACY_SEARCH_INPUT && queryBuild
 				? answer("slot-default")
 				: answer(entry);

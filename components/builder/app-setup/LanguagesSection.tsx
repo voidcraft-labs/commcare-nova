@@ -89,6 +89,7 @@ import {
 	useTranslationUnitEditor,
 } from "../localization/BuilderLocalizationProvider";
 import { useLanguageRegistrySearch } from "../localization/useLanguageRegistrySearch";
+import { InstallationProfilesSection } from "./InstallationProfilesSection";
 import { LanguagePickerFields } from "./languagePicker/LanguagePickerFields";
 import {
 	duplicateLanguageRefusal,
@@ -526,6 +527,17 @@ export function LanguagesSection() {
 				)}
 			</div>
 
+			<InstallationProfilesSection
+				languages={localization.languageOrder}
+				label={(tag) =>
+					languageName(displays.get(tag) ?? languageDisplay(tag, resolver))
+				}
+				commit={(installationProfile) =>
+					commit([
+						{ kind: "setAppSettings", settings: { installationProfile } },
+					])
+				}
+			/>
 			{coverageDiagnostics.length > 0 && (
 				<section
 					aria-labelledby="language-coverage-notes"

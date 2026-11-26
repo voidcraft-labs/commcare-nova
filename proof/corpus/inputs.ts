@@ -298,6 +298,7 @@ async function authoredA(root: string): Promise<Record<string, InputFile>> {
 		["authored.tables", "tables.json"],
 		["authored.places", "places.json"],
 		["authored.practice-workers", "practice-workers.json"],
+		["authored.project-searches", "project-searches.json"],
 	] as const) {
 		if (existsSync(join(root, "authored", name))) {
 			part[role] = await file(root, `authored/${name}`);

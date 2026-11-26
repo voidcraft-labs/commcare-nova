@@ -6988,7 +6988,11 @@ def _held_new():
         item = {"doc_type": "MappingItem", "key": key, "value": {"en": "A"}}
         return columns(_column(fmt=fmt, enum=[item]))
 
-    profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": ["fra"]}})
+    profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": []}})
+    choices = _form(
+        data="<s/>",
+        body="""<select1 ref="/data/s"><item><value>a'b"c</value></item><item><value>a'b</value></item></select1>""",
+    )
     named = _form(data="<q/>").replace(b"<data ", b'<visit uiVersion="1" ').replace(b"</data>", b"</visit>")
     return {
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
@@ -7109,9 +7113,10 @@ def _held_new():
                 "app", columns(_column(field="#owner_name")), "schema:DetailColumn.field", f"{short}/columns/0/field"
             ),
         ),
-        "application-and-settings/build-profiles-non-empty": (
+        "application-and-settings/build-profiles-invalid-language-subset": (
             refused("app", profiled, "schema:Application.build_profiles", "/build_profiles"),
             refused("app", profiled, "schema:BuildProfile.name", "/build_profiles/french/name"),
+            accepted("app", _app([], build_profiles={"field": {"doc_type":"BuildProfile","name":"Field","langs":["en"]}}), "schema:Application.build_profiles", "/build_profiles"),
         ),
     }
 
@@ -7731,9 +7736,6 @@ EVERY_USE_TAKEN = {
     ),
     "menus-and-case-lists/module-with-is-training-module-true-training-menu-root-training": (
         "is_training_module is a use only where it is true, which is the class; a suite's menu root it does not read"
-    ),
-    "application-and-settings/build-profiles-non-empty": (
-        "an empty build_profiles is HQ's default and no use, and every use of the keys is a profile or its part"
     ),
     "forms-and-case-writes/form-type-other-than-the-form-s-own-kind": (
         "form_type is a use only where it is not its class's default, the form's own kind, so every use is another"

@@ -848,6 +848,7 @@ function* fixedPointCheck(
 					}),
 					knownCaseTypes: knownCaseTypesOf(doc),
 					knownFormEntryChoices: knownFormEntryChoicesOf(doc),
+					knownProjectSearchNames: doc.appSettings.projectSearches,
 					knownLanguageCodes: knownLanguageCodesOf(doc),
 				},
 				input.heldExpansions === undefined

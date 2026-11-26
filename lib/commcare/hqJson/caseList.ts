@@ -155,6 +155,10 @@ import {
 	emitSearchRequestValue,
 	searchRequestKey,
 } from "../suite/case-search/nativeFilters";
+import {
+	projectSearchValues,
+	requiredProjectSearchId,
+} from "../suite/case-search/projectSearch";
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
 import { projectRequestOrder } from "../suite/case-search/requestOrder";
 import {
@@ -930,6 +934,10 @@ export type SearchConfigRewrites = (
 		| {
 				readonly slot: "search_button_display_condition" | "excluded_owner_ids";
 		  }
+		| {
+				readonly slot: "project_search_parameter";
+				readonly parameterUuid: Uuid;
+		  }
 		| { readonly slot: SearchPromptSlot; readonly searchInputUuid: string },
 ) => RewriteControl | undefined;
 
@@ -1145,6 +1153,7 @@ function buildSearchConfigDocument(
 	lookupNaming: LookupWireNaming | undefined,
 	datumId: (ref: DatumRef) => string | undefined,
 	runsInWebApps: boolean,
+	projectSearchId: number | undefined,
 	rewrites?: SearchConfigRewrites,
 ): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
@@ -1240,7 +1249,31 @@ function buildSearchConfigDocument(
 	// `{}`; when it is still undefined this is an ordinary on-device list and
 	// must not acquire a dormant `_xpath_query` merely because the list has a
 	// filter.
-	if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
+	if (caseSearchConfig?.projectSearch) {
+		if (projectSearchId !== undefined)
+			config.case_search_endpoint_id = requiredProjectSearchId(projectSearchId);
+		config.properties = projectSearchProperties(
+			caseListConfig?.searchInputs ?? [],
+			new Map(),
+			localization,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			rewrites,
+		);
+		config.default_properties = projectSearchValues(
+			caseSearchConfig.projectSearch,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			datumId,
+			(uuid) =>
+				rewrites?.({ slot: "project_search_parameter", parameterUuid: uuid }),
+		).map(({ name, value }) => ({
+			property: name,
+			defaultValue: hqXPath(value),
+		}));
+	} else if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
 		const xpathQueryEmission = composeXPathQueryEmission(
 			caseListConfig,
 			_caseType,
@@ -1294,7 +1327,11 @@ function buildSearchConfigDocument(
 		config.default_search = wire.defaultSearch;
 		config.inline_search = wire.inlineSearch;
 	}
-	if (wire !== undefined && caseListConfig !== undefined) {
+	if (
+		wire !== undefined &&
+		caseListConfig !== undefined &&
+		!caseSearchConfig?.projectSearch
+	) {
 		config.include_all_related_cases = searchNeedsSupportingCases(
 			caseListConfig,
 			expressions,
@@ -1396,6 +1433,7 @@ export function projectCaseListForHq(
 	listRewrites?: CaseListRewrites,
 	columnFieldWord?: ColumnFieldWordOf,
 	moduleUniqueId: (uuid: Uuid) => string = DERIVED_WIRE_IDENTITY.moduleUniqueId,
+	projectSearchId?: number,
 ): CaseListHqProjection {
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
@@ -1660,6 +1698,7 @@ export function projectCaseListForHq(
 		lookupNaming,
 		caseListStepDatumId(doc, mod.uuid, "id"),
 		declaresWebApps(doc),
+		projectSearchId,
 		searchRewrites,
 	);
 

@@ -13,6 +13,8 @@ export type AuthorableIdentityFamily =
 	| "case-list-sort"
 	| "case-detail-tab"
 	| "case-mapping-row"
+	| "project-search"
+	| "project-search-parameter"
 	| "search-input"
 	| "worker-property"
 	| "user-type"
@@ -162,6 +164,13 @@ export function classifyIdentity(
 		if (property === "module") return "module";
 		if (property === "table") return "lookup-table";
 		if (property === "column") return "lookup-column";
+	}
+	if (tool === "configure_project_search") {
+		if (pointer === "/change/search/uuid" || pointer === "/change/uuid")
+			return "project-search";
+		if (pointer === "/change/parameters/*/uuid")
+			return "project-search-parameter";
+		if (pointer === "/change/fields/*/fieldUuid") return "search-input";
 	}
 	if (property === "tableId") return "lookup-table";
 	if (tool.includes("lookup")) {

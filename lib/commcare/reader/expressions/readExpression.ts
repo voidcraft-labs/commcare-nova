@@ -88,6 +88,7 @@ import {
 	hqExpressionField,
 } from "../../suite/case-list/orderPlanOptions";
 import { emitSearchFilterValue } from "../../suite/case-search/nativeFilters";
+import { projectSearchValue } from "../../suite/case-search/projectSearch";
 import { searchPromptWire } from "../../suite/case-search/searchPrompts";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
@@ -1271,6 +1272,18 @@ function printSlotWith(
 						undefined,
 						expressions,
 						naming,
+						caseListStepDatumId(doc, ref.uuid, "chainId"),
+						rewrites,
+					),
+				);
+			case "project_search_parameter":
+				return text(
+					projectSearchValue(
+						expression,
+						ref.member.parameterUuid,
+						expressions,
+						naming,
+						searchInstanceOf(mod),
 						caseListStepDatumId(doc, ref.uuid, "chainId"),
 						rewrites,
 					),

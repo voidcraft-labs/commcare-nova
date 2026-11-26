@@ -421,6 +421,8 @@ function buildActivityParts(
 export interface BuildXFormOptions {
 	/** A reading compares even a form whose submitted answers are being refused. The export and device paths check the emitted primary data. */
 	readonly readingComparison?: true;
+	/** Device builds may install an ordered subset of the app languages. */
+	readonly installationProfileUuid?: Uuid;
 	xmlns: string;
 	/**
 	 * The owning module's case type — the form's own loaded case. Drives the
@@ -697,7 +699,7 @@ export function buildXFormSource(
 	formUuid: Uuid,
 	opts: BuildXFormOptions,
 ): XFormSource {
-	const localization = commCareLocalization(doc);
+	const localization = commCareLocalization(doc, opts.installationProfileUuid);
 
 	// The case types this form can READ, name → the index walk from its own
 	// case (own = no hop, parent = one, …). Built from the owning module's case

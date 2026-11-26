@@ -48,6 +48,7 @@ DOCUMENTS = (
     "targeted-case-choice-values",
     "targeted-case-map",
     "targeted-case-list-icon-action",
+    "targeted-reached-choice-columns",
     "targeted-relative-case-dates",
     "targeted-hidden-column",
     "targeted-independent-case-order",

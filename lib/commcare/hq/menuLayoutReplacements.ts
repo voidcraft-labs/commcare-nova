@@ -31,7 +31,7 @@ function namedMenus(menus: readonly string[]): string {
  * ids on this project space, so a dormant grid on a menu and a menu the
  * document no longer has are both found. One line per kind of change keeps
  * the list short however many menus share it: at most two app lines and
- * four menu lines.
+ * five menu lines.
  */
 export function replacedMenuLayouts(
 	doc: BlueprintDoc,

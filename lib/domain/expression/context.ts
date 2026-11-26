@@ -41,6 +41,7 @@ import { formRouteBeforeCase } from "../menuScreens";
 import {
 	effectiveCaseSearchConfig,
 	moduleFormsReadSearch,
+	projectSearchOf,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
 	searchInputRuntimeValueType,
 } from "../modules";
@@ -149,6 +150,7 @@ export interface ExpressionFacts {
 	readonly organizationLevels: Readonly<Record<string, OrganizationLevel>>;
 	readonly locationProperties: ReadonlyMap<Uuid, LocationProperty>;
 	readonly moduleCaseTypes: ReadonlyMap<Uuid, string>;
+	readonly projectSearchMenus?: ReadonlySet<Uuid>;
 	readonly moduleUuids: ReadonlySet<Uuid>;
 	readonly operationCaseTypes: ReadonlyMap<Uuid, string>;
 	readonly moduleSearchInputs: ReadonlyMap<Uuid, readonly SearchInputDecl[]>;
@@ -398,6 +400,11 @@ export function untypedExpressionFacts(
 				property,
 			]),
 		),
+		projectSearchMenus: new Set(
+			Object.values(doc.modules)
+				.filter((module) => projectSearchOf(module) !== undefined)
+				.map((module) => module.uuid),
+		),
 		moduleCaseTypes: new Map(
 			Object.values(doc.modules).flatMap((module) => {
 				const value = menuWithInheritedCaseSettings(doc, module.uuid)?.caseType;
@@ -407,6 +414,13 @@ export function untypedExpressionFacts(
 	};
 	untypedFacts.set(doc, result);
 	return result;
+}
+
+/** A project service returns its own rows. Ordinary search guarantees one
+ * record type and can add related cases beside the actual matches. */
+export function readsProjectSearchResults(ctx: ExpressionContext): boolean {
+	const source = ctx.supplies.searchResults;
+	return !!source && ctx.facts.projectSearchMenus?.has(source.module) === true;
 }
 
 export function expressionFacts(doc: BlueprintDoc): ExpressionFacts {
@@ -1155,6 +1169,13 @@ export function slotContext(
 			)
 		)
 			return undefined;
+		if (
+			slot.slot === "project_search_parameter" &&
+			!projectSearchOf(module)?.defaults.some(
+				(parameter) => parameter.uuid === slot.member.parameterUuid,
+			)
+		)
+			return undefined;
 		if (slot.slot === "case_list_column_expression") {
 			const column = module.caseListConfig?.columns.find(
 				(entry) => entry.uuid === slot.member.columnUuid,
@@ -1217,6 +1238,7 @@ export function slotContext(
 			"case_list_sort_expression",
 			"search_input_predicate",
 			"excluded_owner_ids",
+			"project_search_parameter",
 			"search_input_required_when",
 			"search_input_validation_rule",
 		].includes(slot.slot);
@@ -1354,7 +1376,8 @@ export function slotContext(
 		if (
 			slot.slot === "search_input_predicate" ||
 			slot.slot === "search_filter_value" ||
-			slot.slot === "case_search_filter"
+			slot.slot === "case_search_filter" ||
+			slot.slot === "project_search_parameter"
 		)
 			supplies = entryDatumSupplies(doc, {
 				kind: "search",

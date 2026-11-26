@@ -179,9 +179,7 @@ export const FINDING_COPY: Readonly<
 			"This uses a setting that chooses a case for the worker, which Nova can't hold yet.",
 	},
 	"blank-form": {},
-	"build-profiles": {
-		"not-yet": "This uses build profiles, which Nova can't hold yet.",
-	},
+	"build-profiles": {},
 	"call-center-indicators": {
 		never: "This uses call center indicators, which Nova doesn't bring in.",
 	},
@@ -475,6 +473,11 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"An answer here is kept under a group CommCare HQ's form designer can't keep it under: at the top level of the form for a question inside a group, which the designer reports as invalid each time it opens the form, or under another group for a whole group, whose answers its next save loses. Keeping the answer with its question in the form designer's Data Parent setting fixes it.",
 	},
+	"build-profiles": {
+		"hq-refuses":
+			"An installation needs a default language. On the app’s Releases page, open Application Profiles and choose each language once from the app’s languages.",
+	},
+
 	"app-document": {
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",
@@ -827,6 +830,11 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		title: "CommCare HQ can't summarize this menu",
 		body: "CommCare HQ returned an error where its own summary of this menu's forms should be, so Nova has nothing sure to check its reading against.",
 		next: "Opening each of the menu's forms in CommCare HQ's form builder usually shows which one is broken. Once it saves cleanly, you can check again.",
+	},
+	"installation-profile-key-unusable": {
+		title: "An installation profile needs a new ID",
+		body: "A worker following this installation link in CommCare HQ would miss the intended profile. Its ID cannot select a separate set of installation files.",
+		next: "On the app’s Releases page in CommCare HQ, open Application Profiles. Recreate the affected profile with the same languages and practice worker, remove the old entry, then check again.",
 	},
 	"app-unreadable-in-hq": {
 		title: "CommCare HQ can't summarize this app",

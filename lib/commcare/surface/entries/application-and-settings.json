@@ -323,8 +323,8 @@
 			"parser:ProfileParser/profile@buildProfileID"
 		],
 		"valueClass": "empty",
-		"disposition": "TARGET-OWNED",
-		"dispositionCell": "**TARGET-OWNED**: project-space build configuration, excluded on overwrite (`ApplicationBase._update_excluded_fields`), gated by privilege `build_profiles`; an import-create keeps the source's profiles in the new app, and Nova writes none; a publish reads the profiles and stops where one names a language the app no longer has",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an app with no named installation profiles uses its complete language order.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -333,7 +333,8 @@
 			"cell": "omit",
 			"markers": ["omit"]
 		},
-		"gates": ["privilege/build_profiles"]
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "application-and-settings/build-profiles-non-empty",
@@ -349,20 +350,62 @@
 			"schema:BuildProfile.practice_mobile_worker_id",
 			"parser:ProfileParser/profile@buildProfileID"
 		],
-		"valueClass": "non-empty",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: build profiles as part of the app Nova holds. HQ builds each profile with its own `langs` (`app_strings.py::_create_custom_app_strings`, `ApplicationBase.get_build_langs`) and an update never writes the key, so a language Nova adds joins no profile, and a publish stops where a profile names a language the app no longer has (`hq_build_profile_language_missing`)",
-		"subject": "build-profiles",
-		"owner": "settings-nova-comes-to-own",
+		"valueClass": "nonempty-ordered-language-subset",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: each named installation has a stable Nova UUID, an ordered language subset and a practice-worker requirement. The destination holds its profile key and practice worker.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "Complete profile map on create, verified Language Profiles edit on update",
+			"markers": []
 		},
-		"gates": ["privilege/build_profiles"]
+		"gates": [
+			"privilege/build_profiles",
+			"privilege/practice_mobile_workers",
+			"build-version/supports_practice_users",
+			"toggle/MOBILE_USER_DEMO_MODE"
+		],
+		"slotChanges": []
+	},
+	{
+		"id": "application-and-settings/build-profiles-invalid-language-subset",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "An installation profile with no default language, a repeated language or a language outside its app",
+		"surfaceKeys": [
+			"schema:Application.build_profiles",
+			"schema:BuildProfile",
+			"schema:BuildProfile.doc_type",
+			"schema:BuildProfile.langs",
+			"schema:BuildProfile.name",
+			"schema:BuildProfile.practice_mobile_worker_id",
+			"parser:ProfileParser/profile@buildProfileID"
+		],
+		"valueClass": "empty-repeated-or-unknown-profile-language",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: a build needs a default language and the Language Profiles editor offers an app language once.",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"subject": "build-profiles",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "get_build_langs returns the empty list and the build takes its first language"
+			},
+			{
+				"kind": "not-hq-editable",
+				"named": "language_profiles.js takes the selection from the app language options"
+			}
+		]
 	},
 	{
 		"id": "application-and-settings/archived-media",

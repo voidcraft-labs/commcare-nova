@@ -3726,3 +3726,27 @@ available. Web Apps submits no automatic fix. Nova Preview and app tests accept
 a simulated fix and return the committed submission location separately from
 question answers. These behaviors originate in HQ’s `FormBase.get_auto_gps_capture`
 and `XForm._add_meta_2`, and Android’s `PollSensorController`.
+
+### Searches supplied by a project space
+
+A menu can ask an external search in a CommCare HQ project space for matches.
+The app names that dependency once and menus reuse its identity. Visible or
+hidden answers and ordered named values describe the request. Result details
+and expressions describe which fields the app reads. A result needs a case ID
+for the worker to claim it. A returned field whose type is unknown is text.
+
+The destination owns the service ID, configuration and data. An import from
+HQ associates the observed ID with its source project space. Reviewing later
+HQ edits compares the two saved source definitions and the proposed local
+binding. On another destination a contributor chooses the ID. Direct publish,
+manual import files and Android packages check the destination's capability
+before writing or generating the artifact. The ledger fences the intended
+binding at each dispatch. A change to the query behind the same remote ID
+takes effect for installed apps and leaves the app's own source unchanged.
+
+HQ runs either its active Elasticsearch search or active ProjectDB query.
+Elasticsearch results can carry real case index edges. ProjectDB columns are
+text children, including a column named `index`. Inline selection under a
+parent still needs a real edge. Ordinary selection uses the returned case
+elements. Preview and App Tests show the prompts and explain where the search
+runs. They leave the actual search and claim to the connected project space.

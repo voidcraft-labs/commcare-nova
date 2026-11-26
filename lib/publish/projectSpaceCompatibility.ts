@@ -18,6 +18,7 @@ export type ProjectSpaceCapabilityId =
 	| "commcare-connect"
 	| "attachment-links"
 	| "registration-after-empty-search"
+	| "project-search"
 	| "multi-select-case-lists"
 	| "related-case-search"
 	| "case-tiles"
@@ -77,6 +78,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Forms offered on a case list",
 		description:
 			"Lets a case list offer a form for its selected parent or a registration form when a search finds no matches.",
+	},
+	"project-search": {
+		id: "project-search",
+		label: "Search supplied by the project space",
+		description:
+			"Lets workers search using a service managed by this project space.",
 	},
 	"multi-select-case-lists": {
 		id: "multi-select-case-lists",
@@ -465,6 +472,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"commcare-connect",
 	"attachment-links",
 	"registration-after-empty-search",
+	"project-search",
 	"multi-select-case-lists",
 	"related-case-search",
 	"case-tiles",

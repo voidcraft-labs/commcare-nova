@@ -1,3 +1,4 @@
+import { getLanguagesTool } from "../lib/agent/tools/localization";
 import { readSourceTool } from "../lib/agent/tools/media/readSource";
 import {
 	editWorkerGroupTool,
@@ -78,6 +79,7 @@ import { getCaseOperationsTool } from "../lib/agent/tools/case-operations/getCas
 import { moveCaseOperationTool } from "../lib/agent/tools/case-operations/moveCaseOperation";
 import { removeCaseOperationTool } from "../lib/agent/tools/case-operations/removeCaseOperation";
 import { updateCaseOperationTool } from "../lib/agent/tools/case-operations/updateCaseOperation";
+import { configureProjectSearchTool } from "../lib/agent/tools/case-search-config/configureProjectSearch";
 import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import { updateCasePropertyTool } from "../lib/agent/tools/caseProperties";
@@ -466,6 +468,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 			"Use reorderSearchInputs with moduleUuid 11111111-1111-4111-8111-111111111111 and searchInputUuids [44444444-4444-4444-8444-444444444444, 33333333-3333-4333-8333-333333333333].",
 	},
 	{
+		name: "configureProjectSearch",
+		description: configureProjectSearchTool.description,
+		schema: configureProjectSearchTool.inputSchema,
+		prompt:
+			"Choose an existing project search with UUID 22222222-2222-4222-8222-222222222222 for module 11111111-1111-4111-8111-111111111111. It sends region as the fixed text north. Keep existing field matching.",
+	},
+	{
 		name: "setCaseSearchAdvanced",
 		description: setCaseSearchAdvancedTool.description,
 		schema: setCaseSearchAdvancedTool.inputSchema,
@@ -525,6 +534,12 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: generateSchemaTool.inputSchema,
 		prompt:
 			"Use generateSchema to record one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
+	},
+	{
+		name: "getLanguages",
+		description: getLanguagesTool.description,
+		schema: getLanguagesTool.inputSchema,
+		prompt: "Use getLanguages to read the first page of named installations.",
 	},
 	{
 		name: "updateApp",

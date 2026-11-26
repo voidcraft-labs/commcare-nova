@@ -25,6 +25,8 @@
 	"hq-plain",
 	"hq-project-languages",
 	"hq-question-display",
+	"hq-project-database-search",
+	"hq-project-search",
 	"hq-questions",
 	"hq-runtime-name-tables",
 	"hq-saved-pages",

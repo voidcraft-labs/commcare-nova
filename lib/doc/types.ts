@@ -368,6 +368,10 @@ function caseSearchConfigPatchSchemaFor(
 ) {
 	return z
 		.strictObject({
+			projectSearch: z.strictObject({
+				before: configSchema.shape.projectSearch.unwrap().nullable(),
+				after: configSchema.shape.projectSearch.unwrap().nullable(),
+			}),
 			excludedOwnerIds: configSchema.shape.excludedOwnerIds.nullable(),
 			searchScreenTitle: configSchema.shape.searchScreenTitle.nullable(),
 			searchScreenSubtitle: configSchema.shape.searchScreenSubtitle.nullable(),

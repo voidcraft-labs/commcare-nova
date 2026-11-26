@@ -306,6 +306,7 @@
 	"hq-new-app": [
 		"hq-new-app/admin-password",
 		"hq-new-app/build-profile",
+		"hq-new-app/build-profile-no-languages",
 		"hq-new-app/build-spec-below-the-floor",
 		"hq-new-app/case-sharing",
 		"hq-new-app/grid-form-menus",
@@ -363,6 +364,8 @@
 	],
 	"hq-project-languages": [],
 	"hq-question-display": [],
+	"hq-project-database-search": [],
+	"hq-project-search": [],
 	"hq-questions": [
 		"hq-questions/action-inside-control",
 		"hq-questions/android-answer-name",

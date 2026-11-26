@@ -4,6 +4,7 @@ import {
 	type ExpressionContext,
 	pushRowScope,
 	type RowScope,
+	readsProjectSearchResults,
 	withFormContextNode,
 } from "@/lib/domain/expression/context";
 import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
@@ -288,6 +289,13 @@ function rowValue(
 		);
 	const tail = steps.slice(1);
 	if (row.kind === "case") {
+		if (
+			row.root !== "casedb" &&
+			readsProjectSearchResults(context) &&
+			!named.attribute &&
+			tail.length === 0
+		)
+			return { kind: "search-result-field", name: named.name };
 		if (named.attribute && !CASE_NODE_ATTRIBUTE_PROPERTIES.has(named.name))
 			refuse(
 				"case-row-attribute",
@@ -426,7 +434,7 @@ function rowValue(
 /** The case type of the search whose results the slot's entry holds. */
 function searchedCaseType(context: ExpressionContext): string | undefined {
 	const searched = context.supplies.searchResults;
-	return searched === undefined
+	return searched === undefined || readsProjectSearchResults(context)
 		? undefined
 		: context.facts.moduleCaseTypes.get(searched.module);
 }
@@ -683,7 +691,7 @@ function instancePath(
 				`The records in ${id} are at instance('${id}')/${id === "casedb" ? "casedb" : "results"}/case.`,
 			);
 		predicates = rowsStep.where;
-		if (id === "results:inline") {
+		if (id === "results:inline" && !readsProjectSearchResults(context)) {
 			const guard = predicates[0];
 			const expected =
 				guard?.kind === "call" &&

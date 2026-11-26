@@ -355,7 +355,11 @@ export function applyModuleMutation(
 									}
 								: mod.caseSearchConfig;
 					const targetSearch = fresh as unknown as Record<string, unknown>;
-					for (const [slot, next] of entries) {
+					for (const [slot, value] of entries) {
+						const next =
+							slot === "projectSearch"
+								? mut.caseSearchConfigPatch.projectSearch?.after
+								: value;
 						if (next === null || next === undefined) delete targetSearch[slot];
 						else targetSearch[slot] = structuredClone(next);
 					}

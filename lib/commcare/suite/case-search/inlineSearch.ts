@@ -90,6 +90,7 @@ export function inlineSearchQueryMetadata(
  */
 export function buildInlineSearch(args: {
 	readonly module: Module;
+	readonly projectSearchId?: number;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
 	readonly expressions: ModuleExpressionContexts;
@@ -111,6 +112,7 @@ export function buildInlineSearch(args: {
 		expressions: args.expressions,
 		lookupNaming: args.lookupNaming,
 		runtimeTarget: args.runtimeTarget,
+		projectSearchId: args.projectSearchId,
 		ancestorCaseType: args.ancestorCaseType,
 		...(args.datumId === undefined ? {} : { datumId: args.datumId }),
 	});

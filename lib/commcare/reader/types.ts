@@ -25,7 +25,11 @@ import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
 import type { HqLocationType } from "../hq/locations";
-import type { ColumnFieldWordRow } from "../wireIdentity";
+import type {
+	ColumnFieldWordRow,
+	InstallationProfileBinding,
+	ProjectSearchBinding,
+} from "../wireIdentity";
 import type { WorkKind } from "../workMeter";
 import type { GeneratedNodePurpose } from "../xform/generatedNodes";
 import type {
@@ -87,6 +91,7 @@ export interface ReaderInput {
 	readonly appStrings: (
 		doc: BlueprintDoc,
 		columnWords: readonly ColumnFieldWordRow[],
+		projectSearches?: readonly ProjectSearchBinding[],
 	) => AppStringTable | null;
 	/** Whether the record dialect prints a tree and reads it back. Pure. */
 	readonly recordDialect: RecordDialectJudge;
@@ -112,6 +117,8 @@ export interface ReaderInput {
 		Uuid,
 		ReadonlyMap<string, string>
 	>;
+	/** Names people gave their logical searches. HQ carries only the destination id. */
+	readonly knownProjectSearchNames?: BlueprintDoc["appSettings"]["projectSearches"];
 	/** What Nova already holds about this app's languages that no export carries: the language
 	 *  each CommCare HQ code it published names, from the held document's `localization.wireCodes`
 	 *  (`languages.ts::knownLanguageCodesOf`). A code it holds is read as that language whatever
@@ -247,6 +254,7 @@ export type ReadOutcome =
 
 /** What the reader minted for the menus and forms the document holds. */
 export interface ReadMenuAndFormIdentities {
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	/** Every menu of HQ's app the document holds, a folded hidden menu under its synthetic UUID. */
 	readonly modules: readonly {
 		readonly uuid: Uuid;
@@ -278,6 +286,7 @@ export interface ReadMenuAndFormIdentities {
 	 *  HQ's build names the column's app strings by. A column the source holds on both screens
 	 *  has a row for each. */
 	readonly columnFieldWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
 }
 
 export interface ReadDraft {

@@ -11,6 +11,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import { ownedFormSelections } from "@/lib/domain/formEntryCases";
+import { projectSearchOf } from "@/lib/domain/modules";
 import { assertNever } from "@/lib/utils/assertNever";
 
 export interface MutationIdentityAdmissionIssue {
@@ -21,11 +22,26 @@ export interface MutationIdentityAdmissionIssue {
 	readonly incomingKind: BlueprintAuthoredIdentityKind;
 }
 
+function projectSearchParameterClaims(
+	moduleUuid: Uuid,
+	parameters: readonly { uuid: Uuid }[],
+) {
+	return parameters.map(({ uuid }) => ({
+		uuid,
+		kind: "projectSearchParameter" as const,
+		ownerUuid: moduleUuid,
+	}));
+}
+
 function nestedModuleIdentities(
 	module: Extract<Mutation, { kind: "addModule" }>["module"],
 ): BlueprintAuthoredIdentity[] {
 	return [
 		{ uuid: module.uuid, kind: "module" },
+		...projectSearchParameterClaims(
+			module.uuid,
+			projectSearchOf(module)?.defaults ?? [],
+		),
 		...[
 			module.entryPoint,
 			module.caseListEntryPoint,
@@ -299,6 +315,22 @@ function ownedIdentityReplacementBy(
 				),
 			};
 		}
+		case "updateModule": {
+			if (
+				!mutation.caseSearchConfigPatch ||
+				!Object.hasOwn(mutation.caseSearchConfigPatch, "projectSearch")
+			)
+				return undefined;
+			return {
+				kind: "projectSearchParameter",
+				ownerUuid: mutation.uuid,
+				retainedUuids: new Set(
+					mutation.caseSearchConfigPatch.projectSearch?.after?.defaults.map(
+						(p) => p.uuid,
+					),
+				),
+			};
+		}
 		case "setAutomationSchedule":
 			return {
 				kind: "automationEvent",
@@ -350,6 +382,28 @@ function createClaims(
 
 function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 	switch (mutation.kind) {
+		case "setAppSettings": {
+			const search = mutation.settings.projectSearch;
+			const profile = mutation.settings.installationProfile;
+			return createClaims([
+				...(search?.operation === "add"
+					? [{ uuid: search.uuid, kind: "projectSearch" as const }]
+					: []),
+				...(profile?.operation === "add"
+					? [
+							{
+								uuid: profile.profile.uuid,
+								kind: "installationProfile" as const,
+							},
+						]
+					: []),
+			]);
+		}
+		case "updateModule":
+			return projectSearchParameterClaims(
+				mutation.uuid,
+				mutation.caseSearchConfigPatch?.projectSearch?.after?.defaults ?? [],
+			).map((identity) => ({ identity, preserveIfOwnedBy: mutation.uuid }));
 		case "addEntryPoint":
 			return createClaims([
 				{
@@ -537,7 +591,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "removeModule":
 		case "moveModule":
 		case "renameModule":
-		case "updateModule":
 		case "setModuleMedia":
 		case "setCaseListMenuItem":
 		case "removeForm":
@@ -575,7 +628,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setAppName":
 		case "setConnectRoles":
 		case "setAppLogo":
-		case "setAppSettings":
 		case "relabelSourceLanguage":
 		case "addLanguage":
 		case "removeLanguage":

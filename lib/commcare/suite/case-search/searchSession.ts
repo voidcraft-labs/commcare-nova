@@ -39,6 +39,11 @@ import type { LookupWireNaming } from "../../lookup/naming";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
 import { SEARCH_SELECTED_CASES_ID } from "./claim";
 import { emitSearchRequestValue, searchRequestKey } from "./nativeFilters";
+import {
+	projectSearchResults,
+	projectSearchValues,
+	requiredProjectSearchId,
+} from "./projectSearch";
 import { searchNeedsSupportingCases } from "./relatedCaseProjection";
 import { requestOrderText } from "./requestOrder";
 import { buildSearchPrompts } from "./searchPrompts";
@@ -121,6 +126,7 @@ export interface SearchQueryEmission {
 }
 
 export interface SearchQueryArgs {
+	readonly projectSearchId?: number;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly caseListConfig: CaseListConfig;
 	readonly caseSearchConfig: OrdinaryCaseSearchConfig;
@@ -164,7 +170,9 @@ export function buildSearchSession(
 	// (`m{N}_search_short` / `m{N}_search_long`) — distinct from the
 	// `m{N}_case_short` / `m{N}_case_long` ids the local case-list
 	// entry uses.
-	const datumNodeset = composeDatumNodeset(storageInstance, caseType);
+	const datumNodeset = args.caseSearchConfig.projectSearch
+		? projectSearchResults(storageInstance)
+		: composeDatumNodeset(storageInstance, caseType);
 	const selection = caseListConfig.selection;
 	const multiple = selection?.kind === "multiple";
 	const datumEl = xel(
@@ -278,15 +286,20 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// would resolve to the empty string at evaluation time AND silently
 	// add a server-side property filter against case data that matches
 	// no cases.
-	const xpathQueryEmission = composeXPathQueryEmission(
-		caseListConfig,
-		caseType,
-		args.expressions,
-		args.lookupNaming,
-		searchInputInstanceId(wire),
-		args.datumId,
-	);
-	for (const filter of caseListConfig.searchFilters ?? []) {
+	const projectSearch = caseSearchConfig.projectSearch;
+	const xpathQueryEmission = projectSearch
+		? undefined
+		: composeXPathQueryEmission(
+				caseListConfig,
+				caseType,
+				args.expressions,
+				args.lookupNaming,
+				searchInputInstanceId(wire),
+				args.datumId,
+			);
+	for (const filter of projectSearch
+		? []
+		: (caseListConfig.searchFilters ?? [])) {
 		// The dedicated owner exclusion goes out after the default filters,
 		// where HQ writes `blacklisted_owner_ids_expression`.
 		if (isDedicatedOwnerFilter(filter)) continue;
@@ -311,15 +324,23 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	}
 	// A search with no input and no clause sends the zero-input sentinel,
 	// as HQ's build of the same search does.
-	for (const value of xpathQueryRequestValues(
-		caseListConfig,
-		xpathQueryEmission,
-	)) {
+	const parameters = projectSearch
+		? projectSearchValues(
+				projectSearch,
+				args.expressions,
+				args.lookupNaming,
+				searchInputInstanceId(wire),
+				args.datumId,
+			)
+		: xpathQueryRequestValues(caseListConfig, xpathQueryEmission).map(
+				(value) => ({ name: XPATH_QUERY_KEY, value }),
+			);
+	for (const { name, value } of parameters) {
 		dataElements.push(
 			xel(
 				"data",
 				{
-					attributes: { key: XPATH_QUERY_KEY },
+					attributes: { key: name },
 					xpath: { ref: value },
 				},
 				context,
@@ -381,7 +402,10 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		);
 	}
 
-	if (searchNeedsSupportingCases(caseListConfig, args.expressions)) {
+	if (
+		!projectSearch &&
+		searchNeedsSupportingCases(caseListConfig, args.expressions)
+	) {
 		dataElements.push(
 			xel(
 				"data",
@@ -404,6 +428,21 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 					attributes: { key: "commcare_sort" },
 					xpath: {
 						ref: w.str(requestOrderText(caseSearchConfig.requestOrder)),
+					},
+				},
+				context,
+			),
+		);
+	}
+
+	if (projectSearch) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: "x_commcare_endpoint_id" },
+					xpath: {
+						ref: w.str(String(requiredProjectSearchId(args.projectSearchId))),
 					},
 				},
 				context,

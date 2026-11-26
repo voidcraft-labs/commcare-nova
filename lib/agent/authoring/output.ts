@@ -617,6 +617,7 @@ const readProjectors: {
 				(field) =>
 					field.kind !== "hidden" &&
 					field.type === "date-range" &&
+					"default" in field &&
 					fixedSearchRangeDates(field.default),
 			)
 		) {
@@ -626,6 +627,7 @@ const readProjectors: {
 				const dates =
 					input.kind !== "hidden" &&
 					input.type === "date-range" &&
+					"default" in input &&
 					fixedSearchRangeDates(input.default);
 				return dates ? { ...field, default: dates } : field;
 			});

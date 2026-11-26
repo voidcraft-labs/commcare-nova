@@ -118,6 +118,7 @@ import {
 } from "./caseManagement/saveToCase";
 import { account, defineClaims, derived, refuse, take } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
+import { readProjectSearchBindings } from "./context";
 import { readerDefect } from "./defects";
 import {
 	classifyGeneratedTranslationKeys,
@@ -134,6 +135,7 @@ import {
 	unheldRefusal,
 	unheldText,
 } from "./heldText";
+import { readInstallationBindings } from "./installationBindings";
 import { isJsonObject, pointerToken, sameJson } from "./jsonCursor";
 import { resourcedDocument, sourceLanguageAsRead } from "./languages";
 import {
@@ -1735,6 +1737,7 @@ function decideGeneratedKeys(
 	const table = ctx.input.appStrings(
 		underProposedDeclaration(doc, declaration),
 		columnFieldWordsRead(ctx, doc),
+		readProjectSearchBindings(ctx),
 	);
 	if (table === null) {
 		const first = [...findings].sort((a, b) => placeOrder(a.place, b.place))[0];
@@ -2321,7 +2324,13 @@ export function* assembleDocumentSteps(
 				})),
 			),
 			keyedCreates: keyedCreatesRead(ctx, doc),
+			...(ctx.input.source.buildProfiles.length > 0 && {
+				installationProfiles: readInstallationBindings(ctx),
+			}),
 			columnFieldWords: columnFieldWordsRead(ctx, doc),
+			...(ctx.draft.projectSearches.size && {
+				projectSearches: readProjectSearchBindings(ctx),
+			}),
 			entries: ctx.identities.entries(),
 		},
 		declaration,

@@ -961,3 +961,16 @@ The capability holds only while all of the following remain true:
   names and behavior;
 - provider schema validation and live translation-quality evaluation run only
   after fresh approval because they spend money.
+
+
+## Installation profiles
+
+Each named installation in `appSettings.installationProfiles` has a UUID, a display name, an ordered nonempty subset of the app’s language identities and a practice-worker requirement. The first selected language opens on installation. An app language can be removed once every profile that uses it has been edited. Adding a language to the app leaves existing installations as authored. The installation with all app languages follows the app’s language order.
+
+Builder Languages, the Solutions Architect and MCP commit granular profile changes through the same document mutation. Preview uses the selected profile as a language lens. Device export chooses the same locale list for the suite, app strings and XForm translations. A portable device archive uses the existing translation fallback for the full source document. A profile requiring a private restore directs the user to the released installation in its own project space. The deployment identity ledger holds that space’s profile key and practice-worker account.
+
+A signed review of HQ changes resolves a profile through the destination ledger, including an HQ-assigned key that differs from Nova’s derivation. The review compares both language definitions and the project-space worker, including when only the worker changed. An older acknowledged baseline with profiles missing from Nova offers them for adoption even when the source is identical. When HQ deletes a bound key, only a person’s selection of an exact replacement in the same authorized project space can move its existing Nova UUID. The replacement receives its own practice-worker evidence. A manual HQ import lists each installation that needs a destination worker in its accompanying guide.
+
+Changing the only app language’s identity changes that identity in every named installation in the same accepted mutation. The UUID and its deployment binding stay with the installation. A signed HQ change review names each old and new installation, ordered languages, initial language and the destination’s practice worker. A worker-only change still requires the person’s explicit decision. The fresh review digest holds the actor, project, app, target mapping generation and complete before-and-after profile rows. The baseline records an accepted digest with the actor and app revision under the write lock. If an unrelated app edit obsoletes a publish review, the person can still select an existing HQ row by its exact key. No matching worker can move from another destination.
+
+Named installations store the ordered subset of app language tags. Their visual controls derive human names through the language registry, including qualified identities and the lazily loaded long tail. The shared app overview reports their count. A scoped read of `getLanguages` (`get_languages`) with `installations: {}` returns UUIDs, names, ordered structured language identities, and practice requirements. A cursor continues that inventory; an unusually long definition spans consecutive lossless parts. `updateApp` accepts those same language identities when creating or changing an installation.

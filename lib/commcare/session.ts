@@ -62,6 +62,7 @@ import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,
 } from "./suite/case-list/nodesetFilter";
+import { projectSearchResults } from "./suite/case-search/projectSearch";
 import type { FormActions, OpenSubCaseAction } from "./types";
 import {
 	USERCASE_DATUM_ID,
@@ -525,6 +526,7 @@ function sessionRef(datumId: string): WireExpr {
  * every step in a parent-select chain, while the flat helper below keeps the
  * historical single-`case_id` default. */
 export function deriveCaseSelectionDatum(args: {
+	readonly projectSearchResults?: boolean;
 	readonly id: string;
 	readonly caseType: string;
 	readonly moduleIndex: number;
@@ -579,22 +581,24 @@ export function deriveCaseSelectionDatum(args: {
 		};
 	const inline = args.caseSource === "results:inline";
 	const build = (datumId: typeof args.datumId): WireExpr =>
-		inline
-			? inlineSearchNodeset(
-					args.caseType,
-					args.caseListFilter,
-					args.expressions,
-					args.lookupNaming,
-					datumId,
-				)
-			: caseLoadingNodeset(
-					args.caseType,
-					args.caseListFilter,
-					args.excludedOwnerIds,
-					args.expressions,
-					args.lookupNaming,
-					datumId,
-				);
+		inline && args.projectSearchResults
+			? projectSearchResults("results:inline")
+			: inline
+				? inlineSearchNodeset(
+						args.caseType,
+						args.caseListFilter,
+						args.expressions,
+						args.lookupNaming,
+						datumId,
+					)
+				: caseLoadingNodeset(
+						args.caseType,
+						args.caseListFilter,
+						args.excludedOwnerIds,
+						args.expressions,
+						args.lookupNaming,
+						datumId,
+					);
 	/* The nodeset depends on nothing but the ids its chosen cases resolve to,
 	 * so a render whose every resolved id is unchanged (each
 	 * `refreshDatumReferences` pass that renames nothing it reads) reuses the

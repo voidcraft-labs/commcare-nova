@@ -52,7 +52,7 @@ def archive_bytes(entries) -> bytes:
     return _zipped(entries)
 
 
-def release_archive(served) -> bytes:
+def release_archive(served, *, profile_key=None) -> bytes:
     """The released build of a served state as HQ's archive download hands it with the app's multimedia
     (``hqmedia/views.py::iter_app_files``, index files and multimedia both)."""
     from corehq.apps.hqmedia.views import iter_app_files
@@ -61,7 +61,7 @@ def release_archive(served) -> bytes:
     from proof.observe.build import ArrangementRefused, _bytes
 
     build = operations.held_app(served.unit, served.build_id)
-    entries, errors, _ = iter_app_files(build, True, True, build_profile_id=None)
+    entries, errors, _ = iter_app_files(build, True, True, build_profile_id=profile_key)
     # HQ's media errors are complete only once its iterator is exhausted (iter_media_files).
     entries = [(name, _bytes(content)) for name, content in entries]
     if errors:
@@ -189,6 +189,7 @@ def app(
     served,
     blobs,
     *,
+    installation_languages=None,
     label: str,
     archive: bytes,
     delivered: bool = False,
@@ -246,7 +247,7 @@ def app(
         "answers": answers,
         "queryAnswer": QUERY_ANSWER,
         "device": device,
-        "languages": walks.chosen(served.languages),
+        "languages": walks.chosen(served.languages if installation_languages is None else installation_languages),
     }
     if fix != LANE_FIX:
         options["position"] = fix

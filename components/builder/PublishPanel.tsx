@@ -89,6 +89,7 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
  * where, so the toast shows those lines rather than a generic "failed".
  */
 async function downloadArtifact(opts: {
+	installationProfileUuid?: string;
 	appId: string;
 	server?: CommCareServer;
 	/** The project space a CCZ is made for; the import file takes none. */
@@ -115,6 +116,9 @@ async function downloadArtifact(opts: {
 			// project space.
 			body: JSON.stringify({
 				appId: opts.appId,
+				...(opts.installationProfileUuid && {
+					installationProfileUuid: opts.installationProfileUuid,
+				}),
 				...(opts.server ? { server: opts.server } : {}),
 				...(opts.domain ? { domain: opts.domain } : {}),
 				...(opts.privateData && { privateData: true }),
@@ -328,6 +332,7 @@ export const PublishPanel = memo(function PublishPanel() {
 
 	const handleDownloadCcz = useCallback(
 		async (target: {
+			readonly installationProfileUuid?: string;
 			readonly server: CommCareServer;
 			readonly domain: string;
 		}): Promise<PublishDownloadOutcome> => {
@@ -340,6 +345,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				appId: s.appId,
 				server: target.server,
 				domain: target.domain,
+				installationProfileUuid: target.installationProfileUuid,
 				endpoint: "/api/compile",
 				fileLabel: "the .ccz file",
 				filename: `${s.appName || "app"}.ccz`,
@@ -351,14 +357,16 @@ export const PublishPanel = memo(function PublishPanel() {
 	const handleDownloadJson = useCallback(
 		async (
 			downloadServer?: CommCareServer,
-			privateDomain?: string,
+			domain?: string,
+			privateData?: boolean,
 		): Promise<PublishDownloadOutcome> => {
 			const s = docStore?.getState();
 			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
 			return runDownload({
 				appId: s.appId,
 				server: downloadServer,
-				...(privateDomain && { domain: privateDomain, privateData: true }),
+				domain,
+				...(privateData && { privateData: true }),
 				endpoint: "/api/compile/json",
 				fileLabel: "the CommCare HQ import file",
 				// The import file is always a ZIP: the app, its companions, and the

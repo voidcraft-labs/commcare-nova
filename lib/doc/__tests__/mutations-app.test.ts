@@ -323,6 +323,41 @@ describe("language and translation commits", () => {
 			proseText("Nombre del paciente"),
 		);
 	});
+	it("relabels the source and each named installation atomically without changing their identities", () => {
+		const uuid = testUuid("installation"),
+			other = testUuid("training-installation");
+		const doc = fixture();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Field visits",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+			[other]: {
+				uuid: other,
+				name: "Training",
+				languages: ["eng"],
+				requiresPracticeWorker: true,
+			},
+		};
+		const next = commit(doc, [
+			{
+				kind: "relabelSourceLanguage",
+				language: { language: "fra" },
+				wireCode: "fra",
+			},
+		]);
+		expect(next.appSettings.installationProfiles).toEqual(
+			Object.fromEntries(
+				Object.entries(doc.appSettings.installationProfiles).map(
+					([key, profile]) => [key, { ...profile, languages: ["fra"] }],
+				),
+			),
+		);
+		expect(next.localization?.languageOrder).toEqual(["fra"]);
+	});
+
 	it("relabels a single source and dematerializes the English-only result", () => {
 		const french = commit(fixture(), [
 			{

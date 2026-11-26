@@ -1585,32 +1585,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		searchConfig,
 		tab,
 	]);
-	const addInput = (property: CaseProperty) => {
-		// The canvas owns the meaningful choice. This layer carries it into a
-		// working input with a unique internal name, a matching widget, and the
-		// established per-type match default.
-		const seed = seedSearchInputForProperty(config, property, projectProse);
-		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
-		const outcome = commitMany(
-			withWorkflowAfterInputChange(docApi.getState(), [
-				enableCaseSearchMutation(retainedModuleUuid, searchConfig),
-				{
-					kind: "addSearchInput",
-					moduleUuid: retainedModuleUuid,
-					searchInput: seed,
-				},
-			]),
-		);
-		// Never select an identity the gate refused to create. The gate can still
-		// reject a concurrent structural edit even though the seed was valid when
-		// this interaction began.
-		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
-	};
-	const addHiddenInput = () => {
-		// A hidden value names no case information, so there is nothing to
-		// choose first: the seed is the search time, and the inspector opens on
-		// its expression.
-		const seed = seedHiddenSearchInput(config);
+	const insertSearchField = (seed: SearchInputDef) => {
 		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
 		const outcome = commitMany(
 			withWorkflowAfterInputChange(docApi.getState(), [
@@ -1623,7 +1598,22 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			]),
 		);
 		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
+		return outcome.ok;
 	};
+	const addInput = (property: CaseProperty) =>
+		insertSearchField(
+			seedSearchInputForProperty(config, property, projectProse),
+		);
+	const addParameterInput = (name: string, label: string) =>
+		insertSearchField({
+			kind: "parameter",
+			uuid: newUuid(),
+			name,
+			label,
+			type: "text",
+			sendAnswer: true,
+		});
+	const addHiddenInput = () => insertSearchField(seedHiddenSearchInput(config));
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
 		moveSearchInputToIndex(
 			requireRetainedModuleUuid(moduleUuid),
@@ -2348,6 +2338,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		resultsDependencyReview,
 		configureSearchAction,
 		addInput,
+		addParameterInput,
 		addHiddenInput,
 		moveInput,
 		addColumn,
@@ -2581,6 +2572,7 @@ export function CaseListWorkspaceCanvas() {
 		resultsDependencyReview,
 		configureSearchAction,
 		addInput,
+		addParameterInput,
 		addHiddenInput,
 		moveInput,
 		addColumn,
@@ -2655,6 +2647,7 @@ export function CaseListWorkspaceCanvas() {
 								onSelect={setSel}
 								onConfigureSearchAction={configureSearchAction}
 								onAddInput={addInput}
+								onAddParameterInput={addParameterInput}
 								onAddHiddenInput={addHiddenInput}
 								addInputDisabledReason={addDisabledReason}
 								{...(formsAboveSearchNote !== undefined && {

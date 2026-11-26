@@ -1268,6 +1268,7 @@ function termEdges(
 		case "session-context":
 		case "table-column":
 		case "literal":
+		case "search-result-field":
 		case "case-row-type":
 			return;
 		default: {

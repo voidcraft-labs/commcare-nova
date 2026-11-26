@@ -96,6 +96,9 @@ import {
 	hqChangesQuestions,
 	hqChangesResave,
 } from "./documents/hqChanges";
+import { hqChangesCaseFormats } from "./documents/hqChangesCaseFormats";
+import { hqChangesCaseImage } from "./documents/hqChangesCaseImage";
+import { hqChangesCaseTabs } from "./documents/hqChangesCaseTabs";
 import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideOwned } from "./documents/hqSideOwned";
 import { hqSideState } from "./documents/hqSideState";
@@ -140,6 +143,7 @@ import { previewAndroidRenders } from "./documents/previewAndroidRenders";
 import { proseValue } from "./documents/proseValue";
 import { qualifiedLookupValues } from "./documents/qualifiedLookupValues";
 import { questionCalendar } from "./documents/questionCalendar";
+import { reachedChoiceColumns } from "./documents/reachedChoiceColumns";
 import {
 	registerFromCaseList,
 	registerFromCaseListWebApps,
@@ -346,6 +350,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchNoTitle,
 	choiceValueColumns,
 	caseMap,
+	reachedChoiceColumns,
 	relativeCaseDates,
 	sortBlanks,
 	sortLabels,
@@ -366,6 +371,9 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hqChangesQuestions,
 	hqChangesFormSetting,
 	hqChangesCaseManagement,
+	hqChangesCaseFormats,
+	hqChangesCaseImage,
+	hqChangesCaseTabs,
 	hqChangesMenu,
 	hqChangesMenuLayouts,
 	hqChangesForms,

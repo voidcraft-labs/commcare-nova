@@ -5,6 +5,7 @@ import {
 	fieldKindDeclaresKey,
 } from "@/lib/domain";
 import type { ChoiceLayout } from "@/lib/domain/choicePresentation";
+import { questionReceiverProperty } from "@/lib/domain/questionDisplay";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 import type { DisplaySettings } from "./appearance";
@@ -349,7 +350,7 @@ function settingsReadAt(kind: FieldKind, value: string): DisplaySettings {
 		if (receiver && usable)
 			settings.receiveFrom = {
 				channel: receiver[1],
-				field: receiver[2] === "indexed" ? "filename" : receiver[2],
+				field: questionReceiverProperty(receiver[2]),
 			};
 	}
 	return settings;
@@ -397,6 +398,11 @@ export function fieldDisplayProblem(field: Field): string | undefined {
 	const held = Object.fromEntries(
 		active.map((option) => [option.key, Reflect.get(field, option.key)]),
 	);
+	if ("receiveFrom" in field && field.receiveFrom)
+		held.receiveFrom = {
+			...field.receiveFrom,
+			field: questionReceiverProperty(field.receiveFrom.field),
+		};
 	if (field.kind === "group" && field.fieldList) held.fieldList = true;
 	const asksForConfirmation =
 		field.kind === "label" && field.askForConfirmation === true;

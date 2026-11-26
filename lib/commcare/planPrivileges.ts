@@ -43,12 +43,11 @@ import {
 import { fieldTakesCaseChoices } from "./caseOptions";
 import { planFormCaseWire } from "./casePlacementPlan";
 import { formConnectActivities } from "./connectSlugs";
-import { expandDoc } from "./expander";
+import { expandedFormSources } from "./expander";
 import { formLinkProjectionContext } from "./formLinkProjection";
 import { formsReadingLocationsFixture } from "./locations/readsLocationsFixture";
 import type { LookupWireNaming } from "./lookup/naming";
 import { advancedModulesWithCaseListMenuItem } from "./moduleKind";
-import { DERIVED_WIRE_IDENTITY } from "./wireIdentity";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
 import { formEmitsSaveToCase } from "./xform/caseOps";
 import { formSourceHoldsSupplyPointText } from "./xform/supplyPointText";
@@ -68,6 +67,8 @@ export const HQ_PLAN_PRIVILEGE_IDS = [
 	"locked_admin_questions",
 	"app_dependencies",
 	"geocoder",
+	"build_profiles",
+	"practice_mobile_workers",
 ] as const;
 export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 
@@ -92,6 +93,8 @@ export interface PlanPrivilegePushes {
 	readonly lookupTables: boolean;
 	/** The publish sends at least one place. */
 	readonly places: boolean;
+	/** Existing installation profiles that need an authorized edit on this target. */
+	readonly hasTargetProfiles?: boolean;
 }
 
 /**
@@ -122,6 +125,8 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	locked_admin_questions: "locked-questions",
 	app_dependencies: "required-android-apps",
 	geocoder: "geocoder",
+	build_profiles: "installation-profiles",
+	practice_mobile_workers: "practice-workers",
 } as const satisfies Record<HqPlanPrivilegeId, PlanFeatureId>;
 
 /** A form named as every reason names it: its name, trimmed, or its id. */
@@ -462,6 +467,29 @@ export function requiredPlanPrivileges(
 					`${formName(doc, formUuid)} holds a question locked in CommCare HQ.`,
 			),
 	);
+
+	const profiles = Object.values(doc.appSettings.installationProfiles ?? {});
+	add(
+		"build_profiles",
+		profiles.length
+			? [
+					`Workers can choose from ${profiles.length} named installation${profiles.length === 1 ? "" : "s"}.`,
+				]
+			: pushes.hasTargetProfiles
+				? ["Update the named installations already on this project space."]
+				: [],
+	);
+	const practice = profiles.filter(
+		(profile) => profile.requiresPracticeWorker,
+	).length;
+	add(
+		"practice_mobile_workers",
+		practice
+			? [
+					`${practice} named installation${practice === 1 ? " uses" : "s use"} a practice worker from this project space.`,
+				]
+			: [],
+	);
 	return uses;
 }
 
@@ -576,13 +604,12 @@ export function commtrackReasons(
 	);
 	const forms = formsInOrder(doc);
 	if (forms.length === 0) return menuReasons;
-	const sources = expandDoc(doc, {
+	const sources = expandedFormSources(doc, {
 		...(lookupNaming !== undefined && { lookupNaming }),
 		attachmentTarget: null,
-	})._attachments;
+	});
 	const formReasons = forms.flatMap(({ formUuid }) => {
-		const source =
-			sources[`${DERIVED_WIRE_IDENTITY.formUniqueId(formUuid)}.xml`];
+		const source = sources.get(formUuid);
 		return source !== undefined && formSourceHoldsSupplyPointText(source)
 			? [
 					`${formName(doc, formUuid)} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`,

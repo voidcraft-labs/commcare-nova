@@ -550,6 +550,7 @@ export interface DefaultCaseSearchProperty<XPath = string> {
  */
 export interface CaseSearchConfig<XPath = string> {
 	doc_type: "CaseSearch";
+	case_search_endpoint_id?: number;
 	search_button_label: LocalizedString | Record<string, never>;
 	properties: CaseSearchProperty<XPath>[];
 	auto_launch: boolean;
@@ -843,6 +844,10 @@ export interface HqApplicationProfile {
  * result equals what HQ holds.
  */
 export interface HqApplication<XPath = string, LinkXPath = XPath> {
+	build_profiles?: Record<
+		string,
+		import("./installationProfiles").WireBuildProfile
+	>;
 	doc_type: "Application";
 	case_sharing?: boolean;
 	application_version: string;

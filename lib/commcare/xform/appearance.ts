@@ -6,6 +6,7 @@ import type { z } from "zod";
 import type { Field, FieldKind } from "@/lib/domain";
 import { isCaptureFieldKind } from "@/lib/domain";
 import type { ChoiceLayout } from "@/lib/domain/choicePresentation";
+import { questionReceiverProperty } from "@/lib/domain/questionDisplay";
 import type { displaySchemas } from "@/lib/domain/questionDisplaySchemas";
 import { UPLOAD_APPEARANCE_BY_CAPTURE_KIND } from "./captureUpload";
 import { writeChoiceLayout } from "./choiceAppearance";
@@ -115,7 +116,7 @@ export function writeFieldAppearance(
 		words.push(`broadcast-${topic}`);
 	if (settings.receiveFrom)
 		words.push(
-			`receive-${settings.receiveFrom.channel}-${settings.receiveFrom.field}`,
+			`receive-${settings.receiveFrom.channel}-${questionReceiverProperty(settings.receiveFrom.field)}`,
 		);
 	return words.length ? words.join(" ") : undefined;
 }

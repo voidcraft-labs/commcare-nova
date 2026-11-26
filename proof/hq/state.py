@@ -192,6 +192,10 @@ def open_unit(configuration: Configuration, *, root_key: bytes, validate=FORMPLA
             unit.publish(topic, change_meta.to_json())
 
         stack.enter_context(mock.patch.object(ChangeProducer, "send_change", send_change))
+        if {"PROJECT_DB", "CASE_SEARCH_ENDPOINTS"} <= configuration.flags:
+            from proof.hq.project_search_database import authored_visit_service
+
+            unit.project_visit_table = stack.enter_context(authored_visit_service(configuration.domain))
         stack.enter_context(unit.opened())
         _seed(unit, configuration)
         if validate is not None:

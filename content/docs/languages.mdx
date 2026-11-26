@@ -99,6 +99,16 @@ Switch to the worker's language in the Builder header to choose a translated fil
 
 An app brought in from CommCare HQ can use its default language's file when another language has none. If a form has a translated file but no entry for that type of media in its default language, CommCare cannot open the translation. Add the default file in HQ and bring in the app again. A blank media value beside another language’s file changes when HQ saves the form. Choosing the intended file for each language in HQ makes that app ready to bring in.
 
+## Choose the languages a team installs
+
+In **App setup → Languages → Installation profiles**, give your team’s profile a name. It starts with the app’s current languages. Choose the languages the team needs and use **Move up** to put the language workers should see first at the top. Languages you add to the app later stay outside this profile until you choose them.
+
+In Preview, open the worker language menu and choose the installation profile. You can switch between its languages just as your team can. **All app languages** uses the full app and its usual starting language.
+
+For an app that runs on Android, open **Publish → Mobile app file**, choose a published project space, then choose the installation profile or **All app languages**. A profile with a practice worker needs that project's data. Publish to the project space first. If Nova asks to check the worker, open the exact version in **Releases → Deploy → Download to Android → Offline Installation** in CommCare HQ. The first **Application Profile** is always the ordinary installation in every interface language. Choose the named profile below the first entry and download its **CommCare_vN.ccz**. Return to Nova to finish the check.
+
+CommCare HQ shows only the profile names in its download menu. If two look the same or a name is blank, give each a different name on the Releases page under **Application Profiles**. Leave each row's languages and worker in place. Save, bring the changes into Nova, publish and make a new version. When a profile needs a new ID to keep its files separate, follow Nova's repair before making the version. A Web Apps-only release runs in the browser.
+
 ## Review all translated content
 
 The Languages workspace is the complete review surface. It shows source and
@@ -229,3 +239,5 @@ claiming those surfaces were translated when their data or wire behavior does
 not support that claim.
 
 When CommCare HQ changes the original language, Nova keeps your saved translations. A phrase marked **Out of date** shows the wording workers see beside your editable translation. If that phrase would become the original, the change review links to it. You can mark the wording as reviewed, replace it, or choose **Use the original text**, then check the changes again. A registered language renamed in CommCare HQ keeps its translations when you bring in the new code.
+
+In Preview and Download, each named installation shows its position, name and the languages workers will see in order. The first language is the one that opens. API clients can use `get_languages` with `installations: {}` to read the complete list page by page, then use that installation’s UUID to edit it.

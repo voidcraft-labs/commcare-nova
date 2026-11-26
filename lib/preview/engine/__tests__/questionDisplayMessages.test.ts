@@ -13,12 +13,12 @@ import { engineFixtureInput } from "./fixtures/engineInput";
 import { androidDevice } from "./fixtures/previewDevices";
 
 const FORM = testUuid("display-message-form");
-function visitInput() {
+function visitInput(receiverField = "filename") {
 	const choices = (id: string) => ({
 		kind: "inline",
 		options: ["North", "South"].map((label) => ({
 			uuid: testUuid(id + label),
-			value: label.toLowerCase() + "_id",
+			value: `${label.toLowerCase()}_id`,
 			label: proseText(label),
 		})),
 	});
@@ -73,7 +73,7 @@ function visitInput() {
 						kind: "text",
 						id: "filename",
 						label: "Name of file",
-						receiveFrom: { channel: "document", field: "filename" },
+						receiveFrom: { channel: "document", field: receiverField },
 					},
 				],
 			},
@@ -108,26 +108,26 @@ describe("a worker question receiving a form update", () => {
 				region: "South",
 			});
 			const row = "/data/stops[0]/";
-			expect(first.store.getState()[row + "city"]?.value).toBe("Mtoni");
-			expect(first.store.getState()[row + "region"]?.value).toBe("south_id");
-			expect(first.store.getState()[row + "plain_region"]?.value).toBe("");
-			expect(second.store.getState()[row + "city"]?.value).toBe("");
+			expect(first.store.getState()[`${row}city`]?.value).toBe("Mtoni");
+			expect(first.store.getState()[`${row}region`]?.value).toBe("south_id");
+			expect(first.store.getState()[`${row}plain_region`]?.value).toBe("");
+			expect(second.store.getState()[`${row}city`]?.value).toBe("");
 			expect(first.store.getState()[testUuid("form.root_city")]?.value).toBe(
 				"",
 			);
-			await first.applyDisplayMessage(row + "document", {
+			await first.applyDisplayMessage(`${row}document`, {
 				filename: "route.pdf",
 			});
-			expect(first.store.getState()[row + "filename"]?.value).toBe("route.pdf");
-			await first.applyDisplayMessage(row + "address", {
+			expect(first.store.getState()[`${row}filename`]?.value).toBe("route.pdf");
+			await first.applyDisplayMessage(`${row}address`, {
 				province: "North",
 				region: "South",
 			});
-			expect(first.store.getState()[row + "region"]?.value).toBe("north_id");
-			expect(first.store.getState()[row + "city"]?.value).toBe("");
-			await first.applyDisplayMessage(row + "address", null);
-			expect(first.store.getState()[row + "region"]?.value).toBe("");
-			expect(first.store.getState()[row + "filename"]?.value).toBe("route.pdf");
+			expect(first.store.getState()[`${row}region`]?.value).toBe("north_id");
+			expect(first.store.getState()[`${row}city`]?.value).toBe("");
+			await first.applyDisplayMessage(`${row}address`, null);
+			expect(first.store.getState()[`${row}region`]?.value).toBe("");
+			expect(first.store.getState()[`${row}filename`]?.value).toBe("route.pdf");
 		} finally {
 			for (const controller of controllers) controller.dispose();
 			await Promise.all(
@@ -135,29 +135,32 @@ describe("a worker question receiving a form update", () => {
 			);
 		}
 	});
-	it("only addresses the selected repeat row and leaves Android's answers to the worker", () => {
-		const input = visitInput();
-		const web = new FormEngine(input);
-		web.addRepeat("/data/stops");
-		const paths = web
-			.displayMessageAnswers("/data/stops[1]/document", {
-				filename: "later.pdf",
-			})
-			.map(({ path, value }) => [path, value]);
-		expect(paths).toEqual([["/data/stops[1]/filename", "later.pdf"]]);
-		const android = new FormEngine(
-			input,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			{ device: androidDevice() },
-		);
-		expect(
-			android.displayMessageAnswers("/data/stops[0]/document", {
-				filename: "phone.pdf",
-			}),
-		).toEqual([]);
-	});
+	it.each(["filename", "indexed"])(
+		"addresses only the selected repeat row using the %s receiver and leaves Android's answer to the worker",
+		(receiverField) => {
+			const input = visitInput(receiverField);
+			const web = new FormEngine(input);
+			web.addRepeat("/data/stops");
+			const paths = web
+				.displayMessageAnswers("/data/stops[1]/document", {
+					filename: "later.pdf",
+				})
+				.map(({ path, value }) => [path, value]);
+			expect(paths).toEqual([["/data/stops[1]/filename", "later.pdf"]]);
+			const android = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ device: androidDevice() },
+			);
+			expect(
+				android.displayMessageAnswers("/data/stops[0]/document", {
+					filename: "phone.pdf",
+				}),
+			).toEqual([]);
+		},
+	);
 });
