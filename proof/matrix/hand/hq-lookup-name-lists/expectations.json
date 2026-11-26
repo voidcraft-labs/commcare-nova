@@ -23,7 +23,10 @@
 					"value": "upland"
 				}
 			],
-			"expressions": ["/data/site_name", "/data/zone"]
+			"expressions": [
+				"/data/site_name",
+				"/data/zone"
+			]
 		},
 		"expect": [
 			{
@@ -34,6 +37,135 @@
 				"pointer": "/values/1/value",
 				"value": "upland"
 			}
+		]
+	},
+	{
+		"id": "note-recorded-from-the-site-list",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "hill-clinic"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "Visited from Sites"
+				}
+			],
+			"expressions": [
+				"/data/note"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Visited from Sites"
+			}
+		]
+	},
+	{
+		"id": "note-recorded-from-the-site-search",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "hill-clinic"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "Visited from Site search"
+				}
+			],
+			"expressions": [
+				"/data/note"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Visited from Site search"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_site_0": "new-site"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/site_name",
+					"value": "   "
+				}
+			],
+			"expressions": [
+				"/data/site_name"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": [
+			"A"
+		]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_site_0": "new-site"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/site_name",
+					"value": "   "
+				}
+			],
+			"expressions": [
+				"/data/site_name"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": [
+			"B",
+			"local"
 		]
 	}
 ]
