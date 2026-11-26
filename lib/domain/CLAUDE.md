@@ -695,10 +695,10 @@ Form case and table filters also admit the zero-argument `position()` call for
 the candidate's one-based source position, evaluated before sorting. A case
 candidate's position is counted within the declared type.
 
-An available-cases source on a single select offers the entire already authorized restored
-case database in device order. It shows `case_name` and saves `case_id`.
-It needs no active catalog type and does not refine the answer to a named
-case type. No filter or sort setting belongs to this arm.
+An `{ kind: "available-cases" }` source on a single select offers the entire
+already authorized restored case database in device order, including retained
+types outside the active catalog. It displays `case_name` and saves the opaque
+`case_id`. Operations using that ID check the target against their own type.
 
 
 ## Forms listed in another menu

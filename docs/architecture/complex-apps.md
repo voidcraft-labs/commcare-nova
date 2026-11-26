@@ -3700,12 +3700,12 @@ distinct typed references. Filters admit earlier eligible answers, worker values
 and existing case relationships; no filter expands restore scope. Preview uses
 its existing captured device snapshot.
 
-A single-select question over all available cases emits the bare casedb case nodeset with
-`case_name` and `@case_id`. It can offer retained cases outside the current
-Blueprint catalog because Preview's existing snapshot already covers the
-authorized worker restore closure for the app and Project. The answer keeps
-its opaque ID without a single case type. A case operation resolving that ID
-still checks the live target and its expected type.
+A single-select question over all available cases emits the bare casedb case
+nodeset with `case_name` and `@case_id`. It can offer retained cases outside the
+current Blueprint catalog because Preview's existing snapshot already covers
+the authorized worker restore closure for the app and Project. The form
+treats the answer as an opaque ID. A case operation checks the live target
+against its expected type when it resolves that ID.
 
 A batch attendance workflow uses a stable roster query, per-row identity, and
 explicit updates conditioned on final checklist membership. It does not bind

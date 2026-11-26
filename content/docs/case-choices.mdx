@@ -58,11 +58,10 @@ Preview uses its captured worker case snapshot, and exported forms read the
 device's case database. Testing with a representative worker and location
 assignment shows what that worker can actually choose.
 
-For a single-select question, choose **All available cases** when the worker may pick from the whole
-case database restored for them. Choices show case names and save exact case
-IDs. The list may include a retained closed case or the worker’s own case.
-A saved answer can come from any type and does not carry a particular type
-into later case changes.
+Choose **All available cases** on a single-select question to let the worker
+pick from their whole restored case database. Choices show case names and save
+exact case IDs. The list may include a retained closed case or the worker’s own
+case. A later case change checks the case against the type the change declares.
 
 CommCare HQ's form designer also needs the **Lookup Tables** privilege to edit
 these dynamic choices, even though the choices come from cases rather than a
