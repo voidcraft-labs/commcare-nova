@@ -10995,7 +10995,7 @@ def unicode_index_name_loses_bind(use, manifest):
         if link.tag != f"{{{CASE}}}{name}" or link.prefix is not None or "." in name or name.isascii():
             continue
         bind = form.bind(form.paths.get(link))
-        if bind is not None and bind.get("calculate"):
+        if bind is not None and (bind.get("calculate") or "").strip():
             return True
     return False
 

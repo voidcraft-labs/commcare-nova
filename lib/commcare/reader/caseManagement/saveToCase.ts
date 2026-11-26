@@ -87,7 +87,11 @@ import {
 	operationGuardKinds,
 	writesFixedTextColumn,
 } from "../../xform/generatedNodes";
-import { attributeNamespace, VELLUM_NS } from "../../xmlNamespaces";
+import {
+	attributeNamespace,
+	elementNamespace,
+	VELLUM_NS,
+} from "../../xmlNamespaces";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import {
@@ -156,6 +160,7 @@ const Q = "questions";
 const F = "forms-and-case-writes";
 const MUG = "mug:SaveToCase";
 const ROLE = "vellum-markup:model/instance//*@vellum:role";
+const CASE_TRANSACTION_NS = "http://commcarehq.org/case/transaction/v2";
 
 /** A Save to Case expression outside the typed vocabulary of its slot, the
  *  expression stage's entry. */
@@ -2041,7 +2046,7 @@ function readBlock(
 	if (index !== undefined)
 		for (const link of children(index)) {
 			const identifier = link.name;
-			const key = `case/index/${identifier}`;
+			const linkPath = [...casePath, "index", identifier];
 			const nameProblem = caseOperationLinkNameProblem(identifier, (action) =>
 				parts.has(action),
 			);
@@ -2054,9 +2059,22 @@ function readBlock(
 			if (
 				!identifier.includes(":") &&
 				/[^ -~]/u.test(identifier) &&
-				calc(key)?.trim()
-			)
-				return fail(SAVE_TO_CASE_CLAIMS.linkUnicodeName, { name: identifier });
+				elementNamespace(link, xform.parsed.scope(link)) === CASE_TRANSACTION_NS
+			) {
+				const sourcePath = `/${[root, ...linkPath].join("/")}`;
+				// Check the exact stored nodeset even when a name cannot be parsed
+				// as a portable XPath. A refusal never creates a new expression.
+				if (
+					xform.parsed.binds.some(
+						({ attribs }) =>
+							attribs.nodeset?.trim() === sourcePath &&
+							attribs.calculate?.trim(),
+					)
+				)
+					return fail(SAVE_TO_CASE_CLAIMS.linkUnicodeName, {
+						name: identifier,
+					});
+			}
 			if (
 				!isCaseOperationLinkIdentifier(identifier) ||
 				nameProblem !== undefined
@@ -2078,8 +2096,8 @@ function readBlock(
 				return fail(SAVE_TO_CASE_CLAIMS.reservedType, { name: targetType });
 			if (caseOperationCaseTypeNameProblem(targetType) !== undefined)
 				return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
+			const key = `case/index/${identifier}`;
 			const text = calc(key);
-			const linkPath = [...casePath, "index", identifier];
 			let linkTarget: ProposedLink["target"] = null;
 			// A link whose value is the block's own case id links the case to itself,
 			// which Core refuses on every submission (`CaseXmlParser.indexCase`, "cannot
