@@ -2042,7 +2042,7 @@ type Json = Record<string, unknown>;
 type StoredMenu = Json & {
 	forms: Json[];
 	case_list_form: Json;
-	case_details: { short: Json & { sort_elements: Json[] } };
+	case_details: { short: Json & { columns: Json[]; sort_elements: Json[] } };
 	search_config: Json & { default_properties: Json[] };
 };
 
@@ -2823,11 +2823,6 @@ const PAIRS: Readonly<
 						alt_text: {},
 					},
 				],
-			});
-		}),
-		onMenu((menu) => {
-			Object.assign(menu.case_details.short.columns[0], {
-				field: "parent/case_name",
 			});
 		}),
 	),
