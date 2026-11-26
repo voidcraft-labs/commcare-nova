@@ -39,27 +39,34 @@ SESSION_READ = "instance('commcaresession')/session/context/username != 'demo'"
 SESSION_FILTER = "@owner_id = instance('commcaresession')/session/context/userid"
 
 
-def _built_suite(domain, list_filter=None, workflow=None):
-    """HQ's suite for one case list menu of ``client`` whose follow-up form selects a case, with a search holding
-    one field and a Search button shown on ``SESSION_READ``, ``list_filter`` as its list's filter and ``workflow``
-    as the form's ``post_form_workflow``."""
+def _search_app(domain, list_filter=None, workflow=None, condition=SESSION_READ):
+    """HQ authors a Search button on a case list containing one follow-up form."""
     from corehq.apps.app_manager.models import CaseSearch, CaseSearchProperty
     from corehq.apps.app_manager.tests.app_factory import AppFactory
-    from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
+    from proof.core.test_evaluate import number_form
 
     factory = AppFactory(domain=domain, build_version="2.54.0")
     module, form = factory.new_basic_module("clients", "client")
     factory.form_requires_case(form, "client")
+    form.source = number_form("true()").decode()
+    factory.add_module_case_detail_column(module, "short", "name", "Name")
     if workflow is not None:
         form.post_form_workflow = workflow
     module.search_config = CaseSearch(
         properties=[CaseSearchProperty(name="name", label={"en": "Name"})],
-        search_button_display_condition=SESSION_READ,
+        search_button_display_condition=condition,
     )
     if list_filter is not None:
         module.case_details.short.filter = list_filter
+    return factory.app
+
+
+def _built_suite(domain, list_filter=None, workflow=None):
+    from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
+
+    app = _search_app(domain, list_filter, workflow)
     with patch_get_xform_resource_overrides():
-        return etree.fromstring(factory.app.create_suite())
+        return etree.fromstring(app.create_suite())
 
 
 def _action_and_entry(suite):
@@ -110,3 +117,75 @@ def test_hq_declares_no_instance_for_what_only_the_search_buttons_condition_read
     assert "commcaresession" in declared, declared
     assert "commcaresession" in etree.tostring(entry.find("stack")).decode()
     assert _verdict(returning, action) is False
+
+
+COUNT_CASES = "count(instance('casedb')/casedb/case[@case_type = 'client']) > 1"
+COUNT_WITH_SESSION = (
+    "count(instance('casedb')/casedb/case[@case_type = 'client']"
+    "[@owner_id = instance('commcaresession')/session/context/userid]) > 1"
+)
+
+
+def test_the_hq_search_button_counts_restored_cases_without_loading_new_instances(hq, core_runner, tmp_path):
+    from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
+    from proof.core.artifacts import SESSION_RESTORE
+    from proof.core.test_session import CASE_XMLNS, person_cases
+    from proof.observe.build import arrange
+
+    def archive(domain, name, condition, unexpected_session):
+        app = _search_app(domain, condition=condition)
+        app._id = f"search-count-{name}"
+        # HQ assigns an integer version when it saves an application. This
+        # in-memory app is otherwise still unversioned when HQ builds it.
+        app.version = 1
+        with patch_get_xform_resource_overrides():
+            suite = etree.fromstring(app.create_suite())
+            files = app.create_all_files()
+        action, entry = _action_and_entry(suite)
+        assert action.get("relevant") == condition
+        assert {instance.get("id") for instance in entry.iter("instance")} == {"casedb"}
+        assert _verdict(suite, action) is unexpected_session
+        return arrange(files, tmp_path / name)
+
+    def restore(ids):
+        restore = etree.fromstring(person_cases(SESSION_RESTORE.read_bytes(), ids))
+        case_ns = f"{{{CASE_XMLNS}}}"
+        for case in restore.iter(f"{case_ns}case"):
+            if case.get("case_id") in ids:
+                case.find(f"{case_ns}create/{case_ns}case_type").text = "client"
+        return etree.tostring(restore)
+
+    def walk(path, ids):
+        report = core_runner.admit(path)
+        assert report["admitted"], {
+            key: report.get(key) for key in ("problems", "profile", "versionCheck")
+        }
+        try:
+            return core_runner.session(report["app"], restore=restore(ids))
+        finally:
+            core_runner.release(report["app"])
+
+    def lists(result):
+        return [
+            step for run in result["runs"] for step in run["trace"]
+            if step.get("screen") == "case-list"
+        ]
+
+    with hq_check(Configuration()) as (state, _):
+        counted = archive(state.domain, "counted", COUNT_CASES, False)
+        undeclared = archive(state.domain, "undeclared", COUNT_WITH_SESSION, True)
+    one = lists(walk(counted, ["one"]))
+    two = lists(walk(counted, ["one", "two"]))
+    assert one and two, (one, two)
+    assert {row["caseId"] for step in one for row in step["rows"]} == {"one"}, repr(one)
+    assert {row["caseId"] for step in two for row in step["rows"]} == {"one", "two"}, repr(two)
+    assert all(not step.get("actions") for step in one), repr(one)
+    assert any(step.get("actions") for step in two), repr(two)
+    blocked = walk(undeclared, ["one", "two"])
+    refused = [
+        step["error"] for run in blocked["runs"] for step in run["trace"] if "error" in step
+    ]
+    assert any(
+        error["class"].endswith(".XPathMissingInstanceException") and "commcaresession" in error["message"]
+        for error in refused
+    ), blocked

@@ -439,6 +439,17 @@ fixed values and current-user information. Case information belongs in the
 field's own match behavior or in **Cases available**, which run against each
 case.
 
+
+**Address search** lets workers choose a place in Web Apps. A text field or
+a multiple-choice field can fill from part of that address. Its
+**Fill from an address** setting lets you pick the address field and the
+parts to try in order. A multiple-choice field adds a choice when exactly one label
+matches. Workers can also enter or change those answers themselves.
+The project space needs advanced case search and the Geocoder plan feature.
+On Android, workers enter the linked fields themselves.
+When you remove an address field, Nova shows the fields that fill from it.
+Review each link and choose a different address field or **No address field**.
+
 In Preview, barcode search fields accept camera scans when Preview runs as
 Android and your browser supports scanning, and typed codes on both. A scan
 replaces the current answer; cancelling keeps it.
@@ -675,6 +686,10 @@ field, the canvas says the menu opens on the cases the search finds, and
 **Cases available** decides what workers see. While a saved Search button
 condition is false, a menu whose forms don't read the search opens on its case
 list.
+
+A Search button condition can count the cases the worker has on their device.
+Choose a record type and add conditions to count only the cases that fit. The
+count uses cases available on that device. It does not count online matches.
 
 A Search button condition can read only what the case list itself loads
 wherever it shows. CommCare HQ loads, for each screen that shows the list, what

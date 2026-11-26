@@ -1063,7 +1063,7 @@
 		],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`",
+		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`, including typed counts of cases on the device",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -2352,6 +2352,37 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/address-picker-on-a-search-screen",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`appearance: address` (Geocoder Broadcast, emitted `input=\"address\"`)",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.appearance",
+			"parser:QueryPromptParser/prompt@input"
+		],
+		"valueClass": "ordinary-address-search-picker",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Address Search field on an ordinary case Search screen",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED (prompt absent)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored",
+				"note": "prompt absent"
+			}
+		},
+		"emission": {
+			"cell": "`appearance: address`; privilege `geocoder` + CASE_SEARCH_ADVANCED",
+			"markers": []
+		},
+		"gates": ["privilege/geocoder", "toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
 		"id": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
 		"area": "case-search",
 		"section": "Case search",
@@ -2361,9 +2392,9 @@
 			"schema:CaseSearchProperty.appearance",
 			"parser:QueryPromptParser/prompt@input"
 		],
-		"valueClass": "address-without-required-or-validations",
+		"valueClass": "other-address-prompt-shape",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `geocoder` search input",
+		"dispositionCell": "**HELD-NEW**: additional stored settings on an address field",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {
@@ -3523,6 +3554,90 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/address-picker-receiver-on-a-search-screen",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`receiver_expression`",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.receiver_expression",
+			"parser:QueryPromptParser/prompt@receive"
+		],
+		"valueClass": "address-topic-and-ordered-parts",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Text or multiple-choice Search field with an address subscription",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "`receiver_expression`; privilege `geocoder` + CASE_SEARCH_ADVANCED",
+			"markers": []
+		},
+		"gates": ["privilege/geocoder", "toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
+		"id": "case-search/address-receiver-single-choice-lookup-position",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A single-choice Search field that receives from an address picker",
+		"surfaceKeys": ["schema:CaseSearchProperty.receiver_expression"],
+		"valueClass": "address-single-choice-selection-by-position",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps selects by position even when the lookup uses different values.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps can clear the choice or fill a different lookup value by assigning an option's position instead of its key."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/address-receiver-shared-with-a-choice-field",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "Identical address subscriptions shared by Search fields including a lookup choice",
+		"surfaceKeys": ["schema:CaseSearchProperty.receiver_expression"],
+		"valueClass": "address-receiver-shared-with-a-choice-field",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps sets every field sharing the subscription as one control, which can lose the selected choice.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps updates all fields with the same receive selector together, so a lookup choice can be cleared instead of filled."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/receiver-expression",
 		"area": "case-search",
 		"section": "Case search",
@@ -3532,9 +3647,9 @@
 			"schema:CaseSearchProperty.receiver_expression",
 			"parser:QueryPromptParser/prompt@receive"
 		],
-		"valueClass": "text-or-lookup-prompt",
+		"valueClass": "receiver-with-a-topic-or-part-nova-cannot-hold",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `searchInputs[].receiveFrom` (geocoder field)",
+		"dispositionCell": "**HELD-NEW**: receiver outside the address topic and component grammar",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {

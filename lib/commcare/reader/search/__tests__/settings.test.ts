@@ -894,3 +894,21 @@ describe("a search's default filters", () => {
 		]);
 	});
 });
+
+it("keeps a Search button condition that counts the worker's restored cases", async () => {
+	const authored =
+		"count(instance('casedb')/casedb/case[@case_type = 'patient']) > 1";
+	const reading = await readLists(doc(), {
+		edit: (app) => {
+			app.modules[0].search_config.search_button_display_condition = authored;
+		},
+	});
+	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+	expect(searchOf(reading)).toMatchObject({
+		searchButtonDisplayCondition: {
+			kind: "gt",
+			left: { kind: "count", via: { kind: "cases", source: "casedb" } },
+			right: { kind: "term", term: { kind: "literal", value: 1 } },
+		},
+	});
+});

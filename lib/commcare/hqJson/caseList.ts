@@ -973,6 +973,7 @@ function projectSearchInput(
 	lookupNaming?: LookupWireNaming,
 	inputInstanceId?: `search-input:${string}`,
 	rewrites?: SearchConfigRewrites,
+	allInputs: readonly SearchInputDef[] = [],
 ): CaseSearchProperty<HqXPath> {
 	const wire = searchPromptWire(
 		input,
@@ -983,6 +984,7 @@ function projectSearchInput(
 		rewrites === undefined
 			? undefined
 			: (slot) => rewrites({ slot, searchInputUuid: input.uuid }),
+		allInputs,
 	);
 	const property: CaseSearchProperty<HqXPath> = {
 		name: wire.key,
@@ -993,6 +995,7 @@ function projectSearchInput(
 	}
 	if (wire.input !== undefined) property.input_ = wire.input;
 	if (wire.appearance !== undefined) property.appearance = wire.appearance;
+	if (wire.receive !== undefined) property.receiver_expression = wire.receive;
 	if (wire.defaultValue !== undefined) {
 		property.default_value = hqXPath(wire.defaultValue);
 	}
@@ -1061,6 +1064,7 @@ function projectSearchProperties(
 			lookupNaming,
 			inputInstanceId,
 			rewrites,
+			inputs,
 		);
 	if (!config?.searchInputGroups) return inputs.map(project);
 

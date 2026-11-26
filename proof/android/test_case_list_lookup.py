@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from proof.android import observe
@@ -98,6 +100,57 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
     assert _view_texts(identity["scoreRows"]) == ["Juniper", "★★★★★"]
     assert unknown_identity["isIdentification"] and unknown_identity["after"] == []
 
+
+
+@pytest.mark.parametrize("extra", ["scan", "'scan'"], ids=["relative", "text"])
+def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_driver, extra):
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(
+            replace(_case("lookup-cedar", "Cedar"), properties=(("scan", "first record"),)),
+            replace(_case("lookup-juniper", "Juniper"), properties=(("scan", "second record"),)),
+        ),
+    )
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver, extras=[{"key": "mode", "value": extra}])
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup") as served:
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label="case-list-lookup-extra",
+                archive=observe.release_archive(served),
+                case_lookup_returns=[{"primary": "  Juniper  "}],
+            )
+            installed = blobs.get_json(record["answer"])
+
+    write_evidence("android-case-list-lookup-extra", installed)
+    assert installed["install"] == "Installed", installed
+    assert installed["signIn"].startswith("Success("), installed
+    walks = installed["walks"].values()
+    if extra == "scan":
+        (failure,) = [walk["raised"] for walk in walks if "raised" in walk]
+        assert "Cannot evaluate the reference [/scan]" in failure["stack"], failure
+        assert "No default instance has been declared!" in failure["stack"], failure
+        assert "EntitySelectCalloutSetup.buildCalloutIntent" in failure["stack"], failure
+        assert "EntitySelectActivity.setUpCalloutClickListener" in failure["stack"], failure
+        assert not any(
+            "lookupReturns" in (step.get("list") or {})
+            for walk in walks for step in walk.get("steps", [])
+        ), installed["walks"]
+    else:
+        assert not any("raised" in walk for walk in walks), installed["walks"]
+        (observed,) = [
+            step["list"]["lookupReturns"]
+            for walk in walks for step in walk.get("steps", [])
+            if "lookupReturns" in (step.get("list") or {})
+        ]
+        (reply,) = observed
+        assert set(reply["before"]) == {"Cedar", "Juniper"}
+        assert reply["action"] == ACTION and reply["sent"] == {"mode": "scan"}
+        assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
 
 
 def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_documents):

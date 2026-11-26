@@ -478,6 +478,7 @@ export interface CaseSearchItemset<XPath = string> {
 }
 
 export interface CaseSearchProperty<XPath = string> {
+	receiver_expression?: string;
 	name: string;
 	label: LocalizedString;
 	hint?: LocalizedString;

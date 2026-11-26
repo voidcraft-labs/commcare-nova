@@ -7,12 +7,17 @@ import {
 	DISTANCE_UNITS,
 	type DistanceUnit,
 } from "@/lib/domain/expression/distance";
-import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
+import {
+	expressionRowScope,
+	scalarDataType,
+	typeOf,
+} from "@/lib/domain/expression/typeChecker";
 import {
 	type Choice,
 	caseTypeNameSchema,
 	conditionSchema,
 	type Expression,
+	isExpression,
 	type Literal,
 	locationRowFieldSchema,
 	propertyRefSchema,
@@ -680,13 +685,15 @@ function compiler(bindings: QueryBindings) {
 		if (name === "row-value") {
 			arity(name, args);
 			const rows = value(args[0]);
-			const source = args[0];
-			const rowBindings =
-				rows.kind === "table-rows"
-					? bindings.forTable(String(rows.tableId))
-					: source.kind === "call" && source.name === "device-records"
-						? bindings.forDeviceRecords(guardedRecordType(source.args))
-						: bindings;
+			let rowBindings = bindings;
+			if (rows.kind === "table-rows") {
+				rowBindings = bindings.forTable(String(rows.tableId));
+			} else if (rows.kind === "cases" && isExpression(rows)) {
+				const row = expressionRowScope(rows, bindings.typeContext);
+				rowBindings = bindings.forDeviceRecords(
+					row?.kind === "case" ? row.caseType : undefined,
+				);
+			}
 			return {
 				kind: "project",
 				of: rows,

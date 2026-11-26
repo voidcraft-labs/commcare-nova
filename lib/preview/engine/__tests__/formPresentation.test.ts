@@ -508,18 +508,10 @@ it("confirms passive messages and preserves the worker's Android checkbox throug
 
 it("confirms visible messages at their submitted addresses and leaves messages outside the worker's screen alone", () => {
 	const group = testUuid("message-storage-group");
-	const report = testUuid("message-report-group");
+	const messages = testUuid("message-record-group");
 	const { engine } = runtime(
 		[
 			{ kind: "text", id: "show_storage" },
-			{
-				kind: "group",
-				uuid: report,
-				id: "report",
-				children: [
-					{ kind: "hidden", id: "report_marker", default_value: "'checked'" },
-				],
-			},
 			{
 				kind: "group",
 				uuid: group,
@@ -531,9 +523,7 @@ it("confirms visible messages at their submitted addresses and leaves messages o
 						kind: "label",
 						id: "controls_only",
 						label: "Read the result",
-						submissionPlacement: {
-							parent: report,
-						},
+						submissionPlacement: { parent: messages },
 					},
 				],
 			},
@@ -549,29 +539,30 @@ it("confirms visible messages at their submitted addresses and leaves messages o
 				label: "Confirm consent",
 				askForConfirmation: true,
 			},
+			{
+				kind: "group",
+				uuid: messages,
+				id: "messages",
+				children: [{ kind: "text", id: "memo" }],
+			},
 		],
 		androidDevice(),
 		"visit_report",
 	);
 	const address = "/visit_report/storage/notice";
+	const controlsOnly = "/visit_report/messages/controls_only";
 	engine.validateAll();
 	expect(engine.getState(address).value).toBe("");
-	expect(
-		engine.effectivelyVisiblePaths().has("/visit_report/report/controls_only"),
-	).toBe(true);
-	expect(engine.getState("/visit_report/report/controls_only").value).toBe("");
+	expect(engine.effectivelyVisiblePaths().has(controlsOnly)).toBe(true);
+	expect(engine.getState(controlsOnly).value).toBe("");
 	engine.setValue("/visit_report/show_storage", "yes");
 	expect(engine.validateScreen("/visit_report/consent")).toBe(true);
 	expect(engine.getState(address).value).toBe("");
 	expect(engine.validateScreen(address)).toBe(true);
 	expect(engine.getState(address).value).toBe("OK");
 	expect(engine.getState("/visit_report/consent").value).toBe("");
-	expect(engine.validateScreen("/visit_report/report/controls_only")).toBe(
-		true,
-	);
-	expect(engine.getState("/visit_report/report/controls_only").value).toBe(
-		"OK",
-	);
+	expect(engine.validateScreen(controlsOnly)).toBe(true);
+	expect(engine.getState(controlsOnly).value).toBe("OK");
 });
 
 it("asks before inserting the first visit and can return to the empty invitation", () => {
@@ -660,14 +651,6 @@ it.each([androidDevice(), webAppsDevice()])(
 				{ kind: "text", id: "show" },
 				{
 					kind: "group",
-					uuid: report,
-					id: "report",
-					children: [
-						{ kind: "hidden", id: "report_marker", default_value: "'checked'" },
-					],
-				},
-				{
-					kind: "group",
 					uuid: group,
 					id: "visit",
 					relevant: "#form/show = 'yes'",
@@ -686,14 +669,24 @@ it.each([androidDevice(), webAppsDevice()])(
 					default_value: "'private'",
 					submissionPlacement: { parent: group },
 				},
+				{
+					kind: "group",
+					uuid: report,
+					id: "report",
+					children: [{ kind: "text", id: "memo" }],
+				},
 			],
 			device,
 		);
 		const worker = () =>
 			observe(engine)
-				.fields.filter((f) => f.visible && f.path !== "/data/report")
+				.fields.filter((f) => f.visible)
 				.map((f) => f.path);
-		expect(worker()).toEqual(["/data/show"]);
+		expect(worker()).toEqual([
+			"/data/show",
+			"/data/report",
+			"/data/report/memo",
+		]);
 		expect(engine.effectivelyVisiblePaths().has("/data/report/reported")).toBe(
 			true,
 		);
@@ -704,6 +697,7 @@ it.each([androidDevice(), webAppsDevice()])(
 		if (device.platform === "android") {
 			expect(availablePages(engine.formScreens()).map((p) => p.path)).toEqual([
 				"/data/show",
+				"/data/report/memo",
 			]);
 		}
 		engine.setValue("/data/show", "yes");
@@ -712,13 +706,19 @@ it.each([androidDevice(), webAppsDevice()])(
 			"/data/visit",
 			"/data/report/reported",
 			"/data/visit/local",
+			"/data/report",
+			"/data/report/memo",
 		]);
 		expect(engine.effectivelyVisiblePaths().has("/data/visit/local")).toBe(
 			true,
 		);
 		expect(engine.getState("/data/visit/local").value).toBe("private");
 		engine.setValue("/data/show", "no");
-		expect(worker()).toEqual(["/data/show"]);
+		expect(worker()).toEqual([
+			"/data/show",
+			"/data/report",
+			"/data/report/memo",
+		]);
 		expect(engine.getState("/data/report/reported").value).toBe("stored");
 	},
 );

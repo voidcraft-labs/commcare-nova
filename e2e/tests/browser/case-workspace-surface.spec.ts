@@ -670,6 +670,77 @@ test("native Search dependency review follows exact editors and recomputes peer 
 		),
 	).toEqual(["region"]);
 });
+test("native Search address removal reviews, retargets and clears links", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-address-removal`);
+	await selectSearchInput(page);
+	const before = (await savedModule(page)).caseListConfig.searchInputs;
+	const remove = page.getByRole("button", {
+		name: "Remove search field",
+		exact: true,
+	});
+	const review = page.getByRole("alertdialog");
+	await remove.click();
+	const uses = review.getByRole("list", { name: "Uses of Find an address" });
+	await expect(uses.getByRole("listitem")).toHaveCount(2);
+	const receiver = uses.getByRole("button", {
+		name: /Region.*Fills from this address field.*Review/,
+	});
+	await receiver.click();
+	const back = page.getByRole("button", {
+		name: "Back to Find an address search field",
+		exact: true,
+	});
+	const addressSetting = page.getByText("Fill from an address", {
+		exact: true,
+	});
+	await expect(addressSetting).toBeVisible();
+	const sourceControl = page
+		.getByRole("button", { name: "Find an address", exact: true })
+		.and(page.locator('[aria-haspopup="menu"]'));
+	await expect(sourceControl).toBeFocused();
+	await back.click();
+	await expect(receiver).toBeVisible();
+	expect((await savedModule(page)).caseListConfig.searchInputs).toEqual(before);
+
+	await receiver.click();
+	await sourceControl.click();
+	await page
+		.getByRole("menuitemradio", { name: "Alternative address", exact: true })
+		.click();
+	await expect
+		.poll(
+			async () =>
+				(await savedModule(page)).caseListConfig.searchInputs[2].addressReceiver
+					.source,
+		)
+		.toBe(before[1].uuid);
+	await back.click();
+	await expect(receiver).toHaveCount(0);
+	const otherReceiver = uses.getByRole("button", {
+		name: /Client name.*Fills from this address field.*Review/,
+	});
+	await otherReceiver.click();
+	await expect(sourceControl).toBeFocused();
+	await sourceControl.click();
+	await page
+		.getByRole("menuitemradio", { name: "No address field", exact: true })
+		.click();
+	await back.click();
+	await expect(review).toHaveCount(0);
+	await expect(remove).toBeFocused();
+	await remove.click();
+	const { addressReceiver: _oldReceiver, ...unlinked } = before[3];
+	expect((await savedModule(page)).caseListConfig.searchInputs).toStrictEqual([
+		before[1],
+		{
+			...before[2],
+			addressReceiver: { ...before[2].addressReceiver, source: before[1].uuid },
+		},
+		unlinked,
+	]);
+});
 test("native Add information progressive choices create a separate view and reset on reopen", async ({
 	page,
 }) => {

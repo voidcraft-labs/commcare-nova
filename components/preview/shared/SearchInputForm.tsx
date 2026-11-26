@@ -84,6 +84,7 @@ import {
 import type { Expression } from "@/lib/domain/expression/types";
 import { PLATFORMS } from "@/lib/domain/platforms";
 import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
+import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import {
 	PreviewDataRefusal,
 	type PreviewDataRefusalReason,
@@ -124,11 +125,42 @@ import {
 	previewPlatformRules,
 } from "@/lib/preview/platform";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { AddressEntryField } from "../form/fields/AddressEntryField";
 import {
 	LookupChoicesEmpty,
 	LookupChoicesLoading,
 } from "../form/fields/LookupChoiceStates";
 import { BarcodeScanner, useBarcodeScanSupport } from "./BarcodeScanner";
+
+function AddressSearchRow({
+	input,
+	value,
+	onCommit,
+}: {
+	readonly input: Extract<SearchInputDef, { kind: "address" }>;
+	readonly value: string;
+	readonly onCommit: (
+		value: string,
+		message?: QuestionMessage,
+	) => Promise<boolean>;
+}) {
+	const label = useId();
+	return (
+		<Field>
+			<FieldLabel id={label}>{input.label}</FieldLabel>
+			<AddressEntryField
+				context="search"
+				field={input}
+				state={{ value, touched: false, valid: true }}
+				labelledBy={label}
+				onCommit={onCommit}
+			/>
+			{input.hint !== undefined && (
+				<FieldDescription>{input.hint}</FieldDescription>
+			)}
+		</Field>
+	);
+}
 
 type SearchInputValidationModule =
 	typeof import("@/lib/preview/engine/searchInputValidation");
@@ -209,6 +241,7 @@ interface SearchInputFormProps {
 		PreviewPlatformRules,
 		| "searchFieldChecks"
 		| "searchScreenText"
+		| "searchAddressPicker"
 		| "searchFieldGroups"
 		| "barcodeSearchField"
 		| "searchChoiceOrder"
@@ -305,6 +338,11 @@ export function SearchInputForm({
 	// handlers update it synchronously so the rendered inputs stay
 	// responsive; one debounced effect emits upward.
 	const [sourceDraft, setDraft] = useState<SearchInputValues>(value);
+	const [addressScope, setAddressScope] = useState<{
+		readonly key: string;
+		readonly values: ReadonlyMap<string, string>;
+	}>({ key: scopeKey, values: new Map() });
+	const [addressReset, setAddressReset] = useState(0);
 	const displayed = useMemo<ReturnType<typeof webSearchRangeDraft>>(
 		() =>
 			platformRules.searchRangeStartingValue === "date-picker"
@@ -605,6 +643,56 @@ export function SearchInputForm({
 			return updated;
 		});
 	};
+	const setAddress = (
+		source: Extract<SearchInputDef, { kind: "address" }>,
+		value: string,
+		message?: QuestionMessage,
+	) => {
+		setAddressScope((previous) => {
+			const values = new Map(previous.key === scopeKey ? previous.values : []);
+			if (value === "") values.delete(source.uuid);
+			else values.set(source.uuid, value);
+			return { key: scopeKey, values };
+		});
+		// Web Apps emits nothing when the worker types after selecting an
+		// address. A pick and an explicit clear publish one update.
+		if (message === undefined) return;
+		setDraft((previous) => {
+			const next = new Map(previous);
+			for (const input of searchInputs) {
+				if (input.kind === "hidden" || input.kind === "address") continue;
+				const receiver = input.addressReceiver;
+				if (receiver?.kind !== "address" || receiver.source !== source.uuid)
+					continue;
+				const part = receiver.parts.find((key) => message?.[key] !== undefined);
+				const received = part === undefined ? undefined : message?.[part];
+				if (input.type === "multi-select") {
+					const choices =
+						choicesRead.kind === "read"
+							? choicesRead.value.get(input.uuid)
+							: undefined;
+					const matches = choices?.filter(
+						(choice) => choice.label.trim() === received,
+					);
+					if (matches?.length !== 1) continue;
+					const selected = matches[0].value;
+					const answers = splitMultiSelectSearchAnswer(
+						next.get(input.name) ?? "",
+					);
+					if (!answers.includes(selected))
+						next.set(
+							input.name,
+							joinMultiSelectSearchAnswer([...answers, selected]),
+						);
+					continue;
+				}
+				if (input.type !== "text") continue;
+				if (received) next.set(input.name, received);
+				else next.delete(input.name);
+			}
+			return next;
+		});
+	};
 	const submit = async (candidate: SearchInputValues, quiet = false) => {
 		if (onSubmit === undefined || awaitingWorker) return;
 		setValidating(true);
@@ -625,6 +713,8 @@ export function SearchInputForm({
 			const cleared: SearchInputValues = new Map();
 			lastEmittedRef.current = cleared;
 			setDraft(cleared);
+			setAddressScope({ key: scopeKey, values: new Map() });
+			setAddressReset((previous) => previous + 1);
 			lastValidatedDraftRef.current = undefined;
 			setValidationState({ scopeKey, attempted: false, errors: new Map() });
 			setCheckRefusal(undefined);
@@ -640,9 +730,12 @@ export function SearchInputForm({
 	// one Web Apps does not draw, its starting value searched as it stands,
 	// and one Android draws like any other (`hiddenSearchField`).
 	const visibleInputs = searchInputs.filter(
-		(input): input is VisibleSearchInputDef =>
+		(input): input is Exclude<SearchInputDef, { kind: "hidden" }> =>
 			input.kind !== "hidden" &&
-			(input.hidden !== true || platformRules.hiddenSearchField === "editable"),
+			(input.kind === "address"
+				? platformRules.searchAddressPicker
+				: input.hidden !== true ||
+					platformRules.hiddenSearchField === "editable"),
 	);
 
 	// Zero-input modules render nothing: the caller is the
@@ -674,43 +767,58 @@ export function SearchInputForm({
 		return renderRefusal(refusalReason);
 	}
 
-	const renderInput = (input: VisibleSearchInputDef) => (
-		<SearchInputRow
-			key={input.uuid}
-			input={input}
-			draft={draft}
-			startingLabel={displayed.labels?.get(input.name)}
-			setKey={setKey}
-			utcMidnightDays={platformRules.searchRangeChosenDay === "utc-midnight"}
-			showHint={platformRules.searchScreenText}
-			choiceOrder={platformRules.searchChoiceOrder}
-			offerBlank={platformRules.searchForBlank}
-			scanBarcode={platformRules.barcodeSearchField === "scan-or-text"}
-			required={requiredNow(input)}
-			choices={
-				choicesRead.kind === "read"
-					? choicesRead.value.get(input.uuid)
-					: undefined
-			}
-			error={
-				validationAttempted
-					? (() => {
-							const source = submissionErrors.get(input.name);
-							/* A requirement with no message marks the
-							 * field invalid with no words under it: HQ's
-							 * build writes its text as a no-break space,
-							 * which Core keeps, so Web Apps reads a
-							 * message (`query.js::getError`), draws the
-							 * field invalid (`item.html`) and sends no
-							 * search (`inputsHaveErrors`). */
-							return source === undefined || source === ""
-								? source
-								: localizeValidationMessage(source);
-						})()
-					: undefined
-			}
-		/>
-	);
+	const renderInput = (input: Exclude<SearchInputDef, { kind: "hidden" }>) =>
+		input.kind === "address" ? (
+			<AddressSearchRow
+				key={JSON.stringify([scopeKey, addressReset, input.uuid])}
+				input={input}
+				value={
+					addressScope.key === scopeKey
+						? (addressScope.values.get(input.uuid) ?? "")
+						: ""
+				}
+				onCommit={async (value, message) => {
+					setAddress(input, value, message);
+					return true;
+				}}
+			/>
+		) : (
+			<SearchInputRow
+				key={input.uuid}
+				input={input}
+				draft={draft}
+				startingLabel={displayed.labels?.get(input.name)}
+				setKey={setKey}
+				utcMidnightDays={platformRules.searchRangeChosenDay === "utc-midnight"}
+				showHint={platformRules.searchScreenText}
+				choiceOrder={platformRules.searchChoiceOrder}
+				offerBlank={platformRules.searchForBlank}
+				scanBarcode={platformRules.barcodeSearchField === "scan-or-text"}
+				required={requiredNow(input)}
+				choices={
+					choicesRead.kind === "read"
+						? choicesRead.value.get(input.uuid)
+						: undefined
+				}
+				error={
+					validationAttempted
+						? (() => {
+								const source = submissionErrors.get(input.name);
+								/* A requirement with no message marks the
+								 * field invalid with no words under it: HQ's
+								 * build writes its text as a no-break space,
+								 * which Core keeps, so Web Apps reads a
+								 * message (`query.js::getError`), draws the
+								 * field invalid (`item.html`) and sends no
+								 * search (`inputsHaveErrors`). */
+								return source === undefined || source === ""
+									? source
+									: localizeValidationMessage(source);
+							})()
+						: undefined
+				}
+			/>
+		);
 
 	return (
 		<search aria-label={landmarkLabel}>
