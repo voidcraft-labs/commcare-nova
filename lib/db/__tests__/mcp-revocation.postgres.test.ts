@@ -205,7 +205,7 @@ it("rechecks the signed OAuth installation grant against its expiry, consent and
 	const token = (await auth.api.signJWT({ body: { payload: claims } })).token;
 	expect((await call(token)).status).toBe(200);
 	const caller = seenCaller.verified;
-	if (caller?.grant.kind !== "oauth")
+	if (caller?.grant?.kind !== "oauth")
 		throw new Error("Missing signed client identity");
 	const { credentialWriteGrant } = await import(
 		"@/lib/mcp/credentialWriteGrant"

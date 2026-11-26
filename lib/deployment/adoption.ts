@@ -574,11 +574,14 @@ export function adoptionPlanFeatureConfirmations(input: {
 		attachmentUrlTarget(input.target),
 	)
 		.filter((feature) =>
-			feature.id === "installation-profiles" || feature.id === "web-apps"
-				? input.sourceWebAppsOn
-				: feature.id === "advanced-case-actions"
-					? input.sourceHoldsSaveToCase
-					: feature.id !== "geocoder",
+			feature.id === "installation-profiles" ||
+			feature.id === "practice-workers"
+				? false
+				: feature.id === "web-apps"
+					? input.sourceWebAppsOn
+					: feature.id === "advanced-case-actions"
+						? input.sourceHoldsSaveToCase
+						: feature.id !== "geocoder",
 		)
 		.map((feature) => ({ kind: "plan-feature", subject: feature.id }));
 }
