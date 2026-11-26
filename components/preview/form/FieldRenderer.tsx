@@ -120,6 +120,7 @@ export function FieldRenderer({
 	) {
 		return (
 			<AddressEntryField
+				key={`${entryKey ?? ""}:${path ?? ""}`}
 				field={field}
 				state={state}
 				labelledBy={labelledBy}

@@ -105,15 +105,14 @@ export function appRemoteChange(input: {
 		parts: readonly string[],
 		baselineKnown: boolean,
 	): DeploymentRemoteChange => {
-		const full = [
-			...(input.legacyLanguageRemoval ? [input.legacyLanguageRemoval] : []),
-			...lines,
-			...parts,
-		];
-		const shown = boundedParts(full);
+		const priority = input.legacyLanguageRemoval
+			? [input.legacyLanguageRemoval]
+			: [];
+		const shown = boundedParts([...priority, ...lines, ...parts]);
 		const truncated = fileDisclosureTruncated(
 			lines.length,
-			parts.length + Number(input.legacyLanguageRemoval !== undefined),
+			parts.length,
+			priority.length,
 		);
 		const complete = hqDiscardDigest(
 			input.authority,

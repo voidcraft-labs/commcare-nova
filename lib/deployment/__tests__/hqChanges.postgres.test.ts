@@ -6798,6 +6798,72 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			});
 		});
 
+		it("an earlier cutover needs a publish decision before reading changes from CommCare HQ", async () => {
+			const doc = clinic({});
+			const { appId, held } = await bornInNova(doc, (body) => {
+				body.langs = ["en", "lug"];
+			});
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({ origin: "cutover" })
+				.where("remote_app_id", "=", FIXTURE_REMOTE_APP_ID)
+				.execute();
+			const baseline = await baselineOfApp();
+			const before = await headDocOf(appId);
+
+			await withHttpPeer(async (peer) => {
+				expect(
+					await reviewHqChanges(scope(appId), KEY_TARGET, {
+						onEvent: () => {},
+					}),
+				).toMatchObject({ kind: "unavailable", reason: "no-reference" });
+				expect(
+					await bringInHqChanges(
+						scope(appId),
+						KEY_TARGET,
+						{
+							readingId: crypto.randomUUID(),
+							reviewDigest: "a".repeat(64),
+							tableChoices: {},
+						},
+						{ onEvent: () => {} },
+					),
+				).toMatchObject({
+					kind: "changed",
+					now: { kind: "unavailable", reason: "no-reference" },
+				});
+				expect(peer.getCallHistory()?.calls()).toEqual([]);
+			});
+			expect(await baselineOfApp()).toEqual(baseline);
+			expect(await headDocOf(appId)).toEqual(before);
+
+			const changed = { ...held, name: "Renamed in CommCare HQ" };
+			const live = summarizeServedHqApp(changed).source;
+			const refused = await publishOver(
+				appId,
+				live,
+				false,
+				live,
+				Number(held.version),
+			);
+			expect(refused.outcome.refusal).toMatchObject({
+				phase: "preflight",
+				failure: { code: "hq_changed" },
+				remoteChanges: [
+					{
+						kind: "app",
+						canBringIn: false,
+						parts: [
+							"Publishing would remove Ganda (lug) from this app in CommCare HQ.",
+							"The app's name",
+						],
+					},
+				],
+			});
+			expect(refused.imported).toEqual([]);
+		});
+
 		it("reports CommCare HQ renaming the app after the cutover as a change, as any other", async () => {
 			const doc = clinic({});
 			const { appId, held } = await bornInNova(doc, (body) => {
