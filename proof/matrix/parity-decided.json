@@ -647,6 +647,7 @@
 	"hq-search": [
 		"hq-search/address-choice-shares-its-receiver-with-text",
 		"hq-search/address-fills-a-single-choice-by-position",
+		"hq-search/address-receiver-without-a-component",
 		"hq-search/another-case-type-searched",
 		"hq-search/blank-answer-searched-for",
 		"hq-search/blank-searched-for-beside-the-owner",

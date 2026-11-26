@@ -334,6 +334,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}address-receiver-shared-with-a-choice-field`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
+	addressReceiverNoComponent: refuse(
+		`${S}address-receiver-matching-a-picker-without-a-component`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
 	receiver: refuse(
 		`${S}receiver-expression`,
 		"schema:CaseSearchProperty.receiver_expression",
@@ -1067,11 +1071,20 @@ function readPrompt(
 		const wire = receiverSelector(sourceReceiver);
 		const parts = wire?.[2].split("||") ?? [];
 		const validSource = wire !== null && addressSources.has(wire[1]);
+		// A bare publisher name subscribes successfully in Web Apps, then
+		// the address message reaches a receiver with no component to split.
+		const bareTopic =
+			inputType === "" &&
+			!prompt.peek("input_") &&
+			typeof sourceReceiver === "string" &&
+			addressSources.has(sourceReceiver);
 		if (
 			RECEIVER_REFUSED_APPEARANCES.has(inputType) ||
 			prompt.peek("hidden") === true
 		)
 			refuseWith("receiver_expression", P.receiverOther);
+		else if (bareTopic)
+			refuseWith("receiver_expression", P.addressReceiverNoComponent);
 		else if (validSource && prompt.peek("input_") === "select1")
 			refuseWith("receiver_expression", P.receiverSingleChoice);
 		else if (wire === null || (validSource && !addressPartsHeld(parts)))

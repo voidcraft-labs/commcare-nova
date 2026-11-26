@@ -5395,20 +5395,12 @@ def _address_receiver_widget(prompt):
     return None
 
 
-def _active_address_receive(config, prompt):
+def _has_address_publisher(config, topic):
     endpoint = config.get("case_search_endpoint_id")
     if type(endpoint) is int and 0 < endpoint <= 2147483647:
-        return None
-    if prompt is None or prompt.get("is_group") or prompt.get("hidden"):
-        return None
-    if editor_appearance(prompt) in RECEIVER_REFUSED_APPEARANCES:
-        return None
-    value = prompt.get("receiver_expression")
-    selector = ADDRESS_RECEIVE_SELECTOR.fullmatch(value) if isinstance(value, str) else None
-    if selector is None:
-        return None
-    if any(
-        row.get("name") == selector[1]
+        return False
+    return any(
+        row.get("name") == topic
         and _address_field(row)
         and not row.get("is_group")
         and not row.get("hidden")
@@ -5420,9 +5412,31 @@ def _active_address_receive(config, prompt):
         and not _validations(row)
         and not (isinstance(row.get("itemset"), dict) and row["itemset"].get("nodeset"))
         for row in config.get("properties") or [] if isinstance(row, dict)
-    ):
-        return selector
-    return None
+    )
+
+
+def _active_address_receive(config, prompt):
+    if prompt is None or prompt.get("is_group") or prompt.get("hidden"):
+        return None
+    if editor_appearance(prompt) in RECEIVER_REFUSED_APPEARANCES:
+        return None
+    value = prompt.get("receiver_expression")
+    selector = ADDRESS_RECEIVE_SELECTOR.fullmatch(value) if isinstance(value, str) else None
+    return selector if selector is not None and _has_address_publisher(config, selector[1]) else None
+
+
+def address_receive_without_component(use, manifest):
+    """Web Apps subscribes to a bare publisher name, then fails when its first address arrives."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if at.key != "receiver_expression" or prompt is None or _address_receiver_widget(prompt) != "text":
+        return False
+    value = prompt.get("receiver_expression")
+    return (isinstance(value, str)
+            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) is not None
+            and _has_address_publisher(config, value))
 
 
 def single_choice_receives_from_address(use, manifest):
@@ -13517,6 +13531,7 @@ VALUE_CLASSES = {
     "case-search/input-no-runtime-names": input_no_runtime_names,
     "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": receiver_on_another_appearance,
     "case-search/address-receiver-single-choice-lookup-position": single_choice_receives_from_address,
+    "case-search/address-receiver-matching-a-picker-without-a-component": address_receive_without_component,
     "case-search/address-receiver-shared-with-a-choice-field": address_receiver_shared_with_choice,
     "case-search/search-button-label-any-other-value": other_search_button_label,
     "case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with": list_first_with_web_apps,

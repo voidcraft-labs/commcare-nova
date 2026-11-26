@@ -669,6 +669,12 @@ def address_picker_and_single_choice(authoring, app_id):
     _address_picker_for_lookup(authoring, app_id, "select1")
 
 
+def address_picker_and_receiver_without_component(authoring, app_id):
+    """The Village field subscribes to the existing picker but names no address part."""
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home")
+
+
 def _address_picker_for_lookup(authoring, app_id, choice_type):
     """The exact Search picker fills a text field and an existing lookup choice."""
     prompts = _modules(authoring, app_id)[0]["search_config"]["properties"]
