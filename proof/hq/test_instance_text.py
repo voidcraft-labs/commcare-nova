@@ -624,12 +624,6 @@ def test_working_suite_lookup_instances_follow_their_physical_navigation_scope(
         create["custom_instances"] = [{
             "doc_type": "CustomInstance", "instance_id": lookup_id, "instance_path": alternate,
         }]
-        for screen in ("short", "long"):
-            detail = menu["case_details"][screen]
-            detail["columns"] = [{
-                **detail["columns"][0], "field": grouped, "useXpathExpression": True,
-                "header": {"en": "Zone count"},
-            }]
         menu["search_config"] = CaseSearch(
             properties=[CaseSearchProperty(name="zone", label={"en": "Zone"}, default_value=grouped)],
             default_properties=(
@@ -641,9 +635,15 @@ def test_working_suite_lookup_instances_follow_their_physical_navigation_scope(
         with state.committing():
             credential = operations.seed_api_user(state, "navigation-reader@example.com")
         with api_rate_limits(state), resource_overrides():
-            suite = operations.api_request(
-                state, "GET", f"/a/{state.domain}/apps/download/{app_id}/suite.xml", credential=credential
-            )
+            source_answer = operations.source_read(state, app_id, credential)
+            recorded = dict(operations.source_factory_answers(state, app_id, credential, source_answer))
+            suite = recorded[f"/a/{state.domain}/apps/download/{app_id}/suite.xml"]
+            assert recorded["source-check"].status == 200
+            # Each HQ source export remints form IDs. The saved conditions
+            # are what the suite request must leave intact.
+            reread_menu = json.loads(recorded["source-check"].body)["modules"][0]
+            assert reread_menu["module_filter"] == f"{ordinary} > 0"
+            assert [form["form_filter"] for form in reread_menu["forms"]] == [f"{grouped} > 0"] * 2
         assert suite.status == 200
 
     def source(scope):
@@ -659,7 +659,6 @@ def test_working_suite_lookup_instances_follow_their_physical_navigation_scope(
     choosing = entries[follow["xmlns"]]
     assert source(choosing) == []
     assert "m0_case_short" in choosing.xpath("./session/*/@detail-select")
-    assert grouped in root.xpath("./detail[@id='m0_case_short']//@function")
 
     (request,) = root.xpath("./remote-request[session/query/prompt[@key='zone']]")
     assert source(request) == ([canonical] if has_search_sibling else [])

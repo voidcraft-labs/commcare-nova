@@ -28,7 +28,7 @@ def adoption(hq, documents):
                 app_id = operations.save_authored_app(state, source, [])
                 credential = operations.seed_api_user(state, READER)
 
-            def read(label, document, **options):
+            def read(label, document, *, kind="read", **options):
                 answers = app_reads(authoring, app_id, credential)
                 [answer] = run_bundle([{
                     "id": label, "mode": "read-back",
@@ -40,7 +40,7 @@ def adoption(hq, documents):
                     },
                     **options,
                 }])
-                assert answer["kind"] == "read", answer
+                assert answer["kind"] == kind, json.dumps(answer.get("findings", answer), ensure_ascii=False)
                 return answer
 
             yield authoring, app_id, documents[base.id].document, read
@@ -69,6 +69,14 @@ def test_hq_editor_renames_two_adopted_language_codes_without_reassigning_their_
     from corehq.apps.app_manager.xform import XForm
 
     authoring, app_id, original, read = adoption
+    # The language editor does not rename navigation badge keys. Give the
+    # badge the same wording in the control language that will remain active,
+    # using the actual menu settings page in that language.
+    _pages.set_languages(authoring, app_id, ("hin", "en", "fra"))
+    _pages.save_module_attributes(
+        authoring, app_id, 1, [("custom_icon_type", "text"), ("custom_icon_text_body", "New")], "badge control"
+    )
+    _pages.set_languages(authoring, app_id, ("en", "fra", "hin"))
     document = original
     for expected_codes, renames in [
         (["en", "fr", "hin"], {"fra": "fr"}),
@@ -93,6 +101,60 @@ def test_hq_editor_renames_two_adopted_language_codes_without_reassigning_their_
             zip(expected_codes, ["Visitor name", "Nom du visiteur", "आगंतुक का नाम"], strict=True)
         )
         document = {**document, "doc": target}
+
+
+def test_hq_language_rename_strands_only_the_badge_with_no_remaining_language(adoption):
+    import commcare_translations
+    from corehq.apps.app_manager.app_strings import SelectKnownAppStrings
+    from corehq.apps.app_manager.id_strings import module_custom_icon_locale
+    from corehq.apps.app_manager.xform import XForm
+    from lxml import etree
+
+    from proof.hq import operations
+    from proof.native.hq_support import hand_assembled_suite, known_app_strings
+
+    authoring, app_id, original, read = adoption
+
+    def badge_keys():
+        app = operations.held_app(authoring.state, app_id)
+        icon = app.get_module(1).custom_icon
+        locale_id = module_custom_icon_locale(app.get_module(1), icon.form)
+        default = SelectKnownAppStrings(lambda *_args, **_kwargs: {}).create_default_app_strings(app)
+        catalogs = {
+            "default": commcare_translations.loads(default),
+            **{lang: commcare_translations.loads(known_app_strings(app, lang)) for lang in app.langs},
+        }
+        suite = etree.fromstring(hand_assembled_suite(app))
+        assert suite.xpath("//locale[@id=$locale]", locale=locale_id), locale_id
+        return app, dict(icon.text), {language: words.get(locale_id) for language, words in catalogs.items()}
+
+    _, stored, before = badge_keys()
+    assert stored == {"en": "New"}
+    assert before == {"default": "New", "en": "New", "fra": "New", "hin": "New"}
+    _pages.set_languages(authoring, app_id, ("eng", "fra", "hin"), renames={"en": "eng"})
+    app, stored, after = badge_keys()
+    assert stored == {"en": "New"}
+    assert after == dict.fromkeys(["default", "eng", "fra", "hin"])
+
+    # HQ does rename an ordinary form label in the same save.
+    form = app.get_module(0).get_form(0)
+    values = XForm(form.source, domain=authoring.state.domain).translations()
+    assert values["eng"].findtext("{f}text[@id='visitor-label']/{f}value") == "Visitor name"
+    assert "en" not in values
+
+    answer = read("badge-stranded-by-language-rename", original, kind="account")
+    assert [finding["code"] for finding in answer["findings"]] == [
+        "menus-and-case-lists/badge-missing-localized-text"
+    ], answer["findings"]
+    assert answer["findings"][0]["place"] == {"kind": "menu", "menu": 1, "name": "Village notes"}
+
+    _pages.save_module_attributes(
+        authoring, app_id, 1, [("custom_icon_type", "text"), ("custom_icon_text_body", "New")], "repair badge language"
+    )
+    _, repaired, recovered = badge_keys()
+    assert repaired == {"en": "New", "eng": "New"}
+    assert recovered == dict.fromkeys(["default", "eng", "fra", "hin"], "New")
+    assert read("badge-restored-in-active-language", original)["kind"] == "read"
 
 
 def test_native_ui_translation_keeps_one_forms_button_in_each_worker_language(adoption):
