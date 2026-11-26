@@ -12317,6 +12317,30 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     return not _authored_property_name(name)
 
 
+def offered_project_search_parameter(use, manifest):
+    """An active named Search endpoint or one of the parameters HQ sends to it."""
+    at = _json(use)
+    config = None if at is None else at.nearest("CaseSearch")
+    if config is None:
+        return None
+    endpoint = config.get("case_search_endpoint_id")
+    if type(endpoint) is not int or not 0 < endpoint <= 2_147_483_647:
+        return False
+    if not (config.get("properties") or config.get("default_properties")):
+        return False
+    if use.key == "schema:CaseSearch.case_search_endpoint_id":
+        return True
+    row = at.nearest("DefaultCaseSearchProperty")
+    if row is None:
+        return False
+    name = row.get("property")
+    return isinstance(name, str) and bool(name) and name not in {
+        "case_type", "x_commcare_data_registry", "x_commcare_custom_related_case_property",
+        "x_commcare_include_all_related_cases", "commcare_sort", "x_commcare_endpoint_id",
+        "x_commcare_tag_module_name",
+    }
+
+
 def max_select_value_above_100(use, manifest):
     """``menus-and-case-lists/detail-max-select-value-above-100``: a ``max_select_value`` above 100 on the case list
     of a basic menu with a case type whose list selects several cases (``lib/commcare/reader/caseList/details.ts::
@@ -13267,6 +13291,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
+    "case-search/case-search-endpoint-id": offered_project_search_parameter,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
     "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,

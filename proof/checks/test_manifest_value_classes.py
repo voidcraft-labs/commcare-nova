@@ -4150,26 +4150,39 @@ def _search_and_menus():
         "case-search/case-search-endpoint-id": (
             refused(
                 "app",
-                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id="visits")),
+                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id=1)),
                 "schema:CaseSearch.case_search_endpoint_id",
                 f"{config}/case_search_endpoint_id",
             ),
             accepted(
                 "app",
-                search(_search_module(case_search_endpoint_id="visits")),
+                search(_search_module(case_search_endpoint_id=1)),
                 "schema:CaseSearch.case_search_endpoint_id",
                 f"{config}/case_search_endpoint_id",
             ),
-            # a default filter is the endpoint's parameter beside an id, and its own key's with none
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id="visits")),
+                "schema:CaseSearch.case_search_endpoint_id",
+                f"{config}/case_search_endpoint_id",
+            ),
+            # A default filter is the endpoint's parameter beside an id unless the key configures Search itself.
             refused(
                 "app",
-                search(_search_module(default_properties=[_default("dob", "'x'")], case_search_endpoint_id="visits")),
+                search(_search_module(default_properties=[_default("dob", "'x'")], case_search_endpoint_id=1)),
                 "schema:DefaultCaseSearchProperty.property",
                 f"{config}/default_properties/0/property",
             ),
             accepted(
                 "app",
                 search(_search_module(default_properties=[_default("dob", "'x'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'+priority'")],
+                                      case_search_endpoint_id=1)),
                 "schema:DefaultCaseSearchProperty.property",
                 f"{config}/default_properties/0/property",
             ),
@@ -6189,6 +6202,12 @@ def _save_to_case_effects():
             refused("form", with_link("create", "<update/>"), ROLE, role),
             accepted("form", with_link("close", create + "<close/>"), ROLE, role),
             accepted("form", with_link("create", create), ROLE, role),
+        ],
+        "questions/savetocase-link-name-outside-nova-s-identifier-grammar": [
+            refused("form", with_link("parént", create), ROLE, role),
+            refused("form", with_link("亲属", create), ROLE, role),
+            accepted("form", with_link("par.ent", create), ROLE, role),
+            accepted("form", with_link("par-ent", create), ROLE, role),
         ],
         "questions/savetocase-link-bind-lost-on-save": [
             refused("form", with_link("par.ent", create), ROLE, role),
@@ -8496,8 +8515,6 @@ KNOWN_GAPS = frozenset(
         "questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none",
         "questions/a-savetocase-link-name-longer-than-commcare-hq-stores",
         "questions/bare-repeat-with-no-group-wrapper",
-        "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes",
-        "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form",
         "questions/send-submission",
         "questions/unknown-body-control-vellum-readonly-e-g-range",
     }
