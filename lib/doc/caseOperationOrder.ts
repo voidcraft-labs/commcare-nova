@@ -150,13 +150,29 @@ export function caseOperationMultiplicityScopes(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): Array<Uuid | undefined> {
-	const scopes: Array<Uuid | undefined> = [undefined];
-	const walk = (parentUuid: Uuid): void => {
-		for (const uuid of orderedFieldUuids(doc, parentUuid)) {
+	return [
+		undefined,
+		...caseOperationRepeatScopes(doc, formUuid).map((scope) => scope.repeat),
+	];
+}
+
+/** Repeat definitions in post-order, with the repeat that encloses each row. */
+export function caseOperationRepeatScopes(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Array<{ readonly repeat: Uuid; readonly parentRepeat?: Uuid }> {
+	const scopes: Array<{ repeat: Uuid; parentRepeat?: Uuid }> = [];
+	const walk = (parent: Uuid, enclosing?: Uuid): void => {
+		for (const uuid of orderedFieldUuids(doc, parent)) {
 			const field = doc.fields[uuid];
 			if (field === undefined) continue;
-			walk(uuid);
-			if (field.kind === "repeat") scopes.push(uuid);
+			if (field.kind === "repeat") {
+				walk(uuid, uuid);
+				scopes.push({
+					repeat: uuid,
+					...(enclosing && { parentRepeat: enclosing }),
+				});
+			} else walk(uuid, enclosing);
 		}
 	};
 	walk(formUuid);

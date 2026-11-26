@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { CaseOperation } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
+import { proseText } from "@/lib/domain/prose";
 import {
 	androidDevice,
 	webAppsDevice,
@@ -298,6 +300,107 @@ describe("committed program input rejection", () => {
 			}),
 		).toThrow(CaptureSubmissionRejectedError);
 	});
+});
+
+it("binds nested operation order to the committed repeat and the enclosing answers", () => {
+	const outer = testUuid("outer-repeat");
+	const inner = testUuid("inner-repeat");
+	const answer = testUuid("outer-answer");
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "repeat",
+								uuid: outer,
+								id: "visits",
+								label: proseText("Visits"),
+								children: [
+									f({
+										kind: "text",
+										uuid: answer,
+										id: "outer_value",
+										label: proseText("Outer"),
+									}),
+									f({
+										kind: "repeat",
+										uuid: inner,
+										id: "checks",
+										label: proseText("Checks"),
+										children: [
+											f({
+												kind: "text",
+												id: "inner_value",
+												label: proseText("Inner"),
+											}),
+										],
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const engine = engineFor(doc, formUuid);
+	engine.addRepeat("/data/visits");
+	engine.addRepeat("/data/visits");
+	engine.addRepeat("/data/visits");
+	engine.setValue("/data/visits[0]/outer_value", "one");
+	engine.setValue("/data/visits[1]/outer_value", "two");
+	engine.setValue("/data/visits[2]/outer_value", "three");
+	engine.addRepeat("/data/visits[0]/checks");
+	engine.addRepeat("/data/visits[0]/checks");
+	engine.addRepeat("/data/visits[2]/checks");
+	const submitted = engine.computeSubmissionMutation({
+		caseIds: [SESSION_CASE],
+		entryKey: ENTRY_KEY,
+	});
+	const answers = submitted.operationAnswers;
+	if (!answers)
+		throw new Error("Expected the form's case operations to collect answers.");
+	const build = (mutation: SubmissionMutation) =>
+		buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			identity: IDENTITY,
+		}).program;
+	expect(build(submitted)?.scopeOrder).toEqual([
+		{ iteration: 0 },
+		{ repeat: inner, iteration: 0 },
+		{ repeat: inner, iteration: 1 },
+		{ repeat: outer, iteration: 0 },
+		{ repeat: outer, iteration: 1 },
+		{ repeat: inner, iteration: 2 },
+		{ repeat: outer, iteration: 2 },
+	]);
+	for (const parentIterations of [undefined, [0, 1, 2], [0, 0, 3]]) {
+		expect(() =>
+			build({
+				...submitted,
+				operationAnswers: {
+					...answers,
+					repeats: answers.repeats.map((scope) =>
+						scope.repeat === inner ? { ...scope, parentIterations } : scope,
+					),
+				},
+			}),
+		).toThrow("could not match its nested repeat rows");
+	}
 });
 
 describe("an own-case answer that takes no part in the submission", () => {

@@ -3207,6 +3207,7 @@ export class FormEngine {
 
 		const relevant = this.effectivelyVisiblePaths();
 		const repeatScopes = new Map<string, SubmissionAnswerEntry[][]>();
+		const parentIterations = new Map<string, number[]>();
 		const scopeFor = (repeatUuid: string): SubmissionAnswerEntry[][] => {
 			const existing = repeatScopes.get(repeatUuid);
 			if (existing !== undefined) return existing;
@@ -3250,6 +3251,7 @@ export class FormEngine {
 			nodes: ReadonlyArray<FieldTreeNode>,
 			pathPrefix: string,
 			inherited: ReadonlyArray<SubmissionAnswerEntry>,
+			parentIteration?: number,
 		): SubmissionAnswerEntry[] => {
 			const level: SubmissionAnswerEntry[] = [];
 			const deferredRepeats: Array<{
@@ -3288,8 +3290,19 @@ export class FormEngine {
 					if (!this.repeatRowRelevant(node.field, path, i, repeatState))
 						continue;
 					const enclosing = [...inherited, ...level];
-					const own = collectLevel(node.children, `${path}[${i}]`, enclosing);
+					const iteration = iterations.length;
+					const own = collectLevel(
+						node.children,
+						`${path}[${i}]`,
+						enclosing,
+						iteration,
+					);
 					iterations.push([...enclosing, ...own]);
+					if (parentIteration !== undefined) {
+						const parents = parentIterations.get(node.field.uuid) ?? [];
+						parents.push(parentIteration);
+						parentIterations.set(node.field.uuid, parents);
+					}
 				}
 			}
 			return level;
@@ -3301,6 +3314,9 @@ export class FormEngine {
 			repeats: [...repeatScopes.entries()].map(([repeat, iterations]) => ({
 				repeat,
 				iterations,
+				...(parentIterations.has(repeat) && {
+					parentIterations: parentIterations.get(repeat),
+				}),
 			})),
 		};
 	}

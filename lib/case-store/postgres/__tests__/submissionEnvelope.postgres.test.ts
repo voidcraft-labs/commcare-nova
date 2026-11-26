@@ -1183,6 +1183,82 @@ describe("ordered selected-case batches", () => {
 		}
 	});
 
+	it("applies nested repeat case effects within each enclosing row and replays that state", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const inner = testUuid("nested-iteration");
+		const record = (
+			uuid: typeof OP_A,
+			repeat: typeof REPEAT_UUID,
+			id: string,
+		) =>
+			operation({
+				uuid,
+				id,
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				forEach: { repeat },
+				writes: [{ property: "notes", value: term(formField(KEY_FIELD)) }],
+			});
+		const program = rootProgram([
+			envOp(record(OP_A, inner, "inner_notes")),
+			envOp({
+				...record(OP_B, REPEAT_UUID, "outer_notes"),
+				condition: eq(formField(KEY_FIELD), literal("outer row one")),
+			}),
+		]);
+		const request = {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...program,
+				scopes: [
+					...program.scopes,
+					{
+						repeat: inner,
+						iterations: ["inner row one", "inner row two"].map((value) => ({
+							formFields: new Map([[KEY_FIELD, value]]),
+						})),
+					},
+					{
+						repeat: REPEAT_UUID,
+						iterations: ["outer row one", "skip outer row two"].map(
+							(value) => ({ formFields: new Map([[KEY_FIELD, value]]) }),
+						),
+					},
+				],
+				scopeOrder: [
+					{ iteration: 0 },
+					{ repeat: inner, iteration: 0 },
+					{ repeat: REPEAT_UUID, iteration: 0 },
+					{ repeat: inner, iteration: 1 },
+					{ repeat: REPEAT_UUID, iteration: 1 },
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const saved = await store.applySubmission(claim);
+		expect(
+			saved.operations.map((effect) => [
+				effect.operationUuid,
+				effect.iteration,
+				effect.executed,
+			]),
+		).toEqual([
+			[OP_A, 0, true],
+			[OP_B, 0, true],
+			[OP_A, 1, true],
+			[OP_B, 1, false],
+		]);
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({
+			notes: "inner row two",
+		});
+		expect(await store.applySubmission(claim)).toEqual(saved);
+	});
+
 	it("runs repeat outer by selected case inner with one session anchor per case", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice");

@@ -106,13 +106,11 @@ export interface OperationIterationBindings {
 }
 
 /**
- * One physical multiplicity scope in wire document order: the root
+ * Answer rows by repeat definition: the root
  * scope first (`repeat` absent, exactly one iteration), then each
  * repeat scope in post-order field traversal. A repeat scope carries
- * one entry per live iteration in instance order; the executor runs a
- * scope's operations iteration-major (all of iteration 1's operations,
- * then iteration 2's), matching how JavaRosa walks the submitted
- * instance's repeated operation groups.
+ * one entry per live iteration. The program's scope order walks nested
+ * rows where they occur inside the enclosing iteration.
  */
 export interface OperationScopeIterations {
 	/** Absent = the root scope. */
@@ -232,6 +230,12 @@ export interface CaseOperationProgram {
 	/** IDs supplied for exposed creations by this form’s authorized deep-link launch. */
 	readonly suppliedCaseIds?: ReadonlyMap<Uuid, string>;
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;
+	/** Server-derived physical row order for nested repeats. Root effects
+	 * come first; each nested repeat runs inside the enclosing iteration. */
+	readonly scopeOrder?: readonly {
+		readonly repeat?: Uuid;
+		readonly iteration: number;
+	}[];
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */
 	readonly sessionCaseIds?: ReadonlyArray<string>;

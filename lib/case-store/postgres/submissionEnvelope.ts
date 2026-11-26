@@ -312,113 +312,102 @@ interface PhysicalInstance {
  * (`caseOperationRunsPerSelectedCase`: the own arm, a session-targeted update
  * or close, a create linked to the loaded case) for a batch form.
  * Batch admission puts form-level operations before the selected-case phase.
- * The caller supplies scopes in wire order (root first, repeats in
- * post-order traversal); the executor trusts the ORDER but verifies the
- * structure so a malformed program fails loudly instead of silently dropping
- * operations.
+ * The caller supplies nested rows in wire order, with their definition-local
+ * iteration numbers intact. The executor verifies the schedule covers the
+ * live rows exactly once and keeps each operation's repeat binding.
  */
 function expandPhysicalInstances(
 	program: CaseOperationProgram,
 	steps: readonly ProgramStep[],
 	ordinary: ApplySubmissionArgs["ordinary"],
 ): PhysicalInstance[] {
-	const seenScopes = new Set<string>();
-	for (const scope of program.scopes) {
-		const key = scope.repeat ?? "";
-		if (seenScopes.has(key)) {
-			throw new Error(
-				compilerBugMessage({
-					where: "case-store.submissionEnvelope.expandPhysicalInstances",
-					invariant: `the operation program carries two scope entries for ${scope.repeat === undefined ? "the root scope" : `repeat \`${scope.repeat}\``}`,
-					detail:
-						"Each multiplicity scope appears exactly once, carrying every live iteration. Hint: the caller assembles scopes from the form's repeat structure. Deduplicate before building the program.",
-				}),
-			);
-		}
-		seenScopes.add(key);
-	}
+	const scopes = new Map(program.scopes.map((scope) => [scope.repeat, scope]));
+	const malformed = () =>
+		new Error(
+			compilerBugMessage({
+				where: "case-store.submissionEnvelope.expandPhysicalInstances",
+				invariant:
+					"the operation program must schedule each live row once in a declared scope",
+				detail:
+					"The committed form orders each repeat row and the operations inside it. Its program must keep every scope, even a repeat with no live rows.",
+			}),
+		);
+	if (
+		scopes.size !== program.scopes.length ||
+		steps.some(({ operation }) => !scopes.has(operation.forEach?.repeat))
+	)
+		throw malformed();
 
-	const instances: PhysicalInstance[] = [];
-	// The authored selection mode matters even when a batch selects one row.
-	// An operation-only envelope has no module selection contract; its explicit
-	// session list supplies the multiplicity instead.
+	const operationsByScope = new Map(
+		program.scopes.map(({ repeat }) => {
+			const operations = steps.filter(
+				(entry) => entry.operation.forEach?.repeat === repeat,
+			);
+			return [
+				repeat,
+				{
+					operations,
+					formOperations: operations.filter(
+						(entry) => !caseOperationRunsPerSelectedCase(entry.operation),
+					),
+					selectedOperations: operations.filter((entry) =>
+						caseOperationRunsPerSelectedCase(entry.operation),
+					),
+				},
+			] as const;
+		}),
+	);
+	const order =
+		program.scopeOrder ??
+		program.scopes.flatMap((scope) =>
+			scope.iterations.map((_, iteration) => ({
+				repeat: scope.repeat,
+				iteration,
+			})),
+		);
+	const expectedRows = program.scopes.reduce(
+		(count, scope) => count + scope.iterations.length,
+		0,
+	);
+	if (order.length !== expectedRows) throw malformed();
+
+	// A batch form keeps its selected-case phase even when just one case was chosen.
 	const multiple =
 		ordinary.kind === "followup" || ordinary.kind === "close"
 			? ordinary.selection.kind === "multiple"
 			: (program.sessionCaseIds?.length ?? 0) > 1;
-	const selectedCases =
-		program.sessionCaseIds === undefined
-			? [{ selection: 0, caseId: undefined }]
-			: program.sessionCaseIds.map((caseId, selection) => ({
-					selection,
-					caseId,
-				}));
-	for (const scope of program.scopes) {
-		const scopeOperations = steps.filter(
-			(entry) => entry.operation.forEach?.repeat === scope.repeat,
-		);
-		if (scopeOperations.length === 0) continue;
-		const formLevelOperations = scopeOperations.filter(
-			(entry) => !caseOperationRunsPerSelectedCase(entry.operation),
-		);
-		const selectedCaseOperations = scopeOperations.filter((entry) =>
-			caseOperationRunsPerSelectedCase(entry.operation),
-		);
-		for (const [iteration, bindings] of scope.iterations.entries()) {
-			if (!multiple) {
-				for (const entry of scopeOperations) {
-					instances.push({
-						envelope: entry,
-						scopeRepeat: scope.repeat,
-						iteration,
-						selection: 0,
-						perSelectedCase: false,
-						sessionCaseId: program.sessionCaseIds?.[0],
-						formFields: bindings.formFields,
-					});
-				}
-				continue;
-			}
-			for (const entry of formLevelOperations) {
+	const selectedCases = program.sessionCaseIds ?? [];
+	const instances: PhysicalInstance[] = [];
+	const seen = new Set<string>();
+	for (const { repeat, iteration } of order) {
+		const bindings = scopes.get(repeat)?.iterations[iteration];
+		const ordered = operationsByScope.get(repeat);
+		const key = JSON.stringify([repeat ?? null, iteration]);
+		if (!bindings || !ordered || seen.has(key)) throw malformed();
+		seen.add(key);
+		const append = (
+			operations: readonly ProgramStep[],
+			sessionCaseId: string | undefined,
+			selection: number,
+			perSelectedCase: boolean,
+		): void => {
+			for (const envelope of operations) {
 				instances.push({
-					envelope: entry,
-					scopeRepeat: scope.repeat,
+					envelope,
+					scopeRepeat: repeat,
 					iteration,
-					selection: 0,
-					perSelectedCase: false,
-					sessionCaseId: undefined,
+					selection,
+					perSelectedCase,
+					sessionCaseId,
 					formFields: bindings.formFields,
 				});
 			}
-			for (const selected of selectedCases) {
-				for (const entry of selectedCaseOperations) {
-					instances.push({
-						envelope: entry,
-						scopeRepeat: scope.repeat,
-						iteration,
-						selection: selected.selection,
-						perSelectedCase: true,
-						sessionCaseId: selected.caseId,
-						formFields: bindings.formFields,
-					});
-				}
-			}
-		}
-	}
-
-	const covered = new Set(program.scopes.map((scope) => scope.repeat ?? ""));
-	for (const entry of steps) {
-		const key = entry.operation.forEach?.repeat ?? "";
-		if (!covered.has(key)) {
-			throw new Error(
-				compilerBugMessage({
-					where: "case-store.submissionEnvelope.expandPhysicalInstances",
-					invariant: `operation \`${entry.operation.uuid}\` names ${key === "" ? "the root scope" : `repeat \`${key}\``}, but the program carries no matching scope entry`,
-					detail:
-						"Every operation's multiplicity scope must arrive with its iteration bindings, even when zero iterations are live (an empty `iterations` array). Hint: the caller derives scopes from `caseOperationMultiplicityScopes` plus the engine's live repeat counts.",
-				}),
-			);
-		}
+		};
+		if (multiple) {
+			append(ordered.formOperations, undefined, 0, false);
+			for (const [selection, caseId] of selectedCases.entries())
+				append(ordered.selectedOperations, caseId, selection, true);
+		} else append(ordered.operations, selectedCases[0], 0, false);
 	}
 	return instances;
 }
