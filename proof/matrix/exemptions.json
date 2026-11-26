@@ -235,10 +235,6 @@
 		"reason": "no-surface-key",
 		"note": "The entry names no surface key, and it allows what it describes."
 	},
-	"menus-and-case-lists/7pp-invisible-inside-a-data-tab-over-a-nodeset": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.2): a column of a data tab stands under the tab's own finding, so no reading names this class on its own."
-	},
 	"menus-and-case-lists/a-geo-column-on-the-case-detail-beside-the-column-it-depends-on": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): the class stands only beside an address column on the same detail, which 8-address refuses, so no reading holds it and the reading counts it beside that finding."

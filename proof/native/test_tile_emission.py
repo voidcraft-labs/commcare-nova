@@ -1,6 +1,6 @@
 """HQ's regenerated case list details keep the tile contract Nova's details carry.
 
-Contract: for each of the eight tile scenarios, the details HQ's own
+Contract: for each tile scenario, the details HQ's own
 ``DetailContributor`` regenerates carry what the device reads from Nova's:
 every field's grid position and size, alignment, font size, border and
 shading, header and template widths, value expression and sort (type,
@@ -27,6 +27,13 @@ SCENARIOS = {
     "grouped-two",
     "grouped-search",
     "grouped-browse",
+    "detail-tabs",
+    "conditional-search-children",
+    "detail-layout",
+    "named-layout",
+    "persistent-line",
+    "persistent-inline",
+    "persistent-external",
 }
 
 
@@ -50,6 +57,9 @@ def detail_contract(root, parsed):
             fields.append(
                 {
                     "style": style_contract,
+                    "format": field.find("template").get("form"),
+                    "headerLabels": [item.get("id") for item in field.findall("header/text/locale")],
+                    "valueLabels": [(item.get("id"), (item.tail or "").strip("\r\n\t ")) for item in field.findall("template/text/locale")],
                     "headerWidth": field.find("header").get("width"),
                     "templateWidth": field.find("template").get("width"),
                     "value": attributes(field.find("template/text/xpath"), parsed)["function"],
@@ -73,6 +83,21 @@ def detail_contract(root, parsed):
     return result
 
 
+def tab_contract(root, parsed):
+    detail = root.find("detail[@id='m0_case_long']")
+    return {
+        "tabs": [
+            {
+                "title": tab.find("title/text/locale").get("id"),
+                "fields": [field.find("header/text/locale").get("id") for field in tab.findall("field")],
+                "condition": attributes(tab, parsed).get("relevant"),
+            }
+            for tab in detail.findall("detail")
+        ],
+        "variables": [(node.tag, attributes(node, parsed)["function"]) for node in detail.findall("variables/*")],
+    }
+
+
 def test_hq_details_keep_novas_tile_contract(native):
     result = native.step("tile")
     assert set(result["sources"]) == SCENARIOS, "Missing or unexpected tile scenarios"
@@ -91,15 +116,59 @@ def test_hq_details_keep_novas_tile_contract(native):
             )
             for node in root.findall(selector)
         ]
+        if record["scenario"] == "detail-tabs":
+            carriers.extend(node for root in (local, hq) for selector in ("detail/detail[@relevant]", "detail/variables/*") for node in root.findall(selector))
+        if record["scenario"] == "conditional-search-children":
+            for id_ in ("m0_case_long", "m0_search_long"):
+                for root in (local, hq):
+                    [tab] = root.findall(f"detail[@id='{id_}']/detail[@nodeset]")
+                    carriers.append(tab)
         parsed = parse_xml_xpaths(*carriers)
+        if record["scenario"] == "conditional-search-children":
+            assert record["searchChildren"] == {"visit": ["contact"]}
+            for id_ in ("m0_case_long", "m0_search_long"):
+                [ours] = local.findall(f"detail[@id='{id_}']/detail[@nodeset]")
+                [native_tab] = hq.findall(f"detail[@id='{id_}']/detail[@nodeset]")
+                assert attributes(ours, parsed) == attributes(native_tab, parsed)
+                assert native_tab.get("relevant") and "visit" in native_tab.get("nodeset")
+                assert "contact" not in native_tab.get("nodeset")
+        else:
+            assert record["searchChildren"] == {}
+        if record["scenario"] == "detail-tabs":
+            observed = tab_contract(hq, parsed)
+            assert tab_contract(local, parsed) == observed
+            assert [len(tab["fields"]) for tab in observed["tabs"]] == [2, 1]
+            assert [tab["title"] for tab in observed["tabs"]] == ["m0.case_long.tab.1.title", "m0.case_long.tab.2.title"]
+            assert observed["tabs"][0]["condition"] is None and observed["tabs"][1]["condition"] is not None
+            assert [name for name, _ in observed["variables"]] == ["case_id"]
         native_contract = detail_contract(hq, parsed)
         assert detail_contract(local, parsed) == native_contract, record["scenario"]
+        if record["scenario"] == "named-layout":
+            cells = native_contract["m0_case_short"]["fields"]
+            assert len(cells) == 11
+            assert [cell["style"]["grid"]["grid-x"] for cell in cells[:10]] == ["0", "1", "6", "7", "0", "1", "6", "7", "0", "1"]
+            assert [(cell["format"], cell["templateWidth"]) for cell in cells[:2]] == [("plain", None), ("invisible", None)]
+            assert cells[0]["headerLabels"] == [] and len(cells[1]["headerLabels"]) == 1
+            assert cells[1]["valueLabels"][0][1] == "\u2005"
+            assert cells[-1]["style"] is None and cells[-1]["templateWidth"] == "0"
+        if record["scenario"] == "detail-layout":
+            fields = native_contract["m0_case_long"]["fields"]
+            assert [field["style"]["grid"]["grid-y"] for field in fields] == ["0", "1", "2"]
+            assert [field["style"]["border"] for field in fields] == [True, False, False]
+        if record["scenario"] == "persistent-line":
+            [line] = native_contract["m0_persistent_case_context"]["fields"]
+            assert line["style"]["horizontal"] == "center" and line["style"]["grid"]["grid-width"] == "12"
+        if record["scenario"] == "persistent-external":
+            # Beside another menu's tile expanded above the forms the menu's persistence is on, so HQ's build writes
+            # no fallback line for its tile list (``details.py::get_section_elements``), and neither does Nova's.
+            assert "m0_persistent_case_context" not in native_contract
         scenarios.append(
             {
                 "scenario": record["scenario"],
                 "sourceSha256": record["sourceSha256"],
                 "suiteSha256": sha256(record["local"]),
                 "nativeDetailsSha256": sha256(record["native"]),
+                "searchChildren": record["searchChildren"],
                 "details": native_contract,
             }
         )

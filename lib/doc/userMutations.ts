@@ -45,6 +45,7 @@ import {
 	userTypesOf,
 	workerFieldNameTargetKey,
 } from "@/lib/domain";
+import { canBindWorkerColumnField } from "@/lib/domain/columnRelation";
 import { referencingCarrierUuids, referencingSlotsOf } from "./referenceIndex";
 import { slotReadRewriteMutations } from "./slotReadRewrites";
 
@@ -82,9 +83,19 @@ export function rebindWorkerReadsByName(
 	slug: string,
 	userPropertyUuid: Uuid,
 ): Mutation[] {
-	const carriers = referencingCarrierUuids(doc, workerFieldNameTargetKey(slug));
+	const carriers = [
+		...new Set([
+			...referencingCarrierUuids(doc, workerFieldNameTargetKey(slug)),
+			...referencingCarrierUuids(doc, userPropertyTargetKey(userPropertyUuid)),
+		]),
+	];
 	if (carriers.length === 0) return [];
 	return slotReadRewriteMutations(doc, carriers, {
+		mapWorkerColumn: (field, uuid) =>
+			uuid === userPropertyUuid ||
+			(!uuid && field === slug && canBindWorkerColumnField(field))
+				? { field: slug, uuid: userPropertyUuid }
+				: undefined,
 		mapTerm: (term) =>
 			term.kind === "session-user" && term.field === slug
 				? {
@@ -366,7 +377,13 @@ function describeUserPropertyReference(
 	const module = ownRecordValue(doc.modules, carrierUuid);
 	if (module !== undefined) {
 		const setting: Partial<Record<string, string>> = {
+			case_list_mapping_condition: "mapping condition",
+			case_detail_tab_condition: "detail tab display condition",
+			case_detail_tab_filter: "child record condition",
+			case_detail_tab_rows: "detail tab records",
 			case_list_column_expression: "calculated value",
+			case_list_column_worker_information: "case view column",
+			case_list_sort_expression: "default order calculation",
 			case_list_filter: "Cases available condition",
 			search_input_default: "search field starting value",
 			search_input_predicate: "search field condition",

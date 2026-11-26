@@ -12,7 +12,10 @@ import {
 	isPathExpression,
 } from "@/lib/commcare/xform/pathExpression";
 import { parser } from "@/lib/commcare/xpath";
-import { locationsInstance } from "@/lib/commcare/xpath/wire/instances";
+import {
+	groupsInstance,
+	locationsInstance,
+} from "@/lib/commcare/xpath/wire/instances";
 import { tryParseXml } from "../xmlParse";
 import {
 	type ValidationError,
@@ -1462,13 +1465,15 @@ function checkFixtures(
 	}
 
 	// Every declared jr://fixture src must name an embedded fixture, except
-	// the flat locations fixture: HQ's restore delivers it as a user fixture
-	// with id `locations` (`corehq/apps/locations/fixtures.py::
-	// flat_location_fixture_generator`), so the suite never embeds it.
-	// UserGroupsFixtureProvider emits one fixture for the authenticated worker.
+	// the two HQ's restore delivers as user fixtures, so the suite never
+	// embeds them: the flat locations fixture, id `locations`
+	// (`corehq/apps/locations/fixtures.py::flat_location_fixture_generator`),
+	// and the worker's case-sharing groups, id `user-groups`, whose `groups`
+	// element HQ writes for every worker, in no group or several
+	// (`corehq/apps/users/fixturegenerators.py::UserGroupsFixtureProvider`).
 	const restoreDelivered = new Set([
 		locationsInstance().src,
-		"jr://fixture/user-groups",
+		groupsInstance().src,
 	]);
 	for (const inst of findAll(
 		(el) => el.name === "instance",
@@ -1998,11 +2003,15 @@ function checkMediaResolution(
 	}
 
 	// Surface 2 — image-map `<template form="image">` inlined jr:// literals
-	// in `<xpath function="...">` content. Media paths are language-neutral;
-	// each quoted
-	// `jr://file/...` slice is one referenced wire path.
+	// in `<xpath function="...">` content, and the same template of a case
+	// list icon that submits a form (`form="clickable-icon"`). Media paths are
+	// language-neutral; each quoted `jr://file/...` slice is one referenced
+	// wire path.
 	for (const template of findAll(
-		(el) => el.name === "template" && getAttributeValue(el, "form") === "image",
+		(el) =>
+			el.name === "template" &&
+			(getAttributeValue(el, "form") === "image" ||
+				getAttributeValue(el, "form") === "clickable-icon"),
 		model.suite.children,
 	)) {
 		for (const fn of collectXPathFunctions(template)) {
@@ -2012,7 +2021,7 @@ function checkMediaResolution(
 					validationError(
 						"SUITE_DANGLING_MEDIA_REF",
 						"app",
-						`An image-map <template form="image"> inlines a media reference "jr://file/${wirePath}" that the compile-time manifest has no entry for. The device resolves this jr:// reference against media_suite.xml's local resources, so a reference without a bundled file renders as a broken icon. This is a bug in the suite generator.`,
+						`An image-map <template form="${getAttributeValue(template, "form")}"> inlines a media reference "jr://file/${wirePath}" that the compile-time manifest has no entry for. The device resolves this jr:// reference against media_suite.xml's local resources, so a reference without a bundled file renders as a broken icon. This is a bug in the suite generator.`,
 						loc,
 					),
 				);

@@ -998,6 +998,7 @@ export class Accounting implements ClaimLedger {
 		const ledgerSite = this.#site(site);
 		if (ledgerSite === undefined) return;
 		const state = this.#state(ledgerSite);
+		// A key the node's `take` declared is claimed there as one claimed by entry.
 		const first =
 			state.entries?.get(key) ??
 			(state.declaredKey === key ? state.declared : undefined);

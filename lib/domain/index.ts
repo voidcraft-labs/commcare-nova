@@ -11,6 +11,7 @@ export * from "./blueprint";
 export * from "./builtinIcons";
 export * from "./caseClaim";
 export * from "./caseListOrder";
+export * from "./caseMappingRows";
 export * from "./caseOperationDescription";
 export * from "./caseOperationIdentifiers";
 export * from "./caseOperationIdentity";

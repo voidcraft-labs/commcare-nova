@@ -621,6 +621,10 @@ def _value_at(document, pointer):
     here = document
     for token in _pointer_tokens(pointer):
         if isinstance(here, list):
+            # A change that appends (``-``) set the list's last item, which is where a read finds it.
+            if token == "-" and here:
+                here = here[-1]
+                continue
             if not token.isdigit() or int(token) >= len(here):
                 return _MISSING
             here = here[int(token)]

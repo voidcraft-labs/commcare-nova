@@ -259,6 +259,7 @@ export function expressionChildren(
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "case-text":
 		case "itext":
 		case "here":
 		case "case-list-search-text":

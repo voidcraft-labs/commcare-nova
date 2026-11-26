@@ -819,6 +819,9 @@ export const KIND_BUILDERS: { readonly [K in Expression["kind"]]: Builder } = {
 		gives(request, "text")
 			? fc.constant({ kind: "case-list-search-text" })
 			: undefined,
+	// A translated text names one piece of its own calculated column, which
+	// no drawn tree has.
+	"case-text": () => undefined,
 	"value-list": (request, sub) => {
 		const item = gives(request, "text") ? sub(value("text")) : undefined;
 		return item === undefined
@@ -915,6 +918,8 @@ export const RECORD_KIND_COVERAGE: Partial<Record<Expression["kind"], string>> =
 		itext: "Only form logic reads a form's text.",
 		"choice-name": "Only form logic reads a choice's name.",
 		"case-list-search-text": "The record dialect has no spelling for it.",
+		"case-text":
+			"Only a calculated column with translated text reads one of its pieces.",
 	};
 
 // ── The expression arbitrary ──────────────────────────────────────

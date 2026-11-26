@@ -23,6 +23,7 @@ import type {
 	CaseType,
 	Column,
 	CommitOutcome,
+	NamedTileSlot,
 	TileCell,
 	UserProperty,
 	Uuid,
@@ -35,6 +36,7 @@ import {
 	representedColumnProperties,
 	unrepresentedColumnProperties,
 } from "../seeds";
+import { NamedTileEditor } from "../tile/NamedTileEditor";
 import { TileLayoutCanvas } from "../tile/TileLayoutCanvas";
 import {
 	type CaseListArrangement,
@@ -47,6 +49,10 @@ import {
 	CaseAvailabilityComposer,
 	type CaseAvailabilityComposerProps,
 } from "./CaseAvailabilityComposer";
+import {
+	CaseListWordingSetting,
+	type CaseListWordingSlot,
+} from "./CaseListWordingSetting";
 import { CaseSelectionSetting } from "./CaseSelectionSetting";
 import { CanvasNotice } from "./canvasChrome";
 import {
@@ -69,7 +75,10 @@ export interface CaseListCanvasProps {
 	readonly onAddCalculated: () => void;
 	readonly addColumnDisabledReason: string | undefined;
 	readonly onMoveColumn: (uuid: Column["uuid"], toIndex: number) => void;
-	readonly onColumnsChange: (next: readonly Column[]) => void;
+	readonly onColumnsChange: (
+		next: readonly Column[],
+		calculations?: readonly import("@/lib/domain").CalculatedSort[],
+	) => void;
 	readonly onShowColumn: (column: Column) => void;
 	readonly filterBroken: boolean;
 	readonly excludedOwnerIdsBroken?: boolean;
@@ -86,6 +95,10 @@ export interface CaseListCanvasProps {
 	readonly tileIssues: ReadonlyMap<Uuid, readonly string[]>;
 	/** Present when the case list cannot be laid out as a tile right now. */
 	readonly tileDisabledReason: string | undefined;
+	readonly onNamedTileChange: (
+		slots: Record<NamedTileSlot, Uuid>,
+		rawSlots: NamedTileSlot[],
+	) => string | undefined;
 	readonly onArrangementChange: (next: CaseListArrangement) => void;
 	readonly onPlaceTileCell: (uuid: Uuid, cell: TileCell) => void;
 	readonly onPutColumnOnTile: (uuid: Uuid) => void;
@@ -95,6 +108,10 @@ export interface CaseListCanvasProps {
 	readonly onCaseSelectionChange: (
 		next: CaseSelection | undefined,
 		origin?: HTMLElement,
+	) => void;
+	readonly onWordingChange: (
+		slot: CaseListWordingSlot,
+		next: string | null,
 	) => void;
 }
 
@@ -124,6 +141,7 @@ export function CaseListCanvas({
 	onReturnToSearchField,
 	tileIssues,
 	tileDisabledReason,
+	onNamedTileChange,
 	onArrangementChange,
 	onPlaceTileCell,
 	onPutColumnOnTile,
@@ -131,6 +149,7 @@ export function CaseListCanvas({
 	onTilePersistOnFormsChange,
 	onTileGroupingChange,
 	onCaseSelectionChange,
+	onWordingChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
 	const platforms = useDeclaredPlatforms();
@@ -176,6 +195,13 @@ export function CaseListCanvas({
 						severalRefusal={severalRefusal}
 						onChange={onCaseSelectionChange}
 					/>
+					<CaseListWordingSetting
+						emptyText={config.emptyText}
+						selectButtonText={config.selectButtonText}
+						several={config.selection?.kind === "multiple"}
+						canEdit={canEdit}
+						onChange={onWordingChange}
+					/>
 					{caseType !== undefined && (
 						<RegisterFromListSetting moduleUuid={moduleUuid} />
 					)}
@@ -197,9 +223,11 @@ export function CaseListCanvas({
 								<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
 									{!canEdit
 										? "People use this information to compare cases"
-										: tile !== undefined
-											? "Drag a field to move it on the tile. Select one to change its place or how it looks."
-											: "Drag to reorder. Select an item to change its label or appearance."}
+										: tile?.namedSlots
+											? "Each pair shows its fields together on the case tile."
+											: tile !== undefined
+												? "Drag a field to move it on the tile. Select one to change its place or how it looks."
+												: "Drag to reorder. Select an item to change its label or appearance."}
 								</p>
 							</div>
 							{canEdit && (
@@ -216,6 +244,9 @@ export function CaseListCanvas({
 							)}
 						</div>
 
+						{canEdit && (
+							<NamedTileEditor config={config} onSave={onNamedTileChange} />
+						)}
 						{projection.listVisible.length === 0 ? (
 							<div className="overflow-hidden rounded-xl border border-dashed border-nova-border-bright">
 								<CanvasNotice tone="muted" title="No case information is shown">
@@ -325,6 +356,7 @@ export function CaseListCanvas({
 								value={config.columns}
 								caseType={caseType}
 								caseTypes={caseTypes}
+								userProperties={userProperties}
 								onChange={onColumnsChange}
 							/>
 						</div>

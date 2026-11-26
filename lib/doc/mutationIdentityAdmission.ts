@@ -40,6 +40,16 @@ function nestedModuleIdentities(
 					]
 				: [],
 		),
+		...(module.caseListConfig?.calculatedSorts ?? []).map((sort) => ({
+			uuid: sort.uuid,
+			kind: "caseListSort" as const,
+			ownerUuid: module.uuid,
+		})),
+		...(module.caseListConfig?.detailTabs ?? []).map((tab) => ({
+			uuid: tab.uuid,
+			kind: "caseDetailTab" as const,
+			ownerUuid: module.uuid,
+		})),
 		...(module.caseListConfig?.columns ?? []).map((column) => ({
 			uuid: column.uuid,
 			kind: "caseListColumn" as const,
@@ -245,6 +255,16 @@ function ownedIdentityReplacementBy(
 	mutation: Mutation,
 ): OwnedIdentityReplacement | undefined {
 	switch (mutation.kind) {
+		case "setCaseListMeta":
+			return mutation.patch.detailTabs === undefined
+				? undefined
+				: {
+						kind: "caseDetailTab",
+						ownerUuid: mutation.uuid,
+						retainedUuids: new Set(
+							(mutation.patch.detailTabs ?? []).map((tab) => tab.uuid),
+						),
+					};
 		case "updateField": {
 			if (!("optionsSource" in mutation.patch)) return undefined;
 			return {
@@ -359,6 +379,23 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 					ownerUuid: mutation.fieldUuid,
 				},
 			]);
+		case "addCalculatedSort":
+			return createClaims([
+				{
+					uuid: mutation.sort.uuid,
+					kind: "caseListSort",
+					ownerUuid: mutation.moduleUuid,
+				},
+			]);
+		case "setCaseListMeta":
+			return (mutation.patch.detailTabs ?? []).map((tab) => ({
+				identity: {
+					uuid: tab.uuid,
+					kind: "caseDetailTab",
+					ownerUuid: mutation.uuid,
+				},
+				preserveIfOwnedBy: mutation.uuid,
+			}));
 		case "addColumn":
 			return createClaims([
 				{
@@ -462,6 +499,8 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "removeOption":
 		case "moveOption":
 		case "updateOption":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "removeColumn":
 		case "moveColumn":
 		case "updateColumn":
@@ -501,9 +540,9 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "retireCaseType":
 		case "addCaseProperty":
 		case "setCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
-		case "setCaseListMeta":
 		case "updateFormLink":
 		case "removeFormLink":
 		case "moveFormLink":

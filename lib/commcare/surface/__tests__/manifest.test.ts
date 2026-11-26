@@ -451,12 +451,20 @@ const SPLIT_KEYS: ReadonlyArray<{
 		key: "schema:DetailColumn.case_tile_field",
 		entries: {
 			"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid": [
-				"HELD-NEW",
+				"HELD",
 				"slot-on-a-template-tile",
 			],
 			"menus-and-case-lists/case-tile-field-blank-or-off-a-template-tile": [
 				"INERT",
 				"blank-or-off-a-template-tile",
+			],
+			"menus-and-case-lists/named-case-tile-missing-a-required-slot": [
+				"REFUSED",
+				"missing-a-named-image-or-text-slot",
+			],
+			"menus-and-case-lists/unused-slot-of-a-named-case-tile": [
+				"INERT",
+				"no-field-in-the-template-consumes-this-assignment",
 			],
 		},
 	},

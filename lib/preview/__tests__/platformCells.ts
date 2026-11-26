@@ -166,6 +166,8 @@ export const PLATFORM_CELLS: Readonly<
 	// ── Refused, structural ────────────────────────────────────────────
 	"questions/date-and-time-xsd-datetime@web-apps":
 		structural("datetime-question"),
+	"menus-and-case-lists/type-distance@web-apps": structural("sort-by-distance"),
+	"menus-and-case-lists/9-distance@web-apps": structural("worker-distance"),
 	"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible@android":
 		structural("forms-read-search"),
 	"case-search/inline-search-default-search-on-a-module-without-visible-inputs@android":
@@ -397,6 +399,20 @@ export const PLATFORM_CELLS: Readonly<
 		"search-screen-text-android",
 	),
 	"case-search/hint-lang@android": browser("search-screen-text-android"),
+	"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty@android":
+		model("case-list-own-wording"),
+	// How soon a value shows and whether it is kept between visits: Preview reads every value
+	// from the Project's cases as it draws the list, on either platform.
+	"menus-and-case-lists/module-show-case-list-optimization-options@web-apps":
+		outside("loading speed and caching on the device"),
+	"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load@web-apps":
+		outside("loading speed and caching on the device"),
+	"menus-and-case-lists/detail-select-text-non-default@web-apps": model(
+		"case-list-own-wording",
+	),
+	"menus-and-case-lists/detail-select-text-non-default@android": model(
+		"case-list-own-wording",
+	),
 	"case-search/appearance-barcode-scan@web-apps": browser(
 		"barcode-search-field-web-apps",
 	),
@@ -406,6 +422,33 @@ export const PLATFORM_CELLS: Readonly<
 	// ── Stated ─────────────────────────────────────────────────────────
 	"questions/plain-label-containing-html-text@web-apps": stated("plain-text"),
 	"expressions-and-data/json-property@web-apps": stated("json-property"),
+	"menus-and-case-lists/8-address@web-apps": stated("case-map-location"),
+	// A named tile's icon positions, a Details tile and a raw field on a
+	// custom tile read differently on Android; each feature's note states it
+	// where the builder offers the layout.
+	"menus-and-case-lists/detail-case-tile-template-icon-text-grid@android":
+		stated("named-case-tile"),
+	"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid@android":
+		stated("named-case-tile"),
+	"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile@android":
+		stated("details-tile"),
+	"menus-and-case-lists/invisible-or-address-column-in-a-custom-tile@android":
+		stated("raw-custom-tile-field"),
+	"menus-and-case-lists/11-geo-boundary@web-apps": stated("case-map-layers"),
+	"menus-and-case-lists/12-geo-boundary-color-on-the-case-list-only-needs-an-address@web-apps":
+		stated("case-map-layers"),
+	"menus-and-case-lists/13-geo-points-on-the-case-list-only@web-apps":
+		stated("case-map-layers"),
+	"menus-and-case-lists/14-geo-points-colors-on-the-case-list-only-needs-an-address@web-apps":
+		stated("case-map-layers"),
+	"menus-and-case-lists/10-markdown-outside-the-link-shape@android": stated(
+		"formatted-case-text",
+	),
+	"menus-and-case-lists/enum-mappingitem-alt-text-non-blank@android": model(
+		"case-image-description-android",
+	),
+	"menus-and-case-lists/more-than-one-address-column-in-a-detail-of-an-advanced-module@android":
+		model("case-map-fallback-android"),
 	"expressions-and-data/json-property@android": stated("json-property"),
 	"expressions-and-data/lower-case@web-apps": stated("case-conversion"),
 	"expressions-and-data/lower-case@android": stated("case-conversion"),
@@ -460,8 +503,16 @@ export const PLATFORM_CELLS: Readonly<
 		outside(
 			"It differs only in an icon-text-grid tile, which Nova never writes.",
 		),
-	"menus-and-case-lists/enum-mappingitem-alt-text-lang@android": outside(
-		"Nova writes blank alt text, which no runtime shows.",
+	"menus-and-case-lists/19-enum-image-whose-keys-are-plain-values@android":
+		outside(
+			"It differs only in an icon-text-grid tile, which Nova never writes.",
+		),
+	"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot@android":
+		outside(
+			"It differs only in an icon-text-grid tile, which Nova never writes.",
+		),
+	"menus-and-case-lists/enum-mappingitem-alt-text-lang@android": model(
+		"case-image-description-android",
 	),
 	"questions/hq-generated-pollsensor@web-apps": outside(
 		"The location poll fills the submission's meta location, which Preview does not write; a Connect app's use of it is refused in Web Apps.",

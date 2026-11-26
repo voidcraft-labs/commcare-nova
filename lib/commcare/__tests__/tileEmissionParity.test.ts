@@ -12,12 +12,12 @@ import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { previewPlatformRules } from "@/lib/preview/platform";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
-import { tileFixture, tileScenarios } from "./tileFixture";
+import { resultsTileScenarios, tileFixture } from "./tileFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 /** Native HQ regeneration and Core SuiteParser replay use these same documents. */
 describe("delivered case tiles", () => {
-	it.each(tileScenarios)(
+	it.each(resultsTileScenarios)(
 		"%s preserves layout, ordering, and navigation",
 		(scenario) => {
 			const doc = tileFixture(scenario);

@@ -947,6 +947,66 @@ describe("declarations index", () => {
 		expect(declarersOf(renamed, "patient", "full_name")).toEqual([]);
 	});
 
+	it("rebinds a shared case link when another menu changes the case type it selects", () => {
+		const firstMenu = testUuid("parent-selection-menu");
+		const reader = testUuid("separate-menu-reading-the-same-case-type");
+		const doc = buildDoc({
+			caseTypes: [
+				{ name: "visit", properties: [] },
+				...["clinic", "household"].map((name) => ({
+					name,
+					properties: [{ name: "status", label: proseText("Status") }],
+				})),
+			],
+			modules: [
+				{ uuid: firstMenu, name: "Places", caseType: "clinic" },
+				{
+					name: "Visits here",
+					caseType: "visit",
+					parentCaseModuleUuid: firstMenu,
+				},
+				{
+					uuid: reader,
+					name: "All visits",
+					caseType: "visit",
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("status-on-place"), "status", "Status", {
+								via: [{ identifier: "parent" }],
+							}),
+						],
+						searchInputs: [],
+					},
+				},
+			],
+		});
+		doc.refIndex = buildReferenceIndex(doc);
+		const owners = (current: BlueprintDoc) =>
+			["clinic", "household"].filter((type) =>
+				referencingCarrierUuids(
+					current,
+					casePropertyTargetKey(type, "status"),
+				).includes(reader),
+			);
+		expect(owners(doc)).toEqual(["clinic"]);
+		const changed = produce(doc, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "updateModule",
+					uuid: firstMenu,
+					patch: { caseType: "household" },
+				},
+			]);
+		});
+		expect(owners(changed)).toEqual(["household"]);
+		expect(changed.refIndex).toEqual(buildReferenceIndex(changed));
+		const deleted = produce(changed, (draft) => {
+			applyMutations(draft, [{ kind: "removeModule", uuid: firstMenu }]);
+		});
+		expect(owners(deleted)).toEqual(["clinic", "household"]);
+		expect(deleted.refIndex).toEqual(buildReferenceIndex(deleted));
+	});
+
 	it("declares a write through `via` on the case type it reaches, and the own case's on the module's", () => {
 		const doc = buildDoc({
 			caseTypes: [

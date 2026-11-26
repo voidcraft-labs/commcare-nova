@@ -250,8 +250,8 @@ Four rules hold everywhere here:
   refuses, is used for its hashtags alone (`expressions/surfaceUses.ts::xpathUses`). The slots
   HQ's build reads through `xpath.py::interpolate_xpath` are a menu's and a form's display
   condition, the case list's filter, a detail tab's filter over a case type's children (a tab
-  with `has_nodeset`, a `nodeset_case_type` and no `nodeset` of its own, registered for its uses
-  alone, `caseList/details.ts::registerTabFilter`) and a Search field's required and validation
+  with `has_nodeset`, a `nodeset_case_type` and no `nodeset` of its own, bound to its child row and registered
+  for its uses on a refused enclosing span by `caseList/details.ts::registerTabFilter`) and a Search field's required and validation
   conditions; in each, every pattern HQ replaces that the text holds, inside a string too
   (`#session/`, `#user`, `#case`, `#parent`, `#host`, and `$fixture_value` in a form's
   condition where its menu's lookup table selection is active), is a use under its own key,
@@ -295,6 +295,13 @@ Four rules hold everywhere here:
 - **No content in a finding or a log line.** A finding names a surface key, and the app's own
   value only in `detail.name`; a defect and its log line name places, codes and shapes, never an
   app's text.
+
+A Details tab is identified by its least external column key among its members.
+Read its offset and title independently. Reordering the fields or renaming the
+group in HQ preserves its identity. An explicit collection can name a separate
+child case type to include in a Search result. HQ's `get_child_case_types`
+reads the stored child type even when `DetailContributor` renders the explicit
+collection instead. Conditions use the enclosing selected case for every tab.
 
 ## The bar and the canonical rows
 
@@ -549,6 +556,11 @@ take it. A canonical row that gives an entity the UUID a re-read gives it asks
 `identityMap.ts::reReadUuidOf` (the same rule over the document's own map, `identity.ts::matchingUuidOf`)
 or claims through a matching resolver over the document's entities of that kind
 (`worldEntities.ts::heldResolver`), and never calls `mintEntityUuid` itself.
+
+A raw choice column and the localized label column over the same property have distinct identities.
+A label projection supplies the property's catalog wording and choice order. When only raw columns
+use the property, its select writers still supply the choices in the catalog. The raw column
+continues to show the saved value after a label edit, an HQ column reorder or a reread.
 
 A document holds a case list column's property and not the word its `field` stores it under,
 where CommCare HQ names the property by two (`name` or `case_name`, `date-opened` or
@@ -992,6 +1004,14 @@ A change that holds one removes its line.
 The first-publish comparison carries the actual source that a registered change rewrites. A saved-form title uses the same trimmed text Core reads. A dropped default or changed XForm expression uses the reader’s parsed spelling rules. An untranslated slot identifies its field, choice and language. These facts live in the reading and let a second request distinguish another worker-facing change at the same place.
 
 Proof locations describe where an export changes, including the resulting case property. A review binds the source question, case operation and write slot or the earlier date/time row the reader recognized. Native source exports can rekey form attachment IDs on every call. Those IDs and unrelated actions never enter a case consequence. Stored object-valued settings use a fixed-size digest of their recorded operand.
+An ID mapping keeps each original key, including the empty string and keys
+with spaces. A blank key owns a mapping-label translation in each language.
+The device matches the trimmed key between literal spaces in the intact value.
+
+Relative dates retain the selected signed period and overdue markers retain
+their integer day threshold. These are independent of Nova’s authored
+interval wording. The marker’s short header is empty and its long header
+keeps the app’s localized heading.
 
 A version-two menu listing another menu’s forms resolves its source menu through the app’s actual menu ID. The HQ source download can regenerate a form’s ID while the secondary menu’s exclusions and deep links continue to name the ID held on the application resource. Read the aligned owning form’s namespace before binding those references. Missing or ambiguous source forms, and a missing required source submenu, receive a finding on the secondary menu. Never synthesize the absent submenu or a second XForm while reading.
 

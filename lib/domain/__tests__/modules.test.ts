@@ -399,7 +399,7 @@ describe("columnSchema — authored display shapes", () => {
 	});
 
 	it.each(["", " ", "two words"])(
-		"rejects a blank or whitespace-bearing mapping value: %j",
+		"keeps a blank or whitespace-bearing mapping value: %j",
 		(value) => {
 			expect(
 				columnSchema.safeParse({
@@ -409,7 +409,7 @@ describe("columnSchema — authored display shapes", () => {
 					header: "Region",
 					mapping: [{ value, label: "North" }],
 				}).success,
-			).toBe(false);
+			).toBe(true);
 		},
 	);
 
@@ -443,8 +443,11 @@ describe("columnSchema — authored display shapes", () => {
 		},
 	);
 
+	/* A blank or spaced key is the comparison HQ's build makes of it
+	 * (`selected(field, '<key>')`, menus-and-case-lists/5pp-…), so the row
+	 * keeps the key as saved. */
 	it.each(["", " ", "two words"])(
-		"rejects a blank or whitespace-bearing image-map value: %j",
+		"keeps a blank or whitespace-bearing image-map value as saved: %j",
 		(value) => {
 			expect(
 				columnSchema.safeParse({
@@ -454,7 +457,7 @@ describe("columnSchema — authored display shapes", () => {
 					header: "Status",
 					mapping: [{ value, assetId: asMediaAssetId(u(20)) }],
 				}).success,
-			).toBe(false);
+			).toBe(true);
 		},
 	);
 

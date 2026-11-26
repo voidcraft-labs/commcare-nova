@@ -178,6 +178,7 @@ def app(
     archive: bytes,
     delivered: bool = False,
     fix=LANE_FIX,
+    location_granted=False,
     clock=None,
     sent=None,
     device: str = "phone",
@@ -194,7 +195,7 @@ def app(
     """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's requests made as
     the worker HQ made and its restore and forms delivered to HQ's own addresses for the worker and the app
     (``proof.android.hq``); ``fix`` where the device's GPS puts it (``[latitude, longitude, altitude,
-    accuracy]``, or None for a GPS that finds no fix); ``clock`` the device's instant where it is not the lane's;
+    accuracy]``, or None for a GPS that finds no fix); ``location_granted`` when the worker has given the app location access before opening the list; ``clock`` the device's instant where it is not the lane's;
     ``sent``, a list each form the device sent HQ is added to; ``device`` a phone or a tablet held in landscape
     (``Reader.device``). Every walk is walked again in each language the served app holds but the one it starts
     in, as every reader's walk is (``proof.observe.walks.chosen``), the same languages for every archive of the
@@ -224,6 +225,8 @@ def app(
     }
     if fix != LANE_FIX:
         options["position"] = fix
+    if location_granted:
+        options["locationGranted"] = True
     if clock is not None:
         options["clock"] = clock
     if commands is not None:

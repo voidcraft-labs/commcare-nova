@@ -140,6 +140,52 @@ function moduleReadSite(
 			return site(search, ["searchButtonDisplayCondition"]);
 		case "excluded_owner_ids":
 			return site(search, ["excludedOwnerIds"]);
+		case "case_list_sort_expression": {
+			const index =
+				list?.calculatedSorts?.findIndex(
+					(rule) => rule.uuid === ref.member.sortUuid,
+				) ?? -1;
+			return index < 0
+				? undefined
+				: site(list, ["calculatedSorts", index, "expression"]);
+		}
+		case "case_list_mapping_condition": {
+			const columnIndex =
+				list?.columns.findIndex(
+					(column) => column.uuid === ref.member.columnUuid,
+				) ?? -1;
+			const column = list?.columns[columnIndex];
+			if (column?.kind !== "id-mapping" && column?.kind !== "image-map")
+				return undefined;
+			const index = column.mapping.findIndex(
+				(row) => row.uuid === ref.member.rowUuid,
+			);
+			return index < 0
+				? undefined
+				: site(list, ["columns", columnIndex, "mapping", index, "when"]);
+		}
+		case "case_form_context_line":
+			return site(list, ["contextAboveForm", "expression"]);
+		case "case_detail_tab_filter":
+		case "case_detail_tab_rows":
+		case "case_detail_tab_condition": {
+			const tab = (list?.detailTabs ?? []).findIndex(
+				(tab) => tab.uuid === ref.member.tabUuid,
+			);
+			return tab < 0
+				? undefined
+				: site(
+						list,
+						ref.slot === "case_detail_tab_condition"
+							? ["detailTabs", tab, "displayCondition"]
+							: [
+									"detailTabs",
+									tab,
+									"rowSource",
+									ref.slot === "case_detail_tab_filter" ? "condition" : "rows",
+								],
+					);
+		}
 		case "case_list_column_expression": {
 			const column = (list?.columns ?? []).findIndex(
 				(candidate) => candidate.uuid === ref.member.columnUuid,

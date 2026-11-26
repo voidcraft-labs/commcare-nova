@@ -1012,6 +1012,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/persist_tile_on_forms"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/case_details/short/sort_elements"
 			},
 			{

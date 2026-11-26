@@ -580,3 +580,64 @@ describe("setCaseListTile", () => {
 		expect(result.result.error).toContain("No module with UUID");
 	});
 });
+
+describe("setCaseListTile's Details placements", () => {
+	it("places every field shown in Details", async () => {
+		const h = fixtureWithColumns(unplacedColumns());
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			detailPlacements: [
+				{ columnUuid: NAME_COLUMN, cell: { x: 0, y: 0, width: 12, height: 1 } },
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 1, width: 12, height: 1 },
+				},
+			],
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(
+			Object.keys(
+				h.currentDoc().modules[MOD_A]?.caseListConfig?.detailTile?.cells ?? {},
+			).sort(),
+		).toEqual([NAME_COLUMN, STATUS_COLUMN].sort());
+	});
+
+	it("refuses a layout that leaves a field shown in Details unplaced, naming it", async () => {
+		const doc = docWithColumns(unplacedColumns());
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			detailPlacements: [
+				{ columnUuid: NAME_COLUMN, cell: { x: 0, y: 0, width: 12, height: 1 } },
+			],
+		});
+		expect(result.result).toEqual({
+			error: expect.stringContaining(STATUS_COLUMN),
+		});
+		expect(h.currentDoc()).toBe(doc);
+	});
+
+	it("refuses a place for a field Details doesn't show, naming it", async () => {
+		const columns = [
+			plainColumn(NAME_COLUMN, "case_name", "Patient"),
+			{
+				...plainColumn(STATUS_COLUMN, "status", "Status"),
+				visibleInDetail: false,
+			},
+		];
+		const h = fixtureWithColumns(columns);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			detailPlacements: [
+				{ columnUuid: NAME_COLUMN, cell: { x: 0, y: 0, width: 12, height: 1 } },
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 1, width: 12, height: 1 },
+				},
+			],
+		});
+		expect(result.result).toEqual({
+			error: expect.stringContaining("aren't shown in Details"),
+		});
+	});
+});

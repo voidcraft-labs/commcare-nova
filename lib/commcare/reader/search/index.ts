@@ -818,12 +818,18 @@ function declareDateSorts(
 		dataType: CasePropertyDataType,
 	) => void,
 ): void {
-	const mediaOn = readProjectionInputs(ctx).assets !== undefined;
+	const inputs = readProjectionInputs(ctx);
 	const found = app.modules.flatMap((module) => {
 		const list = caseListReadings(ctx).get(module.uuid);
 		return list === undefined || !list.whole
 			? []
-			: dateSortDeclarations(doc, module.uuid, list.sort, mediaOn);
+			: dateSortDeclarations(
+					doc,
+					module.uuid,
+					list.sort,
+					inputs.assets !== undefined,
+					inputs.lookupNaming,
+				);
 	});
 	if (found.length === 0) return;
 	const read = new Set(

@@ -7,6 +7,7 @@ export type CreationEntityKind =
 	| "form_link"
 	| "option"
 	| "case_list_column"
+	| "case_list_sort"
 	| "search_input"
 	| "case_operation"
 	| "worker_property"
@@ -103,6 +104,7 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 		spec(["columns", "*", "columnUuid"], "case_list_column"),
 	],
 	configureCaseList: [
+		spec(["calculatedSorts", "*", "sortUuid"], "case_list_sort", true),
 		spec(["columns", "*", "columnUuid"], "case_list_column"),
 		spec(["searchInputs", "*", "searchInputUuid"], "search_input"),
 	],

@@ -8,13 +8,16 @@ import {
 	expressionSchema,
 	literal,
 	missing,
+	type PropertyRef,
 	prop,
+	type RelationPath,
 	subcasePath,
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { editorExpressionContext } from "../editorTypeContext";
 import {
 	relatedPathEditAdmission,
+	replacePropertyRelation,
 	replaceRelatedPath,
 } from "../relatedPathEdit";
 
@@ -90,4 +93,49 @@ describe("related connection edits preserve admitted filters", () => {
 			});
 		});
 	}
+});
+
+describe("a property read's relation changed in the Builder", () => {
+	// A translated relation column brought in from CommCare HQ holds a read of
+	// whatever case its link reaches (`readReached`). The read keeps that only
+	// while its relation still walks up links; on any other relation the
+	// schema refuses the flag, so the author's edit would be refused with a
+	// message about a flag they never see.
+	const reached = {
+		kind: "prop" as const,
+		caseType: "patient",
+		property: "enrollment",
+		via: {
+			kind: "ancestor" as const,
+			via: [{ identifier: "parent" }] as [{ identifier: string }],
+		},
+		readReached: true as const,
+	} satisfies PropertyRef;
+	const parses = (term: PropertyRef) =>
+		expressionSchema.safeParse({ kind: "term", term }).success;
+	it("keeps the reached read over another walk up its links", () => {
+		const host: RelationPath = {
+			kind: "ancestor",
+			via: [{ identifier: "host" }, { identifier: "parent" }],
+		};
+		const changed = replacePropertyRelation(reached, host);
+		expect(changed).toEqual({ ...reached, via: host });
+		expect(parses(changed)).toBe(true);
+	});
+	it.each([
+		["this case", { kind: "self" }],
+		["a child case", subcasePath("visit")],
+	] satisfies [string, RelationPath][])(
+		"reads %s as an ordinary read",
+		(_label, via) => {
+			const changed = replacePropertyRelation(reached, via);
+			expect(changed).toEqual({
+				kind: "prop",
+				caseType: "patient",
+				property: "enrollment",
+				via,
+			});
+			expect(parses(changed)).toBe(true);
+		},
+	);
 });

@@ -2572,42 +2572,57 @@ describe("loadCasesAction", () => {
 		);
 	});
 
-	it("answers a read of a worker key the device lacks with the list's refusal, and reports nothing", async () => {
-		const { getSession } = await import("@/lib/auth-utils");
-		const { AbsentWorkerFieldError, withProjectContext } = await import(
-			"@/lib/case-store"
-		);
-		const { log } = await import("@/lib/logger");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-			session: { id: "preview-session" },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const stubStore = {
-			...actionStore(),
-			query: vi.fn(async () => {
-				throw new AbsentWorkerFieldError("commcare_location_id");
-			}),
-			applySubmission: vi.fn(),
-		} satisfies CaseStore;
-		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
-		const reported = vi.spyOn(log, "error");
-		try {
-			const { loadCasesAction } = await import("../caseDataBinding");
-			await expect(
-				loadCasesAction({
-					appId: APP_ID,
-					caseType: "patient",
-					caseTypes: [PATIENT_CASE_TYPE],
+	it.each([
+		{ reason: { kind: "empty-instance", instanceId: "commcaresession" } },
+		{ reason: { kind: "invalid-case-location" } },
+	])(
+		"returns the worker's list refusal for $reason.kind without logging it",
+		async ({ reason }) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { AbsentWorkerFieldError, withProjectContext } = await import(
+				"@/lib/case-store"
+			);
+			const { log } = await import("@/lib/logger");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+				session: { id: "preview-session" },
+			} as unknown as Awaited<ReturnType<typeof getSession>>);
+			const stubStore = {
+				...actionStore(),
+				query: vi.fn(async () => {
+					if (reason.kind === "empty-instance")
+						throw new AbsentWorkerFieldError("commcare_location_id");
+					throw Object.assign(
+						new Error(
+							'invalid input syntax for type double precision: "nova_invalid_case_location"',
+						),
+						{
+							code: "22P02",
+						},
+					);
 				}),
-			).resolves.toEqual({
-				kind: "data-refused",
-				reason: { kind: "empty-instance", instanceId: "commcaresession" },
-			});
-			expect(reported).not.toHaveBeenCalled();
-		} finally {
-			reported.mockRestore();
-		}
-	});
+				applySubmission: vi.fn(),
+			} satisfies CaseStore;
+			vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+			const reported = vi.spyOn(log, "error");
+			try {
+				const { loadCasesAction } = await import("../caseDataBinding");
+				await expect(
+					loadCasesAction({
+						appId: APP_ID,
+						caseType: "patient",
+						caseTypes: [PATIENT_CASE_TYPE],
+					}),
+				).resolves.toEqual({
+					kind: "data-refused",
+					reason,
+				});
+				expect(reported).not.toHaveBeenCalled();
+			} finally {
+				reported.mockRestore();
+			}
+		},
+	);
 
 	it("caps only an explicit new-client page request", async () => {
 		const { getSession } = await import("@/lib/auth-utils");

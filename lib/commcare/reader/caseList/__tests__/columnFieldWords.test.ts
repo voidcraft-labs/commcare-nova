@@ -98,6 +98,15 @@ function emittedFields(
 }
 
 describe("a case list column stored under HQ's other word", () => {
+	it("publishes both worker screens using their own HQ words", async () => {
+		const { doc, words } = await read(stored("case_name", "user/parent/name"));
+		expect(columnsOf(doc)[0]).toMatchObject({
+			field: "case_name",
+			readFrom: "worker-record",
+		});
+		expect(emittedFields(doc, words)).toEqual(["user/name", "user/name"]);
+	});
+
 	for (const [property, word] of [
 		["case_name", "case_name"],
 		["date_opened", "date_opened"],

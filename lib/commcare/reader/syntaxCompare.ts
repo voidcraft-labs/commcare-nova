@@ -35,6 +35,7 @@
  */
 
 import type { RuleSet } from "@/lib/domain/expression/profiles";
+import { recordFromEntries } from "@/lib/domain/records";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { chargeWork, rethrowWorkStop } from "../workMeter";
 import { type FormSyntax, literalInstanceId } from "../xpath/formSyntax";
@@ -119,6 +120,28 @@ export function sameXPathText(
 	if (left.node === undefined || right.node === undefined)
 		return left.node === right.node;
 	return sameSyntax(left.node, right.node, options);
+}
+
+/** The identity of a standalone order calculation across an HQ edit. Core's
+ * grammar and the accepted spelling rules keep formatting edits from renaming
+ * the calculation. An unreadable expression retains its own source diagnostic. */
+export function recordSyntaxKey(text: string): string {
+	const parsed = readSyntax(text);
+	if (!parsed?.ok || parsed.node === undefined)
+		return JSON.stringify(["unread", text]);
+	const before = normalized;
+	const node = comparable(parsed.node, RECORD, "source");
+	chargeWork("compare", normalized - before);
+	return JSON.stringify(node, (_key, value) => {
+		if (value && typeof value === "object" && !Array.isArray(value))
+			return recordFromEntries(
+				Object.keys(value)
+					.filter((key) => key !== "from" && key !== "to")
+					.sort()
+					.map((key) => [key, value[key]]),
+			);
+		return value;
+	});
 }
 
 function readSyntax(

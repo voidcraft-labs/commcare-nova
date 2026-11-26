@@ -376,6 +376,43 @@ describe("a read of the household from a member", () => {
 		},
 	);
 
+	it("walks a reached read in a case change from the case the menu chose, not from the bind's own node", () => {
+		// `property('member', 'remark', reached('home'))` as the value the
+		// member's own change saves. A form bind's `current()` is the bind's
+		// node, which holds no `index`, so a walk from it saves a blank.
+		const doc = members("home", false);
+		const form = doc.forms[UNDER_TEST] as unknown as {
+			caseOperations: { writes: { property: string; value: Expression }[] }[];
+		};
+		const own = form.caseOperations[0];
+		if (own === undefined) throw new Error("The form has its own change.");
+		own.writes = [
+			{
+				property: "age",
+				value: {
+					kind: "term",
+					term: {
+						kind: "prop",
+						caseType: "member",
+						property: "remark",
+						via: { kind: "ancestor", via: [{ identifier: "home" }] },
+						readReached: true,
+					},
+				},
+			},
+		];
+		const { source } = underTest(doc);
+		const calculate = findOne(
+			(element) =>
+				element.name === "bind" &&
+				(element.attribs.nodeset ?? "").endsWith("/update/age"),
+			parseXml(source).children,
+		)?.attribs.calculate;
+		expect(calculate).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/home]/remark",
+		);
+	});
+
 	it("holds no household read where an app's form walks an index its links do not name", async () => {
 		// The app links a member to its household as `home`; the form, written
 		// by hand in CommCare HQ, walks `index/parent`, which names another case

@@ -35,7 +35,9 @@ import {
 	automationUserDataFilterSchema,
 	CONNECT_TYPES,
 	type Column,
+	calculatedSortSchema,
 	caseListMenuItemSchema,
+	caseListWordingSchema,
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
@@ -65,6 +67,7 @@ import {
 	organizationLevelSchema,
 	ownerOnlyCaseSearchConfigSchema,
 	personaSchema,
+	readCasePropertyNameSchema,
 	type SearchInputDef,
 	searchInputDefSchema,
 	selectOptionSchema,
@@ -77,12 +80,16 @@ import {
 	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import { caseFormContextSchema } from "@/lib/domain/caseFormContext";
+import { caseRelationSchema } from "@/lib/domain/caseRelations";
+import { detailTabsSchema } from "@/lib/domain/detailTabs";
 import {
 	entryPointIdSchema,
 	entryPointTargetSchema,
 	formEntryPointSchema,
 } from "@/lib/domain/entryPoints";
 import { conditionSchema } from "@/lib/domain/expression/types";
+import { detailTileSchema } from "@/lib/domain/modules";
 import {
 	casePlacementSchema,
 	ownClosePlacementSchema,
@@ -1417,7 +1424,9 @@ function createMutationSchema({
 				.array(
 					z.strictObject({
 						caseType: z.string().min(1),
-						from: authoredCasePropertyNameSchema,
+						// A brought-in name past the authored bound can be renamed
+						// away from; the new name keeps the authored grammar.
+						from: readCasePropertyNameSchema,
 						to: authoredCasePropertyNameSchema,
 					}),
 				)
@@ -1438,7 +1447,7 @@ function createMutationSchema({
 			kind: z.literal("addCaseProperty"),
 			caseType: z.string(),
 			property: casePropertySchema,
-			after: authoredCasePropertyNameSchema.nullable().optional(),
+			after: readCasePropertyNameSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("setCaseProperty"),
@@ -1446,12 +1455,24 @@ function createMutationSchema({
 			property: casePropertySchema,
 		}),
 		z.object({
+			kind: z.literal("moveCaseProperty"),
+			caseType: z.string(),
+			property: readCasePropertyNameSchema,
+			after: readCasePropertyNameSchema.nullable(),
+		}),
+		z.object({
 			kind: z.literal("removeCaseProperty"),
 			caseType: z.string(),
-			property: authoredCasePropertyNameSchema,
+			property: readCasePropertyNameSchema,
 		}),
 		z.object({
 			kind: z.literal("setCaseTypeMeta"),
+			relationChange: z
+				.strictObject({
+					action: z.enum(["add", "remove"]),
+					edge: caseRelationSchema,
+				})
+				.optional(),
 			caseType: z.string(),
 			parent_type: z.string().nullable().optional(),
 			relationship: z.enum(["child", "extension"]).nullable().optional(),
@@ -1729,6 +1750,30 @@ function createMutationSchema({
 		// The module's case-list metadata that is NOT a membership array — the
 		// always-on `filter` predicate, selection behavior, and the tile.
 		// Each slot is nullable so a clear crosses the JSON wire as `null`.
+		z.strictObject({
+			kind: z.literal("addCalculatedSort"),
+			moduleUuid: uuidSchema,
+			sort: calculatedSortSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("updateCalculatedSort"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			after: uuidSchema.nullable().optional(),
+			patch: z.strictObject({
+				expression: calculatedSortSchema.shape.expression.optional(),
+				direction: calculatedSortSchema.shape.direction.optional(),
+				priority: calculatedSortSchema.shape.priority.optional(),
+				comparator: calculatedSortSchema.shape.comparator.nullable(),
+				blanks: calculatedSortSchema.shape.blanks.nullable(),
+				label: calculatedSortSchema.shape.label.nullable(),
+			}),
+		}),
+		z.strictObject({
+			kind: z.literal("removeCalculatedSort"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+		}),
 		z.object({
 			kind: z.literal("setCaseListMeta"),
 			uuid: uuidSchema,
@@ -1736,6 +1781,12 @@ function createMutationSchema({
 				filter: mutationConditionSchema.nullable().optional(),
 				selection: caseSelectionSchema.nullable().optional(),
 				tile: caseTileLayoutSchema.nullable().optional(),
+				detailTabs: detailTabsSchema.nullable().optional(),
+				detailTile: detailTileSchema.nullable().optional(),
+				contextAboveForm: caseFormContextSchema.nullable().optional(),
+				emptyText: caseListWordingSchema.nullable().optional(),
+				selectButtonText: caseListWordingSchema.nullable().optional(),
+				optimizations: z.literal(true).nullable().optional(),
 			}),
 		}),
 		// The module's case list as its own menu entry, set whole as

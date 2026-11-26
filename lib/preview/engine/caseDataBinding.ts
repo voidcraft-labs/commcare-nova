@@ -65,10 +65,11 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
+import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -123,7 +124,10 @@ import type {
 	SubmissionResult,
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
-import { previewCaseStoreOrder } from "./caseListOrder";
+import {
+	previewCaseListOrderLocale,
+	previewCaseStoreOrder,
+} from "./caseListOrder";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -892,11 +896,11 @@ export async function loadMissingConnectionCountAction(args: {
 	caseType: string;
 	identifier: string;
 }): Promise<LoadCaseCountResult> {
-	if (!XML_ELEMENT_NAME_PATTERN.test(args.identifier)) {
+	if (!CASE_INDEX_NAME_PATTERN.test(args.identifier)) {
 		return {
 			kind: "error",
 			message:
-				"A connection name must start with a letter or underscore and contain only letters, numbers, and underscores.",
+				"A connection name starts with a letter or underscore and holds only letters, numbers, underscores, hyphens, and periods.",
 		};
 	}
 	try {
@@ -1196,6 +1200,8 @@ export async function loadCaseDataAction(
 	/** The completed search answers of a menu whose forms read the search, plain JSON: what its
 	 *  detail columns read as `#search/<name>`. */
 	searchAnswers?: Readonly<Record<string, string>>,
+	language?: string,
+	selectionMenuUuid?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1220,6 +1226,28 @@ export async function loadCaseDataAction(
 			if (!candidate.ok) return { kind: "error", message: candidate.message };
 			environment = candidate.environment;
 		}
+		let selectionOwner = environment?.moduleUuid;
+		if (
+			selectionMenuUuid !== undefined &&
+			selectionMenuUuid !== selectionOwner
+		) {
+			const choosing = environment?.doc.modules[selectionMenuUuid];
+			const source =
+				choosing &&
+				environment &&
+				resolveCaseFormContext(environment.doc.modules, choosing.uuid);
+			if (
+				!source ||
+				(environment?.moduleUuid !== source.sourceModuleUuid &&
+					environment?.moduleUuid !== source.inlineModuleUuid)
+			)
+				return {
+					kind: "error",
+					message:
+						"The case context has changed. Open the case again to see its current details.",
+				};
+			selectionOwner = choosing?.uuid;
+		}
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(caseListConfig),
@@ -1241,6 +1269,16 @@ export async function loadCaseDataAction(
 						new Map(Object.entries(searchAnswers ?? {})),
 					);
 		return await readCaseData(store, {
+			...(environment !== undefined && {
+				locale: previewCaseListOrderLocale(
+					environment.doc,
+					caseType,
+					language ??
+						effectiveAppLocalization(environment.doc.localization)
+							.sourceLanguage,
+				),
+			}),
+			contextModuleUuid: environment?.moduleUuid,
 			appId,
 			caseType,
 			caseId,
@@ -1268,7 +1306,7 @@ export async function loadCaseDataAction(
 				: runningRead(
 						readsSearchPopulation(
 							environment?.doc ?? context.blueprint,
-							moduleUuid,
+							selectionOwner ?? moduleUuid,
 							search === true,
 						),
 						context.restoreScope,

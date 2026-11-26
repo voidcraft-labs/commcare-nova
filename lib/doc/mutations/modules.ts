@@ -180,6 +180,9 @@ export function applyModuleMutation(
 				| "renameModule"
 				| "updateModule"
 				| "setModuleMedia"
+				| "addCalculatedSort"
+				| "updateCalculatedSort"
+				| "removeCalculatedSort"
 				| "addColumn"
 				| "updateColumn"
 				| "removeColumn"
@@ -479,6 +482,55 @@ export function applyModuleMutation(
 				if (mut.audioLabel === null) delete carrier.audioLabel;
 				else carrier.audioLabel = mut.audioLabel;
 			}
+			return;
+		}
+		case "addCalculatedSort": {
+			const config = ensureCaseListConfig(draft, mut.moduleUuid);
+			if (
+				!config ||
+				config.calculatedSorts?.some((sort) => sort.uuid === mut.sort.uuid)
+			)
+				return;
+			config.calculatedSorts ??= [];
+			config.calculatedSorts.push(structuredClone(mut.sort));
+			return;
+		}
+		case "updateCalculatedSort": {
+			const sort = draft.modules[
+				mut.moduleUuid
+			]?.caseListConfig?.calculatedSorts?.find(
+				(rule) => rule.uuid === mut.uuid,
+			);
+			if (!sort) return;
+			const { comparator, blanks, label, ...values } = structuredClone(
+				mut.patch,
+			);
+			Object.assign(sort, values);
+			if (comparator === null) delete sort.comparator;
+			else if (comparator !== undefined) sort.comparator = comparator;
+			if (blanks === null) delete sort.blanks;
+			else if (blanks !== undefined) sort.blanks = blanks;
+			if (label === null) delete sort.label;
+			else if (label !== undefined) sort.label = label;
+			if (mut.after !== undefined) {
+				const config = draft.modules[mut.moduleUuid]?.caseListConfig;
+				if (config?.calculatedSorts)
+					config.calculatedSorts = spliceEntryAfter(
+						config.calculatedSorts,
+						sort,
+						mut.after,
+					);
+			}
+			return;
+		}
+		case "removeCalculatedSort": {
+			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
+			if (!config?.calculatedSorts) return;
+			const kept = config.calculatedSorts.filter(
+				(sort) => sort.uuid !== mut.uuid,
+			);
+			if (kept.length) config.calculatedSorts = kept;
+			else delete config.calculatedSorts;
 			return;
 		}
 		case "addColumn": {

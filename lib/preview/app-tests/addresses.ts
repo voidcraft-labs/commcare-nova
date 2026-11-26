@@ -138,6 +138,29 @@ export function bindAppTestAction(
 ) {
 	let bound = action;
 	switch (action.kind) {
+		case "detailTab": {
+			if (state.screen.kind !== "details")
+				throw new AppTestActionError(
+					"Open case details before choosing a tab.",
+				);
+			const menu = projectLocalizedModule(
+				doc,
+				state.language,
+				state.screen.moduleUuid,
+			);
+			bound = {
+				...action,
+				tabUuid: one(
+					action.tabUuid,
+					(menu?.caseListConfig?.detailTabs ?? []).map((tab) => ({
+						uuid: tab.uuid,
+						names: [tab.title],
+					})),
+					"Detail tab",
+				),
+			};
+			break;
+		}
 		case "section": {
 			if (state.screen.kind !== "form")
 				throw new AppTestActionError("Open a form before choosing a section.");

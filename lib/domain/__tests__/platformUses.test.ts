@@ -26,6 +26,7 @@ import {
 	platformFeatureUses,
 	proseText,
 	targetConditionUses,
+	tileCell,
 	unavailablePlatform,
 } from "@/lib/domain";
 import {
@@ -64,6 +65,28 @@ describe("each feature's detector", () => {
 			expect(platformFeatureUses(fixture.without(), only(feature))).toEqual([]);
 		});
 	}
+});
+
+describe("a map location in a Results tile", () => {
+	// HQ writes an address with a zero template width: Web Apps hides it in a
+	// custom tile and Android draws its stored value at its cell, the same
+	// difference as a raw field.
+	it("is a raw tile field read differently on Android", () => {
+		const doc = PLATFORM_FEATURE_FIXTURES["case-map-location"].with();
+		const config = doc.modules[FIXTURE_MODULE]?.caseListConfig;
+		if (config === undefined) throw new Error("The fixture has no list.");
+		config.tile = {};
+		config.columns = config.columns.map((column, index) => ({
+			...column,
+			tile: tileCell(0, index, 4, 1),
+		}));
+		expect(platformFeatureUses(doc, only("raw-custom-tile-field"))).toEqual([
+			expect.objectContaining({
+				feature: "raw-custom-tile-field",
+				site: { kind: "slot", slot: "caseListConfig.columns[1].kind" },
+			}),
+		]);
+	});
 });
 
 describe("the search workflow and the case list menu entry", () => {

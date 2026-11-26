@@ -16,6 +16,8 @@
  */
 
 import { addModuleMutation } from "@/lib/doc/addModuleMutation";
+import { reorderDetailTabFields } from "@/lib/doc/caseDetailTabMutations";
+import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	columnAddMutation,
 	columnContentEqualIgnoringGranularSlots,
@@ -27,6 +29,7 @@ import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	enableCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
+import { withDetailFieldLayout } from "@/lib/doc/detailFieldVisibility";
 import {
 	type FieldRemovalPlan,
 	planFieldRemoval,
@@ -168,7 +171,10 @@ export function removeModuleMutations(
 	moduleUuid: Uuid,
 ): Mutation[] {
 	if (doc.modules[moduleUuid] === undefined) return [];
-	return [{ kind: "removeModule", uuid: moduleUuid }];
+	return [
+		...retireCaseFormContextTile(doc, moduleUuid, true),
+		{ kind: "removeModule", uuid: moduleUuid },
+	];
 }
 
 /** Patch module fields. Keys mirror the domain Module shape (camelCase).
@@ -326,7 +332,10 @@ export function addColumnsMutation(
 		detailTail = column.uuid;
 		return mutation;
 	});
-	return { ok: true, mutations };
+	return {
+		ok: true,
+		mutations: withDetailFieldLayout(mod.uuid, config, mutations),
+	};
 }
 
 /**
@@ -371,7 +380,7 @@ export function updateColumnMutation(
 	mutations.push(...columnSortMutations(current, nextColumn, mod.uuid));
 	return {
 		ok: true,
-		mutations,
+		mutations: withDetailFieldLayout(mod.uuid, mod.caseListConfig, mutations),
 	};
 }
 
@@ -393,9 +402,9 @@ export function removeColumnMutation(
 	if ("error" in op) return { error: op.error };
 	return {
 		ok: true,
-		mutations: [
+		mutations: withDetailFieldLayout(mod.uuid, mod.caseListConfig, [
 			{ kind: "removeColumn", moduleUuid: mod.uuid, uuid: columnUuid },
-		],
+		]),
 	};
 }
 
@@ -436,6 +445,12 @@ export function reorderColumnsMutation(
 			? (requested.shift() ?? uuid)
 			: uuid,
 	);
+	if (surface === "detail" && mod.caseListConfig?.detailTabs) {
+		const result = reorderDetailTabFields(mod.uuid, mod.caseListConfig, target);
+		return "error" in result
+			? result
+			: { ok: true, mutations: result.mutations };
+	}
 	const mutations: Mutation[] = sequenceMovesTo(current, target).map((move) => {
 		return {
 			kind: "moveColumn",

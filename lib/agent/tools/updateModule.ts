@@ -407,6 +407,7 @@ export const updateModuleTool = {
 								column.columnUuid === undefined
 									? newUuid()
 									: asUuid(column.columnUuid),
+								doc,
 							),
 						)
 					: undefined;

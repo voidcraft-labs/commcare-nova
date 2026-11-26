@@ -37,6 +37,7 @@ import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { visitSyntax } from "../../xpath/formSyntax";
 import { declaredInstance, instanceForRead } from "../../xpath/instanceSources";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
@@ -1304,6 +1305,38 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"menus-and-case-lists/module-filter-failing-hq-s-validate-xpath",
 		"parser:MenuParser/menu@relevant",
 	),
+	"form-context-value": take(
+		"menus-and-case-lists/detail-persist-case-context-persistent-case-context-xml",
+		"schema:Detail.persistent_case_context_xml",
+	),
+	"form-context-value-outside": refuse(
+		"menus-and-case-lists/form-context-expression-outside-its-case-scope",
+		"schema:Detail.persistent_case_context_xml",
+	),
+	"tab-child-filter": take(
+		"menus-and-case-lists/data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset",
+		"schema:DetailTab.nodeset_filter",
+	),
+	"tab-custom-rows": take(
+		"menus-and-case-lists/data-tab-over-a-custom-nodeset-xpath",
+		"schema:DetailTab.nodeset",
+	),
+	"tab-child-filter-outside": refuse(
+		"menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+		"schema:DetailTab.nodeset_filter",
+	),
+	"tab-custom-rows-outside": refuse(
+		"menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+		"schema:DetailTab.nodeset",
+	),
+	"tab-condition": take(
+		"menus-and-case-lists/tab-relevant-lifts-into-predicate-not",
+		"schema:DetailTab.relevant",
+	),
+	"tab-condition-outside-scope": refuse(
+		"menus-and-case-lists/tab-display-condition-outside-its-case-scope",
+		"schema:DetailTab.relevant",
+	),
 	"detail-filter-value-lifts-into-predicate": take(
 		"menus-and-case-lists/detail-filter-value-lifts-into-predicate",
 		"schema:Detail.filter",
@@ -1315,6 +1348,26 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"detail-filter-failing-etree-xpath-dummy-filter": refuse(
 		"menus-and-case-lists/detail-filter-failing-etree-xpath-dummy-filter",
 		"schema:Detail.filter",
+	),
+	"mapping-label-condition": take(
+		"menus-and-case-lists/20-conditional-enum",
+		"schema:MappingItem.key",
+	),
+	"mapping-image-condition": take(
+		"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot",
+		"schema:MappingItem.key",
+	),
+	"mapping-condition-untyped": refuse(
+		"menus-and-case-lists/mapping-condition-outside-predicate",
+		"schema:MappingItem.key",
+	),
+	"calculated-order": take(
+		"menus-and-case-lists/sort-calculation-authored-calculation-row-field",
+		"schema:SortElement.sort_calculation",
+	),
+	"calculated-order-untyped": refuse(
+		"menus-and-case-lists/sort-calculation-without-a-typed-value",
+		"schema:SortElement.sort_calculation",
 	),
 	"usexpathexpression-field-xpath-lifting-into-valueexpression": take(
 		"menus-and-case-lists/usexpathexpression-field-xpath-lifting-into-valueexpression",
@@ -1743,9 +1796,42 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["module-filter-false-or-false-and-rest-menu-reached-only-by-links"].entry,
 		C["module-filter-value-outside-predicate-any-xpath-hq-s-validator"].entry,
 	),
+	case_form_context_line: fixed(
+		C["form-context-value"].entry,
+		C["form-context-value-outside"].entry,
+	),
+	case_detail_tab_filter: fixed(
+		C["tab-child-filter"].entry,
+		C["tab-child-filter-outside"].entry,
+	),
+	case_detail_tab_rows: fixed(
+		C["tab-custom-rows"].entry,
+		C["tab-custom-rows-outside"].entry,
+	),
+	case_detail_tab_condition: fixed(
+		C["tab-condition"].entry,
+		C["tab-condition-outside-scope"].entry,
+	),
 	case_list_filter: fixed(
 		C["detail-filter-value-lifts-into-predicate"].entry,
 		C["detail-filter-value-outside-predicate"].entry,
+	),
+	case_list_mapping_condition: {
+		held: (doc, ref) => {
+			if (ref.entity !== "module" || ref.slot !== "case_list_mapping_condition")
+				return undefined;
+			const column = doc.modules[ref.uuid]?.caseListConfig?.columns.find(
+				(c) => c.uuid === ref.member.columnUuid,
+			);
+			return column?.kind === "image-map"
+				? C["mapping-image-condition"].entry
+				: C["mapping-label-condition"].entry;
+		},
+		refused: () => C["mapping-condition-untyped"].entry,
+	},
+	case_list_sort_expression: fixed(
+		C["calculated-order"].entry,
+		C["calculated-order-untyped"].entry,
 	),
 	case_list_column_expression: fixed(
 		C["usexpathexpression-field-xpath-lifting-into-valueexpression"].entry,
@@ -1842,37 +1928,7 @@ export function rawTextEntry(
 	};
 }
 
-/** Every node of a syntax tree, pre-order. */
-export function visitSyntax(
-	node: FormSyntax,
-	visit: (node: FormSyntax) => void,
-): void {
-	visit(node);
-	switch (node.kind) {
-		case "group":
-		case "negative":
-		case "axis":
-			visitSyntax(node.value, visit);
-			return;
-		case "child":
-			if (node.left !== undefined) visitSyntax(node.left, visit);
-			visitSyntax(node.step, visit);
-			return;
-		case "filter":
-			visitSyntax(node.base, visit);
-			visitSyntax(node.where, visit);
-			return;
-		case "binary":
-			visitSyntax(node.left, visit);
-			visitSyntax(node.right, visit);
-			return;
-		case "call":
-			for (const arg of node.args) visitSyntax(arg, visit);
-			return;
-		default:
-			return;
-	}
-}
+export { visitSyntax } from "../../xpath/formSyntax";
 
 // ── By parse issue ───────────────────────────────────────────────────
 
@@ -1958,6 +2014,29 @@ function namesIn(node: FormSyntax | undefined): {
  *  form declares it from where it declares one, then by the scheme of its id.
  *  A declared source outside every scheme is the unrecognized-source entry;
  *  an undeclared id outside every scheme the undeclared-id entry. */
+/** The entry an instance id no scheme names, declared by no source, reads under. */
+const UNKNOWN_SCHEME_INSTANCE =
+	C[
+		"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
+	].entry;
+
+/** The REFUSED class of a case detail's or a form context's expression that cannot be bound to
+ *  the selected case, by its slot; undefined for any other slot. */
+function caseScopedSlotEntry(slot: string): string | undefined {
+	switch (slot) {
+		case "case_detail_tab_condition":
+			return C["tab-condition-outside-scope"].entry;
+		case "case_detail_tab_rows":
+			return C["tab-custom-rows-outside"].entry;
+		case "case_detail_tab_filter":
+			return C["tab-child-filter-outside"].entry;
+		case "case_form_context_line":
+			return C["form-context-value-outside"].entry;
+		default:
+			return undefined;
+	}
+}
+
 function instanceEntry(
 	id: string | undefined,
 	sources: ReadonlyMap<string, string> | undefined,
@@ -2278,7 +2357,13 @@ export function parseIssueEntry(
 				return answer(
 					C["detail-filter-failing-etree-xpath-dummy-filter"].entry,
 				);
-			return answer("unrecognized");
+			// A rule's key that is no expression is no condition a case meets
+			// (`proof/checks/manifest_value_classes.py::mapping_condition_outside_predicate`).
+			if (ref.slot === "case_list_mapping_condition")
+				return answer(C["mapping-condition-untyped"].entry);
+			// So is a case detail's or a form context's expression: no condition, rows or
+			// value of the selected case (`manifest_value_classes.py::_scoped_verdict`).
+			return answer(caseScopedSlotEntry(ref.slot) ?? "unrecognized");
 		case "unknown-hashtag":
 			return bindAscii
 				? answer(C["an-invalid-xpath-in-a-bind-attribute"].entry)
@@ -2371,6 +2456,12 @@ export function parseIssueEntry(
 		case "instance-unknown": {
 			const { strings } = namesIn(spanned());
 			const entry = instanceEntry(strings[0], form.instanceSources);
+			// An instance no scheme names, read by a case detail's or a form context's
+			// expression, leaves it unbound to the selected case: the slot's own class, whose
+			// entry names an unresolved instance among its causes.
+			const scoped = caseScopedSlotEntry(ref.slot);
+			if (scoped !== undefined && entry === UNKNOWN_SCHEME_INSTANCE)
+				return answer(scoped);
 			// A Search field's own slots run while the query is built, where
 			// the legacy id reads: Nova holds no such read, for a reason of its
 			// own.

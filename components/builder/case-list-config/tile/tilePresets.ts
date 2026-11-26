@@ -12,8 +12,8 @@
 
 import {
 	TILE_GRID_COLUMNS,
-	TILE_GRID_ROWS,
 	type TileCell,
+	tileRowLimit,
 	type Uuid,
 } from "@/lib/domain";
 import type { TileGeometry } from "./tileModel";
@@ -36,9 +36,15 @@ export interface TilePreset {
 	readonly arrange: (count: number) => readonly TileGeometry[] | null;
 }
 
+/*
+ * A tile of `count` fields has `tileRowLimit(count)` rows, at least one per
+ * field, so each shape below fits every count it needs; the row checks
+ * state that bound rather than lean on it.
+ */
+
 /** One full-width line per field. */
 function stackedLines(count: number): readonly TileGeometry[] | null {
-	if (count < 1 || count > TILE_GRID_ROWS) return null;
+	if (count < 1 || count > tileRowLimit(count)) return null;
 	return Array.from({ length: count }, (_unused, index) => ({
 		x: 0,
 		y: index,
@@ -52,7 +58,7 @@ function grid(count: number, perRow: number): readonly TileGeometry[] | null {
 	const width = TILE_GRID_COLUMNS / perRow;
 	if (!Number.isInteger(width)) return null;
 	if (count < 1) return null;
-	if (Math.ceil(count / perRow) > TILE_GRID_ROWS) return null;
+	if (Math.ceil(count / perRow) > tileRowLimit(count)) return null;
 	return Array.from({ length: count }, (_unused, index) => ({
 		x: (index % perRow) * width,
 		y: Math.floor(index / perRow),
@@ -64,7 +70,7 @@ function grid(count: number, perRow: number): readonly TileGeometry[] | null {
 /** A wide first field with a narrow companion beside it, then full lines. */
 function titleWithSideNote(count: number): readonly TileGeometry[] | null {
 	if (count < 2) return null;
-	if (1 + (count - 2) > TILE_GRID_ROWS) return null;
+	if (1 + (count - 2) > tileRowLimit(count)) return null;
 	const arranged: TileGeometry[] = [
 		{ x: 0, y: 0, width: 8, height: 1 },
 		{ x: 8, y: 0, width: 4, height: 1 },
@@ -78,7 +84,7 @@ function titleWithSideNote(count: number): readonly TileGeometry[] | null {
 /** A full-width first field, then two equal columns underneath. */
 function titleOverTwoColumns(count: number): readonly TileGeometry[] | null {
 	if (count < 3) return null;
-	if (1 + Math.ceil((count - 1) / 2) > TILE_GRID_ROWS) return null;
+	if (1 + Math.ceil((count - 1) / 2) > tileRowLimit(count)) return null;
 	const arranged: TileGeometry[] = [
 		{ x: 0, y: 0, width: TILE_GRID_COLUMNS, height: 1 },
 	];
@@ -137,15 +143,18 @@ export function tilePresetUnavailableReason(
 	if (preset.id === "two-columns" && count < 2) {
 		return "This layout needs at least two fields.";
 	}
-	return `This layout has no room for ${count} fields on a ${TILE_GRID_COLUMNS} by ${TILE_GRID_ROWS} tile.`;
+	return `This layout has no room for ${count} fields on a tile ${TILE_GRID_COLUMNS} columns wide and ${tileRowLimit(count)} rows tall.`;
 }
 
 /**
  * The arrangement a tile is BORN with when an author turns it on and no
- * field has a place yet: one field per line while they fit, then as many
- * equal columns as it takes. Total up to a full grid of single squares,
- * so turning the tile on always lands a working layout.
+ * field has a place yet: one field per line up to `SEED_LINES` lines, then
+ * the fewest equal columns that keep it within that many rows, and past a
+ * full grid of single squares, more rows. The twelve lines are a starting
+ * taste, never a bound: a tile has a row for each field
+ * (`tileRowLimit`), so turning the tile on always lands a working layout.
  */
+const SEED_LINES = 12;
 const SEED_SHAPES: readonly number[] = [1, 2, 3, 4, 6, TILE_GRID_COLUMNS];
 
 export function seedTileArrangement(
@@ -153,14 +162,13 @@ export function seedTileArrangement(
 ): readonly TileGeometry[] | null {
 	if (count < 1) return null;
 	for (const perRow of SEED_SHAPES) {
+		if (perRow < TILE_GRID_COLUMNS && Math.ceil(count / perRow) > SEED_LINES)
+			continue;
 		const arranged = perRow === 1 ? stackedLines(count) : grid(count, perRow);
 		if (arranged !== null) return arranged;
 	}
 	return null;
 }
-
-/** The most fields one tile can lay out: a full grid of single squares. */
-export const TILE_MAX_FIELDS = TILE_GRID_COLUMNS * TILE_GRID_ROWS;
 
 /**
  * Which preset the current arrangement already matches, so the menu can

@@ -761,6 +761,29 @@ function tileCells(tiled: boolean): BlueprintDoc {
 	);
 }
 
+/** A visit menu whose own tile is kept above its forms, beside another visit menu's tile expanded
+ *  there with no fallback line, as `formContextPatch` once kept it; where `sourceShowsNoDetail`,
+ *  the source menu shows no field in Details, so this menu's own Details are the expanded ones. */
+function ownTileBesideExpandedMenuTile(
+	sourceShowsNoDetail: boolean,
+): BlueprintDoc {
+	return produce(tileFixture("persistent-external"), (draft) => {
+		const own = Object.values(draft.modules).find(
+			(module) => module.caseListConfig?.contextAboveForm?.kind === "menu-tile",
+		);
+		const config = own?.caseListConfig;
+		const context = config?.contextAboveForm;
+		if (config?.tile === undefined || context?.kind !== "menu-tile")
+			throw new Error("The fixture shows another menu's tile above forms.");
+		delete context.expression;
+		config.tile.persistOnForms = true;
+		const source = draft.modules[context.moduleUuid]?.caseListConfig;
+		if (sourceShowsNoDetail)
+			for (const column of source?.columns ?? [])
+				column.visibleInDetail = false;
+	});
+}
+
 /** A follow-up of a menu of patients whose own arm changes nothing, beside an update of the
  *  session's case that writes a computed score: both print the block the own arm prints. */
 function updateBesideBareOwn(): BlueprintDoc {
@@ -1398,6 +1421,18 @@ const PAIRS: readonly Pair[] = [
 		name: "a tile cell on a column hidden from Results in a tile list",
 		other: () => tileCells(true),
 	},
+	{
+		id: "tile-switches-off-are-absent",
+		name: "case detail tile cells whose border is switched off",
+		other: () => tileFixture("detail-layout"),
+	},
+	...[false, true].map((sourceShowsNoDetail) => ({
+		id: "own-tile-persistence-beside-an-expanded-menu-tile-is-absent",
+		name: sourceShowsNoDetail
+			? "an own tile kept above forms beside another menu's expanded tile whose menu shows no field in Details"
+			: "an own tile kept above forms beside another menu's expanded tile",
+		other: () => ownTileBesideExpandedMenuTile(sourceShowsNoDetail),
+	})),
 	{
 		id: "match-all-list-filter-is-absent",
 		name: "a list filter that simplifies to match-all",
@@ -2349,6 +2384,14 @@ describe("a read back of Nova's export", () => {
 		[
 			"a sorted column hidden from Results and from Details under its own header, over a property another column shows",
 			() => hiddenColumnHeadedApart(true),
+		],
+		[
+			"an own tile kept above forms beside another menu's expanded tile",
+			() => ownTileBesideExpandedMenuTile(false),
+		],
+		[
+			"an own tile kept above forms beside another menu's expanded tile whose menu shows no field in Details",
+			() => ownTileBesideExpandedMenuTile(true),
 		],
 		// A declared type no export carries, which the reading is told.
 		...PAIRS.filter((pair) => TOLD_TYPES.includes(pair.name)).map(

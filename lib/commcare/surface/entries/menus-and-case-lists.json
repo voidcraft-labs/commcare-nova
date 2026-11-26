@@ -2529,11 +2529,10 @@
 			"schema:Module.show_case_list_optimization_options",
 			"schema:ShadowModule.show_case_list_optimization_options"
 		],
-		"valueClass": "enabled",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.optimizations` (enables per-column cache/lazy, Detail columns)",
-		"subject": "case-list-optimizations",
-		"owner": "case-list-and-detail",
+		"valueClass": "enabled-on-a-menu-with-a-case-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.optimizations` (enables per-column cache/lazy, Detail columns)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (no cache; laziness whole-detail) / RUNS",
@@ -2550,6 +2549,29 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_LIST_OPTIMIZATIONS"]
+	},
+	{
+		"id": "menus-and-case-lists/module-show-case-list-optimization-options-on-a-menu-with-no-case-list",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`Module.show_case_list_optimization_options` on a menu with no case type",
+		"surfaceKeys": [
+			"schema:AdvancedModule.show_case_list_optimization_options",
+			"schema:Module.show_case_list_optimization_options",
+			"schema:ShadowModule.show_case_list_optimization_options"
+		],
+		"valueClass": "enabled-on-a-menu-with-no-case-list",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build reads it only as it builds a case list's details (`suite_xml/sections/details.py::DetailContributor`, `detail_screen.py`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/module-display-separately",
@@ -2604,7 +2626,9 @@
 			"schema:DetailColumn.model",
 			"schema:DetailColumn.field",
 			"schema:DetailColumn.format",
-			"schema:DetailColumn.<undeclared>"
+			"schema:DetailColumn.<undeclared>",
+			"format:plain",
+			"detail-field-type:property"
 		],
 		"valueClass": "the-default-single-name-column",
 		"disposition": "INERT",
@@ -3099,7 +3123,9 @@
 			"schema:DetailColumn.model",
 			"schema:DetailColumn.field",
 			"schema:DetailColumn.format",
-			"schema:DetailColumn.<undeclared>"
+			"schema:DetailColumn.<undeclared>",
+			"format:plain",
+			"detail-field-type:property"
 		],
 		"valueClass": "empty-short-detail-no-runtime-shows",
 		"disposition": "INERT",
@@ -3584,10 +3610,8 @@
 			"schema:Detail.case_tile_template"
 		],
 		"valueClass": "icon-text-grid-on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.tile.template: icon_text_grid` (+ per-column slot mapping, Detail columns)",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: each image and text position of the named tile has its own Results field identity in `caseListConfig.tile.namedSlots`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (each slot renders its column's format) / DIFFERENT (icon and clickable-icon slots print raw `jr://` paths)",
@@ -3604,7 +3628,38 @@
 			"cell": "`icon_text_grid` with all ten template fields mapped (HQ's build refuses a missing one: `invalid tile configuration`, and in an advanced module by raising `SuiteError` from `case_tiles.py::_get_matched_detail_column`, which `validate_app` does not catch); CASE_LIST_TILE",
 			"markers": []
 		},
-		"gates": ["toggle/CASE_LIST_TILE"]
+		"gates": ["toggle/CASE_LIST_TILE"],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/named-case-tile-missing-a-required-slot",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A named image and text tile missing one of its ten column assignments",
+		"surfaceKeys": [
+			"schema:Detail.case_tile_template",
+			"schema:DetailColumn.case_tile_field"
+		],
+		"valueClass": "missing-a-named-image-or-text-slot",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ cannot build a tile with a missing assignment. Assign every named position on the Case List page.",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "CaseTileHelper._get_matched_detail_column raises SuiteError for a missing field"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/detail-case-tile-template-person-simple",
@@ -3676,10 +3731,9 @@
 			"schema:Detail.case_tile_template"
 		],
 		"valueClass": "custom-on-the-case-detail",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.detailTile`",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.detailTile`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED (standard rows)",
@@ -3764,13 +3818,12 @@
 		"surfaceKeys": [
 			"parser:SessionDatumParser/datum@detail-persistent",
 			"parser:SessionDatumParser/instance-datum@detail-persistent",
+			"schema:Detail.persist_tile_on_forms",
 			"schema:Detail.persistent_case_tile_from_module"
 		],
 		"valueClass": "persists-another-module-s-tile",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `tile.persistFrom` (another module's tile)",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: contextAboveForm names the menu whose Results tile shows the selected case; expanded into that menu's case detail, the menu's own `persist_tile_on_forms` is on beside it, as HQ's Case List page keeps the pull-down only with that switch on (`details/bootstrap5/screen.js`, `enableTilePullDown`) and its build reads the source menu first (`entries.py::get_detail_persistent_attr`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3785,7 +3838,8 @@
 			"cell": "module unique id; CASE_LIST_TILE",
 			"markers": []
 		},
-		"gates": ["toggle/CASE_LIST_TILE"]
+		"gates": ["toggle/CASE_LIST_TILE"],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/detail-pull-down-tile",
@@ -3799,10 +3853,8 @@
 			"schema:Detail.pull_down_tile"
 		],
 		"valueClass": "true",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `tile.pullDown` (`detail-inline`)",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: expandDetails opens the form directly with its chosen case and expandable Details",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3817,7 +3869,8 @@
 			"cell": "`pull_down_tile: true` (with persist)",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
@@ -3922,10 +3975,8 @@
 			"schema:Detail.persistent_case_context_xml"
 		],
 		"valueClass": "where-no-persistent-tile-applies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.persistentContext` (one-field persistent tile; value lifts into ValueExpression, else the typed expression model), where no persistent tile applies",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a checked contextAboveForm expression supplies the persistent one-line detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3940,7 +3991,140 @@
 			"cell": "both keys; SHOW_PERSIST_CASE_CONTEXT_SETTING",
 			"markers": []
 		},
-		"gates": ["toggle/SHOW_PERSIST_CASE_CONTEXT_SETTING"]
+		"gates": ["toggle/SHOW_PERSIST_CASE_CONTEXT_SETTING"],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/form-context-expression-outside-its-case-scope",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "One-line case context the selected case cannot evaluate",
+		"surfaceKeys": ["schema:Detail.persistent_case_context_xml"],
+		"valueClass": "unbound-form-context-expression",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: a case-scoped scalar expression",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "a case-scoped scalar expression"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/form-context-without-a-compatible-case-tile",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "A chosen context menu or pull-down without a compatible tile and detail",
+		"surfaceKeys": [
+			"schema:Detail.persistent_case_tile_from_module",
+			"schema:Detail.pull_down_tile"
+		],
+		"valueClass": "form-context-source-unavailable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: select the menu and a populated case detail on the Case List page",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "select the menu and a populated case detail on the Case List page"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/two-different-values-for-the-same-form-context",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "Two different one-line form context values defined by the case list and detail",
+		"surfaceKeys": [
+			"schema:Detail.persist_case_context",
+			"schema:Detail.persistent_case_context_xml"
+		],
+		"valueClass": "competing-persistent-case-context-values",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: remove the second context on Details or use the same value on both screens",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "remove the second context on Details or use the same value on both screens"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/existing-form-context-source-with-no-tile",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A selected source menu exists with neither a tile nor custom display",
+		"surfaceKeys": ["schema:Detail.persistent_case_tile_from_module"],
+		"valueClass": "form-context-source-without-a-layout",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: the selected case uses its own persistent tile or line.",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/form-context-setting-outside-a-case-selection",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "Context on an unselected detail or a stored line with the switch off",
+		"surfaceKeys": [
+			"schema:Detail.persistent_case_tile_from_module",
+			"schema:Detail.pull_down_tile",
+			"schema:Detail.persist_case_context",
+			"schema:Detail.persistent_case_context_xml"
+		],
+		"valueClass": "case-context-on-an-unselected-detail",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: this case selection reads no value here.",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/persist-case-context-beside-persist-tile-on-forms-on-a-short",
@@ -4085,10 +4269,9 @@
 			"schema:Detail.no_items_text"
 		],
 		"valueClass": "other-than-hq-s-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.emptyText`",
-		"subject": "case-list-text",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.emptyText`, each other language its unit's translation",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -4162,10 +4345,9 @@
 			"schema:Detail.select_text"
 		],
 		"valueClass": "other-than-hq-s-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.selectButtonText` (editor: Bulk App Translations edits the existing string; saves keep it)",
-		"subject": "case-list-text",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.selectButtonText`, each other language its unit's translation (editor: Bulk App Translations edits the existing string; saves keep it)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (labels only the multi-select Continue) / IGNORED",
@@ -4180,6 +4362,26 @@
 		"emission": {
 			"cell": "`select_text{lang}`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-texts-no-worker-reads",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.no_items_text` or `Detail.select_text` other than HQ's default on a case detail, or on a menu with no case type",
+		"surfaceKeys": ["schema:Detail.no_items_text", "schema:Detail.select_text"],
+		"valueClass": "where-no-worker-reads-it",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build writes a detail's texts only from a case list's short detail (`suite_xml/sections/details.py::add_no_items_text_to_detail`, `add_select_text_to_detail`, under `detail_type.endswith('short')`), and a menu with no case type shows no list",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -4306,26 +4508,58 @@
 		"gates": []
 	},
 	{
-		"id": "menus-and-case-lists/column-field-outside-nova-s-property-grammar",
+		"id": "menus-and-case-lists/column-reading-a-property-name-over-255-characters",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "a column `field` that `details/utils.js::isValidPropertyName` accepts and Nova's case property grammar does not (a name longer than 255 characters, or one word after a `#` other than `#owner_name`)",
+		"item": "A native case property column whose name exceeds 255 characters",
 		"surfaceKeys": ["schema:DetailColumn.field"],
-		"valueClass": "property-name-outside-nova-s-grammar",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a column over a property name outside `casePropertyName.ts::authoredCasePropertyNameSchema`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"valueClass": "long-read-property",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a read of a named case child, including an absent child; the write grammar keeps its length limit",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the original property name",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/column-reading-an-unknown-hash-property",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "A case property column starting with # other than #owner_name",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"valueClass": "unrecognized-hash-property",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime on both workers; the generated XPath contains an invalid child name",
+		"subject": "case-list-columns",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ writes the # into the property step and Core cannot parse the path"
+			}
+		]
 	},
 	{
 		"id": "menus-and-case-lists/field-failing-details-utils-js-isvalidpropertyname-non",
@@ -4521,10 +4755,9 @@
 			"schema:MappingItem.alt_text"
 		],
 		"valueClass": "non-blank",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `imageMap[].altText` and the clickable icon mapping's alt text",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: each case image can have a translated description, read by Web Apps",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -4628,10 +4861,8 @@
 		"item": "`case_tile_field` holding text, on a detail whose `case_tile_template` is a template with slots: `icon_text_grid`, or `person_simple` or a removed template, where the detail's own REFUSED entry also applies",
 		"surfaceKeys": ["schema:DetailColumn.case_tile_field"],
 		"valueClass": "slot-on-a-template-tile",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `column.tileSlot`",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: each image and text position of the named tile has its own Results field identity in `caseListConfig.tile.namedSlots`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (as for the template)",
@@ -4646,6 +4877,27 @@
 		"emission": {
 			"cell": "`case_tile_field`",
 			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/unused-slot-of-a-named-case-tile",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "A slot name the named layout does not read, or an earlier column assigned to the same slot",
+		"surfaceKeys": ["schema:DetailColumn.case_tile_field"],
+		"valueClass": "no-field-in-the-template-consumes-this-assignment",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ takes the last column for each required slot name. Every other assignment is absent from the layout.",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -4732,6 +4984,161 @@
 		},
 		"emission": {
 			"cell": "not written: every column of a tile's short detail is placed, and a hidden order rule is a sort row with no stored column (`caseListOrderPlan`, rule 4)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/custom-tile-cells-covering-the-same-square",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "two placed cells of one custom tile (the case list's, or one tab of the case detail's) covering the same square",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.width"
+		],
+		"valueClass": "overlapping-custom-tile-cells",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare HQ saves and builds the cells as they are (no check of `helpers/validators.py` compares two cells' squares), and each runtime draws one field over the other (Android's `EntityViewTile`, a `GridLayout`; the Web Apps tile's CSS grid areas, `formplayer/menus/views.js`)",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "each runtime draws one field over the other"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written: the gate refuses two shown cells on one square (`CASE_LIST_TILE_CELLS_OVERLAP`, and `CASE_DETAIL_TILE_LAYOUT_INVALID` within one Details tab)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/custom-tile-cell-outside-the-grid",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "a placed cell of a custom tile that starts left of or above the grid, spans less than one square, or runs past its twelfth column",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.width"
+		],
+		"valueClass": "custom-tile-cell-outside-the-grid",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's Case List page bounds its pickers to the twelve columns (`details/bootstrap5/column.js`, `tileColumnMax`), so only an imported app holds one, and Android does not draw it: a cell past the twelfth column stops the list (`views/EntityViewTile.java::coordinatesInvalid`, \"grid coordinates out of bounds\"), one left of or above the grid is skipped, and a span of none has no size (`getLayoutParamsForField`)",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android stops the list or leaves the field out"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written: the gate refuses a cell past the grid (`CASE_LIST_TILE_CELL_OUT_OF_GRID`, `CASE_DETAIL_TILE_LAYOUT_INVALID`), and the schema a negative place or an empty span",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "a placed cell of a custom tile, inside its twelve columns and the rows HQ's page offers its screen, that runs past the twelfth row",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.width"
+		],
+		"valueClass": "custom-tile-cell-below-the-twelfth-row",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `column.tile` (Results) or `detailTile.cells` (Details), the tile a row for each field it shows and at least six (`tileRowLimit`): the rows HQ's Case List and Case Detail pages offer a screen of more than twelve columns, a long detail's tabs among them (`details/bootstrap5/screen.js`, `caseTileRowMax`), which their saves keep (proof 4 over `targeted-tile-row-bound`), and both runtimes size the tile to its tallest cell (Core's `Detail.getMaxWidthHeight`, Android's `EntityViewTile.getMaxRows`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the four keys",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "a placed cell of a custom tile, inside its twelve columns, whose bottom edge passes the rows HQ's page offers its screen: `max(n, 6)`, n the detail's columns other than filters and, on the case detail, its tabs",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.width"
+		],
+		"valueClass": "custom-tile-cell-below-the-rows-hq-s-page-offers",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's Case List and Case Detail pages offer a cell's start row and height from `max(columns + 1, 7)` (`details/bootstrap5/screen.js`, `caseTileRowMax`; `column.js`, `tileRowOptions`, `tileHeightOptions`), each a Knockout `value` with `options` and no `valueAllowUnset`, so the page's next save moves a cell past them to the first row or makes it one row tall (observed by proof 4 over `targeted-tile-row-bound`)",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's Case List page moves a cell below the rows it offers"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written: the gate refuses a cell below a row for each field the tile shows and at least six (`CASE_LIST_TILE_CELL_OUT_OF_GRID`, `CASE_DETAIL_TILE_LAYOUT_INVALID`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "a case detail data tab's `nodeset_case_type` naming a type no basic form of a menu of the list's case type adds as a child case",
+		"surfaceKeys": ["schema:DetailTab.nodeset_case_type"],
+		"valueClass": "child-type-no-form-of-the-case-type-adds",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's Case Detail page lists a tab's child types from the forms that add them (`views/modules.py`, `app.get_subcase_types`; `models/forms.py::Form.get_subcase_types`), and its next save clears any other (`details/bootstrap5/detail_tab_nodeset.js`, `dropdownOptions`)",
+		"subject": "case-detail-tabs",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's Case Detail page clears a child type no form adds"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written: the gate refuses a tab's child type no form adds (`CASE_DETAIL_TAB_ROWS_INVALID`)",
 			"markers": []
 		},
 		"gates": []
@@ -4932,10 +5339,10 @@
 			"parser:DetailFieldParser/field@lazy_loading",
 			"schema:DetailColumn.optimization"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `column.optimization` (calculated columns in address/date/markdown/phone/plain/enum formats)",
-		"subject": "case-list-optimizations",
-		"owner": "case-list-and-detail",
+		"valueClass": "on-a-column-that-can-use-it",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `column.loadBehavior` (calculated columns in address/date/markdown/phone/plain/enum formats)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (no cache; laziness applies to the whole detail) / RUNS",
@@ -4952,6 +5359,26 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_LIST_OPTIMIZATIONS"]
+	},
+	{
+		"id": "menus-and-case-lists/optimization-on-a-column-that-cannot-use-it",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "`optimization` on a column that is not an expression column of the address, date, markdown, phone, plain or enum format, or in a menu whose `show_case_list_optimization_options` is off",
+		"surfaceKeys": ["schema:DetailColumn.optimization"],
+		"valueClass": "on-a-column-that-cannot-use-it",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ discards it as it reads the column (`models/case_list.py::DetailColumn.wrap`, `supports_optimizations`), and its build writes none where the menu's setting is off (`detail_screen.py::FormattedDetailColumn.fields`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/filter-xpath",
@@ -5071,10 +5498,9 @@
 		"item": "1′ `plain` over a property select questions write",
 		"surfaceKeys": ["format:plain", "schema:DetailColumn.format"],
 		"valueClass": "plain-over-a-select-property",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a plain column that shows the raw value: Nova's `plain` column over a select property shows and sorts by option labels (`hqJson/caseList.ts::projectColumnToDetail` emits `translatable-enum`), while HQ's `plain` shows and sorts the raw value (`detail_screen.py::Plain`)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a plain column can show and sort by saved choice values independently of other columns showing the localized labels of the same property",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5086,7 +5512,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`plain` (Nova has no raw-value column over a select property today; its label-showing plain column stays `translatable-enum`, row 21 and defect 10)",
+			"cell": "`plain` for saved values, `translatable-enum` for choice labels",
 			"markers": []
 		},
 		"gates": []
@@ -5169,10 +5595,9 @@
 			"schema:DetailColumn.time_ago_interval"
 		],
 		"valueClass": "time-ago-with-a-menu-interval",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `interval` column widened: threshold optional (count only) and signed direction (since/until)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a date count shows whole years, months, weeks or days since the date, or whole days, weeks or months until it. It sorts by the saved date",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5307,10 +5732,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "enum-with-an-empty-or-whitespace-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: ID-mapping keys under Core's `selected()`, which trims only the key and matches it as one token sequence (`XPathSelectedFunc.multiSelected`; executed): an empty key, and a whitespace-only one, which is the same state, labels a blank value (and a value holding two spaces in a row or a leading or trailing space), and a key with inner spaces labels a value holding that token sequence; HQ's editor accepts both (`ui-element-key-val-mapping.js::hasBadXML` checks only XML characters), and Nova refuses them today (`lib/domain/modules.ts`, defect 16)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the ordered Value labels table matches a blank or a sequence of words between literal spaces, in Preview and on the device",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5322,7 +5746,7 @@
 			}
 		},
 		"emission": {
-			"cell": "the key, a whitespace-only one as `''`",
+			"cell": "the original key",
 			"markers": []
 		},
 		"gates": []
@@ -5342,10 +5766,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "translatable-enum-on-a-non-calculated-column-over-an-own-property",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the same state as a calculated `translatable-enum` over that property (`translatedExpression`, row 21): HQ's build differs only in the ids it derives for the column's app strings, whose text every runtime reads identically (executed)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the same state as a calculated `translatable-enum` over that property (the calculated field’s scoped text pieces, row 21): HQ's build differs only in the ids it derives for the column's app strings, whose text every runtime reads identically (executed)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5411,10 +5834,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "translatable-enum-on-a-non-calculated-column-over-a-relation-in-a-non-searching-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the same state as the calculated `translatable-enum` over that path (`translatedExpression`): HQ's build differs only in the column's app-string ids, and nothing reads the relation path, which HQ collects only for modules that offer search (executed)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the calculated `translatable-enum` over HQ's own read of the path, which is the same state: HQ's build walks each index to whatever case it reaches, of any type, with no case-type test (`detail_screen.py::PropertyXpathGenerator`), Nova's reached read (`PropertyRef.readReached`, `reached(…)` in the record dialect), and hands that read to the enum as a calculated column's field (`TranslatableEnum`); it differs only in the column's app-string ids, and nothing reads the relation path, which HQ collects only for modules that offer search (executed). A read of the worker's record (`user/<prop>`) or of an owner's name stands under that read's own row",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5479,10 +5901,9 @@
 			"schema:DetailColumn.late_flag"
 		],
 		"valueClass": "late-flag-of-one-or-more",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a flag column with no list header: HQ's `LateFlag` writes an empty header on the case list (`detail_screen.py::HideShortHeaderColumn`), and Nova's interval column shows its own",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an overdue marker displays a star for a missing date or a date past its signed day threshold. Results hides the heading and Details keeps it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5494,8 +5915,8 @@
 			}
 		},
 		"emission": {
-			"cell": "nothing: Nova writes an interval column as a calculated `translatable-enum`",
-			"markers": ["omit"]
+			"cell": "`late-flag` and its signed `late_flag`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -5513,10 +5934,9 @@
 			"schema:DetailColumn.late_flag"
 		],
 		"valueClass": "late-flag-of-zero-or-less",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `interval` threshold widened to integers ≤ 0, with text and header as in 6",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an overdue marker displays a star for a missing date or a date past its signed day threshold. Results hides the heading and Details keeps it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5528,7 +5948,7 @@
 			}
 		},
 		"emission": {
-			"cell": "same",
+			"cell": "`late-flag` and its signed `late_flag`",
 			"markers": []
 		},
 		"gates": []
@@ -5581,10 +6001,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "invisible-or-address-in-a-custom-tile",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the column's tile cell, held with it: HQ's editor saves grid coordinates for every column though it hides them for these formats (`details/bootstrap5/column.js`, `coordinatesVisible`, `serialize`), so a new one sits at `(0,0,6,1)`, and HQ builds the cell (`case_tiles.py::build_case_tile_detail`)",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: preserve the placed short field and its Android value. Web Apps hides a zero-width template.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (hidden: a field whose width hint is 0, `tile_item.html`) / DIFFERENT (drawn at its stored cell, `EntityViewTile.addFieldView`, unless a coordinate is negative)",
@@ -5595,6 +6014,33 @@
 			"android": {
 				"reading": "different",
 				"note": "drawn at its stored cell, `EntityViewTile.addFieldView`, unless a coordinate is negative"
+			}
+		},
+		"emission": {
+			"cell": "the column with its cell",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/raw-value-in-a-named-case-tile",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "A named Results position supplied by a Search Only field",
+		"surfaceKeys": ["format:invisible", "schema:DetailColumn.format"],
+		"valueClass": "named-tile-raw-value",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the named slot uses the unformatted stored value, with the header supplied by the named template",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
 		},
 		"emission": {
@@ -5646,10 +6092,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "invisible-in-a-nodeset-tab",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a hidden ascending sort of that tab's rows (`details.py::get_nodeset_sort_elements`; executed: width 0 and `<sort type=\"string\" order=\"1\" direction=\"ascending\">`)",
-		"subject": "case-detail-tabs",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the source, ordered fields and selected outer case of a detail tab",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5680,10 +6125,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "address-outside-a-custom-tile",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `address` column kind",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map location reads saved coordinates. Android uses the first usable location per case and offers Show address in Details. Web Apps can show the first location when the project has case list maps",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (hidden in the list, plain text on the detail; a map only under the CASE_LIST_MAP flag) / RUNS (Map menu, \"show address\")",
@@ -5710,10 +6154,9 @@
 		"item": "9 `distance`",
 		"surfaceKeys": ["format:distance", "schema:DetailColumn.format"],
 		"valueClass": "distance",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `distance` column kind (from `here()`)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a distance cell reads the Android worker’s location and shows kilometers to one decimal place. Its sort compares whole meters",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (never from the user: São Paulo placeholder or blank) / RUNS",
@@ -5775,10 +6218,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "markdown-outside-link",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a `markdown` column kind",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: formatted text from a saved property or a calculation",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (markdown only on the detail; raw in rows, HTML in tiles)",
@@ -5791,7 +6233,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`markdown`",
+			"cell": "`markdown` over the property or calculated field",
 			"markers": []
 		},
 		"gates": []
@@ -5810,10 +6252,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "geo-boundary-on-the-case-list-beside-its-dependencies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `mapLayer` column kind `boundary`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map boundary reads pairs of coordinates from a case property on a Results map with a location",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5844,10 +6285,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "geo-boundary-color-on-the-case-list-beside-its-dependencies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `mapLayer` `boundaryColor`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map boundary color reads its case’s saved color on a Results map with a boundary and a location",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5878,10 +6318,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "geo-points-on-the-case-list-beside-its-dependencies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `mapLayer` `points`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map points layer reads pairs of coordinates from a case property on a Results map with a location",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5912,10 +6351,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "geo-points-colors-on-the-case-list-beside-its-dependencies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `mapLayer` `pointColors`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map point colors layer reads an ordered list of colors on a Results map with points and a location",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6308,10 +6746,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "enum-image-with-plain-value-keys",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `image-map` equality keys: HQ matches by equality (`prop = 'key'`, `MappingItem.key_as_condition`), while Nova's image-map matches `selected()` tokens today (19′)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a whole-value image entry compares all the saved text and the first matching entry supplies the image",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (in an `icon_text_grid` tile, the raw path)",
@@ -6385,10 +6822,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "enum-image-with-other-condition-keys",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `image-map` condition keys",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the first matching typed case rule supplies its image and localized description",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (in an `icon_text_grid` tile, the raw path)",
@@ -6421,10 +6857,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "conditional-enum",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `conditionalText` column kind (condition → localized text)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: ordered rules with stable identities supply the first matching localized label; the same label is the worker’s sort text",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6437,6 +6872,33 @@
 		},
 		"emission": {
 			"cell": "`conditional-enum`; add-on `conditional_enum`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/mapping-condition-outside-predicate",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "An image or label rule whose condition cannot be typed for this case",
+		"surfaceKeys": ["schema:MappingItem.key"],
+		"valueClass": "mapping-condition-outside-predicate",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the rule has no typed condition for the selected case.",
+		"subject": "case-list-columns",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "The rule has no typed condition for the selected case."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written",
 			"markers": []
 		},
 		"gates": []
@@ -6492,10 +6954,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "authored-translated-expression",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the `translatedExpression` column kind",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a calculated field binds each translated piece of text to its own UUID. Display and ordering evaluate the same expression in the worker’s language.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6803,10 +7264,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "several-address-columns-in-an-advanced-module-detail",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: several address columns, which the map reads differently: Web Apps takes the first address column (`menus/views.js` `findIndex`), and Android, per case, the first address field that yields a location (`gis/EntityMapUtils.kt::getDisplayInfoForEntity`); the editor allows it (`screen.js::save` counts only image and geo-*) and HQ's build does not check it there (executed); holding it makes the module emitted as advanced (\"Case writes\")",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an advanced menu holds ordered locations. Android tries each until it finds a usable one. Web Apps uses the first",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (a blank first address falls through to the next)",
@@ -6974,11 +7434,10 @@
 		"subsection": "Column field paths",
 		"item": "`idx/…/prop` in a menu that offers Search, or through an index the app links to no case type",
 		"surfaceKeys": ["detail-field-type:property"],
-		"valueClass": "relation-path-unheld",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the related column in a menu that offers Search, which HQ's build reads through the search's results instance (`models/case_list.py::Detail.get_instance_name`), where Nova writes a column over a related case as a calculation that keeps each case type (`suite/case-search/relatedCaseProjection.ts`); a walk through an index whose case type nothing in the app states, where Nova's walk names the type it reaches; and a walk to `case_id`, `status` or `owner_id`, which Nova writes as an expression over the attribute",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"valueClass": "relation-path-search-or-open",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a property column follows each named index in the detail's own case roster. Search results use their results roster. A link without a declared destination reads the named child of the reached case.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7003,10 +7462,9 @@
 		"item": "`user/prop` (usercase)",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "usercase-property",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: column over the usercase property",
-		"subject": "worker-record",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the selected property of the current worker’s record",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7031,10 +7489,9 @@
 		"item": "`user/<steps>/prop`",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "usercase-property-with-later-steps",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the column over the usercase property, the same state as `user/prop`: HQ reads only the usercase and drops the later steps (`detail_screen.py::PropertyXpathGenerator.xpath`), so the build is identical",
-		"subject": "worker-record",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the selected property of the current worker’s record. HQ ignores the intermediate path and the next publish uses the direct worker-record field",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7083,7 +7540,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column field paths",
-		"item": "`case_id` as a property column's `field` (or a sort element's, whose appended column reads it so)",
+		"item": "The child element `case_id` as a property column’s field, directly or at the end of an index walk, including a column added for a sort.",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "case-id-element",
 		"disposition": "REFUSED",
@@ -7113,10 +7570,9 @@
 		"item": "`#owner_name`",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "owner-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `ownerName` column (the owning group's name, else the current worker's username for a case they own, else blank)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the owner label of the selected record. A synced group’s name takes precedence, followed by the current worker’s username for a case they own, then an empty value",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7537,10 +7993,9 @@
 			"schema:SortElement.type"
 		],
 		"valueClass": "authored-numeric-comparator",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.comparator` (authored)",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the column’s default order keeps the comparison when it differs from the value’s usual order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7568,10 +8023,9 @@
 			"schema:SortElement.type"
 		],
 		"valueClass": "authored-text-comparator",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.comparator` (authored): HQ writes `string` for `plain`, `date` and none, and any other word as it is (`FormattedDetailColumn.sort_node`, `details.py::get_default_sort_elements`), and Core compares every word but `int` and `double` as text (`DetailFieldParser`), so the list orders numbers as text, where the comparator Nova derives from the property's type orders them as numbers",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the column’s default order keeps the comparison when it differs from the value’s usual order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7599,10 +8053,9 @@
 			"schema:SortElement.type"
 		],
 		"valueClass": "distance",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.comparator: distance` (on a column whose format has its own sort, HQ keeps that format's sort type with the distance function: `double` for `distance`, and `string` for date, time-ago and the ID-mapping formats, where distances compare as text: executed)",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Default order compares distances from the worker using the comparison the field keeps.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (sorted from São Paulo) / RUNS",
@@ -7877,10 +8330,8 @@
 			"schema:SortElement.sort_calculation"
 		],
 		"valueClass": "authored-with-an-empty-field",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.expression` (lifts into ValueExpression, else the typed expression model)",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: independent Default order calculation, direction, comparison, blank placement and localized name",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7895,7 +8346,89 @@
 			"cell": "`sort_calculation`; SORT_CALCULATION_IN_CASE_LIST (a save without it strips the value, leaving a row HQ's build refuses, `invalid sort field`)",
 			"markers": []
 		},
-		"gates": ["toggle/SORT_CALCULATION_IN_CASE_LIST"]
+		"gates": ["toggle/SORT_CALCULATION_IN_CASE_LIST"],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/sort-calculation-without-a-typed-value",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "Calculation with no typed value for the selected case",
+		"surfaceKeys": ["schema:SortElement.sort_calculation"],
+		"valueClass": "sort-calculation-without-a-typed-value",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The expression cannot be typed as a value in the selected case’s scope.",
+		"subject": "case-list-sorting",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "The expression cannot be typed as a value in the selected case’s scope."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/distance-sort-without-a-location-field",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "Distance comparison of a calculation-only order rule",
+		"surfaceKeys": ["schema:SortElement.type"],
+		"valueClass": "distance-sort-without-a-location-field",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ builds Distance’s position expression from the empty property of its temporary invisible column. The worker cannot evaluate that expression.",
+		"subject": "case-list-sorting",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ builds Distance’s position expression from the empty property of its temporary invisible column. The worker cannot evaluate that expression."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/distance-on-a-translated-calculated-field",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "Distance comparison on a translated expression field",
+		"surfaceKeys": ["schema:SortElement.type"],
+		"valueClass": "distance-on-a-translated-calculated-field",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ's translated expression format supplies label variables. Its distance expression refers to a missing calculated value, so the worker cannot evaluate the order.",
+		"subject": "case-list-sorting",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's translated expression format supplies label variables. Its distance expression refers to a missing calculated value, so the worker cannot evaluate the order."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/field-and-a-differing-sort-calculation-on-a-column-whose-format",
@@ -8033,10 +8566,9 @@
 			"schema:DetailTab.starting_index"
 		],
 		"valueClass": "plain-tab",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.detailTabs[] {header, startColumn}`",
-		"subject": "case-detail-tabs",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: ordered detail tabs with localized titles, anchored to their first displayed column by identity",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8059,7 +8591,11 @@
 		"section": "Case list and case detail",
 		"subsection": "Detail tabs",
 		"item": "a stored tab without `isTab`",
-		"surfaceKeys": ["schema:Detail.tabs", "schema:DetailTab"],
+		"surfaceKeys": [
+			"schema:Detail.tabs",
+			"schema:DetailTab",
+			"schema:DetailTab.<undeclared>"
+		],
 		"valueClass": "stored-without-is-tab",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: same state: `isTab` is page state that no build or server code reads",
@@ -8090,10 +8626,10 @@
 			"parser:DetailParser/detail@relevant",
 			"schema:DetailTab.relevant"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `detailTabs[].displayCondition` (Predicate, or the typed expression model)",
-		"subject": "case-detail-tabs",
-		"owner": "case-list-and-detail",
+		"valueClass": "typed-condition-at-the-selected-case",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the tab's display condition is evaluated at the selected case, before any rows of the tab are read",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8106,6 +8642,89 @@
 		},
 		"emission": {
 			"cell": "`relevant`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/tab-display-condition-outside-its-case-scope",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "A tab display condition with an unresolved row, instance or operation",
+		"surfaceKeys": ["schema:DetailTab.relevant"],
+		"valueClass": "condition-outside-typed-case-scope",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the expression cannot be bound to the selected case and the instances available to its worker",
+		"subject": "case-detail-tabs",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "the selected case's typed display condition"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/inactive-detail-tab-row-settings",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "Row settings on a tab with its source switched off, or child settings shadowed by a custom collection",
+		"surfaceKeys": [
+			"schema:DetailTab.nodeset",
+			"schema:DetailTab.nodeset_case_type",
+			"schema:DetailTab.nodeset_filter"
+		],
+		"valueClass": "inactive-detail-tab-row-settings",
+		"disposition": "INERT",
+		"dispositionCell": "**READ-TO-DROP**: a disabled row source contributes no collection or related cases. An explicit collection ignores the child filter",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "A tab with no typed record collection, an unresolved instance, or a child filter outside the row scope",
+		"surfaceKeys": [
+			"schema:DetailTab.has_nodeset",
+			"schema:DetailTab.nodeset",
+			"schema:DetailTab.nodeset_case_type",
+			"schema:DetailTab.nodeset_filter"
+		],
+		"valueClass": "detail-tab-unresolved-row-source",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the tab needs an ordered collection with a known row type and a filter that runs on its rows",
+		"subject": "case-detail-tabs",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "an ordered record collection with a typed row"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -8127,10 +8746,9 @@
 			"schema:DetailTab.starting_index"
 		],
 		"valueClass": "child-case-data-tab",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `detailTabs[].rows: childCases {caseType, filter}`",
-		"subject": "case-detail-tabs",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the source, ordered fields and selected outer case of a detail tab",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8143,6 +8761,33 @@
 		},
 		"emission": {
 			"cell": "tab keys; DETAIL_LIST_TAB_NODESETS",
+			"markers": []
+		},
+		"gates": ["toggle/DETAIL_LIST_TAB_NODESETS"]
+	},
+	{
+		"id": "menus-and-case-lists/related-child-type-beside-an-explicit-tab-collection",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "An explicit collection supplies the tab’s rows and a separate child type supplies related search results",
+		"surfaceKeys": ["schema:DetailTab.nodeset_case_type"],
+		"valueClass": "explicit-data-tab-with-related-search-children",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the tab reads its collection. A search-enabled menu includes child cases of the named type in the returned instance.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`nodeset_case_type` beside `nodeset`",
 			"markers": []
 		},
 		"gates": ["toggle/DETAIL_LIST_TAB_NODESETS"]
@@ -8163,10 +8808,9 @@
 			"schema:DetailTab.starting_index"
 		],
 		"valueClass": "custom-nodeset-data-tab",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `detailTabs[].rows: expression` (typed expression model)",
-		"subject": "case-detail-tabs",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the source, ordered fields and selected outer case of a detail tab",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8217,6 +8861,7 @@
 		"subsection": "Detail tabs",
 		"item": "a custom long tile row mixing fields of two tabs, in a basic or shadow module",
 		"surfaceKeys": [
+			"schema:Detail.tabs",
 			"schema:DetailColumn.grid_y",
 			"schema:DetailTab.starting_index"
 		],
@@ -8251,10 +8896,9 @@
 			"schema:DetailTab.starting_index"
 		],
 		"valueClass": "long-tile-row-mixing-two-tabs-in-an-advanced-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a detail tile whose row holds cells of two tabs: HQ builds each tab with its cells at their stored positions (`suite_xml/sections/details.py`, `case_tiles.py::build_case_tile_detail`), and does not check the row there; holding it makes the module emitted as advanced (\"Case writes\")",
-		"subject": "case-tiles",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a detail tile whose row holds cells of two tabs: HQ builds each tab with its cells at their stored positions (`suite_xml/sections/details.py`, `case_tiles.py::build_case_tile_detail`), and does not check the row there; holding it makes the module emitted as advanced (\"Case writes\")",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9638,13 +10282,14 @@
 		"id": "menus-and-case-lists/any-other-undeclared-key",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "any other key a `Module`, `AdvancedModule`, `ShadowModule`, `Detail` or `DetailColumn` does not declare, other than the dynamic keys the rows above name",
+		"item": "any other key a `Module`, `AdvancedModule`, `ShadowModule`, `Detail`, `DetailColumn` or `DetailTab` does not declare, other than the dynamic keys the rows above name",
 		"surfaceKeys": [
 			"schema:Module.<undeclared>",
 			"schema:AdvancedModule.<undeclared>",
 			"schema:ShadowModule.<undeclared>",
 			"schema:Detail.<undeclared>",
-			"schema:DetailColumn.<undeclared>"
+			"schema:DetailColumn.<undeclared>",
+			"schema:DetailTab.<undeclared>"
 		],
 		"valueClass": "names-no-row-s-key",
 		"origin": "export-use",

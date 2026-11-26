@@ -90,6 +90,7 @@ export type FoldId =
 	| "blank-branch"
 	| "switch"
 	| "relation-property"
+	| "reached-property"
 	| "relation-presence"
 	| "relation-count";
 
@@ -111,6 +112,11 @@ export interface FoldEnv {
 	readonly place?: OperationPlaceReads;
 	/** The slot's whole source, where the binding knows it. */
 	readonly root?: FormSyntax;
+	/** The slot reads a walk of the row's indices as Core does, to whatever case each reaches
+	 *  (`reached-property`): a case list column's calculation, whose value Postgres and the device
+	 *  both compute over the reached row. Another record slot's untyped walk stands under its
+	 *  own row (a list filter's `#host`, `detail-filter-value-outside-predicate`). */
+	readonly readsReached?: true;
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
 	/** Claims a site of its own for this fold over `span` (a fold that folds
@@ -2709,6 +2715,54 @@ function destinationType(
 	return at;
 }
 
+/**
+ * A walk of the row's indices with no case-type test,
+ * `instance('casedb')/casedb/case[@case_id = current()/index/<id>]/<property>` and its chains:
+ * Core reads the property on whatever case each index reaches, of any type, declared or not,
+ * which is the reached read (`PropertyRef.readReached`), whose print is that walk. HQ's build
+ * writes it for a stored relation path (`detail_screen.py::PropertyXpathGenerator`). Offered after
+ * `relation-property`, so a walk the typed relation reproduces stays typed, and this holds the
+ * walk the typed one does not print (an undeclared link, a link beside a declared parent), in a
+ * slot that reads it so (`FoldEnv.readsReached`).
+ */
+const reachedProperty: Fold = {
+	id: "reached-property",
+	ruleSets: ["record"],
+	propose(node, context, api, env) {
+		if (env.readsReached !== true) return undefined;
+		const read = casedbRow(node);
+		if (read === undefined) return undefined;
+		const [step, ...more] = read.rest;
+		const property = rowProperty(step);
+		if (property === undefined || more.length > 0) return undefined;
+		const steps = ancestorSteps(read.row);
+		const [first, ...rest] = steps ?? [];
+		if (
+			first === undefined ||
+			steps?.some((hop) => hop.throughCaseType !== undefined)
+		)
+			return undefined;
+		const row = activeRowScope(context);
+		if (row?.kind !== "case" || row.caseType === undefined) return undefined;
+		return api.term(
+			{
+				kind: "prop",
+				caseType: row.caseType,
+				property,
+				via: {
+					kind: "ancestor",
+					via: [first, ...rest].map(({ identifier }) => ({ identifier })) as [
+						RelationStep,
+						...RelationStep[],
+					],
+				},
+				readReached: true,
+			},
+			node,
+		);
+	},
+};
+
 const relationProperty: Fold = {
 	id: "relation-property",
 	ruleSets: ["record"],
@@ -3116,6 +3170,7 @@ export const EXPRESSION_FOLDS: readonly Fold[] = [
 	typedBranchLiteral,
 	blankBranch,
 	relationProperty,
+	reachedProperty,
 	relationPresence,
 	relationCount,
 ];

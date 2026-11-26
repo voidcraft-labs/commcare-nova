@@ -44,6 +44,7 @@ import {
 	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import {
 	type Expression,
 	effectiveFilterForEmission,
@@ -54,7 +55,11 @@ import type { ValidationError } from "../../errors";
 
 export type ModuleWireSlotSurface =
 	| "filter"
+	| "detail-tab"
+	| "case-form-context"
 	| "calculated-column"
+	| "mapping-condition"
+	| "calculated-sort"
 	| "search-input-default"
 	| "search-input-required"
 	| "search-input-validation"
@@ -130,9 +135,90 @@ export function collectModuleWireSlotFindings(
 		);
 	}
 
+	const context = mod.caseListConfig?.contextAboveForm;
+	const line = caseContextLine(context);
+	if (line)
+		collect(
+			judge.judgeExpression(line, {
+				mod,
+				moduleUuid,
+				slot: "caseListConfig.contextAboveForm.expression",
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_form_context_line",
+				},
+				slotLabel: "the case context above the form",
+				surface: "case-form-context",
+			}),
+		);
+	for (const [index, tab] of (mod.caseListConfig?.detailTabs ?? []).entries()) {
+		if (tab.displayCondition)
+			collect(
+				judge.judgePredicate(tab.displayCondition, {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.detailTabs[${index}].displayCondition`,
+					ref: {
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_detail_tab_condition",
+						member: { tabUuid: tab.uuid },
+					},
+					slotLabel: `the display condition for tab "${tab.title}"`,
+					surface: "detail-tab",
+				}),
+			);
+		const source = tab.rowSource;
+		if (source) {
+			const isChild = source.kind === "children";
+			const expr = isChild ? source.condition : source.rows;
+			if (expr) {
+				const ref = {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: isChild ? "case_detail_tab_filter" : "case_detail_tab_rows",
+					member: { tabUuid: tab.uuid },
+				} as const;
+				const site = {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.detailTabs[${index}].rowSource.${isChild ? "condition" : "rows"}`,
+					ref,
+					slotLabel: `the records in tab "${tab.title}"`,
+					surface: "detail-tab" as const,
+				};
+				collect(
+					isChild
+						? judge.judgePredicate(expr, site)
+						: judge.judgeExpression(expr, site),
+				);
+			}
+		}
+	}
 	const columns = mod.caseListConfig?.columns ?? [];
 	for (let index = 0; index < columns.length; index += 1) {
 		const column = columns[index];
+		if (column.kind === "id-mapping" || column.kind === "image-map") {
+			for (const [rowIndex, row] of column.mapping.entries())
+				if (row.when && row.uuid)
+					collect(
+						judge.judgePredicate(row.when, {
+							mod,
+							moduleUuid,
+							slot: `caseListConfig.columns[${index}].mapping[${rowIndex}].when`,
+							ref: {
+								entity: "module",
+								uuid: moduleUuid,
+								slot: "case_list_mapping_condition",
+								member: { columnUuid: column.uuid, rowUuid: row.uuid },
+							},
+							slotLabel: `rule ${rowIndex + 1} in "${column.header}"`,
+							surface: "mapping-condition",
+							column: { uuid: column.uuid, label: column.header },
+						}),
+					);
+		}
 		if (column.kind !== "calculated") continue;
 		const label = column.header || "Untitled field";
 		collect(
@@ -149,6 +235,28 @@ export function collectModuleWireSlotFindings(
 				slotLabel: `calculated field "${label}"`,
 				surface: "calculated-column",
 				column: { uuid: column.uuid, label },
+			}),
+		);
+	}
+
+	for (const [index, sort] of (
+		mod.caseListConfig?.calculatedSorts ?? []
+	).entries()) {
+		collect(
+			judge.judgeExpression(sort.expression, {
+				mod,
+				moduleUuid,
+				slot: `caseListConfig.calculatedSorts[${index}].expression`,
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_list_sort_expression",
+					member: { sortUuid: sort.uuid },
+				},
+				slotLabel: sort.label
+					? `order calculation "${sort.label}"`
+					: "the default order calculation",
+				surface: "calculated-sort",
 			}),
 		);
 	}

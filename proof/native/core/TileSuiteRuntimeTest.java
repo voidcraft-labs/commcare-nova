@@ -19,7 +19,7 @@ public class TileSuiteRuntimeTest {
     @Parameterized.Parameters(name = "{0} {1}")
     public static Collection<Object[]> files() {
         List<Object[]> files = new ArrayList<>();
-        for (String scenario : new String[]{"plain", "tile", "boxed", "persistent", "grouped-one", "grouped-two", "grouped-search", "grouped-browse"}) {
+        for (String scenario : new String[]{"plain", "tile", "boxed", "persistent", "grouped-one", "grouped-two", "grouped-search", "grouped-browse", "detail-tabs", "conditional-search-children", "detail-layout", "named-layout", "persistent-line", "persistent-inline", "persistent-external"}) {
             for (String suffix : new String[]{"suite.xml", "hq-details.xml"}) files.add(new Object[]{scenario, suffix});
         }
         return files;
@@ -39,7 +39,8 @@ public class TileSuiteRuntimeTest {
         boolean grouped = scenario.startsWith("grouped-");
         boolean tiled = !scenario.equals("plain");
         int headerRows = scenario.equals("grouped-two") ? 2 : 1;
-        String[] detailIds = scenario.equals("grouped-search")
+        boolean searchRows = scenario.equals("conditional-search-children");
+        String[] detailIds = (scenario.equals("grouped-search") || searchRows)
             ? new String[]{"m0_case_short", "m0_case_long", "m0_search_short", "m0_search_long"}
             : new String[]{"m0_case_short", "m0_case_long"};
         for (String id : detailIds) {
@@ -47,6 +48,39 @@ public class TileSuiteRuntimeTest {
             assertNotNull(id, detail);
             boolean shortDetail = id.endsWith("short");
             DetailField[] fields = detail.getFields();
+            if (!shortDetail && (scenario.equals("detail-tabs") || searchRows)) {
+                assertEquals(0, fields.length);
+                Detail[] tabs = detail.getDetails();
+                assertEquals(2, tabs.length);
+                assertEquals(2, tabs[0].getFields().length);
+                assertEquals(1, tabs[1].getFields().length);
+                if (searchRows) assertNotNull(tabs[1].getNodeset());
+                continue;
+            }
+            if (scenario.equals("named-layout")) {
+                assertEquals(shortDetail ? 11 : 10, fields.length);
+                if (shortDetail) {
+                    assertEquals(Integer.valueOf(12), detail.getMaxWidthHeight().first);
+                    assertEquals(Integer.valueOf(3), detail.getMaxWidthHeight().second);
+                    for (int i = 0; i < 10; i++) {
+                        assertTrue(fields[i].isCaseTileField());
+                        assertEquals(i / 4, fields[i].getGridY());
+                        assertEquals((i % 4 / 2) * 6 + i % 2, fields[i].getGridX());
+                    }
+                    assertEquals("0", fields[10].getTemplateWidthHint());
+                    assertEquals(1, fields[10].getSortOrder());
+                }
+                continue;
+            }
+            if (!shortDetail && scenario.equals("detail-layout")) {
+                assertEquals(3, fields.length);
+                for (int i = 0; i < fields.length; i++) {
+                    assertTrue(fields[i].isCaseTileField());
+                    assertEquals(i, fields[i].getGridY());
+                    assertEquals(i == 0, fields[i].getShowBorder());
+                }
+                continue;
+            }
             assertEquals(shortDetail ? 4 : 3, fields.length);
             for (int index = 0; index < fields.length; index++) {
                 assertEquals(shortDetail && tiled && index < 3, fields[index].isCaseTileField());
@@ -87,8 +121,15 @@ public class TileSuiteRuntimeTest {
         assertTrue(first instanceof EntityDatum);
         EntityDatum selected = (EntityDatum)first;
         assertEquals("m0_case_short", selected.getShortDetail());
-        assertEquals("m0_case_long", selected.getLongDetail());
-        assertEquals(scenario.equals("persistent") ? "m0_case_short" : null, selected.getPersistentDetail());
+        boolean external = scenario.equals("persistent-external");
+        boolean inline = external || scenario.equals("persistent-inline");
+        assertEquals(inline ? null : "m0_case_long", selected.getLongDetail());
+        assertEquals(inline ? external ? "m1_case_long" : "m0_case_long" : null, selected.getInlineDetail());
+        String persistent = null;
+        if (external) persistent = "m1_case_short";
+        else if (scenario.equals("persistent-line")) persistent = "m0_persistent_case_context";
+        else if (inline || scenario.equals("persistent")) persistent = "m0_case_short";
+        assertEquals(persistent, selected.getPersistentDetail());
         boolean companion = grouped && !scenario.equals("grouped-browse");
         assertEquals(companion ? 2 : 1, entry.getSessionDataReqs().size());
         if (companion) {

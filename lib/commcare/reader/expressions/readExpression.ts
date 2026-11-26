@@ -36,7 +36,10 @@ import type { SelectOptionsSource } from "@/lib/domain/fields/selectOptionsSourc
 import { CASE_LOADING_FORM_TYPES, operationCaseType } from "@/lib/domain/forms";
 import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { afterEmptySearchRegistrationFormOf } from "@/lib/domain/menuForms";
-import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import {
+	effectiveCaseSearchConfig,
+	moduleFormsReadSearch,
+} from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { userPropertySlugsByUuid } from "@/lib/domain/users";
@@ -64,6 +67,7 @@ import {
 import {
 	type HqInterpolation,
 	type HqXPath,
+	hqXPath,
 	hqXPathText,
 } from "../../hqJson/xpath";
 import {
@@ -72,8 +76,15 @@ import {
 	lookupXformInstanceId,
 } from "../../lookup/naming";
 import { lookupOptionsNodeset } from "../../lookupOptions";
+import { detailBindings } from "../../suite/case-list/detailBindings";
+import { detailTabConditionWire } from "../../suite/case-list/detailTabCondition";
+import { detailRowExpressionWire } from "../../suite/case-list/detailTabRows";
+import { mappingCondition } from "../../suite/case-list/mappingCondition";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../../suite/case-list/nodesetFilter";
-import { hqExpressionField } from "../../suite/case-list/orderPlanOptions";
+import {
+	hqCalculatedSortExpression,
+	hqExpressionField,
+} from "../../suite/case-list/orderPlanOptions";
 import { searchPromptWire } from "../../suite/case-search/searchPrompts";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
@@ -243,6 +254,7 @@ function moduleSlotMode(
 	switch (slot) {
 		case "module_display_condition":
 		case "search_input_required_when":
+		case "case_detail_tab_filter":
 			return { interpolation: "no-case" };
 		case "case_list_filter":
 			return { interpolation: "case" };
@@ -564,6 +576,9 @@ function scopeWith(
 				operationIdPaths,
 				withdrawn,
 				sites,
+				...(readsReached(doc, pending.ref) && {
+					readsReached: true as const,
+				}),
 				...(place === undefined ? {} : { place }),
 				...(root === undefined ? {} : { root }),
 			}),
@@ -582,6 +597,19 @@ function scopeWith(
 		...(sourceProjection === undefined ? {} : { sourceProjection }),
 		reading,
 	};
+}
+
+/** Whether the slot reads an untyped index walk as the reached read: a case
+ *  list column's calculation, in a menu that offers no Search, whose Results
+ *  hold no case such a walk reaches (`searchRelatedCalculationCompatibility`
+ *  refuses it there). */
+function readsReached(doc: BlueprintDoc, ref: SlotContextRef): boolean {
+	if (ref.entity !== "module" || ref.slot !== "case_list_column_expression")
+		return false;
+	const module = doc.modules[ref.uuid];
+	return (
+		module !== undefined && effectiveCaseSearchConfig(module) === undefined
+	);
 }
 
 /** The site key of one fold over one span of the source. */
@@ -604,6 +632,7 @@ function proposeFold(
 		readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 		readonly withdrawn: ReadonlySet<string>;
 		readonly sites: FoldSites;
+		readonly readsReached?: true;
 		readonly place?: OperationPlaceReads;
 		readonly root?: FormSyntax;
 	},
@@ -619,6 +648,7 @@ function proposeFold(
 			doc: options.doc,
 			operationIdPaths: options.operationIdPaths,
 			withdrawn: options.withdrawn,
+			...(options.readsReached && { readsReached: true }),
 			...(options.place === undefined ? {} : { place: options.place }),
 			...(options.root === undefined ? {} : { root: options.root }),
 			bindPlain(at, context) {
@@ -1273,6 +1303,79 @@ function printSlotWith(
 							naming,
 							searchInstanceOf(mod),
 							rewrites,
+						),
+					),
+				);
+			case "case_list_mapping_condition":
+				return text(
+					mappingCondition(
+						ref.member.columnUuid,
+						{ uuid: ref.member.rowUuid, when: expression },
+						w.context([w.self()]),
+						{
+							expressions,
+							lookupNaming: naming,
+							inline: moduleFormsReadSearch(mod),
+						},
+						"hq-json",
+						undefined,
+						rewrites,
+					),
+				);
+			case "case_list_sort_expression":
+				return text(
+					hqCalculatedSortExpression(
+						{ uuid: ref.member.sortUuid, expression },
+						mod,
+						doc,
+						expressions,
+						naming,
+						rewrites,
+					),
+				);
+			case "case_form_context_line":
+				return hq(
+					hqXPath(
+						toWire(expression, {
+							target: "hq-json",
+							root: "casedb",
+							types: expressions({ slot: "case_form_context_line" }),
+							bindings: {
+								...detailBindings(doc, mod),
+								...(naming && {
+									lookup: { naming: naming, instanceScope: "suite" },
+								}),
+							},
+						}),
+					),
+				);
+			case "case_detail_tab_rows":
+			case "case_detail_tab_filter":
+				return hq(
+					hqXPath(
+						detailRowExpressionWire(
+							expression,
+							ref.member.tabUuid,
+							ref.slot,
+							"hq-json",
+							"casedb",
+							expressions,
+							naming,
+							detailBindings(doc, mod),
+						),
+					),
+				);
+			case "case_detail_tab_condition":
+				return hq(
+					hqXPath(
+						detailTabConditionWire(
+							expression,
+							ref.member.tabUuid,
+							expressions,
+							"hq-json",
+							"casedb",
+							naming,
+							detailBindings(doc, mod),
 						),
 					),
 				);

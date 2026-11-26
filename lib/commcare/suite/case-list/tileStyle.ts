@@ -65,6 +65,23 @@ export const TILE_VERTICAL_ALIGN_WIRE: Readonly<
 };
 
 /**
+ * A column's cell as CommCare HQ keeps it: a border or shading switched off is no switch at all.
+ * HQ stores both as `BooleanProperty(exclude_if_none=True)` (`models/case_list.py::DetailColumn`)
+ * and serves a column whose switch is off without the key, as it serves one that never held it,
+ * and its build then writes no attribute for either (`suite_xml/features/case_tiles.py`), which
+ * Core reads as off (`StyleParser`). So a cell whose switch is off and one that holds none are one
+ * state, written the same way (`reader/assemble.ts`, `tile-switches-off-are-absent`).
+ */
+export function storedTileCell(cell: TileCell): TileCell {
+	const { showBorder, showShading, ...rest } = cell;
+	return {
+		...rest,
+		...(showBorder === true && { showBorder }),
+		...(showShading === true && { showShading }),
+	};
+}
+
+/**
  * Build the `<style><grid/></style>` child for one placed tile cell.
  *
  * Attribute order follows CommCare HQ's own emitted bytes — presentation

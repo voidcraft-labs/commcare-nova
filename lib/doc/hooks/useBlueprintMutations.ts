@@ -46,6 +46,8 @@ import { v4 as uuidv4 } from "uuid";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
+import { reorderDetailTabFields } from "@/lib/doc/caseDetailTabMutations";
+import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	type CaseListRegistrationDependentsPlan,
 	planCaseListRegistrationDependentsOnRemove,
@@ -1831,6 +1833,16 @@ export function createBlueprintMutations(
 					return at <= 0 ? null : sequence[at - 1];
 				})();
 				if (after === currentAfter) return COMMITTED;
+				if (surface === "detail" && config.detailTabs) {
+					const reordered = [...others];
+					reordered.splice(clamped, 0, uuid);
+					const plan = reorderDetailTabFields(moduleUuid, config, reordered);
+					if ("error" in plan) {
+						if (announce) notifyRejectedCommit([plan.error]);
+						return { ok: false, messages: [plan.error] };
+					}
+					return toOutcome(guardedApply(plan.mutations));
+				}
 				return toOutcome(
 					guardedApply([
 						{ kind: "moveColumn", moduleUuid, uuid, surface, after },
@@ -1931,6 +1943,7 @@ export function createBlueprintMutations(
 				}
 				return toOutcome(
 					guardedApply([
+						...retireCaseFormContextTile(doc, uuid, true),
 						{ kind: "removeModule", uuid },
 						...(retirement.kind === "retire" ? retirement.mutations : []),
 					]),

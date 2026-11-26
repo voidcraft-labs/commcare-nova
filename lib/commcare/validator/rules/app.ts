@@ -7,9 +7,14 @@ import {
 	listedFormLinkPause,
 	suffixUntilFree,
 } from "@/lib/domain";
+import { declaredCaseRelations } from "@/lib/domain/caseRelations";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
 import { wordingSourceUnit } from "../../generatedSearchWording";
+import {
+	listIconActionIssue,
+	listIconActionSentence,
+} from "../../listIconAction";
 import { menuFormSources } from "./menuFormSources";
 /**
  * App-level validation rules.
@@ -651,10 +656,91 @@ function firstMenuSharedCaseEntryPointMessage(
 	return `The entry point on "${name}" uses a first-menu selection that another command asks for with a different kind or number of records. You can give "${above}" its own screen again (forms_in_menu_above null), or use another entry point.`;
 }
 
+/** Catalog declarations can also be edited without a form or menu naming
+ * them. Admission checks these references at the whole-batch boundary. */
+function validCaseRelations(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const names = new Set(doc.caseTypes?.map((type) => type.name));
+	for (const type of doc.caseTypes ?? []) {
+		const seen = new Set<string>();
+		for (const edge of declaredCaseRelations(type)) {
+			const key = JSON.stringify([
+				edge.identifier,
+				edge.targetType,
+				edge.relationship,
+			]);
+			let message: string | undefined;
+			if (!names.has(edge.targetType))
+				message = `The ${edge.identifier} link on ${type.name} uses a case type the app no longer has. Choose a related case type or remove the link.`;
+			else if (seen.has(key))
+				message = `The ${edge.identifier} link on ${type.name} names ${edge.targetType} twice with the same relationship. Keep one copy of that link.`;
+			if (message !== undefined)
+				errors.push(
+					validationError(
+						"CASE_RELATION_INVALID",
+						"app",
+						message,
+						{},
+						{
+							caseType: type.name,
+							identifier: edge.identifier,
+							target: edge.targetType,
+							reason: names.has(edge.targetType) ? "duplicate" : "missing",
+						},
+					),
+				);
+			seen.add(key);
+		}
+	}
+	return errors;
+}
+
+/** Every case list icon that submits a form names a destination a worker's
+ * tap can run (`listIconAction.ts`). An app rule, since the destination may
+ * be another menu's form, which an edit there can change or remove. */
+function validListIconActions(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = doc.modules[moduleUuid];
+		if (module === undefined) continue;
+		for (const column of module.caseListConfig?.columns ?? []) {
+			if (column.kind !== "image-map" || column.entryPointUuid === undefined)
+				continue;
+			const issue = listIconActionIssue(doc, module, column);
+			if (issue === undefined) continue;
+			const label = column.header || column.field;
+			errors.push(
+				validationError(
+					"CASE_LIST_ICON_ACTION_INVALID",
+					"module",
+					listIconActionSentence(
+						issue.reason,
+						label,
+						issue.caseType,
+						issue.anotherForm,
+					),
+					{ moduleUuid, moduleName: module.name },
+					{
+						reason: issue.reason,
+						columnUuid: column.uuid,
+						columnLabel: label,
+						entryPointUuid: column.entryPointUuid,
+						...(issue.caseType !== undefined && { caseType: issue.caseType }),
+						...(issue.anotherForm === true && { anotherForm: "yes" }),
+					},
+				),
+			);
+		}
+	}
+	return errors;
+}
+
 export const APP_RULES = [
 	menuFormSources,
+	validCaseRelations,
 	authoredXmlText,
 	validEntryPoints,
+	validListIconActions,
 	// A link or a built-in `module` destination that opens through the first
 	// menu with the case every form listed there from a menu above opens.
 	firstMenuSharedCaseFrames,

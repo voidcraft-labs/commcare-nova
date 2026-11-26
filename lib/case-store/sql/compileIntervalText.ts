@@ -39,14 +39,14 @@
  */
 
 import { type AliasableExpression, expressionBuilder } from "kysely";
-import type { CaseType } from "@/lib/domain/blueprint";
 import { prop, term } from "@/lib/domain/expression/builders";
-import type { RelationStep } from "@/lib/domain/expression/types";
+import type { PropertyRef, RelationStep } from "@/lib/domain/expression/types";
 import {
 	compileReadingText,
 	compileToday,
 	type ExpressionCompileContext,
 } from "./compileExpression";
+import { compileStoredText, reservedColumnFor } from "./compileTerm";
 import type { Database } from "./database";
 import { javaLocalTimestamp, javaWallInstant } from "./javaZone";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
@@ -58,10 +58,10 @@ const eb = expressionBuilder<Database, keyof Database>();
 const CORE_DATE_SHAPE = "^[0-9]+-[0-9]+-[0-9]+(T|$)";
 
 export interface IntervalTextKey {
-	/** The type whose property it reads: the row's own, or with `via` the
-	 *  type the walk reaches. */
+	/** The type of the listed row, where the column's walk starts. */
 	readonly caseType: string;
 	readonly property: string;
+	readonly readFrom?: "worker-record";
 	/** The walk from the row to the case whose property it reads. */
 	readonly via?: readonly [RelationStep, ...RelationStep[]];
 	readonly display: "always" | "flag";
@@ -71,27 +71,6 @@ export interface IntervalTextKey {
 	readonly divisorDays: number;
 	/** The column's text in the worker's language. */
 	readonly text: string;
-}
-
-/** The schemas with one property read as text, so its stored value reaches
- *  the guard before any typed cast. */
-function withTextRead(
-	schemas: ReadonlyMap<string, CaseType>,
-	caseType: string,
-	property: string,
-): ReadonlyMap<string, CaseType> {
-	const type = schemas.get(caseType);
-	if (type === undefined) return schemas;
-	const next = new Map(schemas);
-	next.set(caseType, {
-		...type,
-		properties: type.properties.map((candidate) =>
-			candidate.name === property
-				? { ...candidate, data_type: "text" as const }
-				: candidate,
-		),
-	});
-	return next;
 }
 
 /**
@@ -142,21 +121,36 @@ export function compileIntervalText(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
-	const read =
-		key.via === undefined
-			? prop(key.caseType, key.property)
-			: prop(key.caseType, key.property, {
-					kind: "ancestor",
-					via: [...key.via] as [RelationStep, ...RelationStep[]],
-				});
-	const raw = compileReadingText(term(read), {
-		...ctx,
-		caseTypeSchemas: withTextRead(
-			ctx.caseTypeSchemas,
-			key.caseType,
-			key.property,
-		),
-	});
+	const read: PropertyRef | undefined =
+		key.readFrom === "worker-record"
+			? undefined
+			: key.via === undefined
+				? prop(key.caseType, key.property)
+				: {
+						...prop(key.caseType, key.property, {
+							kind: "ancestor",
+							via: [...key.via] as [RelationStep, ...RelationStep[]],
+						}),
+						readReached: true,
+					};
+	// Keep malformed historic dates visible. The guard below receives the
+	// stored property's text before any cast. Reserved columns keep their
+	// device reading, including HQ's timestamp spelling in Search results.
+	// A worker-record property is the worker's own case's text as the
+	// device holds it.
+	const raw =
+		read === undefined
+			? compileReadingText(
+					term({
+						kind: "session-user",
+						source: "worker-record",
+						field: key.property,
+					}),
+					ctx,
+				)
+			: reservedColumnFor(key.property, ctx) === undefined
+				? compileStoredText(read, ctx)
+				: compileReadingText(term(read), ctx);
 	const v = eb.fn<string>("btrim", [eb.cast(raw, "text")]);
 	const blank = eb.or([eb(v, "is", null), eb(v, "=", eb.val(""))]);
 	const unreadable = eb.not(

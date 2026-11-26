@@ -22,6 +22,7 @@
  */
 
 import { produce } from "immer";
+import type { Uuid } from "@/lib/domain";
 import {
 	collectTranslationUnits,
 	type Field,
@@ -50,6 +51,10 @@ import type { BlueprintDoc, Mutation } from "./types";
 /** What a rewrite changes: an expression leaf, a prose reference part, or
  *  both. Each returns `undefined` to keep what it was given. */
 export interface SlotReadRewrite {
+	readonly mapWorkerColumn?: (
+		field: string,
+		uuid?: Uuid,
+	) => { field: string; uuid?: Uuid } | undefined;
 	readonly mapTerm?: (term: Term) => Term | undefined;
 	readonly mapProsePart?: (
 		part: Exclude<ProseAtomPart, { kind: "value" }>,
@@ -234,6 +239,23 @@ function formMutations(form: Form, rewrite: SlotReadRewrite): Mutation[] {
 function moduleMutations(module: Module, rewrite: SlotReadRewrite): Mutation[] {
 	const mapped = structuredClone(module);
 	let changed = false;
+	if (rewrite.mapWorkerColumn)
+		for (const column of mapped.caseListConfig?.columns ?? []) {
+			if (column.kind === "calculated" || !column.readFrom) continue;
+			const next = rewrite.mapWorkerColumn(
+				column.field,
+				column.workerPropertyUuid,
+			);
+			if (
+				!next ||
+				(column.field === next.field && column.workerPropertyUuid === next.uuid)
+			)
+				continue;
+			column.field = next.field;
+			if (next.uuid) column.workerPropertyUuid = next.uuid;
+			else delete column.workerPropertyUuid;
+			changed = true;
+		}
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		if (slot.kind !== "expression" && slot.kind !== "options-source") continue;
 		const path =

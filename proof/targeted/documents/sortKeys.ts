@@ -40,6 +40,7 @@ import {
 	plainColumn,
 	proseText,
 } from "@/lib/domain";
+import { prop, term } from "@/lib/domain/expression/builders";
 import { uploadedMedia } from "../../corpus/documents";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
@@ -191,5 +192,116 @@ export function sharedPropertySort() {
 		},
 		files: { "restore.xml": restore },
 		...(media !== undefined && { media }),
+	});
+}
+
+/** The calculation has no display column. A worker orders appointment numbers
+ * numerically, uses the displayed name to break a tie, and sees missing numbers last. */
+export function independentCaseOrder() {
+	const id = "targeted-independent-case-order";
+	const key = (name: string) => targetedUuid(id, name);
+	const form = key("form");
+	const doc = buildDoc({
+		appId: id,
+		appName: "Appointments",
+		caseTypes: [
+			{
+				name: "visit",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{
+						name: "appointment_number",
+						label: proseText("Appointment number"),
+						data_type: "text",
+					},
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: key("module"),
+				name: "Visits",
+				caseType: "visit",
+				caseListConfig: {
+					...caseListOf([
+						plainColumn(key("name"), "case_name", "Name", {
+							sort: { direction: "asc", priority: 1 },
+						}),
+					]),
+					calculatedSorts: [
+						{
+							uuid: key("order"),
+							expression: term(prop("visit", "appointment_number")),
+							priority: 0,
+							direction: "asc",
+							blanks: "last",
+							comparator: "integer",
+							label: "Appointment number",
+						},
+					],
+				},
+				forms: [
+					{
+						uuid: form,
+						name: "Check in",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								uuid: key("notes"),
+								id: "notes",
+								label: proseText("Notes"),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const restore = restoreXml({
+		cases: [
+			{
+				id: "later",
+				type: "visit",
+				name: "Asha",
+				properties: { appointment_number: "10" },
+			},
+			{ id: "missing", type: "visit", name: "Beno", properties: {} },
+			{
+				id: "earlier-z",
+				type: "visit",
+				name: "Zuri",
+				properties: { appointment_number: "2" },
+			},
+			{
+				id: "earlier-c",
+				type: "visit",
+				name: "Caro",
+				properties: { appointment_number: "2" },
+			},
+		],
+	});
+	return targetedDocument({
+		id,
+		rows: ["independent calculation in Default order"],
+		doc,
+		expected: {
+			intent: [
+				{
+					id: "order-by-appointment-number",
+					export: "local",
+					form,
+					restore: "restore.xml",
+					request: { session: { command: "m0-f0" }, caseList: {} },
+					expect: ["earlier-c", "earlier-z", "later", "missing"].map(
+						(value, index) => ({
+							pointer: `/caseList/rows/${index}/caseId`,
+							value,
+						}),
+					),
+				},
+			],
+		},
+		files: { "restore.xml": restore },
 	});
 }

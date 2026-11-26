@@ -189,6 +189,10 @@ export function moduleAdvancedKindLine(
 ): string | undefined {
 	const [reason] = advancedKindReasons(doc, moduleUuid);
 	if (reason === undefined) return undefined;
+	if (reason.kind === "several-map-locations")
+		return "CommCare HQ shows this as an advanced menu because a case screen uses several map locations.";
+	if (reason.kind === "detail-tile-tabs")
+		return "CommCare HQ keeps this as an advanced menu so each detail tab can use the same tile row.";
 	if (reason.kind === "held")
 		return "CommCare HQ keeps this as an advanced menu, as your published app has it.";
 	const form = ownRecordValue(doc.forms, reason.formUuid);

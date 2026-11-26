@@ -8,6 +8,7 @@ import {
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMapSources } from "@/lib/domain/caseMap";
 import {
 	type GeneratedWordingRole,
 	generatedWordingId,
@@ -37,6 +38,7 @@ import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { caseListMenuItemDetailAction } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
 import { caseListActionChoices } from "../caseListRegistration";
+import { caseMapRows, workerMapOffered } from "../caseMap";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
@@ -67,7 +69,11 @@ import {
 	appTestRefusalSentence,
 	readingSurface,
 } from "./dataRefusal";
-import { appTestCellProjector, appTestDetails } from "./details";
+import {
+	appTestCellProjector,
+	appTestDetails,
+	appTestFormCaseContext,
+} from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
 	appTestCanContinue,
@@ -408,6 +414,24 @@ async function observeScreen(
 					renderedResults:
 						read.result?.kind === "rows"
 							? {
+									...(mod.caseListConfig &&
+										workerMapOffered(
+											state.platform,
+											caseMapSources(mod.caseListConfig, "list").locations
+												.length > 0,
+											read.result.rows.length > 0,
+											null,
+										) && {
+											availableMap: caseMapRows(
+												state.platform,
+												mod.caseListConfig,
+												read.result.rows,
+												searchedReading(read.searched).columns,
+											).map(({ row, geometry }) => ({
+												recordId: row.case_id,
+												...geometry,
+											})),
+										}),
 									rows: read.result.rows.map((row) => ({
 										recordId: row.case_id,
 										cells: cells(row),
@@ -441,21 +465,21 @@ async function observeScreen(
 					record: read.result.kind === "row" ? read.result.row : undefined,
 					unavailable: read.result.kind !== "row",
 					fields: read.fields,
+					...(read.tabs && { tabs: read.tabs }),
 					canContinue:
 						read.result.kind === "row" &&
 						appTestCanContinue(context, screen.source),
 					/* What `continue` presses here: Android's Done on a case list
-					 * menu entry's detail, which returns to the list. */
-					continueLabel:
-						(context.rules.caseListDetailWording
-							? controlText(context, screen.moduleUuid, "selectCase", true)
-							: undefined) ??
-						runtimeMessage(
-							context.language,
-							isCaseListMenuItemList(context, screen.source)
-								? caseListMenuItemDetailAction(context.rules).message
-								: "continue",
-						),
+					 * menu entry's detail, which returns to the list. The list's
+					 * own Continue wording labels only Web Apps' several-case
+					 * Continue (`multi_select_continue_button.html`), never a
+					 * single case's detail. */
+					continueLabel: runtimeMessage(
+						context.language,
+						isCaseListMenuItemList(context, screen.source)
+							? caseListMenuItemDetailAction(context.rules).message
+							: "continue",
+					),
 					title:
 						controlText(context, "app", "caseTitle", true) ??
 						((read.result.kind === "row" && read.result.row.case_name) ||
@@ -491,6 +515,7 @@ async function observeScreen(
 			 * on Web Apps, so no page turn is offered there. */
 			const pages = availablePages(evaluated.screens);
 			const currentPage = pages.findIndex((page) => page.current);
+			const caseContext = await appTestFormCaseContext(context, scope, state);
 			return {
 				state: {
 					...state,
@@ -498,6 +523,7 @@ async function observeScreen(
 				},
 				observation: {
 					screen: "form",
+					...(caseContext && { caseContext }),
 					worker,
 					name: projectLocalizedForm(
 						context.doc,
@@ -612,10 +638,21 @@ async function observeAppTestWithEvaluation(
 			actions.push("select", "page");
 		if (result.observation.registration) actions.push("form");
 	}
+	if (
+		screen.kind === "details" &&
+		Array.isArray(result.observation.tabs) &&
+		result.observation.tabs.length > 1
+	)
+		actions.push("detailTab");
 	if (screen.kind === "details" && result.observation.canContinue)
 		actions.push("continue", "routeContinue");
 	if (screen.kind === "form") {
 		actions.push("answer", "section");
+		if (
+			(result.observation.caseContext as { expandable?: boolean } | undefined)
+				?.expandable
+		)
+			actions.push("caseContext");
 		const pageNavigation = result.observation.pageNavigation as {
 			canNext: boolean;
 			canPrevious: boolean;
@@ -854,6 +891,50 @@ async function advanceAppTestOnScreen(
 		case "language":
 		case "observe":
 			break;
+		case "caseContext": {
+			if (screen.kind !== "form")
+				throw new AppTestActionError("Open a form with case context first.");
+			const candidate = {
+				...state,
+				screen: {
+					...screen,
+					contextExpanded: action.expanded ? (true as const) : undefined,
+					contextTabUuid: action.tabUuid,
+				},
+			};
+			const contextView = await appTestFormCaseContext(
+				context,
+				scope,
+				candidate,
+			);
+			if (
+				!contextView?.expandable ||
+				(action.tabUuid &&
+					(!action.expanded ||
+						!("details" in contextView) ||
+						!contextView.details?.tabs?.some(
+							(tab) => tab.uuid === action.tabUuid,
+						)))
+			)
+				throw new AppTestActionError(
+					"This form has no matching expandable case detail.",
+				);
+			next = candidate;
+			break;
+		}
+		case "detailTab": {
+			if (screen.kind !== "details")
+				throw new AppTestActionError(
+					"Open case details before choosing a tab.",
+				);
+			const read = await appTestDetails(context, scope, state);
+			if (!read.tabs?.some((tab) => tab.uuid === action.tabUuid))
+				throw new AppTestActionError(
+					"This tab is unavailable for the selected case.",
+				);
+			next = { ...state, screen: { ...screen, tabUuid: action.tabUuid } };
+			break;
+		}
 		case "routeBack":
 		case "back": {
 			next = appTestStepBack(state);

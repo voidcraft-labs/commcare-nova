@@ -4866,7 +4866,7 @@ def _interval_offered(value):
         number = float(value)
     except (TypeError, ValueError):
         return False
-    return any(abs(number - offered) < 1e-9 for offered in TIME_AGO_INTERVALS)
+    return number in TIME_AGO_INTERVALS
 
 
 time_ago_with_another_interval = _column_reader(
@@ -5003,7 +5003,9 @@ def case_id_element(use, manifest):
     at, column, detail, kind, module = _column(use)
     if column is None:
         return None
-    return not column.get("useXpathExpression") and str(column.get("field") or "") == "case_id"
+    field = str(column.get("field") or "")
+    return (not column.get("useXpathExpression") and PROPERTY_NAME.fullmatch(field) is not None
+            and ":" not in field and not field.startswith("user/") and field.split("/")[-1] == "case_id")
 
 
 def _custom_tile(detail):
@@ -5044,6 +5046,161 @@ null_alignment_on_placed_tile.__doc__ = (
 )
 
 
+def _tile_box(column):
+    """A column's stored square on a custom tile (``grid_x``, ``grid_y``, ``width``, ``height``), or None where one
+    of the four is no number."""
+    box = tuple(column.get(key) for key in ("grid_x", "grid_y", "width", "height"))
+    return box if all(isinstance(value, int) and not isinstance(value, bool) for value in box) else None
+
+
+def _boxes_overlap(a, b):
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+
+def overlapping_tile_cells(use, manifest):
+    """``menus-and-case-lists/custom-tile-cells-covering-the-same-square``: a placed cell of a menu's custom tile that
+    covers a square another placed cell of the same tile covers: on the case list every column but a ``filter`` one
+    (HQ's build writes no field for it, ``detail_screen.py::Filter``), on the case detail the columns of one tab
+    (``DetailTab.starting_index`` starts each). HQ's build writes both cells as they are, and Nova's reader refuses
+    each such cell (``caseList/tile.ts::overlappingCells``). A detail HQ's build never lays out as a menu's tile (one
+    that is no custom tile, or no menu's own case list or detail) is out of the class; a use on the detail reads
+    each of its columns."""
+    at, column, detail, kind, module = _column(use)
+    if detail is None:
+        return None
+    pair = (module or {}).get("case_details")
+    if (
+        not _custom_tile(detail)
+        or kind not in ("short", "long")
+        or not isinstance(pair, dict)
+        or pair.get(kind) is not detail
+    ):
+        return False
+    columns = _columns(detail)
+    starts = sorted(
+        tab["starting_index"]
+        for tab in (detail.get("tabs") or [])
+        if kind == "long"
+        and isinstance(tab, dict)
+        and isinstance(tab.get("starting_index"), int)
+        and not isinstance(tab.get("starting_index"), bool)
+    )
+    placed = [
+        (index, sum(1 for start in starts if start <= index), _tile_box(each))
+        for index, each in enumerate(columns)
+        if _format(each) != "filter"
+    ]
+    placed = [(index, group, box) for index, group, box in placed if box is not None]
+    covering = {
+        index
+        for index, group, box in placed
+        for other, other_group, other_box in placed
+        if other != index and other_group == group and _boxes_overlap(box, other_box)
+    }
+    targets = [column] if column is not None else columns
+    return any(index in covering for index, each in enumerate(columns) if any(each is one for one in targets))
+
+
+def _added_child_types(app, case_type):
+    """The child case types HQ's Case Detail page offers a data tab of ``case_type``'s menus: each type a basic
+    form of a menu of that case type adds as a child case it does not close (``Application.get_subcase_types``,
+    ``Form.get_subcase_types``)."""
+    return {
+        subcase.get("case_type")
+        for module in app.modules
+        if module.get("case_type") == case_type
+        for form in module.get("forms") or []
+        if isinstance(form, dict) and form.get("doc_type") == "Form"
+        for subcase in ((form.get("actions") or {}).get("subcases") or [])
+        if isinstance(subcase, dict)
+        and subcase.get("case_type")
+        and ((subcase.get("close_condition") or {}).get("type") or "never") == "never"
+    }
+
+
+def tab_child_type_no_form_adds(use, manifest):
+    """``menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds``: a data tab's
+    ``nodeset_case_type`` naming a type no basic form of a menu of the list's case type adds, which HQ's Case
+    Detail page clears at its next save. Nova's reader refuses it (``caseList/index.ts::
+    refuseTabChildTypesNoFormAdds``)."""
+    at = _json(use)
+    if at is None:
+        return None
+    tab = at.nearest("DetailTab")
+    module = at.nearest(*MODULES)
+    if tab is None or module is None:
+        return None
+    child = tab.get("nodeset_case_type")
+    if tab.get("has_nodeset") is not True or not isinstance(child, str) or not child:
+        return False
+    return child not in _added_child_types(at.app, module.get("case_type"))
+
+
+TILE_GRID = 12
+# The fewest rows HQ's Case List and Case Detail pages offer a tile (``details/bootstrap5/screen.js``,
+# ``caseTileRowMax = max(columns + 1, 7)``, so a bottom edge up to ``max(columns, 6)``).
+TILE_MIN_ROWS = 6
+
+
+def _offered_rows(detail, kind):
+    """The rows HQ's page offers one detail's tile: ``max(n, 6)``, n its columns other than ``filter`` ones and, on
+    the case detail (``long``), its tabs, which the page splices into its columns before it drops the filters
+    (``screen.js``). Written from the page's source, not from Nova's (``caseList/tile.ts::screenTileRows``)."""
+    columns = [column for column in (detail.get("columns") or []) if not isinstance(column, dict) or _format(column) != "filter"]
+    tabs = detail.get("tabs") if kind == "long" else None
+    return max(len(columns) + (len(tabs) if isinstance(tabs, list) else 0), TILE_MIN_ROWS)
+
+
+def _grid_fit(box, rows):
+    """Where a stored cell stands against the grid of its screen of ``rows`` rows (``caseList/tile.ts::gridFit``):
+    ``outside`` for a cell starting left of or above the grid, spanning less than one square, or running past the
+    twelfth column; ``past`` for one inside those columns whose bottom edge passes the rows HQ's page offers;
+    ``fits`` otherwise, a cell past the twelfth row inside those rows among them (the HELD class
+    ``menus-and-case-lists/custom-tile-cell-below-the-twelfth-row``, an allowing class no reader reads)."""
+    x, y, width, height = box
+    if x < 0 or y < 0 or width < 1 or height < 1 or x + width > TILE_GRID:
+        return "outside"
+    return "past" if y + height > rows else "fits"
+
+
+def _tile_cell_fit(fit):
+    def reader(use, manifest):
+        at, column, detail, kind, module = _column(use)
+        if detail is None:
+            return None
+        pair = (module or {}).get("case_details")
+        if (
+            not _custom_tile(detail)
+            or kind not in ("short", "long")
+            or not isinstance(pair, dict)
+            or pair.get(kind) is not detail
+        ):
+            return False
+        targets = [column] if column is not None else _columns(detail)
+        rows = _offered_rows(detail, kind)
+        return any(
+            _format(each) != "filter" and box is not None and _grid_fit(box, rows) == fit
+            for each in targets
+            for box in [_tile_box(each)]
+        )
+
+    return reader
+
+
+tile_cell_outside_the_grid = _tile_cell_fit("outside")
+tile_cell_outside_the_grid.__doc__ = """``menus-and-case-lists/custom-tile-cell-outside-the-grid``: a placed cell of a
+menu's custom tile (its case list's or its case detail's, every column but a ``filter`` one) that starts left of or
+above the grid, spans less than one square, or runs past the twelfth column. Nova's reader refuses each such cell
+(``caseList/tile.ts::gridFit``). A detail HQ's build never lays out as a menu's tile is out of the class; a use on
+the detail reads each of its columns."""
+
+tile_cell_below_the_offered_rows = _tile_cell_fit("past")
+tile_cell_below_the_offered_rows.__doc__ = """``menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-
+offers``: a placed cell of a menu's custom tile, inside its twelve columns, whose bottom edge passes the rows HQ's
+Case List or Case Detail page offers its screen, ``max(n, 6)`` (``_offered_rows``): the page's next save moves it
+(as ``tile_cell_outside_the_grid`` reads its tile)."""
+
+
 def _detail_reader(test):
     def reader(use, manifest):
         at, column, detail, kind, module = _column(use)
@@ -5076,6 +5233,409 @@ def _sorted_column(columns, field):
     if matched and int(matched.group(1)) < len(columns):
         return columns[int(matched.group(1))]
     return None
+
+
+def _case_order_type(tree, properties):
+    """The type supplied by a case-row expression, when its operands establish one."""
+    kind = tree[0]
+    if kind == "number":
+        return "number"
+    if kind == "text":
+        return "text"
+    if kind == "path":
+        prop = _bare_read(tree, "child")
+        if prop == "*" or (
+            tree[1] == "instance:casedb"
+            and tree[4] == [["child", "casedb", 0], ["child", "case", 0]]
+        ):
+            return "collection"
+        if prop is not None:
+            data_type = properties.get(prop)
+            return "number" if data_type in ("int", "decimal") else data_type or "scalar"
+        if _bare_read(tree, "attribute") in ("case_id", "case_type"):
+            return "text"
+        if tree[1] == "instance:commcaresession" and _session_context_read(tree) in (
+            "username", "userid",
+        ):
+            return "text"
+        return None
+    if kind == "negative":
+        return "number" if _case_order_type(tree[1], properties) == "number" else None
+    if kind == "binary":
+        left, right = (_case_order_type(node, properties) for node in tree[2:])
+        if left == right == "number" and tree[1] in ("+", "-", "*", "div", "mod"):
+            return "number"
+        if left == right and left in ("number", "text") and tree[1] in ("=", "!=", "<", "<=", ">", ">="):
+            return "boolean"
+        return None
+    if kind == "call":
+        args = [_case_order_type(node, properties) for node in tree[2]]
+        if tree[1] == "concat" and len(args) >= 2 and all(arg not in (None, "collection") for arg in args):
+            return "text"
+        if tree[1] == "if" and len(args) == 3 and args[0] == "boolean" and args[1] == args[2]:
+            return args[1]
+    return None
+
+
+def mapping_condition_outside_predicate(use, manifest):
+    """``menus-and-case-lists/mapping-condition-outside-predicate``: a mapping key of a column whose format reads
+    its keys as conditions (``observe/manifest.py::CONDITION_KEY_FORMATS``) that Core's parse refuses, so it is no
+    condition a case meets (``lib/commcare/reader/expressions/findings.ts::parseIssueEntry``). A key with none of an
+    expression's characters is a saved value, another class; a key Core parses may still read a value Nova has no
+    binding for, which the key alone does not settle, so the class is decided by the parse only where it fails."""
+    at, column, _, _, _ = _column(use)
+    if at is None or column is None:
+        return None
+    if column.get("format") not in ("conditional-enum", "enum-image", "clickable-icon"):
+        return False
+    item = at.nearest("MappingItem")
+    if item is None or not isinstance(item.get("key"), str):
+        return None
+    key = item["key"]
+    if not any(character in key for character in "{}()[]=<>.\"'/"):
+        return False
+    field = column.get("field")
+    properties = _case_properties(use)
+    dot = None
+    if not column.get("useXpathExpression") and isinstance(field, str) and field in properties:
+        dot = _CASE_VALUE_TYPES.get(properties[field] or "text")
+    return _scoped_verdict(at.app, key, lambda tree: _case_condition_type(tree, properties, dot) == "boolean")
+
+
+# The value a case property of a declared type gives an expression of the selected case, as Nova's type checker reads
+# it (``lib/domain/casePropertyTypes.ts``): a single choice compares as text, a multiple choice is read only by
+# ``selected``, and a type this table leaves out (a date, a time, a place) is read by no rule these classes decide.
+_CASE_VALUE_TYPES = {
+    "text": "text",
+    "single_select": "text",
+    "multi_select": "choices",
+    "int": "number",
+    "decimal": "number",
+}
+
+
+def _case_properties(use):
+    """The declared properties of the case type a use's case list reads (``_list_case_type``), by name with each one's
+    type; empty where the type or the catalog is not known."""
+    at = _json(use)
+    case_type = _list_case_type(use)
+    if at is None or case_type is None:
+        return {}
+    return (at.app.case_types or {}).get(case_type) or {}
+
+
+def _case_condition_type(tree, properties, dot=None):
+    """The type an expression of the selected case gives (``number``, ``text``, ``choices`` or ``boolean``), where its
+    every part is one Nova's type checker types the same way: a literal, a bare read of a declared property of a
+    type ``_CASE_VALUE_TYPES`` names (``.``, the column's own property, where ``dot`` gives its type), a comparison of
+    two values of one type (an order of two numbers), ``and``/``or``/``not`` over truth values, arithmetic over
+    numbers, ``concat`` of texts, ``selected`` of a property and a text, ``true()`` and ``false()``. None for anything else, which these
+    classes leave undecided rather than guess."""
+    kind = tree[0]
+    if kind == "number":
+        return "number"
+    if kind == "text":
+        return "text"
+    if kind == "path":
+        steps = tree[4]
+        if dot is not None and tree[1] == "relative" and not tree[3] and [list(step) for step in steps] == [
+            ["self", "node()", 0]
+        ]:
+            return dot
+        prop = _bare_read(tree, "child")
+        # A declared property with no type is text, as Nova's checker reads it (``data_type ?? "text"``).
+        return None if prop is None or prop not in properties else _CASE_VALUE_TYPES.get(properties[prop] or "text")
+    if kind == "negative":
+        return "number" if _case_condition_type(tree[1], properties, dot) == "number" else None
+    if kind == "binary":
+        left, right = (_case_condition_type(node, properties, dot) for node in tree[2:])
+        operator = tree[1]
+        if operator in ("and", "or"):
+            return "boolean" if left == right == "boolean" else None
+        if operator in ("=", "!="):
+            return "boolean" if left == right and left in ("number", "text") else None
+        if operator in ("<", "<=", ">", ">="):
+            return "boolean" if left == right == "number" else None
+        if operator in ("+", "-", "*", "div", "mod"):
+            return "number" if left == right == "number" else None
+        return None
+    if kind == "call":
+        name, arguments = tree[1], tree[2]
+        if name in ("true", "false") and not arguments:
+            return "boolean"
+        if name == "not" and len(arguments) == 1:
+            return "boolean" if _case_condition_type(arguments[0], properties, dot) == "boolean" else None
+        if name == "selected" and len(arguments) == 2:
+            subject = _case_condition_type(arguments[0], properties, dot)
+            value = _case_condition_type(arguments[1], properties, dot)
+            return "boolean" if subject in ("choices", "text") and value == "text" else None
+        # A text holding both quote characters is printed as a concatenation of literals.
+        if name == "concat" and len(arguments) >= 2:
+            parts = [_case_condition_type(argument, properties, dot) for argument in arguments]
+            return "text" if all(part == "text" for part in parts) else None
+    return None
+
+
+def _scoped_verdict(app, text, typed):
+    """The verdict of a class of expressions Nova reads in the selected case's scope: in it (True) where Core's
+    parse refuses the text, which then holds no expression at all (``lib/commcare/reader/expressions/findings.ts::
+    parseIssueEntry``, "syntax"); out of it (False) where its structure is one ``typed`` places in the scope; and
+    undecided (None) for every other text, including one the records hold no parse or structure of."""
+    parsed = app.parsed(text)
+    if parsed is None:
+        return None
+    if "error" in parsed:
+        return True
+    tree = app.tree(text)
+    if tree is None:
+        return None
+    return False if typed(tree) else None
+
+
+def _detail_of(use):
+    """A use's detail with its kind (``short``, ``long``) and its menu, where the detail is the menu's own case list
+    or case detail (``case_details``): (at, detail, kind, module), or Nones."""
+    at = _json(use)
+    if at is None:
+        return None, None, None, None
+    detail, module = at.nearest("Detail"), at.nearest(*MODULES)
+    pair = (module or {}).get("case_details")
+    kind = next(
+        (name for name in ("short", "long") if isinstance(pair, dict) and pair.get(name) is detail and detail is not None),
+        None,
+    )
+    return at, detail, kind, module
+
+
+def _tabs(detail):
+    return [tab for tab in (detail or {}).get("tabs") or [] if isinstance(tab, dict)]
+
+
+def columns_above_the_first_tab(use, manifest):
+    """``menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist``: a detail whose first tab starts after its
+    first column (``starting_index`` above 0), which HQ's Case Detail page refuses to save ("All properties must be
+    below a tab", ``screen.js::save``) and Nova's reader refuses (``caseList/details.ts``, ``tabsColumnsAbove``). A
+    use of the tabs or of any tab's start reads the detail's first tab; a start that is no number is no column
+    above a tab."""
+    at = _json(use)
+    detail = at.nearest("Detail") if at is not None else None
+    if detail is None:
+        return None
+    tabs = _tabs(detail)
+    if not tabs:
+        return False
+    start = tabs[0].get("starting_index")
+    return isinstance(start, int) and not isinstance(start, bool) and start > 0
+
+
+def tab_condition_outside_case_scope(use, manifest):
+    """``menus-and-case-lists/tab-display-condition-outside-its-case-scope``: a tab's display condition (``relevant``)
+    that is no condition of the selected case: one Core's parse refuses. One whose structure
+    ``_case_condition_type`` types as a truth value of the menu's case is out of the class; any other is undecided."""
+    at = _json(use)
+    tab = at.nearest("DetailTab") if at is not None else None
+    if tab is None:
+        return None
+    text = tab.get("relevant")
+    if not isinstance(text, str) or not text.strip():
+        return False
+    properties = _case_properties(use)
+    return _scoped_verdict(at.app, text, lambda tree: _case_condition_type(tree, properties) == "boolean")
+
+
+def _records_rows_typed(tree, app):
+    """Whether a records tab's rows are the cases of one declared type, each predicate beside the type's one a
+    condition of that type (``_case_predicate_scope``): ``instance('casedb')/casedb/case[@case_type = 'T'][...]``."""
+    if tree[0] != "path":
+        return False
+    case_type, first, end = _case_predicate_scope(tree)
+    if case_type is None or len(tree[4]) != 2:
+        return False
+    properties = (app.case_types or {}).get(case_type)
+    if properties is None:
+        return False
+    for predicate in tree[3][first:end]:
+        if predicate[:2] == ["binary", "="] and any(
+            _bare_read(path, "attribute") == "case_type" and literal[0] == "text"
+            for path, literal in (predicate[2:], list(reversed(predicate[2:])))
+        ):
+            continue
+        if _case_condition_type(predicate, properties) != "boolean":
+            return False
+    return True
+
+
+def tab_without_a_resolvable_row_source(use, manifest):
+    """``menus-and-case-lists/detail-tab-without-a-resolvable-row-source``: a tab that lists records but names none it
+    can read, as Nova's reader decides (``caseList/details.ts``, ``tabRowsMissing``, ``tabTypeInvalid`` and the
+    rows' and filter's slots): rows turned on (``has_nodeset``) with neither rows (``nodeset``) nor a child type in
+    the case type grammar (``nodeset_case_type``); a child type outside the grammar on a tab that lists children;
+    rows or a child filter Core's parse refuses, and rows that are a literal, a value and no records. Rows that are
+    one declared type's cases under conditions
+    ``_case_condition_type`` types, and a child filter it types over the child type, are out of the class, as is
+    every setting of a tab whose rows are off; a records tab's child type beside a search is the search's, which
+    the use alone does not settle."""
+    at = _json(use)
+    tab = at.nearest("DetailTab") if at is not None else None
+    if tab is None:
+        return None
+    active = tab.get("has_nodeset") is True
+    nodes, child, filter_ = tab.get("nodeset"), tab.get("nodeset_case_type"), tab.get("nodeset_filter")
+    custom = active and isinstance(nodes, str) and nodes != ""
+    valid_child = isinstance(child, str) and MENU_PAGE_CASE_TYPE.fullmatch(child) is not None
+    children = active and not custom and valid_child
+    key = at.key
+    if not active:
+        return False
+    if key == "has_nodeset":
+        return not (custom or children)
+    if key == "nodeset_case_type":
+        if custom:
+            return False if valid_child or not child else None
+        return not children
+    if key == "nodeset":
+        if not custom:
+            return False
+        verdict = _scoped_verdict(at.app, nodes, lambda tree: _records_rows_typed(tree, at.app))
+        tree = at.app.tree(nodes)
+        # A literal is a value, never records a tab can list.
+        return True if verdict is None and tree is not None and tree[0] in ("text", "number") else verdict
+    if key == "nodeset_filter":
+        if not children or not isinstance(filter_, str) or not filter_.strip():
+            return False
+        properties = (at.app.case_types or {}).get(child) or {}
+        return _scoped_verdict(at.app, filter_, lambda tree: _case_condition_type(tree, properties) == "boolean")
+    return None
+
+
+def _defines_line(detail):
+    """Whether a detail turns on the one-line context above a form that its own persistent tile does not replace
+    (``caseList/details.ts``, ``definesLine``)."""
+    return detail.get("persist_case_context") is True and not (
+        detail.get("case_tile_template") and detail.get("persist_tile_on_forms") is True
+    )
+
+
+def form_context_expression_outside_case_scope(use, manifest):
+    """``menus-and-case-lists/form-context-expression-outside-its-case-scope``: the line a case list puts above its
+    forms (``persistent_case_context_xml`` of a short detail that turns the line on and whose own tile does not
+    persist) that is no value of the selected case: one Core's parse refuses. A value ``_case_condition_type`` types,
+    or a bare read of a declared property, is out of the class, as is the key wherever no line reads it."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    text = detail.get("persistent_case_context_xml")
+    if kind != "short" or not _defines_line(detail) or not isinstance(text, str) or not text.strip():
+        return False
+    properties = _case_properties(use)
+    return _scoped_verdict(
+        at.app,
+        text,
+        lambda tree: _bare_read(tree, "child") in properties or _case_condition_type(tree, properties) is not None,
+    )
+
+
+def form_context_without_a_compatible_tile(use, manifest):
+    """``menus-and-case-lists/form-context-without-a-compatible-case-tile``: a case list whose context above a form
+    names another menu (``persistent_case_tile_from_module``) that does not exist, lays out no tile, or lists another
+    case type (a menu with neither a tile nor its own suite holds no context, another class), or that pulls a tile
+    down (``pull_down_tile``) with no tile of its own that persists and no other menu's, as Nova's reader decides
+    (``caseList/details.ts``, ``contextUnavailable``, ``inlineUnavailable``). Either key of a case detail reads
+    nothing, another class."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    if kind != "short":
+        return False
+    source_id = detail.get("persistent_case_tile_from_module")
+    external = None
+    if isinstance(source_id, str) and source_id:
+        source = at.app.modules_by_id.get(source_id)
+        pair = (source or {}).get("case_details")
+        source_short = pair.get("short") if isinstance(pair, dict) and isinstance(pair.get("short"), dict) else {}
+        if source is not None and not source_short.get("case_tile_template") and not source_short.get("custom_xml"):
+            external = False  # a menu with no tile: the reader leaves the setting dormant
+        elif source is None or not source_short.get("case_tile_template") or source.get("case_type") != module.get(
+            "case_type"
+        ):
+            if at.key == "persistent_case_tile_from_module":
+                return True
+            external = False
+        else:
+            external = True
+    if at.key == "persistent_case_tile_from_module":
+        return False
+    if at.key == "pull_down_tile":
+        if detail.get("pull_down_tile") is not True:
+            return False
+        own = detail.get("case_tile_template") in ("custom", "icon_text_grid") and detail.get(
+            "persist_tile_on_forms"
+        ) is True
+        return not (external or own)
+    return None
+
+
+def competing_form_context_values(use, manifest):
+    """``menus-and-case-lists/two-different-values-for-the-same-form-context``: a case detail whose one-line context
+    above a form differs from its case list's, both turning the line on (``_defines_line``): HQ's build writes one
+    shared detail for both, of which Core keeps the last, so the Case List page shows a line the worker does not
+    see. Nova's reader refuses the case detail's keys and reads the case list's (``caseList/details.ts``,
+    ``competingLine``), so a use on the case list is out of the class."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    if kind != "long":
+        return False
+    short = module["case_details"].get("short")
+    if not isinstance(short, dict) or not _defines_line(short) or not _defines_line(detail):
+        return False
+    return short.get("persistent_case_context_xml", "case_name") != detail.get("persistent_case_context_xml", "case_name")
+
+
+def independent_sort_without_scalar(use, manifest):
+    """Classify the selected case's scalar independently of Nova's reader.
+    An expression with an unresolved binding or function stays undecided."""
+    at = _json(use)
+    sort = at.nearest("SortElement") if at is not None else None
+    if sort is None:
+        return None
+    text = sort.get("sort_calculation")
+    if sort.get("field") != "" or not isinstance(text, str) or not text.strip():
+        return False
+    tree = at.app.tree(text)
+    if tree is None:
+        return None
+    properties = (at.app.case_types or {}).get(_list_case_type(use)) or {}
+    result = _case_order_type(tree, properties)
+    return None if result is None else result == "collection"
+
+
+def calculated_distance_without_property(use, manifest):
+    """HQ's invisible temporary column has an empty field for Distance to evaluate."""
+    at = _json(use)
+    sort = at.nearest("SortElement") if at is not None else None
+    if sort is None:
+        return None
+    calculation = sort.get("sort_calculation")
+    return sort.get("type") == "distance" and sort.get("field") == "" and isinstance(calculation, str) and bool(calculation.strip())
+
+
+def distance_on_translated_calculation(use, manifest):
+    """The translated expression's sort node reads a calculated variable its template never defines."""
+    at = _json(use)
+    detail = at.nearest("Detail") if at is not None else None
+    sort = at.nearest("SortElement") if at is not None else None
+    if detail is None or sort is None:
+        return None
+    if sort.get("type") != "distance" or not sort.get("field"):
+        return False
+    columns = _columns(detail)
+    named = _sorted_column(columns, sort["field"])
+    if named is None:
+        return False
+    # A positional reference uses the named column's text to find the first column with that field.
+    landing = next((column for column in columns if column.get("field") == named.get("field")), named)
+    return bool(landing.get("useXpathExpression")) and _format(landing) == "translatable-enum"
 
 
 def beside_a_field_on_another_format(use, manifest):
@@ -9510,6 +10070,8 @@ ROW_UNDECLARED_KEYS = {
             "nodesetFilter",
         }
     ),
+    # The Case Detail page writes ``isTab`` on every tab it saves (``details/bootstrap5/column.js::serialize``).
+    "DetailTab": frozenset({"isTab"}),
     "Form": frozenset({"no_vellum", "put_in_root"}),
     "AdvancedForm": frozenset({"no_vellum", "put_in_root"}),
     # No row names a key a basic form's actions do not declare: the catch-all refuses every one.
@@ -9902,62 +10464,8 @@ def max_select_value_above_100(use, manifest):
     return value > 100
 
 
-# The column formats HQ's build writes an image's alternative text for (``app_strings.py``: ``column.format in
-# ('enum-image', 'clickable-icon')``), the only ones the alternative text is read on.
-ALT_TEXT_FORMATS = frozenset({"enum-image", "clickable-icon"})
 # The characters Core trims from the end of a line it reads of an app strings file: every one up to U+0020.
 CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
-
-
-def _shown_text(text):
-    """Whether a device shows a text HQ's build writes as an app string as other than blank
-    (``lib/commcare/reader/heldText.ts::hqDeviceText``): HQ writes a text Python reads as blank as one non-breaking
-    space, Core reads its line up to a carriage return and trims what ends it up to U+0020."""
-    if not text.strip():
-        return False
-    return text.split("\r", 1)[0].rstrip(CORE_LINE_END_TRIMMED) != ""
-
-
-def _python_str(value):
-    """Python's ``str`` of a JSON value, where the parsed value fixes it (``lib/commcare/reader/hqText.ts::
-    pythonStr``); None for a number, whose printed digits the parse does not keep."""
-    if isinstance(value, str):
-        return value
-    if value is None:
-        return "None"
-    if isinstance(value, bool):
-        return "True" if value else "False"
-    return None
-
-
-def alt_text_holding_text(use, manifest):
-    """``menus-and-case-lists/enum-mappingitem-alt-text-non-blank``: a mapping entry's ``alt_text`` on an image map
-    or a clickable icon (``ALT_TEXT_FORMATS``) whose text HQ's build writes (``app_strings.py``,
-    ``clean_trans(item.alt_text, langs)``) a device shows as other than blank in some app language
-    (``lib/commcare/reader/caseList/columns.ts::claimAltText``, ``hqText.ts::shownText``). Which text HQ's build
-    shows in a language turns on the app's languages, which a HELD-NEW class's reader does not read, so the class is
-    decided only where the map alone settles it: every text ``clean_trans`` can choose (each value that is not
-    ``None``, and ``None`` printed as ``None`` where the least key holds it) shown, or none of them. A map holding
-    both, such as ``{"en": "", "fra": "Photo"}``, is not settled, nor is a value whose printed text the parse does not
-    fix. On another format it is read nowhere, which is another class."""
-    at = _json(use)
-    if at is None or at.key != "alt_text" or at.scope[-1][0] != "MappingItem":
-        return None
-    column = at.nearest("DetailColumn")
-    if column is None or column.get("format") not in ALT_TEXT_FORMATS:
-        return False
-    texts = at.value
-    if not isinstance(texts, dict):
-        return None
-    if not texts:
-        return False
-    chosen = [_python_str(text) for text in texts.values() if text is not None]
-    if texts[min(texts)] is None:
-        chosen.append("None")
-    if any(text is None for text in chosen):
-        return None
-    shown = {_shown_text(text) for text in chosen}
-    return shown.pop() if len(shown) == 1 else None
 
 
 def case_tag_with_a_hyphen(use, manifest):
@@ -10031,37 +10539,24 @@ def tile_group_identifier_outside_an_xml_name(use, manifest):
     return isinstance(identifier, str) and identifier != "" and XML_ELEMENT_NAME.fullmatch(identifier) is None
 
 
-# The words HQ's case list page takes as a column's property that Nova reads under another name
-# (``lib/commcare/reader/caseList/columns.ts::HQ_PROPERTY_RENAMES``).
-HQ_PROPERTY_RENAMES = {
-    "external-id": "external_id",
-    "date-opened": "date_opened",
-    "status": "status",
-    "name": "case_name",
-    "owner_id": "owner_id",
-}
-
-
-def column_field_outside_nova_s_grammar(use, manifest):
-    """``menus-and-case-lists/column-field-outside-nova-s-property-grammar``: a column's ``field`` HQ's case list page
-    takes as one property (``PROPERTY_NAME``, with no prefix and no path) whose name, after HQ's words Nova reads
-    under its own (``HQ_PROPERTY_RENAMES``), Nova's property grammar does not take: a ``#`` before it, or a name past
-    255 characters (``columns.ts::classifyField``). A calculated column's field is an expression, and ``#owner_name``,
-    a prefixed field, a path, a field the page refuses and ``case_id`` are other classes'."""
+def column_hash_property(use, manifest):
+    """``menus-and-case-lists/column-reading-an-unknown-hash-property``: a property column's ``field`` (HQ's
+    ``PROPERTY_NAME``, with no prefix and not the worker's ``user/``) whose last word starts with ``#`` and is not
+    ``#owner_name``. HQ's page takes it (``details/utils.js::isValidPropertyName``); its build rewrites
+    ``#owner_name`` alone (``PropertyXpathGenerator.xpath``) and writes any other word into the step, which Core's
+    lexer refuses (``Lexer.matchNCName``), so the column breaks on both workers. A name past 255 characters is a
+    read (``column-reading-a-property-name-over-255-characters``), and a calculated column's field is an
+    expression."""
     at = _json(use)
     if at is None or at.key != "field" or at.scope[-1][0] != "DetailColumn":
         return None
-    column, field = at.owner, at.value
-    if column.get("useXpathExpression") or not isinstance(field, str):
+    field = at.value
+    if at.owner.get("useXpathExpression") or not isinstance(field, str):
         return False
-    if field == "#owner_name" or field.find(":") > 0 or "/" in field or PROPERTY_NAME.fullmatch(field) is None:
+    if ":" in field or field.startswith("user/") or PROPERTY_NAME.fullmatch(field) is None:
         return False
-    renamed = HQ_PROPERTY_RENAMES.get(field, field)
-    if renamed == "case_id":
-        return False
-    return (
-        AUTHORED_CASE_PROPERTY_NAME.fullmatch(renamed) is None or len(renamed) > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
-    )
+    last = field.split("/")[-1]
+    return last.startswith("#") and last != "#owner_name"
 
 
 def build_profiles_held(use, manifest):
@@ -10736,6 +11231,10 @@ VALUE_CLASSES = {
     "menus-and-case-lists/case-id-as-a-property-column-s-field": case_id_element,
     "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": null_on_unplaced_tile,
     "menus-and-case-lists/custom-tile-font-size-null": null_font_size_on_tile,
+    "menus-and-case-lists/custom-tile-cells-covering-the-same-square": overlapping_tile_cells,
+    "menus-and-case-lists/custom-tile-cell-outside-the-grid": tile_cell_outside_the_grid,
+    "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds": tab_child_type_no_form_adds,
+    "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers": tile_cell_below_the_offered_rows,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,
     "menus-and-case-lists/detail-case-tile-template-person-simple": person_simple_on_list,
     "menus-and-case-lists/long-detail-non-custom-tile": not_custom_on_detail,
@@ -10826,6 +11325,16 @@ VALUE_CLASSES = {
     "expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws": (
         media_reference_drawn_without_entry
     ),
+    "menus-and-case-lists/mapping-condition-outside-predicate": mapping_condition_outside_predicate,
+    "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist": columns_above_the_first_tab,
+    "menus-and-case-lists/tab-display-condition-outside-its-case-scope": tab_condition_outside_case_scope,
+    "menus-and-case-lists/detail-tab-without-a-resolvable-row-source": tab_without_a_resolvable_row_source,
+    "menus-and-case-lists/form-context-expression-outside-its-case-scope": form_context_expression_outside_case_scope,
+    "menus-and-case-lists/form-context-without-a-compatible-case-tile": form_context_without_a_compatible_tile,
+    "menus-and-case-lists/two-different-values-for-the-same-form-context": competing_form_context_values,
+    "menus-and-case-lists/sort-calculation-without-a-typed-value": independent_sort_without_scalar,
+    "menus-and-case-lists/distance-sort-without-a-location-field": calculated_distance_without_property,
+    "menus-and-case-lists/distance-on-a-translated-calculated-field": distance_on_translated_calculation,
     "menus-and-case-lists/type-index-cache-and-index-order-2": sort_type_index,
     "expressions-and-data/image-tiff-heif": tiff_heif,
     "expressions-and-data/image-svg": svg_image,
@@ -10847,11 +11356,10 @@ VALUE_CLASSES = {
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
     "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
-    "menus-and-case-lists/enum-mappingitem-alt-text-non-blank": alt_text_holding_text,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name
     ),
-    "menus-and-case-lists/column-field-outside-nova-s-property-grammar": column_field_outside_nova_s_grammar,
+    "menus-and-case-lists/column-reading-an-unknown-hash-property": column_hash_property,
     "application-and-settings/build-profiles-non-empty": build_profiles_held,
     "questions/question-id-case-registration-script": reserved_question_id,
 }

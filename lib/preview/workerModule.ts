@@ -5,6 +5,7 @@ import {
 	effectiveCaseSearchConfig,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import {
 	columnWordingRole,
 	type GeneratedWordingRole,
@@ -114,16 +115,12 @@ export function projectWorkerColumn(
 	values: ReadonlyMap<string, unknown>,
 ): Column {
 	const role = columnWordingRole(search, detail);
-	const word = (slot: string[], fallback: string) => {
-		const value = values.get(
-			generatedWordingId(
-				column.uuid,
-				role,
-				makeTranslationUnitId("column", column.uuid, ...slot),
-			),
-		);
+	const wordOf = (base: string, fallback: string) => {
+		const value = values.get(generatedWordingId(column.uuid, role, base));
 		return typeof value === "string" ? value : fallback;
 	};
+	const word = (slot: string[], fallback: string) =>
+		wordOf(makeTranslationUnitId("column", column.uuid, ...slot), fallback);
 	const current = { ...column, header: word(["header"], column.header) };
 	if (current.sort?.label !== undefined)
 		current.sort = {
@@ -134,7 +131,10 @@ export function projectWorkerColumn(
 	if (current.kind === "id-mapping")
 		current.mapping = current.mapping.map((row) => ({
 			...row,
-			label: word(["mapping", row.value], row.label),
+			label: wordOf(
+				caseMappingTextUnit(column.uuid, row, "mapping"),
+				row.label,
+			),
 		}));
 	return current;
 }

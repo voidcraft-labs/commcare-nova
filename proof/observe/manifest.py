@@ -34,7 +34,9 @@ The record holds:
   load-time setvalue's value, each repeat count and each bind calculate of
   a form (and each relevance of one that holds a model iteration), each
   expression Core's parse reads a call, step or comparison in whose parts a
-  value class reads (``structure_read``), and what a required condition
+  value class reads (``structure_read``), each independent sort
+  calculation of an app JSON, whose value's type a sort class reads
+  (``sort_calculations``), and what a required condition
   Vellum reads is compared with (the ``required`` beside it, the XPath each
   of the form's hashtags stands for), by its text (``expression_tree``,
   ``structure_tables``); ``conditions``, that grammar's structure of each
@@ -795,6 +797,7 @@ APP_EXPRESSION_SLOTS = (
     ("module_filter", None),
     ("filter", None),
     ("field", "useXpathExpression"),
+    ("sort_calculation", None),
     ("xpath", None),
     ("defaultValue", None),
     ("nodeset_filter", None),
@@ -859,6 +862,7 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
         if root is not None:
             attribute_values(root, texts)
             suite_queries(root, queries)
+    orders, scoped = set(), set()
     for app in apps:
         app_queries(app, queries)
         app_expressions(app, texts)
@@ -870,10 +874,14 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
             for profile, langs in form_language_profiles(app).items():
                 if profile not in scans:
                     scans[profile] = built_form_instance_names(xml, langs)
+        mapping_conditions(app, scoped)
+        case_scope_texts(app, scoped)
+        sort_calculations(app, orders)
+    texts |= scoped
     strings = _runner_reading(core_runner, "xpathStrings", sorted(queries), hole=CSQL_HOLE, dateHole=CSQL_DATE_HOLE)
     sent = sorted({string for result in strings.values() for string in result.get("strings", ())})
     expressions = _runner_reading(core_runner, "xpathParse", sorted(texts))
-    trees, conditions = structure_tables(roots, expressions)
+    trees, conditions = structure_tables(roots, expressions, orders | scoped)
     return {
         "questions": questions,
         "expressions": expressions,
@@ -888,15 +896,83 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
     }
 
 
-def structure_tables(roots, expressions):
+# The column formats whose mapping keys HQ's build writes as conditions (``models/case_list.py::
+# MappingItem.key_as_condition``), read by ``manifest_value_classes.mapping_condition_outside_predicate``.
+CONDITION_KEY_FORMATS = frozenset({"conditional-enum", "enum-image", "clickable-icon"})
+
+
+def mapping_conditions(value, found):
+    """Each mapping key of a column whose format reads its keys as conditions (``CONDITION_KEY_FORMATS``), at any
+    depth, into ``found``: Core's parse of it says whether the key is an expression at all."""
+    if isinstance(value, dict):
+        if value.get("doc_type") == "DetailColumn" and value.get("format") in CONDITION_KEY_FORMATS:
+            for item in value.get("enum") or ():
+                key = item.get("key") if isinstance(item, dict) else None
+                if isinstance(key, str) and key.strip():
+                    found.add(key)
+        for child in value.values():
+            mapping_conditions(child, found)
+    elif isinstance(value, list):
+        for child in value:
+            mapping_conditions(child, found)
+
+
+# The expressions of a menu's case detail and form context that HQ's build copies into the suite, each read in the
+# selected case's scope (a tab's display condition, a records tab's rows, a child tab's filter, the line above a
+# form), by the class of the object holding them (None: any) and their key: read by the scope classes of
+# ``manifest_value_classes`` (``tab_condition_outside_case_scope`` and the rest) from Core's parse and the structure.
+CASE_SCOPE_SLOTS = (
+    ("DetailTab", "relevant"),
+    ("DetailTab", "nodeset"),
+    ("DetailTab", "nodeset_filter"),
+    (None, "persistent_case_context_xml"),  # no other class holds the key
+)
+
+
+def case_scope_texts(value, found):
+    """Each expression of ``CASE_SCOPE_SLOTS`` an app JSON holds, at any depth, into ``found``: the scope classes read
+    its structure whatever Core's parse holds of it, as the sort classes read a sort's."""
+    if isinstance(value, dict):
+        for doc_type, slot in CASE_SCOPE_SLOTS:
+            text = value.get(slot)
+            if doc_type in (None, value.get("doc_type")) and isinstance(text, str) and text.strip():
+                found.add(text)
+        for child in value.values():
+            case_scope_texts(child, found)
+    elif isinstance(value, list):
+        for child in value:
+            case_scope_texts(child, found)
+
+
+def sort_calculations(value, found):
+    """Each independent sort calculation an app JSON holds (a ``SortElement`` with no ``field``), at any depth, into
+    ``found``: the sort classes read the type of its value whatever Core's parse holds of it
+    (``manifest_value_classes.independent_sort_without_scalar``)."""
+    if isinstance(value, dict):
+        text = value.get("sort_calculation")
+        # Nova's publish writes a sort element without its ``doc_type`` (HQ's wrap gives it the class's own), so
+        # one is known by its calculation's key, which no other class declares.
+        if "sort_calculation" in value and not value.get("field") and isinstance(text, str) and text.strip():
+            found.add(text)
+        for child in value.values():
+            sort_calculations(child, found)
+    elif isinstance(value, list):
+        for child in value:
+            sort_calculations(child, found)
+
+
+def structure_tables(roots, expressions, orders=()):
     """The ``trees`` and ``conditions`` readings: the structure of each expression the judge reads it of, by its
-    text, from the forms (``roots``: each form's parsed root; ``tree_texts``, ``vellum_condition_texts``) and from
-    Core's parse of every expression (``expressions``, ``structure_read``)."""
+    text, from the forms (``roots``: each form's parsed root; ``tree_texts``, ``vellum_condition_texts``), from
+    Core's parse of every expression (``expressions``, ``structure_read``) and of each expression Core parses whose
+    type a class reads (``orders``: each independent sort calculation, ``sort_calculations``; each condition mapping
+    key, ``mapping_conditions``; each case-scoped detail expression, ``case_scope_texts``)."""
     found, conditions = set(), set()
     for root in roots:
         tree_texts(root, found)
         vellum_condition_texts(root, conditions, found)
     found.update(text for text, parsed in expressions.items() if structure_read(parsed))
+    found.update(text for text in orders if "error" not in expressions.get(text, {"error": None}))
     return (
         {text: expression_tree(text) for text in sorted(found)},
         {text: hashtag_tree(text) for text in sorted(conditions)},
