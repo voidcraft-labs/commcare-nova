@@ -611,6 +611,12 @@ under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`. 
 folded over one is refused
 (`assemble.ts::decideGeneratedKeys`); every other fold is held as a device shows it, a choice
 label's too. A constant or one of several outputs of an authored slot can instead carry independent wording.
+A key one of the document's generated wording units writes (`table.wordingUnits`) is always that
+unit's own wording, whatever its value, even one equal to the text its base gives
+(`generatedTranslationKeys.ts`, marked `own` in the sink, `translations.ts::ownWordingEntryFor`),
+and the emitter writes it back the same, so it round-trips; folding it would change every other
+place the base feeds. Only a key no unit writes (`homescreen.title`, `app.display.name`) still
+folds or is inert by value.
 The generated-key reader takes its exact control identity and output role from the string registry.
 Each case and search column registers its own positions while producing its short and long detail.
 A source or target override is held as the word the device reads for that language, including

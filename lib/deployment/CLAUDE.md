@@ -1277,7 +1277,10 @@ sent:
   and the media record; writes the target-identity record the reading
   resolved over the stored one (`writeTargetIdentityInTransaction`, "Identities"),
   the record the take's ownership was computed over; and keeps the next publish's list (a
-  brought-in app's `first-publish` list from this reading's acceptance, else
+  brought-in app's `first-publish` list from this reading's acceptance, with
+  `translation-overrides-folded` where the plan still finds an earlier reader's
+  fold the head keeps (`plan.ts::holdsFoldedOverride`,
+  `firstPublishChanges.ts::keepingAnEarlierFold`), else
   `next-publish` with the plan's `publishChanges` and each id of a stored
   `next-publish` list this reading still gives, since only a push ends it,
   else none).
