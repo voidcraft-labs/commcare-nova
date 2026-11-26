@@ -217,6 +217,39 @@ describe("a Save to Case block's update key Nova holds as no write", () => {
 		expect(placesOf(outcome, HAND_WRITTEN)).toEqual([
 			"xform:model/instance//* case[1]",
 		]);
+		expect(
+			[...outcome.claims.records()].some(
+				(one) =>
+					one.key === "xform:model/instance//*@xmlns" &&
+					one.where.endsWith("}case[1]/namespace()"),
+			),
+		).toBe(false);
+	});
+
+	it("records Core's generated body group and the accepted case transaction namespaces at their source", async () => {
+		const outcome = await readWith("location_id", "location_id");
+		if (outcome.kind !== "read") throw new Error("The block did not read.");
+		const claims = [...outcome.claims.records()];
+		expect(
+			claims.filter((one) => one.key === "jr-control:group"),
+		).toContainEqual(
+			expect.objectContaining({
+				where: "/h:html/h:body[1]/group[1]",
+				entry:
+					"questions/savetocase-property-rows-calculation-condition-lifting-into",
+				standing: "held",
+			}),
+		);
+		const namespaces = claims.filter(
+			(one) =>
+				one.key === "xform:model/instance//*@xmlns" &&
+				one.where.endsWith("}case[1]/namespace()"),
+		);
+		expect(namespaces).toHaveLength(2);
+		expect(namespaces.map((one) => one.entry).sort()).toEqual([
+			"questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+			"questions/savetocase-update-case-id-xpath",
+		]);
 	});
 
 	for (const key of [WRITTEN, "size", "location_id", "hq_user_id"])

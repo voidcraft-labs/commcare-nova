@@ -78,7 +78,11 @@ import {
 	operationGuardKinds,
 	writesFixedTextColumn,
 } from "../../xform/generatedNodes";
-import { attributeNamespace, VELLUM_NS } from "../../xmlNamespaces";
+import {
+	attributeNamespace,
+	elementNamespace,
+	VELLUM_NS,
+} from "../../xmlNamespaces";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import {
@@ -120,7 +124,12 @@ import {
 	matchesTemplate,
 	matchesTemplateIn,
 } from "../xform/generated";
-import { type DataNode, pathSteps, resolveContextPath } from "../xform/model";
+import {
+	CASE_TRANSACTION_NS,
+	type DataNode,
+	pathSteps,
+	resolveContextPath,
+} from "../xform/model";
 import type { StandingRefusal } from "../xform/refusals";
 import { qualifiedAttribute, type XmlNode } from "../xmlCursor";
 import {
@@ -560,6 +569,14 @@ function recordWithin(
 			const question = regionQuestion(element, controls);
 			if (question !== undefined)
 				xform.cursor.within({ element }, claim, [question]);
+			if (
+				localName(element) === "case" &&
+				elementNamespace(element, xform.parsed.scope(element)) ===
+					CASE_TRANSACTION_NS
+			)
+				xform.cursor.within({ element, attribute: "xmlns" }, claim, [
+					"xform:model/instance//*@xmlns",
+				]);
 		}
 		for (const attribute of Object.keys(element.attribs)) {
 			if (attribute === "xmlns" || attribute.startsWith("xmlns:")) continue;
@@ -3010,6 +3027,12 @@ function claimAccepted(
 		for (const attribute of ["event", "ref", "value"])
 			if (Object.hasOwn(element.attribs, attribute))
 				claimRegionNode(xform, { element, attribute }, claims, fallback);
+		if (element.attribs.event === "jr-insert")
+			xform.cursor.within(
+				{ element, attribute: "event" },
+				SAVE_TO_CASE_CLAIMS.rows,
+				["jr-event:jr-insert"],
+			);
 		registerUses(element);
 	};
 	const claimBinds = (
@@ -3275,6 +3298,25 @@ function claimControls(ctx: ReadContext, xform: ReadXForm): void {
 	const root = xform.parsed.dataRoot.name;
 	const region = new Set(xform.caseRegion.map((node) => node.path.join("/")));
 	const claimed = new Set<Element>();
+	const claimControl = (element: Element) => {
+		claimRegionNode(xform, { element }, REGION.rows, SAVE_TO_CASE_CLAIMS.rows);
+		const kind = localName(element) === "group" ? "group" : "repeat";
+		xform.cursor.within({ element }, SAVE_TO_CASE_CLAIMS.rows, [
+			`jr-control:${kind}`,
+		]);
+		const parent = element.parent;
+		if (
+			parent !== null &&
+			isTag(parent) &&
+			claimed.has(parent) &&
+			localName(parent) === "repeat"
+		)
+			xform.cursor.within(
+				{ element, attribute: "xmlns" },
+				SAVE_TO_CASE_CLAIMS.rows,
+				["xform:repeat/*@xmlns"],
+			);
+	};
 	const walk = (element: Element) => {
 		for (const child of children(element)) {
 			const local = localName(child);
@@ -3287,12 +3329,7 @@ function claimControls(ctx: ReadContext, xform: ReadXForm): void {
 						? steps.slice(2)
 						: undefined;
 				if (path !== undefined && region.has(path.join("/"))) {
-					claimRegionNode(
-						xform,
-						{ element: child },
-						REGION.rows,
-						SAVE_TO_CASE_CLAIMS.rows,
-					);
+					claimControl(child);
 					const scope = xform.parsed.scope(child);
 					for (const attribute of Object.keys(child.attribs))
 						if (attributeNamespace(attribute, scope) !== VELLUM_NS)
@@ -3312,12 +3349,7 @@ function claimControls(ctx: ReadContext, xform: ReadXForm): void {
 				children(child).length === 1 &&
 				claimed.has(children(child)[0] as Element)
 			)
-				claimRegionNode(
-					xform,
-					{ element: child },
-					REGION.rows,
-					SAVE_TO_CASE_CLAIMS.rows,
-				);
+				claimControl(child);
 		}
 	};
 	walk(xform.parsed.body);

@@ -856,7 +856,7 @@ export function readInstances(
 }
 
 /** The case transaction namespace, which a case block's `case` element is in. */
-const CASE_TRANSACTION_NS = "http://commcarehq.org/case/transaction/v2";
+export const CASE_TRANSACTION_NS = "http://commcarehq.org/case/transaction/v2";
 
 /** The ledger namespace of CommCare's stock transactions. */
 const LEDGER_NS = "http://commcarehq.org/ledger/v1";
