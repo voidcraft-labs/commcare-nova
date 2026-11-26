@@ -281,6 +281,99 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
         assert [row["caseId"] for row in selection["rows"]] == [case_id]
 
 
+def test_advanced_latin1_index_alphabet_survives_a_fresh_worker_restore(editor_driver, hq, core_runner, tmp_path):
+    from corehq.form_processor.models import CommCareCase
+
+    # Every precomposed Latin-1 letter in both lexical positions. Keep
+    # different case and punctuation spellings as separate index keys.
+    letters = [chr(code) for low, high in ((0xC0, 0xD6), (0xD8, 0xF6), (0xF8, 0xFF))
+               for code in range(low, high + 1)]
+    names = [
+        "ordinary", "my-parent", "my.parent",
+        *(f"{letter}start" for letter in letters),
+        *(f"continued-{letter}" for letter in letters),
+    ]
+    with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record), hq_redis.shared(None), state.committing():
+        hq_redis.flush()
+        app_id = publish_hq_app(state, ADVANCED_APP)
+        app = operations.held_app(state, app_id)
+        form = app.modules[1].forms[1]
+        action = form.actions.open_cases[0]
+        existing, = action.case_indices
+        action.case_indices = [
+            type(existing).wrap({**existing.to_json(), "reference_id": name}) for name in names
+        ]
+        app.save()
+        saved = pages.fresh_section_save(
+            editor_driver, state, pages.ADVANCED_CASE_MANAGEMENT, app_id, form.unique_id,
+        )
+        assert saved.save is not None and not saved.refused, (saved.alerts, saved.response)
+        current = operations.held_app(state, app_id).get_form(form.unique_id)
+        assert [index.reference_id for index in current.actions.open_cases[0].case_indices] == names
+
+        built = compare.build(state, app_id, record)
+        assert not built.errors, built.errors
+        tree = etree.fromstring(built.files["modules-1/forms-1.xml"])
+        assert {etree.QName(index).localname for index in tree.xpath("//*[local-name()='index']/*")} == set(names)
+        formplayer_hq.default_roles(state)
+        database = _worker_database(_worker_case(PARENT, "clinic", "Chosen clinic"))
+        worker = formplayer_hq.create_worker(state, database)
+        formplayer_hq.save_cases(state, database, worker)
+        initial = _authenticated_restore(state, app_id, worker, "alphabet-before-create")
+
+        with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
+            assert admission["admitted"], admission["problems"]
+            table = load_answer_table()
+            table["novaKinds"]["requisition-name"] = [CHILD_NAME]
+            trace = core_runner.session(
+                admission["app"], restore=initial, answer_table=table,
+                question_kinds={"/data/req_name": "requisition-name"},
+            )
+        run, = (
+            run for run in trace["runs"]
+            if (step := form_step(run)) and step.get("xmlns") == form.xmlns
+        )
+        assert run["end"] == "submitted", run.get("refusal")
+        submission, _ = unmarked_submission(run)
+        transaction, = [
+            block for block in etree.fromstring(submission).iter(f"{{{CASE}}}case")
+            if block.find(f"{{{CASE}}}create") is not None
+        ]
+        case_id = transaction.get("case_id")
+        assert case_id and case_id != PARENT
+        assert {etree.QName(index).localname: index.text for index in transaction.find(f"{{{CASE}}}index")} == dict.fromkeys(names, PARENT)
+        request = connect_hq.device_request(
+            connect_hq.receiver_url(state.domain, app_id),
+            worker.username, formplayer_hq.PASSWORD, submission,
+        )
+        status, _ = _ask(state, request, "alphabet-submit-indices")
+        assert status == 201, status
+        saved_case = CommCareCase.objects.get_case(case_id, state.domain)
+        assert saved_case.owner_id == worker.user_id
+        assert {i.identifier: i.referenced_id for i in saved_case.indices} == dict.fromkeys(names, PARENT)
+
+        restore = _authenticated_restore(state, app_id, worker, "alphabet-fresh-after-create")
+        restored = etree.fromstring(restore).find(f"{{{CASE}}}case[@case_id='{case_id}']")
+        assert restored is not None
+        assert {etree.QName(index).localname: index.text for index in restored.find(f"{{{CASE}}}index")} == dict.fromkeys(names, PARENT)
+        indices = f"instance('casedb')/casedb/case[@case_id = '{case_id}']/index"
+        expressions = [f"{indices}/{name}" for name in names]
+        counted = [f"count({expression})" for expression in expressions]
+        # Combining marks can be stored in XML but cannot be a Core XPath name.
+        negative = f"{indices}/continued-e\u0301"
+        observed = core_runner.evaluate(
+            formBase64=base64.b64encode(LOOKUP_FORM).decode(),
+            restoreBase64=base64.b64encode(restore).decode(),
+            expressions=[*expressions, *counted, negative],
+            instances=["casedb"],
+        )
+        *values, refused = observed["values"]
+        assert {value["expression"]: value.get("value") for value in values} == {
+            **dict.fromkeys(expressions, PARENT), **dict.fromkeys(counted, "1"),
+        }
+        assert refused["expression"] == negative and refused["error"]
+
+
 @pytest.mark.parametrize("reference", ["my/parent", "my:parent", ".parent"], ids=["slash", "colon", "leading-dot"])
 def test_advanced_editor_save_cannot_make_an_invalid_xml_index_buildable(editor_driver, hq, reference):
     with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record):
