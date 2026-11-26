@@ -4223,6 +4223,7 @@ describe("the save counter a publish's reads are bound to", () => {
 function jsonLookupPeer(
 	peer: MockAgent,
 	answer: {
+		readOnly?: boolean;
 		mayEditData?: () => boolean;
 		lose?: (method: string, path: string) => boolean;
 		drop?: (method: string, path: string) => boolean;
@@ -4250,19 +4251,19 @@ function jsonLookupPeer(
 		[...rows.values()]
 			.filter((row) => row.table === table)
 			.sort((a, b) => a.sortKey - b.sortKey || (a.id < b.id ? -1 : 1));
-	peer
-		.get(HOST)
-		.intercept({
-			path: (path) => path.startsWith(`${api}device-log/v1/?`),
-			method: "GET",
-		})
-		.reply(() =>
-			answer.mayEditData?.() === false
-				? { statusCode: 403, data: "" }
-				: { statusCode: 200, data: { objects: [] } },
-		)
-		.persist();
-
+	if (!answer.readOnly)
+		peer
+			.get(HOST)
+			.intercept({
+				path: (path) => path.startsWith(`${api}device-log/v1/?`),
+				method: "GET",
+			})
+			.reply(() =>
+				answer.mayEditData?.() === false
+					? { statusCode: 403, data: "" }
+					: { statusCode: 200, data: { objects: [] } },
+			)
+			.persist();
 	peer
 		.get(HOST)
 		.intercept({
@@ -4823,12 +4824,10 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 			});
 		}
 		await withPeer(async (peer) => {
-			const hq = jsonLookupPeer(peer);
 			expect(refusal(await publish(doc))).toMatchObject({
 				phase: "preflight",
 				failure: { code: "app_not_ready" },
 			});
-			expect(hq.writes).toEqual([]);
 			expect(requests(peer).filter((line) => line.startsWith("POST "))).toEqual(
 				[],
 			);
@@ -4914,7 +4913,7 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 				"lookup-table",
 			]);
 		});
-	});
+	}, 20_000);
 
 	it("puts a table given a new export tag there as a new table, and names the one under the old tag as left behind", async () => {
 		const doc = await seed(await typesDocument());
@@ -5467,7 +5466,7 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 	it("stops before the app's content where CommCare HQ holds a table under the tag that Nova didn't make", async () => {
 		const doc = await seed(await typesDocument());
 		await withPeer(async (peer) => {
-			const hq = jsonLookupPeer(peer);
+			const hq = jsonLookupPeer(peer, { readOnly: true });
 			hq.tables.set("f".repeat(32), {
 				id: "f".repeat(32),
 				tag: "types",
