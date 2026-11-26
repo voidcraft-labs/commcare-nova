@@ -245,10 +245,10 @@ const QUESTION: HqPlace = {
 
 function manifest(place: HqPlace, name?: string): ManifestFinding {
 	return {
-		code: "question-appearance-unsupported",
+		code: "questions/itemset-filter-outside-predicate",
 		standing: "not-yet",
 		place,
-		subject: "question-appearance",
+		subject: "question-choices",
 		detail: name === undefined ? {} : { name },
 	};
 }

@@ -1336,11 +1336,11 @@ function questionAt(path: string): HqPlace {
 
 /** Twenty-two findings of one sentence about one form's questions: a run that folds. */
 const FOLDED: Finding[] = Array.from({ length: 22 }, (_, index) => ({
-	code: "question-appearance.style",
+	code: "questions/itemset-filter-outside-predicate",
 	standing: "not-yet",
 	place: questionAt(`/data/visit/q${index + 1}`),
-	subject: "question-appearance",
-	detail: { name: "minimal" },
+	subject: "question-choices",
+	detail: { name: "facility_options" },
 }));
 
 const ACCOUNT_FINDINGS: Finding[] = [

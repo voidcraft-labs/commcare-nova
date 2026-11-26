@@ -1001,7 +1001,7 @@ describe("an account a page at a time", () => {
 
 	function longest(index: number): Finding {
 		return {
-			code: "question-appearance-unsupported",
+			code: "questions/itemset-filter-outside-predicate",
 			standing: "not-yet",
 			place: {
 				kind: "question",
@@ -1011,7 +1011,7 @@ describe("an account a page at a time", () => {
 				formName: LONG,
 				path: `${index}/${LONG}`,
 			},
-			subject: "question-appearance",
+			subject: "question-choices",
 			detail: { name: `${index}${LONG}`.slice(0, FINDING_NAME_MAX_LENGTH) },
 		};
 	}
