@@ -82,6 +82,7 @@ export const translationUnitRoles = [
 	"case-list-empty-text",
 	"case-list-select-text",
 	"search-input-label",
+	"search-input-group-label",
 	"search-input-hint",
 	"search-input-required-message",
 	"search-input-validation-message",
@@ -119,6 +120,10 @@ export function caseListWordingUnitId(
 	return makeTranslationUnitId("module", moduleUuid, `list-${slot}-text`);
 }
 
+export function searchInputGroupLabelUnitId(uuid: Uuid): TranslationUnitId {
+	return makeTranslationUnitId("search-input-group", uuid, "label");
+}
+
 export const translationUnitOwnerKinds = [
 	"app",
 	"module",
@@ -127,6 +132,7 @@ export const translationUnitOwnerKinds = [
 	"select-option",
 	"case-list-column",
 	"search-input",
+	"search-input-group",
 	"case-property-option",
 ] as const;
 export type TranslationUnitOwnerKind =
@@ -162,6 +168,11 @@ export type TranslationUnitOwner =
 			readonly kind: "search-input";
 			readonly moduleUuid: Uuid;
 			readonly searchInputUuid: Uuid;
+	  }
+	| {
+			readonly kind: "search-input-group";
+			readonly moduleUuid: Uuid;
+			readonly groupUuid: Uuid;
 	  }
 	| {
 			readonly kind: "case-property-option";
@@ -219,6 +230,7 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-input-label",
+	"search-input-group-label",
 	"search-input-required-message",
 	"search-input-validation-message",
 	"search-runtime-validation-message",
@@ -976,6 +988,23 @@ export function collectTranslationUnits(
 			}
 		}
 
+		for (const group of list?.searchInputGroups ?? []) {
+			out.push(
+				unit({
+					id: searchInputGroupLabelUnitId(group.uuid),
+					valueKind: "text",
+					role: "search-input-group-label",
+					source: group.label,
+					owner: {
+						kind: "search-input-group",
+						moduleUuid,
+						groupUuid: group.uuid,
+					},
+					breadcrumb: [...moduleBreadcrumb, "Search", group.label],
+					context: { moduleName: module.name },
+				}),
+			);
+		}
 		for (const input of list?.searchInputs ?? []) {
 			hasSearchInputs = true;
 			out.push(

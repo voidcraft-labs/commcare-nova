@@ -500,6 +500,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		args.expressions,
 		args.lookupNaming,
 		searchInputInstanceId(wire),
+		caseListConfig.searchInputGroups,
 	);
 	instances.add(promptEmission.instances);
 

@@ -334,6 +334,7 @@ export const searchEmissionScenarios = [
 	"parent",
 	"named-parent",
 	"mixed-records",
+	"grouped-prompts",
 	"registration-link",
 	"hidden-link",
 	"automatic",
@@ -376,6 +377,28 @@ export function searchEmissionFixture(
 	const module = doc.modules[doc.moduleOrder[0]];
 	const config = module.caseListConfig;
 	if (!config) throw new Error("Fixture has a case list");
+	if (scenario === "grouped-prompts") {
+		const first = testUuid("grouped-search-name");
+		const second = testUuid("grouped-search-place");
+		config.searchInputGroups = [
+			{ uuid: first, label: "Personal details" },
+			{ uuid: second, label: "Case details" },
+		];
+		config.searchInputs = [
+			{ ...nameInput(), group: first },
+			{
+				...simpleSearchInputDef(
+					testUuid("grouped-search-case-name"),
+					"case_name",
+					"Record name",
+					"text",
+					"case_name",
+				),
+				group: second,
+			},
+		];
+	}
+
 	if (scenario.startsWith("remote")) {
 		module.caseSearchConfig = {};
 		// A search that shows the list first runs on both platforms; choosing

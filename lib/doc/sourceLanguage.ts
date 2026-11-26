@@ -272,6 +272,17 @@ export function sourceSlotWriter(
 							option.label = value as typeof option.label;
 					}
 				: undefined;
+		case "search-input-group-label":
+			return owner.kind === "search-input-group"
+				? (draft, value) => {
+						const group = draft.modules[
+							owner.moduleUuid
+						]?.caseListConfig?.searchInputGroups?.find(
+							(one) => one.uuid === owner.groupUuid,
+						);
+						if (group) group.label = text(value);
+					}
+				: undefined;
 		case "search-input-label":
 		case "search-input-hint":
 		case "search-input-required-message":

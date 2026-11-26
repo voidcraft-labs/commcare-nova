@@ -916,9 +916,7 @@
 	},
 	{
 		"change": "legacy-related-case-text-rekeyed",
-		"placeKinds": [
-			"menu"
-		],
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "proof2",
@@ -1088,6 +1086,16 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/additional_case_types"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/group_key"
 			},
 			{
 				"check": "source",

@@ -59,6 +59,7 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	makeTranslationUnitId,
 	type SearchInputDef,
+	type SearchInputGroup,
 	type SearchInputLookupOptions,
 	type SearchInputType,
 	searchInputDefault,
@@ -73,6 +74,7 @@ import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { ModuleExpressionSlotRef } from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { ModuleExpressionContexts } from "../../expressionContext";
+import { groupedSearchWire, searchGroupElement } from "./searchGroups";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
 /**
@@ -345,6 +347,7 @@ export function buildSearchPrompts(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	searchInputInstanceId?: `search-input:${string}`,
+	groups?: readonly SearchInputGroup[],
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
@@ -356,6 +359,9 @@ export function buildSearchPrompts(
 		translationUnits[localeId] = value.source;
 		return el("text", {}, [el("locale", { id: localeId })]);
 	};
+
+	const groupWire = groupedSearchWire(searchInputs, groups);
+	const keyByGroup = new Map(groupWire.map(({ uuid, key }) => [uuid, key]));
 
 	for (const input of searchInputs) {
 		const wire = searchPromptWire(
@@ -420,7 +426,12 @@ export function buildSearchPrompts(
 			xel(
 				"prompt",
 				{
-					attributes: composePromptAttributes(wire),
+					attributes: {
+						...composePromptAttributes(wire),
+						...(input.group !== undefined && {
+							group_key: keyByGroup.get(input.group) ?? "",
+						}),
+					},
 					xpath: {
 						...(wire.defaultValue === undefined
 							? {}
@@ -432,6 +443,13 @@ export function buildSearchPrompts(
 				children,
 			),
 		);
+	}
+
+	for (const group of groupWire) {
+		const { element, localeId } = searchGroupElement(moduleId, group.key);
+		elements.push(element);
+		strings[localeId] = group.label;
+		translationUnits[localeId] = group.labelUnit;
 	}
 
 	return {

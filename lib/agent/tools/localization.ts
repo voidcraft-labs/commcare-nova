@@ -343,6 +343,7 @@ function ownerModuleUuid(owner: TranslationUnitOwner): string | undefined {
 		case "field":
 		case "select-option":
 		case "case-list-column":
+		case "search-input-group":
 		case "search-input":
 			return owner.moduleUuid;
 		case "app":
@@ -360,6 +361,7 @@ function ownerFormUuid(owner: TranslationUnitOwner): string | undefined {
 		case "app":
 		case "module":
 		case "case-list-column":
+		case "search-input-group":
 		case "search-input":
 		case "case-property-option":
 			return undefined;

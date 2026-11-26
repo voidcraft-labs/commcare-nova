@@ -156,6 +156,7 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"case-list-empty-text": "Empty case list text",
 	"case-list-select-text": "Case list Continue button",
 	"search-input-label": "Search field label",
+	"search-input-group-label": "Search heading",
 	"search-input-hint": "Search field hint",
 	"search-input-required-message": "Search field required message",
 	"search-input-validation-message": "Search field check message",
@@ -1231,6 +1232,7 @@ function TranslationUnitRow({
 			case "case-list-column":
 				navigate.openCaseList(unit.owner.moduleUuid);
 				break;
+			case "search-input-group":
 			case "search-input":
 				navigate.openSearchConfig(unit.owner.moduleUuid);
 				break;
