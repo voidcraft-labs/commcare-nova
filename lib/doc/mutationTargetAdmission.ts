@@ -446,7 +446,6 @@ export function mutationTargetsInvalid(
 	const initialLocalization = effectiveAppLocalization(doc.localization);
 	let sourceLanguage = initialLocalization.sourceLanguage;
 	let languages = [...initialLocalization.languageOrder];
-	const _defaultLanguage = initialLocalization.defaultLanguage;
 	const profiles = new Set(
 		Object.keys(doc.appSettings.installationProfiles ?? {}),
 	);

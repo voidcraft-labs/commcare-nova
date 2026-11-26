@@ -571,7 +571,9 @@ function reduceCreateDone(
 				refusal: null,
 			};
 		case "refused":
-			return { ...ended, refusal: answer.refusal };
+			return answer.refusal === "session_ended"
+				? { ...ended, signedOut: true, leftCreate: null }
+				: { ...ended, refusal: answer.refusal };
 	}
 }
 
