@@ -194,3 +194,82 @@ def test_a_several_case_close_closes_each_chosen_case_only_where_its_condition_h
     _untouched(NOT_HELD, not_held, not_held["chosen"])
     _closed_by_form(HELD, runs[HELD])
     _closed_by_form(EVERY_TIME, runs[EVERY_TIME])
+
+
+def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overflow(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    from dataclasses import replace
+
+    from proof.formplayer.webapps import FormplayerRefused
+    from proof.observe.casedata import document_case_database
+
+    document = formplayer_documents[DOCUMENT]
+    database = document_case_database(document)
+    seed = next(case for case in database.cases if case.case_type == 'sample')
+    # One more than the browser's explicit page, and names that sort opposite
+    # the order used to restore these cases. The actual restore supplies the oracle.
+    cases = tuple(replace(seed, case_id=f'auto-{i:03}', name=f'{101 - i:03}') for i in range(101))
+
+    def change(maximum):
+        def configure(stored):
+            short = stored['modules'][0]['case_details']['short']
+            short['auto_select'] = True
+            short['max_select_value'] = maximum
+            short['sort_elements'] = [{'field': 'case_name', 'type': 'plain', 'direction': 'ascending',
+                                       'blanks': 'last', 'doc_type': 'SortElement'}]
+
+        return configure
+
+    def choose_command(web, response, title):
+        assert screen_kind(response) == 'commands', response
+        titles = [command['displayText'] for command in response['commands']]
+        return [*response.get('selections', []), str(titles.index(title))]
+
+    observations = {}
+    with apps.published(document, core_runner) as published:
+        for name, batch, maximum in [('all', cases, 101), ('overflow', cases, 100), ('empty', (), 100)]:
+            with apps.served(published, formplayer_runner, label=name, change=change(maximum),
+                             database=replace(database, cases=batch)) as served, served.run(name):
+                web = apps.web(formplayer_runner, served)
+                top = web.navigate()
+                menu = choose_command(web, top, MENU)
+                try:
+                    response = web.navigate(menu, cases_per_page=7)
+                    if screen_kind(response) == 'commands':
+                        # Case-first menus can already contain the automatic
+                        # selection before we choose the form's command.
+                        form_path = choose_command(web, response, EVERY_TIME)
+                        response = web.navigate(form_path, cases_per_page=7)
+                except FormplayerRefused as refusal:
+                    assert name == 'overflow', refusal
+                    exchange = refusal.exchange
+                    observations[name] = {'status': exchange.response.status,
+                                          'body': exchange.response.body.decode()}
+                    assert '101' in str(refusal) and '100' in str(refusal), refusal
+                    continue
+                observations[name] = {'screen': screen_kind(response), 'selection': response.get('selections')}
+                if name == 'overflow':
+                    # A handled response in place of the HTTP error is also a
+                    # native refusal, provided it reports both limits and no form.
+                    assert screen_kind(response) == 'notification' and '101' in str(response) and '100' in str(response), response
+                elif name == 'empty':
+                    assert screen_kind(response) == 'entities' and not response.get('entities'), response
+                else:
+                    assert screen_kind(response) == 'form' and response['title'] == EVERY_TIME, response
+                    restored = [case.get('case_id') for data in served.hq.restores[:1]
+                                for case in etree.fromstring(data, PARSER).iter(CASE)
+                                if (case.get('case_id') or '').startswith('auto-')]
+                    assert len(restored) == len(cases)
+                    assert restored != [case.case_id for case in sorted(cases, key=lambda case: case.name)]
+                    result = web.submit(response['session_id'], {})
+                    assert result['status'] == 'success', result
+                    (submission,) = served.hq.submissions
+                    submitted = _submitted(submission.instance)
+                    assert submitted['selected'] == restored
+                    assert sorted(submitted['blocks']) == sorted((record.case_id, True) for record in batch)
+                    assert all(row['closed'] for row in _held(served.domain, restored).values())
+                    observations[name]['orderedCaseIds'] = restored
+                if name != 'all':
+                    assert not served.hq.submissions
+    evidence('automatic-multiple-case-selection', observations)
