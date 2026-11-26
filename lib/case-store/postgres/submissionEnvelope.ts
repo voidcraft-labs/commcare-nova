@@ -1885,6 +1885,23 @@ async function resolveOperationProgram(
 		opening?.submittedCaseIds,
 	);
 
+	// A case id supplied by an entry can also appear as an independently
+	// resolved expression target or another create's allocation. Each
+	// executing create named by the entry requires a fresh row.
+	const entryNamedByCaseId = new Map<string, boolean>();
+	for (const [index, allocation] of allocations) {
+		if (!executing[index]) continue;
+		const entryNamed = allocation.entryNamed === true;
+		const prior = entryNamedByCaseId.get(allocation.caseId);
+		if (
+			(entryNamed &&
+				(knownRows.has(allocation.caseId) || prior !== undefined)) ||
+			prior === true
+		)
+			rejectTakenCaseId(allocation.caseId);
+		entryNamedByCaseId.set(allocation.caseId, entryNamed);
+	}
+
 	// Resolve every executing instance's target + links.
 	const openingCaseTypes =
 		opening &&
@@ -2954,6 +2971,14 @@ function isScalarColumnWrite(
 	return property === "external_id" || property === "location_id";
 }
 
+function rejectTakenCaseId(caseId: string): never {
+	throw new SubmissionRejectedError({
+		kind: "new-case",
+		reason: "case-id-taken",
+		caseId,
+	});
+}
+
 async function applyCreateEffect(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -3045,11 +3070,7 @@ async function applyCreateEffect(
 								slot: "target",
 								reason: "not-found-or-out-of-scope",
 							});
-						throw new SubmissionRejectedError({
-							kind: "new-case",
-							reason: "case-id-taken",
-							caseId: entry.caseId,
-						});
+						rejectTakenCaseId(entry.caseId);
 					},
 				}
 			: {}),
