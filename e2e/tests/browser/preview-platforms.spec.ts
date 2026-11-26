@@ -1043,6 +1043,14 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 	},
 	async "android-app-answers"(page) {
 		await acceptAttachments(page);
+		const upload = Promise.withResolvers<void>();
+		await page.route(
+			`${platformsPeer.origin}/capture-upload`,
+			async (route) => {
+				await upload.promise;
+				await route.fallback();
+			},
+		);
 		await openScenario(page, "android-app-answers");
 		const buttons = page.getByRole("button", { name: "Open Android app" });
 		const dialog = page.getByRole("dialog");
@@ -1066,7 +1074,16 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			mimeType: "image/png",
 			buffer: PIXEL,
 		});
-		await dialog.getByRole("button", { name: "Return to form" }).click();
+		try {
+			await dialog.getByRole("button", { name: "Return to form" }).click();
+			await expect(
+				dialog.getByRole("button", { name: "Cancel", exact: true }),
+			).toBeDisabled();
+			await page.keyboard.press("Escape");
+			await expect(dialog).toBeVisible();
+		} finally {
+			upload.resolve();
+		}
 		await expect(page.getByText("captured", { exact: true })).toBeVisible();
 		await expect(page.getByRole("textbox", { name: /Quantity$/ })).toHaveValue(
 			"8",
