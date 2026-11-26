@@ -43,6 +43,9 @@ export type ColumnFieldWordOf = (
 
 /** The ids one export writes for every menu and form, and the word each case list column's field names its property by. */
 export interface WireIdentity {
+	/** Where the destination keeps an installation profile it allocated. */
+	installationProfileKey?(uuid: Uuid): string | undefined;
+	installationPracticeWorker?(uuid: Uuid): string | undefined;
 	/** Any module of the emission plan, the hidden menu included. */
 	moduleUniqueId(moduleUuid: Uuid): string;
 	formUniqueId(formUuid: Uuid): string;
@@ -53,6 +56,13 @@ export interface WireIdentity {
 	 * the word Nova writes (`suite/wire.ts::hqColumnFieldText`).
 	 */
 	readonly columnFieldWord: ColumnFieldWordOf;
+}
+
+export function installationProfileKey(
+	uuid: Uuid,
+	identity?: WireIdentity,
+): string {
+	return identity?.installationProfileKey?.(uuid) ?? derivedUniqueId(uuid);
 }
 
 const XMLNS_PREFIX = "http://openrosa.org/formdesigner/";
@@ -82,6 +92,20 @@ export interface ColumnFieldWordRow {
 	readonly word: string;
 }
 
+/** A key and optional practice worker in one destination's installation profile map. */
+export interface InstallationProfileBinding {
+	readonly uuid: Uuid;
+	readonly key: string;
+	readonly practiceWorkerId?: string;
+	/** Evidence of this definition on one prepared build of this destination app. */
+	readonly practiceWitness?: {
+		readonly appId: string;
+		readonly buildId: string;
+		readonly version: number;
+		readonly definitionDigest: string;
+	};
+}
+
 /** One id a target holds that is not the derivation. */
 export interface WireIdentityOverride {
 	readonly entityKind: "module" | "form";
@@ -100,7 +124,16 @@ export interface WireIdentityOverride {
 export function targetWireIdentity(
 	overrides: readonly WireIdentityOverride[],
 	columnWords: readonly ColumnFieldWordRow[] = [],
+	profiles: readonly InstallationProfileBinding[] = [],
 ): WireIdentity {
+	const bindings = new Map(profiles.map((profile) => [profile.uuid, profile]));
+	const profileIdentity = profiles.length
+		? {
+				installationProfileKey: (uuid: Uuid) => bindings.get(uuid)?.key,
+				installationPracticeWorker: (uuid: Uuid) =>
+					bindings.get(uuid)?.practiceWorkerId,
+			}
+		: {};
 	const words = new Map(
 		columnWords.map((row) => [
 			`${row.columnUuid}\u0000${row.screen}`,
@@ -110,9 +143,9 @@ export function targetWireIdentity(
 	const columnFieldWord = (columnUuid: Uuid, screen: ColumnScreen) =>
 		words.get(`${columnUuid}\u0000${screen}`);
 	if (overrides.length === 0)
-		return words.size === 0
+		return words.size === 0 && profiles.length === 0
 			? DERIVED_WIRE_IDENTITY
-			: { ...DERIVED_WIRE_IDENTITY, columnFieldWord };
+			: { ...DERIVED_WIRE_IDENTITY, ...profileIdentity, columnFieldWord };
 	const moduleIds = new Map<string, string>();
 	const formIds = new Map<string, string>();
 	const formXmlns = new Map<string, string>();
@@ -131,6 +164,7 @@ export function targetWireIdentity(
 		}
 	}
 	return {
+		...profileIdentity,
 		moduleUniqueId: (moduleUuid) =>
 			moduleIds.get(moduleUuid) ?? derivedUniqueId(moduleUuid),
 		formUniqueId: (formUuid) =>

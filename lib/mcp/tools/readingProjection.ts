@@ -1,3 +1,7 @@
+import {
+	type AppLanguageIdentity,
+	parseLanguageTag,
+} from "@/lib/domain/localization";
 /**
  * What `read_hq_app` and `bring_in_hq_app` answer about one read of a
  * CommCare HQ app: a stop, an account or a review, with every sentence the
@@ -207,6 +211,7 @@ export interface ReviewProjection {
 		readonly recorded_features: readonly string[];
 		/** What address search in Web Apps needs of the project space under this choice, or null where no question searches. */
 		readonly address_search: string | null;
+		readonly confirm_before_first_upload?: readonly string[];
 		/** What the first upload from Nova changes in CommCare HQ under this choice. */
 		readonly first_publish: FirstPublishProjection;
 	}[];
@@ -241,6 +246,20 @@ export interface ReviewProjection {
 	readonly table_parts?: readonly TableReviewPart[];
 	readonly case_types_total?: number;
 	readonly case_type_parts?: readonly TextReviewPart[];
+	readonly installations?: readonly {
+		readonly profile_id: string;
+		readonly name: string;
+		readonly languages: readonly AppLanguageIdentity[];
+		readonly practice_worker_id: string | null;
+	}[];
+	readonly installations_total?: number;
+	/** Reassemble all parts of an exceptionally long installation, then parse its JSON. */
+	readonly installation_parts?: readonly {
+		item: number;
+		part: number;
+		parts: number;
+		text: string;
+	}[];
 	/** The cursor of the page that holds the tables after this page's, or null on the last. */
 	readonly next_page: string | null;
 	readonly places: { readonly count: number; readonly sentence: string } | null;
@@ -469,6 +488,29 @@ export function parseAccountPage(page: string): {
  * carries: an account's findings under `accountDigest`, or a review's lookup
  * tables under its review digest. Null for a stop, which no page is cut from.
  */
+function* installationRowsOf(review: ReadingReview) {
+	type Row = NonNullable<ReviewProjection["installations"]>[number];
+	type Part = NonNullable<ReviewProjection["installation_parts"]>[number];
+	for (const [item, entry] of (review.installations ?? []).entries()) {
+		const row: Row = {
+			profile_id: entry.key,
+			name: entry.name,
+			languages: entry.languages.map(parseLanguageTag),
+			practice_worker_id: entry.worker ?? null,
+		};
+		const text = JSON.stringify(row);
+		if (encodedJsonChars(row) < PIECE_MAX_CHARS) {
+			yield { kind: "installation" as const, value: row };
+			continue;
+		}
+		const pieces = lineParts(text, PIECE_MAX_CHARS - 256);
+		for (const [n, text] of pieces.entries()) {
+			const value: Part = { item, part: n + 1, parts: pieces.length, text };
+			yield { kind: "installation-part" as const, value };
+		}
+	}
+}
+
 export interface TextReviewPart {
 	item: number;
 	part: number;
@@ -553,6 +595,7 @@ const birthReviewPieces = indexedReview(function* (
 			yield { kind: "table" as const, value: row.table };
 		else yield { kind: "table-part" as const, value: row.fragment };
 	}
+	yield* installationRowsOf(review);
 });
 
 /**
@@ -869,6 +912,11 @@ function reviewProjection(
 			address_search: choice.addressSearch?.length
 				? addressSearchReviewLine(domain)
 				: null,
+			...(choice.installationPlanChecks?.length && {
+				confirm_before_first_upload: choice.installationPlanChecks.map(
+					(id) => PLAN_FEATURES[id].label,
+				),
+			}),
 			first_publish: describeFirstPublish(
 				firstPublishLines(choice.firstPublish, "review"),
 			),
@@ -904,6 +952,11 @@ function reviewProjection(
 			case_types_total: review.creates.caseTypes.length,
 			case_type_parts: [],
 		}),
+		...(review.installations?.length && {
+			installations: [],
+			installation_parts: [],
+			installations_total: review.installations.length,
+		}),
 		next_page: LONGEST_CURSOR,
 		places:
 			review.places === null
@@ -937,6 +990,12 @@ function reviewProjection(
 	const tableParts: TableReviewPart[] = [];
 	const caseTypes: string[] = [];
 	const caseParts: TextReviewPart[] = [];
+	const installations: NonNullable<
+		ReviewProjection["installations"]
+	>[number][] = [];
+	const installationParts: NonNullable<
+		ReviewProjection["installation_parts"]
+	>[number][] = [];
 	const end = cutPage({
 		count: pieces.has,
 		from,
@@ -960,6 +1019,12 @@ function reviewProjection(
 				case "table-part":
 					tableParts.push(piece.value);
 					break;
+				case "installation":
+					installations.push(piece.value);
+					break;
+				case "installation-part":
+					installationParts.push(piece.value);
+					break;
 			}
 		},
 	});
@@ -973,6 +1038,10 @@ function reviewProjection(
 			case_type_parts: caseParts,
 		}),
 		...(hasFiles && { publish_details: shown }),
+		...(review.installations?.length && {
+			installations,
+			installation_parts: installationParts,
+		}),
 		review_digest: pieces.has(end) ? null : reviewDigest,
 		next_page: pieces.has(end)
 			? reviewCursor(end, pageSubject, readingId)
@@ -1061,6 +1130,7 @@ const READING_REFUSAL_ERRORS = {
 	choice_missing: { errorType: "invalid_input", namesProject: false },
 	project_changed: { errorType: "bring_in_refused", namesProject: false },
 	app_unavailable: { errorType: "bring_in_refused", namesProject: false },
+	session_ended: { errorType: "permission_denied", namesProject: false },
 	publish_in_flight: { errorType: "bring_in_refused", namesProject: false },
 } as const satisfies Record<
 	ReadingRefusal,

@@ -24,7 +24,10 @@ import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
 import type { HqLocationType } from "../hq/locations";
-import type { ColumnFieldWordRow } from "../wireIdentity";
+import type {
+	ColumnFieldWordRow,
+	InstallationProfileBinding,
+} from "../wireIdentity";
 import type { WorkKind } from "../workMeter";
 import type { GeneratedNodePurpose } from "../xform/generatedNodes";
 import type {
@@ -233,6 +236,7 @@ export type ReadOutcome =
 
 /** What the reader minted for the menus and forms the document holds. */
 export interface ReadMenuAndFormIdentities {
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	/** Every menu of HQ's app the document holds, a folded hidden menu under its synthetic UUID. */
 	readonly modules: readonly {
 		readonly uuid: Uuid;

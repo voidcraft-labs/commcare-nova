@@ -144,6 +144,7 @@ import {
 	placeChange,
 } from "./hqResourceBaseline";
 import { appConfirmationScope, normalizeHqAppSource } from "./hqSourceBaseline";
+import { profileSourceDigests } from "./installationProfilePublish";
 import {
 	matchesRecordedLookup,
 	observeLargeLookup,
@@ -199,8 +200,11 @@ import {
 	type SetupArtifactOrganization,
 } from "./setupArtifact";
 import {
+	type DeploymentScope,
 	type DeploymentTargetKey,
+	publishManagementGrant,
 	readAppBaseline,
+	readInstallationReview,
 	readResourceBaselines,
 	readSiblingLookupMappings,
 	readTargetIdentity,
@@ -534,13 +538,7 @@ export interface PreflightInput {
 	 * `hq_web_apps_change` refusal. Never defaulted from an earlier attempt.
 	 */
 	readonly confirmWebApps: boolean | undefined;
-	readonly access: {
-		/** The app whose organization this reads. Authorized by the caller. */
-		readonly appId: string;
-		readonly projectId: string;
-		readonly role: string;
-		readonly actorUserId: string;
-	};
+	readonly access: DeploymentScope;
 	readonly server: CommCareServer;
 	readonly domain: string;
 	readonly now: string;
@@ -579,6 +577,7 @@ export async function publishConfirmationNeeds(
 	target: DeploymentTargetKey,
 	lookupNaming: LookupWireNaming | undefined,
 	managedTableIds: ReadonlySet<string>,
+	hasTargetProfiles?: boolean,
 ): Promise<{
 	readonly organization: SetupArtifactOrganization & { revision: string };
 	readonly places: readonly PlannedPlace[];
@@ -606,6 +605,12 @@ export async function publishConfirmationNeeds(
 					(tableId) => !managedTableIds.has(tableId),
 				),
 				places: places.length > 0,
+				hasTargetProfiles:
+					hasTargetProfiles ??
+					Boolean(
+						(await readTargetIdentity(access, target)).installationProfiles
+							?.length,
+					),
 			},
 			attachmentUrlTarget(target),
 			lookupNaming,
@@ -878,11 +883,24 @@ export async function runDeploymentPreflight(
 	// emits the one that results. It only reads CommCare HQ, and what it
 	// writes is Nova's own copy, which a publish refused later keeps: it is
 	// CommCare HQ's current state, what Refresh would have written.
+	const targetIdentity = await readTargetIdentity(input.access, target);
+	const managedProfiles = Boolean(
+		targetIdentity.installationProfiles?.length ||
+			Object.keys(input.doc.appSettings.installationProfiles ?? {}).length,
+	);
+	const installationGrant = publishManagementGrant(
+		input.access,
+		target,
+		Object.keys(input.doc.appSettings.installationProfiles ?? {}).length > 0,
+		input.access.requireInstallationManagement ?? input.requireHqImport,
+	);
+	await installationGrant?.();
 	const managedHere = await managedDataEdge(
 		input,
 		creds,
 		domain,
 		checkPublishAccess && (() => withAppTx(checkPublishAccess)),
+		installationGrant,
 	);
 	if (managedHere !== null) {
 		checks.push(managedHere.check);
@@ -1004,6 +1022,7 @@ export async function runDeploymentPreflight(
 			new Set(
 				boundary.prepared.managedLookupTables.map((table) => table.tableId),
 			),
+			Boolean(targetIdentity.installationProfiles?.length),
 		);
 	if (placesManagedHere) input.requireHqImport?.();
 	const settled = settleConfirmations({
@@ -1741,6 +1760,7 @@ export async function runDeploymentPreflight(
 			{ server: target.server, domain },
 			inventory.places,
 			readAt,
+			installationGrant,
 		);
 		if (!refreshed.ok) return organizationMismatch(refreshed.message);
 		checks.push({
@@ -2277,6 +2297,7 @@ export async function runDeploymentPreflight(
 			remoteAppId: appId,
 			current: normalized,
 			published,
+			managedProfiles,
 			baseline: appBaseline,
 			since: driftReferenceOf(appBaseline, input.inPlaceUpdate),
 			languageNames: input.languageNames,
@@ -2301,7 +2322,26 @@ export async function runDeploymentPreflight(
 						: appBaseline.ownership,
 			}),
 		});
-		if (change !== null) observed.push(change);
+		if (change !== null) {
+			const reviewed = managedProfiles
+				? await readInstallationReview(input.access, target)
+				: undefined;
+			const exactIntermediate =
+				!change.requiresReview &&
+				!change.replacesMenuLayouts &&
+				reviewed &&
+				(reviewed.verifiedIntermediate ||
+					(change.parts.length === 1 &&
+						change.parts[0] === "Installation profiles")) &&
+				reviewed.appId === appId &&
+				reviewed.claim?.mapping === input.inPlaceUpdate?.pushToken &&
+				reviewed.sequence === input.compiledAtSeq &&
+				targetApp &&
+				reviewed.unrelatedDigest ===
+					profileSourceDigests(targetApp.source.raw).unrelatedDigest &&
+				!media?.paths.some((p) => p.standing === "replaced");
+			if (!exactIntermediate) observed.push(change);
+		}
 		checks.push({
 			id: "target-app",
 			title: "App on CommCare HQ",
@@ -2369,7 +2409,7 @@ export async function runDeploymentPreflight(
 	// without them and builds it again the day the plan includes them. So
 	// the refusal names the way out that works on any plan, where there is
 	// one.
-	if (targetApp !== null) {
+	if (targetApp !== null && !managedProfiles) {
 		const gaps = buildProfileLanguageGaps(
 			publishedLanguageCodes(input.doc),
 			targetApp.source.buildProfiles,
@@ -2407,6 +2447,28 @@ export async function runDeploymentPreflight(
 			items: [],
 		});
 	}
+
+	const witnessedProfiles = (targetIdentity.installationProfiles ?? []).flatMap(
+		(binding) => {
+			const witness = binding.practiceWitness;
+			const profile =
+				input.doc.appSettings.installationProfiles?.[binding.uuid];
+			return witness &&
+				witness.appId === targetApp?.appId &&
+				profile?.requiresPracticeWorker
+				? [`“${profile.name}” · version ${witness.version}`]
+				: [];
+		},
+	);
+	if (witnessedProfiles.length)
+		checks.push({
+			id: "build-profiles",
+			title: "Practice installations",
+			status: "passed",
+			detail:
+				"CommCare HQ prepared these workers’ restores on the versions shown. The current practice-worker subscription is unverified.",
+			items: witnessedProfiles,
+		});
 
 	// ── 8b. Does the app's Web App setting on HQ match where it runs? ──
 	// Blocking, after `hq-changes` because a person decides a drift discard
@@ -2557,6 +2619,7 @@ async function managedDataEdge(
 	creds: CommCareCredentials,
 	domain: string,
 	checkAccess: (() => Promise<void>) | undefined,
+	grant: DeploymentScope["requireInstallationManagement"] | null,
 ): Promise<{
 	readonly check: PreflightCheck;
 	readonly failure: DeploymentFailure | null;
@@ -2580,6 +2643,7 @@ async function managedDataEdge(
 	const title = "Data managed in CommCare HQ";
 	const reRead = await reReadManagedTablesForPublish({
 		requireHqImport: input.requireHqImport,
+		grant,
 		access: input.access,
 		doc: input.doc,
 		target: { server: input.server, domain: input.domain },
@@ -2969,6 +3033,13 @@ export function hqAppSourceReadFailure(
 	readonly message: string;
 	readonly details: readonly string[];
 } {
+	if ("success" in read && read.installationProfileKeyUnusable)
+		return {
+			code: "hq_app_state_unknown",
+			message:
+				"CommCare HQ cannot select a separate set of files for this installation profile. On this app’s Releases page, open Application Profiles, recreate the affected profile with its languages and practice worker, and remove the old entry. Then publish again.",
+			details: [],
+		};
 	if (!("success" in read) && read.kind === "unsupported") {
 		return {
 			code: "hq_app_state_unknown",
@@ -3096,6 +3167,18 @@ export function buildProfileLanguageFailure(
 	const stopped = read.duringPush
 		? "which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content"
 		: "so Nova stopped before sending anything";
+	if (gaps.some((gap) => gap.missing.length === 0)) {
+		return {
+			code: "hq_build_profile_language_missing",
+			message: `An application profile on “${domain}” has no default language, ${stopped}. On the Application Profiles tab of the app’s Releases page in CommCare HQ, you can choose its installation languages or remove the profile, then publish again.`,
+			details: gaps.map((gap) => {
+				const name = gap.name || gap.id;
+				return gap.missing.length === 0
+					? `“${name}” has no installation languages.`
+					: `“${name}” includes ${gap.missing.map(buildProfileLanguageLabel).join(", ")}.`;
+			}),
+		};
+	}
 	const one = gaps.length === 1 && gaps[0].missing.length === 1;
 	const held = new Set(read.hqLangs);
 	const onLanguagesTab = gaps.every((gap) =>

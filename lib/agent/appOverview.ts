@@ -34,6 +34,11 @@ export function appOverview(doc: BlueprintDoc) {
 		settings: {
 			firstMenuLayout: doc.appSettings.firstMenuLayout ?? "list",
 			formMenuLayout: doc.appSettings.formMenuLayout ?? "list",
+			...(doc.appSettings.installationProfiles && {
+				installationProfiles: {
+					count: Object.keys(doc.appSettings.installationProfiles).length,
+				},
+			}),
 			showSavedForms: doc.appSettings.showSavedForms,
 			showIncompleteForms: doc.appSettings.showIncompleteForms,
 			requiredAndroidApps: (doc.appSettings.requiredAndroidApps ?? []).map(

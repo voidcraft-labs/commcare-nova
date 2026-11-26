@@ -1,3 +1,14 @@
+import { createHash as installationDigest } from "node:crypto";
+import * as installationMigration from "@/lib/case-store/migrations/20261203040000_hq_installation_profiles";
+import { readBuildProfiles } from "@/lib/commcare/hq/appSource";
+import { scanInstallationProfileBaselines } from "@/scripts/lib/installationProfileBaselines";
+import {
+	admitAppWrite,
+	readInstallationReview,
+	settleRemoteWrites,
+	writeInstallationReview,
+	writeTargetIdentityInTransaction,
+} from "../store";
 /**
  * The adopted ledger in real Postgres: what one birth from CommCare HQ
  * records, in the transaction that births the app, and what every reader
@@ -11,7 +22,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { seenByHq } from "@/lib/commcare/hq/appsSeen";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { softDeleteApp } from "@/lib/db/apps";
+import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { HqAppAlreadyClaimedError } from "@/lib/db/hqAppClaims";
 import { previewProjectSpaceFor } from "../previewSpace";
 import { nextPublishAction, publishedRemoteApp } from "../resources";
@@ -20,6 +31,7 @@ import {
 	foldDeploymentAttempt,
 	readAppBaseline,
 	readDeployment,
+	readDeploymentsForApp,
 	readHqAppClaims,
 	readReachedDeploymentTargets,
 	readTargetIdentity,
@@ -62,6 +74,13 @@ async function born(
 		remoteAppId: HQ_APP,
 		...options,
 	});
+}
+
+async function installationClaim(scope: Parameters<typeof readDeployment>[0]) {
+	const record = await readDeployment(scope, TARGET);
+	const active = record?.active.find((r) => r.kind === "app");
+	if (!active || !record) throw new Error("Missing adopted mapping");
+	return { mapping: active.pushToken, endings: record.deployment.endings };
 }
 
 async function count(
@@ -308,6 +327,210 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			ownership: OWNERSHIP,
 			sourceBytes: Buffer.byteLength(JSON.stringify(SOURCE), "utf8"),
 		});
+	});
+
+	it("keeps installation choices off the shared phase and hides details in previously saved rows from a second member", async () => {
+		const birth = await born();
+		const viewer = "review-viewer";
+		await h.seedProjectMember(viewer, PROJECT, "viewer");
+		const scope = { ...birth.scope, actorUserId: viewer, role: "viewer" };
+		const detailed = {
+			code: "hq_installation_profile_review" as const,
+			message: "Review private training worker",
+			details: ["physical-slot", "practice-private"],
+			installationProfileChoices: [
+				{ label: "worker-private", confirmation: "c".repeat(64) },
+			],
+			installationProfileConfirmation: "d".repeat(64),
+		};
+		const failure = {
+			status: "failed" as const,
+			at: new Date().toISOString(),
+			failure: detailed,
+		};
+		// A new, incomplete target holds a preflight but no completed upload.
+		const target = { ...TARGET, domain: "new-target" };
+		await foldDeploymentAttempt(
+			birth.scope,
+			target,
+			"preflight",
+			{ status: "succeeded", at: failure.at },
+			{ ensure: true, expectedEndings: 0 },
+		);
+		await foldDeploymentAttempt(birth.scope, target, "resources", failure, {
+			expectedEndings: 0,
+		});
+		const stored = await h
+			.db()
+			.selectFrom("app_deployments")
+			.select(["id", "phases"])
+			.where("domain", "=", target.domain)
+			.executeTakeFirstOrThrow();
+		expect(JSON.stringify(stored.phases)).not.toContain("private");
+		const list = () => readDeploymentsForApp(scope);
+		const visible = (await list()).find(
+			(r) => r.deployment.domain === target.domain,
+		);
+		expect(visible?.deployment.phases.resources).toMatchObject({
+			status: "failed",
+			failure: { code: "hq_installation_profile_review", details: [] },
+		});
+		expect(JSON.stringify(visible)).not.toContain("private");
+		await sql`UPDATE app_deployments SET phases=jsonb_set(phases,'{resources}',${JSON.stringify(failure)}::jsonb) WHERE id=${stored.id}`.execute(
+			h.db(),
+		);
+		expect(JSON.stringify(await list())).not.toContain("private");
+	});
+	it("keeps long HQ keys, hash peers and more than one statement of profile bindings in one transaction", async () => {
+		const birth = await born();
+		const original = await readTargetIdentity(birth.scope, TARGET);
+		const db = h.db();
+		const deployment = await db
+			.selectFrom("app_deployments")
+			.select("id")
+			.where("app_id", "=", APP)
+			.executeTakeFirstOrThrow();
+		const longKey = Array.from({ length: 200 }, (_, i) =>
+			installationDigest("sha256").update(String(i)).digest("hex"),
+		).join("");
+		// Ask this PostgreSQL version for two different, legitimate identifiers
+		// whose index hash compares equal. Both full keys must survive the recheck.
+		const pair = (
+			await sql<{ a: string; b: string }>`WITH candidates AS (
+ SELECT 'site-' || i AS k FROM generate_series(1,250000) AS n(i)
+ ) SELECT min(k) AS a,max(k) AS b FROM candidates GROUP BY hashtext(k) HAVING count(*)>1 LIMIT 1`.execute(
+				db,
+			)
+		).rows[0];
+		expect(pair).toBeDefined();
+		const keys = [
+			longKey,
+			pair.a,
+			pair.b,
+			...Array.from({ length: 13_105 }, (_, i) => `region-${i}`),
+		];
+		const read = readBuildProfiles(
+			Object.fromEntries(
+				keys.map((id) => [id, { name: "Team", langs: ["en"] }]),
+			),
+			new Set(["en"]),
+			1,
+		);
+		expect(read?.length).toBe(keys.length);
+		const bindings = (read ?? []).map(({ id }, i) => ({
+			uuid: testUuid(`kept-installation-${i}`),
+			key: id,
+		}));
+		const write = (prior: typeof original, rows: typeof bindings) =>
+			db.transaction().execute(async (tx) => {
+				await tx
+					.selectFrom("app_deployments")
+					.select("id")
+					.where("id", "=", deployment.id)
+					.forUpdate()
+					.executeTakeFirstOrThrow();
+				await writeTargetIdentityInTransaction(
+					tx,
+					deployment.id,
+					{ appId: APP, server: TARGET.server },
+					{ read: prior, next: { ...prior, installationProfiles: rows } },
+				);
+			});
+		await write(original, bindings);
+		const stored = await readTargetIdentity(birth.scope, TARGET);
+		expect(
+			new Map(stored.installationProfiles?.map(({ uuid, key }) => [uuid, key])),
+		).toEqual(new Map(bindings.map(({ uuid, key }) => [uuid, key])));
+		// A duplicate in a later batch rolls back all earlier additions/removals.
+		const replacements = Array.from({ length: 1010 }, (_, i) => ({
+			uuid: testUuid(`changed-installation-${i}`),
+			key: i === 1009 ? "second-key-0" : `second-key-${i}`,
+		}));
+		await expect(write(stored, replacements)).rejects.toMatchObject({
+			code: "23P01",
+		});
+		expect(await readTargetIdentity(birth.scope, TARGET)).toEqual(stored);
+	}, 60_000);
+
+	it("fences a signed installation receipt and binding under the current baseline, app revision and mapping generation", async () => {
+		const birth = await born();
+		const base = await readAppBaseline(birth.scope, TARGET);
+		if (!base || base.origin === "unread")
+			throw new Error("Expected an observed baseline.");
+		const record = await readTargetIdentity(birth.scope, TARGET);
+		const mapping = await h
+			.db()
+			.selectFrom("app_deployment_resources")
+			.select("push_token")
+			.where("kind", "=", "app")
+			.executeTakeFirstOrThrow();
+		const seq = Number((await h.readAppRow(APP))?.mutation_seq);
+		const next = {
+			...record,
+			installationProfiles: [
+				{
+					uuid: testUuid("training-receipt"),
+					key: "visits",
+					practiceWorkerId: "changed-worker",
+				},
+			],
+		};
+		const digest = "7".repeat(64);
+		const write = (
+			headSeq: number,
+			token: string,
+			comparedDigest = base.sourceDigest,
+		) =>
+			recordRefreshedAppBaseline(birth.scope, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				comparedDigest,
+				comparedPushToken: token,
+				read: {
+					sourceGzip: gzipSync(JSON.stringify(SOURCE)),
+					sourceBytes: Buffer.byteLength(JSON.stringify(SOURCE)),
+					sourceDigest: base.sourceDigest,
+					observedAt: "2026-11-12T00:00:00.000Z",
+				},
+				targetIdentity: { read: record, next },
+				installationReview: { digest, headSeq, mapping: token },
+			});
+		for (const [head, token, source] of [
+			[seq + 1, mapping.push_token, base.sourceDigest],
+			[seq, "stale-generation", base.sourceDigest],
+			[seq, mapping.push_token, "3".repeat(64)],
+		] as const) {
+			expect((await write(head, token, source)).outcome).toBe("superseded");
+			expect(await readTargetIdentity(birth.scope, TARGET)).toEqual(record);
+			expect(
+				(
+					await h
+						.db()
+						.selectFrom("app_deployment_baselines")
+						.select("installation_review")
+						.executeTakeFirstOrThrow()
+				).installation_review,
+			).toBeNull();
+		}
+		expect((await write(seq, mapping.push_token)).outcome).toBe("current");
+		expect(
+			(
+				await h
+					.db()
+					.selectFrom("app_deployment_baselines")
+					.select("installation_review")
+					.executeTakeFirstOrThrow()
+			).installation_review,
+		).toMatchObject({
+			digest,
+			actor: ACTOR,
+			remoteAppId: HQ_APP,
+			headSeq: seq,
+			mapping: mapping.push_token,
+		});
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).installationProfiles,
+		).toEqual(next.installationProfiles);
 	});
 
 	it("keeps the revision, the media record and the list through an upsert that names none of them", async () => {
@@ -604,5 +827,351 @@ describe("readHqAppClaims", () => {
 				contact: { role: "person", names: [ACTOR] },
 			},
 		]);
+	});
+});
+
+describe("existing adoptions and installation reviews", () => {
+	it("counts a verified empty map, an unobserved baseline and a real binding separately before DDL and after restore", async () => {
+		const birth = await born();
+		const database = h.db();
+		const baseline = await database
+			.selectFrom("app_deployment_baselines")
+			.selectAll()
+			.executeTakeFirstOrThrow();
+		const current = await readDeployment(birth.scope, TARGET);
+		const mapping = current?.active.find((row) => row.kind === "app");
+		if (!mapping) throw new Error("Expected the adopted app mapping");
+		const admitted = await admitAppWrite(birth.scope, TARGET, {
+			observedPushToken: mapping.pushToken,
+			comparedReview: mapping.reviewGeneration ?? null,
+			compiledIdentity: await readTargetIdentity(birth.scope, TARGET),
+			compiledAtSeq: 0,
+			expectedEndings: 0,
+			remoteAppId: HQ_APP,
+			writeKind: "import",
+		});
+		if (admitted.kind !== "admitted")
+			throw new Error("Expected a durable import admission");
+		await settleRemoteWrites([admitted.writeId], { kind: "settled" });
+		const oldReceipt = await database
+			.selectFrom("hq_remote_writes")
+			.select(["id", "resource_id", "settled_at"])
+			.where("id", "=", admitted.writeId)
+			.executeTakeFirstOrThrow();
+		// This isolated database has an authentic adoption and its immutable source.
+		// Down/up simulates the exact previous schema and the operator's DDL recovery.
+		await installationMigration.down(database);
+		try {
+			for (const [kind, shape] of [
+				["empty", { langs: ["en"], build_profiles: {} }],
+				["unobserved", { langs: ["en"] }],
+				[
+					"named",
+					{
+						langs: ["en"],
+						build_profiles: {
+							field: {
+								name: "Field",
+								langs: ["en"],
+								practice_mobile_worker_id: "local-worker",
+							},
+						},
+					},
+				],
+			] as const) {
+				const text = JSON.stringify(shape);
+				await database
+					.updateTable("app_deployment_baselines")
+					.set({
+						source_gzip: gzipSync(text),
+						source_bytes: Buffer.byteLength(text),
+						source_digest: installationDigest("sha256")
+							.update(text)
+							.digest("hex"),
+					})
+					.where("deployment_id", "=", baseline.deployment_id)
+					.execute();
+				expect(await scanInstallationProfileBaselines(database)).toMatchObject({
+					[kind]: 1,
+					privateWorkers: kind === "named" ? 1 : 0,
+				});
+			}
+			await database
+				.updateTable("app_deployment_baselines")
+				.set({
+					source_gzip: baseline.source_gzip,
+					source_digest: baseline.source_digest,
+					source_bytes: baseline.source_bytes,
+				})
+				.where("deployment_id", "=", baseline.deployment_id)
+				.execute();
+		} finally {
+			await installationMigration.up(database);
+		}
+		expect(
+			await database
+				.selectFrom("hq_remote_writes")
+				.select([
+					"id",
+					"resource_id",
+					"settled_at",
+					"import_acknowledged_at",
+					"import_acknowledged_version",
+				])
+				.where("id", "=", admitted.writeId)
+				.executeTakeFirstOrThrow(),
+		).toEqual({
+			...oldReceipt,
+			import_acknowledged_at: null,
+			import_acknowledged_version: null,
+		});
+
+		expect(
+			await database
+				.selectFrom("app_deployment_baselines")
+				.selectAll()
+				.executeTakeFirstOrThrow(),
+		).toEqual(baseline);
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).installationProfiles,
+		).toBeUndefined();
+	});
+	it("rechecks Project membership and the caller’s HQ grants before promoting any destination key and worker", async () => {
+		const birth = await born();
+		const identity = await readTargetIdentity(birth.scope, TARGET);
+		const sequence = Number(
+			(
+				await h
+					.db()
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", APP)
+					.executeTakeFirstOrThrow()
+			).mutation_seq,
+		);
+		const claim = await installationClaim(birth.scope);
+		const checkpoint = {
+			claim,
+			workingVersion: 1,
+			phase: "confirm-workers" as const,
+			sequence,
+			appId: HQ_APP,
+			sourceDigest: "read",
+			unrelatedDigest: "rest",
+			review: { requested: [], previousKeys: ["field"] },
+		};
+		const input = {
+			claim,
+			sequence,
+			remoteAppId: HQ_APP,
+			identity,
+			previous: undefined,
+			next: checkpoint,
+			requireHqImport: null,
+		};
+		expect(await writeInstallationReview(birth.scope, TARGET, input)).toBe(
+			true,
+		);
+		const binding = {
+			uuid: testUuid("field-team"),
+			key: "field",
+			practiceWorkerId: "worker-here",
+		};
+		const promote = {
+			...input,
+			next: undefined,
+			previous: checkpoint,
+			bindings: [binding],
+		};
+		await expect(
+			writeInstallationReview(birth.scope, TARGET, {
+				...promote,
+				requireHqImport: () => {
+					throw new Error("Missing HQ Import");
+				},
+			}),
+		).rejects.toThrow("Missing HQ Import");
+		expect(await readInstallationReview(birth.scope, TARGET)).toEqual(
+			checkpoint,
+		);
+		expect(
+			await writeInstallationReview(birth.scope, TARGET, {
+				...promote,
+				remoteAppId: "other-app",
+			}),
+		).toBe(false);
+		await sql`UPDATE auth_member SET role = ${"viewer"} WHERE "userId" = ${ACTOR} AND "organizationId" = ${PROJECT}`.execute(
+			h.db(),
+		);
+		await expect(
+			writeInstallationReview(birth.scope, TARGET, promote),
+		).rejects.toThrow();
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).installationProfiles,
+		).toBeUndefined();
+		await sql`UPDATE auth_member SET role = ${"editor"} WHERE "userId" = ${ACTOR} AND "organizationId" = ${PROJECT}`.execute(
+			h.db(),
+		);
+		expect(await writeInstallationReview(birth.scope, TARGET, promote)).toBe(
+			true,
+		);
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).installationProfiles,
+		).toEqual([binding]);
+		expect(
+			(await readTargetIdentity(birth.scope, { ...TARGET, domain: "another" }))
+				.installationProfiles,
+		).toBeUndefined();
+		expect(await readInstallationReview(birth.scope, TARGET)).toBeUndefined();
+	});
+	it("requires fresh agreement after the same deployment loses and reclaims the same HQ app", async () => {
+		const birth = await born();
+		const scope = birth.scope;
+		const identity = await readTargetIdentity(scope, TARGET);
+		const claim = await installationClaim(scope);
+		const sequence = Number(
+			(
+				await h
+					.db()
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", APP)
+					.executeTakeFirstOrThrow()
+			).mutation_seq,
+		);
+		const next = {
+			phase: "replace-profile" as const,
+			claim,
+			workingVersion: 7,
+			sequence,
+			appId: HQ_APP,
+			sourceDigest: "a",
+			unrelatedDigest: "b",
+			review: { previousKeys: [], requested: [] },
+		};
+		const input = {
+			sequence,
+			claim,
+			identity,
+			remoteAppId: HQ_APP,
+			previous: undefined,
+			next,
+			requireHqImport: null,
+		};
+		expect(await writeInstallationReview(scope, TARGET, input)).toBe(true);
+		await softDeleteApp(APP, ACTOR);
+		const taker = testUuid("second-owner");
+		await birthAdoptedApp(h, {
+			appId: taker,
+			projectId: PROJECT,
+			actorUserId: ACTOR,
+			target: TARGET,
+			remoteAppId: HQ_APP,
+		});
+		await softDeleteApp(taker, ACTOR);
+		await restoreApp(APP, ACTOR);
+		const current = await installationClaim(scope);
+		expect(current.mapping).not.toBe(claim.mapping);
+		const bind = {
+			...input,
+			previous: next,
+			next: undefined,
+			bindings: [{ uuid: testUuid("selected"), key: "field" }],
+		};
+		expect(await writeInstallationReview(scope, TARGET, bind)).toBe(false);
+		expect(
+			(await readTargetIdentity(scope, TARGET)).installationProfiles,
+		).toBeUndefined();
+		const fresh = { ...next, claim: current };
+		expect(
+			await writeInstallationReview(scope, TARGET, {
+				...input,
+				claim: current,
+				previous: next,
+				next: fresh,
+			}),
+		).toBe(true);
+		expect(
+			await writeInstallationReview(scope, TARGET, {
+				...bind,
+				claim: current,
+				previous: fresh,
+			}),
+		).toBe(true);
+	});
+	it("rejects a review or binding from an earlier live mapping replaced at the same Nova revision", async () => {
+		const birth = await born();
+		const identity = await readTargetIdentity(birth.scope, TARGET);
+		const seq = Number(
+			(
+				await h
+					.db()
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", APP)
+					.executeTakeFirstOrThrow()
+			).mutation_seq,
+		);
+		const claim = await installationClaim(birth.scope);
+		const next = {
+			claim,
+			workingVersion: 1,
+			phase: "edit-profiles" as const,
+			sequence: seq,
+			appId: HQ_APP,
+			sourceDigest: "a",
+			unrelatedDigest: "b",
+			review: { previousKeys: [], requested: [] },
+		};
+		const stale = {
+			claim,
+			sequence: seq,
+			remoteAppId: HQ_APP,
+			previous: undefined,
+			identity,
+			requireHqImport: null,
+		};
+		await recordRemoteResource(birth.scope, TARGET, {
+			expectedEndings: 0,
+			kind: "app",
+			novaResourceId: APP,
+			remoteId: "replacement-app",
+			ownership: "nova-created",
+			pushedRevision: seq,
+			remoteRevision: 2,
+			uploadedAt: READ_AT,
+			baseline: {
+				origin: "unread",
+				remoteAppId: "replacement-app",
+				sourceGzip: null,
+				sourceBytes: null,
+				sourceDigest: null,
+				ownership: null,
+				observedAt: READ_AT,
+				discard: null,
+				novaRevision: null,
+				mediaFiles: { kind: "set", files: null },
+				firstPublish: { kind: "set", list: null },
+			},
+		});
+		expect(
+			await writeInstallationReview(birth.scope, TARGET, { ...stale, next }),
+		).toBe(false);
+		expect(
+			await writeInstallationReview(birth.scope, TARGET, {
+				...stale,
+				bindings: [
+					{
+						uuid: testUuid("stale-worker"),
+						key: "old-key",
+						practiceWorkerId: "old-worker",
+					},
+				],
+			}),
+		).toBe(false);
+		expect(await readInstallationReview(birth.scope, TARGET)).toBeUndefined();
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).installationProfiles,
+		).toBeUndefined();
 	});
 });

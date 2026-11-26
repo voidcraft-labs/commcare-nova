@@ -6,6 +6,7 @@ import {
 import "server-only";
 
 import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
+import { installationDefinitionsChanged } from "../installationProfileReview";
 
 /**
  * A review of the changes made in CommCare HQ to an app Nova publishes
@@ -56,7 +57,6 @@ import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import { readWorkLimit, sourceCharacters } from "@/lib/commcare/reader/work";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { WorkCancelled, WorkLimitReached } from "@/lib/commcare/workMeter";
 import {
 	findReadyAssetIdsByProjectAndHashes,
@@ -189,6 +189,7 @@ import {
 	withDeploymentReadSnapshot,
 } from "../store";
 import {
+	deploymentWireIdentity,
 	exportIdentityOf,
 	formIdsAgree,
 	observedTargetIdentity,
@@ -196,6 +197,7 @@ import {
 	sameTargetIdentity,
 	type TargetIdentity,
 	targetIdentityChanges,
+	unboundInstallationKeys,
 } from "../targetIdentity";
 import type { AppBaseline, DeploymentResource } from "../types";
 import { sourceFromBaseline } from "./baselineSource";
@@ -409,6 +411,7 @@ export interface HqChangesBasis {
 	readonly source: HqAppSource;
 	/** Layouts an overwrite from the current Nova head would replace. */
 	readonly layoutReplacements: readonly string[];
+	readonly workingVersion: number;
 	readonly modules: readonly HqAlignedModule[];
 	readonly normalized: {
 		readonly normalized: unknown;
@@ -447,6 +450,7 @@ export interface FetchedHqChanges extends HqChangesBasis {
 /** What the check decided, for a bring-in to act on. */
 export interface CheckedHqChanges {
 	readonly removedFiles: readonly string[];
+	readonly installationReviewDigest?: string;
 	readonly fetched: FetchedHqChanges;
 	readonly plan: Extract<
 		HqChangePlan,
@@ -1237,6 +1241,9 @@ async function computeWith(
 			1,
 			layoutReplacements.length,
 		);
+	const profilesNeedReview =
+		installationDefinitionsChanged(baseline.source, source.buildProfiles) ||
+		unboundInstallationKeys(source.buildProfiles, targetIdentity).length > 0;
 	if (reference.kind !== "ok") {
 		/* With no reference there are no files to settle by content. An
 		 * observed move still needs the missing reference for a full reading. */
@@ -1254,6 +1261,7 @@ async function computeWith(
 			}),
 		);
 		if (
+			!profilesNeedReview &&
 			!unownedAndroidSelection &&
 			!legacyLocationDiffers &&
 			baseline.firstPublishReview !== "required" &&
@@ -1342,6 +1350,7 @@ async function computeWith(
 		remoteRevision: reading.version,
 		source,
 		layoutReplacements,
+		workingVersion: reading.version,
 		modules,
 		normalized,
 		published,
@@ -1370,6 +1379,7 @@ async function computeWith(
 	if (
 		!unownedAndroidSelection &&
 		!legacyLocationDiffers &&
+		!profilesNeedReview &&
 		parts.length === 0
 	) {
 		const same = reviewMatchingSource(basis);
@@ -1618,7 +1628,7 @@ function resolverOf(fetched: HqChangesBasis) {
 		fetched.scope.appId,
 		externalIdentityMap(
 			fetched.reference.identityDoc,
-			targetWireIdentity(fetched.targetIdentity.entities),
+			deploymentWireIdentity(fetched.targetIdentity),
 		),
 	);
 }
@@ -1664,7 +1674,7 @@ function readingsWith(
 			caseListActionsApplied: fetched.caseListActionsApplied,
 		}),
 		reference: fetched.reference,
-		overrides: fetched.targetIdentity.entities,
+		targetIdentity: fetched.targetIdentity,
 		media: { published: fetched.published, base, now },
 		heldExpansions: pieces.expansions,
 	});
@@ -1876,6 +1886,10 @@ export async function checkHqChanges(
 	try {
 		plan = await pieces.at("the plan").steps(
 			planHqChangesSteps({
+				legacyProfileKeys: unboundInstallationKeys(
+					readings.inputs.base.source.buildProfiles,
+					fetched.targetIdentity,
+				),
 				reference,
 				baseMediaFiles: filesOfReading(
 					fetched,
@@ -1979,6 +1993,19 @@ export async function checkHqChanges(
 	const changedPublishSubjects = plan.publishChanges.some(
 		(id) => id !== "unused-media-entries-removed",
 	);
+	const identityChanges = await pieces
+		.at("where HQ keeps")
+		.run(() =>
+			targetIdentityChanges(
+				receipt.read,
+				receipt.next,
+				targetDoc,
+				fetched.head.doc,
+				assetNames,
+				{ base: readings.base.draft, now: draft },
+			),
+		);
+	const installations = identityChanges.installationProfiles;
 	const requiresReview =
 		legacy || changedFiles.length > 0 || changedPublishSubjects;
 	const built = await pieces.at("the next publish's body").run(() => {
@@ -2016,6 +2043,21 @@ export async function checkHqChanges(
 						: "changed-publish-subjects",
 			}),
 			authority: reviewAuthority(fetched),
+			...(installations?.length && {
+				installationReview: {
+					app: scope.appId,
+					actor: scope.actorUserId,
+					project: scope.projectId,
+					server: fetched.target.server,
+					domain: fetched.target.domain,
+					remoteApp: fetched.live.remoteId,
+					workingVersion: fetched.workingVersion,
+					mapping: fetched.live.pushToken,
+					deployment: fetched.deployment.id,
+					endings: fetched.deployment.endings,
+					changes: installations,
+				},
+			}),
 			baselineDigest: fetched.baseline.sourceDigest,
 			sourceDigest: fetched.normalized.digest,
 			headSeq: fetched.head.seq,
@@ -2040,6 +2082,9 @@ export async function checkHqChanges(
 	});
 	const checked: CheckedHqChanges = {
 		removedFiles: unused.map((file) => file.digest),
+		...(installations?.length && {
+			installationReviewDigest: built.reviewDigest,
+		}),
 		fetched,
 		plan,
 		declaration,
@@ -2100,18 +2145,11 @@ export async function checkHqChanges(
 			...(fetched.androidPrivilegeLost
 				? [ANDROID_APPS_PRIVILEGE_LOST_LINE]
 				: []),
-			...whereHqKeepsLines(
-				targetIdentityChanges(
-					receipt.read,
-					receipt.next,
-					plan.kind === "changes" ? plan.target : fetched.head.doc,
-					fetched.head.doc,
-					assetNames,
-				),
-			),
+			...whereHqKeepsLines(identityChanges),
 		]);
 	if (
 		!requiresReview &&
+		!installations?.length &&
 		(plan.kind === "nothing" ||
 			(plan.batch.length === 0 && plan.renamedInNova.length === 0))
 	)
@@ -2138,7 +2176,7 @@ export async function checkHqChanges(
 		kind: "checked",
 		review: {
 			kind: "changes",
-			...(cannotDiscard && { requiresReview: true }),
+			...((cannotDiscard || installations?.length) && { requiresReview: true }),
 			...(changedFiles.length > 0 && {
 				fileReviewLines:
 					fetched.layoutReplacements.length +

@@ -27580,7 +27580,41 @@
 		"id": "hq-new-app/build-profile",
 		"base": "hq-new-app",
 		"entry": "application-and-settings/build-profiles-non-empty",
-		"standing": "not-yet",
+		"change": {
+			"op": "set-json",
+			"pointer": "/build_profiles",
+			"value": {
+				"field": {
+					"name": "Field",
+					"langs": ["en"],
+					"practice_mobile_worker_id": null,
+					"doc_type": "BuildProfile"
+				}
+			}
+		},
+		"holds": [
+			{
+				"key": ["installationProfile", "field"],
+				"pointer": "/name",
+				"value": "Field"
+			},
+			{
+				"key": ["installationProfile", "field"],
+				"pointer": "/languages",
+				"value": ["eng"]
+			},
+			{
+				"key": ["installationProfile", "field"],
+				"pointer": "/requiresPracticeWorker",
+				"value": false
+			}
+		]
+	},
+	{
+		"id": "hq-new-app/build-profile-no-languages",
+		"base": "hq-new-app",
+		"entry": "application-and-settings/build-profiles-invalid-language-subset",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "app"
 		},
@@ -27590,7 +27624,7 @@
 			"value": {
 				"field": {
 					"name": "Field",
-					"langs": ["en"],
+					"langs": [],
 					"practice_mobile_worker_id": null,
 					"doc_type": "BuildProfile"
 				}

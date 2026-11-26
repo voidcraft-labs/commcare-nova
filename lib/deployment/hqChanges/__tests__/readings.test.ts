@@ -1,3 +1,4 @@
+import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 /**
  * The two readings a change made in CommCare HQ is the difference of.
  *
@@ -278,7 +279,7 @@ function readingsOf(
 			renamesSince: [],
 			actors: [],
 		},
-		overrides: [],
+		targetIdentity: EMPTY_TARGET_IDENTITY,
 		media: options.media ?? {
 			published: options.published ?? [],
 			base: null,

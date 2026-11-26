@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import AdmZip from "adm-zip";
+import { testUuid } from "../../../__tests__/helpers/uuid";
 import { manifestFor } from "../../../lib/commcare/__tests__/fixtureMediaManifest";
 import {
 	bilingualSurveyDoc,
@@ -21,6 +22,7 @@ import {
 	type TargetFacts,
 	targetFactsFromSource,
 } from "../../../lib/commcare/targetFacts";
+import { DERIVED_WIRE_IDENTITY } from "../../../lib/commcare/wireIdentity";
 import { generatedWordingId } from "../../../lib/domain/generatedWording";
 import {
 	imageMapColumn,
@@ -29,6 +31,9 @@ import {
 } from "../../../lib/domain/modules";
 import type { MediaAssetId } from "../../../lib/domain/multimedia";
 import { snapshotTranslationUnits } from "../../../lib/domain/translationUnits";
+import { prepareExportBoundaryWithReads } from "../../../lib/export/boundaryValidation";
+import { compileLocalArchive } from "../../../lib/export/localArchive";
+import { parseLookupRevision } from "../../../lib/lookup/schema";
 import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
@@ -151,3 +156,74 @@ for (const [dir, table] of Object.entries(keptTables(keptFacts))) {
 		JSON.stringify([...own]),
 	);
 }
+
+/** The browser's and MCP's shared download path for an installation with a single language. */
+async function selectedArchive(directory: string) {
+	const doc = localizationWireFixture("bilingual");
+	if (!doc.localization) throw new Error("Expected a bilingual installation.");
+	doc.localization = {
+		...doc.localization,
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+	};
+	const uuid = testUuid("native selected installation");
+	doc.appSettings.installationProfiles = {
+		[uuid]: {
+			uuid,
+			name: "Equipo",
+			languages: ["spa"],
+			requiresPracticeWorker: false,
+		},
+	};
+	const result = await prepareExportBoundaryWithReads(
+		{
+			doc,
+			mode: "ccz",
+			compiledAtSeq: 7,
+			access: {
+				projectId: "native-install",
+				actorUserId: "author",
+				role: "editor",
+			},
+			attachmentTarget: null,
+		},
+		{
+			lookupFixtureData: async (scope) => ({
+				projectId: scope.projectId,
+				projectRevision: parseLookupRevision("0"),
+				definitions: [],
+				rowsByTable: new Map(),
+			}),
+			mediaRows: async () => [],
+			mediaManifest: async () => new Map(),
+		},
+	);
+	if (!result.ok) throw new Error(JSON.stringify(result.violations));
+	for (const [name, selected] of [
+		["named-spanish", uuid],
+		["ordinary", undefined],
+	] as const) {
+		const bytes = compileLocalArchive(
+			result.prepared,
+			NATIVE_RUNTIME_TARGET,
+			DERIVED_WIRE_IDENTITY,
+			{
+				installationProfileUuid: selected,
+				adopted: false,
+				earlierHqApps: 0,
+				emptyCaseListText: false,
+				targetFacts: null,
+				keyedCaseIdPrefixes: new Map(),
+			},
+		);
+		writeFileSync(resolve(directory, `${name}.ccz`), bytes);
+	}
+	writeFileSync(
+		resolve(directory, "named-spanish.json"),
+		JSON.stringify(expandDoc(doc)),
+	);
+}
+selectedArchive(output).catch((error: unknown) => {
+	console.error(error);
+	process.exitCode = 1;
+});

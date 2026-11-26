@@ -201,6 +201,16 @@ export function parseScopes(scope: string | undefined): string[] {
  * `registerScopedTool` throws nothing: it hands this error to the shared
  * serializer and answers its envelope before the handler runs.
  */
+export class McpCredentialInactiveError extends Error {
+	constructor(kind: AuthKind) {
+		super(
+			kind === "api-key"
+				? "This API key no longer authorizes this change. Check the key and its scopes in Settings, then review the change again."
+				: "This client no longer has permission for this change. Reauthorize it with the required scopes, then review the change again.",
+		);
+		this.name = "McpCredentialInactiveError";
+	}
+}
 export class McpScopeError extends Error {
 	constructor(
 		public readonly requiredScope: Scope,

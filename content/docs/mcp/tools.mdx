@@ -1638,3 +1638,11 @@ to enter a storage format. These checks do not exercise maps or device GPS.
 ## System reminders
 
 A few read results (`get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent, for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.
+
+To inspect named installations, use `get_languages` with `installations: {}` and follow `nextCursor` in `installations.cursor`. The app overview shows the count. A large installation can span consecutive text parts. Join them in order and read the resulting JSON for its complete name, UUID, languages and practice requirement. Use these ordered language identities in `update_app.installation_profile`.
+
+If CommCare HQ has received the app and access changes during installation confirmation, restore the connection’s publish and import permissions and publish again. Nova checks the current app and project space before finishing the installation.
+
+Stopping a destination that holds named installation bindings or a pending installation review requires an admin or owner of the Project and a connection with both HQ Write and HQ Import. Uploading to a restored app settles the selected project space. Bringing an app back in with a new Nova identity also requires both grants when it will take over a deleted app’s managed installation claim.
+
+If you remove the last named installation while its review is open, publish once with both HQ Write and HQ Import. When Nova verifies the ordinary installation in that project space, later ordinary uploads and stops need only HQ Write.

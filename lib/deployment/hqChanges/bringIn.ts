@@ -319,6 +319,8 @@ async function bringInInRoom(
 	}
 
 	/* Each arm writes; the room stops nothing from here on. */
+	if (checked?.installationReviewDigest)
+		await scope.requireInstallationManagement?.();
 	room.beginWrites();
 	try {
 		if (
@@ -416,6 +418,13 @@ async function recordReadsTheSame(
 		settled: basis.published,
 	});
 	const written = await recordRefreshedAppBaseline(scope, target, {
+		...(checked?.installationReviewDigest && {
+			installationReview: {
+				digest: checked.installationReviewDigest,
+				headSeq: basis.head.seq,
+				mapping: basis.live.pushToken,
+			},
+		}),
 		expectedEndings: basis.deployment.endings,
 		remoteAppId: basis.live.remoteId,
 		comparedDigest: basis.baseline.sourceDigest,
@@ -569,6 +578,9 @@ async function bringChangesIn(
 			try {
 				published = (
 					await publishStagedReadingMedia({
+						authorizePublication: first.installationReviewDigest
+							? scope.requireInstallationManagement
+							: undefined,
 						projectId: scope.projectId,
 						actorUserId: scope.actorUserId,
 						plan: toPublish,
@@ -938,6 +950,13 @@ async function takenFor(
 					),
 			},
 			targetIdentity: checked.targetIdentity,
+			...(checked.installationReviewDigest && {
+				installationReview: {
+					digest: checked.installationReviewDigest,
+					headSeq: basis.head.seq,
+					mapping: basis.live.pushToken,
+				},
+			}),
 			firstPublish: {
 				...nextPublishLists(
 					checked,

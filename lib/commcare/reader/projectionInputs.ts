@@ -46,6 +46,7 @@ import {
 import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
 import type { ReadContext } from "./context";
 import type { ProjectionFacts } from "./heldExpansions";
+import { readInstallationBindings } from "./installationBindings";
 import type { ReadMediaReference } from "./types";
 
 export interface ReadProjectionInputs {
@@ -70,6 +71,7 @@ interface Built {
 	readonly kept: ReadonlyMap<string, string>;
 	/** How many media references the reading held when these were built. */
 	readonly references: number;
+	readonly profiles: ReadContext["draft"]["appSettings"]["installationProfiles"];
 }
 
 const BUILT = new WeakMap<ReadContext, Built>();
@@ -190,7 +192,8 @@ function built(ctx: ReadContext): Built {
 	const known = BUILT.get(ctx);
 	if (
 		known !== undefined &&
-		known.references === ctx.facts.mediaReferences.length
+		known.references === ctx.facts.mediaReferences.length &&
+		known.profiles === ctx.draft.appSettings.installationProfiles
 	)
 		return known;
 	const overrides: WireIdentityOverride[] = [];
@@ -230,8 +233,9 @@ function built(ctx: ReadContext): Built {
 		domain: ctx.input.target.domain,
 	};
 	const naming = namingDefinitions(ctx);
+	const profiles = readInstallationBindings(ctx);
 	const inputs: ReadProjectionInputs = {
-		identity: targetWireIdentity(overrides),
+		identity: targetWireIdentity(overrides, [], profiles),
 		attachmentTarget,
 		lookupNaming: lookupWireNaming(naming),
 		assets: assets as AssetManifest,
@@ -239,6 +243,7 @@ function built(ctx: ReadContext): Built {
 	const result: Built = {
 		inputs,
 		facts: {
+			profiles,
 			overrides: overrides.map((one) => ({ ...one })),
 			attachmentTarget: { ...attachmentTarget },
 			naming: structuredClone(naming),
@@ -248,6 +253,7 @@ function built(ctx: ReadContext): Built {
 			[...kept].map(([assetId, reference]) => [assetId, reference.path]),
 		),
 		references: ctx.facts.mediaReferences.length,
+		profiles: ctx.draft.appSettings.installationProfiles,
 	};
 	BUILT.set(ctx, result);
 	return result;
