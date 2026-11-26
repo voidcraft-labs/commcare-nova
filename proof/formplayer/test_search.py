@@ -371,11 +371,10 @@ def test_empty_search_registration_returns_to_its_results_or_selects_its_created
             evidence("registered-case", {"case": case_id, "landing": landing, "caseFixture": fixture_reads})
 
 
-
-def test_empty_search_registration_without_a_created_case_offers_registration_again(
+def test_empty_search_registration_without_a_created_case_saves_then_reports_the_missing_case(
     hq, core_runner, formplayer_runner, formplayer_documents, evidence
 ):
-    """The new-case return's guard falls through when a real form saves without opening the case."""
+    """A real submission saves before the fallthrough frame asks HQ for the case the form never created."""
     with apps.published(formplayer_documents["no-matches-new-case"], core_runner) as published:
         with apps.served(published, formplayer_runner) as served, served.run("empty-search-no-create"):
             web = apps.web(formplayer_runner, served)
@@ -383,16 +382,16 @@ def test_empty_search_registration_without_a_created_case_offers_registration_ag
             submitted = web.submit(
                 form["session_id"], {name["ix"]: "Consultation only", **_creation_choice(form, "No")}
             )
-            assert submitted["status"] == "success", submitted
-            (receipt,) = served.hq.submissions
-            case_ns = "{http://commcarehq.org/case/transaction/v2}"
-            assert list(etree.fromstring(receipt.instance).iter(f"{case_ns}create")) == []
-            landed = submitted["nextScreen"]
             asked = _asked(served)
-            evidence("not-created", {"landing": landed, "asked": asked})
-            assert screen_kind(landed) == "entities", (landed, asked)
-            assert landed["entities"] == [], landed
-            assert len(landed["actions"]) == 1, landed
+            evidence("not-created", {"response": submitted, "asked": asked})
+            (receipt,) = served.hq.submissions
+            instance = etree.fromstring(receipt.instance)
+            assert instance.findtext("{*}case_name") == "Consultation only"
+            case_ns = "{http://commcarehq.org/case/transaction/v2}"
+            assert list(instance.iter(f"{case_ns}create")) == []
+            assert submitted["status"] == "error", (submitted, asked)
+            assert not submitted.get("nextScreen"), submitted
+            assert [request.status for request in served.hq.exchanges if request.url_name == "case_fixture"] == [404], asked
 
 
 def _landing(screen):
