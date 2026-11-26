@@ -44,6 +44,7 @@ DOCUMENTS = (
     "targeted-form-link-hidden-target",
     "targeted-case-choice-values",
     "targeted-case-map",
+    "targeted-case-list-icon-action",
     "targeted-relative-case-dates",
     "targeted-hidden-column",
     "targeted-independent-case-order",

@@ -212,6 +212,8 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/submitted-answer-name-only-android-stores@web-apps": structural(
 		"answer-name-requires-android",
 	),
+	"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list@android":
+		structural("case-list-icon-actions"),
 
 	// ── Refused, expression ────────────────────────────────────────────
 	"expressions-and-data/here-in-a-case-list-calculated-column-or-sort@web-apps":

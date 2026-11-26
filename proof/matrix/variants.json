@@ -26099,8 +26099,8 @@
 	{
 		"id": "hq-menus/clickable-icon",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 1,
@@ -26143,6 +26143,20 @@
 				"endpoint_action_id": "register_household"
 			}
 		}
+	},
+	{
+		"id": "hq-menus/clickable-icon-for-a-visit",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
+		"change": { "op": "named", "name": "clickable_icon_for_a_visit" },
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/columns/1/kind",
+				"value": "image-map"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/close-without-open-in-a-caseless-menu",

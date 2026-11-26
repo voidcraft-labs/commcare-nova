@@ -25,7 +25,6 @@ import {
 	tileCellFor,
 	type Uuid,
 } from "@/lib/domain";
-import { formSubmitsOnOpenFromAQuestionLabel } from "@/lib/domain/automaticSubmission";
 import { relationDestinationCaseType } from "@/lib/domain/expression/rewrite";
 import { declaredPlatforms } from "@/lib/domain/platforms";
 import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
@@ -33,6 +32,7 @@ import {
 	createEntryPointProjector,
 	type EntryPointRequiredSelection,
 } from "./entryPointProjection";
+import { formSubmitsOnOpenFromAQuestionLabel } from "./xform/behaviorTexts";
 
 type ImageMapColumn = Extract<Column, { kind: "image-map" }>;
 
@@ -110,7 +110,9 @@ export function createListIconDestination(doc: BlueprintDoc) {
 				!formRequiresSelectedCase(form.type, planFormCaseWire(doc, form.uuid))
 			)
 				return undefined;
-			selections = project(target).requiredSelections;
+			const projection = project(target);
+			if (projection.orderedArguments.length !== 1) return undefined;
+			selections = projection.requiredSelections;
 		} catch {
 			// The entry point rule reports a destination that does not project.
 			return undefined;
@@ -151,7 +153,6 @@ export function listIconDestinations(
 
 /** Why an icon's action is not one a worker can run. */
 export type ListIconActionReason =
-	| "android"
 	| "not-on-results"
 	| "grouped-body"
 	| "no-destination";
@@ -170,8 +171,6 @@ export function listIconActionSentence(
 ): string {
 	const subject = label ? `"${label}"` : "An image on Results";
 	switch (reason) {
-		case "android":
-			return `${subject} has an icon that submits a form, which only Web Apps runs: Android shows the image's file path, and a worker there can't tap it. You can set the app to run only in Web Apps in App settings, or remove the icon's action.`;
 		case "not-on-results":
 			return `${subject} needs to show on Results for a worker to tap its icon. You can show it on Results or remove the icon's action.`;
 		case "grouped-body":
@@ -184,8 +183,7 @@ export function listIconActionSentence(
 }
 
 /** Why an icon's action is not one a worker can run, or `undefined` when it
- * is. A declaration that includes Android refuses it, since Android shows
- * the image's path in its place (`menus-and-case-lists/16-clickable-icon-…`). */
+ * is. The platform table separately restricts this action to Web Apps. */
 export function listIconActionIssue(
 	doc: BlueprintDoc,
 	module: Module,
@@ -199,7 +197,6 @@ export function listIconActionIssue(
 	  }
 	| undefined {
 	if (column.entryPointUuid === undefined) return undefined;
-	if (declaredPlatforms(doc).includes("android")) return { reason: "android" };
 	if (column.visibleInList === false) return { reason: "not-on-results" };
 	const caseType = listIconCaseType(doc, module, column);
 	if (caseType === undefined) return { reason: "grouped-body" };

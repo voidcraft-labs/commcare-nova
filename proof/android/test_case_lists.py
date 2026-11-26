@@ -562,3 +562,19 @@ def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_
                 # A navigation path walks the loaded form through save, where the reader records any alert.
                 saved = form["saved"]
                 assert saved["finishing"] is True and saved["alert"] is None, (path, saved)
+
+
+def test_android_displays_the_web_apps_icon_as_a_path_without_submitting(android_documents, hq):
+    """Inspect the Android rendering of the HQ archive even though Nova offers this action only in Web Apps."""
+    from proof.android import observe
+    from proof.formplayer.hq import serve
+    from proof.rules.conftest import published
+
+    document = android_documents["targeted-case-list-icon-action"]
+    with published(document, None) as project:
+        with serve(project.unit, document, project.app_id, database=_restored(document)) as served:
+            path = served.doc["modules"][0]["case_details"]["short"]["columns"][1]["enum"][0]["value"]["en"]
+            assert path.startswith("jr://file/"), path
+            listed = _list(served, observe.release_archive(served), "web-list-icon-on-android", "m0-f0", [])
+            assert [_texts(row)[:2] for row in listed["rows"]] == [["First visit", path], ["Second visit", path]]
+            assert not served.hq.submissions

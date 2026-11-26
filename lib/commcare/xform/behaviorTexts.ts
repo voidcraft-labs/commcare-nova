@@ -206,9 +206,28 @@ export function formBehaviorTextChoices(
 				questionLabel:
 					unit.role === "field-label" &&
 					field.kind !== "group" &&
-					field.kind !== "repeat",
+					field.kind !== "repeat" &&
+					field.kind !== "section",
 				label: `${text.trim()} · ${CHOICE_ROLE_WORDS[unit.role]} of ${field.id}`,
 			},
 		];
 	});
+}
+
+/** The HQ Case List editor finds this pragma by the control's label ref.
+ * A behavior carried only by a hint, choice or container is outside its offer. */
+export function formSubmitsOnOpenFromAQuestionLabel(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): boolean {
+	const automatic = doc.forms[formUuid]?.automaticSubmissionText;
+	if (!automatic) return false;
+	const ids = new Set(
+		[automatic.carrier, ...(automatic.alsoUsedBy ?? [])].map(
+			itextUnitTranslationId,
+		),
+	);
+	return formBehaviorTextChoices(doc, formUuid).some(
+		(choice) => choice.questionLabel && ids.has(choice.key),
+	);
 }

@@ -17,6 +17,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"web-apps-form-behavior": [
 		"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
 	],
+	"case-list-icon-actions": [
+		"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
+	],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
 	],

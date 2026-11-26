@@ -23,6 +23,7 @@ import { attributeDisplayCondition } from "./documents/attributeDisplayCondition
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
+import { caseListIconAction } from "./documents/caseListIconAction";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
 import { caseMap } from "./documents/caseMap";
@@ -209,6 +210,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	workerMessages,
 	labelSort,
 	customTile,
+	caseListIconAction,
 	closeConditions,
 	closeConditionUnparsable,
 	multiSelectDestinations,
