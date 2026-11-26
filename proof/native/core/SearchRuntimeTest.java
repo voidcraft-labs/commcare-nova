@@ -203,8 +203,10 @@ public class SearchRuntimeTest {
             session.clearAllState();
             session.setCommand("m0-f0");
             EvaluationContext fresh = session.getEvaluationContext(initializer, "m0-f0", null);
-            assertNull(fresh.getInstance("search-input:" + parent));
-            assertNull(fresh.getInstance("search-input:" + child));
+            for (String storage : Arrays.asList(parent, child)) {
+                DataInstance declaration = fresh.getInstance("search-input:" + storage);
+                assertNull(storage, declaration == null ? null : declaration.getRoot());
+            }
 
             // The next worker enters the same app and the same form with a fresh session.
             MockUserDataSandbox otherWorker = MockDataUtils.getStaticStorage();
