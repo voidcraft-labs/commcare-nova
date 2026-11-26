@@ -34,6 +34,8 @@ function validAddPayload(kind: string): Record<string, unknown> {
 	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
 	if (kind === "hidden") {
 		p.calculate = today();
+	} else if (kind === "connect_activity") {
+		p.activity = { kind: "assigned-task", name: "Call", description: "" };
 	} else if (kind === "repeat") {
 		p.label = proseText("Repeat");
 		p.repeat = { mode: "user_controlled" };
@@ -66,6 +68,42 @@ describe("toolSchemaGenerator", () => {
 				`addFields arm for ${kind}`,
 			).toBe(true);
 		}
+	});
+
+	it("sets and clears the Android photo size on image questions", () => {
+		for (const pixels of [1, 731, 2147483647]) {
+			expect(
+				generated.addFieldsItemSchema.safeParse({
+					...validAddPayload("image"),
+					maxDimension: pixels,
+				}).success,
+			).toBe(true);
+			expect(
+				generated.editFieldUpdatesSchema.safeParse({
+					kind: "image",
+					maxDimension: pixels,
+				}).success,
+			).toBe(true);
+		}
+		for (const pixels of [0, -1, 3.5, 2147483648])
+			expect(
+				generated.editFieldUpdatesSchema.safeParse({
+					kind: "image",
+					maxDimension: pixels,
+				}).success,
+			).toBe(false);
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "image",
+				maxDimension: null,
+			}).success,
+		).toBe(true);
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "signature",
+				maxDimension: 500,
+			}).success,
+		).toBe(false);
 	});
 
 	it("takes a supported number keypad on text, password and barcode questions and clears it on edit", () => {
@@ -116,13 +154,13 @@ describe("toolSchemaGenerator", () => {
 				plain_help: true,
 			}).success,
 		).toBe(true);
-		const onLabel = generated.editFieldUpdatesSchema.safeParse({
-			kind: "label",
+		const onHidden = generated.editFieldUpdatesSchema.safeParse({
+			kind: "hidden",
 			plain_help: true,
 		});
-		expect(onLabel.success).toBe(false);
-		expect(onLabel.error?.issues.map((issue) => issue.message)).toEqual([
-			'kind "label" carries no help text, so leave plain_help out.',
+		expect(onHidden.success).toBe(false);
+		expect(onHidden.error?.issues.map((issue) => issue.message)).toEqual([
+			'kind "hidden" carries no help text, so leave plain_help out.',
 		]);
 	});
 
@@ -293,59 +331,18 @@ describe("toolSchemaGenerator", () => {
 		).toBe(true);
 	});
 
-	it("rejects a hidden field carrying both calculate and default_value, at the default_value slot", () => {
-		// The form evaluates every calculate after it seeds defaults, so the
-		// pair is a dead default. Both tool boundaries refuse it at parse and
-		// point at `default_value`, the slot the model drops or nulls.
-		const added = generated.addFieldsItemSchema.safeParse({
-			id: "h",
+	it("accepts a hidden question with separate starting and calculated answers", () => {
+		const slots = {
 			kind: "hidden",
 			calculate: today(),
 			default_value: today(),
-		});
-		expect(added.success).toBe(false);
-		if (added.success) throw new Error("expected rejection");
-		expect(added.error.issues.map((issue) => issue.path)).toEqual([
-			["default_value"],
-		]);
-		expect(added.error.issues[0]?.message).toContain(
-			"Nova doesn't yet write both on one field",
+		};
+		expect(
+			generated.addFieldsItemSchema.safeParse({ id: "h", ...slots }).success,
+		).toBe(true);
+		expect(generated.editFieldUpdatesSchema.safeParse(slots).success).toBe(
+			true,
 		);
-
-		const edited = generated.editFieldUpdatesSchema.safeParse({
-			kind: "hidden",
-			calculate: today(),
-			default_value: today(),
-		});
-		expect(edited.success).toBe(false);
-		if (edited.success) throw new Error("expected rejection");
-		expect(edited.error.issues.map((issue) => issue.path)).toEqual([
-			["default_value"],
-		]);
-
-		// Setting one slot while explicitly clearing the other is the stated
-		// single-source edit and parses.
-		expect(
-			generated.editFieldUpdatesSchema.safeParse({
-				kind: "hidden",
-				calculate: today(),
-				default_value: null,
-			}).success,
-		).toBe(true);
-		expect(
-			generated.editFieldUpdatesSchema.safeParse({
-				kind: "hidden",
-				calculate: null,
-				default_value: today(),
-			}).success,
-		).toBe(true);
-		// A visible kind with a default_value is untouched by the hidden rule.
-		expect(
-			generated.editFieldUpdatesSchema.safeParse({
-				kind: "text",
-				default_value: today(),
-			}).success,
-		).toBe(true);
 	});
 
 	it("requires a non-empty label on visible kinds, none on hidden", () => {
@@ -492,7 +489,8 @@ describe("toolSchemaGenerator", () => {
 		expect(withValue("ICD10").success).toBe(true);
 		expect(withValue("don't_know").success).toBe(true);
 		expect(withValue('say_"hi"').success).toBe(true);
-		for (const bad of ["Prefer not to say", `it's_"x"`, ""]) {
+		expect(withValue(`it's_"x"`).success).toBe(true);
+		for (const bad of ["Prefer not to say", "instance('casedb')", ""]) {
 			const result = withValue(bad);
 			expect(result.success).toBe(false);
 			expect(result.error?.issues[0]?.path).toEqual(["options", 0, "value"]);

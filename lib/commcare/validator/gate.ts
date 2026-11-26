@@ -121,11 +121,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MENU_FORM_SOURCE_INVALID: "soundness",
 	ENTRY_POINT_INVALID: "soundness",
 	CASE_LIST_ICON_ACTION_INVALID: "soundness",
+	FORM_BEHAVIOR_TEXT_INVALID: "soundness",
 	SUITE_ENDPOINT_INVALID: "oracle",
 	EMPTY_APP_NAME: "soundness",
 	APP_TEXT_UNREPRESENTABLE: "soundness",
 	NO_MODULES: "completeness",
-	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
 	PLATFORM_FEATURE_UNAVAILABLE: "soundness",
 	BLUEPRINT_TOPOLOGY_INVALID: "soundness",
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: "soundness",
@@ -134,10 +134,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MUTATION_TARGET_INVALID: "soundness",
 	MUTATION_CASE_PROPERTY_RENAME_INVALID: "soundness",
 	MUTATION_WIRE_CANONICALITY_INVALID: "soundness",
-	// A catalog choice value that is empty or holds whitespace reaches the
-	// device as a select value it refuses, and one holding both an apostrophe
-	// and a double quote has no XPath string literal to spell it in the
-	// suite's `field = 'value'`; the wire cannot carry either.
+	// The catalog and inline lists use the same stored-answer grammar.
 	CASE_PROPERTY_OPTION_VALUE_INVALID: "soundness",
 	// A saved value of a catalog with two equal choices can't say which.
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: "soundness",
@@ -365,12 +362,15 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MULTI_SELECT_AUTHORED_KEY_CREATE: "soundness",
 	MULTI_SELECT_SESSION_OPERATION_LINK: "soundness",
 	MULTI_SELECT_OPERATION_ORDER: "soundness",
+	CONNECT_FORWARDED_ANCESTOR_ID: "soundness",
 	CONNECT_MODE_MISMATCH: "soundness",
 	CONNECT_ID_INVALID_FORMAT: "soundness",
 	CONNECT_ID_TOO_LONG: "soundness",
-	CONNECT_ID_DUPLICATE: "soundness",
 	// Connect turns away the visit in a form that also completes a task.
 	CONNECT_DELIVER_FORM_HOLDS_TASK: "soundness",
+	CONNECT_DUPLICATE_DELIVERY: "soundness",
+	CONNECT_REPEATED_ASSESSMENT: "soundness",
+	CONNECT_REPEATED_LEARNING_MODULE: "soundness",
 	// HQ's build reads a form's name or a Connect block's text as an instance
 	// read, and stops the build or adds a source no formula reads. It binds
 	// every target: HQ builds every form it is sent, and a `.ccz` is made only
@@ -403,10 +403,10 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_HASHTAG_ON_CREATE_FORM: "soundness",
 	USERCASE_WRITE_UNDECLARED_PROPERTY: "soundness",
 	USERCASE_WRITE_MANAGED_PROPERTY: "soundness",
+	FIELD_SUBMISSION_PLACEMENT: "soundness",
 	DUPLICATE_FIELD_ID: "soundness",
 	// A root field and a Connect block of one form would be two elements of
 	// one name in the form's data root.
-	FIELD_ID_NAMES_CONNECT_BLOCK: "soundness",
 	CASE_OPERATION_DUPLICATE_UUID: "soundness",
 	CASE_OPERATION_INVALID_ID: "soundness",
 	CASE_OPERATION_DUPLICATE_ID: "soundness",
@@ -437,12 +437,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	HELD_BLOCK_PATH_TAKEN: "soundness",
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_NOT_AN_OPTION: "soundness",
+	// Web Apps clears a starting file and Android stops the form on it.
+	CAPTURE_DEFAULT_NOT_BLANK: "soundness",
 	SELECT_NO_OPTIONS: "shape",
-	// A choice value that is empty, holds whitespace, or holds both an
-	// apostrophe and a double quote: CommCare Android throws on any select
-	// value with a space, a multi-select answer is a space-joined token list,
-	// and no XPath string literal can spell a value holding both quote marks,
-	// so the form cannot run with it.
+	// Empty answers, whitespace-separated tokens and accidental HQ instance
+	// references cannot be stored as an individual choice.
 	SELECT_OPTION_VALUE_INVALID: "soundness",
 	// HQ's form builder refuses two choices of one question with one value.
 	SELECT_OPTION_VALUE_DUPLICATE: "soundness",
@@ -452,18 +451,21 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_MEDIA_LANGUAGE: "soundness",
 	MENU_MEDIA_LANGUAGE: "soundness",
 	SELECT_OPTION_LABEL_EMPTY: "soundness",
-	// Schema-legal (both slots are optional so history hydrates) but
-	// contradictory; `rules/field.ts::hiddenValueBothSources` has the why.
-	HIDDEN_VALUE_BOTH_SOURCES: "soundness",
+	HIDDEN_ANSWER_CALCULATION: "soundness",
+	HIDDEN_BOOLEAN_STARTING_ANSWER: "soundness",
 	REQUIRED_ON_HIDDEN: "shape",
 	CALCULATE_ON_VISIBLE_INPUT: "shape",
 	INVALID_FIELD_ID: "soundness",
+	SUBMITTED_ANSWER_NAMESPACE: "soundness",
+	// Workers read a group named case around a saved change as a second case change.
+	SUBMITTED_CASE_CHANGE_WRAPPER: "soundness",
 	VALIDATION_ON_NON_INPUT_KIND: "shape",
 	REPEAT_COUNT_TYPE: "soundness",
 	EMPTY_REPEAT_COUNT: "soundness",
 	EMPTY_IDS_QUERY: "soundness",
 	// A held model iteration over a repeat whose rows it can no longer set
 	// right when the form opens.
+	QUERY_REPEAT_TIMING_MOVE: "soundness",
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: "soundness",
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: "soundness",

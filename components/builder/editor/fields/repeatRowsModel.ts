@@ -368,7 +368,9 @@ export function queryRepeatPlacementLines(
 		placement,
 		held,
 		line,
-		...(need === undefined ? {} : { because: queryRepeatNeedSentence(need) }),
+		...(need === undefined || field.rowTiming !== undefined
+			? {}
+			: { because: queryRepeatNeedSentence(need) }),
 		pastTheEnd: PAST_THE_END_LINE,
 	};
 }

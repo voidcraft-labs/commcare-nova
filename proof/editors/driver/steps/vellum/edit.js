@@ -1,4 +1,5 @@
-// The one edit a run makes between the form's open and its save: the label of
+// Between opening and saving, an "add-questions" edit creates the named root
+// questions through the designer. A "builder-model" edit changes the label of
 // the question at `path` set to `label` in the form's default language, or,
 // where the edit names a `property`, that property of the question set to
 // `value`. The argument is {path, label, way} or {path, property, value, way}.
@@ -14,12 +15,41 @@
 // The builder's own Save, pressed after this step (save.js), writes the form
 // either way. Returns what the edit left: {edited, way, value}, or
 // {edited: false, reason}.
-({ path, label, way, property, value }) => {
+({ path, label, way, property, value, questions }) => {
 	const $ = window.proofVellumHost.jQuery;
 	const vellum = $("#formdesigner").vellum("get");
 	const core = vellum.data.core;
 	if (core.formLoadingFailed)
 		return { edited: false, reason: "the form did not load" };
+	if (way === "add-questions") {
+		const added = [];
+		for (const spec of questions) {
+			// The Add Question toolbar uses this same entry point. It checks
+			// the enabled types and the permitted insertion position.
+			const created = vellum.addQuestion(spec.type, "last", null);
+			if (!created)
+				return { edited: false, reason: `Vellum could not add ${spec.type}` };
+			created.p.nodeID = spec.id;
+			const held = { type: created.__className, id: created.p.nodeID };
+			if (spec.label !== undefined) {
+				const item = created.p.labelItext;
+				if (!item) return { edited: false, reason: `No label for ${spec.id}` };
+				item.set(spec.label, "default");
+				held.label = item.get("default");
+			}
+			if (spec.properties) {
+				held.properties = {};
+				for (const [name, propertyValue] of Object.entries(spec.properties)) {
+					if (!created.spec[name])
+						return { edited: false, reason: `No ${name} on ${spec.type}` };
+					created.p[name] = propertyValue;
+					held.properties[name] = created.p[name];
+				}
+			}
+			added.push(held);
+		}
+		return { edited: true, way, value: added };
+	}
 	if (way !== "builder-model")
 		return { edited: false, reason: `no way to edit named ${way}` };
 	const mug = core.form.getMugByPath(path);

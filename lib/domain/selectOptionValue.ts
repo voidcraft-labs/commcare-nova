@@ -18,10 +18,9 @@
 // space inside one makes it two (`selected()` splits on spaces). JavaRosa's
 // form parser only warns about a quote mark and keeps the choice
 // (`commcare-core .../xform/parse/XFormParser.java::parseItem`), and every
-// place a value is written takes one: an XML text node, or a string literal
-// printed between the other quote mark. A value holding both an apostrophe
-// and a double quote has no XPath string literal, so a rule naming the
-// choice could not be shown as text. An empty value is a choice that saves
+// place a value is written preserves it: an XML text node or an XPath
+// literal, split across concat arguments when both delimiters occur. An
+// empty value is a choice that saves
 // nothing, which no reader can tell from "unanswered". A value written like
 // `instance('abc')` is read by CommCare HQ's build as a data source the form
 // reads (`hqInstanceRead.ts`): the text of an `<item>`'s `<value>` sits in
@@ -41,11 +40,8 @@ import { suffixUntilFree } from "./idSlug";
 
 /**
  * The admitted grammar as one anchored pattern, for schemas that carry a
- * `pattern` to the model: no whitespace, not empty. A value holding both
- * quote marks, and one CommCare HQ reads as a data source, are refused
- * beside it (`SELECT_OPTION_VALUE_BOTH_QUOTES`,
- * `SELECT_OPTION_VALUE_INSTANCE_READ`), since no pattern every provider's
- * engine reads can state either.
+ * `pattern` to the model: no whitespace, not empty. CommCare HQ's
+ * instance scan is checked separately.
  */
 export const SELECT_OPTION_VALUE_PATTERN = /^\S+$/;
 
@@ -61,10 +57,6 @@ export const SELECT_OPTION_VALUE_DESCRIPTION =
 export const SELECT_OPTION_VALUE_REJECTION =
 	"A choice value is the stored answer token, not the wording: it cannot hold spaces and cannot be empty. A lowercase slug with words joined by underscores (prefer_not_to_say) keeps it easy to read, with the wording in the label.";
 
-/** The rejection for a value holding both an apostrophe and a double quote. */
-export const SELECT_OPTION_VALUE_BOTH_QUOTES =
-	"Nova can't yet write a rule that names a choice holding both an apostrophe and a double quote. Keeping one kind of quote mark, or neither, works.";
-
 /** The refusal for a value CommCare HQ's build reads as a data source. */
 export const SELECT_OPTION_VALUE_INSTANCE_READ =
 	"CommCare HQ reads a choice value written like instance('…') as a data source when it builds the form, so the app couldn't be built as written. A value without the brackets and quote marks, such as instance_abc, works.";
@@ -79,17 +71,13 @@ export const selectOptionValueSchema = z
 	.string()
 	.regex(SELECT_OPTION_VALUE_PATTERN, SELECT_OPTION_VALUE_REJECTION)
 	.refine(
-		(value) => !(value.includes("'") && value.includes('"')),
-		SELECT_OPTION_VALUE_BOTH_QUOTES,
-	)
-	.refine(
 		(value) => instanceScanRead(value) === undefined,
 		SELECT_OPTION_VALUE_INSTANCE_READ,
 	)
 	.describe(SELECT_OPTION_VALUE_DESCRIPTION);
 
 /**
- * Why a choice's value is refused: the four problems a value has alone,
+ * Why a choice's value is refused: the three problems a value has alone,
  * and `duplicate`, a value an earlier choice of the same list holds.
  * HQ's form builder reports a repeated value among one question's choices
  * on exact string equality (Vellum `src/mugs/types/select.js`), and an
@@ -98,7 +86,6 @@ export const selectOptionValueSchema = z
 export type SelectOptionValueProblem =
 	| "empty"
 	| "whitespace"
-	| "both-quotes"
 	| "instance-read"
 	| "duplicate";
 
@@ -108,7 +95,6 @@ export function selectOptionValueProblem(
 ): Exclude<SelectOptionValueProblem, "duplicate"> | undefined {
 	if (value.length === 0) return "empty";
 	if (/\s/.test(value)) return "whitespace";
-	if (value.includes("'") && value.includes('"')) return "both-quotes";
 	if (instanceScanRead(value) !== undefined) return "instance-read";
 	return undefined;
 }

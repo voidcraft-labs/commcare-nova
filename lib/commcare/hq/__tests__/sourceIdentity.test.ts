@@ -293,7 +293,7 @@ describe("the app around its forms", () => {
 		expect([...identity.forms.keys()]).toEqual(["urn:a", "urn:b"]);
 	});
 
-	it("reads a data root named otherwise as data, and keeps its namespace", () => {
+	it("reads controls at their actual submitted root and keeps its namespace", () => {
 		const form = onlyForm(
 			xform(
 				"<q/>",
@@ -304,7 +304,9 @@ describe("the app around its forms", () => {
 			),
 		);
 		expect(form.dataNamespace).toBe("urn:other");
-		expect(form.leaves.get("/data/q")).toMatchObject({
+		expect(form.dataRootName).toBe("visit");
+		expect(form.written.has("/visit/q")).toBe(true);
+		expect(form.leaves.get("/visit/q")).toMatchObject({
 			control: "input",
 			typeClass: "integer",
 		});

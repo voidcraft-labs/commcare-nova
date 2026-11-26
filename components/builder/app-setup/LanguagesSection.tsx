@@ -142,6 +142,8 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"field-extended-text": "Extended text",
 	"field-qr-code": "QR code",
 	"field-spoken-text": "Spoken text",
+	"field-first-add-label": "First entry button",
+	"field-add-label": "Another entry button",
 	"select-option-label": "Option label",
 	"case-list-header": "Case list header",
 	"case-detail-tab-title": "Case detail tab",

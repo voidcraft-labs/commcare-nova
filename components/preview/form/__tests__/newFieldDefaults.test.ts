@@ -109,8 +109,17 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 	it.each(fieldKinds.filter((kind) => kind !== "section"))(
 		"%s starter commits through the gate",
 		(kind) => {
-			// A date-and-time question runs on Android alone.
-			const doc = pickerDoc(kind === "datetime" ? "android" : undefined);
+			// A date-and-time question runs on Android alone, and a Connect
+			// activity in an Android app that holds its role.
+			const picked = pickerDoc(
+				kind === "datetime" || kind === "connect_activity"
+					? "android"
+					: undefined,
+			);
+			const doc =
+				kind === "connect_activity"
+					? { ...picked, connectRoles: ["learn" as const] }
+					: picked;
 			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 			const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
 			const field = fieldSchema.parse({ ...built, uuid: UUID });

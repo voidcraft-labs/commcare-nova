@@ -40,6 +40,13 @@ import {
 	XPathField,
 	type XPathFieldLintActions,
 } from "@/components/builder/XPathField";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -51,6 +58,7 @@ import type { CommitOutcome, RepeatField } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import type { RepeatMode } from "@/lib/domain/fields/repeat";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
+import type { RowTiming } from "@/lib/domain/queryRepeatPlacement";
 import { useSessionFocusHint } from "@/lib/session/hooks";
 import { selectableSegmentCls } from "@/lib/styles";
 import { cn } from "@/lib/utils";
@@ -200,6 +208,38 @@ export function RepeatRowsEditor({
 						onClosed={closeOpened}
 						commit={commit}
 					/>
+					<div>
+						<label htmlFor={`${groupName}-timing`}>Choose the rows</label>
+						<Select<RowTiming | "automatic">
+							value={field.rowTiming ?? "automatic"}
+							onValueChange={(when) => {
+								if (when !== null)
+									commit({
+										kind: "updateField",
+										uuid: field.uuid,
+										targetKind: "repeat",
+										patch: { rowTiming: when === "automatic" ? null : when },
+									});
+							}}
+						>
+							<SelectTrigger id={`${groupName}-timing`}>
+								<SelectValue>
+									{field.rowTiming === "on-open"
+										? "When the form opens"
+										: field.rowTiming === "as-answers-change"
+											? "As answers change"
+											: "Automatic"}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="automatic">Automatic</SelectItem>
+								<SelectItem value="on-open">When the form opens</SelectItem>
+								<SelectItem value="as-answers-change">
+									As answers change
+								</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
 					{view.placement !== undefined && (
 						<div className="space-y-1" data-repeat-rows-placement="">
 							<InspectorHint>{view.placement.line}</InspectorHint>

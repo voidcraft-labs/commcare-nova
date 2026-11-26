@@ -1111,11 +1111,13 @@ function formNodeEdges(sink: EdgeSink, slot: string, node: FormNodeRef): void {
 			sink.edge(entityTargetKey(node.repeat), slot);
 			return;
 		case "form-root":
+			sink.edge(entityTargetKey(node.form), slot);
+			return;
 		case "connect-learn":
 		case "connect-assessment":
 		case "connect-delivery":
 		case "connect-task":
-			sink.edge(entityTargetKey(node.form), slot);
+			sink.edge(entityTargetKey(node.activity), slot);
 			return;
 	}
 }
@@ -1658,7 +1660,7 @@ export function planReferenceIndexMaintenance(
 		// root-level data the planner reads directly), so the granular catalog
 		// kinds are no-ops here.
 		case "setAppName":
-		case "setConnectType":
+		case "setConnectRoles":
 		case "setAppLogo":
 		case "setAppSettings":
 		case "relabelSourceLanguage":

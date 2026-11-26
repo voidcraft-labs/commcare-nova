@@ -260,7 +260,7 @@ describe("a number keypad in Web Apps on the worker runtime", () => {
 			admittedControllerDoc({
 				appId: "app",
 				appName: "App",
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: null,
 				modules: {

@@ -458,3 +458,126 @@ describe("the dependency graph", () => {
 		).toBe(true);
 	});
 });
+
+describe.each([webAppsDevice(), androidDevice()])(
+	"opening membership on $platform",
+	(device) => {
+		it.each([false, true])(
+			"captures at the actual event, keeps each row after an edit and restores it (worker %s)",
+			async (stagedAsync) => {
+				const source = input([
+					{ kind: "text", id: "site", default_value: "'east'" },
+					{
+						kind: "text",
+						id: "early",
+						default_value: "string(current()/../visits/@ids)",
+					},
+					{
+						kind: "repeat",
+						id: "visits",
+						repeat_mode: "query_bound",
+						placement: "model-iteration",
+						data_source: { ids_query: "if(#form/site = 'east', 'a b', 'c')" },
+						children: [
+							{ kind: "text", id: "note" },
+							{ kind: "hidden", id: "record", calculate: "current()/../@id" },
+						],
+					},
+					{
+						kind: "text",
+						id: "seen",
+						default_value:
+							"concat(current()/../visits/@count, ':', current()/../visits/@ids)",
+					},
+				]);
+				const engine = new FormEngine(
+					source,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ device, stagedAsync },
+				);
+				const evaluate = workerEvaluator(engine, "opening-membership");
+				if (stagedAsync) await engine.initializeAsync(evaluate);
+				expect(value(engine, "/data/early")).toBe("");
+				expect(value(engine, "/data/seen")).toBe("2:a b");
+				expect(engine.getRepeatCount("/data/visits")).toBe(2);
+				const edits = [
+					["/data/visits[1]/note", "kept"],
+					["/data/site", "west"],
+				];
+				for (const [path, answer] of edits) {
+					if (stagedAsync) await engine.setValueAsync(path, answer, evaluate);
+					else engine.setValue(path, answer);
+				}
+				const resumed = new FormEngine(
+					source,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{
+						device,
+						stagedAsync,
+						restoredEntry: {
+							checkpoint: engine.entryCheckpoint(),
+							preserveAllValues: true,
+						},
+					},
+				);
+				if (stagedAsync)
+					await resumed.initializeAsync(
+						workerEvaluator(resumed, "restored-membership"),
+					);
+				for (const playing of [engine, resumed]) {
+					expect(playing.getRepeatCount("/data/visits")).toBe(2);
+					expect(value(playing, "/data/site")).toBe("west");
+					expect(value(playing, "/data/visits[0]/record")).toBe("a");
+					expect(value(playing, "/data/visits[1]/record")).toBe("b");
+					expect(value(playing, "/data/visits[1]/note")).toBe("kept");
+				}
+			},
+		);
+		it.each([
+			["'show'", 1],
+			["'hide'", 0],
+		] as const)(
+			"keeps the actual count when a later answer changes the group's relevance from %s",
+			(default_value, count) => {
+				const engine = new FormEngine(
+					input([
+						{ kind: "text", id: "site", default_value },
+						{
+							kind: "group",
+							id: "around",
+							relevant: "#form/site = 'show'",
+							children: [
+								{
+									kind: "repeat",
+									id: "visits",
+									repeat_mode: "query_bound",
+									placement: "model-iteration",
+									data_source: { ids_query: "'case_a'" },
+									children: [{ kind: "text", id: "note" }],
+								},
+							],
+						},
+					]),
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ device },
+				);
+				expect(engine.getRepeatCount("/data/around/visits")).toBe(count);
+				engine.setValue("/data/site", "hide");
+				engine.setValue("/data/site", "show");
+				expect(engine.getRepeatCount("/data/around/visits")).toBe(count);
+			},
+		);
+	},
+);

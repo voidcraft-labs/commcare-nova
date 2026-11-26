@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
+import sharp from "sharp";
 import { buildUrl } from "@/lib/routing/location";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
@@ -145,7 +146,7 @@ function answer(page: Page, uuid: string) {
 
 /** The attachments transport, answered in process: the upload is staged and
  *  confirmed without reaching a server. */
-async function acceptAttachments(page: Page) {
+async function acceptAttachments(page: Page, contentType = "image/png") {
 	const origin = platformsPeer.origin;
 	await page.route(
 		`${origin}/api/apps/native-platforms/attachments**`,
@@ -163,7 +164,7 @@ async function acceptAttachments(page: Page) {
 						attachmentId: "platforms-capture",
 						attachmentName: "large.png",
 						uploadUrl: `${origin}/capture-upload`,
-						uploadContentType: "image/png",
+						uploadContentType: contentType,
 						uploadHeaders: {},
 					},
 				});
@@ -265,6 +266,55 @@ async function attachOnly(run: Run, label: string) {
 		await expect(page.getByRole("button", { name, exact: true })).toHaveCount(
 			0,
 		);
+}
+
+async function photoSize(page: Page, android: boolean) {
+	await openScenario(
+		page,
+		android ? "image-size-android" : "image-size-web-apps",
+	);
+	await acceptAttachments(page, "image/jpeg");
+	const original = await sharp("proof/core/captures/proof-image.jpg")
+		.withExif({
+			IFD0: {
+				Orientation: "6",
+				ImageDescription: "Synthetic visit",
+				Make: "Private camera make",
+			},
+		})
+		.withMetadata({ orientation: 6 })
+		.jpeg()
+		.toBuffer();
+	const sent = page.waitForRequest(
+		(request) =>
+			request.method() === "PUT" && request.url().endsWith("/capture-upload"),
+	);
+	await page
+		.getByRole("button", {
+			name: android ? /^Choose image/ : "Photo Attach file",
+		})
+		.setInputFiles({
+			name: "visit.jpg",
+			mimeType: "image/jpeg",
+			buffer: original,
+		});
+	const uploaded = (await sent).postDataBuffer();
+	expect(uploaded).toBeTruthy();
+	if (!uploaded) throw new Error("The capture upload had no bytes.");
+	if (android) {
+		const metadata = await sharp(uploaded).metadata();
+		expect(metadata).toMatchObject({
+			format: "jpeg",
+			width: 15,
+			height: 11,
+			orientation: 6,
+		});
+		expect(metadata.exif?.includes(Buffer.from("Synthetic visit"))).toBe(true);
+		expect(metadata.exif?.includes(Buffer.from("Private camera make"))).toBe(
+			false,
+		);
+	} else expect(uploaded).toEqual(original);
+	await expect.poll(() => answer(page, PLATFORM_IDS.image)).toBe("large.png");
 }
 
 const PREVIEW_PLATFORM_CHECKS: Readonly<
@@ -494,6 +544,12 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(phone).toHaveAttribute("aria-invalid", "true");
 		expect(await answer(page, PLATFORM_IDS.phoneHeld)).toBe("+254712");
 	},
+	async "image-size-web-apps"(page) {
+		await photoSize(page, false);
+	},
+	async "image-size-android"(page) {
+		await photoSize(page, true);
+	},
 	async "image-attach-web-apps"(page) {
 		await attachOnly(
 			await openScenario(page, "image-attach-web-apps"),
@@ -613,6 +669,12 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		const header = page.locator("[data-screen-header]");
 		await page.getByRole("textbox", { name: /Name/ }).fill("Ada");
 		await page.getByRole("button", { name: "Next", exact: true }).click();
+		/* The repeat opens with no entry: the first is the worker's. */
+		const first = page.getByRole("alertdialog", { name: "Add a new Visits?" });
+		await expect(first).toBeVisible();
+		await first
+			.getByRole("button", { name: "Add a new Visits?", exact: true })
+			.click();
 		await expect(header).toHaveText("Visits (1) > Details");
 		await expect(page.getByRole("textbox", { name: /Note/ })).toBeVisible();
 		/* Android draws no card for a group: its label is the header line. */
@@ -926,6 +988,14 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		 * nothing after it and declining finishes the form. */
 		await name.fill("Quick");
 		await next.click();
+		/* The repeat opens with no entry: the first is the worker's. */
+		const addNew = page.getByRole("alertdialog", {
+			name: "Add a new Visits?",
+		});
+		await expect(addNew).toBeVisible();
+		await addNew
+			.getByRole("button", { name: "Add a new Visits?", exact: true })
+			.click();
 		await expect(header).toHaveText("Visits (1) > Details");
 		await note.fill("First");
 		await next.click();
@@ -995,6 +1065,13 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		 * the worker adds to inside it pages its entry under the group's
 		 * header line and prompts after it, with no add control. */
 		await next.click();
+		const firstItem = page.getByRole("alertdialog", {
+			name: "Add a new Items?",
+		});
+		await expect(firstItem).toBeVisible();
+		await firstItem
+			.getByRole("button", { name: "Add a new Items?", exact: true })
+			.click();
 		await expect(header).toHaveText("Stock > Items (1)");
 		await expect(page.getByRole("textbox", { name: /Item/ })).toBeVisible();
 		await expect(page.getByRole("button", { name: /^Add / })).toHaveCount(0);

@@ -17,7 +17,6 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
-	concat,
 	eq,
 	gt,
 	literal,
@@ -301,6 +300,21 @@ describe("field and property identity policy", () => {
 	])("admits field id %s", (id) => {
 		assertAdmittedDoc(survey([{ ...plain, id }]));
 	});
+	it.each(["Registration", "fixture", "SCHEMA"])(
+		"offers an Android declaration or a different ID for %s",
+		(id) => {
+			const web = candidate(survey(), (d) => {
+				d.fields[q].id = id;
+			});
+			expect(findings(web, ["PLATFORM_FEATURE_UNAVAILABLE"])).toHaveLength(1);
+			const android = candidate(survey(), (d) => {
+				d.fields[q].id = id;
+				d.appSettings.runsOnlyOn = "android";
+			});
+			expect(findings(android, [])).toEqual([]);
+		},
+	);
+
 	it.each([
 		["1answer", "not-letter-first", "q1answer"],
 		["answer value", "characters", "answer_value"],
@@ -310,7 +324,6 @@ describe("field and property identity policy", () => {
 		["XMLcode", "xml-prefix", "qXMLcode"],
 		["Meta", "reserved-name", "q_Meta"],
 		["case", "reserved-name", "q_case"],
-		["Script", "reserved-name", "q_Script"],
 		["parsererror", "reserved-name", "q_parsererror"],
 	])(
 		"rejects field id %s under Nova's identifier policy as %s, offering %s",
@@ -434,7 +447,6 @@ describe("strict field shape and semantic backstops", () => {
 			proseText("Wrong"),
 			"VALIDATION_ON_NON_INPUT_KIND",
 		],
-		["label", "validate", matchAll(), "VALIDATION_ON_NON_INPUT_KIND"],
 		["group", "validate", matchAll(), "VALIDATION_ON_NON_INPUT_KIND"],
 		["text", "calculate", term(literal(1)), "CALCULATE_ON_VISIBLE_INPUT"],
 	] as const)(
@@ -478,19 +490,12 @@ describe("strict field shape and semantic backstops", () => {
 			[],
 		);
 	});
-	it("admits a hidden field with only a default and rejects one carrying both value sources at the default", () => {
+	it("admits both slots on a hidden question", () => {
 		assertAdmittedDoc(
-			survey([{ ...plain, kind: "hidden", default_value: "today()" }]),
+			candidate(hidden(), (d) => {
+				fieldPatch(d, { default_value: today() });
+			}),
 		);
-		const doc = candidate(hidden(), (d) => {
-			fieldPatch(d, { default_value: today() });
-		});
-		/* Schema-legal: both slots are optional so historical documents
-		 * hydrate. The rule is what refuses the pair. */
-		expect(fieldSchema.safeParse(doc.fields[q]).success).toBe(true);
-		const [error] = findings(doc, ["HIDDEN_VALUE_BOTH_SOURCES"]);
-		expect(error?.location.fieldId).toBe("answer");
-		expect(error?.location.field).toBeUndefined();
 	});
 	it.each(["count_bound", "query_bound", "user_controlled"] as const)(
 		"admits a complete %s repeat",
@@ -1370,263 +1375,95 @@ describe("case reads in expressions and prose", () => {
 	});
 });
 
-describe("Connect participant admission", () => {
-	function connect(mode: "learn" | "deliver", block?: Form["connect"]) {
+describe("submitted Connect activity admission", () => {
+	const visit = testUuid("rules-visit");
+	const activity = (id: string): FieldSpec => ({
+		uuid: visit,
+		kind: "connect_activity",
+		id,
+		activity: { kind: "delivery", name: "Home visit" },
+	});
+	function delivery(id: string) {
 		return buildDoc({
-			appName: "Training",
-			connectType: mode,
+			connectRoles: ["deliver"],
 			modules: [
 				{
 					uuid: m,
-					name: "Training",
+					name: "Visits",
 					forms: [
 						{
 							uuid: a,
-							name: "Lesson",
+							name: "Home visit",
 							type: "survey",
-							connect:
-								block ??
-								(mode === "learn"
-									? {
-											learn_module: {
-												id: "lesson",
-												name: "Lesson",
-												description: "Practice",
-												time_estimate: 5,
-											},
-										}
-									: { deliver_unit: { id: "visit", name: "Visit" } }),
-							fields: [plain],
-						},
-						{
-							uuid: b,
-							name: "Feedback",
-							type: "survey",
-							fields: [{ kind: "text", id: "feedback", label: "Feedback" }],
+							fields: [plain, activity(id)],
 						},
 					],
 				},
 			],
 		});
 	}
-	it.each(["learn", "deliver"] as const)(
-		"admits %s participants alongside nonempty auxiliary forms",
-		(mode) => {
-			assertAdmittedDoc(connect(mode));
-		},
-	);
-	it.each(["learn", "deliver"] as const)(
-		"requires a participant in %s mode",
-		(mode) => {
-			findings(
-				candidate(connect(mode), (d) => {
-					delete d.forms[a].connect;
-				}),
-				["CONNECT_NO_PARTICIPATING_FORMS"],
-			);
-		},
-	);
-	it("rejects dormant and mismatched blocks", () => {
-		findings(
-			candidate(connect("learn"), (d) => {
-				d.connectType = null;
-			}),
-			["BLUEPRINT_TOPOLOGY_INVALID", "CONNECT_MODE_MISMATCH"],
-		);
-		findings(
-			candidate(connect("learn"), (d) => {
-				d.connectType = "deliver";
-			}),
-			[
-				"BLUEPRINT_TOPOLOGY_INVALID",
-				"CONNECT_NO_PARTICIPATING_FORMS",
-				"CONNECT_MODE_MISMATCH",
-			],
-		);
-	});
-	const configs: {
-		mode: "learn" | "deliver";
-		kind: string;
-		make: (id: string) => Form["connect"];
-	}[] = [
-		{
-			mode: "learn",
-			kind: "learn_module",
-			make: (id) => ({
-				learn_module: {
-					id,
-					name: "Lesson",
-					description: "Practice",
-					time_estimate: 5,
-				},
-			}),
-		},
-		{
-			mode: "learn",
-			kind: "assessment",
-			make: (id) => ({ assessment: { id } }),
-		},
-		{
-			mode: "deliver",
-			kind: "deliver_unit",
-			make: (id) => ({ deliver_unit: { id, name: "Visit" } }),
-		},
-		{
-			mode: "deliver",
-			kind: "task",
-			make: (id) => ({
-				task: { id, name: "Task", description: "Complete the task" },
-			}),
-		},
-	];
-	it.each(configs)(
-		"enforces ID policy for $kind with admitted controls",
-		({ mode, make }) => {
-			assertAdmittedDoc(connect(mode, make("a".repeat(50))));
-			for (const [id, code] of [
-				["bad id", "CONNECT_ID_INVALID_FORMAT"],
-				["1bad", "CONNECT_ID_INVALID_FORMAT"],
-				["_lesson", "CONNECT_ID_INVALID_FORMAT"],
-				["XMLquiz", "CONNECT_ID_INVALID_FORMAT"],
-				["meta", "CONNECT_ID_INVALID_FORMAT"],
-				["task", "CONNECT_ID_INVALID_FORMAT"],
-				["deliver", "CONNECT_ID_INVALID_FORMAT"],
-				["a".repeat(51), "CONNECT_ID_TOO_LONG"],
-			]) {
-				const base = connect(mode, make("valid_id"));
-				findings(
-					candidate(base, (d) => {
-						d.forms[a].connect = make(id);
-					}),
-					[code],
-				);
-			}
-		},
-	);
-	it("reports duplicate IDs at their second participant and admits distinct IDs", () => {
-		const doc = candidate(connect("learn"), (d) => {
-			d.forms[b].connect = { assessment: { id: "quiz" } };
-		});
+	it("accepts the receiver's one-hundred-character delivery ID and refuses a longer ID", () => {
+		const doc = delivery("v".repeat(100));
 		assertAdmittedDoc(doc);
 		expect(
 			findings(
 				candidate(doc, (d) => {
-					d.forms[b].connect = { assessment: { id: "lesson" } };
+					d.fields[visit].id += "v";
 				}),
-				["BLUEPRINT_TOPOLOGY_INVALID", "CONNECT_ID_DUPLICATE"],
+				["BLUEPRINT_TOPOLOGY_INVALID", "CONNECT_ID_TOO_LONG"],
 			),
-		).toMatchObject([
-			{ scope: "app", details: { path: `forms.${b}.connect.assessment.id` } },
-			{
-				scope: "app",
-				location: { formUuid: b },
-				details: { connectId: "lesson" },
-			},
-		]);
+		).toHaveLength(2);
 	});
-	/* A Connect block's wrapper and the form's top-level fields are children
-	 * of one data root, so the two kinds share one set of names there. */
-	it("refuses a top-level field named like its form's Connect block, offering a free name", () => {
+	it("compares an activity's submitted name with ordinary questions at the same position", () => {
+		const doc = delivery("visit");
 		expect(
 			findings(
-				candidate(connect("deliver"), (d) => {
+				candidate(doc, (d) => {
 					d.fields[q].id = "visit";
 				}),
-				["FIELD_ID_NAMES_CONNECT_BLOCK"],
+				["DUPLICATE_FIELD_ID"],
 			),
-		).toMatchObject([
-			{
-				location: { fieldUuid: q, fieldId: "visit" },
-				details: { suggestedId: "visit_2" },
-			},
-		]);
-		assertAdmittedDoc(
-			candidate(connect("deliver"), (d) => {
-				d.fields[q].id = "visit_2";
-			}),
-		);
+		).toHaveLength(1);
 	});
-	it("offers a refused field id or Connect id a name neither kind holds at the root", () => {
+	it("offers a free sibling ID for an invalid question beside an activity", () => {
 		expect(
 			findings(
-				candidate(connect("deliver"), (d) => {
+				candidate(delivery("visit"), (d) => {
 					d.fields[q].id = "_visit";
 				}),
 				["INVALID_FIELD_ID"],
 			),
 		).toMatchObject([{ details: { suggestedId: "visit_2" } }]);
-		expect(
-			findings(
-				candidate(connect("deliver"), (d) => {
-					d.fields[q].id = "visit";
-					d.forms[a].connect = {
-						deliver_unit: { id: "_visit", name: "Visit" },
-					};
-				}),
-				["CONNECT_ID_INVALID_FORMAT"],
-			),
-		).toMatchObject([{ details: { suggestedId: "visit_2" } }]);
 	});
-	it.each(["entity_id", "entity_name"] as const)(
-		"refuses raw or fragment deliver %s and admits absent defaults",
-		(slot) => {
-			const base = connect("deliver", {
-				deliver_unit: {
-					id: "visit",
-					name: "Visit",
-					entity_id: concat(
-						term({
-							kind: "session-user",
-							field: "username",
-							source: "worker-record",
-						}),
-						term(literal("-")),
-						today(),
-					),
-					entity_name: term({
-						kind: "session-user",
-						field: "username",
-						source: "worker-record",
-					}),
-				},
-			});
-			assertAdmittedDoc(base);
-			const form = base.forms[a];
-			const config = form.connect;
-			if (
-				config === undefined ||
-				!("deliver_unit" in config) ||
-				config.deliver_unit === undefined
-			)
-				throw new Error("Missing deliver unit");
-			const block = config.deliver_unit;
-			for (const source of ["", "   ", { parts: [] }]) {
+	it("accepts blank optional delivery calculations and requires a typed assessment score", () => {
+		const doc = delivery("visit");
+		const field = doc.fields[visit];
+		expect(fieldSchema.safeParse(field).success).toBe(true);
+		for (const value of ["", "   ", { parts: [] }]) {
+			for (const slot of ["entityId", "entityName", "workAreaId"])
 				expect(
-					formSchema.safeParse({
-						...form,
-						connect: { deliver_unit: { ...block, [slot]: source } },
+					fieldSchema.safeParse({
+						...field,
+						activity: { kind: "delivery", name: "Home visit", [slot]: value },
 					}).success,
 				).toBe(false);
-			}
-			assertAdmittedDoc(
-				connect("deliver", { deliver_unit: { id: "visit", name: "Visit" } }),
-			);
-		},
-	);
-	it("refuses raw or fragment scores and admits the default", () => {
-		const base = connect("learn", {
-			assessment: { id: "quiz", user_score: term(literal(1)) },
-		});
-		assertAdmittedDoc(base);
-		for (const source of ["", "   ", { parts: [] }]) {
 			expect(
-				formSchema.safeParse({
-					...base.forms[a],
-					connect: { assessment: { id: "quiz", user_score: source } },
+				fieldSchema.safeParse({
+					...field,
+					activity: { kind: "assessment", score: value },
 				}).success,
 			).toBe(false);
 		}
-		assertAdmittedDoc(connect("learn", { assessment: { id: "quiz" } }));
+		expect(
+			fieldSchema.safeParse({ ...field, activity: { kind: "assessment" } })
+				.success,
+		).toBe(false);
+		expect(
+			fieldSchema.safeParse({
+				...field,
+				activity: { kind: "assessment", score: term(literal(0)) },
+			}).success,
+		).toBe(true);
 	});
 });
 

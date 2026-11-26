@@ -1,13 +1,13 @@
 "use client";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { useConnectRoles } from "@/lib/doc/hooks/useConnectRoles";
 import { LocationSwitch } from "../LocationSwitch";
 
 export function AppLocationSection() {
 	const settings = useAppSettings();
 	const { setAppSettings } = useBlueprintMutations();
-	const connect = Boolean(useConnectTypeOrUndefined());
+	const connect = useConnectRoles().length > 0;
 	const active = connect || settings.captureLocation === true;
 	return (
 		<LocationSwitch
