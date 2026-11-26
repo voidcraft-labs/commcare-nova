@@ -471,3 +471,27 @@ def test_an_exact_repeat_create_id_calculates_in_each_concrete_row(core_runner):
         expressions=["/data/visits[1]/save/case/@case_id", "/data/visits[2]/save/case/@case_id"],
     )
     assert [value["value"] for value in result["values"]] == ["visit-one", "visit-two"]
+
+
+def test_an_explicit_position_uses_the_first_referenced_nodes_multiplicity(core_runner):
+    """The reference's multiplicity is independent of a choice candidate's position."""
+    form = (
+        '<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">'
+        '<h:head><h:title>Visits</h:title><model><instance>'
+        '<data xmlns="http://example.org/visits"><district/><visits><name/>'
+        '</visits><visits><name/></visits><visits><name/></visits></data>'
+        '</instance></model></h:head><h:body><repeat nodeset="/data/visits"/></h:body></h:html>'
+    ).encode()
+    queries = [
+        "position(/data/district)",
+        "position(/data/visits[1])",
+        "position(/data/visits[2])",
+        "position(/data/visits[3]/name)",
+        "position(/data/visits[7])",
+    ]
+    result = core_runner.evaluate(
+        restoreBase64=restore64(), formBase64=base64.b64encode(form).decode(), expressions=queries,
+    )
+    first, second, third, last, missing = result["values"]
+    assert [item["value"] for item in (first, second, third, last)] == [0, 0, 1, 0]
+    assert "empty" in missing["error"]["message"]
