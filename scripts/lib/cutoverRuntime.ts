@@ -3,14 +3,15 @@ import type { AppDatabase } from "@/lib/db/pg";
 
 /** Checks only; this command cannot disable service access or terminate work.
  * NOLOGIN plus zero sessions makes the operator's drained runtime a durable
- * fence while the migration runs. Local scratch databases need no IAM role. */
+ * fence while the migration runs. Count by role even when PostgreSQL hides the
+ * backend type from a migration user outside that role. */
 export async function assertCutoverRuntimeStopped(
 	db: Kysely<AppDatabase>,
 	writerRole: string,
 ) {
 	const result = await sql<{ can_login: boolean; sessions: number }>`
 		SELECT role.rolcanlogin AS can_login,
-			(SELECT count(*)::int FROM pg_stat_activity WHERE usename = role.rolname AND backend_type = 'client backend') AS sessions
+			(SELECT count(*)::int FROM pg_stat_activity WHERE usename = role.rolname) AS sessions
 		FROM pg_roles role WHERE role.rolname = ${writerRole}
 	`.execute(db);
 	const row = result.rows[0];
