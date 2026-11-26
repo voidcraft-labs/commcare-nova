@@ -211,17 +211,19 @@
 		"item": "session `data/fingerprintquery`",
 		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"dispositionCell": "**HELD-NEW**: a typed count needs one resolvable lookup supplier",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
-			"cell": "UNAVAILABLE / RUNS",
+			"cell": "UNAVAILABLE (no companion lookup) / RUNS (distinct response keys per session step, in frame order)",
 			"webApps": {
-				"reading": "unavailable"
+				"reading": "unavailable",
+				"note": "no companion lookup"
 			},
 			"android": {
-				"reading": "runs"
+				"reading": "runs",
+				"note": "Core adds a count for each step with an identification response. Counts include unmatched keys and a defined empty result contributes zero. The nodes have no case-list identity."
 			}
 		},
 		"emission": {
