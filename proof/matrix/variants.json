@@ -42389,6 +42389,37 @@
 		]
 	},
 	{
+		"id": "hq-search/two-fields-receive-from-the-address-picker",
+		"base": "hq-search",
+		"entry": "case-search/address-picker-receiver-on-a-search-screen",
+		"change": {
+			"op": "named",
+			"name": "address_picker_and_two_receivers"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/0/kind",
+				"value": "address"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/2/addressReceiver/parts",
+				"value": ["us_state", "city"]
+			}
+		]
+	},
+	{
 		"id": "hq-search/value-received-with-invalid-topic",
 		"base": "hq-search",
 		"entry": "case-search/receiver-expression",
