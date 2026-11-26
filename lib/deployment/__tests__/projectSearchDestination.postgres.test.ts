@@ -588,6 +588,7 @@ it("refuses to promote prepared practice after its target search connection chan
 			addOns: [],
 			profileProperties: [],
 			profileCustomProperties: [],
+			autoGpsCapture: false,
 		},
 		observedAt: before,
 		discard: null,
@@ -604,6 +605,7 @@ it("refuses to promote prepared practice after its target search connection chan
 		pushedRevision: null,
 		uploadedAt: before,
 		baseline,
+		ownership: baseline.ownership,
 	} as const;
 	const recorded = await recordRemoteResource(scope, target, remote);
 	if (!recorded.pushToken) throw new Error("Expected a prepared app mapping.");
