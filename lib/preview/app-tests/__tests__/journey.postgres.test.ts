@@ -42,7 +42,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { formField, literal, term } from "@/lib/domain/expression";
+import { eq, formField, literal, term } from "@/lib/domain/expression";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { proseText } from "@/lib/domain/prose";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
@@ -134,6 +134,88 @@ it("keeps the exact ID set when an App Test form opens after its answer changes"
 	`.execute(h.db());
 	expect(records.rows).toEqual([{ case_id: "opened-id" }]);
 	await step({ kind: "finish" });
+});
+
+it("submits a guarded worker record update through an isolated App Test journey", async () => {
+	const decision = testUuid("app-test-worker-decision");
+	const detail = testUuid("app-test-worker-detail");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Tasks",
+				forms: [
+					{
+						name: "Record a note",
+						type: "survey",
+						fields: [f({ kind: "text", uuid: decision, id: "decision" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	doc.userProperties = {
+		[detail]: { uuid: detail, slug: "visit_note", label: "Visit note" },
+	};
+	doc.userPropertyOrder = [detail];
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: testUuid("app-test-conditional-worker-write"),
+			id: "save_worker_note",
+			action: "update",
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+			condition: eq(term(formField(decision)), literal("save")),
+			writes: [{ property: "visit_note", value: term(literal("visited")) }],
+		},
+	];
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const answer of ["keep", "save"]) {
+		let current = await startAppTest(scope, {
+			requestId: `conditional-worker-${answer}`,
+			expectedBlueprintSeq: 0,
+			input: { purpose: "Record the note when the answer calls for it" },
+		});
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `step-${current.step}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		const rows = () =>
+			sql<{ case_id: string; value: string | null }>`
+			SELECT case_id, properties->>'visit_note' AS value
+			FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+			WHERE case_type = 'commcare-user' AND properties->>'hq_user_id' = ${scope.actorUserId}
+		`.execute(h.db());
+		await step({ kind: "menu", moduleUuid });
+		await step({ kind: "form", formUuid });
+		const before = (await rows()).rows;
+		expect(before).toEqual([{ case_id: expect.any(String), value: null }]);
+		await step({
+			kind: "answer",
+			answers: [{ path: "decision", value: answer }],
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+		expect((await rows()).rows).toEqual([
+			{
+				case_id: before[0].case_id,
+				value: answer === "save" ? "visited" : null,
+			},
+		]);
+		await step({ kind: "finish" });
+	}
 });
 
 it("shows shared worker wording for a menu, form, record choice and submit button in each language", async () => {

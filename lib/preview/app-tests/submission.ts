@@ -100,11 +100,16 @@ export async function submitAppTest(
 			"Media capture needs a check in the running app. This test cannot submit attachment bytes.",
 		);
 	const form = context.doc.forms[formContentUuid(context.doc, screen.formUuid)];
-	const retainsExactId = form?.caseOperations?.some(
+	// These two effects choose their physical target at entry, so the
+	// submission reads the journey server's held opening, not its live data.
+	const retainsOpening = form?.caseOperations?.some(
 		(operation) =>
-			operation.action === "create" &&
-			operation.target.kind === "new" &&
-			operation.target.expr !== undefined,
+			(operation.action === "create" &&
+				operation.target.kind === "new" &&
+				operation.target.expr !== undefined) ||
+			(operation.action === "update" &&
+				operation.target.kind === "worker-record" &&
+				operation.condition !== undefined),
 	);
 
 	const built = await buildSubmissionOperationProgram({
@@ -120,7 +125,7 @@ export async function submitAppTest(
 			role: scope.role,
 		},
 		testWorkerGroups: context.workerGroups,
-		...(retainsExactId && {
+		...(retainsOpening && {
 			testOpening: {
 				createIds: screen.entry.checkpoint.caseCreateIds,
 				reads: {
