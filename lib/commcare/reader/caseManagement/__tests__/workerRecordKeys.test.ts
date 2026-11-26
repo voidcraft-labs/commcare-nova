@@ -415,7 +415,8 @@ describe("operation-level execution of a Save to Case worker update", () => {
 		const worker = doc.forms[FORM].caseOperations?.find(
 			(operation) => operation.action === "update",
 		);
-		if (!worker) throw new Error("Expected the held worker update.");
+		if (worker?.action !== "update")
+			throw new Error("Expected the held worker update.");
 		const edit = planCaseOperationUpdate(doc, FORM, {
 			...worker,
 			condition: eq(term(formField(NOTE)), literal("yes")),

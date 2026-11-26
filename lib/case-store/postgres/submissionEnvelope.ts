@@ -1629,25 +1629,30 @@ async function resolveOperationProgram(
 				held.owner_id !== host.actingUserId)
 		)
 			throw reopenWorker();
-		const rows = await trx
+		const scoped = trx
 			.selectFrom("cases")
-			.select(["case_id", "status", "owner_id"])
 			.where("app_id", "=", appId)
 			.where("project_id", "=", host.projectId)
 			.where("case_type", "=", USERCASE_CASE_TYPE)
-			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId)
+			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId);
+		const target =
+			held === undefined
+				? scoped
+				: scoped
+						.where("case_id", "=", held.case_id)
+						.where(({ not, exists }) =>
+							not(
+								exists(
+									scoped.select("case_id").where("case_id", "!=", held.case_id),
+								),
+							),
+						);
+		const rows = await target
+			.select(["case_id", "status", "owner_id"])
 			.orderBy("case_id")
 			.forUpdate()
 			.limit(2)
 			.execute();
-		if (
-			held &&
-			(rows.length !== 1 ||
-				rows[0].case_id !== held.case_id ||
-				rows[0].status !== "open" ||
-				rows[0].owner_id !== host.actingUserId)
-		)
-			throw reopenWorker();
 		if (rows.length > 1)
 			throw new Error("More than one worker record exists for this app.");
 		if (
@@ -1655,7 +1660,9 @@ async function resolveOperationProgram(
 			rows[0].status !== "open" ||
 			rows[0].owner_id !== host.actingUserId
 		)
-			throw new CaseNotFoundError(host.actingUserId);
+			throw conditioned
+				? reopenWorker()
+				: new CaseNotFoundError(host.actingUserId);
 		workerRecordCaseId = rows[0].case_id;
 	}
 

@@ -268,6 +268,13 @@ describe("engine → builder → executor acceptance", () => {
 			},
 		);
 		expect(formNeedsOpeningEvidence(doc, form)).toBe(true);
+		const identity = {
+			...IDENTITY,
+			session: {
+				...IDENTITY.session,
+				userPropertySlugs: { [property]: "visit_note" },
+			},
+		};
 		const store = makeStore(true);
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -291,7 +298,7 @@ describe("engine → builder → executor acceptance", () => {
 				blueprint: doc,
 				mutation,
 				projection,
-				identity: IDENTITY,
+				identity,
 				opening,
 			});
 			return store.applySubmission(
@@ -300,7 +307,7 @@ describe("engine → builder → executor acceptance", () => {
 					submissionReceipt: {
 						...buildSubmissionReceiptIdentity({
 							appId: APP_ID,
-							identity: IDENTITY,
+							identity,
 							mutation,
 							projection,
 						}),
