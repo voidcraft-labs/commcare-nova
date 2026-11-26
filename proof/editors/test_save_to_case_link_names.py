@@ -4,7 +4,7 @@ import pytest
 from lxml import etree
 
 from proof.editors import vellum
-from proof.editors.conftest import corpus_document
+from proof.editors.conftest import corpus_document, write_evidence
 from proof.editors.test_plan_features import XFORMS, _form, _published
 from proof.observe.hqside import _patched
 
@@ -108,6 +108,25 @@ def test_period_in_save_to_case_link_cannot_keep_its_calculation(
         )
     else:
         assert run.save_refusal, run
+
+
+@pytest.mark.parametrize("name", ["parént", "亲属"])
+def test_unicode_save_to_case_link_cannot_keep_its_calculation(
+    hq, core_runner, editor_driver, name,
+):
+    run, path = _save_with_link(editor_driver, name)
+    assert run.saved, run.save_refusal
+    root = etree.fromstring(run.stored_source.encode())
+    bindings = [
+        bind.get("calculate")
+        for bind in root.iter(f"{{{XFORMS}}}bind")
+        if bind.get("nodeset") == path
+    ]
+    assert bindings == [None]
+    assert len(list(root.iter(f"{{{CASE}}}{name}"))) == 1
+    write_evidence(f"save-to-case-unicode-index-{name}", {
+        "name": name, "saved": True, "exactLinks": 1, "bindings": bindings,
+    })
 
 
 @pytest.mark.parametrize("name", ["instance", "parsererror"])

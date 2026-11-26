@@ -35725,6 +35725,42 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-unicode-link-name",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_unicode_link_name"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-unicode-link-name-cjk",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_unicode_link_name_cjk"
+		}
+	},
+	{
 		"id": "hq-questions/save-to-case-link-stops-form-designer",
 		"base": "hq-questions",
 		"entry": "questions/question-id-failing-the-grammar-or-meta-in-any-case",
