@@ -117,8 +117,11 @@ source for one of the form's records, adds an extra record of the entry's own
 or removes one the questions and record changes do not use;
 `restore-shared-choice` brings back a record the entry left out, and
 `change-shared-form` points the entry at another form. A shared record keeps
-the name the form gives it, so rename it on that form. `get_form` on an entry
-reports `openingChoicesFrom: "shared-entry"` and the form it opens.
+the name the form gives it, so rename it on that form. Whether an entry asks
+for the device location follows the form it opens: set `capture_location` on
+that form, since `create_form` with `shared_form_uuid` and `update_form` on an
+entry refuse it. `get_form` on an entry reports
+`openingChoicesFrom: "shared-entry"` and the form it opens.
 
 `get_form` returns the current naming rule, navigation, and `recordContext` for
 reading the selected record and its ancestors. In form expressions,
