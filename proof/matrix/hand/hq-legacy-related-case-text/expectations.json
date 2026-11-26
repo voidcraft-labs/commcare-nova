@@ -1,0 +1,26 @@
+[
+	{
+		"id": "note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "Routine home visit"
+				}
+			],
+			"expressions": ["/data/note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Routine home visit"
+			}
+		]
+	}
+]
