@@ -302,6 +302,7 @@ export function CaseOperationDetailCanvas({
 					caseTypes,
 					expressionCaseType || undefined,
 					formType,
+					placements.own?.placement.kind === "basic",
 				)
 			: [];
 	const writeMenu = (writeIndex: number): OwnWriteMenu | undefined =>
