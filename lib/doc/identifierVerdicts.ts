@@ -28,6 +28,7 @@
  * Pure — reads the doc, never mutates. Reducers stay total and never
  * call these: a degenerate historical event must still replay.
  */
+
 import {
 	CASE_TYPE_REGEX,
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
@@ -41,12 +42,17 @@ import {
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type FreeNameOffer,
-	formConnectIds,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
 	isReservedCaseOperationWrite,
 	type Uuid,
 } from "@/lib/domain";
+import { formOfField } from "@/lib/domain/fieldForm";
+import {
+	type ConnectActivity,
+	connectActivityIdLimit,
+	freeConnectId,
+} from "@/lib/domain/fields/connectActivity";
 import {
 	caseOperationIdNameProblem,
 	caseOperationLinkNameProblem,
@@ -55,9 +61,11 @@ import {
 	freeQuestionId,
 	questionIdProblem,
 	questionIdProblemSentence,
+	RESERVED_CONNECT_BLOCK_IDS,
 	sourceWritePropertyProblem,
 	sourceWritePropertySentence,
 } from "@/lib/domain/questionId";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 
 /** Why an ID was rejected. Useful for tests and for callers that brand
  *  failure classes differently; human-facing copy rides `message` /
@@ -97,14 +105,18 @@ const OK: FieldIdVerdict = { ok: true };
  *  sibling universe is not the document's current one (the section
  *  planner collides against the root its plan PRODUCES); the replacement
  *  it offers is unsuffixed. */
-export function fieldIdFormatVerdict(proposedId: string): FieldIdVerdict {
-	return formatVerdict(proposedId);
+export function fieldIdFormatVerdict(
+	proposedId: string,
+	activityKind?: ConnectActivity["kind"],
+): FieldIdVerdict {
+	return formatVerdict(proposedId, new Set(), activityKind);
 }
 
 /** `taken` is the sibling ids the offered replacement must avoid. */
 function formatVerdict(
 	proposedId: string,
-	taken: ReadonlySet<string> = new Set(),
+	taken: ReadonlySet<string>,
+	activityKind?: ConnectActivity["kind"],
 ): FieldIdVerdict {
 	if (proposedId.length === 0) {
 		return {
@@ -116,19 +128,35 @@ function formatVerdict(
 				'A field needs an ID. Try something short, like "first_name".',
 		};
 	}
-	const problem = questionIdProblem(proposedId);
+	const problem = questionIdProblem(
+		proposedId,
+		activityKind && RESERVED_CONNECT_BLOCK_IDS,
+	);
 	if (problem !== undefined) {
 		// One sentence serves both voices: it names no wire mechanics.
 		const sentence = questionIdProblemSentence(
 			proposedId,
 			problem,
-			freeQuestionId(proposedId, taken),
+			activityKind
+				? freeConnectId(proposedId, taken, activityKind)
+				: freeQuestionId(proposedId, taken),
+			activityKind ? "connect" : "question",
 		);
 		return {
 			ok: false,
 			code: "illegal_xml_name",
 			message: sentence,
 			userMessage: sentence,
+		};
+	}
+	const limit = activityKind && connectActivityIdLimit(activityKind);
+	if (limit !== undefined && proposedId.length > limit) {
+		const message = `Connect stores up to ${limit} characters for this activity ID. You can shorten "${proposedId}".`;
+		return {
+			ok: false,
+			code: "illegal_xml_name",
+			userMessage: message,
+			message,
 		};
 	}
 	return OK;
@@ -146,26 +174,13 @@ function siblingConflict(proposedId: string, where = ""): FieldIdVerdict {
 	};
 }
 
-/** The rejection for a root field named like one of its form's Connect
- *  blocks, whose wrapper shares the form's data root with it. */
-function connectBlockConflict(proposedId: string): FieldIdVerdict {
-	return {
-		ok: false,
-		code: "sibling_conflict",
-		message: `A CommCare Connect block of this form is already named "${proposedId}". The block and a top-level field would be two items of one name in the form, so each needs a unique ID. Pick a different one.`,
-		userMessage: `A CommCare Connect block of this form is already named "${proposedId}". Give this field a different ID.`,
-	};
-}
-
-/** The Connect block ids beside `parentUuid`'s children: its form's, when
- *  the parent is a form (the data root), and none under a group. */
-function connectIdsBeside(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-): ReadonlySet<string> {
-	return doc.forms[parentUuid] === undefined
-		? new Set()
-		: formConnectIds(doc, parentUuid);
+function siblingsSubmittedTo(doc: BlueprintDoc, parent: Uuid): readonly Uuid[] {
+	const form = formOfField(doc, parent);
+	return form === undefined
+		? (doc.fieldOrder[parent] ?? [])
+		: (submissionLayout(form, doc.fields, doc.fieldOrder).children.get(
+				parent,
+			) ?? []);
 }
 
 /** True when `parentUuid`'s children (minus the excluded uuid) already
@@ -177,8 +192,7 @@ function parentHasSibling(
 	proposedId: string,
 	exclude: ReadonlySet<Uuid>,
 ): boolean {
-	if (connectIdsBeside(doc, parentUuid).has(proposedId)) return true;
-	for (const siblingUuid of doc.fieldOrder[parentUuid] ?? []) {
+	for (const siblingUuid of siblingsSubmittedTo(doc, parentUuid)) {
 		if (exclude.has(siblingUuid)) continue;
 		if (doc.fields[siblingUuid]?.id === proposedId) return true;
 	}
@@ -192,8 +206,8 @@ function siblingIds(
 	parentUuid: Uuid,
 	exclude: ReadonlySet<Uuid>,
 ): Set<string> {
-	const ids = new Set<string>(connectIdsBeside(doc, parentUuid));
-	for (const siblingUuid of doc.fieldOrder[parentUuid] ?? []) {
+	const ids = new Set<string>();
+	for (const siblingUuid of siblingsSubmittedTo(doc, parentUuid)) {
 		if (exclude.has(siblingUuid)) continue;
 		const id = doc.fields[siblingUuid]?.id;
 		if (id !== undefined) ids.add(id);
@@ -205,6 +219,7 @@ function siblingIds(
  *  check. Options-object signature so call sites read as named args. */
 export interface FieldIdVerdictInput {
 	doc: BlueprintDoc;
+	activityKind?: ConnectActivity["kind"];
 	/** The parent the field lands under — a form uuid for top-level
 	 *  fields, a group/repeat field uuid for nested ones. */
 	parentUuid: Uuid;
@@ -230,6 +245,7 @@ export function fieldIdVerdict({
 	proposedId,
 	excludeUuid,
 	pendingSiblingIds,
+	activityKind,
 }: FieldIdVerdictInput): FieldIdVerdict {
 	const exclude = new Set<Uuid>(excludeUuid ? [excludeUuid] : []);
 	const format = formatVerdict(
@@ -238,10 +254,9 @@ export function fieldIdVerdict({
 			...siblingIds(doc, parentUuid, exclude),
 			...(pendingSiblingIds ?? []),
 		]),
+		activityKind,
 	);
 	if (!format.ok) return format;
-	if (connectIdsBeside(doc, parentUuid).has(proposedId))
-		return connectBlockConflict(proposedId);
 	if (
 		parentHasSibling(doc, parentUuid, proposedId, exclude) ||
 		pendingSiblingIds?.has(proposedId)
@@ -268,7 +283,8 @@ export function findRenameSiblingConflict(
 	const field = doc.fields[fieldUuid];
 	if (!field) return undefined;
 
-	const parent = doc.fieldParent[fieldUuid];
+	const parent =
+		field.submissionPlacement?.parent ?? doc.fieldParent[fieldUuid];
 	if (parent === undefined) return undefined;
 	return parentHasSibling(doc, parent, newId, new Set([fieldUuid]))
 		? parent
@@ -296,17 +312,17 @@ export function renameFieldIdVerdict({
 	const field = doc.fields[fieldUuid];
 	if (!field) return OK;
 
-	const parent = doc.fieldParent[fieldUuid];
+	const parent =
+		field.submissionPlacement?.parent ?? doc.fieldParent[fieldUuid];
 	const format = formatVerdict(
 		newId,
 		parent === undefined
 			? new Set()
 			: siblingIds(doc, parent, new Set([fieldUuid])),
+		field.kind === "connect_activity" ? field.activity.kind : undefined,
 	);
 	if (!format.ok) return format;
 	if (field.id === newId) return OK;
-	if (parent !== undefined && connectIdsBeside(doc, parent).has(newId))
-		return connectBlockConflict(newId);
 
 	const conflictParent = findRenameSiblingConflict(doc, fieldUuid, newId);
 	if (conflictParent !== undefined) {

@@ -877,7 +877,7 @@ def _answer(body):
     return value if isinstance(value, dict) else {"body": value}
 
 
-def vellum_report(report, *, document, editor, scope, form=None):
+def vellum_report(report, *, document, editor, scope, form=None, app=None):
     """What Vellum reports opening and saving a form: everything that is not a clean open and save.
 
     Each is keyed by what it says (``message_key``, the form's data node
@@ -899,8 +899,10 @@ def vellum_report(report, *, document, editor, scope, form=None):
     questions' logic warnings name, each of which is reported.
 
     A pre-save alert that is HQ's own on the stored form Vellum opened
-    (``form``, its app document's form) is not reported: the set of HQ's
-    own reports decides it (``proof.checks.hq_own_reports``).
+    (``form``, its app document's form), and a question's message that is
+    HQ's own on the question and the stored app (``app``, its app document),
+    are not reported: the set of HQ's own reports decides each
+    (``proof.checks.hq_own_reports``).
     """
     if report["kind"] == "broken":
         return broken_report(report, document=document, editor=editor, scope=scope)
@@ -944,7 +946,10 @@ def vellum_report(report, *, document, editor, scope, form=None):
                     )
                 continue
             text = message_key(message["message"], data_root=data, question=question["path"])
-            add(f"/questions/*/{step}/{pointer_token(text)}", where, "error", value)
+            path = f"/questions/*/{step}/{pointer_token(text)}"
+            if hq_own_reports.held(f"editor:{editor}", f"{scope.path}{path}", question, app):
+                continue
+            add(path, where, "error", value)
     for warning in record.get("serializationWarnings", []):
         key = pointer_token(warning.get("key") or "-")
         text = message_key(str(warning.get("message") or ""), data_root=data, question=warning.get("path"))
@@ -1256,6 +1261,7 @@ class _Judged:
                     editor=editor,
                     scope=scope,
                     form=base.stored.doc["modules"][scope.module]["forms"][scope.form],
+                    app=base.stored.doc,
                 )
                 base = self.judge_save("vellum", editor, scope, form["target"], entry, reported, base)
             if "again" in form:

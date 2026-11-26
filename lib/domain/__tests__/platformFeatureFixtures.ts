@@ -24,9 +24,10 @@ import {
 	type AppSettings,
 	type BlueprintDoc,
 	type Column,
-	type ConnectType,
+	type ConnectRole,
 	calculatedColumn,
 	columnSort,
+	type FormBehaviorRole,
 	hiddenSearchInputDef,
 	imageMapColumn,
 	linkColumn,
@@ -102,7 +103,7 @@ const INPUT_OWNER = {
 function survey(
 	fields: FieldSpec[],
 	options: {
-		readonly connectType?: ConnectType;
+		readonly role?: ConnectRole;
 		readonly appSettings?: AppSettings;
 		readonly configure?: (doc: BlueprintDoc) => void;
 		readonly postSubmit?: "firstMenu";
@@ -112,9 +113,7 @@ function survey(
 	return buildDoc(
 		{
 			appName: "Platforms",
-			...(options.connectType === undefined
-				? {}
-				: { connectType: options.connectType }),
+			...(options.role === undefined ? {} : { connectRoles: [options.role] }),
 			...(options.appSettings === undefined
 				? {}
 				: { appSettings: options.appSettings }),
@@ -127,21 +126,6 @@ function survey(
 							uuid: FIXTURE_FORM,
 							name: "Intake",
 							type: "survey",
-							...(options.connectType === undefined
-								? {}
-								: {
-										connect:
-											options.connectType === "learn"
-												? {
-														learn_module: {
-															id: "lesson",
-															name: "Lesson",
-															description: "Read it",
-															time_estimate: 5,
-														},
-													}
-												: { deliver_unit: { id: "visit", name: "Visit" } },
-									}),
 							...(options.postSubmit === undefined
 								? {}
 								: { postSubmit: options.postSubmit }),
@@ -159,6 +143,22 @@ function survey(
 }
 
 /** A survey whose one field is `spec`, under the fixture field's uuid. */
+/** A survey whose one repeat holds a note and the hidden value `slots` sets. */
+function inARepeat(slots: Record<string, string>): BlueprintDoc {
+	return survey([
+		f({
+			kind: "repeat",
+			id: "rows",
+			label: proseText("Rows"),
+			repeat_mode: "user_controlled",
+			children: [
+				f({ kind: "text", id: "note", label: proseText("Note") }),
+				f({ kind: "hidden", id: "value", uuid: FIXTURE_FIELD, ...slots }),
+			],
+		}),
+	]);
+}
+
 function oneField(spec: FieldSpec): BlueprintDoc {
 	return survey([f({ ...spec, uuid: FIXTURE_FIELD })]);
 }
@@ -395,11 +395,11 @@ const COLUMN_USE = (feature: PlatformFeatureId): PlatformFeatureUse => ({
 const CONNECT: PlatformFeatureFixture = {
 	with: () =>
 		survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
-			connectType: "learn",
+			role: "learn",
 		}),
 	without: () =>
 		survey([f({ kind: "text", id: "answer", label: proseText("Answer") })]),
-	use: slotUse("connect-app", { kind: "app" }, "connectType"),
+	use: slotUse("connect-app", { kind: "app" }, "connectRoles"),
 };
 
 const tiled =
@@ -416,6 +416,23 @@ const tiled =
 
 const SKIP_FILTER = eq(prop("patient", "status"), literal("open"));
 
+/** The case app with its form's first question label holding `role`. */
+function formBehaviorFixture(role?: FormBehaviorRole): BlueprintDoc {
+	const doc = caseApp({});
+	if (role === undefined) return doc;
+	const field = doc.fieldOrder[FIXTURE_FORM][0];
+	return {
+		...doc,
+		forms: {
+			...doc.forms,
+			[FIXTURE_FORM]: {
+				...doc.forms[FIXTURE_FORM],
+				[role]: { carrier: { field, role: "field-label" as const } },
+			},
+		},
+	};
+}
+
 export const PLATFORM_FEATURE_FIXTURES = {
 	"menu-layout": {
 		with: () =>
@@ -424,6 +441,15 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		without: () => survey([]),
 		use: slotUse("menu-layout", { kind: "app" }, "appSettings.firstMenuLayout"),
+	},
+	"web-apps-form-behavior": {
+		with: () => formBehaviorFixture("automaticSubmissionText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse(
+			"web-apps-form-behavior",
+			FORM_OWNER,
+			"automaticSubmissionText",
+		),
 	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"worker-distance": {
@@ -693,6 +719,18 @@ export const PLATFORM_FEATURE_FIXTURES = {
 	"location-question": fieldKindPair("location-question", "geopoint"),
 	"barcode-question": fieldKindPair("barcode-question", "barcode"),
 	"image-question": fieldKindPair("image-question", "image"),
+	"image-size": {
+		with: () =>
+			oneField({
+				kind: "image",
+				id: "photo",
+				label: proseText("Photo"),
+				maxDimension: 731,
+			}),
+		without: () =>
+			oneField({ kind: "image", id: "photo", label: proseText("Photo") }),
+		use: slotUse("image-size", FIELD_OWNER, "maxDimension"),
+	},
 	"audio-question": fieldKindPair("audio-question", "audio"),
 	"video-question": fieldKindPair("video-question", "video"),
 	"question-pages": {
@@ -924,6 +962,21 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		"choiceLayout",
 		{ kind: "platforms", web: { kind: "dropdown" }, android: { kind: "grid" } },
 	),
+	"answer-name-requires-android": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "registration",
+				label: proseText("Registration reference"),
+			}),
+		without: () =>
+			oneField({
+				kind: "text",
+				id: "record_ref",
+				label: proseText("Registration reference"),
+			}),
+		use: slotUse("answer-name-requires-android", FIELD_OWNER, "id"),
+	},
 	"number-keypad": {
 		with: () =>
 			oneField({
@@ -983,6 +1036,18 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			},
 			"media",
 		),
+	},
+	"confirm-message": {
+		with: () =>
+			oneField({
+				kind: "label",
+				id: "notice",
+				label: proseText("Notice"),
+				askForConfirmation: true,
+			}),
+		without: () =>
+			oneField({ kind: "label", id: "notice", label: proseText("Notice") }),
+		use: slotUse("confirm-message", FIELD_OWNER, "askForConfirmation"),
 	},
 	"help-media": {
 		with: () =>
@@ -1050,6 +1115,22 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				label: proseText("Answer"),
 			}),
 		use: slotUse("label-spoken-text", FIELD_OWNER, "spoken_text"),
+	},
+	"row-starting-value": {
+		with: () => inARepeat({ default_value: "'D'", calculate: "../note" }),
+		// The same pair outside every repeat: every platform runs it alike.
+		without: () =>
+			survey([
+				f({ kind: "text", id: "note", label: proseText("Note") }),
+				f({
+					kind: "hidden",
+					id: "value",
+					uuid: FIXTURE_FIELD,
+					default_value: "'D'",
+					calculate: "#form/note",
+				}),
+			]),
+		use: slotUse("row-starting-value", FIELD_OWNER, "default_value"),
 	},
 	now: calculatePair("now", "now()"),
 	today: calculatePair("today", "today()"),
@@ -1795,7 +1876,7 @@ export const PLATFORM_FEATURE_FIXTURES = {
 	},
 	"connect-location-capture": {
 		...CONNECT,
-		use: slotUse("connect-location-capture", { kind: "app" }, "connectType"),
+		use: slotUse("connect-location-capture", { kind: "app" }, "connectRoles"),
 	},
 } as const satisfies Readonly<
 	Record<PlatformFeatureId, PlatformFeatureFixture>

@@ -49,7 +49,7 @@ export function buildSimpleBlueprint(
 	return {
 		appId,
 		appName: `${appId}-test-app`,
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes,
 		modules: {},

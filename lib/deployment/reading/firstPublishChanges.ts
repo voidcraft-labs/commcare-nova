@@ -68,6 +68,8 @@ import type { Platform } from "@/lib/domain/platforms";
 import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import {
 	ANSWERED_FIRST_PUBLISH_CHANGES,
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+	type CurrentFirstPublishChangeId,
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
@@ -556,7 +558,7 @@ function inactiveAutoLaunchRespelled(facts: FirstPublishFacts): boolean {
  * on the platform that shows it (`firstPublishViewFromStored` uses the same rule).
  */
 function platformOnlyRecorded(
-	id: FirstPublishChangeId,
+	id: CurrentFirstPublishChangeId,
 	entry: Pick<FirstPublishChange, "touchesWorkers" | "paths" | "at">,
 ): FirstPublishChange {
 	const recorded = recordedIn(id);
@@ -1184,11 +1186,14 @@ function datetimeNodePlaces(
 }
 
 /**
- * The register, in the order of `FIRST_PUBLISH_CHANGE_IDS`. Each entry's doc
+ * The register, in the order of `CURRENT_FIRST_PUBLISH_CHANGE_IDS`. Each entry's doc
  * comment names where the change comes from.
  */
 export const FIRST_PUBLISH_CHANGES: Readonly<
-	Record<FirstPublishChangeId, FirstPublishChange>
+	Record<
+		Exclude<FirstPublishChangeId, "hidden-value-defaults-dropped">,
+		FirstPublishChange
+	>
 > = {
 	/**
 	 * Nova writes every form and setting again in its own spelling
@@ -1598,7 +1603,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: (facts) =>
-			facts.doc.connectType !== null &&
+			facts.doc.connectRoles.length > 0 &&
 			facts.source.raw.auto_gps_capture !== true,
 		at: {
 			kinds: ["app", "form-node"],
@@ -1911,28 +1916,40 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/_attachments/*"],
 	},
 	/**
-	 * A Hidden Value whose source holds both a starting value and a
-	 * calculation, where no runtime can read the starting value before the
-	 * calculation replaces it: the reading holds the calculation alone, so the
-	 * form's load-time setvalue goes, and with it the form builder's case load
-	 * of it that HQ's app summary reads. Recorded by
-	 * `reader/xform/afterBinding.ts`.
+	 * A Hidden Value whose bind `type` the source spells another way than the
+	 * one Nova writes for the same answer class (`xsd:integer` for `xsd:int`):
+	 * Core reads both spellings as one data class, and the publish writes
+	 * Nova's. Recorded by `reader/xform/afterBinding.ts::recordHiddenAnswerSpellings`.
 	 */
-	"hidden-value-defaults-dropped": {
+	"hidden-answer-types-respelled": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: sameStateRecorded("hidden-value-defaults-dropped"),
+		applies: sameStateRecorded("hidden-answer-types-respelled"),
 		at: {
-			kinds: ["form-part", "form"],
-			places: (facts) =>
-				recordedForms(facts, "hidden-value-defaults-dropped").flatMap(
-					(position) => [
-						partPlace(position, ":setvalue"),
-						placeOf("form", position, "case_references_data", "load"),
-					],
-				),
+			kinds: ["form-node"],
+			places: (facts) => recordedPlaces(facts, "hidden-answer-types-respelled"),
 		},
-		paths: ["/_attachments/*", "/modules/*/forms/*/case_references_data/load"],
+		paths: ["/_attachments/*"],
+	},
+	/**
+	 * A model iteration's display condition on its container's bind, which the
+	 * form builder discards (`parser.js::parseBindElement`: its question is the
+	 * rows, `modeliteration.js::getPathName`). The publish writes it on the rows
+	 * (`buildQueryRepeat`), so while it is false the submission holds the
+	 * container and its ids where the source left both out
+	 * (`XFormSerializingVisitor.serializeNode`). Recorded by
+	 * `reader/xform/afterBinding.ts::moveContainerConditions`.
+	 */
+	"model-iteration-conditions-moved-to-rows": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: sameStateRecorded("model-iteration-conditions-moved-to-rows"),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) =>
+				recordedPlaces(facts, "model-iteration-conditions-moved-to-rows"),
+		},
+		paths: ["/_attachments/*"],
 	},
 	/**
 	 * A case list's `invisible` column whose sort element has display text, under
@@ -2127,7 +2144,7 @@ export function firstPublishFactsOf(input: {
 
 /** Whether a stored list keeps `id`: every id but the two Web Apps lines, which it works out again from
  *  the stored Web App setting alone. */
-export function storedInAList(id: FirstPublishChangeId): boolean {
+export function storedInAList(id: CurrentFirstPublishChangeId): boolean {
 	const entry = FIRST_PUBLISH_CHANGES[id];
 	return entry.scope === "reading" || entry.recorded !== undefined;
 }
@@ -2144,7 +2161,7 @@ export function firstPublishListToStore(
 	facts: ReadFacts,
 ): FirstPublishView {
 	const given = new Set(chosen.ids);
-	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => {
+	const ids = CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) => {
 		const recorded = FIRST_PUBLISH_CHANGES[id].recorded;
 		if (recorded !== undefined) return recorded(facts);
 		return given.has(id) && storedInAList(id);
@@ -2201,7 +2218,7 @@ export function withAnsweredChanges(
 export function firstPublishChangesFor(
 	facts: FirstPublishFacts,
 ): FirstPublishView {
-	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) =>
+	const ids = CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) =>
 		FIRST_PUBLISH_CHANGES[id].applies(facts),
 	);
 	return {
@@ -2232,23 +2249,25 @@ export function firstPublishChangePlaces(
 	ids: readonly FirstPublishChangeId[],
 ): readonly FirstPublishChangePlaces[] {
 	const listed = new Set(ids);
-	return FIRST_PUBLISH_CHANGE_IDS.filter((id) => listed.has(id)).map((id) => {
-		const entry = FIRST_PUBLISH_CHANGES[id].at;
-		if ("appWide" in entry) return { id, places: [""] };
-		const places = sortedPlaces(entry.places(facts));
-		if (places.length === 0)
-			throw new Error(
-				`The first-publish change ${id} applies on this reading and its entry names no place it stands at. An entry says where its change stands wherever it applies, from what the reading records of it; look at its at.places in lib/deployment/reading/firstPublishChanges.ts and at what the reading records under the id.`,
-			);
-		for (const place of places) {
-			const kind = firstPublishPlaceKind(place);
-			if (kind === null || kind === "app-wide" || !entry.kinds.includes(kind))
+	return CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) => listed.has(id)).map(
+		(id) => {
+			const entry = FIRST_PUBLISH_CHANGES[id].at;
+			if ("appWide" in entry) return { id, places: [""] };
+			const places = sortedPlaces(entry.places(facts));
+			if (places.length === 0)
 				throw new Error(
-					`The first-publish change ${id} names the place ${JSON.stringify(place)}, which is ${kind === null ? "no place lib/deployment/reading/firstPublishPlaces.ts holds" : `of the kind ${kind}, one its entry does not declare (${entry.kinds.join(", ")})`}. Declare the kind in its at.kinds where the change stands there, or name the place it does stand at.`,
+					`The first-publish change ${id} applies on this reading and its entry names no place it stands at. An entry says where its change stands wherever it applies, from what the reading records of it; look at its at.places in lib/deployment/reading/firstPublishChanges.ts and at what the reading records under the id.`,
 				);
-		}
-		return { id, places };
-	});
+			for (const place of places) {
+				const kind = firstPublishPlaceKind(place);
+				if (kind === null || kind === "app-wide" || !entry.kinds.includes(kind))
+					throw new Error(
+						`The first-publish change ${id} names the place ${JSON.stringify(place)}, which is ${kind === null ? "no place lib/deployment/reading/firstPublishPlaces.ts holds" : `of the kind ${kind}, one its entry does not declare (${entry.kinds.join(", ")})`}. Declare the kind in its at.kinds where the change stands there, or name the place it does stand at.`,
+					);
+			}
+			return { id, places };
+		},
+	);
 }
 
 /** The proof register also names results in the emitted XML, stored cases and
@@ -2765,7 +2784,9 @@ export function publishChangeSubjects(
 			blanks.set(canonicalJsonDigest([reviewPlace(place), slot]), place);
 	}
 	for (const rewrite of facts.facts.rewrites) {
-		const id = FIRST_PUBLISH_CHANGE_IDS.find((item) => item === rewrite.id);
+		const id = CURRENT_FIRST_PUBLISH_CHANGE_IDS.find(
+			(item) => item === rewrite.id,
+		);
 		const set = id && result.get(id);
 		if (!set || !rewrite.formExpression) continue;
 		for (const place of placesOfSlot(facts.positions, rewrite))
@@ -2849,7 +2870,7 @@ if (REGISTER_REFUSALS.length > 0) throw new Error(REGISTER_REFUSALS.join("\n"));
 /** The kinds of place each entry declares, as the proof lane's copy of the register states them
  *  (`proof/first-publish-changes.json`'s `placeKinds`): `["app-wide"]` for the app-wide entry. */
 export function firstPublishPlaceKindsOf(
-	id: FirstPublishChangeId,
+	id: CurrentFirstPublishChangeId,
 ): readonly FirstPublishPlaceKind[] {
 	const entry = FIRST_PUBLISH_CHANGES[id].at;
 	return "appWide" in entry ? ["app-wide"] : entry.kinds;

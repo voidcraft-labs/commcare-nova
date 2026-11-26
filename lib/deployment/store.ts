@@ -1,7 +1,5 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
-import { gunzipSync } from "node:zlib";
 import {
 	type Kysely,
 	type Selectable,
@@ -12,7 +10,6 @@ import {
 import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { HqAppsSeen } from "@/lib/commcare/hq/apps";
-import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
 	type TargetFacts,
@@ -133,6 +130,10 @@ import {
 	type ResourceBaselineRef,
 	type ResourceBaselineWrite,
 } from "./types";
+import {
+	appOwnershipFromRow,
+	verifiedBaselineSource,
+} from "./verifiedBaselineSource";
 import { baselineWebApps } from "./webApps";
 import {
 	type WorkbookAuthority,
@@ -3862,6 +3863,8 @@ export interface HqChangesFirstPublish {
 	readonly publishChanges: readonly FirstPublishChangeId[];
 	/** The Web App setting the source CommCare HQ served holds (`HqAppSource.cloudcareEnabled`). */
 	readonly webAppsOnInHq: boolean;
+	/** A previously recorded hidden starting answer is still absent from the taken app. */
+	readonly stillOmitsHiddenStartingAnswer?: boolean;
 }
 
 /** A later review can accept a different set even at the same source digest. */
@@ -3900,6 +3903,13 @@ function hqChangesFirstPublishList(
 	stored: StoredFirstPublish | null,
 	input: HqChangesFirstPublish,
 ): StoredFirstPublish | null {
+	const given = new Set(input.accepted.ids);
+	if (
+		input.stillOmitsHiddenStartingAnswer &&
+		stored?.ids.includes("hidden-value-defaults-dropped")
+	) {
+		given.add("hidden-value-defaults-dropped");
+	}
 	const removed =
 		input.removedFiles?.accepted ??
 		(stored?.reviewed === 1 ? stored.removedFiles : undefined) ??
@@ -3918,13 +3928,12 @@ function hqChangesFirstPublishList(
 				hasRegisteredPublishInputs(input.accepted.ids) && {
 					reviewedInputs: 1 as const,
 				}),
-			ids: storedIds(input.accepted.ids),
+			ids: storedIds([...given]),
 			reviewed: 1,
 			webAppsOnInHq: input.webAppsOnInHq,
 			of: "first-publish",
 		};
 	}
-	const given = new Set(input.accepted.ids);
 	const carried =
 		stored?.of === "next-publish"
 			? stored.ids.filter((id) => given.has(id))
@@ -4681,17 +4690,16 @@ function verifiedAppBaseline(
 ): AppBaseline | null {
 	if (row === undefined) return null;
 	const list = storedFirstPublish(row.deployment_id, row.first_publish_changes);
+	const answeredPublishChanges = ANSWERED_FIRST_PUBLISH_CHANGES.filter((id) =>
+		list?.ids.includes(id),
+	);
 	const observed = {
 		...(list?.reviewed === 1 && list.removedFiles?.length
 			? { approvedFileRemovals: list.removedFiles }
 			: {}),
 		...(list?.of === "next-publish" &&
 			needsStoredPublishReview(list) && { unverifiedNextChanges: list.ids }),
-		...(list?.ids.some((id) => ANSWERED_FIRST_PUBLISH_CHANGES.includes(id)) && {
-			answeredPublishChanges: list.ids.filter((id) =>
-				ANSWERED_FIRST_PUBLISH_CHANGES.includes(id),
-			),
-		}),
+		...(answeredPublishChanges.length > 0 && { answeredPublishChanges }),
 		...(((list && needsStoredPublishReview(list)) ||
 			row.first_publish_changes?.of === "first-publish" ||
 			(row.first_publish_changes !== null && list === null)) && {
@@ -4792,53 +4800,6 @@ function knownReadOrigin(
 	throw new Error(
 		`Deployment ${deploymentId} stores an app baseline of origin "${origin}", which Nova does not know.`,
 	);
-}
-
-/**
- * Gunzip, check the digest, parse the JSON and read the ownership of one
- * stored baseline row.
- *
- * A row that does not verify is no read Nova can use: it is logged and
- * answers null, which `readAppBaseline` reports as `unread` and
- * `readTargetFacts` as no facts.
- */
-function verifiedBaselineSource(row: {
-	readonly deployment_id: string;
-	readonly source_gzip: Buffer | null;
-	readonly source_bytes?: number | null;
-	readonly source_digest: string | null;
-	readonly ownership: unknown;
-}): { readonly source: unknown; readonly ownership: AppOwnership } | null {
-	const unverified = (reason: string): null => {
-		log.error("[deployment] app baseline does not verify", undefined, {
-			deploymentId: row.deployment_id,
-			reason,
-		});
-		return null;
-	};
-	if (row.source_gzip === null || row.source_digest === null) {
-		return unverified("missing source");
-	}
-	let text: Buffer;
-	try {
-		text = gunzipSync(row.source_gzip);
-	} catch {
-		return unverified("gzip");
-	}
-	if (row.source_bytes !== undefined && row.source_bytes !== text.length)
-		return unverified("length");
-	if (createHash("sha256").update(text).digest("hex") !== row.source_digest) {
-		return unverified("digest");
-	}
-	let source: unknown;
-	try {
-		source = parseHqJsonText(text.toString("utf8"));
-	} catch {
-		return unverified("json");
-	}
-	const ownership = appOwnershipFromRow(row.ownership);
-	if (ownership === null) return unverified("ownership");
-	return { source, ownership };
 }
 
 /** At most this many projections are held per instance. */
@@ -5176,45 +5137,6 @@ export function targetFactsOf(held: HeldTargetFacts): TargetFacts | null {
 		facts,
 	);
 	return facts;
-}
-
-function stringList(value: unknown): readonly string[] | null {
-	return Array.isArray(value) &&
-		value.every((item): item is string => typeof item === "string")
-		? value
-		: null;
-}
-
-function appOwnershipFromRow(value: unknown): AppOwnership | null {
-	if (typeof value !== "object" || value === null) return null;
-	const stored = value as Record<string, unknown>;
-	const addOns = stringList(stored.addOns);
-	const profileProperties = stringList(stored.profileProperties);
-	const profileCustomProperties = stringList(stored.profileCustomProperties);
-	const profileFeatures =
-		stored.profileFeatures === undefined
-			? undefined
-			: stringList(stored.profileFeatures);
-	if (
-		addOns === null ||
-		profileProperties === null ||
-		profileCustomProperties === null ||
-		profileFeatures === null ||
-		typeof stored.autoGpsCapture !== "boolean" ||
-		(stored.caseSharing !== undefined &&
-			typeof stored.caseSharing !== "boolean") ||
-		(stored.menuLayouts !== undefined && stored.menuLayouts !== true)
-	)
-		return null;
-	return {
-		addOns,
-		profileProperties,
-		profileCustomProperties,
-		...(profileFeatures !== undefined && { profileFeatures }),
-		autoGpsCapture: stored.autoGpsCapture,
-		...(stored.caseSharing === true && { caseSharing: true }),
-		...(stored.menuLayouts === true && { menuLayouts: true as const }),
-	};
 }
 
 /**

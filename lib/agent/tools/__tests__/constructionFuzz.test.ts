@@ -1275,49 +1275,38 @@ async function growConnectPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
 	if (!enrollFormUuid || !closeFormUuid || !feedbackFormUuid) {
 		throw new Error("Connect prelude lost a participating form");
 	}
-	doc = await runRequired(
-		configureConnectTool,
-		{
-			mode: "learn",
-			participants: [
-				{
-					formUuid: enrollFormUuid,
-					connect: {
-						learn_module: {
-							id: "enroll_module",
-							name: "Enrollment",
-							description: "Sign-up basics",
-							time_estimate: 10,
+	doc = await runRequired(configureConnectTool, { roles: ["learn"] }, ctx, doc);
+	for (const [formUuid, id, name, description, estimatedHours] of [
+		[enrollFormUuid, "enroll_module", "Enrollment", "Sign-up basics", 10],
+		[closeFormUuid, "closeout_module", "Closeout", "Wrapping up", 5],
+		[feedbackFormUuid, "feedback_module", "Feedback", "Course feedback", 5],
+	] as const) {
+		doc = await runRequired(
+			addFieldsTool,
+			{
+				moduleUuid:
+					formUuid === feedbackFormUuid
+						? feedbackModuleUuid
+						: lessonsModuleUuid,
+				formUuid,
+				fields: [
+					{
+						fieldUuid: testUuid(`construction-fuzz-${id}`),
+						kind: "connect_activity",
+						id,
+						activity: {
+							kind: "learning-module",
+							name,
+							description,
+							estimatedHours,
 						},
 					},
-				},
-				{
-					formUuid: closeFormUuid,
-					connect: {
-						learn_module: {
-							id: "closeout_module",
-							name: "Closeout",
-							description: "Wrapping up",
-							time_estimate: 5,
-						},
-					},
-				},
-				{
-					formUuid: feedbackFormUuid,
-					connect: {
-						learn_module: {
-							id: "feedback_module",
-							name: "Feedback",
-							description: "Course feedback",
-							time_estimate: 5,
-						},
-					},
-				},
-			],
-		},
-		ctx,
-		doc,
-	);
+				],
+			},
+			ctx,
+			doc,
+		);
+	}
 	doc = await runRequired(
 		addCaseListColumnsTool,
 		{

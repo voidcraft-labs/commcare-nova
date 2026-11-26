@@ -528,7 +528,7 @@ function evalStructuralPath(
 		throw new Error("XPath path root did not evaluate to a nodeset.");
 	}
 	const selected = step ? applyStructuralStep(base, step, source) : base;
-	return contextualizeAbsolutePathSelection(node, source, ctx, selected);
+	return contextualizeAbsolutePathSelection(node, step, source, ctx, selected);
 }
 
 /**
@@ -544,16 +544,29 @@ function evalStructuralPath(
  */
 export function contextualizeAbsolutePathSelection(
 	node: SyntaxNode,
+	step: SyntaxNode | undefined,
 	source: string,
 	context: EvalContext,
 	selection: XPathNodeSet,
 ): XPathNodeSet {
 	const expression = source.slice(node.from, node.to).trimStart();
-	if (!expression.startsWith("/") || node.parent?.type === T.Filtered) {
+	if (
+		!expression.startsWith("/") ||
+		node.parent?.type === T.Filtered ||
+		(step?.type !== T.NameTest &&
+			!(
+				step?.type === T.AxisSpecified &&
+				source.slice(step.from, step.to).split("::", 1)[0].trim() === "child"
+			))
+	) {
 		return selection;
 	}
 	const contextNode = context.contextNode;
-	if (contextNode === undefined || selection.candidates.length < 2) {
+	if (
+		contextNode === undefined ||
+		contextNode.instanceId !== null ||
+		selection.candidates.length === 0
+	) {
 		return selection;
 	}
 
@@ -571,18 +584,21 @@ export function contextualizeAbsolutePathSelection(
 		return selection;
 	}
 
-	const concreteContextPath = `/${contextSegments
-		.slice(0, selectedSegments.length)
-		.map(({ name, multiplicity }) =>
-			multiplicity === undefined ? name : `${name}[${multiplicity}]`,
-		)
-		.join("/")}`;
+	// Ancestor steps have already applied their own filters. An unbound
+	// child takes only this depth's multiplicity, even when a filtered
+	// ancestor kept rows other than the one the worker is currently in.
+	const multiplicity =
+		contextSegments[selectedSegments.length - 1].multiplicity ?? 0;
 	const bound = selection.candidates.filter(
-		(candidate) => candidate.path === concreteContextPath,
+		(candidate) => candidate.multiplicity === multiplicity,
 	);
-	return bound.length === 0
+	return bound.length === selection.candidates.length
 		? selection
-		: new XPathNodeSet(bound, selection.validity, bound);
+		: new XPathNodeSet(
+				bound,
+				selection.validity,
+				bound.length ? bound : selection.schemaNodes,
+			);
 }
 
 export function applyStructuralStep(

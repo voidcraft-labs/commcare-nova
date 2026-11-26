@@ -14,7 +14,7 @@ import {
 	type StructuredCommitFinding,
 	useBlueprintMutations,
 } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useConnectType } from "@/lib/doc/hooks/useConnectType";
+import { useConnectRoles } from "@/lib/doc/hooks/useConnectRoles";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { platformChangePreflightAction } from "@/lib/doc/platformChangePreflight";
 import type {
@@ -193,7 +193,7 @@ function findingRows(outcome: {
  */
 export function AppPlatformsSection() {
 	const runsOnlyOn = useAppSettings().runsOnlyOn;
-	const connectType = useConnectType();
+	const usesConnect = useConnectRoles().length > 0;
 	const platforms = useDeclaredPlatforms();
 	const current = choiceOf(runsOnlyOn);
 	const mutations = useBlueprintMutations();
@@ -355,10 +355,9 @@ export function AppPlatformsSection() {
 				<legend className="sr-only">Where workers use this app</legend>
 				{CHOICES.map(({ choice, line }) => {
 					const selected = choice === current;
-					const connectRefusal =
-						connectType === null
-							? undefined
-							: platformRefusal("connect-app", platformsOf(choice));
+					const connectRefusal = !usesConnect
+						? undefined
+						: platformRefusal("connect-app", platformsOf(choice));
 					const disabled = !canEdit || connectRefusal !== undefined;
 					return (
 						<label

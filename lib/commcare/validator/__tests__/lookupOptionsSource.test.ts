@@ -316,15 +316,18 @@ describe("lookup-backed select filter semantics", () => {
 		const doc = surveyDoc([
 			f({
 				uuid: FIELD_1,
-				kind: "label",
+				kind: "group",
 				id: "instructions",
 				label: proseText("Instructions"),
+				children: [
+					f({ kind: "text", id: "inside", label: proseText("Inside") }),
+				],
 			}),
 			select(
 				FIELD_2,
 				"choice",
 				and(
-					eq(formField(FIELD_1), literal("label")),
+					eq(formField(FIELD_1), literal("group")),
 					eq(formField(FIELD_8), literal("missing")),
 				),
 				"b",

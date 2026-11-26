@@ -249,11 +249,15 @@ describe("commit dependencies beyond the edited field or form", () => {
 			),
 		).toContain("NO_CASE_TYPE");
 	});
-	it("refuses activating Connect before any form participates", () => {
-		expect(
-			codes(
-				commit(richDoc(), [{ kind: "setConnectType", connectType: "learn" }]),
-			),
-		).toContain("CONNECT_NO_PARTICIPATING_FORMS");
+	it("lets an Android app select a Connect role before its first activity", () => {
+		const doc = richDoc();
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+		const selection = commit(doc, [
+			{ kind: "setConnectRoles", roles: ["learn"] },
+		]);
+		expect(selection).toMatchObject({
+			ok: true,
+			nextDoc: { connectRoles: ["learn"] },
+		});
 	});
 });

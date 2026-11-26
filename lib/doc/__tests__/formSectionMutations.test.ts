@@ -10,6 +10,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { connectSectionForm } from "@/lib/__tests__/connectSectionForm";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -523,5 +524,120 @@ describe("predeclared section uuids", () => {
 		expect(next.fields[S3]?.kind).toBe("section");
 		expect(next.fields[S2]).toBeUndefined();
 		expect(plan.ok && plan.sectionUuids).toEqual([S1, S3]);
+	});
+});
+
+describe("worker pages with Connect activities", () => {
+	it("inserts the first page beside an activity-only form and splits questions around an interleaved activity", () => {
+		const lesson = (id: string) =>
+			f({
+				uuid: testUuid(id),
+				id,
+				kind: "connect_activity",
+				activity: {
+					kind: "learning-module",
+					name: id,
+					description: id,
+					estimatedHours: 1,
+				},
+			});
+		const make = (fields: FieldSpec[]) => {
+			const doc = buildDoc({
+				connectRoles: ["learn"],
+				appSettings: {
+					showSavedForms: false,
+					showIncompleteForms: false,
+					runsOnlyOn: "android",
+				},
+				modules: [
+					{
+						name: "Training",
+						forms: [{ uuid: FORM, type: "survey", name: "Practice", fields }],
+					},
+				],
+			});
+			assertAdmittedDoc(doc);
+			return doc;
+		};
+		const alone = make([lesson("orientation")]);
+		const withPage = apply(alone, addSection(alone, FORM, { sectionUuid: S1 }));
+		expect(withPage.fieldOrder[FORM]).toEqual([testUuid("orientation"), S1]);
+		const flat = make([
+			lesson("opening"),
+			text(A, "name"),
+			lesson("checkpoint"),
+			text(B, "next"),
+			lesson("closing"),
+		]);
+		const paged = apply(
+			flat,
+			splitIntoSections(flat, FORM, { sectionUuids: [S1, S2] }),
+		);
+		expect(paged.fieldOrder[FORM]).toEqual([
+			testUuid("opening"),
+			S1,
+			testUuid("checkpoint"),
+			S2,
+			testUuid("closing"),
+		]);
+		expect(paged.fieldOrder[S1]).toEqual([A]);
+		expect(paged.fieldOrder[S2]).toEqual([B]);
+		const restored = apply(paged, setFormSections(paged, FORM, []));
+		expect(restored.fieldOrder[FORM]).toEqual(flat.fieldOrder[FORM]);
+	});
+	it("keeps a submitted root and nested activity in place while editing and inserting pages", () => {
+		const doc = connectSectionForm("page-actions");
+		const form = doc.formOrder[doc.moduleOrder[0]][0];
+		const [lesson, practice, review, follow, completion] = doc.fieldOrder[form];
+		const [answer, rehearsal] = doc.fieldOrder[practice];
+		const parts = currentPartition(doc, form);
+		const kept = setFormSections(doc, form, [
+			{ ...parts[0], fields: [answer] },
+			parts[1],
+		]);
+		expect(kept).toMatchObject({ ok: true, mutations: [] });
+		const revised = apply(
+			doc,
+			setFormSections(doc, form, [
+				{
+					...parts[0],
+					label: proseText("Practice together"),
+					fields: [answer],
+				},
+				parts[1],
+			]),
+		);
+		expect(revised.fieldOrder[form]).toEqual([
+			lesson,
+			practice,
+			review,
+			follow,
+			completion,
+		]);
+		expect(revised.fieldOrder[practice]).toEqual([answer, rehearsal]);
+		const inserted = apply(
+			revised,
+			addSection(revised, form, { after: review, sectionUuid: NEW }),
+		);
+		expect(inserted.fieldOrder[form]).toEqual([
+			lesson,
+			practice,
+			review,
+			NEW,
+			follow,
+			completion,
+		]);
+		expect(refusal(setFormSections(doc, form, []))).toContain("rehearsal");
+		expect(
+			refusal(
+				setFormSections(doc, form, [
+					{ ...parts[0], fields: [answer, rehearsal, lesson] },
+					parts[1],
+				]),
+			),
+		).toContain("Leave it out");
+		expect(refusal(setFormSections(doc, form, [parts[1], parts[0]]))).toContain(
+			"current sides",
+		);
 	});
 });

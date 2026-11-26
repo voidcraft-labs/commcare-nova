@@ -39,7 +39,7 @@ import {
 	type CaseOperation,
 	type CaseProperty,
 	type CaseType,
-	type ConnectType,
+	type ConnectRole,
 	contentRunsOn,
 	type Field,
 	type FieldKind,
@@ -121,6 +121,20 @@ export function f(spec: FieldSpec): FieldSpec {
 	return spec;
 }
 
+/** Place an additional authored node in a normalized fixture. */
+export function addFixtureField(
+	doc: BlueprintDoc,
+	parent: Uuid,
+	field: Field,
+): void {
+	if (doc.fields[field.uuid] !== undefined)
+		throw new Error("Fixture field UUID already exists.");
+	doc.fields[field.uuid] = field;
+	doc.fieldParent[field.uuid] = parent;
+	doc.fieldOrder[parent] ??= [];
+	doc.fieldOrder[parent].push(field.uuid);
+}
+
 /** A field's text as a fixture writes it: a calculated value's expression
  *  may be form text, which `resolveDocExpressions` parses in its prose slot. */
 export type FixtureProseTemplate = {
@@ -154,7 +168,6 @@ export interface FormSpec {
 	/** When the form closes its own case. Source text is parsed in the
 	 *  `form_close_condition` slot against the assembled doc. */
 	closeCondition?: string | Expression;
-	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
 	/** Where the form goes when no destination that may not run runs, in
 	 *  its stored shape, beside `formLinks`. */
@@ -292,7 +305,7 @@ export function withUserSequences<T extends UserCollections>(doc: T): T {
 export interface DocSpec {
 	appId?: string;
 	appName?: string;
-	connectType?: ConnectType | null;
+	connectRoles?: ConnectRole[];
 	caseTypes?: FixtureCaseType[] | null;
 	/** Defaults to a new app's settings, both lists off, declaring the
 	 * platforms the content runs on (`contentRunsOn`). A spec that gives
@@ -509,7 +522,6 @@ export function buildDoc(
 				...(formSpec.closeCondition !== undefined && {
 					closeCondition: formSpec.closeCondition as Form["closeCondition"],
 				}),
-				...(formSpec.connect !== undefined && { connect: formSpec.connect }),
 				...(formSpec.postSubmit !== undefined && {
 					postSubmit: formSpec.postSubmit,
 				}),
@@ -537,7 +549,7 @@ export function buildDoc(
 	const doc: BlueprintDoc = {
 		appId: spec.appId ?? "test-app",
 		appName: spec.appName ?? "Test",
-		connectType: spec.connectType ?? null,
+		connectRoles: spec.connectRoles ?? [],
 		caseTypes: normalizeFixtureCaseTypes(spec.caseTypes),
 		appSettings: { ...(spec.appSettings ?? NEW_APP_SETTINGS) },
 		modules,
@@ -1061,7 +1073,11 @@ function installFields(
 		if (label !== undefined) {
 			// A calculated value written as form text is parsed after assembly.
 			base.label = fixtureProse(label as FixtureProse);
-		} else if (kind !== "hidden" && kind !== "section") {
+		} else if (
+			kind !== "hidden" &&
+			kind !== "section" &&
+			kind !== "connect_activity"
+		) {
 			base.label = proseText(id);
 		}
 		for (const proseSlot of [

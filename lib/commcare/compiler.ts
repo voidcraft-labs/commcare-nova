@@ -15,6 +15,7 @@ import {
 	menuWithInheritedCaseSettings,
 } from "@/lib/domain/listedForms";
 import type { NavigationMedia } from "@/lib/domain/navigationMedia";
+import { declaresWebApps } from "@/lib/domain/platforms";
 import { buildEntryPointSuite } from "./entryPointSuite";
 import {
 	generatedWordingKeys,
@@ -27,6 +28,8 @@ import type { TargetFacts } from "./targetFacts";
 import type { TargetFill } from "./targetOverlay";
 import { COMMCARE_VERSION_FLOOR } from "./versionFloor";
 import type { WireIdentity } from "./wireIdentity";
+import { findDataElement } from "./xform/domSplice";
+import { assertAnswerDataReachesReceiver } from "./xform/submittedData";
 import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
 //
@@ -1058,6 +1061,10 @@ export function compileCczParts(
 						hqJson.auto_gps_capture === true ||
 						hqForm.auto_gps_capture === true,
 				});
+				assertAnswerDataReachesReceiver(
+					findDataElement(form, "compile"),
+					declaresWebApps(authoredDoc),
+				);
 				stripVellumAttributesFrom(form);
 				setFormVersionOn(form, sequence);
 				xform = serializeXForm(form);
