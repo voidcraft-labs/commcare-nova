@@ -2057,7 +2057,11 @@ function placeStandsAt(place: string, location: string): boolean {
 function coveredByItsEntry(record: SameStateRewrite): boolean {
 	const entry =
 		FIRST_PUBLISH_CHANGES[record.register as CurrentFirstPublishChangeId];
-	return entry?.paths.some((path) => pointerCovers(path, record.path)) === true;
+	return (
+		(entry?.sourceRecordPaths ?? entry?.paths)?.some((path) =>
+			pointerCovers(path, record.path),
+		) === true
+	);
 }
 
 // ── Each entry applies and does not ──────────────────────────────────────

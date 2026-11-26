@@ -1600,6 +1600,11 @@ def test_legacy_related_case_text_allows_only_the_same_stored_projection():
     compared = source.compare_sources("legacy", stored(before), stored(after))
     assert {d.at.rsplit("/", 1)[-1] for d in compared} == {"field", "key", "useXpathExpression"}
     assert all(changes.holders(d, register, apply, siblings=compared) == [change] for d in compared)
+    for difference in compared:
+        assert changes.naming(difference, register, {}) == change
+        for altered in (replace(difference, kind="added", before=None), replace(difference, kind="removed", after=None)):
+            assert changes.naming(altered, register, {}) != change
+            assert not changes.holders(altered, register, apply, siblings=compared)
     assert all(changes.holders(d, register, {change: (place[:-1] + "1",)}, siblings=compared) == []
                for d in compared)
     for damaged in (

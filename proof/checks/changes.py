@@ -129,7 +129,7 @@ import json
 import re
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace, field
 from pathlib import Path
 
 from proof.checks.differences import KINDS, Difference, artifact_reader, served_artifact
@@ -1063,6 +1063,11 @@ def parse(value, where="proof/first-publish-changes.json") -> tuple[Change, ...]
         rows, classes = [], set()
         for number, row_raw in enumerate(raw["rows"]):
             row = _row(row_raw, f"{at}.rows[{number}]")
+            # The serialized source rows name structural paths. The legacy
+            # rewrite also distinguishes a changed value from an added or
+            # removed field when other disclosures share a column path.
+            if change == LEGACY_RELATED_CASE_TEXT and row.check == "source":
+                row = replace(row, kind="changed")
             if row in classes:
                 raise ChangesError(
                     f"{at} names the class {row.check} {row.artifact} {row.path}"

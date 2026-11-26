@@ -318,6 +318,11 @@ export interface FirstPublishChange {
 	 * entry. A pointer covers everything under it.
 	 */
 	readonly paths: readonly string[];
+	/**
+	 * Where the reader records a composite source rewrite when it binds
+	 * a broader value than the fields the publish may change.
+	 */
+	readonly sourceRecordPaths?: readonly string[];
 	/** Where the change stands on a reading it applies on. */
 	readonly at: FirstPublishChangeAt;
 }
@@ -1506,9 +1511,17 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			places: (facts) =>
 				recordedPlaces(facts, "legacy-related-case-text-rekeyed"),
 		},
-		paths: [
+		sourceRecordPaths: [
 			"/modules/*/case_details/short/columns/*",
 			"/modules/*/case_details/long/columns/*",
+		],
+		paths: [
+			"/modules/*/case_details/short/columns/*/field",
+			"/modules/*/case_details/short/columns/*/enum/*/key",
+			"/modules/*/case_details/short/columns/*/useXpathExpression",
+			"/modules/*/case_details/long/columns/*/field",
+			"/modules/*/case_details/long/columns/*/enum/*/key",
+			"/modules/*/case_details/long/columns/*/useXpathExpression",
 		],
 	},
 	/**

@@ -950,44 +950,77 @@
 		]
 	},
 	{
+		"change": "sort-rule-kept-as-hidden-column",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/sort_elements/*/field"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/sort_elements/*/display"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			}
+		]
+	},
+	{
 		"change": "legacy-related-case-text-rekeyed",
 		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/columns/*/field",
-				"kind": "changed"
+				"path": "/modules/*/case_details/short/columns/*/field"
 			},
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/columns/*/enum/*/key",
-				"kind": "changed"
+				"path": "/modules/*/case_details/short/columns/*/enum/*/key"
 			},
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/columns/*/useXpathExpression",
-				"kind": "changed"
+				"path": "/modules/*/case_details/short/columns/*/useXpathExpression"
 			},
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/modules/*/case_details/long/columns/*/field",
-				"kind": "changed"
+				"path": "/modules/*/case_details/long/columns/*/field"
 			},
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/modules/*/case_details/long/columns/*/enum/*/key",
-				"kind": "changed"
+				"path": "/modules/*/case_details/long/columns/*/enum/*/key"
 			},
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/modules/*/case_details/long/columns/*/useXpathExpression",
-				"kind": "changed"
+				"path": "/modules/*/case_details/long/columns/*/useXpathExpression"
 			},
 			{
 				"check": "proof2",
@@ -1041,45 +1074,6 @@
 				"check": "proof2",
 				"artifact": "*suite.xml",
 				"path": "/suite/detail[@id=*]/field[*]/sort[*]/text[*]/xpath[*]/variable[*]/locale[*]/@id",
-				"kind": "changed"
-			}
-		]
-	},
-	{
-		"change": "sort-rule-kept-as-hidden-column",
-		"placeKinds": ["menu"],
-		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/columns"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/sort_elements/*/field"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/sort_elements/*/display"
-			},
-			{
-				"check": "proof2",
-				"artifact": "app_strings:*",
-				"path": "/m*.*.*_*_*.header",
-				"kind": "added"
-			},
-			{
-				"check": "proof2",
-				"artifact": "app_strings:*",
-				"path": "/m*.*.*_*_*.header",
-				"kind": "removed"
-			},
-			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
 				"kind": "changed"
 			}
 		]
