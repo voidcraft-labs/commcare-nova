@@ -291,7 +291,8 @@ function ConfiguredFormEntry({
 										module: screen.moduleUuid,
 										evidence: result.evidence,
 									},
-									activityNotice: result.activityNotice,
+									activityNotice:
+										result.activityNotice ?? stored?.activityNotice,
 									next: result.next,
 								},
 							}

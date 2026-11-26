@@ -38,6 +38,7 @@ import {
 	entryWalksChoices,
 } from "./entrySessionData";
 import { appReadsPlaces } from "./expressionCaseReads";
+import { FormEvaluationInputError } from "./formEvaluationTypes";
 import {
 	type FormOpeningAudience,
 	type FormOpeningProjection,
@@ -213,7 +214,7 @@ export async function readFormOpeningAction(
 			)
 				return reopen;
 			const webActivityRestoreStartedAt =
-				device.platform === "web-apps" &&
+				context.device.platform === "web-apps" &&
 				doc.forms[formContentUuid(doc, args.form)]?.activityKeyText
 					? Date.now()
 					: undefined;
@@ -503,7 +504,10 @@ export async function readFormOpeningAction(
 			activityNotice,
 		} as const;
 	} catch (error) {
-		if (error instanceof InvalidWebActivityWindowError)
+		if (
+			error instanceof InvalidWebActivityWindowError ||
+			error instanceof FormEvaluationInputError
+		)
 			return { kind: "error", message: error.message } as const;
 		if (error instanceof AppAccessError)
 			return { kind: "error", message: "App not found." } as const;
