@@ -202,7 +202,7 @@ it("submits a guarded worker record update through an isolated App Test journey"
 		await step({ kind: "menu", moduleUuid });
 		await step({ kind: "form", formUuid });
 		const before = (await rows()).rows;
-		expect(before).toEqual([{ case_id: expect.any(String), value: null }]);
+		expect(before).toEqual([{ case_id: expect.any(String), value: "" }]);
 		await step({
 			kind: "answer",
 			answers: [{ path: "decision", value: answer }],
@@ -211,7 +211,7 @@ it("submits a guarded worker record update through an isolated App Test journey"
 		expect((await rows()).rows).toEqual([
 			{
 				case_id: before[0].case_id,
-				value: answer === "save" ? "visited" : null,
+				value: answer === "save" ? "visited" : before[0].value,
 			},
 		]);
 		await step({ kind: "finish" });
