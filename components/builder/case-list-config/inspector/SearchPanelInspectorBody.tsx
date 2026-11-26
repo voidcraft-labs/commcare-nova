@@ -61,7 +61,7 @@ import {
 	searchWorkflow,
 	type Uuid,
 } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression";
+import { type Expression, matchAll } from "@/lib/domain/expression";
 import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import { SearchWorkflowSetting } from "./SearchWorkflowSetting";
@@ -266,7 +266,12 @@ export function SearchPanelInspectorBody({
 							currentCaseType={currentCaseType}
 							knownInputs={knownInputs}
 							// The Search action's relevance resolves before any case is
-							// selected, so the seed compares a session value.
+							// selected, in the scope of each entry that shows the list,
+							// which loads the session only where its selection or its
+							// forms' returns read it (`CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST`).
+							// So Add seeds "always", which every list can evaluate, and
+							// the author builds the rule from there.
+							seed={matchAll}
 						/>
 					)}
 				</AdvancedSearchSettings>
