@@ -17,6 +17,7 @@ import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { NEW_APP_SETTINGS, plainColumn, proseText } from "@/lib/domain";
 import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
+import { asUuid } from "@/lib/domain/uuid";
 import { caseListOf } from "../../targeted/build";
 import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
@@ -83,7 +84,11 @@ const doc = buildDoc({
 				mediaByLanguage: { fra: { icon: mediaIds.option } },
 			},
 			caseListConfig: caseListOf([
-				plainColumn(wireUuid("worker-journey-name"), "case_name", "Name"),
+				plainColumn(
+					asUuid(wireUuid("worker-journey-name")),
+					"case_name",
+					"Name",
+				),
 			]),
 			forms: [
 				{
