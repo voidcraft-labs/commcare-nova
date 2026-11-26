@@ -151,8 +151,13 @@ export function readDedicatedOrder(
 			typeof sort_type !== "string"
 		)
 			return;
+		// HQ writes `-` for `descending` and `+` for anything else
+		// (`remote_requests.py`); a row saved outside its editor may hold no
+		// direction at all, which it builds ascending, as it does a blank sort.
 		if (
 			direction !== undefined &&
+			direction !== null &&
+			direction !== "" &&
 			direction !== "ascending" &&
 			direction !== "descending"
 		)
@@ -160,7 +165,7 @@ export function readDedicatedOrder(
 		const term = readTerm(
 			property_name,
 			sort_type || "exact",
-			direction ?? "ascending",
+			direction || "ascending",
 		);
 		if (term === undefined) return;
 		order.push(term);

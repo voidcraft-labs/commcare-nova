@@ -240,3 +240,30 @@ it("adds no catalog property for an order on the record's own type", async () =>
 		),
 	).not.toContain("case_type");
 });
+
+// HQ builds `-` for `descending` and `+` for any other direction
+// (`remote_requests.py`), so a dedicated row with no direction saved, as an
+// app saved outside HQ's editor can hold, orders ascending.
+it.each([null, ""])(
+	"reads a dedicated sort row whose direction is %j as ascending",
+	async (direction) => {
+		const reading = await readLists(patients([], { search: {} }), {
+			edit: (app) => {
+				app.modules[0].search_config.custom_sort_properties = [
+					{
+						doc_type: "CaseSearchCustomSortProperty",
+						property_name: "date_opened",
+						sort_type: "date",
+						direction,
+					},
+				];
+			},
+		});
+		expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({
+			requestOrder: [
+				{ property: "date_opened", comparison: "date", direction: "ascending" },
+			],
+		});
+	},
+);
