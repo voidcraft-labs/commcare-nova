@@ -60,6 +60,7 @@ import {
 	menuScreenOf,
 	orderedCaseOperations,
 } from "@/lib/domain";
+import { caseListLookupCountSource } from "@/lib/domain/caseListLookupCount";
 import { modulesSelectingThrough } from "@/lib/domain/entryDatumSupplies";
 import { inferenceFingerprint } from "@/lib/domain/expression/inference";
 import { childModuleUuids, moduleParent } from "@/lib/domain/moduleHierarchy";
@@ -253,6 +254,22 @@ export function incrementalValidationScope(
 		return undefined;
 	addScreenContributors(doc, nextDoc, scope);
 	addSearchButtonConditions(nextDoc, scope);
+	if (
+		doc.modules !== nextDoc.modules ||
+		doc.moduleOrder !== nextDoc.moduleOrder ||
+		doc.forms !== nextDoc.forms ||
+		doc.formOrder !== nextDoc.formOrder
+	) {
+		// A menu mirror or an incoming form link can withdraw a lookup count
+		// from a form elsewhere in the document.
+		for (const form of Object.values(nextDoc.forms)) {
+			if (
+				caseListLookupCountSource(doc, form.uuid) !==
+				caseListLookupCountSource(nextDoc, form.uuid)
+			)
+				scope.formUuids.add(form.uuid);
+		}
+	}
 	// A parent edit changes every entry that opens its questions or runs its writes.
 	for (const entry of Object.values(nextDoc.forms)) {
 		if (entry.shadowOf && scope.formUuids.has(entry.shadowOf.form))

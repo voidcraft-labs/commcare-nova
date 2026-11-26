@@ -1018,6 +1018,20 @@ function admission(
 				: "here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can show it in a calculated column instead.",
 			"here",
 		);
+	if (expression.kind === "case-list-lookup-count") {
+		if (!profile.caseListSearchText)
+			return refusal(
+				"arm-unavailable",
+				"You can read the companion lookup count in a form question.",
+				"case-list-lookup-count-slot",
+			);
+		if (ctx.caseListLookupCountSource !== expression.module)
+			return refusal(
+				"arm-unavailable",
+				"This form needs to open directly from one case list with a companion lookup before it can read the lookup count.",
+				"case-list-lookup-count-source",
+			);
+	}
 	if (expression.kind === "case-list-search-text") {
 		const refused = caseListSearchTextAdmission(ctx);
 		if (refused !== undefined) return refused;
@@ -2973,6 +2987,8 @@ function inferNode(
 			return scalar("geopoint", "string");
 		case "case-list-search-text":
 			return scalar("text");
+		case "case-list-lookup-count":
+			return scalar("int");
 		case "value-list":
 			for (const [index, item] of expression.items.entries())
 				read(item, ["items", index]);

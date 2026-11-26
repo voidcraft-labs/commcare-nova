@@ -148,3 +148,49 @@ def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_doc
                 "worker_name": database.username, "worker_id": database.user_id,
             } for result in results)
             write_evidence(f"nova-case-list-lookup-{label}", results)
+
+
+def test_lookup_count_comes_from_the_selected_native_frame(hq, android_documents):
+    """A completed form receives the selection step's unique response keys, including keys absent from restore."""
+    from lxml import etree
+
+    from proof.android.test_form_reads import _app, _child, _completed_walk, _served
+    from proof.observe.served import local_archive
+
+    document = android_documents["targeted-case-list-device-lookup-count"]
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    controls = [
+        ("ordinary", [], "lookup-cedar", None),
+        ("missing-handler", [{"missingHandler": True}], "lookup-cedar", None),
+        ("cancelled", [{"primary": "Juniper", "cancel": True}], "lookup-cedar", None),
+        ("text-only", [{"primary": "Cedar"}], "lookup-cedar", None),
+        ("empty-identification", [{"identifyKeys": []}, {"primary": "Cedar"}], "lookup-cedar", "0"),
+        ("one-key", [{"identifyKeys": ["lookup-juniper"]}], "lookup-juniper", "1"),
+        ("one-match-two-keys", [{"identifyKeys": ["lookup-juniper", "outside", "lookup-juniper"]}],
+         "lookup-juniper", "2"),
+    ]
+    with _served(document, database=database) as (served, released):
+        assert document.local_ccz is not None
+        local = local_archive(document.local_ccz, served.app_id)
+        for carrier, archive in (("hq", released), ("local", local)):
+            seen = {}
+            for label, commands, chosen, count in controls:
+                answer, sent = _app(
+                    served, archive, f"{carrier}-{label}", commands=["m0-f0"],
+                    case_lookup_returns=commands, questions={"/data/note": "checked"},
+                )
+                assert answer["install"] == "Installed", answer
+                _completed_walk(answer, "m0-f0")
+                (instance,) = sent
+                root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+                native_list, = [step["list"] for step in answer["walks"]["m0-f0"]["steps"] if "lookupReturns" in step.get("list", {})]
+                assert native_list["chose"] == chosen, (carrier, label, native_list)
+                value = _child(root, "lookup_count").text
+                assert value == count, (carrier, label, value, native_list)
+                seen[label] = {"chosen": chosen, "count": value, "results": native_list["lookupReturns"]}
+            write_evidence(f"native-companion-lookup-count-{carrier}", seen)

@@ -285,6 +285,7 @@ export function compileExpression(
 		case "locations":
 		case "selected-cases":
 		case "case-list-search-text":
+		case "case-list-lookup-count":
 			throw new Error(
 				compilerBugMessage({
 					where: "compileExpression",

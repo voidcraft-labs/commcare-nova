@@ -144,6 +144,7 @@ export function expressionFocusTitle(value: Expression): string {
 			return "Worker's location";
 		case "case-text":
 			return "Translated text";
+		case "case-list-lookup-count":
 		case "case-list-search-text":
 			return "Case list search text";
 		case "value-list":
@@ -203,6 +204,7 @@ export function expressionFocusDescription(value: Expression): string {
 			return "Uses the value being evaluated";
 		case "case-text":
 			return "Uses the field’s wording in the worker’s language";
+		case "case-list-lookup-count":
 		case "case-list-search-text":
 			return "What the worker typed into the case list's search box";
 		case "value-list":

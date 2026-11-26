@@ -59,6 +59,7 @@ import type { LookupWireNaming } from "../../lookup/naming";
 import { lookupReadSteps } from "../../lookup/read";
 import {
 	ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS,
+	CASE_LIST_LOOKUP_COUNT_DATA_NAME,
 	CASE_LIST_SEARCH_TEXT_DATA_NAME,
 } from "../../sessionContext";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
@@ -1065,6 +1066,20 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				: emitCall(expr.fn, expr.args, ctx, use);
 		case "here":
 			return w.call("here");
+		case "case-list-lookup-count": {
+			const nodes = (predicates: readonly WireExpr[] = []) =>
+				w.instance(sessionInstance(), [
+					w.step("session"),
+					w.step("data"),
+					w.step(CASE_LIST_LOOKUP_COUNT_DATA_NAME, predicates),
+				]);
+			// Neither an absent count nor an unexpected second supplier is a number.
+			return w.call("if", [
+				w.eq(w.call("count", [nodes()]), w.num(1)),
+				w.call("number", [nodes([w.num(1)])]),
+				w.str(""),
+			]);
+		}
 		case "case-list-search-text": {
 			// `if(count(P) > 0, P[1], '')`: Android can leave the same text on
 			// two frame steps, where a bare read of `P` throws.
